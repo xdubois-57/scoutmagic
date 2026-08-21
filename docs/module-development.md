@@ -121,7 +121,7 @@ The directory name **must** match the `id` field in `module.json`.
 
 ## `receiver_only` — a module only the statistics receiver sees
 
-`"receiver_only": true` (top level, boolean, default false) marks a module that only makes sense on the ScoutMagic installation that **receives** usage statistics (ARCHITECTURE.md §8.43/§8.45). `ModuleManager` filters such a manifest out of `discoverModules()` on every other installation, which removes its routes, menu entries, registry listing and scheduled tasks in one stroke.
+`"receiver_only": true` (top level, boolean, default false) marks a module that only makes sense on the ScoutMagic installation that **receives** usage statistics (ARCHITECTURE.md §8.46/§8.48). `ModuleManager` filters such a manifest out of `discoverModules()` on every other installation, which removes its routes, menu entries, registry listing and scheduled tasks in one stroke.
 
 Two things to know before using it:
 
@@ -259,6 +259,55 @@ layer" pattern**: `core/View/templates/partials/section_picker.html.twig`
 truncation logic itself — each only maps its own domain data into the
 generic item format and includes `chip_picker.html.twig`.
 
+## Contributing menu entries (`Core\Module\MenuEntryProvider`)
+
+A module's own pages get their menu entry from `module.json` automatically — a route with a non-empty `label` becomes one. Use this hook only for entries the manifest cannot express: one per row of your own data, or one that depends on who is looking.
+
+```php
+class MyMenuHookService implements \Core\Module\MenuEntryProvider
+{
+    /** @return \Core\Module\MenuEntry[] */
+    public function getMenuEntries(?string $email): array
+    {
+        // Runs on EVERY request that builds a menu. Keep it to a bounded
+        // indexed query or two — never an N+1 walk, never a write.
+        return [
+            new \Core\Module\MenuEntry(
+                \Core\View\MenuBuilder::MENU_NOTRE_UNITE,
+                'Local Saint-Georges',
+                '/locations/local-saint-georges'
+            ),
+        ];
+    }
+}
+```
+
+`$email` is the authenticated visitor's address, or **null for an anonymous visitor**. A provider contributing public entries ignores it; one contributing per-visitor entries returns `[]` when it is null.
+
+Wire it in `public/index.php`, inside your module's own conditional block, with `Core\View\DynamicMenuRegistrar` — see ARCHITECTURE.md §7.4 for why the composition root has to call back into `MenuBuilder` there rather than earlier, and use the registrar rather than hand-writing the re-derivation (a copy that drops the active-page refresh yields a correct page with no nav highlight, which no route test catches).
+
+**A menu entry is never a permission.** `MenuEntry::$roleMin` filters display only; the route it points at carries its own `role_min`, and any per-object rule is re-checked server-side in the controller.
+
+## Reacting to a Desk import (`Core\Import\DeskImportListener`)
+
+If your module stores references to `members.id` — a per-object permission grant, an assignment, an ownership — it has derived state to re-sync when the roster becomes authoritative again.
+
+```php
+class MyDeskImportListener implements \Core\Import\DeskImportListener
+{
+    /** @param int[] $activeMemberIds */
+    public function onDeskImportCompleted(int $scoutYearId, array $activeMemberIds): void
+    {
+        // Deactivate, never delete — see below.
+    }
+}
+```
+
+Two rules, both learned the hard way by core itself:
+
+- **Listeners run inside the import transaction**, so a listener that throws rolls the whole import back. Keep the work to bounded, idempotent queries; never a mail send or an HTTP call.
+- **Deactivate, never delete.** A member missing from one import (a data-entry slip, a late registration) must come back without an admin re-granting anything, while a member who genuinely left loses access immediately. Journal a **count**, never the member ids — "who has access to what" must not become readable as personal data in the journal.
+
 ## Accessing core services
 
 Module controllers receive whatever services they need via constructor injection — there is no fixed list. The composition root (`public/index.php`) is where every controller is actually built and registered: inside the module's `if (in_array('my_module', $moduleManager->getEnabledModuleIds(), true)) { ... }` block, construct the module's repositories/services (passing `$pdo`/`$connection`, `$encryptionService`, `$mailService`, `$schedulerService`, `$sectionService`, or any other already-built core service the module needs), then `$frontController->registerController(MyModuleController::class, new MyModuleController($twig, ...))`. See any existing module block in `public/index.php` for the pattern.
@@ -391,7 +440,7 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 
 ### The `secret` type
 
-`"type": "secret"` marks a setting whose **value** must never be displayed or exported: it is filtered out of the Paramètres page entirely, and the support package's `configuration-parameters.xlsx` writes `[REDACTED]` in its place while keeping the key and label visible (ARCHITECTURE.md §8.44). Everything else behaves like `text`.
+`"type": "secret"` marks a setting whose **value** must never be displayed or exported: it is filtered out of the Paramètres page entirely, and the support package's `configuration-parameters.xlsx` writes `[REDACTED]` in its place while keeping the key and label visible (ARCHITECTURE.md §8.47). Everything else behaves like `text`.
 
 Reach for it only when a credential genuinely has to live in `settings`. The established pattern for a module credential is an encrypted `BLOB` column in the module's own table (`Core\Security\EncryptionService`, decrypted only in the Repository) — `llm_providers.api_key` and the SOS telephony credentials both do this, and neither is ever read by the support package because neither is in `settings`. `secret` is the safety net for the case where that isn't practical, not a reason to stop using encrypted columns.
 

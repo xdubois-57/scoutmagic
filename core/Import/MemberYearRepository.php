@@ -319,6 +319,27 @@ class MemberYearRepository
     }
 
     /**
+     * Every `members.id` still active for a scout year after an import.
+     *
+     * The input to Core\Import\DeskImportListener: a module holding a
+     * reference to a member id reconciles against this list, and anything
+     * outside it is what "no longer on the roster" means. Returned as ids
+     * rather than rows on purpose — a listener needs set membership, not
+     * member data, and must not be handed personal data it has no use for.
+     *
+     * @return int[]
+     */
+    public function findActiveMemberIdsForYear(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT DISTINCT member_id FROM member_years WHERE scout_year_id = ? AND is_active = 1'
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
      * Count active members for a given scout year.
      */
     public function countActiveByYear(int $scoutYearId): int

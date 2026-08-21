@@ -1,0 +1,39 @@
+{% extends 'base.html.twig' %}
+{% block title %}Mes locations — {{ site_name }}{% endblock %}
+{#
+  "Mes locations" (§6.5) — the managers' daily entry point: every asset they
+  manage, all assets at once. The public page stays a secondary way in.
+
+  Reached only by someone who manages at least one asset; the controller
+  refuses outright otherwise, rather than rendering an empty page.
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 900px;">
+        <h1 class="h3 mb-1">Mes locations</h1>
+        <p class="text-body-secondary small mb-4">
+            {% if is_unit_staff %}
+                En tant que membre du Staff d'U, vous gérez tous les biens de l'unité.
+            {% else %}
+                Les biens dont vous êtes gestionnaire.
+            {% endif %}
+        </p>
+
+        <div class="list-group">
+            {% for asset in assets %}
+                <a href="/locations/{{ asset.slug }}" class="list-group-item list-group-item-action">
+                    <div class="d-flex justify-content-between align-items-center gap-2">
+                        <span>
+                            <span class="fw-semibold">{{ asset.name }}</span>
+                            <span class="text-body-secondary small d-block">{{ asset.assetType }}</span>
+                        </span>
+                        {% if asset.isArchived %}
+                            <span class="badge bg-secondary">Archivé</span>
+                        {% elseif not asset.isPublic %}
+                            <span class="badge bg-light text-dark border">Non public</span>
+                        {% endif %}
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+{% endblock %}

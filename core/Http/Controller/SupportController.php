@@ -25,11 +25,11 @@ use Twig\Environment;
 
 /**
  * Configuration > Support (`/config/support`, `role_min: superadmin`) —
- * ARCHITECTURE.md §8.43/§8.44.
+ * ARCHITECTURE.md §8.46/§8.47.
  *
  * One page for the two things a unit can do about support: decide whether
  * this installation reports usage statistics, and see exactly what such a
- * report contains; and (from §8.44 onward) generate a diagnostic package to
+ * report contains; and (from §8.47 onward) generate a diagnostic package to
  * attach to a support request.
  *
  * The controller orchestrates only — the payload is built by

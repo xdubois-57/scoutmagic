@@ -15,7 +15,7 @@ use Modules\SupportDashboard\Repository\SupportReportRateLimitRepository;
 
 /**
  * Accepts, authenticates and stores one incoming usage report
- * (ARCHITECTURE.md §8.45).
+ * (ARCHITECTURE.md §8.48).
  *
  * The whole endpoint is an unauthenticated entry point until the bearer
  * token is checked, so the order of operations matters as much as the

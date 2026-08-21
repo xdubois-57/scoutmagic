@@ -11,7 +11,7 @@ namespace Modules\SupportDashboard\Service;
 use Core\Support\SupportSpreadsheet;
 
 /**
- * The dashboard's XLSX export (ARCHITECTURE.md §8.46).
+ * The dashboard's XLSX export (ARCHITECTURE.md §8.49).
  *
  * **XLSX, never CSV**, and one row per installation in the **currently
  * filtered set** — not the page on screen. Exporting the visible page would

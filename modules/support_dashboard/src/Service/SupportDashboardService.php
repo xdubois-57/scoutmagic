@@ -14,7 +14,7 @@ use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 /**
  * Everything the support dashboard shows: the filtered table, its counters,
  * the five indicator cards and the two current-state charts
- * (ARCHITECTURE.md §8.46).
+ * (ARCHITECTURE.md §8.49).
  *
  * **Filtering, searching, sorting and paging all happen here, in PHP, over
  * the whole retained set** rather than in SQL. Three reasons, in order of

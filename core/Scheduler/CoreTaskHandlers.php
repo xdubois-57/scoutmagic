@@ -21,7 +21,7 @@ namespace Core\Scheduler;
  * ever be added in one place.
  *
  * It doubles as the authoritative enumeration for the support package's
- * `scheduled-tasks.xlsx` (ARCHITECTURE.md §8.44), which has to list every
+ * `scheduled-tasks.xlsx` (ARCHITECTURE.md §8.47), which has to list every
  * *declared* handler — including ones that have never produced a row in
  * `scheduled_actions`.
  */

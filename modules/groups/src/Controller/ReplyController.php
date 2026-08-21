@@ -484,6 +484,12 @@ class ReplyController extends AbstractController
         );
     }
 
+    /**
+     * The one place this module turns "not a member" into a response, so
+     * the 404-not-403 rule is applied identically everywhere.
+     *
+     * @param array<string, string> $params
+     */
     private function readableGroup(array $params, GroupSessionContext $context): ?DiscussionGroup
     {
         $group = $this->groupRepository->findById((int) ($params['id'] ?? 0));

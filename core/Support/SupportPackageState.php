@@ -10,7 +10,7 @@ namespace Core\Support;
 
 /**
  * The two `settings` keys that say which support package currently exists
- * and when it was produced (ARCHITECTURE.md §8.44).
+ * and when it was produced (ARCHITECTURE.md §8.47).
  *
  * Two settings rather than a table: exactly one package is ever kept, so a
  * table would hold at most one row and buy nothing. The generation stamp is

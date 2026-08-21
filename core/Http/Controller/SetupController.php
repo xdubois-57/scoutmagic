@@ -925,7 +925,7 @@ class SetupController extends AbstractController
             'admin_email' => trim((string) $request->getBody('admin_email', '')),
             'admin_password' => (string) $request->getBody('admin_password', ''),
             // Usage statistics switch, first install only (Core\Statistics,
-            // ARCHITECTURE.md §8.43). An unchecked checkbox sends nothing at
+            // ARCHITECTURE.md §8.46). An unchecked checkbox sends nothing at
             // all, so "absent" has to mean "off" — the default-on state lives
             // in the rendered form, not here.
             'statistics_enabled' => (string) $request->getBody('statistics_enabled', '') === '1' ? '1' : '0',

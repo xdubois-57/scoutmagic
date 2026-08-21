@@ -20,7 +20,7 @@ use Twig\Environment;
 
 /**
  * `/support-dashboard` (`role_min: superadmin`) — the receiver's view of
- * every installation reporting to it (ARCHITECTURE.md §8.46).
+ * every installation reporting to it (ARCHITECTURE.md §8.49).
  *
  * View state lives entirely in the query string: no cookie, no local
  * storage, no session. Arriving with no query string always yields the same

@@ -15,7 +15,7 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 /**
  * Turns a header row plus a list of rows into real XLSX bytes, for the
- * support package's three tabular diagnostics (ARCHITECTURE.md §8.44).
+ * support package's three tabular diagnostics (ARCHITECTURE.md §8.47).
  *
  * Every cell is written with an explicit **string** data type. That is not
  * cosmetic: these sheets carry settings values, journal descriptions and

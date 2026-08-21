@@ -29,6 +29,7 @@ use Modules\Groups\Service\GroupListService;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupMembershipService;
+use Modules\Groups\Service\GroupReadStateService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\ReopenOutcome;
 use Modules\Groups\Service\PostEventService;

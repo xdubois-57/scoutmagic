@@ -690,7 +690,7 @@ $settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 
     null, '^\d+$', null, true, 273);
 
 // Usage statistics and support package (Core\Statistics, Core\Support —
-// ARCHITECTURE.md §8.43/§8.44). All five are deliberately kept out of the
+// ARCHITECTURE.md §8.46/§8.47). All five are deliberately kept out of the
 // generic Configuration > Paramètres page (Core\Http\Controller\
 // SettingsController::EXCLUDED_FROM_GENERIC_PAGE, same treatment as the
 // auto-update settings) — they are managed from the dedicated Support
@@ -720,7 +720,7 @@ $settingService->register('statistics_last_failure_at', '', 'text', 'Dernier éc
 $settingService->register('statistics_last_failure_reason', '', 'text', 'Motif du dernier échec d\'envoi',
     'Motif court du dernier échec ou saut d\'envoi des statistiques. Renseigné automatiquement.',
     null, null, null, false, 287);
-// Support package bookkeeping (Core\Support, ARCHITECTURE.md §8.44) — one
+// Support package bookkeeping (Core\Support, ARCHITECTURE.md §8.47) — one
 // package is ever kept, so two settings replace what would be a one-row table.
 $settingService->register('support_package_file_id', '', 'text', 'Paquet de support disponible',
     'Identifiant du fichier de l\'archive de support actuellement conservée. Renseigné automatiquement.',
@@ -1288,7 +1288,7 @@ $offlineWhitelist = new OfflineWhitelist();
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
 $moduleRegistryRepo = new ModuleRegistryRepository($pdo);
-// Is THIS installation the statistics receiver (ARCHITECTURE.md §8.45)?
+// Is THIS installation the statistics receiver (ARCHITECTURE.md §8.48)?
 // Decided from base_url vs. statistics_destination, never from the Host
 // header, and resolved here so ModuleManager receives a plain boolean
 // rather than learning what a statistics destination is.
@@ -1311,7 +1311,7 @@ $moduleManager = new ModuleManager(
     $isStatisticsReceiver
 );
 
-// Usage statistics (Core\Statistics, ARCHITECTURE.md §8.43). Built here
+// Usage statistics (Core\Statistics, ARCHITECTURE.md §8.46). Built here
 // because the payload needs the ModuleManager above (module list and
 // versions) and the MailService built earlier (transport mode, and whether
 // mail is configured — never the credentials themselves).
@@ -1611,7 +1611,7 @@ $router->addRoute('POST', '/config/settings/update', SettingsController::class, 
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController::class, 'notifyIosLogoUpdate', 'superadmin');
 
-// Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.43/§8.44)
+// Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.46/§8.47)
 $router->addRoute('GET', '/config/support', SupportController::class, 'index', 'superadmin', ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
@@ -1690,6 +1690,28 @@ $router->addRoute('POST', '/config/functions/branch-url', FunctionsController::c
 // Load enabled modules (routes registered AFTER core routes so core takes priority)
 $moduleManager->loadEnabledModules();
 
+// Desk-import listeners (Core\Import\DeskImportListener, ARCHITECTURE.md
+// §7.4) — a module reconciling its own references to members.id at the end
+// of an import. $importService was built far above, before $moduleManager
+// existed, so it is rebuilt here rather than gaining a forward reference;
+// every ImportController registration happens later in this file and so
+// picks up this instance, including the registration module's own
+// re-registration.
+$deskImportListeners = [];
+if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
+    $deskImportListeners[] = new \Modules\Rental\Service\RentalDeskImportListener(
+        new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo),
+        $journalService
+    );
+}
+if ($deskImportListeners !== []) {
+    $importService = new DeskImportService(
+        $pdo, $encryptionService, $csvParser, $mappingResolver,
+        $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService,
+        $sectionMembershipService, $deskImportListeners
+    );
+}
+
 // Register module template namespaces in Twig
 $twigLoader = $twig->getLoader();
 if ($twigLoader instanceof \Twig\Loader\FilesystemLoader) {
@@ -1764,9 +1786,18 @@ $frontController = new FrontController($router, $twig, $config, $offlineWhitelis
 // Optional dependency on the trombinoscope module (ARCHITECTURE.md §7.4)
 // for the Sections page's "responsable" name — set below only when
 // 'trombinoscope' is enabled; every PageController re-registration after
-// that block reuses this variable, exactly like $bannerService/
-// $newsArticleService further down.
+// that block reuses this variable, exactly like $bannerService and
+// $newsArticleService just below.
 $sectionResponsableProvider = null;
+
+// The other two optional home-page hook providers (ARCHITECTURE.md
+// §7.4), each set further down only when its own module is enabled.
+// Declared here for the same reason as the line above: the
+// PageController re-registrations in news' and groups' blocks reuse
+// whichever ones are real, so no hook is lost when several modules are
+// active — and they must be readable whether or not those blocks ran.
+$bannerService = null;
+$newsArticleService = null;
 
 // Optional dependency on the calendar module (ARCHITECTURE.md §7.5) for
 // the member page's "next upcoming event" (§3) — set below only when
@@ -2594,23 +2625,6 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     $groupsPollService = new \Modules\Groups\Service\PollService(
         new \Modules\Groups\Repository\PollRepository($pdo)
     );
-    $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
-        $groupsPostRepo,
-        $groupsAuthorResolver,
-        $groupsPostService,
-        $groupsPostMediaService,
-        $groupsPostLinkRepo,
-        $groupsReplyRepo,
-        $groupsReplyPresenter,
-        $groupsReactionService,
-        $groupsReportService,
-        $groupsReadStateService,
-        // No event service here: calendar's lookup does not exist yet.
-        // The block at the end of this file re-registers the two
-        // controllers that need it — see its own comment.
-        null,
-        $groupsPollService
-    );
     $groupsSeenByService = new \Modules\Groups\Service\SeenByService($groupsReadStateService, $memberService);
     $groupsMentionService = new \Modules\Groups\Service\MentionService($groupsRecipientResolver, $memberService);
 
@@ -2633,15 +2647,66 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsFileOwnershipChecker
     );
 
-    $frontController->registerController(
-        \Modules\Groups\Controller\GroupController::class,
-        new \Modules\Groups\Controller\GroupController(
-            $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
-            $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
-            $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
-            $settingService, $groupsReadStateService
-        )
-    );
+    // GroupController and PostController are the two that carry groups'
+    // optional "ce message parle de la réunion de samedi" link, and
+    // calendar's lookup does not exist yet: its block runs later in this
+    // file, because it needs the retro lookup whose block runs after this
+    // one. So their wiring lives in this closure and is called twice —
+    // once here with no event service, which is also exactly what a
+    // calendar-disabled install keeps for good (ARCHITECTURE.md §7.5's
+    // "works with the other module switched off"), and once more from the
+    // calendar block at the end of this file, with the real lookup.
+    //
+    // One construction site rather than two copies: a constructor
+    // argument added to either controller can no longer be added to the
+    // early wiring and forgotten in the late one, which would have
+    // broken calendar-enabled installs only.
+    $groupsRegisterEventAwareControllers = function (
+        ?\Modules\Groups\Service\PostEventService $eventService
+    ) use (
+        $frontController, $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAuthorResolver,
+        $groupsPostService, $groupsPostMediaService, $groupsPostLinkRepo, $groupsPostLinkService,
+        $groupsReplyRepo, $groupsReplyPresenter, $groupsReplyService, $groupsReactionService,
+        $groupsReportService, $groupsReadStateService, $groupsPollService, $groupsListService,
+        $groupsAccessService, $groupsService, $groupsContextFactory, $sectionService,
+        $groupsAuthorOptionsService, $groupsSectionGroupSync, $groupsMembershipService,
+        $settingService, $groupsNotificationService, $groupsSeenByService, $groupsMentionService
+    ): void {
+        $feedService = new \Modules\Groups\Service\GroupFeedService(
+            $groupsPostRepo,
+            $groupsAuthorResolver,
+            $groupsPostService,
+            $groupsPostMediaService,
+            $groupsPostLinkRepo,
+            $groupsReplyRepo,
+            $groupsReplyPresenter,
+            $groupsReactionService,
+            $groupsReportService,
+            $groupsReadStateService,
+            $eventService,
+            $groupsPollService
+        );
+        $frontController->registerController(
+            \Modules\Groups\Controller\GroupController::class,
+            new \Modules\Groups\Controller\GroupController(
+                $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
+                $groupsContextFactory, $sectionService, $feedService, $groupsPostMediaService,
+                $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
+                $settingService, $groupsReadStateService, $eventService
+            )
+        );
+        $frontController->registerController(
+            \Modules\Groups\Controller\PostController::class,
+            new \Modules\Groups\Controller\PostController(
+                $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $feedService,
+                $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
+                $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
+                $groupsNotificationService, $groupsSeenByService, $groupsMentionService, $eventService,
+                $groupsPollService
+            )
+        );
+    };
+    $groupsRegisterEventAwareControllers(null);
 
     // Re-registers PageController with the groups activity hook — same
     // core-hook precedent as the banner/news/trombinoscope blocks above
@@ -2659,15 +2724,6 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             in_array('news', $moduleManager->getEnabledModuleIds(), true) ? $newsArticleService : null,
             $sectionResponsableProvider,
             new \Modules\Groups\Api\HomeActivityService($groupsListService, $groupsContextFactory)
-        )
-    );
-    $frontController->registerController(
-        \Modules\Groups\Controller\PostController::class,
-        new \Modules\Groups\Controller\PostController(
-            $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
-            $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
-            $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
-            $groupsNotificationService, $groupsSeenByService, $groupsMentionService, null, $groupsPollService
         )
     );
     $frontController->registerController(
@@ -2705,7 +2761,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
 }
 
 // Modules\SupportDashboard — the statistics receiver (ARCHITECTURE.md
-// §8.45). Only ever discovered on the receiving installation, so this block
+// §8.48). Only ever discovered on the receiving installation, so this block
 // is dead code everywhere else by construction.
 if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) {
     $supportInstallationRepo = new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo);
@@ -2843,53 +2899,20 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
     );
 
     // Groups' optional "ce message parle de la réunion de samedi" link.
-    // Re-registered here rather than wired in groups' own block for the
-    // same reason PageController is re-registered there: $calendarEventLookup
-    // does not exist until this block (it needs the retro lookup, whose
-    // block runs after groups'), and groups' block runs earlier. With
-    // calendar disabled this never runs and the pair registered earlier —
-    // with no event service at all — stays in place, which is exactly the
-    // "works with the other module switched off" contract of
-    // ARCHITECTURE.md §7.5.
+    // $calendarEventLookup only exists this far down the file, so groups'
+    // own block wired its two event-aware controllers with no event
+    // service and left the closure below behind to redo it once the
+    // lookup is real. Calling it a second time replaces both
+    // registrations; with calendar disabled this never runs and the
+    // event-less pair stays in place, which is exactly the "works with
+    // the other module switched off" contract of ARCHITECTURE.md §7.5.
     //
-    // Both constructor calls below MUST stay identical to the ones in the
-    // groups block apart from the trailing event service: a parameter
-    // added there and forgotten here would silently disable a feature on
-    // calendar-enabled installs only.
-    if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
-        $groupsPostEventService = new \Modules\Groups\Service\PostEventService($calendarEventLookup);
-        $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
-            $groupsPostRepo,
-            $groupsAuthorResolver,
-            $groupsPostService,
-            $groupsPostMediaService,
-            $groupsPostLinkRepo,
-            $groupsReplyRepo,
-            $groupsReplyPresenter,
-            $groupsReactionService,
-            $groupsReportService,
-            $groupsReadStateService,
-            $groupsPostEventService,
-            $groupsPollService
-        );
-        $frontController->registerController(
-            \Modules\Groups\Controller\GroupController::class,
-            new \Modules\Groups\Controller\GroupController(
-                $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
-                $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
-                $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
-                $settingService, $groupsReadStateService, $groupsPostEventService
-            )
-        );
-        $frontController->registerController(
-            \Modules\Groups\Controller\PostController::class,
-            new \Modules\Groups\Controller\PostController(
-                $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
-                $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
-                $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
-                $groupsNotificationService, $groupsSeenByService, $groupsMentionService, $groupsPostEventService,
-                $groupsPollService
-            )
+    // isset() rather than the module check the rest of this file uses:
+    // the closure is the honest witness that groups' block actually ran,
+    // and it is what static analysis can follow.
+    if (isset($groupsRegisterEventAwareControllers)) {
+        $groupsRegisterEventAwareControllers(
+            new \Modules\Groups\Service\PostEventService($calendarEventLookup)
         );
     }
 }
@@ -3131,6 +3154,104 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         $activeMenuId = $registrationMenuActive['menuId'];
         $activePageUrl = $registrationMenuActive['pageUrl'];
         $bestMatchLength = $registrationMenuActive['matchLength'];
+        $twig->addGlobal('active_menu_id', $activeMenuId);
+        $twig->addGlobal('active_page_url', $activePageUrl);
+    }
+}
+
+// ── Locations (modules/rental) ─────────────────────────────────────────
+// The repositories are built here rather than shared with the Desk-import
+// listener block far above: that block runs before $moduleManager's own
+// module list is settled into anything a static analyser can follow, so
+// reusing its locals would only mean a forward reference nothing can prove
+// is defined. Both are stateless wrappers around the same PDO handle.
+if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
+    $rentalCurrentYearId = (int) $scoutYearService->getCurrentYear()['id'];
+
+    $rentalAssetRepository = new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService);
+    $rentalManagerRepository = new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo);
+
+    $rentalAuthorizationService = new \Modules\Rental\Service\RentalAuthorizationService(
+        $memberService,
+        $rentalAssetRepository,
+        $rentalManagerRepository
+    );
+    $rentalSlugGenerator = new \Modules\Rental\Service\RentalSlugGenerator($rentalAssetRepository);
+    $rentalAssetService = new \Modules\Rental\Service\RentalAssetService(
+        $rentalAssetRepository,
+        $rentalSlugGenerator,
+        $journalService
+    );
+    $rentalManagerService = new \Modules\Rental\Service\RentalManagerService(
+        $rentalManagerRepository,
+        $memberService,
+        $journalService
+    );
+    // The pricing engine is pure and stateless, so one instance serves every
+    // caller — the configuration simulator, the public page and the contract
+    // are then provably the same code path, which is the only thing that
+    // makes the simulator a real guard-rail against a wrong tariff.
+    $rentalPricingService = new \Modules\Rental\Service\RentalPricingService(
+        new \Modules\Rental\Repository\RentalPricingRepository($pdo),
+        new \Modules\Rental\Pricing\RentalPricingEngine(),
+        $journalService
+    );
+
+    $frontController->registerController(
+        \Modules\Rental\Controller\RentalConfigController::class,
+        new \Modules\Rental\Controller\RentalConfigController(
+            $twig, $rentalAssetRepository, $rentalAssetService, $rentalManagerService,
+            $memberService, $scoutYearService, $settingService, $rentalPricingService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Rental\Controller\RentalPricingController::class,
+        new \Modules\Rental\Controller\RentalPricingController($twig, $rentalPricingService)
+    );
+    $frontController->registerController(
+        \Modules\Rental\Controller\RentalPublicController::class,
+        new \Modules\Rental\Controller\RentalPublicController(
+            $twig, $rentalAssetRepository, $rentalAuthorizationService, $scoutYearService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Rental\Controller\RentalManagementController::class,
+        new \Modules\Rental\Controller\RentalManagementController(
+            $twig, $rentalAuthorizationService, $scoutYearService
+        )
+    );
+
+    // Menu hook (Core\Module\MenuEntryProvider) — the "Locations" index and
+    // one entry per pinned public asset in "Notre unité", plus "Mes
+    // locations" in "Espace animés" for an actual manager. Public entries,
+    // so the hook runs for an anonymous visitor too and the email is passed
+    // as null rather than the block being skipped. Same rebuild-and-
+    // re-derive dance as the registration block above; see
+    // Core\View\DynamicMenuRegistrar for why it cannot happen earlier.
+    $rentalMenuHookService = new \Modules\Rental\Service\RentalMenuHookService(
+        $rentalAssetRepository,
+        $rentalAuthorizationService,
+        $rentalCurrentYearId
+    );
+    $rentalMenuEntries = $dynamicMenuRegistrar->register(
+        $menuBuilder,
+        [$rentalMenuHookService],
+        AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+    );
+    if ($rentalMenuEntries !== []) {
+        $menus = $menuBuilder->build();
+        $twig->addGlobal('menus', $menus);
+
+        $rentalMenuActive = $dynamicMenuRegistrar->resolveActive(
+            $rentalMenuEntries,
+            $currentPath,
+            $activeMenuId,
+            $activePageUrl,
+            $bestMatchLength
+        );
+        $activeMenuId = $rentalMenuActive['menuId'];
+        $activePageUrl = $rentalMenuActive['pageUrl'];
+        $bestMatchLength = $rentalMenuActive['matchLength'];
         $twig->addGlobal('active_menu_id', $activeMenuId);
         $twig->addGlobal('active_page_url', $activePageUrl);
     }

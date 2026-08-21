@@ -14,7 +14,7 @@ use Core\Security\SecretManager;
 
 /**
  * The installation's own identity for usage statistics (ARCHITECTURE.md
- * §8.43): a stable, opaque identifier and the shared secret that
+ * §8.46): a stable, opaque identifier and the shared secret that
  * authenticates its reports to the receiver.
  *
  * Both are generated lazily on first use and never derived from anything

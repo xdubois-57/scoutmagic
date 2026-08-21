@@ -27,14 +27,14 @@ use Modules\SupportDashboard\Service\SupportDashboardService;
  * existing half a year ago is holding it for no reason anyone could state.
  *
  * **Finalised monthly aggregates are never touched** (ARCHITECTURE.md
- * §8.47). An aggregate is a count of distinct installations for a month
+ * §8.50). An aggregate is a count of distinct installations for a month
  * that has ended; rewriting history because a contributor later disappeared
  * would make the series mean nothing.
  *
  * One consequence is accepted rather than worked around: an installation
  * silent for longer than the retention window that starts reporting again
  * is a **new registration**, because its id is no longer known and
- * trust-on-first-use applies again (ARCHITECTURE.md §8.45). It reappears as
+ * trust-on-first-use applies again (ARCHITECTURE.md §8.48). It reappears as
  * itself, with its own history restarted — which is the honest description
  * of what the receiver actually knows about it.
  */

@@ -13,7 +13,7 @@ use Core\Database\Connection;
 
 /**
  * Everything a support collector is given, and the only way it writes into
- * the archive (ARCHITECTURE.md §8.44).
+ * the archive (ARCHITECTURE.md §8.47).
  *
  * Deliberately narrow: a collector adds files, reads the application's own
  * services, and can declare itself unavailable with a reason. It never sees

@@ -10,7 +10,7 @@ namespace Modules\SupportDashboard\Repository;
 
 /**
  * The receiver's record of every installation that reports to it
- * (ARCHITECTURE.md §8.45).
+ * (ARCHITECTURE.md §8.48).
  *
  * One row per installation, never a history: each accepted report
  * overwrites the previous one. The shared secret is stored **only** as a
@@ -121,7 +121,7 @@ class SupportInstallationRepository
      * Nothing here touches `support_monthly_aggregates`: a finalised
      * aggregate is a count of distinct installations for a month that has
      * ended, and it must survive the disappearance of any installation that
-     * fed it. See ARCHITECTURE.md §8.47.
+     * fed it. See ARCHITECTURE.md §8.50.
      */
     public function delete(int $id): bool
     {

@@ -21,8 +21,8 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   section §8.29 (statistiques) et §8.30 (paquet de support). Ces deux numéros
   sont **déjà pris** dans le dépôt (§8.29 « Account identity vs.
   notifications », §8.30 « Chip picker »). Les nouvelles sections prennent
-  donc les premiers numéros libres : **§8.43** (statistiques core), **§8.44**
-  (paquet de support) et **§8.45** (module receveur).
+  donc les premiers numéros libres : **§8.46** (statistiques core), **§8.47**
+  (paquet de support) et **§8.48** (module receveur).
 
 ---
 
@@ -51,7 +51,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   `installed_at`) dans `public/index.php`, et exclusion des cinq du rendu
   générique de `Configuration > Paramètres`
   (`SettingsController::EXCLUDED_FROM_GENERIC_PAGE`).
-- `ARCHITECTURE.md` §8.43.
+- `ARCHITECTURE.md` §8.46.
 
 ### Décisions autonomes
 
@@ -114,7 +114,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 - `MailService::getDeliveryMode()` / `isDeliveryConfigured()` — deux
   accesseurs de diagnostic qui répondent « smtp/local » et « configuré ou
   non » sans jamais exposer hôte, port, identifiant, mot de passe ni adresse.
-- `ARCHITECTURE.md` §8.43 complété (contenu du payload, propriétés,
+- `ARCHITECTURE.md` §8.46 complété (contenu du payload, propriétés,
   détermination de `installation.method` et de `scheduler.mode`).
 
 ### Décisions autonomes
@@ -241,7 +241,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 - `Core\Statistics\StatisticsStateSettings` — les trois clés d'état d'envoi.
 - `Tests\Core\CronEntryPointTest` — nouveau test paramétré vérifiant que
   **chaque** handler core est enregistré dans les deux points d'entrée.
-- `ARCHITECTURE.md` §8.43 complété (transport, gardes, redaction, non-reprise).
+- `ARCHITECTURE.md` §8.46 complété (transport, gardes, redaction, non-reprise).
 
 ### Décisions autonomes
 
@@ -315,7 +315,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   `superadmin`), indicateur de progression, `GET
   /api/support/package-status/{id}` interrogé par
   `public/assets/js/support-package.js`, puis lien de téléchargement.
-- `ARCHITECTURE.md` §8.44, `SECURITY.md` §5/§6, `specifications.md` §4.5.
+- `ARCHITECTURE.md` §8.47, `SECURITY.md` §5/§6, `specifications.md` §4.5.
 
 ### Décisions autonomes
 
@@ -349,7 +349,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 
 - Le document numérote les sections `ARCHITECTURE.md` §8.30 pour le paquet de
   support ; ce numéro est occupé (voir « Conventions de travail »), la section
-  est §8.44.
+  est §8.47.
 
 ### Reporté volontairement
 
@@ -384,7 +384,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 - `Connection::dumpCredentials()` remplace la lecture par `ReflectionClass`
   des propriétés privées dans `BackupService::connectionCredentials()`.
 - `AGENTS.md` (types de réglage, règle RGPD pour tout nouveau flux sortant),
-  `docs/module-development.md` (type `secret`), `ARCHITECTURE.md` §8.44.
+  `docs/module-development.md` (type `secret`), `ARCHITECTURE.md` §8.47.
 
 ### Décisions autonomes
 
@@ -436,7 +436,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   « platform-aware »).
 - `LogsCollector` → `logs/` (48 h, plafond de 2 Mo par fichier, troncature
   signalée dans `collection-status.json`).
-- `ARCHITECTURE.md` §8.44, `SECURITY.md` §6.
+- `ARCHITECTURE.md` §8.47, `SECURITY.md` §6.
 
 ### Décisions autonomes — dont une correction de D-05
 
@@ -513,7 +513,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   acceptés + avertis + conservés, champs optionnels absents en `NULL`.
 - Tâche `support_dashboard`/`purge_rate_limits` (quotidienne,
   auto-replanifiée).
-- `ARCHITECTURE.md` §7.1 et §8.45, `SECURITY.md` §4 et §5,
+- `ARCHITECTURE.md` §7.1 et §8.48, `SECURITY.md` §4 et §5,
   `docs/module-development.md`.
 
 ### Décisions autonomes
@@ -580,7 +580,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 - Boîte de dialogue de détail : toutes les métriques plus le JSON brut
   exact du dernier rapport accepté, rendu **par Twig côté serveur** puis
   récupéré au clic.
-- `ARCHITECTURE.md` §8.46.
+- `ARCHITECTURE.md` §8.49.
 
 ### Décisions autonomes
 
@@ -656,7 +656,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   métrique définie, statut actif/obsolète explicite et horodatage de
   dernière réception. Sans colonne JSON brut, sans email de contact, sans
   valeur dérivée « jours depuis le dernier rapport ».
-- `ARCHITECTURE.md` §8.46 complété.
+- `ARCHITECTURE.md` §8.49 complété.
 
 ### Décisions autonomes
 

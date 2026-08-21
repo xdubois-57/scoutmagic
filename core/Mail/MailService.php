@@ -30,7 +30,7 @@ class MailService
      * The configured delivery transport, `smtp` or `local`.
      *
      * Exposed for diagnostics (Core\Statistics\StatisticsPayloadBuilder,
-     * ARCHITECTURE.md §8.43) — a transport name, never a host, a port, a
+     * ARCHITECTURE.md §8.46) — a transport name, never a host, a port, a
      * user or a password.
      */
     public function getDeliveryMode(): string
