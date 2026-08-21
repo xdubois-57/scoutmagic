@@ -874,7 +874,33 @@ The managed space's `identified` floor is not an oversight. A manager is explici
 
 **Menu entries** come from `Core\Module\MenuEntryProvider` (§7.4): the "Locations" index and one entry per pinned public asset in "Notre unité" (public, so the hook runs for an anonymous visitor too), plus "Mes locations" in "Espace animés" for an actual manager. The index page exists as soon as **any** public asset does — not only when one is pinned — because an unpinned public asset would otherwise have no menu entry and no index to be listed on, i.e. be reachable only by someone who already knew the URL.
 
-### 8.44 Desk-import hook for modules (`Core\Import\DeskImportListener`)
+### 8.44 Rental pricing engine (`Modules\Rental\Pricing`)
+
+```
+quantity × unit price   (quantity raised to the floor if a minimum applies)
++ fees
+= total
+```
+
+That is the whole model. **There is no rule precedence, no resolution, and no rule that cancels another** — which is what makes a quote explainable to a renter line by line, and what keeps `RentalPricingEngine::quote()` a calculation rather than a resolver. Duration tiers, progressive rates, day-of-week rates, a per-person price detached from time, base + supplement beyond a threshold, and packages stacked on the unit price are all explicitly out of scope; each of them reintroduces precedence. The schema reflects this too: there is no `priority`, `rank` or `condition` column anywhere in it.
+
+**Four configuration blocks per asset**: the billing unit; a unit-price grid on **two axes and two only** (period × renter category); a billable minimum — a floor amount **or** a floor number of people, never both (the service refuses, because storing both would need a precedence rule between them); and an ordered list of fees, each of exactly three natures.
+
+**`BillingUnit` decides two things, not one.** Besides the quantity formula, it alone determines whether availability is counted in **nights** (half-open: the departure day frees up for the next arrival) or in **full days** (closed: the return day is still taken). The module spec is explicit that this is derived, never configured separately — letting an operator set them independently is how a calendar ends up contradicting the invoice. Each unit also carries the French sentence explaining that consequence, which is the single source of truth for the note under the selector (rendered server-side, refreshed client-side by `public/assets/js/rental-pricing.js` reading the `<option>`'s own `data-explanation`, never a second copy of the text in JavaScript).
+
+**A meter fee never enters a quote.** Its amount is not merely unknown before the stay, it is unknowable — it comes from a real reading taken afterwards. It is listed as informational with its unit rate, excluded from the total, and settled on the final statement.
+
+**Two deliberate asymmetries worth not "fixing"**:
+- A **billable minimum in people** raises the *base* quantity but never a per-person **fee**. A tourist tax is owed on who actually slept there, not on a commercial floor.
+- A **minimum amount** tops up as its **own visible line** rather than by rewriting the base line, so a renter never sees a line whose quantity × unit price does not equal its amount, and is measured **before** fees — the floor is on what renting the asset is worth, not on the invoice total.
+
+**Purity is load-bearing.** The engine has no database, no session and no clock; `Repository\RentalPricingRepository` assembles a `PricingSettings` value object and `Service\RentalPricingService` is the only thing that touches storage. That is what lets the public page, the configuration **simulator**, the agreed price and the contract be *provably* the same code path. The simulator exists as the main guard-rail against a wrong tariff, and it can only be one if it is the same engine — so it is computed server-side through `quoteWithSettings()`, and there is deliberately no client-side re-implementation.
+
+**`PriceQuote` is directly snapshotable**, and carries every fact its lines depend on (period, category, minimum, billing unit) rather than referencing the live configuration. That is what keeps the three amounts the spec warns never to confuse actually distinct: the **estimated** price is recomputed on demand, the **agreed** price is this object serialised at the moment of agreement and never recomputed — changing the asset's rates afterwards must not move it, and cannot, because the snapshot is self-contained — and the **final settlement** is the agreed snapshot plus real meter readings. `PriceLine::$isManual` marks a line a manager edited by hand, which is never recalculated afterwards.
+
+Money is in **cents, as integers, everywhere**. Never a `DECIMAL`, never a float. `RentalPricingService::parseAmountToCents()` accepts the French decimal comma an operator actually types — `(float) "2,50"` is `2.0`, a tariff silently entered at a fifth of its value with nothing to notice it by.
+
+### 8.45 Desk-import hook for modules (`Core\Import\DeskImportListener`)
 
 A Desk import is the moment the unit's roster becomes authoritative again: whoever left simply stops appearing in the CSV. Core already reconciles its own derived state at that point (`MemberYearRepository::deactivateAllForYear()`, `MappingResolver::deactivateAllSections()`, `UnitStaffSectionService::syncMembership()`). `DeskImportListener` opens that same moment to modules holding a reference to `members.id` — a per-object permission grant, an assignment, an ownership. Same §7.4 shape as every other core hook: core defines the interface, the module implements it, `public/index.php` wires it in only when the module is enabled.
 

@@ -29,8 +29,58 @@ class RentalTestHelper
             is_archived INTEGER NOT NULL DEFAULT 0,
             is_public INTEGER NOT NULL DEFAULT 0,
             show_in_menu INTEGER NOT NULL DEFAULT 0,
+            billing_unit TEXT NOT NULL DEFAULT "flat_stay",
+            default_unit_price_cents INTEGER,
+            minimum_amount_cents INTEGER,
+            minimum_persons INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE rental_price_periods (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            recurs_yearly INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_renter_categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_price_grid (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            period_id INTEGER,
+            category_id INTEGER,
+            unit_price_cents INTEGER NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE,
+            FOREIGN KEY (period_id) REFERENCES rental_price_periods(id) ON DELETE CASCADE,
+            FOREIGN KEY (category_id) REFERENCES rental_renter_categories(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_fees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            nature TEXT NOT NULL,
+            amount_cents INTEGER NOT NULL,
+            meter_unit TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
         )');
 
         $pdo->exec('CREATE TABLE rental_asset_managers (
