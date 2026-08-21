@@ -484,6 +484,9 @@ class ReplyController extends AbstractController
         );
     }
 
+    /**
+     * @param array<string, string> $params
+     */
     private function readableGroup(array $params, GroupSessionContext $context): ?DiscussionGroup
     {
         $group = $this->groupRepository->findById((int) ($params['id'] ?? 0));

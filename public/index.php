@@ -1672,14 +1672,29 @@ $frontController = new FrontController($router, $twig, $config, $offlineWhitelis
 // for the Sections page's "responsable" name — set below only when
 // 'trombinoscope' is enabled; every PageController re-registration after
 // that block reuses this variable, exactly like $bannerService/
-// $newsArticleService further down.
+// $newsArticleService just below.
 $sectionResponsableProvider = null;
+
+// The banner and news homepage hooks, the two other providers those
+// re-registrations reuse. Initialised here rather than only inside their
+// own module blocks so a block that runs later can read them whether or
+// not the module is enabled — the same reason as the two variables above
+// and below.
+$bannerService = null;
+$newsArticleService = null;
 
 // Optional dependency on the calendar module (ARCHITECTURE.md §7.5) for
 // the member page's "next upcoming event" (§3) — set below only when
 // 'calendar' is enabled, same pattern as $sectionResponsableProvider
 // above.
 $calendarEventLookup = null;
+
+// Groups' feed and the two controllers that read it, wrapped in a closure
+// by groups' own block so calendar's block can rebuild them with the event
+// lookup it alone owns (see both blocks). Null whenever the groups module
+// is disabled — which is what the calendar block tests before calling it.
+/** @var (callable(\Modules\Groups\Service\PostEventService|null): void)|null $groupsRegisterFeedControllers */
+$groupsRegisterFeedControllers = null;
 
 // Baseline MemberPageService (core deps only) — re-registered further
 // down, once mass_mail/gallery/trombinoscope/calendar availability is
@@ -2494,23 +2509,6 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     $groupsPollService = new \Modules\Groups\Service\PollService(
         new \Modules\Groups\Repository\PollRepository($pdo)
     );
-    $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
-        $groupsPostRepo,
-        $groupsAuthorResolver,
-        $groupsPostService,
-        $groupsPostMediaService,
-        $groupsPostLinkRepo,
-        $groupsReplyRepo,
-        $groupsReplyPresenter,
-        $groupsReactionService,
-        $groupsReportService,
-        $groupsReadStateService,
-        // No event service here: calendar's lookup does not exist yet.
-        // The block at the end of this file re-registers the two
-        // controllers that need it — see its own comment.
-        null,
-        $groupsPollService
-    );
     $groupsSeenByService = new \Modules\Groups\Service\SeenByService($groupsReadStateService, $memberService);
     $groupsMentionService = new \Modules\Groups\Service\MentionService($groupsRecipientResolver, $memberService);
 
@@ -2533,15 +2531,63 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsFileOwnershipChecker
     );
 
-    $frontController->registerController(
-        \Modules\Groups\Controller\GroupController::class,
-        new \Modules\Groups\Controller\GroupController(
-            $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
-            $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
-            $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
-            $settingService, $groupsReadStateService
-        )
-    );
+    // The feed and the two controllers that read it are the only groups
+    // wiring that depends on the calendar module, whose own block runs
+    // AFTER this one ($calendarEventLookup does not exist yet). Building
+    // them through one closure — called here with no event service, called
+    // again from the calendar block with the real one — is what keeps that
+    // second registration from being a hand-copied duplicate of fifteen
+    // constructor arguments, where a parameter added on one side and
+    // forgotten on the other would silently disable a feature on
+    // calendar-enabled installs only. With calendar disabled the closure is
+    // simply never called a second time, which is the "works with the other
+    // module switched off" contract of ARCHITECTURE.md §7.5.
+    $groupsRegisterFeedControllers = static function (
+        ?\Modules\Groups\Service\PostEventService $eventService
+    ) use (
+        $frontController, $twig, $groupsPostRepo, $groupsAuthorResolver, $groupsPostService,
+        $groupsPostMediaService, $groupsPostLinkRepo, $groupsReplyRepo, $groupsReplyPresenter,
+        $groupsReactionService, $groupsReportService, $groupsReadStateService, $groupsPollService,
+        $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
+        $groupsContextFactory, $sectionService, $groupsAuthorOptionsService, $groupsSectionGroupSync,
+        $groupsMembershipService, $settingService, $groupsPostLinkService, $groupsReplyService,
+        $groupsNotificationService, $groupsSeenByService, $groupsMentionService
+    ): void {
+        $feedService = new \Modules\Groups\Service\GroupFeedService(
+            $groupsPostRepo,
+            $groupsAuthorResolver,
+            $groupsPostService,
+            $groupsPostMediaService,
+            $groupsPostLinkRepo,
+            $groupsReplyRepo,
+            $groupsReplyPresenter,
+            $groupsReactionService,
+            $groupsReportService,
+            $groupsReadStateService,
+            $eventService,
+            $groupsPollService
+        );
+        $frontController->registerController(
+            \Modules\Groups\Controller\GroupController::class,
+            new \Modules\Groups\Controller\GroupController(
+                $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
+                $groupsContextFactory, $sectionService, $feedService, $groupsPostMediaService,
+                $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
+                $settingService, $groupsReadStateService, $eventService
+            )
+        );
+        $frontController->registerController(
+            \Modules\Groups\Controller\PostController::class,
+            new \Modules\Groups\Controller\PostController(
+                $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $feedService,
+                $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
+                $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
+                $groupsNotificationService, $groupsSeenByService, $groupsMentionService, $eventService,
+                $groupsPollService
+            )
+        );
+    };
+    $groupsRegisterFeedControllers(null);
 
     // Re-registers PageController with the groups activity hook — same
     // core-hook precedent as the banner/news/trombinoscope blocks above
@@ -2559,15 +2605,6 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             in_array('news', $moduleManager->getEnabledModuleIds(), true) ? $newsArticleService : null,
             $sectionResponsableProvider,
             new \Modules\Groups\Api\HomeActivityService($groupsListService, $groupsContextFactory)
-        )
-    );
-    $frontController->registerController(
-        \Modules\Groups\Controller\PostController::class,
-        new \Modules\Groups\Controller\PostController(
-            $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
-            $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
-            $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
-            $groupsNotificationService, $groupsSeenByService, $groupsMentionService, null, $groupsPollService
         )
     );
     $frontController->registerController(
@@ -2707,53 +2744,20 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
     );
 
     // Groups' optional "ce message parle de la réunion de samedi" link.
-    // Re-registered here rather than wired in groups' own block for the
-    // same reason PageController is re-registered there: $calendarEventLookup
-    // does not exist until this block (it needs the retro lookup, whose
-    // block runs after groups'), and groups' block runs earlier. With
-    // calendar disabled this never runs and the pair registered earlier —
-    // with no event service at all — stays in place, which is exactly the
-    // "works with the other module switched off" contract of
-    // ARCHITECTURE.md §7.5.
-    //
-    // Both constructor calls below MUST stay identical to the ones in the
-    // groups block apart from the trailing event service: a parameter
-    // added there and forgotten here would silently disable a feature on
-    // calendar-enabled installs only.
-    if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
-        $groupsPostEventService = new \Modules\Groups\Service\PostEventService($calendarEventLookup);
-        $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
-            $groupsPostRepo,
-            $groupsAuthorResolver,
-            $groupsPostService,
-            $groupsPostMediaService,
-            $groupsPostLinkRepo,
-            $groupsReplyRepo,
-            $groupsReplyPresenter,
-            $groupsReactionService,
-            $groupsReportService,
-            $groupsReadStateService,
-            $groupsPostEventService,
-            $groupsPollService
-        );
-        $frontController->registerController(
-            \Modules\Groups\Controller\GroupController::class,
-            new \Modules\Groups\Controller\GroupController(
-                $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
-                $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
-                $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
-                $settingService, $groupsReadStateService, $groupsPostEventService
-            )
-        );
-        $frontController->registerController(
-            \Modules\Groups\Controller\PostController::class,
-            new \Modules\Groups\Controller\PostController(
-                $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
-                $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
-                $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
-                $groupsNotificationService, $groupsSeenByService, $groupsMentionService, $groupsPostEventService,
-                $groupsPollService
-            )
+    // Wired here rather than in groups' own block because
+    // $calendarEventLookup does not exist until this one (it needs the
+    // retro lookup, whose block runs after groups'), while groups' block
+    // runs earlier. It re-runs the closure that block left behind, so the
+    // feed and its two controllers are built from a single constructor
+    // call site whichever module set is enabled. With calendar disabled
+    // this never runs and the event-free registration groups already made
+    // stays in place — the "works with the other module switched off"
+    // contract of ARCHITECTURE.md §7.5. $groupsRegisterFeedControllers is
+    // null unless groups' block ran, which is exactly the condition to
+    // test here.
+    if ($groupsRegisterFeedControllers !== null) {
+        $groupsRegisterFeedControllers(
+            new \Modules\Groups\Service\PostEventService($calendarEventLookup)
         );
     }
 }

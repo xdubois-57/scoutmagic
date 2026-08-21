@@ -26,6 +26,7 @@ use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupListItem;
 use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupListService;
+use Modules\Groups\Service\GroupReadStateService;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupMembershipService;

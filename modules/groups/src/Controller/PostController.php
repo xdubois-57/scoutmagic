@@ -288,7 +288,10 @@ class PostController extends AbstractController
         }
 
         if ($poll !== null) {
-            $this->pollService?->attachTo($postId, $poll);
+            // Not nullsafe: $poll is non-null only because $this->pollService
+            // was, three checks up — the composer cannot produce a poll without
+            // the service that normalised it.
+            $this->pollService->attachTo($postId, $poll);
         }
 
         // The submitted id is re-resolved against the calendar's own
@@ -674,6 +677,9 @@ class PostController extends AbstractController
         );
     }
 
+    /**
+     * @param array<string, string> $params
+     */
     private function readableGroup(array $params, GroupSessionContext $context): ?DiscussionGroup
     {
         $group = $this->groupRepository->findById((int) ($params['id'] ?? 0));
