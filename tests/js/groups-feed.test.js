@@ -407,6 +407,35 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             }
         });
 
+        // The row SHOWS the account and its memberships so two people can
+        // be told apart, and INSERTS the account's name alone: nobody
+        // wants "@Marie Dupont (Akéla, Baloo)" mid-sentence, and
+        // Service\MentionService::resolve() reads the short form back out
+        // of the stored body.
+        it('shows the memberships in the menu but types only the account name', async () => {
+            vi.useFakeTimers();
+            try {
+                global.fetch = vi.fn(() => Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve([
+                        { id: 4, label: 'Marie Dupont (Akéla, Baloo)', mention: 'Marie Dupont' }
+                    ])
+                }));
+                var field = composer('Merci @Mar');
+
+                type(field);
+                await vi.advanceTimersByTimeAsync(300);
+
+                var option = document.querySelector('.groups-mention-option');
+                expect(option.textContent).toBe('Marie Dupont (Akéla, Baloo)');
+
+                option.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                expect(field.value).toBe('Merci @Marie Dupont ');
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
         it('does not query on a bare @ — one character is not a search', async () => {
             vi.useFakeTimers();
             try {

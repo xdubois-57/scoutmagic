@@ -1183,7 +1183,7 @@ class PostControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame(
-            [['id' => $this->memberId, 'label' => 'Akéla']],
+            [['id' => $this->memberId, 'label' => 'Akéla', 'mention' => 'Akéla']],
             json_decode($response->getBody(), true)
         );
     }

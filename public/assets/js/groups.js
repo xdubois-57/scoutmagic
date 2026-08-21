@@ -666,7 +666,17 @@
         }
 
         function ensureMenu() {
+            // `isConnected`, not just "have we built one": a menu that has
+            // been detached from the document can never be seen, and
+            // re-using it would leave the autocomplete answering keystrokes
+            // into nothing. Cheap, and it means the cache can never outlive
+            // the node it points at.
+            if (menu && menu.isConnected) {
+                return menu;
+            }
             if (menu) {
+                document.body.appendChild(menu);
+
                 return menu;
             }
             menu = document.createElement('ul');
@@ -734,7 +744,14 @@
                 item.style.cursor = 'pointer';
                 item.style.minHeight = '44px';
                 item.setAttribute('role', 'option');
-                item.dataset.label = member.label;
+                // Two different strings on purpose: the row SHOWS the
+                // account and its memberships so two people can be told
+                // apart, and INSERTS the account's name alone, which is
+                // what MentionService::resolve() reads back out of the
+                // stored body. `mention` is absent from nothing the
+                // server sends today; the fallback is for a cached page
+                // served by an older one.
+                item.dataset.label = member.mention || member.label;
                 item.textContent = member.label;
                 if (index === 0) {
                     item.classList.add('active');
