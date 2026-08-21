@@ -1,0 +1,190 @@
+// End-to-end: a unit runs one of its halls, from configuring it to
+// answering a real request — in a real browser, through the real
+// application.
+//
+// WHY THIS SCENARIO EXISTS
+// ----------------------------------------------------------------------------
+// rental-request.spec.js drives the OTHER half of the module: a stranger
+// finding a hall and asking for it. This one is the unit's side, and the
+// two are deliberately separate rather than one long test — a failure in
+// "the tariff a chief typed reaches the visitor's estimate" and a failure
+// in "the request form is accepted" are different bugs, and a single
+// scenario would report them as the same red line.
+//
+// What only a browser on a running install can show here:
+//
+//   - The configuration page's four independent forms really are
+//     independent (§6.4): saving the tariff does not blank the
+//     constraints, and saving the constraints does not blank the tariff.
+//     PHPUnit sees one $_POST array per controller call and can never
+//     catch a form that silently posts a neighbour's fields.
+//   - A tariff typed with a French decimal comma survives the round trip
+//     to cents and back.
+//   - The managed space's availability calendar renders as a calendar.
+//     `.daygrid` is styled solely by components.css, which
+//     base.html.twig deliberately does NOT load — a page that forgets to
+//     link it still passes every PHPUnit assertion about its HTML and is
+//     unusable in front of a human. Only a real browser computing real
+//     styles can tell the difference, which is exactly why the check is
+//     here and not in a controller test.
+//   - A manual block entered on that calendar reaches the public
+//     calendar as an indistinguishable "occupé" (§6.7).
+//   - Confirming a request moves it through the real transition table and
+//     the real availability re-check.
+//
+// LOCATORS
+// ----------------------------------------------------------------------------
+// Roles and visible text wherever they identify the element (README.md
+// § Tests de bout en bout), field names only where a control has no
+// accessible name of its own.
+import { test, expect } from '@playwright/test';
+import { loginAsAdmin } from '../support/admin-login.js';
+import { expectRendersAsACalendar } from '../support/calendar.js';
+
+/** A date far enough out to clear any notice period the asset declares. */
+function isoDaysFromNow(days) {
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+
+    return date.toISOString().slice(0, 10);
+}
+
+const ASSET_NAME = 'Ferme de la Hulpe';
+const ASSET_SLUG = 'ferme-de-la-hulpe';
+
+const BLOCK_START = isoDaysFromNow(120);
+const BLOCK_END = isoDaysFromNow(122);
+
+const ARRIVAL = isoDaysFromNow(200);
+const DEPARTURE = isoDaysFromNow(203);
+
+test.describe('Rentals — running an asset', () => {
+    test('a chief configures a hall, blocks a week and answers a request', async ({ page }) => {
+        // ── The hall, and a tariff ──────────────────────────────────────
+        await loginAsAdmin(page);
+        await page.goto('/admin/locations');
+
+        const creation = page.locator('form[action="/admin/locations/create"]');
+        await creation.locator('input[name="name"]').fill(ASSET_NAME);
+        await creation.locator('input[name="asset_type"]').fill('Ferme');
+        await creation.locator('input[name="capacity"]').fill('80');
+        await creation.locator('input[name="is_public"]').check();
+        await creation.getByRole('button', { name: 'Créer le bien' }).click();
+
+        // The controller redirects to the new asset already selected, so
+        // every form below is the new hall's own.
+        await expect(page).toHaveURL(/\/admin\/locations\?asset_id=\d+/);
+        await expect(page.locator('input[name="name"]').first()).toHaveValue(ASSET_NAME);
+
+        // The manager grant, which creating the hall does NOT confer —
+        // not even on the superadmin who created it (§6.3).
+        const managers = page.locator('form[action="/admin/locations/managers"]');
+        await managers.locator('input[name="manager_member_ids[]"]').first().check();
+        await managers.getByRole('button', { name: 'Enregistrer les gestionnaires' }).click();
+
+        // A French decimal comma, the way a chief types it. It has to
+        // survive the round trip through integer cents.
+        const pricing = page.locator('form[action="/admin/locations/pricing"]').first();
+        await pricing.locator('select[name="billing_unit"]').selectOption('per_night');
+        await pricing.locator('input[name="default_unit_price"]').fill('125,50');
+        await pricing.getByRole('button', { name: 'Enregistrer la tarification' }).click();
+
+        await expect(page.locator('input[name="default_unit_price"]').first()).toHaveValue('125,50');
+
+        // ── And its own booking rules ───────────────────────────────────
+        const constraints = page.locator('form[action="/admin/locations/constraints"]');
+        await constraints.locator('input[name="min_nights"]').fill('2');
+        await constraints.locator('input[name="min_notice_days"]').fill('7');
+        await constraints.getByRole('button', { name: 'Enregistrer les règles' }).click();
+
+        await expect(page.locator('input[name="min_nights"]')).toHaveValue('2');
+        // §6.4: each block is its own form, so saving one must not blank
+        // its neighbour. A single shared form would fail exactly here.
+        await expect(page.locator('input[name="default_unit_price"]').first()).toHaveValue('125,50');
+
+        // ── The managed space, and its calendar ─────────────────────────
+        await page.goto('/mes-locations');
+        await page.getByRole('link', { name: ASSET_NAME }).first().click();
+        await page.getByRole('link', { name: 'Calendrier' }).first().click();
+
+        await expect(page.getByRole('heading', { name: `Calendrier — ${ASSET_NAME}` })).toBeVisible();
+        await expectRendersAsACalendar(page.locator('.daygrid').first());
+
+        // ── A week taken off the market ─────────────────────────────────
+        const blocking = page.locator('form[action="/mes-locations/blocage"]');
+        await blocking.locator('input[name="start"]').fill(BLOCK_START);
+        await blocking.locator('input[name="end"]').fill(BLOCK_END);
+        await blocking.locator('input[name="reason"]').fill('Chantier toiture');
+        await blocking.getByRole('button', { name: 'Bloquer' }).click();
+
+        await expect(page.getByText('Chantier toiture')).toBeVisible();
+
+        // ── What the public sees of it: that the days are taken, and not
+        //    one word about why (§6.7). ───────────────────────────────────
+        await page.context().clearCookies();
+        await page.goto(`/locations/${ASSET_SLUG}?month=${BLOCK_START.slice(0, 7)}`);
+
+        const publicGrid = page.locator('#rental-calendar .daygrid');
+        await expectRendersAsACalendar(publicGrid);
+
+        const blockedDay = publicGrid.locator(`[data-date="${BLOCK_START}"]`);
+        await expect(blockedDay).toHaveClass(/daygrid-day--occupied/);
+        await expect(page.locator('#rental-calendar')).not.toContainText('Chantier');
+        await expect(page.locator('#rental-calendar')).not.toContainText('toiture');
+
+        // ── A visitor asks for other dates, and is quoted the tariff the
+        //    chief typed. ──────────────────────────────────────────────────
+        await page.goto(`/locations/${ASSET_SLUG}?arrival=${ARRIVAL}&departure=${DEPARTURE}&persons=40`);
+
+        // 3 nights × 125,50 €. The estimate comes from the same engine
+        // that prices the contract, so this is the tariff arriving at the
+        // visitor, not a template repeating it. The total row rather than
+        // the page: the same figure is also the base line's amount, and
+        // the total is the one the visitor actually reads.
+        await expect(
+            page.getByRole('row', { name: /Total estimé/ }).getByRole('cell', { name: /376,50/ }),
+        ).toBeVisible();
+
+        await page.getByRole('link', { name: /demande/i }).first().click();
+        await page.locator('input[name="arrival"]').fill(ARRIVAL);
+        await page.locator('input[name="departure"]').fill(DEPARTURE);
+        await page.locator('input[name="persons"]').fill('40');
+        await page.locator('input[name="name"]').fill('Pierre Lambert');
+        await page.locator('input[name="email"]').fill('pierre.lambert@example.be');
+        await page.locator('input[name="accept_conditions"]').check();
+        await page.locator('input[name="accept_privacy"]').check();
+
+        // Core\Security\HumanCheck refuses a form submitted faster than a
+        // human could have filled it. Cleared the way a visitor does, not
+        // configured away.
+        await page.waitForTimeout(4000);
+        await page.getByRole('button', { name: 'Envoyer ma demande' }).click();
+
+        const heading = page.getByRole('heading', { name: /Votre demande LOC-\d{4}-\d+/ });
+        await expect(heading).toBeVisible();
+        const reference = (await heading.textContent()).match(/LOC-\d{4}-\d+/)[0];
+
+        // ── And the unit answers it ─────────────────────────────────────
+        await loginAsAdmin(page);
+        await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
+
+        await page.getByRole('link', { name: new RegExp(reference) }).first().click();
+        await expect(page.getByText('Pierre Lambert').first()).toBeVisible();
+
+        await page.getByRole('button', { name: 'Confirmée' }).click();
+
+        // Confirming goes through the real transition table and the real
+        // availability re-check, both of which can refuse.
+        await expect(page.getByText(/Confirmée/).first()).toBeVisible();
+
+        // ── The confirmed stay now holds its dates against everybody
+        //    else, with no more reason given than the block was. ──────────
+        await page.context().clearCookies();
+        await page.goto(`/locations/${ASSET_SLUG}?month=${ARRIVAL.slice(0, 7)}`);
+
+        await expect(
+            page.locator(`#rental-calendar [data-date="${ARRIVAL}"]`),
+        ).toHaveClass(/daygrid-day--occupied/);
+        await expect(page.locator('#rental-calendar')).not.toContainText('Lambert');
+    });
+});

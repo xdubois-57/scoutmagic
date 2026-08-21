@@ -48,6 +48,7 @@
 // accessible name of its own.
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { expectRendersAsACalendar } from '../support/calendar.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
 function isoDaysFromNow(days) {
@@ -58,6 +59,8 @@ function isoDaysFromNow(days) {
 }
 
 const ASSET_NAME = 'Local Saint-Georges';
+const ASSET_SLUG = 'local-saint-georges';
+const INTERNAL_NOTE = "Le groupe précédent avait laissé la cuisine dans un état déplorable.";
 const ARRIVAL = isoDaysFromNow(60);
 const DEPARTURE = isoDaysFromNow(62);
 
@@ -103,6 +106,26 @@ test.describe('Rentals', () => {
         // (§6.6) — the calendar shows occupancy, never a renter.
         await expect(page.getByRole('heading', { name: ASSET_NAME })).toBeVisible();
 
+        // The availability calendar has to be READABLE, not merely
+        // present: see ../support/calendar.js for the failure mode this
+        // rules out, which every markup assertion in the PHP suite is
+        // blind to.
+        await expectRendersAsACalendar(page.locator('#rental-calendar .daygrid'));
+
+        // Paging forward is a plain link — no account, no JavaScript
+        // required — and the grid on the next month must render just as
+        // well as the first one did.
+        await page.getByRole('link', { name: 'Mois suivant' }).click();
+        await expectRendersAsACalendar(page.locator('#rental-calendar .daygrid'));
+
+        // And a visitor can never page into the past (§22.2): the control
+        // is disabled rather than hidden, so they are told rather than
+        // left wondering where it went.
+        await page.goto(`/locations/${ASSET_SLUG}`);
+        await expect(
+            page.getByRole('button', { name: /Mois précédent/ }),
+        ).toBeDisabled();
+
         await page.getByRole('link', { name: /demande/i }).first().click();
         await expect(page.getByRole('heading', { name: new RegExp(ASSET_NAME) })).toBeVisible();
 
@@ -135,11 +158,26 @@ test.describe('Rentals', () => {
         // line carries back (§7.6, level 1) — and the tracking page itself,
         // reached with no account and no session at all: the link in their
         // acknowledgement IS the authorisation (§6.26).
-        await expect(page.getByRole('heading', { name: /Votre demande LOC-\d{4}-\d+/ })).toBeVisible();
+        const heading = page.getByRole('heading', { name: /Votre demande LOC-\d{4}-\d+/ });
+        await expect(heading).toBeVisible();
+        const reference = (await heading.textContent()).match(/LOC-\d{4}-\d+/)[0];
 
         // The dates are held while the unit answers, and the page says
         // until when rather than leaving the visitor guessing (§6.14).
         await expect(page.getByText(/Dates bloquées/)).toBeVisible();
+
+        // The link IS the authorisation (§6.26): no account, no session,
+        // and it still opens on a cold browser. Keeping the URL and
+        // clearing everything is the only way to say that honestly.
+        const trackingUrl = page.url();
+        await page.context().clearCookies();
+        await page.goto(trackingUrl);
+        await expect(page.getByRole('heading', { name: new RegExp(reference) })).toBeVisible();
+
+        // A neighbouring id with the same token is refused — the id is
+        // right there in the URL, so only the token may decide.
+        await page.goto(trackingUrl.replace(/\/(\d+)\//, (_, id) => `/${Number(id) + 1}/`));
+        await expect(page.getByRole('heading', { name: new RegExp(reference) })).toHaveCount(0);
 
         // --- And what the unit sees. ---
         await loginAsAdmin(page);
@@ -147,5 +185,25 @@ test.describe('Rentals', () => {
 
         await expect(page.getByText(ASSET_NAME).first()).toBeVisible();
         await expect(page.getByText(/LOC-\d{4}-\d+/).first()).toBeVisible();
+
+        // --- What the renter never sees of it. ---
+        // A manager's internal comment is the one thing §6.6 is most
+        // explicit about, and the tracking page renders from the same
+        // booking. Writing one and then re-opening the renter's page with
+        // no session is the only way to prove the separation holds on a
+        // running install rather than in a template review.
+        await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
+        await page.getByRole('link', { name: new RegExp(reference) }).first().click();
+
+        const comment = page.locator('form[action="/mes-locations/commentaire"]');
+        await comment.locator('textarea[name="body"]').fill(INTERNAL_NOTE);
+        await comment.getByRole('button', { name: 'Enregistrer' }).click();
+        await expect(page.getByText(INTERNAL_NOTE)).toBeVisible();
+
+        await page.context().clearCookies();
+        await page.goto(trackingUrl);
+
+        await expect(page.getByRole('heading', { name: new RegExp(reference) })).toBeVisible();
+        await expect(page.locator('body')).not.toContainText(INTERNAL_NOTE);
     });
 });
