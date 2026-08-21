@@ -74,6 +74,29 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     -- public, non-archived asset — a private asset with the box ticked must
     -- not appear, so the filter lives in the query, not in the template.
     show_in_menu TINYINT(1) NOT NULL DEFAULT 0,
+    -- ── Booking constraints (module spec, iteration 3) ───────────────
+    -- What a visitor may ASK for, as opposed to whether the asset is free.
+    -- The two are kept strictly apart: a day inside the notice window is
+    -- free and merely too late to request, and §6.7 requires it to be shown
+    -- like the past rather than like "occupé" — a visitor told a free day is
+    -- taken concludes the asset is booked and gives up on it.
+    -- 0 means "no limit" for each of the four numeric rules.
+    min_nights INT UNSIGNED NOT NULL DEFAULT 0,
+    max_nights INT UNSIGNED NOT NULL DEFAULT 0,
+    min_notice_days INT UNSIGNED NOT NULL DEFAULT 0,
+    max_horizon_days INT UNSIGNED NOT NULL DEFAULT 0,
+    -- Comma-separated ISO weekdays (1 = Monday … 7 = Sunday) a stay may
+    -- start on. Empty means any day. A short, fixed-domain list of at most
+    -- seven single digits — a normalised table would cost a join per
+    -- calendar render for nothing.
+    allowed_arrival_weekdays VARCHAR(20) NOT NULL DEFAULT '',
+    -- Hard ceiling on a request, distinct from `capacity` above: capacity
+    -- describes the asset, this caps what may be asked for.
+    max_persons INT UNSIGNED NULL,
+    -- Nights of breathing space after each stay — cleaning, a caretaker's
+    -- round. Extends an occupancy AFTER its departure only; extending both
+    -- ends would leave twice the configured gap between two rentals.
+    buffer_nights INT UNSIGNED NOT NULL DEFAULT 0,
     -- ── Pricing (module spec §6.10) ──────────────────────────────────
     -- What the unit price is the price OF. Also decides, on its own, whether
     -- availability is counted in nights or in full days (§6.8) — the two are

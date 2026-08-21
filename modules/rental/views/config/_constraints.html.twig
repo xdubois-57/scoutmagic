@@ -1,0 +1,83 @@
+{#
+  "Règles de réservation" — what a visitor may ASK for.
+
+  Deliberately its own section, separate from both pricing and availability.
+  A constraint decides whether a range may be requested; availability decides
+  whether the asset is free. Conflating the two is how a free day inside the
+  notice window ends up shown to a visitor as "occupé", who then concludes
+  the asset is booked and gives up on it (§6.7).
+
+  Requires `selected_asset` and `constraints`.
+#}
+<div class="card mb-4" id="regles">
+    <div class="card-body">
+        <h2 class="h5 mb-1">Règles de réservation</h2>
+        <p class="text-body-secondary small mb-3">
+            Ces règles décident de ce qu'un visiteur peut <em>demander</em>. Un jour à l'intérieur du
+            préavis reste libre : il s'affiche comme une date passée, jamais comme « occupé ».
+            Laissez une valeur à zéro pour ne pas appliquer la règle.
+        </p>
+
+        <form method="post" action="/admin/locations/constraints">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
+
+            <div class="row g-3 mb-3">
+                <div class="col-6 col-md-3">
+                    <label class="form-label" for="min-nights">Durée minimum (nuits)</label>
+                    <input type="number" min="0" class="form-control" id="min-nights"
+                           name="min_nights" value="{{ constraints.minNights }}">
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label" for="max-nights">Durée maximum (nuits)</label>
+                    <input type="number" min="0" class="form-control" id="max-nights"
+                           name="max_nights" value="{{ constraints.maxNights }}">
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label" for="min-notice-days">Préavis (jours)</label>
+                    <input type="number" min="0" class="form-control" id="min-notice-days"
+                           name="min_notice_days" value="{{ constraints.minNoticeDays }}">
+                    <div class="form-text">Délai minimum avant l'arrivée.</div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label" for="max-horizon-days">Horizon (jours)</label>
+                    <input type="number" min="0" class="form-control" id="max-horizon-days"
+                           name="max_horizon_days" value="{{ constraints.maxHorizonDays }}">
+                    <div class="form-text">Au-delà, la demande n'est pas encore acceptée.</div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label" for="max-persons">Capacité maximum</label>
+                    <input type="number" min="1" class="form-control" id="max-persons"
+                           name="max_persons" value="{{ constraints.maxPersons ?? '' }}">
+                    <div class="form-text">Vide : la capacité du bien fait foi.</div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label" for="buffer-nights">Battement (nuits)</label>
+                    <input type="number" min="0" class="form-control" id="buffer-nights"
+                           name="buffer_nights" value="{{ constraints.bufferNights }}">
+                    <div class="form-text">Temps réservé après chaque location (nettoyage…).</div>
+                </div>
+            </div>
+
+            <fieldset class="mb-3">
+                <legend class="form-label">Jours d'arrivée autorisés</legend>
+                <p class="form-text mt-0">
+                    Aucun jour coché = tous les jours sont autorisés.
+                </p>
+                <div class="d-flex flex-wrap gap-3">
+                    {% set weekday_names = {1: 'Lundi', 2: 'Mardi', 3: 'Mercredi', 4: 'Jeudi', 5: 'Vendredi', 6: 'Samedi', 7: 'Dimanche'} %}
+                    {% for number, name in weekday_names %}
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="weekday-{{ number }}"
+                                   name="allowed_arrival_weekdays[]" value="{{ number }}"
+                                   {{ number in constraints.allowedArrivalWeekdays ? 'checked' : '' }}>
+                            <label class="form-check-label" for="weekday-{{ number }}">{{ name }}</label>
+                        </div>
+                    {% endfor %}
+                </div>
+            </fieldset>
+
+            <button type="submit" class="btn btn-primary">Enregistrer les règles</button>
+        </form>
+    </div>
+</div>

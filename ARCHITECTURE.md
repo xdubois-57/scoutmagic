@@ -900,7 +900,23 @@ That is the whole model. **There is no rule precedence, no resolution, and no ru
 
 Money is in **cents, as integers, everywhere**. Never a `DECIMAL`, never a float. `RentalPricingService::parseAmountToCents()` accepts the French decimal comma an operator actually types — `(float) "2,50"` is `2.0`, a tariff silently entered at a fifth of its value with nothing to notice it by.
 
-### 8.45 Desk-import hook for modules (`Core\Import\DeskImportListener`)
+### 8.45 Rental availability (`Modules\Rental\Availability`)
+
+**The half-open interval.** In a **nights** model a stay from the 17th to the 20th occupies the nights of the 17th, 18th and 19th — the 20th is free again from the morning and another rental may *start* on it. In a **full-days** model the same dates occupy the 20th too, because the asset only comes back at the end of that day. Which applies is read off `BillingUnit::isNightBased()` and never configured separately (§8.44).
+
+The case that breaks implementations, and which the module spec singles out, is **two stays that touch**: one ending on the 20th and one starting on the 20th are compatible in a nights model and in conflict in a days model. Both directions are pinned by tests, and the rule is expressed in exactly two places — `lastOccupiedDay()` for an existing stay and `daysCoveredByStay()` for a candidate one. A divergence between those two is precisely the off-by-one that double-books a departure day.
+
+**"Occupied" cannot say why.** A booking, a temporary hold and a manual block are one `Occupancy` object with no discriminator. A public visitor cannot tell them apart because there is nothing to tell apart — structurally, rather than by a template remembering to hide it (§6.7/§6.14).
+
+**Unavailable is not the same as unselectable.** A day inside the minimum-notice window is *free*; it is merely too late to ask for. It gets the past's greyed-out treatment and never "occupé", because a visitor told a free day is taken concludes the asset is booked and gives up on it. That separation survives only because occupancy and constraints are computed from different inputs — a `BookingConstraints` rule can never produce an occupied cell. The day-state precedence encodes it: **selected** › **outside the bookable window** › **occupied/partial** › **departing** › **free**, with the unbookable window deliberately ranked *above* occupancy so a day nobody can book discloses nothing about whether it is taken.
+
+**The buffer extends an occupancy after its departure only** — cleaning, a caretaker's round. Extending both ends would leave twice the configured gap between two rentals, which is not what "un battement" means. A configured buffer also suppresses the "departing" state, since with a buffer there is no free-from-midday day at all and showing one would be a lie.
+
+**Occupancy sources are pluggable** (`OccupancyProvider`): bookings and manual blocks each arrive in their own iteration and register a provider, and `Service\RentalAvailabilityService` merges the answers. Each provider is asked **once per window**, never once per day or per booking — an implementation that queried per day would turn a calendar render into forty queries and an ICS feed into hundreds.
+
+The calculator is pure — no database, no session, and `$today` always injected.
+
+### 8.46 Desk-import hook for modules (`Core\Import\DeskImportListener`)
 
 A Desk import is the moment the unit's roster becomes authoritative again: whoever left simply stops appearing in the CSV. Core already reconciles its own derived state at that point (`MemberYearRepository::deactivateAllForYear()`, `MappingResolver::deactivateAllSections()`, `UnitStaffSectionService::syncMembership()`). `DeskImportListener` opens that same moment to modules holding a reference to `members.id` — a per-object permission grant, an assignment, an ownership. Same §7.4 shape as every other core hook: core defines the interface, the module implements it, `public/index.php` wires it in only when the module is enabled.
 
