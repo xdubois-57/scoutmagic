@@ -130,7 +130,7 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await expect(feed.locator(POST_BODY)).toContainText(MESSAGE);
     // The empty-state line lives inside the feed container the new card is
     // inserted into, and has to go with the first message published.
-    await expect(page.getByText('Aucun message dans ce groupe pour le moment.')).toHaveCount(0);
+    await expect(page.getByText('Aucun message dans ce groupe pour le moment.')).toBeHidden();
     // The composer is usable again, and emptied — not left greyed out.
     await expect(page.getByLabel('Écrire un message')).toHaveValue('');
     await expect(page.getByLabel('Écrire un message')).toBeEnabled();
@@ -173,6 +173,10 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
 
     await expect(feed.getByRole('article')).toHaveCount(3);
     await expect(composerError).toBeHidden();
+
+    // The poll boxes fold away again: form.reset() empties them but leaves
+    // the <details> open, which reads as "a second poll is expected".
+    await expect(composer.getByLabel('Question', { exact: true })).toBeHidden();
 
     const pollPost = feed.getByRole('article').first();
     const poll = pollPost.locator('.groups-poll');
@@ -264,6 +268,25 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await reloadedThread.locator('summary').click();
     await expect(reloadedThread.locator('.groups-reply-bubble')).toContainText('Parfait, je serai là.');
 
+    // --- 7. And deleting everything brings the empty group back.
+    //
+    // The line lives inside the feed container the composer inserts into,
+    // so it has to be put back by the same code that took it away — a
+    // group that says nothing at all after its last message is deleted is
+    // how it used to read until the next reload.
+    page.on('dialog', (dialog) => dialog.accept());
+    const emptyLine = page.getByText('Aucun message dans ce groupe pour le moment.');
+    await expect(emptyLine).toBeHidden();
+
+    for (let remaining = 3; remaining > 0; remaining -= 1) {
+        const card = feed.getByRole('article').first();
+        await card.getByRole('button', { name: 'Actions sur ce message' }).click();
+        await card.getByRole('button', { name: 'Supprimer' }).click();
+        await expect(feed.getByRole('article')).toHaveCount(remaining - 1);
+    }
+
+    await expect(emptyLine).toBeVisible();
+
     expect(serverErrors, 'no request in this scenario may answer 5xx').toEqual([]);
 });
 
@@ -321,8 +344,27 @@ test('a comment from somebody else is announced as new, and can be reported with
     const theirThread = page.locator('details.groups-thread');
     await theirThread.locator('summary').click();
     await theirThread.getByPlaceholder('Répondre…').fill(COMMENT);
+
+    // Typed but not sent — and it survives losing the page, in this
+    // browser and nowhere else. Waiting on the cache key rather than on a
+    // duration: the save is debounced, and a fixed wait would either be
+    // flaky or slow.
+    const draftKey = await theirThread.locator('.groups-reply-form').evaluate(
+        (form) => `groups-reply-draft-${form.dataset.groupId}-${form.dataset.postId}`,
+    );
+    await page.waitForFunction((key) => localStorage.getItem(key) !== null, draftKey);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    const restoredThread = page.locator('details.groups-thread');
+    // Opened by itself: a draft nobody is shown is a draft nobody
+    // finishes, and this one is behind a fold.
+    await expect(restoredThread).toHaveJSProperty('open', true);
+    await expect(restoredThread.getByPlaceholder('Répondre…')).toHaveValue(COMMENT);
+
     await page.getByRole('button', { name: 'Envoyer la réponse' }).click();
     await expect(page.locator('.groups-reply-bubble')).toContainText(COMMENT);
+    // Sent, so there is nothing left to recover.
+    expect(await page.evaluate((key) => localStorage.getItem(key), draftKey)).toBeNull();
 
     // --- Back to the author. The comment arrived after their last visit and
     // is not their own, so the conversation says so — and has opened itself,
@@ -377,4 +419,75 @@ test('a comment from somebody else is announced as new, and can be reported with
     await expect(reloadedReply.getByRole('button', { name: 'Supprimer' })).toBeVisible();
 
     expect(serverErrors, 'no request in this scenario may answer 5xx').toEqual([]);
+});
+
+// ============================================================================
+// On a phone, and with the JavaScript switched off.
+//
+// Two things nothing else in this suite can see. The reaction picker's
+// fold is pure CSS behind a media query, so it does not exist for jsdom
+// and does not exist at desktop width; and this module's standing promise
+// — every control still works with no JavaScript at all — has never been
+// checked by anything but the reading of it.
+//
+// Both halves matter together: the fold is only acceptable BECAUSE the
+// picker comes back when the script does not load. A test for the first
+// without the second would be signing off the wrong thing.
+// ============================================================================
+const PHONE = { width: 390, height: 844 };
+
+test('on a phone the reaction picker folds away — and comes back when the script does not load', async ({ page }) => {
+    // Logged in at the default size, THEN narrowed: the consent banner is
+    // fixed to the bottom of the viewport, and on a 844px-tall screen it
+    // covers the login form's own button. That is the banner's business,
+    // not this scenario's — specs/cookie-consent-reject.spec.js owns it.
+    await loginAsAdmin(page);
+    await page.getByRole('button', { name: 'Tout refuser' }).click();
+    await page.setViewportSize(PHONE);
+
+    await page.goto('/groups', { waitUntil: 'domcontentloaded' });
+    await page.getByLabel('Nom du groupe').fill(`Téléphone ${Date.now()}`);
+    await page.getByRole('button', { name: 'Créer' }).click();
+    const groupUrl = new URL(page.url()).pathname;
+
+    await page.getByLabel('Écrire un message').fill('Un message à réagir.');
+    await page.locator('#groups-post-form').getByRole('button', { name: 'Publier' }).click();
+    await expect(page.locator('#groups-feed').getByRole('article')).toHaveCount(1);
+
+    const reactions = page.locator('#groups-feed .groups-reactions').first();
+    // exact: the six emoji buttons are each labelled "Réagir : <clé>", so
+    // a substring match would find all seven.
+    const toggle = reactions.getByRole('button', { name: 'Réagir', exact: true });
+    const thumbsUp = reactions.getByRole('button', { name: 'Réagir : thumbs_up' });
+
+    // Folded: one button instead of six.
+    await expect(toggle).toBeVisible();
+    await expect(thumbsUp).toBeHidden();
+
+    await toggle.click();
+    // The picker takes the toggle's place rather than sitting beside it,
+    // so the row is no wider open than closed.
+    await expect(thumbsUp).toBeVisible();
+    await expect(toggle).toBeHidden();
+
+    // And the reaction itself still goes through the same dynamic path.
+    await thumbsUp.click();
+    await expect(reactions.locator('.groups-reaction-tally').first()).toContainText('1');
+
+    // --- Now the same page with groups.js never arriving.
+    //
+    // The fold is gated on a class that file puts on <html>, so without it
+    // the six buttons must be exactly where they have always been — and
+    // the toggle, which nothing could open, must not be shown at all.
+    await page.route('**/assets/js/groups.js', (route) => route.abort());
+    await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
+
+    const plainReactions = page.locator('#groups-feed .groups-reactions').first();
+    await expect(plainReactions.getByRole('button', { name: 'Réagir : thumbs_up' })).toBeVisible();
+    await expect(plainReactions.getByRole('button', { name: 'Réagir', exact: true })).toBeHidden();
+
+    // The rest of the module degrades the same way: the conversation is a
+    // native <details> and the composer a real form, so both still work.
+    await expect(page.locator('details.groups-thread')).toHaveCount(1);
+    await expect(page.locator('#groups-post-form')).toBeVisible();
 });

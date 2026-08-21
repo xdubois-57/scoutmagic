@@ -244,8 +244,17 @@
                 </div>
 
                 {% if can_reply %}
+                {#
+                  data-group-id/data-post-id name the browser-local draft
+                  cache groups.js keeps for this one box (never the server
+                  — the same "your text survives a lost connection" the
+                  message composer already has, see show.html.twig). Read
+                  from here rather than parsed out of the action, so the
+                  key cannot drift if a route ever changes shape.
+                #}
                 <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/replies"
-                      enctype="multipart/form-data" class="groups-reply-form mt-2">
+                      enctype="multipart/form-data" class="groups-reply-form mt-2"
+                      data-group-id="{{ group.id }}" data-post-id="{{ row.post.id }}">
                     {{ csrf_field()|raw }}
                     {% if author_options|default([]) is not empty %}
                         <label class="visually-hidden" for="reply-author-{{ row.post.id }}">Répondre en tant que</label>

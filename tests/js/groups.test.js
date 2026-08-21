@@ -337,7 +337,7 @@ describe('groups.js dynamic post submit and draft cache', () => {
     // composer inserts the new card into that same container without
     // reloading — so the group's very first message used to appear right
     // above "Aucun message dans ce groupe pour le moment."
-    it('removes the "no message yet" line when the first post is published', async () => {
+    it('hides the "no message yet" line when the first post is published', async () => {
         await loadGroups();
         document.getElementById('groups-feed').innerHTML =
             '<p id="groups-feed-empty">Aucun message dans ce groupe pour le moment.</p>';
@@ -350,8 +350,28 @@ describe('groups.js dynamic post submit and draft cache', () => {
         submit(document.getElementById('groups-post-form'));
         await vi.waitFor(() => expect(document.getElementById('post-11')).not.toBeNull());
 
-        expect(document.getElementById('groups-feed-empty')).toBeNull();
-        expect(document.getElementById('groups-feed').children).toHaveLength(1);
+        expect(document.getElementById('groups-feed-empty').classList.contains('d-none')).toBe(true);
+    });
+
+    it('closes the poll section again once the post is published', async () => {
+        await loadGroups();
+        const form = document.getElementById('groups-post-form');
+        const section = document.createElement('details');
+        section.open = true;
+        section.innerHTML = '<summary>Ajouter un sondage</summary>';
+        form.appendChild(section);
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<article id="post-12"></article>' })
+        }));
+
+        textarea().value = 'Avec un sondage';
+        submit(form);
+        await vi.waitFor(() => expect(document.getElementById('post-12')).not.toBeNull());
+
+        // form.reset() empties the boxes but leaves the section open, which
+        // reads as "a second poll is expected".
+        expect(section.open).toBe(false);
     });
 
     it('disables the textarea and the submit button while the request is in flight', async () => {
@@ -938,3 +958,139 @@ describe('groups.js opening a collapsed conversation', () => {
     });
 });
 
+// The comment box gets the same protection the message composer has had
+// since the module shipped: a lost connection or a refused send must not
+// cost the member what they typed. Its own describe because, like the
+// composer's draft cache, it has to be exercised across a fresh page
+// load — which here means re-importing the module.
+describe('groups.js comment draft cache', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        document.body.innerHTML = `
+            <form id="groups-post-form" data-draft-ttl-minutes="60" data-max-media="4">
+                <textarea id="post-body" name="body"></textarea>
+                <div id="groups-media-previews"></div>
+                <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple>
+            </form>
+            <div id="groups-feed">
+                <article id="post-9">
+                    <details class="groups-thread" id="post-thread-9">
+                        <summary><span class="groups-thread-count" data-count="0">Commenter</span></summary>
+                        <div class="groups-replies"></div>
+                        <form class="groups-reply-form" action="/groups/1/posts/9/replies"
+                              method="post" data-group-id="1" data-post-id="9">
+                            <input type="text" name="body">
+                            <button type="submit">Envoyer</button>
+                        </form>
+                    </details>
+                </article>
+            </div>
+        `;
+        Object.defineProperty(document.getElementById('groups-media-hidden'), 'files', {
+            writable: true,
+            configurable: true,
+            value: [],
+        });
+        global.DataTransfer = FakeDataTransfer;
+    });
+
+    function replyInput() {
+        return document.querySelector('.groups-reply-form input[name="body"]');
+    }
+
+    it('caches what is typed, per post, after the debounce', async () => {
+        vi.useFakeTimers();
+        try {
+            await loadGroups();
+
+            replyInput().value = 'Je serai là';
+            replyInput().dispatchEvent(new Event('input', { bubbles: true }));
+            await vi.advanceTimersByTimeAsync(499);
+            expect(localStorage.getItem('groups-reply-draft-1-9')).toBeNull();
+
+            await vi.advanceTimersByTimeAsync(1);
+            expect(JSON.parse(localStorage.getItem('groups-reply-draft-1-9')).body).toBe('Je serai là');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('restores it on the next load, and opens the thread so it is actually seen', async () => {
+        localStorage.setItem('groups-reply-draft-1-9', JSON.stringify({ body: 'Repris', savedAt: Date.now() }));
+
+        await loadGroups();
+
+        expect(replyInput().value).toBe('Repris');
+        expect(document.getElementById('post-thread-9').open).toBe(true);
+    });
+
+    it('forgets a draft older than the composer TTL', async () => {
+        localStorage.setItem(
+            'groups-reply-draft-1-9',
+            JSON.stringify({ body: 'Trop vieux', savedAt: Date.now() - 61 * 60000 })
+        );
+
+        await loadGroups();
+
+        expect(replyInput().value).toBe('');
+        expect(localStorage.getItem('groups-reply-draft-1-9')).toBeNull();
+    });
+
+    // The server hands a moderation-refused reply back in this very box
+    // (partials/post_card.html.twig) — that one is more specific than a
+    // merely locally-cached draft, exactly as in the message composer.
+    it('never overwrites text the server already put in the box', async () => {
+        localStorage.setItem('groups-reply-draft-1-9', JSON.stringify({ body: 'Brouillon local', savedAt: Date.now() }));
+        replyInput().value = 'Texte refusé par le serveur';
+
+        await loadGroups();
+
+        expect(replyInput().value).toBe('Texte refusé par le serveur');
+    });
+
+    it('clears the draft once the comment actually sends', async () => {
+        localStorage.setItem('groups-reply-draft-1-9', JSON.stringify({ body: 'Je serai là', savedAt: Date.now() }));
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<div class="groups-reply" id="reply-4">Je serai là</div>' })
+        }));
+
+        document.querySelector('.groups-reply-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('reply-4')).not.toBeNull());
+
+        expect(localStorage.getItem('groups-reply-draft-1-9')).toBeNull();
+    });
+
+    it('keeps the draft when the send is refused, so the retry costs nothing', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
+
+        replyInput().value = 'Hors ligne';
+        replyInput().dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('.groups-reply-form button').click();
+
+        await vi.waitFor(() => expect(replyInput().value).toBe('Hors ligne'));
+        await vi.waitFor(() => expect(localStorage.getItem('groups-reply-draft-1-9')).not.toBeNull());
+    });
+
+    // Two boxes on the same page must not share one key, or answering one
+    // message would refill the box under another.
+    it('keeps each message\'s draft to itself', async () => {
+        localStorage.setItem('groups-reply-draft-1-9', JSON.stringify({ body: 'Pour le 9', savedAt: Date.now() }));
+        document.getElementById('groups-feed').insertAdjacentHTML('beforeend', `
+            <article id="post-10">
+                <form class="groups-reply-form" action="/groups/1/posts/10/replies"
+                      method="post" data-group-id="1" data-post-id="10">
+                    <input type="text" name="body">
+                </form>
+            </article>
+        `);
+
+        await loadGroups();
+
+        const inputs = document.querySelectorAll('.groups-reply-form input[name="body"]');
+        expect(inputs[0].value).toBe('Pour le 9');
+        expect(inputs[1].value).toBe('');
+    });
+});

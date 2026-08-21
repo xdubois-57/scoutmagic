@@ -806,6 +806,142 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         expect(fetch.mock.calls[0][0]).toContain('/groups/1/replies/3/delete');
     });
 
+    // The six-emoji picker folds behind one "Réagir" button on a phone
+    // (components.css). The fold is CSS gated on `.groups-js`, so a page
+    // whose JavaScript never loaded keeps the picker visible and this
+    // button hidden — the toggle is never the only way to react.
+    describe('the reaction picker toggle', () => {
+        it('marks the document as able to fold the picker away', async () => {
+            expect(document.documentElement.classList.contains('groups-js')).toBe(true);
+        });
+
+        it('opens the picker in place of the button, and says so for assistive tech', async () => {
+            document.body.innerHTML = `
+                <div class="groups-reactions">
+                    <button type="button" class="groups-reaction-toggle" aria-expanded="false">Réagir</button>
+                    <div class="groups-reaction-picker">
+                        <form class="groups-reaction-form" action="/groups/1/posts/9/react"><button>👍</button></form>
+                    </div>
+                </div>
+            `;
+
+            document.querySelector('.groups-reaction-toggle').click();
+
+            const block = document.querySelector('.groups-reactions');
+            expect(block.classList.contains('groups-reactions-open')).toBe(true);
+            expect(document.querySelector('.groups-reaction-toggle').getAttribute('aria-expanded')).toBe('true');
+        });
+
+        it('only ever opens the block it was clicked in', async () => {
+            document.body.innerHTML = `
+                <div class="groups-reactions" id="first">
+                    <button type="button" class="groups-reaction-toggle" aria-expanded="false">Réagir</button>
+                </div>
+                <div class="groups-reactions" id="second">
+                    <button type="button" class="groups-reaction-toggle" aria-expanded="false">Réagir</button>
+                </div>
+            `;
+
+            document.querySelector('#first .groups-reaction-toggle').click();
+
+            expect(document.getElementById('first').classList.contains('groups-reactions-open')).toBe(true);
+            expect(document.getElementById('second').classList.contains('groups-reactions-open')).toBe(false);
+        });
+
+        it('leaves the reaction itself working — the toggle only reveals', async () => {
+            document.body.innerHTML = `
+                <div class="groups-reactions">
+                    <button type="button" class="groups-reaction-toggle" aria-expanded="false">Réagir</button>
+                    <div class="groups-reaction-picker">
+                        <form class="groups-reaction-form" action="/groups/1/posts/9/react" method="post">
+                            <input type="hidden" name="reaction" value="heart">
+                            <button type="submit">❤️</button>
+                        </form>
+                    </div>
+                </div>
+            `;
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ html: '<div class="groups-reactions">à jour</div>' })
+            }));
+
+            document.querySelector('.groups-reaction-toggle').click();
+            document.querySelector('.groups-reaction-form button').click();
+
+            await vi.waitFor(() => expect(document.querySelector('.groups-reactions').textContent).toContain('à jour'));
+            expect(fetch.mock.calls[0][0]).toContain('/groups/1/posts/9/react');
+        });
+    });
+
+    it('brings the "no message yet" line back when the last message is deleted', async () => {
+        document.body.innerHTML = `
+            <div id="groups-feed">
+                <p id="groups-feed-empty" class="d-none">Aucun message dans ce groupe pour le moment.</p>
+                <article id="post-9">
+                    <form class="groups-post-delete-form" action="/groups/1/posts/9/delete" data-confirm="Supprimer ?">
+                        <button type="submit">Supprimer</button>
+                    </form>
+                </article>
+            </div>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+        document.querySelector('.groups-post-delete-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('post-9')).toBeNull());
+
+        expect(document.getElementById('groups-feed-empty').classList.contains('d-none')).toBe(false);
+    });
+
+    // A pinned message lives OUTSIDE #groups-feed, so counting the stream
+    // alone would announce an empty group that still has one at the top.
+    it('leaves the line hidden while a pinned message is still there', async () => {
+        document.body.innerHTML = `
+            <article id="post-1">épinglé</article>
+            <div id="groups-feed">
+                <p id="groups-feed-empty" class="d-none">Aucun message dans ce groupe pour le moment.</p>
+                <article id="post-9">
+                    <form class="groups-post-delete-form" action="/groups/1/posts/9/delete" data-confirm="Supprimer ?">
+                        <button type="submit">Supprimer</button>
+                    </form>
+                </article>
+            </div>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+        document.querySelector('.groups-post-delete-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('post-9')).toBeNull());
+
+        expect(document.getElementById('groups-feed-empty').classList.contains('d-none')).toBe(true);
+    });
+
+    it('deleting a comment never touches the empty-feed line', async () => {
+        document.body.innerHTML = `
+            <div id="groups-feed">
+                <p id="groups-feed-empty" class="d-none">Aucun message.</p>
+                <article id="post-9">
+                    <details class="groups-thread" open>
+                        <summary><span class="groups-thread-count" data-count="1">1 commentaire</span></summary>
+                        <div class="groups-reply" id="reply-3">
+                            <form class="groups-reply-delete-form" action="/groups/1/replies/3/delete" data-confirm="Supprimer ?">
+                                <button type="submit">Supprimer</button>
+                            </form>
+                        </div>
+                    </details>
+                </article>
+            </div>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+        document.querySelector('.groups-reply-delete-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('reply-3')).toBeNull());
+
+        expect(document.getElementById('groups-feed-empty').classList.contains('d-none')).toBe(true);
+        expect(document.querySelector('.groups-thread-count').textContent).toBe('Commenter');
+    });
+
     // Reporting used to reload the whole group to show one line of
     // reassurance; the line now lands next to the item that was reported.
     describe('reporting without a reload', () => {

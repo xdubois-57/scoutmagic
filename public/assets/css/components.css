@@ -403,6 +403,49 @@
     font-size: 0.95rem;
 }
 
+/* Modules\Groups\views\partials\reactions.html.twig — the six-emoji picker,
+   folded behind a single "Réagir" button on a phone.
+
+   Six 44px targets plus the tally do not fit on one line at 360px, so the
+   row wrapped and every message paid two lines for a control most readers
+   never use.
+
+   Gated on `.groups-js`, which public/assets/js/groups.js puts on <html>:
+   without JavaScript nothing here applies, the toggle stays hidden and the
+   picker stays exactly as it has always been — visible and usable. The
+   toggle is never the ONLY way to reach a reaction.
+
+   Desktop is untouched: the media query is the only place either rule
+   lives. */
+.groups-reaction-toggle {
+    display: none;
+}
+/* Owned here rather than by Bootstrap's `d-inline-flex` utility, which is
+   `display: inline-flex !important` and would make both of these
+   impossible to hide. */
+.groups-reaction-picker {
+    display: inline-flex;
+}
+@media (max-width: 767.98px) {
+    .groups-js .groups-reaction-toggle {
+        display: inline-flex;
+        min-height: 44px;
+        color: var(--bs-secondary-color);
+        font-size: 0.8rem;
+    }
+    .groups-js .groups-reaction-picker {
+        display: none;
+    }
+    /* Opened: the picker takes the toggle's place rather than sitting
+       beside it, so the row is no wider open than closed. */
+    .groups-js .groups-reactions-open .groups-reaction-toggle {
+        display: none;
+    }
+    .groups-js .groups-reactions-open .groups-reaction-picker {
+        display: inline-flex;
+    }
+}
+
 /* Modules\Groups\views\partials\reply_card.html.twig — one level of
    replies, never nested (schema.sql has no parent_reply_id), so a single
    fixed indent is all that is ever needed. */

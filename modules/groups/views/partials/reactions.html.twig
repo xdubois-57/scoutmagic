@@ -30,12 +30,34 @@
     {% endif %}
 
     {#
+      On a phone the six buttons plus the tally do not fit on one line, so
+      they fold behind this one — which only ever appears once groups.js
+      has marked the page as able to open it again (`groups-js` on <html>,
+      components.css). With no JavaScript this button is never shown and
+      the six stay exactly where they have always been: the same posture
+      as members.html.twig's invite box, where JS swaps in the richer
+      control and its absence leaves the plain one working.
+
+      A real <button type="button"> inside the form's own row but outside
+      every form: it submits nothing, it only reveals.
+    #}
+    <button type="button" class="groups-reaction-toggle btn btn-sm align-items-center gap-1"
+            aria-expanded="false">
+        <i class="bi bi-emoji-smile" aria-hidden="true"></i>
+        <span>Réagir</span>
+    </button>
+
+    {#
       Read straight from Support\Reactions::EMOJI rather than passed in by
       each controller that renders a card: there are three of them, and the
       picker must never be able to drift from the map the server validates
       against.
     #}
-    <div class="groups-reaction-picker d-inline-flex align-items-center gap-1">
+    {# No `d-inline-flex` here, nor on the button above: that utility is
+       `display: inline-flex !important`, which no ordinary rule can turn
+       off — so components.css owns the `display` of both and Bootstrap
+       keeps the rest. #}
+    <div class="groups-reaction-picker align-items-center gap-1">
         {% for key, emoji in constant('Modules\\Groups\\Support\\Reactions::EMOJI') %}
             <form method="post" action="{{ action }}" class="d-inline groups-reaction-form">
                 {{ csrf_field()|raw }}

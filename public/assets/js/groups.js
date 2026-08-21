@@ -480,6 +480,13 @@
 
         function resetComposer() {
             form.reset();
+            // form.reset() restores every CONTROL's default value, and a
+            // <details> is not one: without this the poll section stayed
+            // open after publishing, showing a set of freshly emptied
+            // boxes as if a second poll were expected.
+            form.querySelectorAll('details[open]').forEach(function (section) {
+                /** @type {HTMLDetailsElement} */ (section).open = false;
+            });
             resetMedia();
             resetLinkPreview();
             clearComposerError();
@@ -513,22 +520,15 @@
                 if (result.ok && result.data && typeof result.data.html === 'string') {
                     var feed = document.getElementById('groups-feed');
                     if (feed) {
-                        // "Aucun message dans ce groupe pour le moment."
-                        // (show.html.twig) is only in the DOM while the
-                        // group really is empty — the very first message
-                        // published without a reload has to take it away,
-                        // or it stays sitting under the message that has
-                        // just disproved it until the next page load.
-                        var emptyState = document.getElementById('groups-feed-empty');
-                        if (emptyState) {
-                            emptyState.remove();
-                        }
                         // The post just published is the newest thing in
                         // the group — goes at the very top of the
                         // (non-pinned) stream, exactly where a refreshed
                         // page would put it.
                         feed.insertAdjacentHTML('afterbegin', result.data.html);
                         kickOffMediaPolling();
+                        // …which also means the group is no longer empty.
+                        refreshFeedEmptyState();
+                        restoreReplyDrafts();
                     }
                     resetComposer();
                     clearDraft();
@@ -903,6 +903,14 @@
     }
 
     kickOffMediaPolling();
+    restoreReplyDrafts();
+
+    // Tells components.css that the reaction picker may be folded away on
+    // a phone, because there is now something able to unfold it again.
+    // Set here rather than written into the template: a page whose
+    // JavaScript failed to load must keep the picker visible, and the only
+    // honest proof that this file is running is this file running.
+    document.documentElement.classList.add('groups-js');
 
     // A collapsed conversation, opened for the two cases where the reader
     // has already said they want it.
@@ -957,6 +965,160 @@
     // time this runs — see the delegated submit listener below for why
     // that ordering holds. This only decides what a confirmed deletion
     // does: remove the item where it stands instead of reloading.
+    // --- A not-yet-sent COMMENT, cached in this browser and nowhere else.
+    //
+    // The message composer has kept a local draft since the module
+    // shipped, for the case that actually happens: a lost connection or a
+    // refused submit, after which retyping everything is the real cost. A
+    // comment is shorter but exactly as annoying to lose, and its box
+    // sits inside a collapsed thread — close it by accident and, without
+    // this, the text was gone.
+    //
+    // Text only, same as the composer's: an attached image cannot
+    // round-trip through JSON, and re-picking one is not what makes a
+    // retry painful. Stored per (group, post), read from the form's own
+    // data-* attributes; the TTL is the composer's own setting, since it
+    // is the same "how long is a draft still worth restoring" question
+    // (Modules\Groups: groups_draft_ttl_minutes).
+    /**
+     * The prefix is spelled here rather than kept in a `var` above:
+     * restoreReplyDrafts() runs during this file's own evaluation, before
+     * any `var` further down has been ASSIGNED (only its declaration is
+     * hoisted), so a constant declared below would have been `undefined`
+     * at exactly the moment the first restore needs it — which is how
+     * every key came out as "undefined1-9" the first time this was
+     * written.
+     *
+     * @param {HTMLFormElement} form
+     * @return {string|null} null when the form does not identify itself,
+     *         which is the signal to cache nothing rather than to invent a
+     *         key two different posts could share.
+     */
+    function replyDraftKey(form) {
+        var groupId = form.dataset.groupId;
+        var postId = form.dataset.postId;
+
+        return groupId && postId ? 'groups-reply-draft-' + groupId + '-' + postId : null;
+    }
+
+    function replyDraftTtlMinutes() {
+        var composer = /** @type {HTMLFormElement} */ (document.getElementById('groups-post-form'));
+
+        return (composer && parseInt(composer.dataset.draftTtlMinutes, 10)) || 60;
+    }
+
+    /**
+     * @param {HTMLFormElement} form
+     */
+    function saveReplyDraft(form) {
+        var key = replyDraftKey(form);
+        var input = /** @type {HTMLInputElement} */ (form.querySelector('input[name="body"]'));
+        if (!key || !input) {
+            return;
+        }
+        try {
+            if (input.value.trim() === '') {
+                localStorage.removeItem(key);
+            } else {
+                localStorage.setItem(key, JSON.stringify({ body: input.value, savedAt: Date.now() }));
+            }
+        } catch (e) {
+            // Storage full, disabled, or private browsing — the draft is
+            // simply not cached; nothing else here depends on it.
+        }
+    }
+
+    /**
+     * @param {HTMLFormElement} form
+     */
+    function clearReplyDraft(form) {
+        var key = replyDraftKey(form);
+        if (!key) {
+            return;
+        }
+        try {
+            localStorage.removeItem(key);
+        } catch (e) {
+            // Same as above.
+        }
+    }
+
+    // Called on load and again after anything inserts reply boxes ("Charger
+    // plus", "Voir plus de réponses", a freshly published message). Never
+    // overwrites a box that already has something in it: the server's own
+    // rejected_draft (partials/post_card.html.twig) is more specific than
+    // a merely locally-cached one, exactly as in the message composer.
+    function restoreReplyDrafts() {
+        document.querySelectorAll('.groups-reply-form').forEach(function (element) {
+            var form = /** @type {HTMLFormElement} */ (element);
+            var key = replyDraftKey(form);
+            var input = /** @type {HTMLInputElement} */ (form.querySelector('input[name="body"]'));
+            if (!key || !input || input.value.trim() !== '') {
+                return;
+            }
+
+            var raw;
+            try {
+                raw = localStorage.getItem(key);
+            } catch (e) {
+                return;
+            }
+            if (!raw) {
+                return;
+            }
+
+            var draft;
+            try {
+                draft = JSON.parse(raw);
+            } catch (e) {
+                clearReplyDraft(form);
+                return;
+            }
+            if ((Date.now() - draft.savedAt) / 60000 > replyDraftTtlMinutes()) {
+                clearReplyDraft(form);
+                return;
+            }
+
+            input.value = draft.body;
+            // A thread with something waiting to be sent in it is opened,
+            // for the same reason one with a new comment is: a draft
+            // nobody is shown is a draft nobody finishes.
+            var thread = /** @type {HTMLDetailsElement} */ (form.closest('.groups-thread'));
+            if (thread) {
+                thread.open = true;
+            }
+        });
+    }
+
+    var replyDraftTimers = new WeakMap();
+
+    // Delegated, because reply boxes arrive with content inserted long
+    // after load — the same reason every other handler in this file is.
+    document.addEventListener('input', function (event) {
+        var input = /** @type {HTMLInputElement} */ (
+            /** @type {HTMLElement} */ (event.target).closest('.groups-reply-form input[name="body"]')
+        );
+        if (!input) {
+            return;
+        }
+        var form = /** @type {HTMLFormElement} */ (input.closest('.groups-reply-form'));
+        clearTimeout(replyDraftTimers.get(form));
+        replyDraftTimers.set(form, setTimeout(function () { saveReplyDraft(form); }, 500));
+    });
+
+    // "Aucun message dans ce groupe pour le moment." — shown exactly while
+    // the group really is empty, as messages come and go without a reload.
+    // The line is rendered by show.html.twig and only toggled here, so the
+    // sentence lives in one place; every post card carries an id starting
+    // "post-", which is what counts as a message whether it sits in the
+    // stream or in the pinned block above it.
+    function refreshFeedEmptyState() {
+        var line = document.getElementById('groups-feed-empty');
+        if (line) {
+            line.classList.toggle('d-none', document.querySelectorAll('article[id^="post-"]').length > 0);
+        }
+    }
+
     // A message's collapsed conversation (partials/post_card.html.twig's
     // <details>): keeping the "3 commentaires" line honest as comments are
     // added and removed without a reload. The number lives in data-count
@@ -1006,9 +1168,12 @@
             if (response.ok && container) {
                 container.remove();
                 // Only a reply changes a thread's count — deleting the
-                // post takes the whole thread with it.
+                // post takes the whole thread with it, and may have just
+                // emptied the group.
                 if (removeSelector === '.groups-reply') {
                     adjustThreadCount(thread, -1);
+                } else {
+                    refreshFeedEmptyState();
                 }
             } else {
                 form.submit();
@@ -1252,11 +1417,25 @@
             }).then(function (result) {
                 if (result.ok && result.data && typeof result.data.html === 'string') {
                     if (repliesContainer) {
+                        // At the very end, after the "Voir plus de
+                        // réponses" button when there is one — and that is
+                        // deliberate, not an oversight. Comments are shown
+                        // oldest first and that button loads the ones
+                        // BETWEEN what is on screen and this new one, so
+                        // slipping it in above the button would place it
+                        // before comments written before it. Loading the
+                        // rest folds it back into place; scrolling to it
+                        // is what answers "where did mine go?" meanwhile.
                         repliesContainer.insertAdjacentHTML('beforeend', result.data.html);
+                        var posted = repliesContainer.lastElementChild;
+                        if (posted && typeof posted.scrollIntoView === 'function') {
+                            posted.scrollIntoView({ block: 'nearest' });
+                        }
                         kickOffMediaPolling();
                     }
                     adjustThreadCount(replyForm, 1);
                     replyForm.reset();
+                    clearReplyDraft(replyForm);
                     var replyImageName = replyForm.querySelector('.groups-reply-image-name');
                     if (replyImageName) {
                         replyImageName.textContent = '';
@@ -1388,6 +1567,7 @@
             wrapper.insertAdjacentHTML('beforebegin', await response.text());
             wrapper.remove();
             kickOffMediaPolling();
+            restoreReplyDrafts();
         } else {
             button.disabled = false;
         }
@@ -1439,6 +1619,17 @@
         var mediaCell = /** @type {HTMLElement} */ (target.closest('.groups-media-cell.gallery-lightbox-trigger'));
         if (mediaCell && mediaCell.dataset.mediumUrl && document.getElementById('gallery-lightbox')) {
             event.preventDefault();
+            return;
+        }
+
+        // "Réagir" on a phone: reveals the six emoji in place of itself.
+        // One-way on purpose — the next thing the member does is pick one,
+        // and reacting re-renders the whole block closed again anyway
+        // (Controller\ReactionController answers with a fresh fragment).
+        var reactionToggle = /** @type {HTMLElement} */ (target.closest('.groups-reaction-toggle'));
+        if (reactionToggle) {
+            reactionToggle.setAttribute('aria-expanded', 'true');
+            reactionToggle.closest('.groups-reactions')?.classList.add('groups-reactions-open');
             return;
         }
 
