@@ -1998,7 +1998,35 @@ if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
+// Virtual-event providers (Modules\Calendar\Api\
+// VirtualEventProviderInterface, ARCHITECTURE.md §7.6) — the "a module
+// extended by another module" direction, which is neither §7.4 (core
+// extended by a module) nor §7.5 (a module consuming another's read API).
+//
+// **This is where the rental ↔ calendar circularity is broken.** `rental`
+// consumes `calendar` (it needs the list of calendars to publish onto) and
+// `calendar` consumes `rental` (the provider), so neither can be built
+// after the other. The registry is created EMPTY here, handed to the
+// calendar's controllers below, and appended to from the rental block
+// further down — the controllers hold the registry object rather than a
+// snapshot of its contents, so a provider registered later still reaches
+// them. Same shape as $fileOwnershipCheckers, one level up.
+//
+// Null when `calendar` is disabled: rental then has nothing to publish
+// onto and never builds a provider, which is the clean degradation in that
+// direction.
+$calendarVirtualEventRegistry = null;
+
+// The two calendar collaborators other modules consume, seeded null and
+// assigned inside the block below — same convention as
+// $financeExpectedReceivableForOthers above. Declaring them here rather
+// than reaching for $calendarService from inside another module's block is
+// what keeps every consumer provably defined.
+$calendarServiceForOthers = null;
+$calendarIcsBuilderForOthers = null;
+
 if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
+    $calendarVirtualEventRegistry = new \Modules\Calendar\Service\VirtualEventRegistry();
     $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService);
     $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
     $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository($pdo, $encryptionService);
@@ -2029,11 +2057,14 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
     $monthGridBuilder = new \Core\View\MonthGrid\MonthGridBuilder();
     $calendarIcsBuilder = new \Modules\Calendar\Service\IcsBuilder();
 
+    $calendarServiceForOthers = $calendarService;
+    $calendarIcsBuilderForOthers = $calendarIcsBuilder;
+
     $frontController->registerController(
         \Modules\Calendar\Controller\CalendarPublicController::class,
         new \Modules\Calendar\Controller\CalendarPublicController(
             $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarPersonalFeedService,
-            $calendarIcsBuilder, $scoutYearResolver, $journalService
+            $calendarIcsBuilder, $scoutYearResolver, $journalService, $calendarVirtualEventRegistry
         )
     );
     $frontController->registerController(
@@ -3327,6 +3358,22 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     // declares no `offline` section, so none of these pages is ever
     // whitelisted for offline caching — they are write pages, and the
     // offline layer caches reads (§6.23).
+    // Calendar publication (§6.30, §6.31). The other half of the circular
+    // dependency: the registry was created empty in the calendar block
+    // above, and the provider is appended to it here. Both directions
+    // degrade on their own — with `calendar` off the registry is null and
+    // no provider is built; with `rental` off the registry simply has one
+    // fewer entry.
+    if ($calendarVirtualEventRegistry !== null) {
+        $calendarVirtualEventRegistry->register(new \Modules\Rental\Calendar\RentalVirtualEventProvider(
+            $rentalAssetRepository,
+            $rentalBookingRepository,
+            $rentalBlockRepository,
+            $rentalAuthorizationService,
+            (string) ($settingService->get('base_url') ?: '')
+        ));
+    }
+
     $rentalStayRepository = new \Modules\Rental\Repository\RentalStayRepository($pdo, $encryptionService);
     $rentalStayService = new \Modules\Rental\Service\RentalStayService(
         $rentalStayRepository,
@@ -3362,7 +3409,11 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             $rentalChangeRequestRepository, $rentalOperationsService, $rentalBlockService,
             $rentalAvailabilityService, $rentalPricingService, $memberService,
             new \Core\View\MonthGrid\DayStateGridBuilder(), $rentalPaymentService,
-            $rentalDocumentService, $rentalBookingMailService, $uploadHandler, $rentalStayService
+            $rentalDocumentService, $rentalBookingMailService, $uploadHandler, $rentalStayService,
+            // `rental` consuming `calendar` — the other direction of the
+            // same circularity, and a nullable dependency like every other
+            // cross-module one.
+            $calendarServiceForOthers
         )
     );
     $frontController->registerController(
@@ -3372,7 +3423,14 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             $rentalPricingService,
             $rentalBookingMailService,
             $rentalManagerService, $memberService, $scoutYearService, $editableContentService,
-            $humanCheckService, $settingService, $rentalOperationsService, $rentalChangeRequestRepository
+            $humanCheckService, $settingService, $rentalOperationsService, $rentalChangeRequestRepository,
+            // The renter's own ICS feed (§6.32): only the generator is
+            // borrowed from `calendar`, never a calendar row. Without the
+            // module the link simply is not offered.
+            $calendarIcsBuilderForOthers,
+            $calendarIcsBuilderForOthers !== null
+                ? new \Modules\Rental\Calendar\RenterFeedBuilder((string) ($settingService->get('base_url') ?: ''))
+                : null
         )
     );
 

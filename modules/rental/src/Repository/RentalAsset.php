@@ -38,7 +38,12 @@ final class RentalAsset
          * is not a VAT-registered business in the general case — but a
          * Belgian invoice with no VAT on it has to say why.
          */
-        public readonly ?string $vatExemptionNote = null
+        public readonly ?string $vatExemptionNote = null,
+        /** §6.30 — occupancy published as virtual calendar events, never stored ones. */
+        public readonly bool $calendarPublicationEnabled = false,
+        public readonly ?int $calendarId = null,
+        public readonly \Modules\Rental\Calendar\PublishFrom $calendarPublishFrom
+            = \Modules\Rental\Calendar\PublishFrom::CONFIRMATION
     ) {
     }
 

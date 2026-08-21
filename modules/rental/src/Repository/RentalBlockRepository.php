@@ -100,6 +100,31 @@ class RentalBlockRepository implements OccupancyProvider
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
+    /**
+     * Blocks on **several** assets overlapping a window, in ONE query —
+     * the calendar provider's entry point, same reasoning as
+     * `RentalBookingRepository::findForAssetsBetween()` (§6.31).
+     *
+     * @param int[] $assetIds
+     * @return RentalBlock[]
+     */
+    public function findForAssetsBetween(array $assetIds, string $from, string $to): array
+    {
+        if ($assetIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($assetIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM rental_blocks
+             WHERE asset_id IN ({$placeholders}) AND start_date <= ? AND end_date >= ?
+             ORDER BY start_date ASC, id ASC"
+        );
+        $stmt->execute([...array_values($assetIds), $to, $from]);
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
     public function delete(int $id): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM rental_blocks WHERE id = ?');

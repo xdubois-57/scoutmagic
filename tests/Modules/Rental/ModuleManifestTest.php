@@ -41,7 +41,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.7.0', $this->manifest->version);
+        $this->assertSame('1.8.0', $this->manifest->version);
     }
 
     /**
@@ -76,6 +76,7 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/incident-decision',
             '/mes-locations/decompte',
             '/mes-locations/decompte-valider',
+            '/mes-locations/calendrier-publication',
             '/locations/suivi/{id}/{token}/demande',
             '/locations/suivi/{id}/{token}/reponse',
             '/admin/locations/payments',

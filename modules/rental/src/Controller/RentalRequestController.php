@@ -29,6 +29,8 @@ use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalBookingService;
+use Modules\Calendar\Service\IcsBuilder;
+use Modules\Rental\Calendar\RenterFeedBuilder;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalManagerService;
@@ -73,9 +75,65 @@ class RentalRequestController extends AbstractController
         private HumanCheckService $humanCheckService,
         private SettingService $settingService,
         private RentalOperationsService $operationsService,
-        private RentalChangeRequestRepository $changeRequestRepository
+        private RentalChangeRequestRepository $changeRequestRepository,
+        /**
+         * Optional (§6.32): null without the `calendar` module, in which
+         * case the renter's page simply offers no ICS link. Only the ICS
+         * generator is borrowed — no calendar row is ever involved.
+         */
+        private ?IcsBuilder $icsBuilder = null,
+        private ?RenterFeedBuilder $renterFeedBuilder = null
     ) {
         parent::__construct($twig);
+    }
+
+    /**
+     * GET /locations/suivi/{id}/{token}/calendrier.ics — the renter's own
+     * feed (§6.32).
+     *
+     * **Nothing is stored and `FileAccessGuard` is not involved**: this is
+     * not a file, it is a document generated from the booking on request.
+     * The capability token is the same one that opens their page, verified
+     * the same way, and it grants exactly this one booking.
+     *
+     * A cancelled booking produces a **cancelled event, not an error** — a
+     * renter who subscribed needs the entry to disappear from their phone,
+     * which only happens if the feed keeps saying it is off.
+     *
+     * @param array<string, string> $params
+     */
+    public function renterFeed(Request $request, array $params): Response
+    {
+        if ($this->icsBuilder === null || $this->renterFeedBuilder === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $token = (string) ($params['token'] ?? '');
+        $booking = $this->bookingService->findByTrackingToken((int) ($params['id'] ?? 0), $token);
+        if ($booking === null) {
+            // The same answer as a wrong token anywhere else in this
+            // controller: never an oracle for which references exist.
+            return new Response('Not Found', 404);
+        }
+
+        $asset = $this->assetRepository->findById($booking->assetId);
+        if ($asset === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
+        $event = $this->renterFeedBuilder->build(
+            $booking,
+            $asset,
+            $token,
+            $this->managerService->listRenterContactsForAsset($asset->id, $scoutYearId)
+        );
+
+        return (new Response(
+            $this->icsBuilder->build($this->renterFeedBuilder->calendarName($booking), [], [$event])
+        ))
+            ->setHeader('Content-Type', 'text/calendar; charset=utf-8')
+            ->setHeader('Content-Disposition', 'attachment; filename="location.ics"');
     }
 
     /**
@@ -263,6 +321,9 @@ class RentalRequestController extends AbstractController
             // carries the capability. It is already in the address bar; it
             // is never journaled and never leaves this page.
             'tracking_token' => (string) ($params['token'] ?? ''),
+            // Offered only when the calendar module is there to render it
+            // (§6.32); its absence simply hides the link.
+            'ics_available' => $this->icsBuilder !== null && $this->renterFeedBuilder !== null,
             'csrf_token' => CsrfGuard::generateToken(),
             'breadcrumb_current' => $booking->reference,
         ]);

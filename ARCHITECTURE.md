@@ -238,6 +238,26 @@ The reverse direction: a module that offers a capability other code may want to 
 
 **One wiring wrinkle worth knowing about**, visible in `Modules\Groups\Service\PostEventService` (groups optionally consuming `Modules\Calendar\Api\CalendarEventLookupInterface`, to let a post name the event it is about): `public/index.php` is a straight-line script, and the calendar's own lookup is only assembled in a *second* calendar block near the end of the file, after `retro` (calendar's `CalendarService` takes retro's link lookup, and retro's block runs after groups'). Groups' block therefore registers its controllers once without the event service, and that final calendar block re-registers exactly two of them — `GroupController` and `PostController` — with it, the same re-registration precedent `PageController` already follows for the homepage hooks (§7.4). Nothing else changes: with `calendar` disabled the second registration never happens, the first one stands, and every affected surface degrades to "no event" — a post keeps a `calendar_event_id` that resolves to nothing, and the composer does not offer the picker at all. `modules/groups/schema.sql` deliberately puts **no foreign key** on that column for exactly this reason.
 
+### 7.6 A module extended by another module
+
+The third direction, and the one §7.4 and §7.5 between them do not cover: not core extended by a module, and not one module *using* another's capability, but a module whose own output another module **contributes to**. `calendar` renders a calendar; `rental` has occupancy that belongs on it. Neither owns the other's data, and the calendar must keep working with `rental` disabled exactly as `rental` must keep working with `calendar` disabled.
+
+The pattern is a **mutable registry**, owned by the extended module, published under its `Api` namespace alongside the interface providers implement:
+
+- The extended module (`calendar`) defines the contribution interface (`Modules\Calendar\Api\VirtualEventProviderInterface`), the value object it returns (`Api\VirtualEvent`), and the resolved-viewer object it is handed (`Api\VirtualEventViewer`). None of these ever names a contributing module — if they did, disabling the contributor would break the extended module at autoload time rather than merely leaving it with one fewer source.
+- The extended module also owns the registry (`Service\VirtualEventRegistry`) and hands **the object, not a snapshot of its contents**, to its own controllers.
+- The composition root creates the registry inside the extended module's block, and the contributing module's block — which runs later in the straight-line script — appends its provider to that same object. A provider registered after the controllers were constructed still reaches them.
+
+That ordering is what breaks what would otherwise be a construction cycle. Both halves are guarded the way §7.5 guards every optional dependency: the registry variable is seeded `null` before the extended module's block, so the contributor's block guards on `!== null` rather than assuming it exists, and the contributor's own consumption of the extended module (here, `rental` borrowing `CalendarService` and `IcsBuilder`) goes through the same null-seeded `…ForOthers` handles every other cross-module dependency uses.
+
+**Three rules a contribution interface should impose, and this one does:**
+
+1. **One call per window, never one per entity or per day.** A month view carries dozens of bars and a feed hundreds; a provider is asked once for a date range and answers with everything in it.
+2. **Rights are resolved once per generation**, at the top of the provider, and handed in as a single resolved viewer object rather than re-derived per item.
+3. **Build only what the viewer may see.** The privacy decision belongs *before* serialisation, in separate builders rather than one builder with a flag — a field that is never constructed cannot leak through a template, a JSON payload, a tooltip or an ICS line.
+
+`VirtualEventRegistry::collect()` swallows a provider's exception rather than propagating it: one contributing module in trouble must not take the calendar down. It also deduplicates by UID, so the same underlying thing reaching a reader through two subscribed calendars is one event rather than two — which is only possible because the contract requires a **stable, provider-owned UID** rather than a generated one.
+
 ## 8. Core services
 
 ### 8.1 Desk CSV import
@@ -1208,6 +1228,20 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 **A settlement version is immutable once validated**, and versions come from a forward-only counter on the booking — never `MAX(version)` over the surviving rows, since a deleted v2 must not make the next settlement v2 again. Validation is a compare-and-set on `is_validated = 0`, so a second validation is refused rather than silently re-stamping a document somebody may already have acted on. Correcting a validated settlement means a new version beside it. The balance is **signed**: an overpayment is a real outcome, and flooring it at zero is how a refund nobody knows about happens.
 
 **None of these pages is ever cached for offline use** (§6.23). The module declares no `offline` section at all, so nothing is whitelisted — and a manifest test pins that, because these are *write* pages and the offline layer caches reads. A cached inventory form would let a manager fill it in in a cellar with no signal and lose the lot on the way home. The workaround is documented on the page itself: photograph on site, type it up on return. Photo uploads go through `UploadHandler` with an images-only MIME list, which matters more here than anywhere else in the module — a phone photograph taken inside somebody's rented hall carries GPS coordinates, and `UploadHandler` strips them.
+
+### 8.57 Publishing rental occupancy onto the calendar (`Modules\Rental\Calendar`)
+
+**Nothing is ever written to `calendar_events`.** Occupancy is computed from the bookings on every generation (`RentalVirtualEventProvider`, the §7.6 pattern), so the booking stays the single source of truth and the two can never disagree. A copied event would survive a cancellation, a date change and the deletion of the booking itself; a computed one cannot. Turning publication off for an asset removes its occupancy from the calendar with no cleanup pass and no orphans.
+
+**The privacy rule is not configurable, and it is applied before anything is serialised.** An ordinary reader — member, parent, anonymous visitor — gets `Local Saint-Georges — loué` and nothing else, deliberately indistinguishable in kind from a manual block (`— indisponible`), since why the unit cannot let its hall is nobody else's business (§6.7). Only a manager of *that* asset, or the Staff d'U, gets the organisation, the head count, the contact and the management link. That distinction lives in two separate builders rather than one builder with a flag, precisely so no "detailed version" object exists for a template, a JSON payload, a tooltip or an ICS line to leak — and the tests assert on what is absent from the object, not on what a template happened to render. Manager rights are re-resolved on every generation, so a revoked grant stops showing the detail on the next fetch rather than on the next token rotation.
+
+**Per asset, two settings and no more**: which calendar to publish onto, and whether occupancy appears from confirmation or already from the hold. Publishing from the hold tells the unit's own people the hall is spoken for while a request is still being negotiated; publishing from confirmation keeps a request that may yet lapse off everyone's calendar. A lapsed hold stops being published by itself — the setting is evaluated against the booking's current state, never stamped onto it.
+
+**A cancelled booking is published as cancelled, never omitted.** `STATUS:CANCELLED` with a bumped `SEQUENCE` is what makes a subscriber's client remove it; dropping it from the feed leaves it in their calendar forever. The one exception is a request refused before it was ever published — announcing its cancellation would announce its existence.
+
+**The renter's own feed enriches nothing and duplicates nothing.** It is a one-event calendar served by the tracking token (`RenterFeedBuilder`), carrying dates, asset, and the contacts the unit chose to expose — never a price. It shares the booking's UID with the calendar's own rendering, so a renter who is somehow subscribed to both ends up with one event. For the unit's own people there is likewise **no second personal feed**: `PersonalFeedService` gained virtual events on the existing one, because two feeds would mean two links to subscribe to and two chances to hold the same booking twice.
+
+**Both directions of the circularity degrade on their own** and are tested that way (`Tests\Modules\Rental\Calendar\RentalCalendarWiringTest`): with `calendar` off the registry is null, no provider is built, the per-asset publication form is not offered and the renter's ICS link is not shown; with `rental` off the registry simply has one fewer entry and every calendar feed is an ordinary, complete `VCALENDAR`.
 
 ## 9. Installation / bootstrap
 

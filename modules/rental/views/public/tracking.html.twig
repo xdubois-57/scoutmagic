@@ -190,6 +190,18 @@
             </div>
         {% endif %}
 
+        {% if ics_available %}
+            <p class="mb-4">
+                <a href="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/calendrier.ics"
+                   class="btn btn-sm btn-outline-secondary">
+                    Ajouter à mon agenda (.ics)
+                </a>
+                <span class="form-text d-block">
+                    Ce lien contient votre code d'accès : ne le partagez qu'avec les personnes concernées.
+                </span>
+            </p>
+        {% endif %}
+
         {% if renter_contacts is not empty or emergency_phone %}
             <div class="card">
                 <div class="card-body">

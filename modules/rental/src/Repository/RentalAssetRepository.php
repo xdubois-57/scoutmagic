@@ -278,6 +278,53 @@ class RentalAssetRepository
     }
 
     /**
+     * The asset's calendar publication settings (§6.30).
+     *
+     * Its own tiny write, like the VAT note: every section of the
+     * configuration screen saves independently, and this one belongs with
+     * the calendar rather than with the asset's general details.
+     */
+    public function saveCalendarPublication(
+        int $assetId,
+        bool $enabled,
+        ?int $calendarId,
+        \Modules\Rental\Calendar\PublishFrom $publishFrom
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_assets SET calendar_publication_enabled = ?, calendar_id = ?,
+                                      calendar_publish_from = ?, updated_at = ?
+             WHERE id = ?'
+        );
+        $stmt->execute([
+            $enabled && $calendarId !== null ? 1 : 0,
+            $calendarId,
+            $publishFrom->value,
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $assetId,
+        ]);
+    }
+
+    /**
+     * Every asset publishing onto a calendar, in one query.
+     *
+     * The provider's entry point (§6.31): one call for a whole window,
+     * never one per asset. Archived assets are included — a stay that
+     * happened last year is still on the calendar of last year.
+     *
+     * @return RentalAsset[]
+     */
+    public function findPublishingToCalendar(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT * FROM rental_assets
+             WHERE calendar_publication_enabled = 1 AND calendar_id IS NOT NULL
+             ORDER BY name ASC'
+        );
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt === false ? [] : $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): RentalAsset
@@ -299,7 +346,12 @@ class RentalAssetRepository
             isArchived: (bool) $row['is_archived'],
             isPublic: (bool) $row['is_public'],
             showInMenu: (bool) $row['show_in_menu'],
-            vatExemptionNote: isset($row['vat_exemption_note']) ? (string) $row['vat_exemption_note'] : null
+            vatExemptionNote: isset($row['vat_exemption_note']) ? (string) $row['vat_exemption_note'] : null,
+            calendarPublicationEnabled: (bool) ($row['calendar_publication_enabled'] ?? false),
+            calendarId: isset($row['calendar_id']) ? (int) $row['calendar_id'] : null,
+            calendarPublishFrom: \Modules\Rental\Calendar\PublishFrom::tryFrom(
+                (string) ($row['calendar_publish_from'] ?? '')
+            ) ?? \Modules\Rental\Calendar\PublishFrom::CONFIRMATION
         );
     }
 }

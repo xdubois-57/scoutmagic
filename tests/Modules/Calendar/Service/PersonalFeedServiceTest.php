@@ -19,7 +19,11 @@ use Modules\Calendar\Repository\CalendarPersonalTokenRepository;
 use Modules\Calendar\Repository\CalendarRepository;
 use Modules\Calendar\Repository\CalendarUnitFeedTokenRepository;
 use Modules\Calendar\Service\CalendarService;
+use Modules\Calendar\Api\VirtualEvent;
+use Modules\Calendar\Api\VirtualEventProviderInterface;
+use Modules\Calendar\Api\VirtualEventViewer;
 use Modules\Calendar\Service\PersonalFeedService;
+use Modules\Calendar\Service\VirtualEventRegistry;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Calendar\CalendarTestHelper;
@@ -401,5 +405,149 @@ class PersonalFeedServiceTest extends TestCase
         $this->assertNotSame($oldToken, $newToken);
         $this->assertNull($this->tokenRepository->findUserAccountIdByToken($oldToken));
         $this->assertSame($userAccountId, $this->tokenRepository->findUserAccountIdByToken($newToken));
+    }
+
+    // ── Virtual events on the personal feed (§6.32) ─────────────────────
+
+    public function testWithoutARegistryThePersonalFeedCarriesNoVirtualEvents(): void
+    {
+        // The `rental`-disabled direction, seen from here: no registry at
+        // all, and the personal feed is simply the stored events.
+        $userAccountId = $this->createUserAccount('x@test.be');
+        $token = $this->service->getOrCreateToken($userAccountId);
+
+        $this->assertSame([], $this->service->getVirtualEventsForToken($token, $this->scoutYearId, null));
+    }
+
+    public function testARegistryWithNoProvidersCostsNothing(): void
+    {
+        $userAccountId = $this->createUserAccount('x@test.be');
+        $token = $this->service->getOrCreateToken($userAccountId);
+
+        $this->assertSame(
+            [],
+            $this->service->getVirtualEventsForToken($token, $this->scoutYearId, new VirtualEventRegistry())
+        );
+    }
+
+    public function testAnUnknownTokenYieldsNoVirtualEventsAndNeverReachesAProvider(): void
+    {
+        $registry = new VirtualEventRegistry();
+        $provider = $this->capturingProvider([$this->virtualEvent('rental-booking-1@scoutmagic')]);
+        $registry->register($provider);
+
+        $this->assertSame([], $this->service->getVirtualEventsForToken('nope', $this->scoutYearId, $registry));
+        $this->assertNull($provider->lastViewer, 'An unknown token must not even resolve a viewer.');
+    }
+
+    public function testAProvidersEventsEnrichTheExistingPersonalFeed(): void
+    {
+        $userAccountId = $this->createUserAccount('x@test.be');
+        $token = $this->service->getOrCreateToken($userAccountId);
+
+        $registry = new VirtualEventRegistry();
+        $registry->register($this->capturingProvider([$this->virtualEvent('rental-booking-1@scoutmagic')]));
+
+        $events = $this->service->getVirtualEventsForToken($token, $this->scoutYearId, $registry);
+
+        $this->assertCount(1, $events);
+        $this->assertSame('rental-booking-1@scoutmagic', $events[0]->uid);
+    }
+
+    public function testTheSameBookingReachingTheReaderTwiceIsStillOneEvent(): void
+    {
+        // Two providers (or one provider reached through two subscribed
+        // calendars) must not put the same stay in the reader's calendar
+        // twice — the stable UID is what makes that a deduplication rather
+        // than a duplicate (§6.32).
+        $userAccountId = $this->createUserAccount('x@test.be');
+        $token = $this->service->getOrCreateToken($userAccountId);
+
+        $registry = new VirtualEventRegistry();
+        $registry->register($this->capturingProvider([$this->virtualEvent('rental-booking-1@scoutmagic')], 'one'));
+        $registry->register($this->capturingProvider([$this->virtualEvent('rental-booking-1@scoutmagic')], 'two'));
+
+        $this->assertCount(1, $this->service->getVirtualEventsForToken($token, $this->scoutYearId, $registry));
+    }
+
+    public function testTheViewerHandedToProvidersIsResolvedAtGenerationTimeNotAtTokenIssue(): void
+    {
+        // A token issued while the reader was a chef must not keep granting
+        // a chef's view after the function is gone. The rights behind the
+        // feed are recomputed on every fetch, so the SAME token yields a
+        // different viewer once the member row is deactivated.
+        $email = 'chef@test.be';
+        $sectionId = $this->createSection('BAL01', 'Renards');
+        $branchId = (int) $this->pdo->query("SELECT age_branch_id FROM sections WHERE id = {$sectionId}")->fetchColumn();
+        $this->createMemberWithFunction($email, $sectionId, $branchId, 'chief');
+        $this->calendarService->ensureSectionCalendars();
+
+        $token = $this->service->getOrCreateToken($this->createUserAccount($email));
+
+        $registry = new VirtualEventRegistry();
+        $provider = $this->capturingProvider([]);
+        $registry->register($provider);
+
+        $this->service->getVirtualEventsForToken($token, $this->scoutYearId, $registry);
+        $whileChief = $provider->lastViewer;
+        $this->assertNotNull($whileChief);
+        $this->assertSame($email, $whileChief->email);
+        $this->assertNotSame([], $whileChief->calendarIds);
+
+        $this->pdo->exec('UPDATE member_years SET is_active = 0');
+
+        $this->service->getVirtualEventsForToken($token, $this->scoutYearId, $registry);
+        $afterRevocation = $provider->lastViewer;
+        $this->assertNotNull($afterRevocation);
+        $this->assertSame([], $afterRevocation->calendarIds);
+        $this->assertNotSame($whileChief->role, $afterRevocation->role);
+    }
+
+    // ── Fixtures ────────────────────────────────────────────────────────
+
+    /**
+     * A provider that records the viewer it was handed, so the tests above
+     * can assert on rights resolution rather than only on output.
+     *
+     * @param VirtualEvent[] $events
+     */
+    private function capturingProvider(array $events, string $id = 'fake'): VirtualEventProviderInterface
+    {
+        return new class ($events, $id) implements VirtualEventProviderInterface {
+            public ?VirtualEventViewer $lastViewer = null;
+
+            /**
+             * @param VirtualEvent[] $events
+             */
+            public function __construct(private array $events, private string $id)
+            {
+            }
+
+            public function providerId(): string
+            {
+                return $this->id;
+            }
+
+            public function findVirtualEvents(
+                \DateTimeImmutable $windowStart,
+                \DateTimeImmutable $windowEnd,
+                VirtualEventViewer $viewer
+            ): array {
+                $this->lastViewer = $viewer;
+
+                return $this->events;
+            }
+        };
+    }
+
+    private function virtualEvent(string $uid): VirtualEvent
+    {
+        return new VirtualEvent(
+            uid: $uid,
+            calendarId: 1,
+            title: 'Occupation',
+            startDate: '2026-03-15',
+            endDate: '2026-03-17'
+        );
     }
 }
