@@ -27,7 +27,11 @@ use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAssetService;
 use Modules\Rental\Service\RentalAuthorizationService;
+use Core\View\MonthGrid\DayStateGridBuilder;
+use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Pricing\RentalPricingEngine;
+use Modules\Rental\Repository\RentalConstraintsRepository;
+use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Repository\RentalPricingRepository;
 use Modules\Rental\Service\RentalManagerService;
 use Modules\Rental\Service\RentalPricingService;
@@ -112,6 +116,7 @@ class RentalRbacTest extends TestCase
             $journalService
         );
         $managerService = new RentalManagerService($this->managerRepository, $memberService, $journalService);
+        $availabilityService = $this->availabilityServiceFor();
         $pricingService = new RentalPricingService(
             new RentalPricingRepository($this->pdo),
             new RentalPricingEngine(),
@@ -140,7 +145,8 @@ class RentalRbacTest extends TestCase
             $memberService,
             $scoutYearService,
             $settingService,
-            $pricingService
+            $pricingService,
+            $availabilityService
         );
         $this->managementController = new RentalManagementController(
             $this->twig,
@@ -151,7 +157,10 @@ class RentalRbacTest extends TestCase
             $this->twig,
             $this->assetRepository,
             $authorizationService,
-            $scoutYearService
+            $scoutYearService,
+            $availabilityService,
+            $pricingService,
+            new DayStateGridBuilder()
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -167,6 +176,26 @@ class RentalRbacTest extends TestCase
     private function createAsset(string $name, string $slug, bool $isPublic = true): int
     {
         return $this->assetRepository->create('Local', $name, $slug, null, 1, null, null, null, $isPublic, false);
+    }
+
+    private function pricingServiceFor(): RentalPricingService
+    {
+        return new RentalPricingService(
+            new RentalPricingRepository($this->pdo),
+            new RentalPricingEngine(),
+            new JournalService(new JournalRepository($this->pdo))
+        );
+    }
+
+    private function availabilityServiceFor(): RentalAvailabilityService
+    {
+        return new RentalAvailabilityService(
+            new AvailabilityCalculator(),
+            new RentalConstraintsRepository($this->pdo),
+            // No occupancy providers: bookings and manual blocks arrive in
+            // later iterations, so every asset reads as entirely free here.
+            []
+        );
     }
 
     /**
@@ -195,11 +224,8 @@ class RentalRbacTest extends TestCase
             RentalManagementController::class => $this->managementController,
             \Modules\Rental\Controller\RentalPricingController::class => new \Modules\Rental\Controller\RentalPricingController(
                 $this->twig,
-                new RentalPricingService(
-                    new RentalPricingRepository($this->pdo),
-                    new RentalPricingEngine(),
-                    new JournalService(new JournalRepository($this->pdo))
-                )
+                $this->pricingServiceFor(),
+                $this->availabilityServiceFor()
             ),
             default => $this->publicController,
         });
@@ -329,6 +355,184 @@ class RentalRbacTest extends TestCase
         $response = $this->dispatchPublicAsset('local-prive');
 
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    // ── The public calendar (§6.7) ──────────────────────────────────────
+
+    public function testThePublicPageRendersAnAvailabilityCalendar(): void
+    {
+        $this->createAsset('Local Saint-Georges', 'local-saint-georges');
+
+        $body = (string) $this->dispatchPublicAsset('local-saint-georges')->getBody();
+
+        $this->assertStringContainsString('daygrid', $body);
+        $this->assertStringContainsString('data-date=', $body);
+        $this->assertStringContainsString('Lun', $body, 'The grid is Monday-first.');
+        $this->assertStringContainsString('id="rental-calendar"', $body);
+    }
+
+    public function testTheCalendarCannotBePagedIntoThePastEvenViaTheQueryString(): void
+    {
+        // §6.7: a visitor can never go into the past. Clamping in the
+        // controller — not just hiding the arrow — is what makes that true,
+        // since the month is a query parameter.
+        $this->createAsset('Local', 'local');
+        $currentMonth = (new \DateTimeImmutable('today'))->format('Y-m');
+
+        $response = $this->dispatch(
+            '/locations/{slug}',
+            '/locations/local',
+            RentalPublicController::class,
+            'show',
+            'public',
+            ['month' => '2020-01']
+        );
+        $body = (string) $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('data-month="' . $currentMonth . '"', $body);
+        $this->assertStringNotContainsString('data-month="2020-01"', $body);
+    }
+
+    public function testThePreviousMonthArrowIsDisabledAtTheCurrentMonth(): void
+    {
+        $this->createAsset('Local', 'local');
+
+        $body = (string) $this->dispatchPublicAsset('local')->getBody();
+
+        // Disabled rather than absent: the greyed arrow says "you cannot go
+        // back" instead of leaving the visitor hunting for a missing control.
+        $this->assertStringContainsString('Mois précédent (indisponible)', $body);
+    }
+
+    public function testAFutureMonthCanBeReachedAndOffersAWayBack(): void
+    {
+        $this->createAsset('Local', 'local');
+        $nextMonth = (new \DateTimeImmutable('first day of next month'))->format('Y-m');
+
+        $body = (string) $this->dispatch(
+            '/locations/{slug}',
+            '/locations/local',
+            RentalPublicController::class,
+            'show',
+            'public',
+            ['month' => $nextMonth]
+        )->getBody();
+
+        $this->assertStringContainsString('data-month="' . $nextMonth . '"', $body);
+        $this->assertStringContainsString('aria-label="Mois précédent"', $body);
+    }
+
+    public function testTheCalendarExplainsTheNightsOrDaysConsequence(): void
+    {
+        // §6.8's explanatory text, on the public page too — a visitor needs
+        // to know whether the departure day is theirs.
+        $assetId = $this->createAsset('Local', 'local');
+        $this->pricingServiceFor()->saveAssetPricing($assetId, 'per_night', 8000, null, null);
+
+        $body = (string) $this->dispatchPublicAsset('local')->getBody();
+
+        $this->assertStringContainsString('jour de départ reste disponible', $body);
+    }
+
+    public function testSelectingARangeProducesAPriceEstimateFromTheSameEngine(): void
+    {
+        // The iteration's acceptance criterion: a visitor picks a valid range
+        // and gets a correct estimate, without sending a request yet.
+        $assetId = $this->createAsset('Local', 'local');
+        $this->pricingServiceFor()->saveAssetPricing($assetId, 'per_person_night', 250, null, null);
+
+        $arrival = (new \DateTimeImmutable('today'))->modify('+30 days');
+        $departure = $arrival->modify('+3 days');
+
+        $body = (string) $this->dispatch(
+            '/locations/{slug}',
+            '/locations/local',
+            RentalPublicController::class,
+            'show',
+            'public',
+            [
+                'arrival' => $arrival->format('Y-m-d'),
+                'departure' => $departure->format('Y-m-d'),
+                'persons' => '20',
+                'month' => $arrival->format('Y-m'),
+            ]
+        )->getBody();
+
+        // 20 people × 3 nights × 2,50 € = 150,00 €.
+        $this->assertStringContainsString('20 pers. × 3 nuits', $body);
+        $this->assertStringContainsString('150,00', $body);
+        $this->assertStringContainsString('Total estimé', $body);
+    }
+
+    public function testAnIncompleteEstimateIsPresentedAsAStartingPriceNotAFirmOne(): void
+    {
+        // §6.7's "dès X €": with no category chosen the quote is incomplete,
+        // and the page must not show a number it would have to walk back.
+        $assetId = $this->createAsset('Local', 'local');
+        $pricingService = $this->pricingServiceFor();
+        $pricingService->saveAssetPricing($assetId, 'per_night', 8000, null, null);
+        $pricingService->addCategory($assetId, 'Mouvement de jeunesse', true);
+
+        $arrival = (new \DateTimeImmutable('today'))->modify('+30 days');
+
+        $body = (string) $this->dispatch(
+            '/locations/{slug}',
+            '/locations/local',
+            RentalPublicController::class,
+            'show',
+            'public',
+            [
+                'arrival' => $arrival->format('Y-m-d'),
+                'departure' => $arrival->modify('+2 days')->format('Y-m-d'),
+                'month' => $arrival->format('Y-m'),
+            ]
+        )->getBody();
+
+        $this->assertStringContainsString('Dès', $body);
+        $this->assertStringNotContainsString('Total estimé', $body);
+    }
+
+    public function testARangeViolatingAConstraintIsReportedWithoutClaimingUnavailability(): void
+    {
+        // A notice-period refusal must never read as "occupé" (§6.7).
+        $assetId = $this->createAsset('Local', 'local');
+        $this->pricingServiceFor()->saveAssetPricing($assetId, 'per_night', 8000, null, null);
+        $this->availabilityServiceFor()->saveConstraints($assetId, 0, 0, 60, 0, [], null, 0);
+
+        $arrival = (new \DateTimeImmutable('today'))->modify('+5 days');
+
+        $body = (string) $this->dispatch(
+            '/locations/{slug}',
+            '/locations/local',
+            RentalPublicController::class,
+            'show',
+            'public',
+            [
+                'arrival' => $arrival->format('Y-m-d'),
+                'departure' => $arrival->modify('+2 days')->format('Y-m-d'),
+                'month' => $arrival->format('Y-m'),
+            ]
+        )->getBody();
+
+        // Twig escapes the apostrophe, so the rendered text is
+        // "60 jours à l&#039;avance" — assert on the parts either side of it
+        // rather than on a literal that only matches before escaping.
+        $this->assertStringContainsString('60 jours à l', $body);
+        $this->assertStringContainsString('avance', $body);
+        $this->assertStringNotContainsString("n'est pas disponible", $body);
+        $this->assertStringNotContainsString('est pas disponible', $body);
+    }
+
+    public function testTheNoticeWindowIsGreyedOutRatherThanShownAsOccupied(): void
+    {
+        $assetId = $this->createAsset('Local', 'local');
+        $this->availabilityServiceFor()->saveConstraints($assetId, 0, 0, 60, 0, [], null, 0);
+
+        $body = (string) $this->dispatchPublicAsset('local')->getBody();
+
+        $this->assertStringContainsString('Trop tôt pour réserver', $body);
+        $this->assertStringNotContainsString('Occupé', $body, 'A free day must never be labelled taken.');
     }
 
     public function testAnUnknownSlugIs404(): void

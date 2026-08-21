@@ -3061,21 +3061,36 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $journalService
     );
 
+    // Occupancy sources. Empty today: bookings arrive in a later iteration
+    // and manual blocks in the one after, each registering its own provider
+    // here without anything else changing. An asset therefore reads as
+    // entirely free for now, which is honest rather than a stub.
+    $rentalOccupancyProviders = [];
+    $rentalAvailabilityService = new \Modules\Rental\Service\RentalAvailabilityService(
+        new \Modules\Rental\Availability\AvailabilityCalculator(),
+        new \Modules\Rental\Repository\RentalConstraintsRepository($pdo),
+        $rentalOccupancyProviders
+    );
+
     $frontController->registerController(
         \Modules\Rental\Controller\RentalConfigController::class,
         new \Modules\Rental\Controller\RentalConfigController(
             $twig, $rentalAssetRepository, $rentalAssetService, $rentalManagerService,
-            $memberService, $scoutYearService, $settingService, $rentalPricingService
+            $memberService, $scoutYearService, $settingService, $rentalPricingService,
+            $rentalAvailabilityService
         )
     );
     $frontController->registerController(
         \Modules\Rental\Controller\RentalPricingController::class,
-        new \Modules\Rental\Controller\RentalPricingController($twig, $rentalPricingService)
+        new \Modules\Rental\Controller\RentalPricingController(
+            $twig, $rentalPricingService, $rentalAvailabilityService
+        )
     );
     $frontController->registerController(
         \Modules\Rental\Controller\RentalPublicController::class,
         new \Modules\Rental\Controller\RentalPublicController(
-            $twig, $rentalAssetRepository, $rentalAuthorizationService, $scoutYearService
+            $twig, $rentalAssetRepository, $rentalAuthorizationService, $scoutYearService,
+            $rentalAvailabilityService, $rentalPricingService, new \Core\View\MonthGrid\DayStateGridBuilder()
         )
     );
     $frontController->registerController(

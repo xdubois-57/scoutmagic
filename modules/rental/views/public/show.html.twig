@@ -1,14 +1,18 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ asset.name }} — {{ site_name }}{% endblock %}
 {#
-  One public asset. Minimal in this iteration: the availability calendar,
-  the editable rich-text blocks and the request form all arrive in later
-  iterations. What is already load-bearing is what is NOT here — see §6.6,
-  and RentalPublicController's own docblock.
+  One public asset: its editable presentation blocks, its availability
+  calendar, and a live price estimate.
 
-  "Gérer ce bien" is rendered conditionally, and that is presentation only:
-  the managed space re-checks authority server-side on every request. A
-  hidden button is never a boundary (ARCHITECTURE.md §12).
+  What is NOT here is load-bearing (§6.6): no manager name, phone or email,
+  no emergency number, nothing about any renter or booking, no price actually
+  paid, no document, no access code, no internal comment. The calendar shows
+  THAT a day is taken and never WHY — a booking, a hold and a manual block
+  are one indistinguishable state.
+
+  Rich text comes from editable() (§6.9), keyed per asset, so a chief edits it
+  in place and this module never grows a rich-text column of its own — same
+  mechanism as the banner module.
 #}
 {% block content %}
     <div class="container py-4" style="max-width: 900px;">
@@ -32,10 +36,162 @@
             </div>
         {% endif %}
 
-        <div class="card">
+        <div class="mb-4">
+            {{ editable(editable_prefix ~ '_intro', '<p>Présentez ce bien en quelques lignes.</p>')|raw }}
+        </div>
+
+        {# ── Availability calendar (§6.7) ──────────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+                    {% if previous_month %}
+                        <a class="btn btn-sm btn-outline-secondary"
+                           href="?month={{ previous_month }}{{ selection ? '&arrival=' ~ selection[0] : '' }}"
+                           aria-label="Mois précédent">&larr;</a>
+                    {% else %}
+                        {# Disabled, not hidden: a visitor can never go into the
+                           past, and the greyed arrow says so rather than leaving
+                           them wondering where the control went. #}
+                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                                aria-label="Mois précédent (indisponible)">&larr;</button>
+                    {% endif %}
+
+                    <h2 class="h5 mb-0 text-capitalize">{{ calendar_label }}</h2>
+
+                    {% if next_month %}
+                        <a class="btn btn-sm btn-outline-secondary"
+                           href="?month={{ next_month }}{{ selection ? '&arrival=' ~ selection[0] : '' }}"
+                           aria-label="Mois suivant">&rarr;</a>
+                    {% else %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                                aria-label="Mois suivant (indisponible)">&rarr;</button>
+                    {% endif %}
+                </div>
+
+                <div id="rental-calendar"
+                     data-month="{{ calendar_month }}"
+                     data-arrival="{{ selection ? selection[0] : '' }}"
+                     data-departure="{{ selection and selection[1] ? selection[1] : '' }}">
+                    {% include 'partials/month_day_grid.html.twig' with {
+                        weeks: weeks,
+                        caption: 'Disponibilités de ' ~ calendar_label,
+                    } %}
+                </div>
+
+                <p class="form-text mt-2 mb-0">
+                    {{ billing_unit.availabilityExplanation }}
+                </p>
+            </div>
+        </div>
+
+        {# ── Selection summary and estimate ────────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Votre séjour</h2>
+
+                <form method="get" class="row g-2 align-items-end mb-3">
+                    <input type="hidden" name="month" value="{{ calendar_month }}">
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="arrival">Arrivée</label>
+                        <input type="date" class="form-control" id="arrival" name="arrival"
+                               value="{{ selection ? selection[0] : '' }}">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="departure">Départ</label>
+                        <input type="date" class="form-control" id="departure" name="departure"
+                               value="{{ selection and selection[1] ? selection[1] : '' }}">
+                    </div>
+                    <div class="col-4 col-md-2">
+                        <label class="form-label" for="persons">Participants</label>
+                        <input type="number" min="0" class="form-control" id="persons" name="persons"
+                               value="{{ form_persons }}">
+                    </div>
+                    {% if asset.isStock %}
+                        <div class="col-4 col-md-2">
+                            <label class="form-label" for="units">Quantité</label>
+                            <input type="number" min="1" max="{{ asset.quantity }}" class="form-control"
+                                   id="units" name="units" value="{{ form_units }}">
+                        </div>
+                    {% endif %}
+                    {% if categories is not empty %}
+                        <div class="col-4 col-md-2">
+                            <label class="form-label" for="category">Vous êtes</label>
+                            <select class="form-select" id="category" name="category">
+                                <option value="">—</option>
+                                {% for category in categories %}
+                                    <option value="{{ category.id }}"
+                                            {{ form_category == category.id ? 'selected' : '' }}>{{ category.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    {% endif %}
+                    <div class="col-12 col-md-2">
+                        <button type="submit" class="btn btn-primary w-100">Estimer</button>
+                    </div>
+                </form>
+
+                {% if estimate %}
+                    {% for error in estimate.errors %}
+                        <div class="alert alert-warning py-2 small">{{ error }}</div>
+                    {% endfor %}
+
+                    {% set quote = estimate.quote %}
+                    <table class="table table-sm">
+                        <caption class="visually-hidden">Détail du prix estimé</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Ligne</th>
+                                <th scope="col" class="text-end">Quantité</th>
+                                <th scope="col" class="text-end">Montant</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for line in quote.lines %}
+                                <tr{{ line.isInformational ? ' class="text-body-secondary fst-italic"' : '' }}>
+                                    <td>{{ line.label }}</td>
+                                    <td class="text-end">{{ line.isInformational ? '—' : line.quantity }}</td>
+                                    <td class="text-end">
+                                        {{ line.isInformational
+                                            ? 'Selon relevé'
+                                            : (line.amountCents / 100)|number_format(2, ',', ' ') ~ ' €' }}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-semibold">
+                                <th scope="row" colspan="2" class="text-end">
+                                    {# "dès X €" whenever something needed is still
+                                       missing — never a firm figure we would have
+                                       to walk back (§6.7). #}
+                                    {{ quote.isComplete ? 'Total estimé' : 'Dès' }}
+                                </th>
+                                <td class="text-end">{{ (quote.totalCents / 100)|number_format(2, ',', ' ') }} €</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+
+                    {% for warning in quote.warnings %}
+                        <p class="small text-body-secondary mb-1">{{ warning }}</p>
+                    {% endfor %}
+
+                    <p class="small text-body-secondary mb-0">
+                        Estimation indicative, sans engagement.
+                    </p>
+                {% else %}
+                    <p class="text-body-secondary fst-italic mb-0">
+                        Choisissez une date d'arrivée et une date de départ dans le calendrier
+                        pour obtenir une estimation.
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+
+        {# ── Practical information ─────────────────────────────────────── #}
+        <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">Informations pratiques</h2>
-                <dl class="row mb-0">
+                <dl class="row">
                     {% if asset.capacity is not null %}
                         <dt class="col-sm-4">Capacité</dt>
                         <dd class="col-sm-8">{{ asset.capacity }} personnes</dd>
@@ -52,8 +208,35 @@
                         <dt class="col-sm-4">Heure de départ</dt>
                         <dd class="col-sm-8">{{ asset.departureTime }}</dd>
                     {% endif %}
+                    {% if constraints.minNights > 0 %}
+                        <dt class="col-sm-4">Durée minimum</dt>
+                        <dd class="col-sm-8">{{ constraints.minNights }} nuit{{ constraints.minNights > 1 ? 's' : '' }}</dd>
+                    {% endif %}
+                    {% if constraints.minNoticeDays > 0 %}
+                        <dt class="col-sm-4">Préavis</dt>
+                        <dd class="col-sm-8">{{ constraints.minNoticeDays }} jour{{ constraints.minNoticeDays > 1 ? 's' : '' }}</dd>
+                    {% endif %}
                 </dl>
+                {{ editable(editable_prefix ~ '_practical', '<p>Décrivez ici l\'équipement, l\'accès, le parking…</p>')|raw }}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Ce qui est inclus</h2>
+                {{ editable(editable_prefix ~ '_included', '<p>Précisez ce qui est inclus et ce qui ne l\'est pas.</p>')|raw }}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Conditions</h2>
+                {{ editable(editable_prefix ~ '_conditions', '<p>Conditions à connaître avant d\'introduire une demande.</p>')|raw }}
             </div>
         </div>
     </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/rental-calendar.js" defer></script>
 {% endblock %}
