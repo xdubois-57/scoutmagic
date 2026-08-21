@@ -48,4 +48,13 @@
 <p class="small text-body-secondary">
     Le document exact reçu, champs inconnus de ce receveur compris. Aucun identifiant de sécurité n'y figure.
 </p>
-<pre class="border rounded p-3 bg-body-tertiary small mb-0 support-raw-json"><code>{{ installation.raw_json }}</code></pre>
+<pre class="border rounded p-3 bg-body-tertiary small mb-3 support-raw-json"><code>{{ installation.raw_json }}</code></pre>
+
+{# Manual deletion, ahead of what retention would do on its own. The
+   confirmation is mandatory (base.html.twig's delegated data-confirm
+   handler); the CSRF token is what actually protects the endpoint. #}
+<form method="post" action="/support-dashboard/installations/{{ installation.id }}/delete"
+      data-confirm="Supprimer définitivement cet enregistrement ? L'identifiant, l'URL, le dernier rapport et l'empreinte du secret associé seront effacés. Les agrégats mensuels déjà finalisés ne sont pas modifiés.">
+    {{ csrf_field()|raw }}
+    <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer cet enregistrement</button>
+</form>

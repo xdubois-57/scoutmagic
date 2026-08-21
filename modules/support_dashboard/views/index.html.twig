@@ -194,11 +194,20 @@
 {# ---------------------------------------------------------------- #}
 <div class="card">
     <div class="card-body">
-        <p class="small text-body-secondary">
-            {{ view.filtered_count }} installation(s) affichée(s) sur {{ view.total_count }} conservée(s).
-            Une installation est considérée active si son dernier rapport date de moins de
-            {{ view.active_threshold_days }} jours.
-        </p>
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+            <p class="small text-body-secondary mb-0">
+                {{ view.filtered_count }} installation(s) affichée(s) sur {{ view.total_count }} conservée(s).
+                Une installation est considérée active si son dernier rapport date de moins de
+                {{ view.active_threshold_days }} jours. Au-delà de {{ view.retention_months }} mois sans
+                rapport, son enregistrement est supprimé automatiquement.
+            </p>
+            {# Exports the whole filtered set, not the page: the same query
+               string the table was built from is handed straight through. #}
+            <a class="btn btn-sm btn-outline-primary"
+               href="/support-dashboard/export{{ filters.queryString({'page': null}) }}">
+                Exporter en XLSX
+            </a>
+        </div>
 
         <div class="table-responsive">
             <table class="table table-hover align-middle">

@@ -631,3 +631,70 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 - Réglages `support_active_threshold_days` / `support_retention_months`,
   export XLSX, rétention automatique et suppression manuelle : IT-10.
 - Section historique et son unique graphe : IT-11.
+
+---
+
+## IT-10 — Export XLSX, activité et rétention
+
+### Implémenté
+
+- Réglages de module `support_active_threshold_days` (défaut 14) et
+  `support_retention_months` (défaut 6), tous deux éditables. Le seuil
+  d'activité en dur d'IT-09 est remplacé par le premier.
+- `SupportDashboardService::activeThresholdDays()` / `retentionMonths()` :
+  point de lecture unique, pour que la page et la purge ne puissent jamais
+  diverger sur le vocabulaire.
+- Tâche `support_dashboard`/`purge_installations` (quotidienne,
+  auto-replanifiée) : au-delà de la fenêtre de rétention sans rapport
+  accepté, l'enregistrement est supprimé **en entier** — identifiant, URL,
+  dernier payload, métadonnées de réception et empreinte du secret.
+- Suppression manuelle par un superadmin : `POST
+  /support-dashboard/installations/{id}/delete`, boîte de confirmation
+  obligatoire, jeton CSRF, journalisée.
+- Export XLSX : `GET /support-dashboard/export`, une ligne par installation
+  de **l'ensemble filtré courant** (pas la page affichée), une colonne par
+  métrique définie, statut actif/obsolète explicite et horodatage de
+  dernière réception. Sans colonne JSON brut, sans email de contact, sans
+  valeur dérivée « jours depuis le dernier rapport ».
+- `ARCHITECTURE.md` §8.46 complété.
+
+### Décisions autonomes
+
+1. **Un réglage de seuil nul, négatif ou vide n'est pas obéi**, il retombe
+   sur le défaut déclaré. Un seuil d'activité à zéro marquerait toute la
+   flotte obsolète ; une rétention à zéro viderait la table à la prochaine
+   purge. Un réglage éditable qui peut détruire les données en une frappe
+   n'est pas un réglage, c'est un piège.
+2. **L'export réutilise `Core\Support\SupportSpreadsheet`** (écrit en
+   IT-06) plutôt que de repartir de PhpSpreadsheet : il applique déjà
+   l'écriture en chaîne explicite exigée par SECURITY.md §23, et ces
+   colonnes contiennent des valeurs venues d'installations distantes.
+3. **`filteredRows()` est un point d'entrée distinct de `buildView()`.**
+   Exporter la page à l'écran est précisément la manière dont un accident
+   de pagination devient un livrable tronqué sans que personne ne le voie.
+4. **Le lien d'export transporte la chaîne de requête courante, `page`
+   retirée.** L'export est ainsi reproductible depuis sa propre URL et ne
+   peut pas diverger de ce que la table montrait.
+5. **L'entrée de journal de suppression porte l'identifiant de ligne du
+   receveur, jamais l'identifiant d'installation ni l'URL.** Une
+   suppression dont la trace conserve ce qu'elle prétend effacer n'efface
+   rien.
+6. **Une purge qui ne supprime rien n'écrit rien.** Sinon le journal gagne
+   une ligne par jour et par installation-receveur pour dire qu'il ne s'est
+   rien passé.
+7. **Deux colonnes de modules dans l'export** (activés / désactivés) plutôt
+   qu'une colonne par module : la liste des modules varie d'une
+   installation à l'autre et d'une version à l'autre, une colonne par
+   module rendrait l'entête instable d'un export au suivant.
+
+### Dépendance couverte par anticipation
+
+- « La rétention et la suppression manuelle laissent les agrégats finalisés
+  intacts » : la table `support_monthly_aggregates` n'existe qu'en IT-11,
+  mais le test
+  `PurgeInstallationsHandlerTest::testThePurgeTouchesNoTableOtherThanSupportInstallations`
+  crée la table et vérifie dès maintenant que la purge n'y touche pas.
+
+### Reporté volontairement
+
+- Agrégats mensuels, graphe historique et sélecteur de période : IT-11.

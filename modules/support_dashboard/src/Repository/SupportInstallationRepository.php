@@ -114,6 +114,39 @@ class SupportInstallationRepository
     }
 
     /**
+     * Removes one installation **in its entirety** — identifier, URL, last
+     * payload, reception metadata and the credential hash — whether the
+     * caller is the retention task or a superadmin acting by hand.
+     *
+     * Nothing here touches `support_monthly_aggregates`: a finalised
+     * aggregate is a count of distinct installations for a month that has
+     * ended, and it must survive the disappearance of any installation that
+     * fed it. See ARCHITECTURE.md §8.47.
+     */
+    public function delete(int $id): bool
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM support_installations WHERE id = ?');
+        $stmt->execute([$id]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Ids whose last accepted report predates $cutoff — the retention
+     * task's work list. Returned as ids rather than deleted in one
+     * statement so the caller can journal what it removed.
+     *
+     * @return array<int, int>
+     */
+    public function findIdsLastReceivedBefore(string $cutoff): array
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM support_installations WHERE last_received_at < ?');
+        $stmt->execute([$cutoff]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN) ?: []);
+    }
+
+    /**
      * PDOStatement::execute() binds every value of its array as a string,
      * and PHP casts `false` to `''` — which MySQL refuses for a BOOLEAN
      * (TINYINT) column under strict mode, and which SQLite silently stores

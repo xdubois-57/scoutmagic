@@ -8,7 +8,12 @@ use Core\Config\AppConfig;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Security\AuthSession;
+use Core\Security\CsrfGuard;
 use Core\View\TwigFactory;
 use Modules\SupportDashboard\Controller\SupportDashboardController;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
@@ -60,7 +65,8 @@ class SupportDashboardControllerTest extends TestCase
 
         $this->controller = new SupportDashboardController(
             $this->twig,
-            new SupportDashboardService($installations)
+            new SupportDashboardService($installations, new SettingService(new SettingRepository($this->pdo))),
+            new JournalService(new JournalRepository($this->pdo))
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -92,10 +98,10 @@ class SupportDashboardControllerTest extends TestCase
         ];
     }
 
-    private function frontController(string $path, string $action): FrontController
+    private function frontController(string $path, string $action, string $method = 'GET'): FrontController
     {
         $router = new Router();
-        $router->addRoute('GET', $path, SupportDashboardController::class, $action, 'superadmin');
+        $router->addRoute($method, $path, SupportDashboardController::class, $action, 'superadmin');
 
         $configFile = sys_get_temp_dir() . '/test_support_dashboard_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -176,6 +182,95 @@ class SupportDashboardControllerTest extends TestCase
 
         $this->assertStringContainsString('statistics_schema_version', $body);
         $this->assertStringContainsString('unite-exemple.be', $body);
+    }
+
+    // --- IT-10: export and manual deletion ---
+
+    public function testTheExportIsRefusedToAdmin(): void
+    {
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $denied = $this->frontController('/support-dashboard/export', 'export')
+            ->handle(new Request('GET', '/support-dashboard/export', [], [], [], []));
+
+        $this->assertSame(403, $denied->getStatusCode());
+    }
+
+    public function testTheExportIsServedToSuperadminAsRealXlsxBytes(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+        $allowed = $this->frontController('/support-dashboard/export', 'export')
+            ->handle(new Request('GET', '/support-dashboard/export', [], [], [], []));
+
+        $this->assertSame(200, $allowed->getStatusCode());
+        $this->assertStringContainsString(
+            'spreadsheetml.sheet',
+            (string) $allowed->getHeaders()['Content-Type']
+        );
+        // A real XLSX is a ZIP container: "PK" is its magic number. This is
+        // what proves it is not a CSV wearing an XLSX filename.
+        $this->assertStringStartsWith('PK', $allowed->getBody());
+    }
+
+    public function testDeletionIsRefusedToAdminByTheGuard(): void
+    {
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $denied = $this->frontController('/support-dashboard/installations/{id}/delete', 'delete', 'POST')
+            ->handle(new Request('POST', '/support-dashboard/installations/' . $this->installationId . '/delete', [], [], [], []));
+
+        $this->assertSame(403, $denied->getStatusCode());
+        $this->assertNotNull(
+            (new SupportInstallationRepository($this->pdo))->findById($this->installationId)
+        );
+    }
+
+    public function testDeletionRequiresAValidCsrfToken(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $withoutToken = $this->controller->delete(
+            new Request('POST', '/x', [], ['_csrf_token' => 'wrong'], [], []),
+            ['id' => (string) $this->installationId]
+        );
+        $this->assertSame(400, $withoutToken->getStatusCode());
+
+        // Still there: a refused CSRF check must not have deleted anything.
+        $this->assertNotNull(
+            (new SupportInstallationRepository($this->pdo))->findById($this->installationId)
+        );
+    }
+
+    public function testAValidDeletionRemovesTheRecordAndRedirects(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $response = $this->controller->delete(
+            new Request('POST', '/x', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
+            ['id' => (string) $this->installationId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/support-dashboard', $response->getHeaders()['Location']);
+        $this->assertNull((new SupportInstallationRepository($this->pdo))->findById($this->installationId));
+    }
+
+    public function testTheDeletionJournalEntryNamesNoUnit(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $this->controller->delete(
+            new Request('POST', '/x', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
+            ['id' => (string) $this->installationId]
+        );
+
+        $entries = (string) json_encode(
+            $this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC)
+        );
+
+        $this->assertStringContainsString('support_installation_deleted', $entries);
+        $this->assertStringNotContainsString('aaaabbbbccccdddd', $entries);
+        $this->assertStringNotContainsString('unite-exemple.be', $entries);
     }
 
     public function testAnUnknownInstallationIs404(): void
