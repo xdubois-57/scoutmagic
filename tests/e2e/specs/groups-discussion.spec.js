@@ -50,6 +50,18 @@
 // specs/scout-year-transition.spec.js moves the public year on; Playwright
 // orders spec files alphabetically, and "groups-" sorts before
 // "scout-year-", which is what keeps that true.
+// LOCATORS
+// ----------------------------------------------------------------------------
+// Roles and visible text wherever they identify the element (README.md
+// § Tests de bout en bout), which is every control the member actually
+// operates. Three things on a card cannot be reached that way and use the
+// module's own JavaScript hooks instead — the same ids and classes
+// groups.js itself binds to, so they are contract rather than incidental
+// structure: the feed container the composer inserts into
+// (#groups-feed), a message's RENDERED body (the inline edit form below
+// it holds the identical text in a textarea, so text alone is ambiguous),
+// and the blocks the dynamic fragments replace wholesale (.groups-poll,
+// .groups-reactions, .groups-reply-bubble).
 import { expect, test } from '@playwright/test';
 
 import { loginAsAdmin } from '../support/admin-login.js';
@@ -113,7 +125,7 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await page.getByLabel('Écrire un message').fill(MESSAGE);
     await composer.getByRole('button', { name: 'Publier' }).click();
 
-    await expect(feed.locator('article')).toHaveCount(1);
+    await expect(feed.getByRole('article')).toHaveCount(1);
     await expect(composerError).toBeHidden();
     await expect(feed.locator(POST_BODY)).toContainText(MESSAGE);
     // The empty-state line lives inside the feed container the new card is
@@ -131,11 +143,14 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await page.getByLabel('Écrire un message').fill(LINK_MESSAGE_PREFIX + LINK_URL);
     await composer.getByRole('button', { name: 'Publier' }).click();
 
-    await expect(feed.locator('article')).toHaveCount(2);
+    await expect(feed.getByRole('article')).toHaveCount(2);
     await expect(composerError).toBeHidden();
 
-    const linkPost = feed.locator('article').first();
-    const linkCard = linkPost.locator('a.groups-link-preview');
+    const linkPost = feed.getByRole('article').first();
+    // The card is a real link, and its accessible name is what the module
+    // resolved for it: the host, then the plain URL, because no Open Graph
+    // metadata could be fetched (see this file's header).
+    const linkCard = linkPost.getByRole('link', { name: /example\.invalid/ });
     await expect(linkCard).toHaveAttribute('href', LINK_URL);
     await expect(linkCard).toContainText('example.invalid');
     await expect(linkCard).toContainText(LINK_URL);
@@ -156,10 +171,10 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await composer.getByLabel('Choix 2', { exact: true }).fill('Non, je ne peux pas');
     await composer.getByRole('button', { name: 'Publier' }).click();
 
-    await expect(feed.locator('article')).toHaveCount(3);
+    await expect(feed.getByRole('article')).toHaveCount(3);
     await expect(composerError).toBeHidden();
 
-    const pollPost = feed.locator('article').first();
+    const pollPost = feed.getByRole('article').first();
     const poll = pollPost.locator('.groups-poll');
     await expect(poll).toContainText(POLL_QUESTION);
     await expect(poll).toContainText('0 vote');
@@ -177,7 +192,7 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     // ordered by last activity, so replying to a post and reacting to it
     // both move it (Service\GroupActivityService) — which is the feature,
     // not something to pin an assertion on.
-    const firstPost = feed.locator('article').filter({ hasText: MESSAGE });
+    const firstPost = feed.getByRole('article').filter({ hasText: MESSAGE });
     await expect(firstPost).toHaveCount(1);
     await firstPost.getByPlaceholder('Répondre…').fill('Parfait, je serai là.');
     await firstPost.getByRole('button', { name: 'Envoyer la réponse' }).click();
@@ -212,12 +227,12 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     // separates "the DOM was updated" from "the post was stored".
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
 
-    await expect(feed.locator('article')).toHaveCount(3);
+    await expect(feed.getByRole('article')).toHaveCount(3);
     // Found the same way as above — by its own words, never by a position
     // in a stream the module deliberately reorders by activity.
-    const reloadedTextPost = feed.locator('article').filter({ hasText: MESSAGE });
+    const reloadedTextPost = feed.getByRole('article').filter({ hasText: MESSAGE });
     await expect(reloadedTextPost.locator(POST_BODY)).toContainText(MESSAGE);
-    await expect(feed.locator('a.groups-link-preview')).toHaveAttribute('href', LINK_URL);
+    await expect(feed.getByRole('link', { name: /example\.invalid/ })).toHaveAttribute('href', LINK_URL);
     await expect(feed.locator('.groups-poll')).toContainText(POLL_QUESTION);
     await expect(feed.locator('.groups-poll')).toContainText('1 vote');
     await expect(reloadedTextPost.locator('.groups-reply-bubble')).toContainText('Parfait, je serai là.');
