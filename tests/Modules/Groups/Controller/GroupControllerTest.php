@@ -52,6 +52,16 @@ class GroupControllerTest extends TestCase
     private MemberService $memberService;
     private int $currentYearId;
     private int $sectionId;
+    /**
+     * The real service, never null and never a stub: passing null here is
+     * what let a mistyped hint on GroupController's own constructor
+     * (Service\GroupReadStateService read as Controller\GroupReadStateService,
+     * for want of a `use`) reach production, where index.php passes the
+     * real object and every route 500s on the resulting TypeError. Tests
+     * that build the controller the way production does cannot miss that
+     * again — see also Tests\Core\System\TypeHintResolutionTest.
+     */
+    private \Modules\Groups\Service\GroupReadStateService $readStateService;
     /** @var MemberProfile[] */
     private array $linkedProfiles = [];
 
@@ -106,7 +116,11 @@ class GroupControllerTest extends TestCase
         $sectionRepo = new GroupSectionRepository($this->pdo);
         $memberRepo = new GroupMemberRepository($this->pdo);
         $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
-        $listService = new GroupListService($this->groupRepo, $sectionRepo, $memberRepo, new SectionMembershipRepository($this->pdo));
+        $readRepo = new \Modules\Groups\Repository\GroupReadRepository($this->pdo);
+        $this->readStateService = new \Modules\Groups\Service\GroupReadStateService($readRepo, $access);
+        $listService = new GroupListService(
+            $this->groupRepo, $sectionRepo, $memberRepo, new SectionMembershipRepository($this->pdo), $readRepo
+        );
 
         $this->memberService = $this->createMock(MemberService::class);
         $this->memberService->method('getLinkedMembers')->willReturn(
@@ -174,7 +188,7 @@ class GroupControllerTest extends TestCase
             $postRepo, $authorResolver, $postService, $postMediaService,
             new PostLinkRepository($this->pdo),
             $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService'],
-            null,
+            $this->readStateService,
             // Null lookup unless a test supplies one — production's own
             // "calendar disabled" wiring, so every other test here
             // exercises the degraded path for free.
@@ -215,11 +229,9 @@ class GroupControllerTest extends TestCase
             // A real read-state service rather than null: production
             // always passes one, and passing null here is how a
             // mistyped hint on this very parameter once went unnoticed
-            // by the whole suite.
-            new \Modules\Groups\Service\GroupReadStateService(
-                new \Modules\Groups\Repository\GroupReadRepository($this->pdo),
-                $access
-            ),
+            // by the whole suite. The same instance the list and the feed
+            // above got, so a mark written by one is seen by the others.
+            $this->readStateService,
             $groupsEventService
         );
     }
@@ -526,6 +538,45 @@ class GroupControllerTest extends TestCase
 
         // 404, never 403: a 403 would confirm the group exists.
         $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testShowMarksTheGroupReadForTheMemberWhoOpenedIt(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C3R');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M2R', $this->sectionId, $this->currentYearId);
+
+        $response = $this->controller([$member])->show(
+            new Request('GET', '/groups/' . $groupId, [], [], [], []),
+            ['id' => (string) $groupId]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM discussion_group_reads WHERE group_id = ? AND member_id = ?'
+        );
+        $stmt->execute([$groupId, $member]);
+        $this->assertSame(
+            1,
+            (int) $stmt->fetchColumn(),
+            'opening a group must record the visit that clears its unread badge'
+        );
+    }
+
+    public function testShowMarksNothingForAGroupTheReaderIsNotAMemberOf(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C3N');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTR');
+
+        $this->controller([$outsider])->show(
+            new Request('GET', '/groups/' . $groupId, [], [], [], []),
+            ['id' => (string) $groupId]
+        );
+
+        $stmt = $this->pdo->query('SELECT COUNT(*) FROM discussion_group_reads');
+        $this->assertSame(0, (int) ($stmt === false ? 1 : $stmt->fetchColumn()));
     }
 
     public function testShowRendersForAMember(): void
