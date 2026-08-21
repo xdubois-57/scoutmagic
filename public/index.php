@@ -2732,7 +2732,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
             in_array('news', $moduleManager->getEnabledModuleIds(), true) ? $newsArticleService : null,
             $sectionResponsableProvider,
-            new \Modules\Groups\Api\HomeActivityService($groupsListService, $groupsContextFactory)
+            new \Modules\Groups\Api\HomeActivityService($notificationRepo)
         )
     );
     $frontController->registerController(

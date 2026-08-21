@@ -9,24 +9,38 @@ declare(strict_types=1);
 namespace Modules\Groups\Api;
 
 use Core\Module\HomeGroupActivityProvider;
-use Core\ScoutYear\ScoutYearSession;
+use Core\Notification\NotificationRepository;
 use Core\Security\AuthSession;
-use Modules\Groups\Service\GroupListItem;
-use Modules\Groups\Service\GroupListService;
-use Modules\Groups\Service\GroupSessionContextFactory;
 
 /**
  * This module's answer to core's Core\Module\HomeGroupActivityProvider
- * hook: "which of your groups have something you have not seen yet".
+ * hook: "how much is waiting for you in your groups".
  *
  * Lives under Api\ rather than Service\ for the same reason
  * Modules\Gallery\Api\* does (ARCHITECTURE.md §7.5): it is the surface
  * another part of the codebase consumes, not an internal collaborator of
- * this module. Everything it returns has already been through
- * Service\GroupListService, which is the batched form of the same
- * membership rules Service\GroupAccessService applies to a single group —
- * so a group the caller cannot read can never appear here, exactly as it
- * cannot appear on the group list itself.
+ * this module.
+ *
+ * **Counted from the notification centre, not from the read marks.** The
+ * three numbers are unread `notifications` rows of this module's own
+ * types, which is deliberate on two grounds:
+ *
+ * - A mention has no other home. Mentions are resolved from the stored
+ *   body every time it is rendered (Service\MentionService) and are
+ *   never persisted, so "how many messages named me since I last looked"
+ *   cannot be answered from `discussion_group_posts` without re-parsing
+ *   every unread body — per group, on the one page every visitor loads.
+ *   The dispatched `groups.mentioned` notification is the only record
+ *   that a mention happened at all.
+ * - It is what this block is for. The homepage summary exists precisely
+ *   for the member the bell never reaches; counting the very rows the
+ *   bell counts means the two can never disagree about what is waiting.
+ *
+ * The consequence to know: `read_at` is set from the notification centre,
+ * not by opening a group (Core\Http\Controller\NotificationController) —
+ * so reading a group does not by itself clear these numbers. That is the
+ * same thing the bell already says, and making the two disagree would be
+ * worse than either answer alone.
  *
  * Reads the session directly, unlike every other service in this module.
  * That is deliberate and confined to this one class: the core hook is
@@ -36,49 +50,42 @@ use Modules\Groups\Service\GroupSessionContextFactory;
  */
 class HomeActivityService implements HomeGroupActivityProvider
 {
+    private const TYPE_POST = 'groups.post_published';
+    private const TYPE_REPLY = 'groups.reply_received';
+    private const TYPE_REACTION = 'groups.reaction_received';
+    private const TYPE_MENTION = 'groups.mentioned';
+
     public function __construct(
-        private GroupListService $listService,
-        private GroupSessionContextFactory $contextFactory
+        private NotificationRepository $notificationRepository
     ) {
     }
 
     /**
-     * @return array<int, array{id: int, name: string, last_activity_at: string}>
+     * @return array{posts: int, activity: int, mentions: int}
      */
-    public function getUnreadGroupsForCurrentUser(int $limit): array
+    public function getUnreadActivitySummaryForCurrentUser(): array
     {
-        $email = AuthSession::getEmail();
-        if ($email === null || $email === '') {
-            return [];
+        $empty = ['posts' => 0, 'activity' => 0, 'mentions' => 0];
+
+        $userAccountId = AuthSession::getUserAccountId();
+        if ($userAccountId === null) {
+            return $empty;
         }
 
-        $context = $this->contextFactory->build(
-            $email,
-            AuthSession::getRole(),
-            AuthSession::getUserAccountId(),
-            ScoutYearSession::getPreviewId()
-        );
+        $counts = $this->notificationRepository->countUnreadByTypes($userAccountId, [
+            self::TYPE_POST,
+            self::TYPE_REPLY,
+            self::TYPE_REACTION,
+            self::TYPE_MENTION,
+        ]);
 
-        // findCurrent() already excludes archived (past-year) groups: a
-        // read-only archive has nothing to catch up on, so surfacing it on
-        // the homepage would be a call to action with nowhere to go.
-        $unread = array_filter(
-            $this->listService->findCurrent($context),
-            fn(GroupListItem $item) => $item->hasUnread
-        );
-
-        // Most recently active first — the same ordering the group list
-        // itself uses, so the two never disagree about which group is the
-        // one worth opening.
-        usort($unread, fn(GroupListItem $a, GroupListItem $b) => $b->group->lastActivityAt <=> $a->group->lastActivityAt);
-
-        return array_map(
-            fn(GroupListItem $item) => [
-                'id' => $item->group->id,
-                'name' => $item->group->name,
-                'last_activity_at' => $item->group->lastActivityAt,
-            ],
-            array_slice($unread, 0, max(1, $limit))
-        );
+        return [
+            'posts' => $counts[self::TYPE_POST],
+            // Replies and reactions are one number on purpose: both mean
+            // "the conversation moved", and a member decides whether to
+            // open the group on that, not on which of the two it was.
+            'activity' => $counts[self::TYPE_REPLY] + $counts[self::TYPE_REACTION],
+            'mentions' => $counts[self::TYPE_MENTION],
+        ];
     }
 }

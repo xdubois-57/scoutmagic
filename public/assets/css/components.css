@@ -269,7 +269,60 @@
    generic reusable list editor (add/reorder/activate/delete). */
 .list-editor-item {
     background-color: var(--bs-body-bg);
+    /* Below lg the row breaks into two lines. The action cluster never
+       shrinks — its buttons are already at the 44px tactile minimum — so
+       without this it simply overflowed: on the banner page it measured
+       276px inside a 336px row, pushing the document to 457px, scrolling
+       the whole page sideways and cutting the delete button off screen,
+       while the item's own text collapsed into a ~90px column that broke
+       one word per line. */
+    flex-wrap: wrap;
 }
+.list-editor-item-content {
+    /* A long word or a pasted URL must never be what widens the row. */
+    overflow-wrap: anywhere;
+}
+.list-editor-item-actions {
+    /* Right-aligned in both layouts: against the row's edge on desktop, at
+       the end of its own line on mobile. Shrinking is governed here rather
+       than by a flex-shrink-0 utility on the element, because the two
+       breakpoints want opposite answers and a utility carries !important. */
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+@media (max-width: 991.98px) {
+    /* Two lines: the reorder chevrons beside the item's own content, then
+       the action cluster on its own line, right-aligned. Expressed with
+       `order` rather than a second markup per breakpoint — one template,
+       and the reading order stays content-then-actions.
+
+       The cluster is NOT made to share line 1: at 360px its four controls
+       need more room than is left beside the content, and forcing them in
+       crushes the <select> a caller may have put there to about 50px —
+       narrower than the word "Public". Two honest lines beat one unusable
+       one. */
+    .list-editor-item-content {
+        order: 2;
+        flex: 1 1 0;
+        min-width: 0;
+    }
+    .list-editor-move-btns {
+        order: 1;
+    }
+    .list-editor-item-actions {
+        order: 3;
+        flex: 1 0 100%;
+        justify-content: flex-end;
+        margin-left: 0;
+    }
+    /* Stacked chevrons suit a tall desktop row; on a short mobile line they
+       read as an 88px-tall empty column, so they lie down. */
+    .list-editor-move-btns.flex-column {
+        flex-direction: row !important;
+    }
+}
+
 .list-editor-item--dragging {
     opacity: 0.4;
 }

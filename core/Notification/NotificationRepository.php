@@ -71,6 +71,40 @@ class NotificationRepository
     }
 
     /**
+     * Unread counts for an account, broken down by notification type — one
+     * indexed pass over `idx_notif_user_unread`, rather than one COUNT per
+     * type.
+     *
+     * Every requested type is present in the result, at 0 when nothing is
+     * waiting: a caller building a summary line needs the zero as much as
+     * the number, and should not have to defend against a missing key.
+     *
+     * @param string[] $typeIds
+     * @return array<string, int> type id => unread count
+     */
+    public function countUnreadByTypes(int $userAccountId, array $typeIds): array
+    {
+        $counts = array_fill_keys($typeIds, 0);
+        if ($typeIds === []) {
+            return $counts;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($typeIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT type_id, COUNT(*) AS n FROM notifications
+             WHERE user_account_id = ? AND read_at IS NULL AND type_id IN ({$placeholders})
+             GROUP BY type_id"
+        );
+        $stmt->execute(array_merge([$userAccountId], array_values($typeIds)));
+
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $counts[(string) $row['type_id']] = (int) $row['n'];
+        }
+
+        return $counts;
+    }
+
+    /**
      * Most recent unread notification for an account — feeds the nav
      * notification indicator's "last one" preview (partials/
      * notification_dropdown.html.twig). Deliberately unread-only, not just

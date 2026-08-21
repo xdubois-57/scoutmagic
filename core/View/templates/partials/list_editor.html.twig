@@ -80,7 +80,12 @@
                 <div class="list-editor-item-content flex-grow-1">
                     {% block item_content %}{% endblock %}
                 </div>
-                <div class="d-flex flex-row align-items-center gap-2 flex-shrink-0">
+                {# Captured rather than emitted inline so the wrapper can be
+                   skipped entirely when a caller supplies no actions at all
+                   (config/modules.html.twig reorders only). Below lg the
+                   wrapper takes a full line of its own — an empty one would
+                   add a blank line to every row. #}
+                {% set item_actions %}
                     {% block item_edit %}{% endblock %}
                     {% if active_url is defined and active_url %}
                         <button type="button" class="btn btn-sm {{ item.is_active ? 'btn-outline-success' : 'btn-outline-secondary' }} list-editor-active-toggle"
@@ -98,7 +103,16 @@
                             <i class="bi bi-trash"></i>
                         </button>
                     {% endif %}
-                </div>
+                {% endset %}
+                {% if item_actions|trim is not empty %}
+                    {# The cluster never shrinks — its buttons are already at
+                       the 44px minimum — so below lg it drops onto its own
+                       line instead of squeezing the content; see
+                       .list-editor-item in components.css. #}
+                    <div class="list-editor-item-actions d-flex flex-row align-items-center gap-2">
+                        {{ item_actions|raw }}
+                    </div>
+                {% endif %}
             </div>
         {% else %}
             <p class="text-body-secondary fst-italic mb-0">{{ empty_label|default('Aucun élément.') }}</p>

@@ -20,21 +20,26 @@ namespace Core\Module;
  * thinks to look at the bell. The homepage is the one surface every
  * visitor passes through, so it is where a member who has neither still
  * finds out that a group has been active.
+ *
+ * A SUMMARY, not a list. The homepage shows this in the same one-line
+ * banner shape as Core\Module\HomeBannerProvider's own output: three
+ * numbers and a link, never a card enumerating each group with its own
+ * timestamp. That block belongs on the group list, which is one tap away
+ * and is the page actually equipped to show it.
  */
 interface HomeGroupActivityProvider
 {
     /**
-     * The caller's own groups with unread activity, most recently active
-     * first, capped at $limit.
+     * How much unseen group activity is waiting for the caller, split into
+     * the three things a member reacts to differently: a new message, an
+     * answer or reaction on the thread, and being named personally.
      *
-     * Returns [] for a visitor with no groups, and for an anonymous one —
-     * the implementation resolves the caller from the session itself,
-     * because the answer is entirely per-member and there is nothing
-     * meaningful to return without one. Never returns a group the caller
-     * is not a member of, which is the same rule every other route in the
-     * groups module enforces.
+     * All three are 0 for a visitor with no groups, and for an anonymous
+     * one — the implementation resolves the caller from the session
+     * itself, because the answer is entirely per-member and there is
+     * nothing meaningful to return without one.
      *
-     * @return array<int, array{id: int, name: string, last_activity_at: string}>
+     * @return array{posts: int, activity: int, mentions: int}
      */
-    public function getUnreadGroupsForCurrentUser(int $limit): array;
+    public function getUnreadActivitySummaryForCurrentUser(): array;
 }
