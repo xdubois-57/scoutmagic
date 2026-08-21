@@ -1,0 +1,132 @@
+{% extends 'base.html.twig' %}
+{% block title %}Demande de location — {{ asset.name }} — {{ site_name }}{% endblock %}
+{#
+  The public request form (§6.13).
+
+  Protected by Core\Security\HumanCheck (never an external captcha) and by
+  CSRF. Billing details are NOT asked for here — they are collected later in
+  the workflow, when they are actually relevant.
+
+  The two tick-boxes are distinct and both required. The second is worded as
+  an acknowledgement, NOT as consent: the processing is necessary to the
+  booking, and calling it consent would misrepresent the legal basis.
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 720px;">
+        <nav aria-label="Fil d'Ariane" class="mb-2">
+            <a href="/locations/{{ asset.slug }}" class="small text-decoration-none">&larr; {{ asset.name }}</a>
+        </nav>
+
+        <h1 class="h3 mb-3">Demande de location — {{ asset.name }}</h1>
+
+        {% for error in errors %}
+            <div class="alert alert-danger">{{ error }}</div>
+        {% endfor %}
+
+        <form method="post" action="/locations/{{ asset.slug }}/demande">
+            {{ csrf_field()|raw }}
+
+            <fieldset class="mb-4">
+                <legend class="h5">Votre séjour</legend>
+                <div class="row g-3">
+                    <div class="col-6">
+                        <label class="form-label" for="arrival">Arrivée</label>
+                        <input type="date" class="form-control" id="arrival" name="arrival"
+                               value="{{ submitted.arrival }}" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label" for="departure">Départ</label>
+                        <input type="date" class="form-control" id="departure" name="departure"
+                               value="{{ submitted.departure }}" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label" for="persons">Nombre de participants</label>
+                        <input type="number" min="1" class="form-control" id="persons" name="persons"
+                               value="{{ submitted.persons }}">
+                        <div class="form-text">Une estimation suffit à ce stade.</div>
+                    </div>
+                    {% if asset.isStock %}
+                        <div class="col-6">
+                            <label class="form-label" for="units">Quantité</label>
+                            <input type="number" min="1" max="{{ asset.quantity }}" class="form-control"
+                                   id="units" name="units" value="{{ submitted.units ?: 1 }}">
+                        </div>
+                    {% endif %}
+                    {% if categories is not empty %}
+                        <div class="col-6">
+                            <label class="form-label" for="category">Vous êtes</label>
+                            <select class="form-select" id="category" name="category">
+                                <option value="">—</option>
+                                {% for category in categories %}
+                                    <option value="{{ category.id }}"
+                                            {{ submitted.category == category.id ? 'selected' : '' }}>{{ category.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    {% endif %}
+                </div>
+            </fieldset>
+
+            <fieldset class="mb-4">
+                <legend class="h5">Vos coordonnées</legend>
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="name">Nom</label>
+                        <input type="text" class="form-control" id="name" name="name"
+                               value="{{ submitted.name }}" required autocomplete="name">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="email">Email</label>
+                        <input type="email" class="form-control" id="email" name="email"
+                               value="{{ submitted.email }}" required autocomplete="email">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="phone">Téléphone</label>
+                        <input type="tel" class="form-control" id="phone" name="phone"
+                               value="{{ submitted.phone }}" autocomplete="tel">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="organisation">Organisation</label>
+                        <input type="text" class="form-control" id="organisation" name="organisation"
+                               value="{{ submitted.organisation }}">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="purpose">Objet de la location</label>
+                        <input type="text" class="form-control" id="purpose" name="purpose"
+                               value="{{ submitted.purpose }}">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="comment">Commentaire</label>
+                        <textarea class="form-control" id="comment" name="comment" rows="3">{{ submitted.comment }}</textarea>
+                    </div>
+                </div>
+            </fieldset>
+
+            {% if conditions_html %}
+                <fieldset class="mb-4">
+                    <legend class="h5">Conditions de location</legend>
+                    <div class="border rounded p-3 mb-3" style="max-height: 240px; overflow-y: auto;">
+                        {{ conditions_html|raw }}
+                    </div>
+                </fieldset>
+            {% endif %}
+
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="accept-conditions" name="accept_conditions" required>
+                <label class="form-check-label" for="accept-conditions">
+                    J'accepte les conditions de location
+                </label>
+            </div>
+            <div class="form-check mb-4">
+                <input class="form-check-input" type="checkbox" id="accept-privacy" name="accept_privacy" required>
+                <label class="form-check-label" for="accept-privacy">
+                    J'ai pris connaissance de la <a href="/rgpd" target="_blank" rel="noopener">politique de confidentialité</a>
+                </label>
+            </div>
+
+            {% include 'partials/human_check_fields.html.twig' with { human_check: human_check } %}
+
+            <button type="submit" class="btn btn-primary">Envoyer ma demande</button>
+        </form>
+    </div>
+{% endblock %}

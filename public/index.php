@@ -3203,11 +3203,17 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $journalService
     );
 
-    // Occupancy sources. Empty today: bookings arrive in a later iteration
-    // and manual blocks in the one after, each registering its own provider
-    // here without anything else changing. An asset therefore reads as
-    // entirely free for now, which is honest rather than a stub.
-    $rentalOccupancyProviders = [];
+    // Occupancy sources (Modules\Rental\Availability\OccupancyProvider).
+    // The booking service is the first: from here on, every calendar,
+    // estimate and range validation accounts for real requests, holds
+    // included, without a line of AvailabilityCalculator changing. Manual
+    // blocks join this list in a later iteration the same way.
+    $rentalBookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService);
+    $rentalBookingService = new \Modules\Rental\Service\RentalBookingService(
+        $rentalBookingRepository,
+        $journalService
+    );
+    $rentalOccupancyProviders = [$rentalBookingService];
     $rentalAvailabilityService = new \Modules\Rental\Service\RentalAvailabilityService(
         new \Modules\Rental\Availability\AvailabilityCalculator(),
         new \Modules\Rental\Repository\RentalConstraintsRepository($pdo),
@@ -3241,6 +3247,28 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $rentalAuthorizationService, $scoutYearService
         )
     );
+    $frontController->registerController(
+        \Modules\Rental\Controller\RentalRequestController::class,
+        new \Modules\Rental\Controller\RentalRequestController(
+            $twig, $rentalAssetRepository, $rentalBookingService, $rentalAvailabilityService,
+            $rentalPricingService,
+            new \Modules\Rental\Service\RentalBookingMailService(
+                $mailService, $twig, $settingService, $journalService
+            ),
+            $rentalManagerService, $memberService, $scoutYearService, $editableContentService,
+            $humanCheckService, $settingService
+        )
+    );
+
+    // Bootstrap the hourly hold-expiry poller (Task\ExpireRentalHoldsHandler,
+    // which re-schedules itself at the end of every run — Core\Scheduler has
+    // no recurring-task concept). Module-scoped handlers are auto-resolved
+    // via ModuleManager::getTaskHandler() in both entry points, so this
+    // one-time nudge is all the wiring there is; it is idempotent, so it
+    // costs one indexed lookup per request and never queues a duplicate.
+    // Availability does not depend on it: a hold is lapsed the moment its
+    // deadline passes, which the calculator reads directly.
+    \Modules\Rental\Task\ExpireRentalHoldsHandler::bootstrap($schedulerService);
 
     // Menu hook (Core\Module\MenuEntryProvider) — the "Locations" index and
     // one entry per pinned public asset in "Notre unité", plus "Mes

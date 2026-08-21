@@ -117,13 +117,24 @@ class RentalManagerService
     }
 
     /**
-     * The managers a renter is allowed to contact for this asset, with
-     * their display names. Used by the renter-facing tracking page, which
-     * is why the `is_renter_contact` filter is applied in SQL rather than
-     * left to the template: a template that forgot the condition would leak
-     * every manager's details to an external renter.
+     * The managers a renter is allowed to contact for this asset, name and
+     * contact details included. Used by the renter-facing tracking page,
+     * which is why the `is_renter_contact` filter is applied in SQL rather
+     * than left to the template: a template that forgot the condition would
+     * leak every manager's details to an external renter.
      *
-     * @return array<int, array{manager: RentalAssetManager, display_name: string}>
+     * The details come with the name deliberately — a list of bare names is
+     * of no use to somebody who needs to reach a person about their booking,
+     * and `is_renter_contact` exists precisely to say whose details may be
+     * given out (§6.3, §6.6). It never widens beyond that: an unflagged
+     * manager is absent from this list entirely, and nothing here is ever
+     * rendered on a public page.
+     *
+     * One profile lookup per contact rather than a batch: an asset has a
+     * handful of managers and only the flagged ones reach this far, so the
+     * simpler call is the honest trade.
+     *
+     * @return array<int, array{manager: RentalAssetManager, display_name: string, email: ?string, phone: ?string}>
      */
     public function listRenterContactsForAsset(int $assetId, int $scoutYearId): array
     {
@@ -139,9 +150,14 @@ class RentalManagerService
 
         $result = [];
         foreach ($contacts as $contact) {
+            $profile = $this->memberService->findProfileByMemberAndYear($contact->memberId, $scoutYearId);
             $result[] = [
                 'manager' => $contact,
                 'display_name' => $names[$contact->memberId] ?? 'Membre inconnu',
+                'email' => $profile?->email,
+                // The mobile first: it is the number a renter actually
+                // needs on the day, and a landline is the fallback.
+                'phone' => $profile === null ? null : ($profile->mobile ?? $profile->phone),
             ];
         }
 

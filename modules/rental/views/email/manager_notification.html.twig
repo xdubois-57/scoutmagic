@@ -1,0 +1,18 @@
+{#
+  Deliberately MINIMAL (§15 of the conventions): it says a request arrived and
+  links to the secured page. No renter name, email, phone or comment — an
+  inbox is not a place to scatter copies of personal data, and a manager who
+  needs the detail is one click from the page that shows it behind a real
+  permission check.
+#}
+<p>Une nouvelle demande de location est arrivée.</p>
+
+<ul>
+    <li><strong>Bien</strong> : {{ asset.name }}</li>
+    <li><strong>Référence</strong> : {{ booking.reference }}</li>
+    <li><strong>Dates</strong> : du {{ booking.arrivalDate }} au {{ booking.departureDate }}</li>
+</ul>
+
+<p><a href="{{ manage_url }}">Traiter la demande</a></p>
+
+<p>{{ site_name }}</p>
