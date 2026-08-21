@@ -13,6 +13,22 @@
         <testsuite name="Bootstrap">
             <directory>tests/Bootstrap</directory>
         </testsuite>
+        <!--
+            Security and Integration existed as directories long before they
+            were listed here, which meant `vendor/bin/phpunit` — the command
+            CI runs, and the one scripts/release.sh's tests gate runs —
+            never executed a single one of them. Eight files, including the
+            SQL-injection, encryption, file-access and upload-MIME audits
+            AGENTS.md § Security checklist leans on, silently stopped being
+            run at all and drifted out of date. A test suite that is not in
+            this file does not exist.
+        -->
+        <testsuite name="Security">
+            <directory>tests/Security</directory>
+        </testsuite>
+        <testsuite name="Integration">
+            <directory>tests/Integration</directory>
+        </testsuite>
     </testsuites>
     <!--
         No <groups><exclude> here, deliberately: every test runs by default,
