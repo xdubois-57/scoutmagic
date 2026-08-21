@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\SupportDashboard\Service;
 
+use Core\Config\SettingService;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 
 /**
@@ -39,10 +40,14 @@ use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 class SupportDashboardService
 {
     /**
-     * Temporary until IT-10 introduces `support_active_threshold_days`.
-     * Kept as a constant, not a literal, so the replacement is one edit.
+     * Fallback for the `support_active_threshold_days` setting: what the
+     * dashboard uses if the setting is missing or nonsensical. Matches the
+     * manifest's declared default.
      */
     public const ACTIVE_THRESHOLD_DAYS = 14;
+
+    /** Fallback for `support_retention_months`, same rule. */
+    public const RETENTION_MONTHS = 6;
 
     /** Technical keys for the auto-update filter — never displayed as-is. */
     public const AUTO_UPDATE_DISABLED = 'disabled';
@@ -56,8 +61,10 @@ class SupportDashboardService
      */
     public const UNKNOWN_LABEL = 'Non renseigné';
 
-    public function __construct(private SupportInstallationRepository $installations)
-    {
+    public function __construct(
+        private SupportInstallationRepository $installations,
+        private ?SettingService $settings = null
+    ) {
     }
 
     /**
@@ -66,9 +73,7 @@ class SupportDashboardService
     public function buildView(SupportDashboardFilters $filters): array
     {
         $all = array_map([$this, 'hydrate'], $this->installations->findAll());
-
-        $filtered = array_values(array_filter($all, fn(array $row): bool => $this->matches($row, $filters)));
-        $filtered = $this->sort($filtered, $filters);
+        $filtered = $this->applyFilters($all, $filters);
 
         $pageCount = max(1, (int) ceil(count($filtered) / SupportDashboardFilters::PER_PAGE));
         $page = min($filters->page, $pageCount);
@@ -84,7 +89,45 @@ class SupportDashboardService
             'charts' => $this->charts($filtered),
             'available' => $this->availableFilterValues($all),
             'active_threshold_days' => $this->activeThresholdDays(),
+            'retention_months' => $this->retentionMonths(),
         ];
+    }
+
+    /**
+     * The **whole** filtered set, unpaginated and in sort order — what the
+     * XLSX export writes. Deliberately a separate entry point from
+     * buildView(): an export of the page currently on screen would be a
+     * silently truncated deliverable.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function filteredRows(SupportDashboardFilters $filters): array
+    {
+        return $this->applyFilters(
+            array_map([$this, 'hydrate'], $this->installations->findAll()),
+            $filters
+        );
+    }
+
+    /**
+     * Deletes one installation in full, by hand. Returns false if it was
+     * already gone, so the caller can say so rather than claiming a
+     * deletion that did not happen.
+     */
+    public function delete(int $id): bool
+    {
+        return $this->installations->delete($id);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $all
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyFilters(array $all, SupportDashboardFilters $filters): array
+    {
+        $filtered = array_values(array_filter($all, fn(array $row): bool => $this->matches($row, $filters)));
+
+        return $this->sort($filtered, $filters);
     }
 
     /**
@@ -106,12 +149,42 @@ class SupportDashboardService
     }
 
     /**
-     * Days of silence after which an installation counts as stale.
-     * Overridden by a setting in a later iteration.
+     * Days of silence after which an installation counts as stale
+     * (`support_active_threshold_days`). Stale is a display state, never a
+     * deletion: the row stays and remains reachable through the filter
+     * until retention or a superadmin removes it.
      */
-    protected function activeThresholdDays(): int
+    public function activeThresholdDays(): int
     {
-        return self::ACTIVE_THRESHOLD_DAYS;
+        return $this->positiveSetting('support_active_threshold_days', self::ACTIVE_THRESHOLD_DAYS);
+    }
+
+    /**
+     * Months of silence after which the whole record is deleted
+     * (`support_retention_months`). Read here rather than in the task so
+     * the page and the purge can never disagree about the vocabulary.
+     */
+    public function retentionMonths(): int
+    {
+        return $this->positiveSetting('support_retention_months', self::RETENTION_MONTHS);
+    }
+
+    /**
+     * A threshold has to be a positive whole number of days or months; a
+     * blank, zero or negative setting would either mark every installation
+     * stale or delete the whole table on the next purge, so it falls back
+     * to the declared default rather than being obeyed.
+     */
+    private function positiveSetting(string $key, int $fallback): int
+    {
+        $value = $this->settings?->get($key, 'support_dashboard');
+        if (!is_string($value) && !is_int($value)) {
+            return $fallback;
+        }
+
+        $value = (int) $value;
+
+        return $value > 0 ? $value : $fallback;
     }
 
     /**

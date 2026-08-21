@@ -2715,7 +2715,8 @@ if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) 
         \Modules\SupportDashboard\Controller\SupportDashboardController::class,
         new \Modules\SupportDashboard\Controller\SupportDashboardController(
             $twig,
-            new \Modules\SupportDashboard\Service\SupportDashboardService($supportInstallationRepo)
+            new \Modules\SupportDashboard\Service\SupportDashboardService($supportInstallationRepo, $settingService),
+            $journalService
         )
     );
 

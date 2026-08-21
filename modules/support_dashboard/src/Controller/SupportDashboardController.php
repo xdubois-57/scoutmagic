@@ -11,8 +11,11 @@ namespace Modules\SupportDashboard\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Journal\JournalService;
+use Core\Security\CsrfGuard;
 use Modules\SupportDashboard\Service\SupportDashboardFilters;
 use Modules\SupportDashboard\Service\SupportDashboardService;
+use Modules\SupportDashboard\Service\SupportInstallationExporter;
 use Twig\Environment;
 
 /**
@@ -27,7 +30,8 @@ class SupportDashboardController extends AbstractController
 {
     public function __construct(
         protected Environment $twig,
-        private SupportDashboardService $dashboardService
+        private SupportDashboardService $dashboardService,
+        private JournalService $journalService
     ) {
     }
 
@@ -62,5 +66,57 @@ class SupportDashboardController extends AbstractController
         return $this->render('@support_dashboard/partials/detail.html.twig', [
             'installation' => $installation,
         ]);
+    }
+
+    /**
+     * `GET /support-dashboard/export` — XLSX of the **currently filtered
+     * set**, not the page on screen. The filters travel in the query string
+     * exactly as they do for the page, so the export is reproducible from
+     * its own URL and can never drift from what the table showed.
+     *
+     * @param array<string, string> $params
+     */
+    public function export(Request $request, array $params): Response
+    {
+        $filters = SupportDashboardFilters::fromQuery($request->getQueryAll());
+        $xlsx = SupportInstallationExporter::build($this->dashboardService->filteredRows($filters));
+
+        return (new Response($xlsx))
+            ->setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            ->setHeader('Content-Disposition', 'attachment; filename="installations-support.xlsx"')
+            ->setHeader('Content-Length', (string) strlen($xlsx));
+    }
+
+    /**
+     * `POST /support-dashboard/installations/{id}/delete` — a superadmin
+     * removing one record before retention would. The confirmation dialog
+     * lives on the page; this end only enforces the CSRF token, because a
+     * confirmation a caller can skip is not a control.
+     *
+     * The deletion is total (identifier, URL, payload, credential hash) and
+     * leaves finalised monthly aggregates untouched.
+     *
+     * @param array<string, string> $params
+     */
+    public function delete(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
+            return new Response('Jeton de sécurité invalide.', 400);
+        }
+
+        $id = (int) ($params['id'] ?? 0);
+        if ($this->dashboardService->delete($id)) {
+            // The id is the receiver's own row number, not the reporting
+            // installation's identifier: nothing here identifies a unit.
+            $this->journalService->log(
+                'support_dashboard',
+                'support_installation_deleted',
+                'info',
+                'Enregistrement d\'installation supprimé manuellement.',
+                ['installation_row_id' => $id]
+            );
+        }
+
+        return $this->redirect('/support-dashboard');
     }
 }

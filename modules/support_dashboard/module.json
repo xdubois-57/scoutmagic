@@ -33,14 +33,51 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""
+    },
+    {
+      "path": "/support-dashboard/export",
+      "method": "GET",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportDashboardController",
+      "action": "export",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/support-dashboard/installations/{id}/delete",
+      "method": "POST",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportDashboardController",
+      "action": "delete",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
     }
   ],
-  "settings": [],
+  "settings": [
+    {
+      "key": "support_active_threshold_days",
+      "default_value": "14",
+      "type": "number",
+      "label": "Seuil d'activité d'une installation (jours)",
+      "description": "Nombre de jours sans rapport au-delà duquel une installation est considérée comme obsolète. Elle reste conservée et consultable via un filtre."
+    },
+    {
+      "key": "support_retention_months",
+      "default_value": "6",
+      "type": "number",
+      "label": "Durée de conservation d'une installation (mois)",
+      "description": "Nombre de mois sans rapport accepté au-delà duquel l'enregistrement d'une installation est supprimé en entier. Les agrégats mensuels déjà finalisés ne sont jamais modifiés par cette suppression."
+    }
+  ],
   "cookies": [],
   "scheduled_tasks": [
     {
       "key": "purge_rate_limits",
       "handler": "Modules\\SupportDashboard\\Task\\PurgeRateLimitsHandler"
+    },
+    {
+      "key": "purge_installations",
+      "handler": "Modules\\SupportDashboard\\Task\\PurgeInstallationsHandler"
     }
   ],
   "storage": {}
