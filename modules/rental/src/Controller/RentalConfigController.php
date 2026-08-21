@@ -84,6 +84,20 @@ class RentalConfigController extends AbstractController
     }
 
     /**
+     * Whether a real cron has run recently (§6.29).
+     *
+     * `cron_last_run` is stamped only by `public/cron.php`, never by a web
+     * request — which is exactly what makes it able to tell a real crontab
+     * from the request-driven scheduler that stands in for one.
+     */
+    private static function cronDetected(SettingService $settingService): bool
+    {
+        $lastRun = (int) ($settingService->get('cron_last_run') ?: 0);
+
+        return $lastRun > 0 && (time() - $lastRun) < 600;
+    }
+
+    /**
      * POST /admin/locations/courrier — which mailboxes feed this module
      * (§7.4).
      *
@@ -170,6 +184,14 @@ class RentalConfigController extends AbstractController
             'inbound_mail_available' => $this->mailboxSelection?->isAvailable() ?? false,
             'inbound_mailboxes' => $this->mailboxSelection?->availableMailboxes() ?? [],
             'selected_mailbox_ids' => $this->mailboxSelection?->selectedIds() ?? [],
+            // The cron warning (§6.29). Same signal and same 10-minute
+            // window the push-notification page uses — a real crontab
+            // typically runs every minute, and the generous window only
+            // avoids a false alarm right after a fresh install. Said out
+            // loud rather than hidden: on shared hosting without a crontab
+            // the reminders still go out, but hours late, and a unit that
+            // does not know that will read the delay as a bug.
+            'cron_detected' => self::cronDetected($this->settingService),
             'csrf_token' => CsrfGuard::generateToken(),
             'current_path' => '/admin/locations',
         ]);

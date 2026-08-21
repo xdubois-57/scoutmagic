@@ -4,15 +4,16 @@
   partials/chip_picker.html.twig rather than a raw horizontal-scroll row
   (ARCHITECTURE.md §8.30).
 
-  Requires `asset` and `nav_page` in scope. Contract and Emails arrive in
-  later iterations and are deliberately absent rather than shown disabled —
-  a chip that does nothing is worse than one that is not there.
+  Requires `asset` and `nav_page` in scope. A page that does not exist yet is
+  deliberately absent rather than shown disabled — a chip that does nothing is
+  worse than one that is not there.
 #}
 {% set management_pages = [
     {'key': 'overview', 'url': '/mes-locations/' ~ asset.slug, 'label': "Vue d'ensemble"},
     {'key': 'calendar', 'url': '/mes-locations/' ~ asset.slug ~ '/calendrier', 'label': 'Calendrier'},
     {'key': 'bookings', 'url': '/mes-locations/' ~ asset.slug ~ '/reservations', 'label': 'Réservations'},
     {'key': 'templates', 'url': '/mes-locations/' ~ asset.slug ~ '/gabarits', 'label': 'Gabarits'},
+    {'key': 'compliance', 'url': '/mes-locations/' ~ asset.slug ~ '/conformite', 'label': 'Conformité'},
 ] %}
 {% set management_items = [] %}
 {% for page in management_pages %}

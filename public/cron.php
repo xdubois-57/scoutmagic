@@ -200,6 +200,23 @@ if (VapidKeyPairFactory::isValid(
     );
 }
 
+// The rentals reminder pass (§6.29), for the same reason: its money
+// reminders need Finance's public API, which only a composition root can
+// build. Registered in public/index.php too — a handler registered in one
+// entry point only fails unconditionally under the other (§8.17/§8.20).
+//
+// Under a real crontab there is no request, so the service is assembled
+// here from what this file already has. Finance is genuinely absent in this
+// construction, and RentalReminderService says nothing about money rather
+// than guessing what was received.
+if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
+    $runner->registerHandler(
+        'rental',
+        \Modules\Rental\Task\SendRentalRemindersHandler::TASK_KEY,
+        new \Modules\Rental\Task\SendRentalRemindersHandler()
+    );
+}
+
 // Inbound mail's polling task (§7.4) is the one module task that cannot be
 // auto-resolved from its manifest: it needs the consumer registry, and only
 // a composition root can build one. The same registration exists in

@@ -16,6 +16,7 @@ use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
@@ -41,6 +42,7 @@ use Modules\Rental\Service\RentalAuthorizationService;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBlockService;
 use Modules\Rental\Service\RentalCommunicationService;
+use Modules\Rental\Service\RentalComplianceService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalBookingMailService;
 use Modules\Rental\Service\RentalDocumentService;
@@ -154,9 +156,170 @@ class RentalManagementController extends AbstractController
          * consuming `inbound_mail` is an ordinary §7.5 dependency — the
          * booking page works identically without it, minus a tab.
          */
-        private ?RentalCommunicationService $communicationService = null
+        private ?RentalCommunicationService $communicationService = null,
+        /**
+         * The asset paperwork register (§6.33). Nullable only so the
+         * controller stays constructible in tests that do not care about
+         * it — the module always wires one.
+         */
+        private ?RentalComplianceService $complianceService = null
     ) {
         parent::__construct($twig);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/conformite — the asset's paperwork
+     * register (§6.33).
+     *
+     * **A reminder list, not a compliance check.** The page says so in as
+     * many words, and there is deliberately nothing here that computes a
+     * status: what paperwork a hall needs differs by commune, by federation
+     * and by year, and a green tick derived from a date would be a legal
+     * opinion this software has no business giving.
+     *
+     * @param array<string, string> $params
+     */
+    public function compliance(Request $request, array $params): Response
+    {
+        $asset = $this->manageableAsset($params);
+        if ($asset === null || $this->complianceService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->render('@rental/management/compliance.html.twig', [
+            'asset' => $asset,
+            'breadcrumb_current' => 'Conformité',
+            'items' => $this->complianceService->forAsset($asset->id),
+            'label_suggestions' => $this->complianceService->labelSuggestions(),
+            'today' => new \DateTimeImmutable('today'),
+            'warning_days' => RentalComplianceService::EXPIRY_WARNING_DAYS,
+            'csrf_token' => CsrfGuard::generateToken(),
+            'nav_page' => 'compliance',
+        ]);
+    }
+
+    /**
+     * POST /mes-locations/conformite-ajouter
+     *
+     * @param array<string, string> $params
+     */
+    public function addComplianceItem(Request $request, array $params): Response
+    {
+        return $this->complianceAction($request, function (RentalAsset $asset) use ($request): void {
+            $fileId = $this->uploadComplianceFile($request, $asset);
+
+            $this->complianceService?->add(
+                $asset->id,
+                (string) $request->getBody('label', ''),
+                self::optionalString($request->getBody('expires_on')),
+                self::optionalString($request->getBody('remark')),
+                $fileId,
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Entrée ajoutée au registre.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/conformite-modifier
+     *
+     * @param array<string, string> $params
+     */
+    public function updateComplianceItem(Request $request, array $params): Response
+    {
+        return $this->complianceAction($request, function (RentalAsset $asset) use ($request): void {
+            $itemId = (int) $request->getBody('item_id', 0);
+
+            $this->complianceService?->update(
+                $asset->id,
+                $itemId,
+                (string) $request->getBody('label', ''),
+                self::optionalString($request->getBody('expires_on')),
+                self::optionalString($request->getBody('remark')),
+                $this->actorMemberId()
+            );
+
+            $fileId = $this->uploadComplianceFile($request, $asset);
+            if ($fileId !== null) {
+                $this->complianceService?->attachFile($asset->id, $itemId, $fileId, $this->actorMemberId());
+            }
+
+            FlashMessage::set('success', 'Entrée mise à jour.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/conformite-supprimer
+     *
+     * @param array<string, string> $params
+     */
+    public function deleteComplianceItem(Request $request, array $params): Response
+    {
+        return $this->complianceAction($request, function (RentalAsset $asset) use ($request): void {
+            $this->complianceService?->delete(
+                $asset->id,
+                (int) $request->getBody('item_id', 0),
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Entrée supprimée.');
+        });
+    }
+
+    /**
+     * The register's own action shape: same guards as `bookingAction()`,
+     * but back to the compliance page and without a booking.
+     *
+     * @param callable(RentalAsset): void $work
+     */
+    private function complianceAction(Request $request, callable $work): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Forbidden', 403);
+        }
+
+        $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
+        if ($asset === null || $this->complianceService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        try {
+            $work($asset);
+        } catch (RentalException | UploadException $e) {
+            FlashMessage::set('danger', $e->getMessage());
+        }
+
+        return $this->redirect('/mes-locations/' . $asset->slug . '/conformite');
+    }
+
+    /**
+     * The uploaded proof, when there is one.
+     *
+     * Through `UploadHandler` like every other file in this module: real
+     * MIME check, regenerated name, EXIF stripped, stored outside
+     * `public/`, and served only through `FileAccessGuard`.
+     *
+     * @throws UploadException
+     */
+    private function uploadComplianceFile(Request $request, RentalAsset $asset): ?int
+    {
+        $file = $request->getFile('document');
+        if ($this->uploadHandler === null || $file === null || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return null;
+        }
+
+        return $this->uploadHandler->handle(
+            $file,
+            RentalComplianceService::STORAGE_SUBDIRECTORY,
+            self::ALLOWED_DOCUMENT_MIMES,
+            self::MAX_DOCUMENT_BYTES,
+            RentalComplianceService::FILE_ROLE_MIN,
+            'rental',
+            AuthSession::getUserAccountId(),
+            RentalComplianceService::FILE_OWNER_TYPE,
+            $asset->id
+        );
     }
 
     /**

@@ -3405,6 +3405,23 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $mailService, $twig, $settingService, $journalService
     );
 
+    // The asset paperwork register (§6.33). A reminder list, never a
+    // compliance check: nothing here knows a regulation.
+    $rentalComplianceService = new \Modules\Rental\Service\RentalComplianceService(
+        new \Modules\Rental\Repository\RentalComplianceRepository($pdo),
+        $settingService,
+        $journalService,
+        $fileRepository
+    );
+
+    // Its documents follow the same rule as a booking's: readable only by
+    // somebody who may manage the asset (ARCHITECTURE.md §8.3).
+    $fileOwnershipCheckers[] = new \Modules\Rental\File\RentalComplianceOwnershipChecker(
+        $rentalAuthorizationService,
+        (int) $scoutYearService->getCurrentYear()['id'],
+        \Core\Security\AuthSession::getEmail()
+    );
+
     // A rental document is readable only by somebody who may manage the
     // asset its booking belongs to — ARCHITECTURE.md §8.3's owner_type
     // registry, appended here so it reaches FileAccessGuard, which is built
@@ -3509,7 +3526,8 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             // And `rental` consuming `inbound_mail` (§7.7): null without
             // that module, in which case the booking page loses a tab and
             // nothing else.
-            $rentalCommunicationService
+            $rentalCommunicationService,
+            $rentalComplianceService
         )
     );
     $frontController->registerController(
@@ -3539,6 +3557,35 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     // Availability does not depend on it: a hold is lapsed the moment its
     // deadline passes, which the calculator reads directly.
     \Modules\Rental\Task\ExpireRentalHoldsHandler::bootstrap($schedulerService);
+
+    // The daily reminder pass (§6.29). Registered explicitly rather than
+    // auto-resolved from the manifest, HERE AND IN public/cron.php both,
+    // because the money reminders need Finance's public API and only a
+    // composition root knows whether that module is enabled. A handler
+    // registered in only one of the two entry points fails unconditionally
+    // under the other (§8.17/§8.20), and a test pins both call sites.
+    $rentalReminderService = new \Modules\Rental\Service\RentalReminderService(
+        $rentalBookingRepository,
+        $rentalAssetRepository,
+        $rentalManagerRepository,
+        $rentalComplianceService,
+        new \Modules\Rental\Repository\RentalReminderRepository($pdo),
+        new \Modules\Rental\Reminder\ReminderPlanner(),
+        $memberYearRepo,
+        $userAccountRepo,
+        $journalService,
+        $notificationService,
+        $rentalPaymentService,
+        $rentalDocumentService,
+        $rentalStayService,
+        $rentalBookingMailService
+    );
+    $schedulerRunner->registerHandler(
+        'rental',
+        \Modules\Rental\Task\SendRentalRemindersHandler::TASK_KEY,
+        new \Modules\Rental\Task\SendRentalRemindersHandler($rentalReminderService)
+    );
+    \Modules\Rental\Task\SendRentalRemindersHandler::bootstrap($schedulerService);
 
     // Menu hook (Core\Module\MenuEntryProvider) — the "Locations" index and
     // one entry per pinned public asset in "Notre unité", plus "Mes
