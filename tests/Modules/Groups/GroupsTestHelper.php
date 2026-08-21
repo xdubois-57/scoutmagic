@@ -17,6 +17,7 @@ class GroupsTestHelper
         $pdo->exec('CREATE TABLE discussion_groups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            description TEXT NULL,
             scout_year_id INTEGER NULL,
             section_id INTEGER NULL,
             closed_at TEXT NULL,
@@ -57,6 +58,7 @@ class GroupsTestHelper
             edited_at TEXT NULL,
             hidden_at TEXT NULL,
             moderation_cleared INTEGER NOT NULL DEFAULT 0,
+            calendar_event_id INTEGER NULL,
             last_activity_at TEXT NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE
@@ -164,6 +166,43 @@ class GroupsTestHelper
             notified_at TEXT NOT NULL,
             UNIQUE(reply_id),
             FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE discussion_group_reads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            member_id INTEGER NOT NULL,
+            last_read_at TEXT NOT NULL,
+            UNIQUE(group_id, member_id),
+            FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE discussion_group_polls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            question TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(post_id),
+            FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE discussion_group_poll_options (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            poll_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            FOREIGN KEY (poll_id) REFERENCES discussion_group_polls(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE discussion_group_poll_votes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            poll_id INTEGER NOT NULL,
+            option_id INTEGER NOT NULL,
+            member_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(poll_id, member_id),
+            FOREIGN KEY (poll_id) REFERENCES discussion_group_polls(id) ON DELETE CASCADE,
+            FOREIGN KEY (option_id) REFERENCES discussion_group_poll_options(id) ON DELETE CASCADE
         )');
 
         $pdo->exec('CREATE TABLE discussion_group_rate_limits (

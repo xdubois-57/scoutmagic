@@ -40,6 +40,20 @@
     {% block stylesheets %}{% endblock %}
 </head>
 <body>
+    {#
+      Revealed by offline-nav.js the moment the browser reports itself
+      offline, and hidden again when the connection returns. Server-
+      rendered hidden (never conditionally omitted) so it is already in
+      the DOM of a page served from the cache — there is no server to ask
+      at that point. Says read-only rather than "no connection": what a
+      member needs to know is what they can still do here, not merely that
+      something is wrong.
+    #}
+    <div id="offline-readonly-banner" class="alert alert-warning border-0 rounded-0 mb-0 py-2 text-center small d-none" role="status">
+        <i class="bi bi-wifi-off me-1" aria-hidden="true"></i>
+        Hors ligne — vous consultez une version enregistrée, en lecture seule.
+    </div>
+
     {% block nav %}
     {% if menus is defined and menus is not null %}
         {% include 'partials/nav.html.twig' with {

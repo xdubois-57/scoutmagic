@@ -122,7 +122,14 @@ class GroupMemberControllerTest extends TestCase
         $twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
             true,
-            ['groups' => dirname(__DIR__, 4) . '/modules/groups/views']
+            [
+                'groups' => dirname(__DIR__, 4) . '/modules/groups/views',
+                // show.html.twig includes @gallery/partials/lightbox.html.twig —
+                // groups hard-requires gallery, and production registers every
+                // enabled module's namespace (public/index.php), so the test
+                // environment has to as well or the page cannot render.
+                'gallery' => dirname(__DIR__, 4) . '/modules/gallery/views',
+            ]
         );
         foreach (['site_name' => 'Test', 'is_authenticated' => true, 'current_user_email' => 'p@t.be',
                   'current_user_role' => $role, 'config_mode' => false, 'cookie_consent_given' => true,

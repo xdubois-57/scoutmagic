@@ -27,11 +27,15 @@ use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\GroupsException;
+use Modules\Groups\Service\MentionService;
 use Modules\Groups\Service\PostLinkService;
+use Modules\Groups\Service\PollService;
+use Modules\Groups\Service\PostEventService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\ReplyService;
 use Modules\Groups\Service\ReportService;
+use Modules\Groups\Service\SeenByService;
 use Modules\Groups\Support\RejectedDraft;
 use Twig\Environment;
 
@@ -60,7 +64,11 @@ class PostController extends AbstractController
         private ReplyService $replyService,
         private AuthorOptionsService $authorOptionsService,
         private ReportService $reportService,
-        private ?GroupNotificationService $notificationService = null
+        private ?GroupNotificationService $notificationService = null,
+        private ?SeenByService $seenByService = null,
+        private ?MentionService $mentionService = null,
+        private ?PostEventService $eventService = null,
+        private ?PollService $pollService = null
     ) {
     }
 
@@ -92,6 +100,79 @@ class PostController extends AbstractController
             // render posts you cannot reply to.
             'post_permission' => $this->accessService->canPost($group, $context),
             'author_options' => $this->authorOptionsService->forGroup($group, $context),
+        ]);
+    }
+
+    /**
+     * GET /groups/{id}/mention-search?q=… — the group's own members
+     * matching what is being typed after an "@", for the composer's
+     * autocomplete.
+     *
+     * Any member of the group may call it, unlike the invite box's
+     * member-search (moderator only): the names it returns are the names
+     * of people this caller already sees in the group, so it discloses
+     * nothing the members page does not. It is still scoped to this
+     * group's membership and never to the unit at large — an autocomplete
+     * that searched everybody would turn a discussion group into a
+     * directory.
+     *
+     * @param array<string, string> $params
+     */
+    public function mentionSearch(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null || $this->mentionService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->json($this->mentionService->suggest(
+            $group,
+            (string) $request->getQuery('q', ''),
+            $context->effectiveScoutYearId
+        ));
+    }
+
+    /**
+     * GET /groups/{id}/posts/{postId}/seen-by — the names behind the
+     * "vu par N" line, as the same {html} shape the reactors dialog uses.
+     *
+     * Restricted to the post's OWN author, and that restriction is the
+     * feature's whole design rather than a detail of it. A read mark says
+     * where a member has been in a conversation; the one person with a
+     * legitimate claim on that is the one asking whether their own
+     * message reached anybody. A moderator gets no privileged view here
+     * either — moderation is about what was said, not about who was
+     * reading — so anyone else, moderator included, gets the module's
+     * usual 404 rather than a 403 that would confirm the post exists.
+     *
+     * @param array<string, string> $params
+     */
+    public function seenBy(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null || $this->seenByService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
+        if ($post === null || $post->groupId !== $group->id) {
+            return new Response('Not Found', 404);
+        }
+
+        if (!in_array($post->authorMemberId, $context->linkedMemberIds, true)) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->json([
+            'html' => $this->twig->render('@groups/partials/seen_by_list.html.twig', [
+                'names' => $this->seenByService->namesForPost(
+                    $group,
+                    $post,
+                    $group->scoutYearId ?? $context->effectiveScoutYearId
+                ),
+            ]),
         ]);
     }
 
@@ -144,7 +225,20 @@ class PostController extends AbstractController
             $body = PostLinkService::stripUrl($body, $link);
         }
 
-        if (!$this->postService->isPostable($body, count($files), $link !== '')) {
+        // A poll's question is text of its own, so a post that carries
+        // one is never "empty" even with no body, no media and no link.
+        // Normalised before that check rather than after, so a half-filled
+        // poll (a question with one option) does not keep an otherwise
+        // empty post alive.
+        $poll = $this->pollService?->normalise(
+            (string) $request->getBody('poll_question', ''),
+            // An <input name="poll_options[]"> row set, so already an
+            // array — cast for the case where nothing at all was
+            // submitted, or something that is not one was.
+            (array) $request->getBody('poll_options', [])
+        );
+
+        if (!$this->postService->isPostable($body, count($files), $link !== '', $poll !== null)) {
             // Silent for a plain form POST, exactly as before — the
             // composer already disables its own submit button on an empty
             // draft, so reaching here at all means something bypassed the
@@ -193,6 +287,22 @@ class PostController extends AbstractController
             $this->postLinkService->attach($group, $postId, $link, $authorMemberId, $context->userAccountId);
         }
 
+        if ($poll !== null) {
+            $this->pollService?->attachTo($postId, $poll);
+        }
+
+        // The submitted id is re-resolved against the calendar's own
+        // visibility rules before anything is stored — never trusted, and
+        // never joined to. An id naming an event this member may not see
+        // resolves to null and the post simply carries no event.
+        $eventId = $this->eventService?->resolveSubmitted(
+            (int) $request->getBody('calendar_event_id', 0) ?: null,
+            $context->role
+        );
+        if ($eventId !== null) {
+            $this->postRepository->setCalendarEventId($postId, $eventId);
+        }
+
         // Last, and only once the post is complete: notifying about a
         // post whose media upload then failed and rolled it back would
         // deep-link everyone to a 404. Never throws (see
@@ -201,6 +311,7 @@ class PostController extends AbstractController
         $created = $this->postRepository->findById($postId);
         if ($created !== null) {
             $this->notificationService?->postPublished($group, $created, $context->effectiveScoutYearId);
+            $this->notifyMentions($group, $created->id, $created->body, $created->isHidden(), $context);
         }
 
         // groups.js inserts this fragment straight into the feed instead
@@ -290,14 +401,92 @@ class PostController extends AbstractController
 
             $body = (string) $request->getBody('body', '');
             if ($this->postService->isPostable($body)) {
+                // Read BEFORE the write: whoever the message already named
+                // has already been told, and must not be told again
+                // because a typo elsewhere in it was corrected.
+                $alreadyMentioned = $this->mentionService?->resolve($group, $post->body, $context->effectiveScoutYearId) ?? [];
+
                 try {
                     $this->postService->edit($post, $body);
                 } catch (GroupsException $e) {
                     return $this->refuse($request, $e, $group->id, $body, null);
                 }
+
+                $edited = $this->postRepository->findById($post->id);
+                if ($edited !== null) {
+                    $this->notifyMentions($group, $edited->id, $edited->body, $edited->isHidden(), $context, $alreadyMentioned);
+                }
+            }
+
+            // Only the body comes back, never the whole card: groups.js
+            // swaps this one <p> in place, so the reply thread the member
+            // had expanded underneath survives the edit. Re-read so the
+            // fragment carries what was actually stored (the moderation
+            // layer may have normalised it) rather than what was posted.
+            $updated = $this->postRepository->findById($post->id);
+            if ($this->wantsJson($request) && $updated !== null) {
+                return $this->json([
+                    'html' => $this->twig->render('@groups/partials/post_body.html.twig', ['post' => $updated]),
+                ]);
             }
 
             return $this->redirect('/groups/' . $group->id);
+        });
+    }
+
+    /**
+     * POST /groups/{id}/posts/{postId}/vote — one member's answer to the
+     * poll on that post.
+     *
+     * Gated on canPost(), not merely on canRead(): voting is writing, and
+     * a closed group or a past scout year refuses it for exactly the same
+     * reasons it refuses a reply. That is also why a poll carries no
+     * "closed" flag of its own — schema.sql says so.
+     *
+     * The option id is re-checked against the post's own poll inside
+     * Service\PollService, so a hand-made request cannot vote for an
+     * option belonging to another poll.
+     *
+     * @param array<string, string> $params
+     */
+    public function vote(Request $request, array $params): Response
+    {
+        return $this->postAction($params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) use ($request): Response {
+            $permission = $this->accessService->canPost($group, $context);
+            if (!$permission->allowed) {
+                return new Response($permission->message, 403);
+            }
+
+            // The member the vote is recorded under is the one this
+            // account posts as in this group — one answer per member, so
+            // a parent linked to two children in the same group votes
+            // once, not twice.
+            $memberId = $this->accessService->memberIdsAllowedToPostAs($group, $context)[0] ?? null;
+            if ($memberId === null || $this->pollService === null) {
+                return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+            }
+
+            if (!$this->pollService->vote($post->id, (int) $request->getBody('option_id', 0), $memberId)) {
+                return new Response('Ce choix n\'existe pas.', 400);
+            }
+
+            // groups.js swaps the poll fragment in place; a plain form
+            // POST still gets the redirect it always would, so voting
+            // works with no JavaScript at all.
+            if ($this->wantsJson($request)) {
+                $poll = $this->pollService->forPosts([$post->id], $context->linkedMemberIds)[$post->id] ?? null;
+
+                return $this->json([
+                    'html' => $this->twig->render('@groups/partials/poll.html.twig', [
+                        'poll' => $poll,
+                        'group' => $group,
+                        'post' => $post,
+                        'can_vote' => true,
+                    ]),
+                ]);
+            }
+
+            return $this->redirect('/groups/' . $group->id . '#post-' . $post->id);
         });
     }
 
@@ -447,8 +636,44 @@ class PostController extends AbstractController
     }
 
     /**
-     * @param array<string, string> $params
+     * Notifies whoever the STORED body names after an "@".
+     *
+     * Resolution happens here, from the text the database now holds,
+     * rather than from anything the request claimed — Service\
+     * MentionService's docblock says why. Never fatal, same as every
+     * other notification in this module.
+     *
+     * @param int[] $alreadyNotified member ids to leave alone, so an edit
+     *        only tells the people the edit newly named
      */
+    private function notifyMentions(
+        DiscussionGroup $group,
+        int $postId,
+        string $body,
+        bool $suppressed,
+        GroupSessionContext $context,
+        array $alreadyNotified = []
+    ): void {
+        if ($this->mentionService === null || $this->notificationService === null || $context->userAccountId === null) {
+            return;
+        }
+
+        $mentioned = array_values(array_diff(
+            $this->mentionService->resolve($group, $body, $context->effectiveScoutYearId),
+            $alreadyNotified
+        ));
+
+        $this->notificationService->mentioned(
+            $group,
+            $postId,
+            $mentioned,
+            $body,
+            $suppressed,
+            $context->userAccountId,
+            $context->effectiveScoutYearId
+        );
+    }
+
     private function readableGroup(array $params, GroupSessionContext $context): ?DiscussionGroup
     {
         $group = $this->groupRepository->findById((int) ($params['id'] ?? 0));

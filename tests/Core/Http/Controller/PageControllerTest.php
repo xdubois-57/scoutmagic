@@ -99,6 +99,13 @@ class PageControllerTest extends TestCase
         $twig->addFilter(new \Twig\TwigFilter('display_name', function ($member) {
             return $member instanceof MemberProfile ? $member->getDisplayName() : (string) $member;
         }));
+        // Minimal stand-in for TwigFactory::create()'s own relative_date —
+        // the real French/UTC formatting is covered in full by
+        // Tests\Core\View\TwigFactoryTest; here it only needs to exist so
+        // pages/home.html.twig's groups activity card can render.
+        $twig->addFilter(new \Twig\TwigFilter('relative_date', function ($date) {
+            return (string) $date;
+        }));
 
         $sectionRepo = new SectionRepository($this->pdo);
 

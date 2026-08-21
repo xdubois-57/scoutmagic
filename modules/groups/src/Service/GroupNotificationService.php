@@ -15,7 +15,7 @@ use Modules\Groups\Repository\Reply;
 use Modules\Groups\Support\ReportedAuthor;
 
 /**
- * The module's four notification types, and everything that decides what
+ * The module's notification types, and everything that decides what
  * goes into one. All the plumbing — channels, member preferences,
  * quiet hours, batching, push — is core's (ARCHITECTURE.md §8.24); this
  * class only answers "who" and "what does it say".
@@ -47,6 +47,7 @@ class GroupNotificationService
     public const TYPE_POST_PUBLISHED = 'groups.post_published';
     public const TYPE_REPLY_RECEIVED = 'groups.reply_received';
     public const TYPE_REACTION_RECEIVED = 'groups.reaction_received';
+    public const TYPE_MENTIONED = 'groups.mentioned';
     public const TYPE_ITEM_REPORTED = 'groups.item_reported';
 
     /**
@@ -164,6 +165,65 @@ class GroupNotificationService
                 'title' => 'Réaction à votre réponse — ' . $group->name,
                 'body' => 'Quelqu\'un a réagi à votre réponse.',
                 'url' => $this->urlFor($group->id, $post->id),
+            ],
+            $actorUserAccountId
+        );
+    }
+
+    /**
+     * Type 5 — somebody wrote your name after an "@".
+     *
+     * Deliberately a type of its own even though a new post already
+     * notifies the whole group: the two say different things, and the
+     * point of separating them is the preferences page. A member who
+     * mutes "nouveau message" because their section group is busy still
+     * wants to hear it when somebody is actually talking to them. It
+     * earns its keep most on a REPLY, which otherwise reaches only the
+     * post's author — a question aimed at somebody three replies down a
+     * thread reached nobody before this.
+     *
+     * $memberIds comes from Service\MentionService, which read them back
+     * out of the stored body. Each is re-checked as a current member of
+     * the group by recipientsForMember() below, so a name that resolved
+     * at write time still cannot notify somebody who has since left.
+     *
+     * @param int[] $memberIds
+     */
+    public function mentioned(
+        DiscussionGroup $group,
+        int $postId,
+        array $memberIds,
+        string $body,
+        bool $suppressed,
+        int $actorUserAccountId,
+        int $effectiveScoutYearId
+    ): void {
+        if ($memberIds === []) {
+            return;
+        }
+
+        $this->send(
+            self::TYPE_MENTIONED,
+            function () use ($memberIds, $group, $actorUserAccountId, $effectiveScoutYearId): array {
+                $recipients = [];
+                foreach ($memberIds as $memberId) {
+                    foreach ($this->recipientsForMember($memberId, $group, $actorUserAccountId, $effectiveScoutYearId) as $recipient) {
+                        $recipients[] = $recipient;
+                    }
+                }
+
+                // One account linked to two mentioned members of the same
+                // group is still one notification, the same rule
+                // GroupRecipientResolver holds for every other audience.
+                return array_values(array_column($recipients, null, 'userAccountId'));
+            },
+            [
+                'title' => 'Vous êtes cité — ' . $group->name,
+                // Same excerpt rule as everything else here: a hidden
+                // item's text never reaches a lock screen, whoever was
+                // named in it.
+                'body' => $this->excerptOf($body, $suppressed),
+                'url' => $this->urlFor($group->id, $postId),
             ],
             $actorUserAccountId
         );

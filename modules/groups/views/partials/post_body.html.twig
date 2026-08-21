@@ -1,0 +1,11 @@
+{#
+  A post's body text, on its own so an edit can re-render exactly this and
+  nothing else — swapping the whole card would throw away the reply thread
+  the member had expanded underneath it.
+
+  Plain text, escaped by Twig (never |raw), with line breaks preserved by
+  nl2br on the already-escaped output. Rendered here in one place so the
+  feed and Controller\PostController::edit()'s own AJAX response can never
+  disagree about that escaping.
+#}
+<p class="mb-0 mt-2 groups-post-body" id="post-body-{{ post.id }}">{{ post.body|nl2br }}</p>

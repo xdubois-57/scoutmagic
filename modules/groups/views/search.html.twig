@@ -1,0 +1,65 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Rechercher — {{ group.name }} — {{ site_name }}{% endblock %}
+
+{% block stylesheets %}
+<link rel="stylesheet" href="/assets/css/components.css">
+{% endblock %}
+
+{% block content %}
+    {#
+      The header without `can_moderate`: this is a results page, not the
+      group's own page, so it offers no close/reopen and no edit form —
+      the same rule members.html.twig follows.
+    #}
+    {% include '@groups/partials/group_header.html.twig' %}
+
+    {% include '@groups/partials/search_form.html.twig' %}
+
+    {% if too_short %}
+        <p class="text-body-secondary" role="status">
+            Saisissez au moins {{ min_length }} caractères pour lancer une recherche.
+        </p>
+    {% elseif not has_searched %}
+        <p class="text-body-secondary" role="status">
+            Recherchez un mot dans les messages et les réponses de ce groupe.
+        </p>
+    {% elseif results is empty %}
+        <p class="text-body-secondary" role="status">
+            Aucun message ne contient « {{ query }} ».
+        </p>
+    {% else %}
+        <p class="text-body-secondary small" role="status">
+            {{ results|length }} message{{ results|length > 1 ? 's' : '' }} contenant « {{ query }} »{% if results|length >= result_limit %}, les plus récents{% endif %}.
+        </p>
+        {#
+          The feed's own card, unchanged. `post_permission` is deliberately
+          not passed: a result is something to read and then open in the
+          conversation it belongs to, so no reply composer is rendered here
+          (post_card.html.twig defaults it to "not allowed"). Reacting,
+          editing and deleting still work — they are the same delegated
+          handlers as on the group page, and each re-checks itself
+          server-side.
+        #}
+        {% for row in results %}
+            {% include '@groups/partials/post_card.html.twig' with { row: row, group: group } %}
+            <p class="text-end mb-3">
+                <a class="small" href="/groups/{{ group.id }}#post-{{ row.post.id }}">Voir dans la conversation</a>
+            </p>
+        {% endfor %}
+    {% endif %}
+
+    {#
+      The cards above carry the same tallies and media cells as the feed,
+      so they need the same two shared containers. See show.html.twig for
+      why the lightbox is gallery's own rather than a second one.
+    #}
+    {% include '@groups/partials/detail_modal.html.twig' %}
+
+    {% include '@gallery/partials/lightbox.html.twig' %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/gallery.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="/assets/js/groups.js" defer nonce="{{ csp_nonce }}"></script>
+{% endblock %}

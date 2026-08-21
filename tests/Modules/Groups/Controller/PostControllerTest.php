@@ -111,7 +111,8 @@ class PostControllerTest extends TestCase
         string $role = 'identified',
         bool $completeProfile = true,
         ?DelegatedAlbumManager $delegatedAlbumManager = null,
-        ?LinkPreviewFetcher $linkPreviewFetcher = null
+        ?LinkPreviewFetcher $linkPreviewFetcher = null,
+        ?\Modules\Calendar\Api\CalendarEventLookupInterface $eventLookup = null
     ): PostController {
         AuthSession::login($accountId, 'parent@test.be', $role);
 
@@ -155,15 +156,34 @@ class PostControllerTest extends TestCase
         );
         $authorResolver = new PostAuthorResolver($memberService, $accountRepo);
         $stack = GroupsTestHelper::replyStack($this->pdo, $activityService, $postMediaService, $authorResolver);
+        $readStateService = new \Modules\Groups\Service\GroupReadStateService(
+            new \Modules\Groups\Repository\GroupReadRepository($this->pdo),
+            $access
+        );
+        // Null unless a test supplies one — which is production's own
+        // "calendar disabled" wiring, so every other test in this file
+        // exercises the degraded path for free.
+        $eventService = new \Modules\Groups\Service\PostEventService($eventLookup);
+        $pollService = new \Modules\Groups\Service\PollService(
+            new \Modules\Groups\Repository\PollRepository($this->pdo)
+        );
         $feedService = new GroupFeedService(
             $this->postRepo, $authorResolver, $postService, $postMediaService, $postLinkRepo,
-            $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService']
+            $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService'],
+            $readStateService, $eventService, $pollService
         );
 
         $twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
             true,
-            ['groups' => dirname(__DIR__, 4) . '/modules/groups/views']
+            [
+                'groups' => dirname(__DIR__, 4) . '/modules/groups/views',
+                // show.html.twig includes @gallery/partials/lightbox.html.twig —
+                // groups hard-requires gallery, and production registers every
+                // enabled module's namespace (public/index.php), so the test
+                // environment has to as well or the page cannot render.
+                'gallery' => dirname(__DIR__, 4) . '/modules/gallery/views',
+            ]
         );
         foreach (['site_name' => 'Test', 'is_authenticated' => true, 'current_user_email' => 'p@t.be',
                   'current_user_role' => $role, 'config_mode' => false, 'cookie_consent_given' => true,
@@ -184,8 +204,31 @@ class PostControllerTest extends TestCase
             $postLinkService,
             $stack['replyService'],
             new AuthorOptionsService($access, $memberService),
-            $stack['reportService']
+            $stack['reportService'],
+            null,
+            new \Modules\Groups\Service\SeenByService($readStateService, $memberService),
+            new \Modules\Groups\Service\MentionService(
+                $this->recipientResolverFor([$this->memberId, $this->otherMemberId]),
+                $memberService
+            ),
+            $eventService,
+            $pollService
         );
+    }
+
+    /**
+     * A stubbed recipient resolver answering "these are the group's
+     * members" — the real one reaches for blind indexes and encrypted
+     * addresses, none of which this file's fixtures set up.
+     *
+     * @param int[] $memberIds
+     */
+    private function recipientResolverFor(array $memberIds): \Modules\Groups\Service\GroupRecipientResolver
+    {
+        $resolver = $this->createStub(\Modules\Groups\Service\GroupRecipientResolver::class);
+        $resolver->method('memberIdsFor')->willReturn($memberIds);
+
+        return $resolver;
     }
 
     private function profile(int $memberId): MemberProfile
@@ -615,6 +658,37 @@ class PostControllerTest extends TestCase
 
     // --- edit ----------------------------------------------------------
 
+    /**
+     * Only the body comes back, never the whole card: groups.js swaps
+     * that one <p> so the reply thread expanded underneath survives.
+     */
+    public function testEditingAPostViaAjaxReturnsOnlyTheReRenderedBody(): void
+    {
+        $postId = $this->seedPost();
+        $this->withCsrf(['body' => 'Texte corrigé']);
+
+        $response = $this->controller([$this->memberId])->edit($this->ajaxRequest(), $this->params($postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertStringContainsString('Texte corrigé', $body['html']);
+        $this->assertStringContainsString('post-body-' . $postId, $body['html']);
+        $this->assertStringNotContainsString('<article', $body['html'], 'the whole card must not come back');
+        $this->assertSame('Texte corrigé', $this->postRepo->findById($postId)->body);
+    }
+
+    public function testDeletingAPostViaAjaxAcknowledgesInsteadOfRedirecting(): void
+    {
+        $postId = $this->seedPost();
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->memberId])->delete($this->ajaxRequest(), $this->params($postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(['deleted' => true], json_decode($response->getBody(), true));
+        $this->assertNull($this->postRepo->findById($postId));
+    }
+
     public function testEditRejectsAMissingCsrfToken(): void
     {
         $postId = $this->seedPost();
@@ -832,6 +906,433 @@ class PostControllerTest extends TestCase
         $this->withCsrf([]);
 
         $this->assertSame(404, $this->controller([$outsider])->pin($this->request(), $this->params($postId))->getStatusCode());
+    }
+
+    // --- polls ----------------------------------------------------------
+
+    /**
+     * @return array<int, array{id: int, label: string}>
+     */
+    private function pollOptionsOf(int $postId): array
+    {
+        $repo = new \Modules\Groups\Repository\PollRepository($this->pdo);
+        $poll = $repo->findByPostId($postId);
+        $this->assertNotNull($poll, 'expected a poll on post ' . $postId);
+
+        return $repo->optionsForPolls([$poll['id']])[$poll['id']];
+    }
+
+    private function seedPostWithPoll(): int
+    {
+        $this->withCsrf([
+            'body' => 'Sondage',
+            'poll_question' => 'Qui vient ?',
+            'poll_options' => ['Samedi', 'Dimanche'],
+        ]);
+        $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        return $this->postRepo->findPage($this->groupId, 10)[0]->id;
+    }
+
+    public function testAPostCanCarryAPollAndTheFeedRendersIt(): void
+    {
+        $postId = $this->seedPostWithPoll();
+
+        $body = $this->controller([$this->memberId])
+            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())
+            ->getBody();
+
+        $this->assertNotNull((new \Modules\Groups\Repository\PollRepository($this->pdo))->findByPostId($postId));
+        $this->assertStringContainsString('Qui vient ?', $body);
+        $this->assertStringContainsString('Samedi', $body);
+    }
+
+    /**
+     * A poll is text of its own, so it keeps an otherwise empty post
+     * alive — the same way a photo or a link does.
+     */
+    public function testAPollAloneIsEnoughToPublish(): void
+    {
+        $this->withCsrf([
+            'body' => '',
+            'poll_question' => 'Qui vient ?',
+            'poll_options' => ['Samedi', 'Dimanche'],
+        ]);
+
+        $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $this->assertCount(1, $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    /**
+     * A half-filled poll is not a poll, so it cannot rescue an empty
+     * post — Service\PollService::normalise() refuses it before the
+     * emptiness check runs.
+     */
+    public function testAHalfFilledPollDoesNotRescueAnEmptyPost(): void
+    {
+        $this->withCsrf(['body' => '', 'poll_question' => 'Qui vient ?', 'poll_options' => ['Samedi']]);
+
+        $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    public function testAPostWithNoPollFieldsCarriesNoPoll(): void
+    {
+        $this->withCsrf(['body' => 'Juste un message']);
+
+        $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $postId = $this->postRepo->findPage($this->groupId, 10)[0]->id;
+        $this->assertNull((new \Modules\Groups\Repository\PollRepository($this->pdo))->findByPostId($postId));
+    }
+
+    public function testAMemberVotesAndGetsTheRefreshedPollBack(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $this->withCsrf(['option_id' => (string) $options[0]['id']]);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->vote($this->ajaxRequest(), $this->params($postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $html = json_decode($response->getBody(), true)['html'];
+        $this->assertStringContainsString('1 vote', $html);
+    }
+
+    public function testAPlainFormVoteRedirectsToTheAnchoredPost(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $this->withCsrf(['option_id' => (string) $options[0]['id']]);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->vote($this->request(), $this->params($postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/groups/' . $this->groupId . '#post-' . $postId, $response->getHeaders()['Location']);
+    }
+
+    public function testVotingRejectsAMissingCsrfToken(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $_POST = ['option_id' => (string) $options[0]['id']];
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->vote($this->request(), $this->params($postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testVotingIs404ForANonMember(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTPOLL');
+        $this->withCsrf(['option_id' => (string) $options[0]['id']]);
+
+        $response = $this->controller([$outsider], self::OTHER_ACCOUNT)->vote($this->request(), $this->params($postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * Voting is writing: a closed group refuses it for the same reason it
+     * refuses a reply, which is why a poll needs no "closed" flag of its
+     * own.
+     */
+    public function testAClosedGroupRefusesAVote(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $this->groupRepo->setClosed($this->groupId, '2026-02-01 00:00:00');
+        $this->withCsrf(['option_id' => (string) $options[0]['id']]);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->vote($this->request(), $this->params($postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testAnOptionFromAnotherPostsPollIsRefused(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $otherPostId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Autre', '2026-01-02 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        (new \Modules\Groups\Service\PollService(new \Modules\Groups\Repository\PollRepository($this->pdo)))
+            ->attachTo($otherPostId, ['question' => 'Autre ?', 'options' => ['Oui', 'Non']]);
+        $foreign = $this->pollOptionsOf($otherPostId)[0]['id'];
+        $this->withCsrf(['option_id' => (string) $foreign]);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->vote($this->request(), $this->params($postId));
+
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    // --- linked calendar event ------------------------------------------
+
+    private function eventLookup(?\Modules\Calendar\Api\EventSummary $event): \Modules\Calendar\Api\CalendarEventLookupInterface
+    {
+        $lookup = $this->createStub(\Modules\Calendar\Api\CalendarEventLookupInterface::class);
+        $lookup->method('findEventById')->willReturn($event);
+        $lookup->method('findEventsInWindow')->willReturn($event !== null ? [$event] : []);
+
+        return $lookup;
+    }
+
+    private function summary(int $id = 9): \Modules\Calendar\Api\EventSummary
+    {
+        return new \Modules\Calendar\Api\EventSummary($id, 'Réunion de section', 'Louveteaux', '2026-03-14', '2026-03-14');
+    }
+
+    public function testAPostCanCarryACalendarEventAndShowsItInTheFeed(): void
+    {
+        $this->withCsrf(['body' => 'On en parle samedi', 'calendar_event_id' => '9']);
+        $controller = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, null, $this->eventLookup($this->summary()));
+
+        $controller->create($this->request(), $this->params());
+
+        $posts = $this->postRepo->findPage($this->groupId, 10);
+        $this->assertSame(9, $posts[0]->calendarEventId);
+
+        $body = $controller->feed(new Request('GET', '/groups/' . $this->groupId . '/feed', [], [], [], []), $this->params())->getBody();
+        $this->assertStringContainsString('Réunion de section', $body);
+        $this->assertStringContainsString('/calendar?month=2026-03', $body);
+    }
+
+    /**
+     * The id is re-resolved against the calendar's own visibility rules
+     * before anything is stored, so one typed into the form by hand
+     * cannot attach an event this member may not see.
+     */
+    public function testAnEventTheMemberMayNotSeeIsNotAttached(): void
+    {
+        $this->withCsrf(['body' => 'On en parle samedi', 'calendar_event_id' => '9']);
+
+        $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, null, $this->eventLookup(null))
+            ->create($this->request(), $this->params());
+
+        $this->assertNull($this->postRepo->findPage($this->groupId, 10)[0]->calendarEventId);
+    }
+
+    /**
+     * The whole point of the nullable interface: with the calendar module
+     * switched off, posting still works and the card simply shows no
+     * event line (ARCHITECTURE.md §7.5).
+     */
+    public function testWithTheCalendarDisabledAPostStillPublishesWithNoEventLine(): void
+    {
+        $this->withCsrf(['body' => 'On en parle samedi', 'calendar_event_id' => '9']);
+        $controller = $this->controller([$this->memberId]);
+
+        $response = $controller->create($this->request(), $this->params());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $post = $this->postRepo->findPage($this->groupId, 10)[0];
+        $this->assertNull($post->calendarEventId);
+        $this->assertStringNotContainsString(
+            'bi-calendar-event',
+            $controller->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())->getBody()
+        );
+    }
+
+    /**
+     * A stale id — the event was deleted after the post was written —
+     * renders as no line at all rather than as a broken link. That is why
+     * schema.sql carries no foreign key on the column.
+     */
+    public function testAPostWhoseEventHasSinceDisappearedRendersWithoutIt(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'On en parle', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        $this->postRepo->setCalendarEventId($postId, 9);
+
+        $body = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, null, $this->eventLookup(null))
+            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())
+            ->getBody();
+
+        $this->assertStringNotContainsString('bi-calendar-event', $body);
+    }
+
+    // --- mentions -------------------------------------------------------
+
+    private function mentionSearchRequest(string $q): Request
+    {
+        return new Request('GET', '/groups/' . $this->groupId . '/mention-search', ['q' => $q], [], [], []);
+    }
+
+    public function testMentionSearchOffersTheGroupsOwnMembers(): void
+    {
+        $response = $this->controller([$this->memberId])->mentionSearch($this->mentionSearchRequest('Ak'), $this->params());
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(
+            [['id' => $this->memberId, 'label' => 'Akéla']],
+            json_decode($response->getBody(), true)
+        );
+    }
+
+    /**
+     * Unlike the invite box's member-search, this one is open to every
+     * member of the group — it returns names they already see on the
+     * members page — but it is still 404 for somebody outside it.
+     */
+    public function testMentionSearchIs404ForANonMember(): void
+    {
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTMENTION');
+
+        $response = $this->controller([$outsider], self::OTHER_ACCOUNT)
+            ->mentionSearch($this->mentionSearchRequest('Ak'), $this->params());
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testMentionSearchReturnsNothingForAnEmptyQuery(): void
+    {
+        $response = $this->controller([$this->memberId])->mentionSearch($this->mentionSearchRequest(''), $this->params());
+
+        $this->assertSame([], json_decode($response->getBody(), true));
+    }
+
+    /**
+     * The autocomplete is a typing aid, not the mechanism: the field
+     * carries the endpoint, and picking a name only ever types plain
+     * text into the body.
+     */
+    public function testTheComposerAndTheReplyBoxBothCarryTheMentionEndpoint(): void
+    {
+        GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+
+        $body = $this->controller([$this->memberId])
+            ->feed(new Request('GET', '/groups/' . $this->groupId . '/feed', [], [], [], []), $this->params())
+            ->getBody();
+
+        $this->assertStringContainsString('data-mention-url="/groups/' . $this->groupId . '/mention-search"', $body);
+    }
+
+    // --- seen by --------------------------------------------------------
+
+    private function markGroupRead(int $memberId, string $at): void
+    {
+        (new \Modules\Groups\Repository\GroupReadRepository($this->pdo))->markRead($this->groupId, $memberId, $at);
+    }
+
+    private function seenByRequest(int $postId): Request
+    {
+        return new Request('GET', '/groups/' . $this->groupId . '/posts/' . $postId . '/seen-by', [], [], [], []);
+    }
+
+    public function testTheAuthorSeesWhoOpenedTheGroupAfterTheirPost(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        $this->markGroupRead($this->otherMemberId, '2026-01-10 11:00:00');
+
+        $response = $this->controller([$this->memberId])->seenBy($this->seenByRequest($postId), $this->params($postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        // The endpoint answers JSON ({html: …}), so the accented name is
+        // \u-escaped in the raw body — decode before asserting on it.
+        $this->assertStringContainsString('Akéla', json_decode($response->getBody(), true)['html']);
+    }
+
+    /**
+     * Somebody who opened the group BEFORE the message was published has
+     * not seen it — the whole point of comparing against created_at.
+     */
+    public function testAVisitOlderThanThePostDoesNotCount(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        $this->markGroupRead($this->otherMemberId, '2026-01-09 09:00:00');
+
+        $html = json_decode(
+            $this->controller([$this->memberId])->seenBy($this->seenByRequest($postId), $this->params($postId))->getBody(),
+            true
+        )['html'];
+
+        $this->assertStringContainsString('Personne n\'a encore ouvert', $html);
+    }
+
+    /**
+     * The author's own visit is not a read receipt for their own message.
+     */
+    public function testTheAuthorsOwnVisitNeverCountsTowardsTheirOwnPost(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        $this->markGroupRead($this->memberId, '2026-01-10 11:00:00');
+
+        $html = json_decode(
+            $this->controller([$this->memberId])->seenBy($this->seenByRequest($postId), $this->params($postId))->getBody(),
+            true
+        )['html'];
+
+        $this->assertStringContainsString('Personne n\'a encore ouvert', $html);
+    }
+
+    /**
+     * A read mark says where somebody has been in a conversation. Only
+     * the person asking "did my own message reach anyone?" gets that
+     * answer — a moderator included, since moderation is about what was
+     * said and not about who was reading.
+     */
+    public function testAnotherMemberGets404OnSomebodyElsesSeenByList(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->seenBy($this->seenByRequest($postId), $this->params($postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testAModeratorGetsNoPrivilegedViewOfWhoRead(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->seenBy($this->seenByRequest($postId), $this->params($postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testSeenByIs404ForANonMember(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTSEEN');
+
+        $response = $this->controller([$outsider], self::OTHER_ACCOUNT)
+            ->seenBy($this->seenByRequest($postId), $this->params($postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testSeenByIs404ForAPostFromAnotherGroup(): void
+    {
+        $otherGroupId = $this->groupService->createSectionGroup('Autre', $this->sectionId, $this->currentYearId, $this->moderatorMemberId);
+        $foreignPostId = GroupsTestHelper::createPostAt($this->pdo, $otherGroupId, 'Ailleurs', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+
+        $response = $this->controller([$this->memberId])
+            ->seenBy($this->seenByRequest($foreignPostId), $this->params($foreignPostId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * The count on the card, not the dialog behind it: rendered for the
+     * author only, and only in the feed the author is looking at.
+     */
+    public function testTheFeedShowsTheSeenCountToTheAuthorAndToNobodyElse(): void
+    {
+        GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        $this->markGroupRead($this->otherMemberId, '2026-01-10 11:00:00');
+        $feedRequest = new Request('GET', '/groups/' . $this->groupId . '/feed', [], [], [], []);
+
+        $authorBody = $this->controller([$this->memberId])->feed($feedRequest, $this->params())->getBody();
+        $otherBody = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)->feed($feedRequest, $this->params())->getBody();
+
+        $this->assertStringContainsString('Vu par 1 membre', $authorBody);
+        $this->assertStringNotContainsString('Vu par', $otherBody);
     }
 
     // --- feed and cross-group isolation --------------------------------

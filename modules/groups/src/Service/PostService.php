@@ -173,15 +173,20 @@ class PostService
     }
 
     /**
-     * A media-only or link-only post is valid (module spec); a post with
-     * none of text, media or a link is not. $mediaCount is trusted as-is
-     * — the caller (Controller\PostController::create()) is the one that
-     * already capped it against Service\PostMediaService::
+     * A media-only, link-only or poll-only post is valid (module spec); a
+     * post with none of text, media, a link or a poll is not. $mediaCount
+     * is trusted as-is — the caller (Controller\PostController::create())
+     * is the one that already capped it against Service\PostMediaService::
      * MAX_MEDIA_PER_POST, and already validated $hasLink's URL via
      * Service\PostLinkService::isValidUrl() before reaching here.
+     *
+     * $hasPoll is likewise already normalised by Service\PollService: it
+     * is true only for a poll that has a question AND at least two
+     * options, so a half-filled poll cannot keep an otherwise empty post
+     * alive.
      */
-    public function isPostable(string $body, int $mediaCount = 0, bool $hasLink = false): bool
+    public function isPostable(string $body, int $mediaCount = 0, bool $hasLink = false, bool $hasPoll = false): bool
     {
-        return $this->normalize($body) !== '' || $mediaCount > 0 || $hasLink;
+        return $this->normalize($body) !== '' || $mediaCount > 0 || $hasLink || $hasPoll;
     }
 }

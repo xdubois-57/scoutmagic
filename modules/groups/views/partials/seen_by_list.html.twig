@@ -1,0 +1,18 @@
+{#
+  Who has opened the group since this post was published — the content of
+  the dialog the "vu par N" line opens (public/assets/js/groups.js), shown
+  to the post's own author only (Controller\PostController::seenBy()).
+
+  Names, plain and escaped. Never a time: "seen" here is derived from when
+  somebody last opened the group, and dressing that up as a per-message
+  timestamp would claim a precision the data does not have.
+#}
+{% if names is empty %}
+    <p class="text-body-secondary mb-0">Personne n'a encore ouvert le groupe depuis votre message.</p>
+{% else %}
+    <ul class="list-unstyled mb-0">
+        {% for name in names %}
+            <li class="mb-1">{{ name }}</li>
+        {% endfor %}
+    </ul>
+{% endif %}

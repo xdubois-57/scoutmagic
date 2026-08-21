@@ -262,6 +262,28 @@ td code,
     cursor: not-allowed;
 }
 
+/* Every cached page is read-only while offline (offline-nav.js's own
+   applyFormState() — the visible counterpart of the submit interception
+   that already refuses every form unconditionally). Only the submit
+   controls are actually disabled; the fields stay editable on purpose, so
+   a draft can still be written and sent once the connection is back. */
+.offline-form-disabled {
+    opacity: .75;
+}
+.offline-form-disabled button[type="submit"],
+.offline-form-disabled input[type="submit"] {
+    cursor: not-allowed;
+}
+
+/* The one-line "read-only, you are offline" strip offline-nav.js reveals
+   at the top of the page. Server-rendered hidden in base.html.twig, so
+   there is no flash of it on a normal online load. */
+#offline-readonly-banner {
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+}
+
 /* Breadcrumb bar (partials/breadcrumb_bar.html.twig) — always visible on
    mobile viewports (below the site's lg breakpoint, 992px, same as
    nav.html.twig's own d-lg-none/d-none d-lg-block split and

@@ -34,6 +34,7 @@ use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\PostAuthorResolver;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
+use Modules\Groups\Support\SearchTerm;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -97,7 +98,8 @@ class GroupControllerTest extends TestCase
         string $role = 'identified',
         bool $completeProfile = true,
         ?DelegatedAlbumManager $delegatedAlbumManager = null,
-        ?array $routeBreadcrumb = null
+        ?array $routeBreadcrumb = null,
+        ?\Modules\Calendar\Api\CalendarEventLookupInterface $eventLookup = null
     ): GroupController {
         AuthSession::login(1, 'parent@test.be', $role);
 
@@ -136,7 +138,14 @@ class GroupControllerTest extends TestCase
         $twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
             true,
-            ['groups' => dirname(__DIR__, 4) . '/modules/groups/views']
+            [
+                'groups' => dirname(__DIR__, 4) . '/modules/groups/views',
+                // show.html.twig includes @gallery/partials/lightbox.html.twig —
+                // groups hard-requires gallery, and production registers every
+                // enabled module's namespace (public/index.php), so the test
+                // environment has to as well or the page cannot render.
+                'gallery' => dirname(__DIR__, 4) . '/modules/gallery/views',
+            ]
         );
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
@@ -164,7 +173,12 @@ class GroupControllerTest extends TestCase
         $feedService = new GroupFeedService(
             $postRepo, $authorResolver, $postService, $postMediaService,
             new PostLinkRepository($this->pdo),
-            $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService']
+            $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService'],
+            null,
+            // Null lookup unless a test supplies one — production's own
+            // "calendar disabled" wiring, so every other test here
+            // exercises the degraded path for free.
+            $groupsEventService = new \Modules\Groups\Service\PostEventService($eventLookup)
         );
 
         return new GroupController(
@@ -196,7 +210,10 @@ class GroupControllerTest extends TestCase
                 new GroupMemberRepository($this->pdo),
                 new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
                 new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
-            )
+            ),
+            null,
+            null,
+            $groupsEventService
         );
     }
 
@@ -552,6 +569,43 @@ class GroupControllerTest extends TestCase
         $this->assertStringNotContainsString('group-edit-tie-year', $body);
     }
 
+    /**
+     * The one-liner is shown to every member, not only to the moderator
+     * who wrote it — it is on the header partial, which the members page
+     * shares, rather than inside the moderator-only edit form.
+     */
+    public function testShowDisplaysTheGroupsDescriptionToAnOrdinaryMember(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CDESC');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupRepo->setDescription($groupId, 'Coordination du camp');
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MDESC', $this->sectionId, $this->currentYearId);
+
+        $body = $this->controller([$member])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('Coordination du camp', $body);
+    }
+
+    /**
+     * A description is member-supplied plain text: it goes through Twig's
+     * escaping like every other one in this module, never |raw.
+     */
+    public function testAGroupsDescriptionIsEscapedNotRendered(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MODESC');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $this->groupRepo->setDescription($groupId, '<script>alert(1)</script>');
+
+        $body = $this->controller([$moderator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringNotContainsString('<script>alert(1)</script>', $body);
+        $this->assertStringContainsString('&lt;script&gt;', $body);
+    }
+
     public function testShowDoesNotOfferTheEditFormToAnOrdinaryMember(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CEDIT');
@@ -575,6 +629,299 @@ class GroupControllerTest extends TestCase
             ->getBody();
 
         $this->assertStringContainsString('group-edit-tie-year', $body);
+    }
+
+    // ---- search ----
+
+    /**
+     * @param int[] $linkedMemberIds
+     */
+    private function searchBody(array $linkedMemberIds, int $groupId, string $q): string
+    {
+        return $this->controller($linkedMemberIds)
+            ->search(
+                new Request('GET', '/groups/' . $groupId . '/search', ['q' => $q], [], [], []),
+                ['id' => (string) $groupId]
+            )
+            ->getBody();
+    }
+
+    public function testSearchFindsAPostByItsOwnBody(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MSEARCH');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Rendez-vous au local samedi', '2026-01-10 10:00:00');
+        GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Bonne année à tous', '2026-01-11 10:00:00');
+
+        $body = $this->searchBody([$moderator], $groupId, 'local');
+
+        $this->assertStringContainsString('Rendez-vous au local samedi', $body);
+        $this->assertStringNotContainsString('Bonne année à tous', $body);
+    }
+
+    /**
+     * A hit inside a thread is a hit on the conversation: the POST comes
+     * back, not the reply on its own, because a reply shown without what
+     * it answers tells the reader nothing.
+     */
+    public function testSearchFindsAPostThroughAMatchingReply(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MSEARCH2');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Programme du week-end', '2026-01-10 10:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Je ramène les tentes', '2026-01-10 11:00:00');
+
+        $body = $this->searchBody([$moderator], $groupId, 'tentes');
+
+        $this->assertStringContainsString('Programme du week-end', $body);
+    }
+
+    /**
+     * A post matching both ways is one result, not two: the reply search
+     * returns ids, and the ones the body search already produced are
+     * dropped before they are fetched again.
+     */
+    public function testAPostMatchingBothInItsBodyAndInAReplyAppearsOnce(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MSEARCH3');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Le camp approche', '2026-01-10 10:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Vivement le camp', '2026-01-10 11:00:00');
+
+        $body = $this->searchBody([$moderator], $groupId, 'camp');
+
+        $this->assertSame(1, substr_count($body, 'id="post-' . $postId . '"'));
+    }
+
+    /**
+     * The module's rule everywhere: a route naming a group answers 404 to
+     * somebody who is not in it. A search box that answered 403 would
+     * confirm the group exists.
+     */
+    public function testSearchReturns404ForANonMember(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CSEARCH');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $stranger = GroupsTestHelper::createMember($this->pdo, 'XSEARCH');
+
+        $response = $this->controller([$stranger])->search(
+            new Request('GET', '/groups/' . $groupId . '/search', ['q' => 'local'], [], [], []),
+            ['id' => (string) $groupId]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * An auto-hidden post is excluded in the SQL for everyone but a
+     * moderator — the search box must not become the way back to a
+     * message the feed already stopped showing.
+     */
+    public function testAnAutoHiddenPostIsNotReturnedToAnOrdinaryMember(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CHID');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MHID', $this->sectionId, $this->currentYearId);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Message signalé au local', '2026-01-10 10:00:00');
+        (new PostRepository($this->pdo))->setHiddenAt($postId, '2026-01-10 12:00:00');
+
+        $this->assertStringNotContainsString('Message signalé au local', $this->searchBody([$member], $groupId, 'local'));
+        $this->assertStringContainsString('Message signalé au local', $this->searchBody([$creator], $groupId, 'local'));
+    }
+
+    /**
+     * The same rule one level down: a hidden reply must not surface the
+     * post it hangs under either.
+     */
+    public function testAHiddenReplyDoesNotSurfaceItsPost(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CHID2');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MHID2', $this->sectionId, $this->currentYearId);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Programme du week-end', '2026-01-10 10:00:00');
+        $replyId = GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Insulte tentaculaire', '2026-01-10 11:00:00');
+        (new \Modules\Groups\Repository\ReplyRepository($this->pdo))->setHiddenAt($replyId, '2026-01-10 12:00:00');
+
+        $this->assertStringNotContainsString(
+            'Programme du week-end',
+            $this->searchBody([$member], $groupId, 'tentaculaire')
+        );
+    }
+
+    /**
+     * Scoping, stated as a test rather than trusted to the query: the
+     * group in the URL is the only one searched, even when the member is
+     * a member of both.
+     */
+    public function testSearchNeverReachesAnotherGroupsMessages(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MSCOPE');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $otherId = $this->groupService->createInvitationGroup('Projet', null, $moderator);
+        GroupsTestHelper::createPostAt($this->pdo, $otherId, 'Secret de l\'autre groupe', '2026-01-10 10:00:00');
+
+        $this->assertStringNotContainsString(
+            'Secret de l\'autre groupe',
+            $this->searchBody([$moderator], $groupId, 'Secret')
+        );
+    }
+
+    /**
+     * Support\SearchTerm's escaping, seen from the outside: a member
+     * typing a lone wildcard gets no results, not every message in the
+     * group.
+     */
+    public function testALoneWildcardMatchesNothingRatherThanEverything(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MWILD');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Rendez-vous au local', '2026-01-10 10:00:00');
+
+        $body = $this->searchBody([$moderator], $groupId, '%%%');
+
+        $this->assertStringNotContainsString('Rendez-vous au local', $body);
+        $this->assertStringContainsString('Aucun message', $body);
+    }
+
+    public function testATermShorterThanTheMinimumIsRefusedRatherThanRun(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MSHORT');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Rendez-vous au local', '2026-01-10 10:00:00');
+
+        $body = $this->searchBody([$moderator], $groupId, 'lo');
+
+        $this->assertStringContainsString('au moins ' . SearchTerm::MIN_LENGTH . ' caractères', $body);
+        $this->assertStringNotContainsString('Rendez-vous au local', $body);
+    }
+
+    public function testArrivingWithNothingTypedInvitesASearchRatherThanReportingNoResult(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MEMPTY');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->searchBody([$moderator], $groupId, '');
+
+        $this->assertStringNotContainsString('Aucun message', $body);
+        $this->assertStringContainsString('Recherchez un mot', $body);
+    }
+
+    /**
+     * The term is echoed back into the box and into the "aucun résultat"
+     * line — both go through Twig's escaping like any other untrusted
+     * string.
+     */
+    public function testTheSearchTermIsEscapedWhereItIsEchoedBack(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MXSS');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->searchBody([$moderator], $groupId, '<script>alert(1)</script>');
+
+        $this->assertStringNotContainsString('<script>alert(1)</script>', $body);
+        $this->assertStringContainsString('&lt;script&gt;', $body);
+    }
+
+    /**
+     * A result is something to read and then open where it was said — no
+     * reply composer is rendered on this page, so a member cannot half-
+     * answer a message out of its context.
+     */
+    public function testResultsCarryNoReplyComposerButLinkBackToTheConversation(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MNOCOMP');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Rendez-vous au local', '2026-01-10 10:00:00');
+
+        $body = $this->searchBody([$moderator], $groupId, 'local');
+
+        $this->assertStringNotContainsString('groups-reply-form', $body);
+        $this->assertStringContainsString('/groups/' . $groupId . '#post-' . $postId, $body);
+    }
+
+    public function testTheGroupPageOffersTheSearchBox(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MBOX');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->controller([$moderator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('/groups/' . $groupId . '/search', $body);
+    }
+
+    public function testTheComposerOffersThePollBoxes(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MPOLL');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->controller([$moderator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('Ajouter un sondage', $body);
+        $this->assertStringContainsString('name="poll_question"', $body);
+        // More than the minimum, so a three- or four-choice poll needs no
+        // second trip through the form.
+        $this->assertGreaterThan(
+            \Modules\Groups\Service\PollService::MIN_OPTIONS,
+            substr_count($body, 'name="poll_options[]"')
+        );
+    }
+
+    // ---- linked calendar event ----
+
+    private function eventLookup(?\Modules\Calendar\Api\EventSummary $event): \Modules\Calendar\Api\CalendarEventLookupInterface
+    {
+        $lookup = $this->createStub(\Modules\Calendar\Api\CalendarEventLookupInterface::class);
+        $lookup->method('findEventById')->willReturn($event);
+        $lookup->method('findEventsInWindow')->willReturn($event !== null ? [$event] : []);
+
+        return $lookup;
+    }
+
+    public function testTheComposerOffersTheCalendarPickerWhenTheCalendarHasSomethingToOffer(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MEVT');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $event = new \Modules\Calendar\Api\EventSummary(9, 'Réunion de section', 'Louveteaux', '2026-03-14', '2026-03-14');
+
+        $body = $this->controller([$moderator], 'identified', true, null, null, $this->eventLookup($event))
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('name="calendar_event_id"', $body);
+        $this->assertStringContainsString('Réunion de section', $body);
+    }
+
+    /**
+     * With the calendar module disabled the composer never mentions the
+     * feature at all — an empty picker would advertise something this
+     * install does not have.
+     */
+    public function testTheComposerHidesThePickerWhenTheCalendarIsDisabled(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MEVT2');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->controller([$moderator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringNotContainsString('name="calendar_event_id"', $body);
+    }
+
+    public function testTheComposerHidesThePickerWhenTheCalendarHasNoEventInTheWindow(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MEVT3');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->controller([$moderator], 'identified', true, null, null, $this->eventLookup(null))
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringNotContainsString('name="calendar_event_id"', $body);
     }
 
     public function testShowReturns404ForAnUnknownGroup(): void
@@ -746,6 +1093,39 @@ class GroupControllerTest extends TestCase
         $this->assertStringNotContainsString('/gallery/media/1/thumb', $response->getBody(), 'a pending media never renders an <img>');
         $this->assertStringContainsString('spinner-border', $response->getBody());
         $this->assertStringContainsString('Échec du traitement', $response->getBody());
+    }
+
+    /**
+     * The photo viewer is gallery's own, not a second one written here:
+     * the page must carry gallery's lightbox markup AND give each
+     * finished media cell the trigger attributes gallery.js reads.
+     */
+    public function testShowWiresTheGalleryLightboxOntoFinishedMediaOnly(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CLB');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MLB', $this->sectionId, $this->currentYearId);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Photos', '2026-01-01 10:00:00', 1, $creator);
+        (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 1, 0);
+        (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 2, 1);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('listMedia')->willReturn([
+            new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
+            new DelegatedMedia(2, 'photo', 'pending', 1, 'b.jpg', '2026-01-01 10:00:00'),
+        ]);
+
+        $body = $this->controller([$member], 'identified', true, $manager)
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('id="gallery-lightbox"', $body, 'the viewer markup must be on the page');
+        $this->assertStringContainsString('gallery-lightbox-trigger', $body);
+        $this->assertStringContainsString('data-medium-url="/gallery/media/1/medium"', $body);
+        // The still-processing one gets no rendition URL, so gallery.js
+        // skips it and its plain <a> keeps working.
+        $this->assertStringNotContainsString('/gallery/media/2/medium', $body);
     }
 
     /**

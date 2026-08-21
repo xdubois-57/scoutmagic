@@ -1,0 +1,52 @@
+{#
+  A post's poll: the question, one row per option, and the tally.
+
+  `poll` is Service\PollService::forPosts()' own shape — percentages
+  already computed there so the bar's width and the number beside it can
+  never disagree. Null when the post carries no poll, which renders
+  nothing at all.
+
+  Every option is a real form POST, so voting works with no JavaScript;
+  groups.js upgrades the same POST to a fetch() and swaps this whole
+  block with the server's freshly rendered response, exactly as it does
+  for a reaction. `can_vote` is the group's own canPost() answer — a
+  closed group or a past scout year shows the results and no buttons.
+#}
+{% if poll %}
+    <div class="groups-poll border rounded p-2 mt-2" data-post-id="{{ post.id }}">
+        <p class="fw-semibold mb-2 small">{{ poll.question }}</p>
+        {% for option in poll.options %}
+            <div class="mb-1">
+                {% if can_vote %}
+                    <form method="post" action="/groups/{{ group.id }}/posts/{{ post.id }}/vote" class="groups-poll-form m-0">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="option_id" value="{{ option.id }}">
+                        <button type="submit"
+                                class="btn btn-sm w-100 text-start d-flex align-items-center justify-content-between {{ option.is_own ? 'btn-primary' : 'btn-outline-secondary' }}"
+                                style="min-height:44px;"
+                                aria-pressed="{{ option.is_own ? 'true' : 'false' }}">
+                            <span>{{ option.label }}</span>
+                            <span class="small ms-2">{{ option.votes }} · {{ option.percent }} %</span>
+                        </button>
+                    </form>
+                {% else %}
+                    <div class="d-flex align-items-center justify-content-between small py-1">
+                        <span>{{ option.label }}{% if option.is_own %} <span class="text-primary">·  votre choix</span>{% endif %}</span>
+                        <span>{{ option.votes }} · {{ option.percent }} %</span>
+                    </div>
+                {% endif %}
+                {#
+                  The bar carries no text of its own — the numbers are on
+                  the row above it, so a reader who cannot see the bar
+                  loses nothing. aria-hidden for the same reason.
+                #}
+                <div class="progress mt-1" style="height:4px;" aria-hidden="true">
+                    <div class="progress-bar" style="width: {{ option.percent }}%;"></div>
+                </div>
+            </div>
+        {% endfor %}
+        <p class="text-body-tertiary mb-0 mt-2" style="font-size:0.75rem;">
+            {{ poll.total }} vote{{ poll.total > 1 ? 's' : '' }}{% if can_vote %} · un seul choix, modifiable{% endif %}
+        </p>
+    </div>
+{% endif %}

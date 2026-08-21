@@ -2351,8 +2351,16 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsMemberRepo, $groupsSectionRepo, $sectionMembershipRepository
     );
     $groupsService = new \Modules\Groups\Service\GroupService($groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo);
+    // Per-member "last time I opened this group": drives the unread badge
+    // on the group list, the home page's own activity card, and a post's
+    // "vu par" list — all three read the same single mark, written once
+    // per group page view by Service\GroupReadStateService.
+    $groupsReadRepo = new \Modules\Groups\Repository\GroupReadRepository($pdo);
     $groupsListService = new \Modules\Groups\Service\GroupListService(
-        $groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo, $sectionMembershipRepository
+        $groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo, $sectionMembershipRepository, $groupsReadRepo
+    );
+    $groupsReadStateService = new \Modules\Groups\Service\GroupReadStateService(
+        $groupsReadRepo, $groupsAccessService
     );
     $groupsContextFactory = new \Modules\Groups\Service\GroupSessionContextFactory(
         $memberService, $userAccountRepo, $scoutYearResolver
@@ -2483,6 +2491,9 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $groupsAuthorOptionsService = new \Modules\Groups\Service\AuthorOptionsService($groupsAccessService, $memberService);
 
+    $groupsPollService = new \Modules\Groups\Service\PollService(
+        new \Modules\Groups\Repository\PollRepository($pdo)
+    );
     $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
         $groupsPostRepo,
         $groupsAuthorResolver,
@@ -2492,8 +2503,16 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsReplyRepo,
         $groupsReplyPresenter,
         $groupsReactionService,
-        $groupsReportService
+        $groupsReportService,
+        $groupsReadStateService,
+        // No event service here: calendar's lookup does not exist yet.
+        // The block at the end of this file re-registers the two
+        // controllers that need it — see its own comment.
+        null,
+        $groupsPollService
     );
+    $groupsSeenByService = new \Modules\Groups\Service\SeenByService($groupsReadStateService, $memberService);
+    $groupsMentionService = new \Modules\Groups\Service\MentionService($groupsRecipientResolver, $memberService);
 
     // Group files are readable only by the group's own members —
     // ARCHITECTURE.md §8.3's owner_type registry, appended here so it
@@ -2520,7 +2539,26 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
             $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
             $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
-            $settingService
+            $settingService, $groupsReadStateService
+        )
+    );
+
+    // Re-registers PageController with the groups activity hook — same
+    // core-hook precedent as the banner/news/trombinoscope blocks above
+    // (ARCHITECTURE.md §7.4), and the same "reuse whatever the earlier
+    // blocks already set" rule, so enabling groups never silently drops
+    // another module's homepage contribution. This block runs after all
+    // three of them, so each variable is either the real provider or the
+    // null it was initialised to.
+    $frontController->registerController(
+        PageController::class,
+        new PageController(
+            $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
+            $sectionService, $unitStaffSectionService, $scoutYearService,
+            in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
+            in_array('news', $moduleManager->getEnabledModuleIds(), true) ? $newsArticleService : null,
+            $sectionResponsableProvider,
+            new \Modules\Groups\Api\HomeActivityService($groupsListService, $groupsContextFactory)
         )
     );
     $frontController->registerController(
@@ -2529,7 +2567,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
             $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
             $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
-            $groupsNotificationService
+            $groupsNotificationService, $groupsSeenByService, $groupsMentionService, null, $groupsPollService
         )
     );
     $frontController->registerController(
@@ -2537,7 +2575,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Groups\Controller\ReplyController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
             $groupsReplyService, $groupsReplyPresenter, $groupsPostMediaService, $groupsContextFactory,
-            $groupsReportService, $groupsNotificationService
+            $groupsReportService, $groupsNotificationService, $groupsMentionService
         )
     );
     $frontController->registerController(
@@ -2667,6 +2705,57 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
             $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager
         )
     );
+
+    // Groups' optional "ce message parle de la réunion de samedi" link.
+    // Re-registered here rather than wired in groups' own block for the
+    // same reason PageController is re-registered there: $calendarEventLookup
+    // does not exist until this block (it needs the retro lookup, whose
+    // block runs after groups'), and groups' block runs earlier. With
+    // calendar disabled this never runs and the pair registered earlier —
+    // with no event service at all — stays in place, which is exactly the
+    // "works with the other module switched off" contract of
+    // ARCHITECTURE.md §7.5.
+    //
+    // Both constructor calls below MUST stay identical to the ones in the
+    // groups block apart from the trailing event service: a parameter
+    // added there and forgotten here would silently disable a feature on
+    // calendar-enabled installs only.
+    if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
+        $groupsPostEventService = new \Modules\Groups\Service\PostEventService($calendarEventLookup);
+        $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
+            $groupsPostRepo,
+            $groupsAuthorResolver,
+            $groupsPostService,
+            $groupsPostMediaService,
+            $groupsPostLinkRepo,
+            $groupsReplyRepo,
+            $groupsReplyPresenter,
+            $groupsReactionService,
+            $groupsReportService,
+            $groupsReadStateService,
+            $groupsPostEventService,
+            $groupsPollService
+        );
+        $frontController->registerController(
+            \Modules\Groups\Controller\GroupController::class,
+            new \Modules\Groups\Controller\GroupController(
+                $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
+                $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
+                $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
+                $settingService, $groupsReadStateService, $groupsPostEventService
+            )
+        );
+        $frontController->registerController(
+            \Modules\Groups\Controller\PostController::class,
+            new \Modules\Groups\Controller\PostController(
+                $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
+                $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
+                $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
+                $groupsNotificationService, $groupsSeenByService, $groupsMentionService, $groupsPostEventService,
+                $groupsPollService
+            )
+        );
+    }
 }
 
 if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {

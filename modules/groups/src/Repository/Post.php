@@ -29,7 +29,13 @@ class Post
         // construction of this DTO keeps working — same append-only
         // discipline as DiscussionGroup::$galleryAlbumId.
         public readonly ?string $hiddenAt = null,
-        public readonly bool $moderationCleared = false
+        public readonly bool $moderationCleared = false,
+        // Appended last for the same reason as the two above. Null is the
+        // ordinary case: most posts link no event, and a post whose event
+        // was deleted (or whose calendar module is switched off) keeps
+        // the id and simply resolves to nothing — schema.sql says why
+        // there is no foreign key.
+        public readonly ?int $calendarEventId = null
     ) {
     }
 

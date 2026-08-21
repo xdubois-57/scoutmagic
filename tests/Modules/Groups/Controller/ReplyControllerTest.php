@@ -182,6 +182,52 @@ class ReplyControllerTest extends GroupsControllerTestCase
         $this->assertArrayNotHasKey('_flash_message', $_SESSION);
     }
 
+    public function testEditingAReplyViaAjaxReturnsTheReRenderedCard(): void
+    {
+        $replyId = GroupsTestHelper::createReplyAt(
+            $this->pdo, $this->postId, 'Avant', gmdate('Y-m-d H:i:s', time() - 60), self::AUTHOR_ACCOUNT, $this->memberId
+        );
+        $this->withCsrf(['body' => 'Après correction']);
+
+        $response = $this->controller([$this->memberId])->edit($this->ajaxRequest(), $this->params(null, $replyId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertStringContainsString('Après correction', $body['html']);
+        $this->assertSame('Après correction', $this->replyRepo->findById($replyId)->body);
+    }
+
+    public function testDeletingAReplyViaAjaxAcknowledgesInsteadOfRedirecting(): void
+    {
+        $replyId = GroupsTestHelper::createReplyAt(
+            $this->pdo, $this->postId, 'À supprimer', gmdate('Y-m-d H:i:s', time() - 60), self::AUTHOR_ACCOUNT, $this->memberId
+        );
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->memberId])->delete($this->ajaxRequest(), $this->params(null, $replyId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(['deleted' => true], json_decode($response->getBody(), true));
+        $this->assertNull($this->replyRepo->findById($replyId));
+    }
+
+    /**
+     * The AJAX path must not become a way around the 15-minute window —
+     * the same 403 a plain form POST gets.
+     */
+    public function testEditingAReplyViaAjaxStillRespectsTheEditWindow(): void
+    {
+        $replyId = GroupsTestHelper::createReplyAt(
+            $this->pdo, $this->postId, 'Trop vieux', gmdate('Y-m-d H:i:s', time() - 30 * 60), self::AUTHOR_ACCOUNT, $this->memberId
+        );
+        $this->withCsrf(['body' => 'Tentative']);
+
+        $response = $this->controller([$this->memberId])->edit($this->ajaxRequest(), $this->params(null, $replyId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('Trop vieux', $this->replyRepo->findById($replyId)->body);
+    }
+
     public function testTooManyReplyImagesViaAjaxReturnsTheErrorAsJson(): void
     {
         $this->withImageFiles(2);

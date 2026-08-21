@@ -14,6 +14,12 @@
 CREATE TABLE discussion_groups (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(150) NOT NULL,
+    -- Optional one-liner a moderator writes to say what the group is for
+    -- ("Coordination du camp d'été 2026"). Matters most for an invitation
+    -- group, whose name alone often does not explain why it exists — a
+    -- section group's does. Plain text, never HTML: rendered escaped like
+    -- every other member-supplied string in this module.
+    description VARCHAR(300) NULL,
     -- Deliberately NULLABLE, unlike AGENTS.md's "every member-related
     -- table carries scout_year_id": a group created by invitation may be
     -- tied to a scout year or not, at the chief's choice (a unit-wide
@@ -169,6 +175,16 @@ CREATE TABLE discussion_group_posts (
     -- report would immediately re-hide what a moderator just cleared,
     -- and the moderator's decision would silently mean nothing.
     moderation_cleared BOOLEAN NOT NULL DEFAULT FALSE,
+    -- An optional link to a calendar event ("on parle de la réunion de
+    -- samedi"). Deliberately NO foreign key: calendar is a separate,
+    -- independently enable-able module (ARCHITECTURE.md §7.5), and a
+    -- constraint here would make this module refuse to install without
+    -- it. A stale id — the event was deleted, or the calendar module was
+    -- switched off — simply resolves to nothing and the post renders
+    -- without the line, which is why every read of this column goes
+    -- through Modules\Calendar\Api\CalendarEventLookupInterface rather
+    -- than a join.
+    calendar_event_id INT UNSIGNED NULL,
     -- The feed's exact ordering, so the keyset scan is index-only:
     -- pinned posts are fetched separately, the stream reads
     -- (group_id, last_activity_at DESC, id DESC).
@@ -455,4 +471,93 @@ CREATE TABLE discussion_group_reply_reaction_notices (
     notified_at DATETIME NOT NULL,
     UNIQUE INDEX idx_dgrrn_reply (reply_id),
     CONSTRAINT fk_dgrrn_reply FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Per-member "last time I opened this group", the one thing an unread
+-- indicator needs. Written once per group page view
+-- (Service\GroupReadStateService, called from Controller\GroupController::
+-- show()), read in a single batched query for the whole group list and for
+-- the home page's own activity card.
+--
+-- Keyed on member_id, not on the user account: a parent linked to two
+-- children who are both in the same group has ONE reading position in that
+-- conversation, not one per child — the same identity resolution every
+-- other per-member row in this module uses (the member the account posts
+-- as, Service\GroupAccessService::memberIdsAllowedToPostAs()).
+--
+-- Deliberately a timestamp rather than a last-seen post id: a post can be
+-- deleted, and an id-based cursor pointing at a deleted row has no
+-- meaningful "everything after this" answer, while a timestamp always
+-- does. It is compared against discussion_groups.last_activity_at (the
+-- group's own single-writer activity clock) and against
+-- discussion_group_posts.created_at for the per-post "seen by" answer.
+--
+-- No personal data: two ids and a timestamp (SECURITY.md §5).
+CREATE TABLE discussion_group_reads (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    group_id INT UNSIGNED NOT NULL,
+    member_id INT UNSIGNED NOT NULL,
+    last_read_at DATETIME NOT NULL,
+    UNIQUE INDEX idx_dgr_group_member (group_id, member_id),
+    INDEX idx_dgr_member (member_id),
+    CONSTRAINT fk_dgr_group FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgr_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- A poll attached to a post: "Qui vient au week-end ?" with a fixed set
+-- of answers. One poll per post at most (the UNIQUE below), because a
+-- post IS the poll's container — its author, its group, its deletion and
+-- its retention purge all come from the post, and nothing here duplicates
+-- any of them.
+--
+-- No closing date and no "closed" flag: a poll stops accepting votes for
+-- exactly the reasons a post stops accepting replies — the group was
+-- closed, or its scout year has passed — and that answer already lives in
+-- Service\GroupAccessService::canPost(). A second, poll-specific notion
+-- of "closed" would be one more thing able to disagree with it.
+--
+-- No personal data: a question and its options are member-supplied text
+-- about an activity, stored raw and escaped by Twig, never HTML
+-- (SECURITY.md §5) — the same rule as a post body.
+CREATE TABLE discussion_group_polls (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    post_id INT UNSIGNED NOT NULL,
+    question VARCHAR(300) NOT NULL,
+    created_at DATETIME NOT NULL,
+    UNIQUE INDEX idx_dgpo_post (post_id),
+    CONSTRAINT fk_dgpo_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One answer a member may pick. `position` fixes the display order once
+-- and for all: the order the author typed them in is meaningful ("samedi
+-- / dimanche / les deux") and must not become the order rows happen to
+-- come back in, nor drift as votes arrive.
+CREATE TABLE discussion_group_poll_options (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    poll_id INT UNSIGNED NOT NULL,
+    label VARCHAR(150) NOT NULL,
+    position TINYINT UNSIGNED NOT NULL,
+    INDEX idx_dgpop_poll (poll_id, position),
+    CONSTRAINT fk_dgpop_poll FOREIGN KEY (poll_id) REFERENCES discussion_group_polls(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One vote per member per poll, and changeable: the UNIQUE below is what
+-- makes "change my mind" an UPDATE rather than a second row, and what
+-- makes two tabs voting at once safe (Repository\PollRepository::vote()
+-- uses the same INSERT-then-UPDATE shape as a reaction).
+--
+-- Keyed on member_id like every other per-member row in this module, so a
+-- parent linked to two children in one group votes once as the member
+-- they post as, not twice.
+CREATE TABLE discussion_group_poll_votes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    poll_id INT UNSIGNED NOT NULL,
+    option_id INT UNSIGNED NOT NULL,
+    member_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL,
+    UNIQUE INDEX idx_dgpv_poll_member (poll_id, member_id),
+    INDEX idx_dgpv_option (option_id),
+    CONSTRAINT fk_dgpv_poll FOREIGN KEY (poll_id) REFERENCES discussion_group_polls(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgpv_option FOREIGN KEY (option_id) REFERENCES discussion_group_poll_options(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgpv_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

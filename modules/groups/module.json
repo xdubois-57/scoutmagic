@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.8.0",
+  "version": "1.15.0",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -79,6 +79,21 @@
       "label": "",
       "breadcrumb": {
         "label": "Galerie du groupe",
+        "parents": [
+          "Espace animés"
+        ]
+      }
+    },
+    {
+      "path": "/groups/{id}/search",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "search",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Rechercher",
         "parents": [
           "Espace animés"
         ]
@@ -199,6 +214,15 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/mention-search",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\PostController",
+      "action": "mentionSearch",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/media-status",
       "method": "GET",
       "controller": "Modules\\Groups\\Controller\\GroupController",
@@ -248,6 +272,15 @@
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "delete",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/vote",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\PostController",
+      "action": "vote",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -311,6 +344,15 @@
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\ReactionController",
       "action": "reactToReply",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/seen-by",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\PostController",
+      "action": "seenBy",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -490,6 +532,18 @@
       }
     },
     {
+      "id": "groups.mentioned",
+      "label": "Vous êtes cité dans un groupe",
+      "description": "Quand quelqu'un écrit votre nom précédé d'un @ dans un message ou une réponse d'un de vos groupes. Utile si vous avez désactivé la notification de chaque nouveau message : celle-ci ne vous prévient que lorsqu'on s'adresse à vous.",
+      "group": "Groupes",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    },
+    {
       "id": "groups.item_reported",
       "label": "Contenu signalé dans un groupe",
       "description": "Quand un membre signale un message ou une réponse dans un groupe dont vous êtes modérateur. Réservé aux modérateurs du groupe : cette notification ne peut pas être désactivée dans le centre de notifications.",
@@ -502,5 +556,12 @@
       }
     }
   ],
-  "offline": []
+  "offline": [
+    {
+      "path": "/groups",
+      "label": "Groupes",
+      "match": "exact",
+      "role_min": "identified"
+    }
+  ]
 }

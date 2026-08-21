@@ -11,6 +11,7 @@ namespace Modules\Groups\Service;
 use Core\Member\SectionMembershipRepository;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupMemberRepository;
+use Modules\Groups\Repository\GroupReadRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
 
@@ -34,7 +35,8 @@ class GroupListService
         private GroupRepository $groupRepository,
         private GroupSectionRepository $sectionRepository,
         private GroupMemberRepository $memberRepository,
-        private SectionMembershipRepository $membershipRepository
+        private SectionMembershipRepository $membershipRepository,
+        private ?GroupReadRepository $readRepository = null
     ) {
     }
 
@@ -89,25 +91,56 @@ class GroupListService
             }
         }
 
-        $items = [];
+        $readable = [];
         foreach ($groups as $group) {
             $sectionIds = $sectionIdsByGroup[$group->id] ?? [];
             $isExplicit = array_key_exists($group->id, $explicitByGroup);
-            $isModerator = $context->isSiteAdmin() || ($explicitByGroup[$group->id] ?? false);
 
             if (!$context->isSiteAdmin() && !$isExplicit && !$this->isDerived($group, $sectionIds, $periods, $context)) {
                 continue;
             }
 
+            $readable[] = [$group, $sectionIds, $context->isSiteAdmin() || ($explicitByGroup[$group->id] ?? false)];
+        }
+
+        // One query for the caller's reading position across every group
+        // they can see, rather than one per group — same batching rule as
+        // everything else on this page.
+        $lastRead = $this->readRepository?->lastReadFor(
+            array_map(fn(array $row) => $row[0]->id, $readable),
+            $context->linkedMemberIds
+        ) ?? [];
+
+        $items = [];
+        foreach ($readable as [$group, $sectionIds, $isModerator]) {
             $items[] = new GroupListItem(
                 $group,
                 $isModerator,
                 $group->scoutYearId !== null && $group->scoutYearId !== $context->effectiveScoutYearId,
-                $sectionIds
+                $sectionIds,
+                $this->hasUnread($group, $lastRead)
             );
         }
 
         return $items;
+    }
+
+    /**
+     * Never opened counts as unread, but only once the group has actually
+     * had activity: a group created a minute ago whose last_activity_at is
+     * still its own creation timestamp has nothing to catch up on, and
+     * flagging it would make the badge mean "exists" rather than "has
+     * something new".
+     *
+     * @param array<int, string> $lastRead
+     */
+    private function hasUnread(DiscussionGroup $group, array $lastRead): bool
+    {
+        if (!isset($lastRead[$group->id])) {
+            return $group->lastActivityAt > $group->createdAt;
+        }
+
+        return $group->lastActivityAt > $lastRead[$group->id];
     }
 
     /**
