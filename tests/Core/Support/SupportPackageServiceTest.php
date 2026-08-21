@@ -275,6 +275,34 @@ class SupportPackageServiceTest extends TestCase
         $this->assertStringContainsString('[REDACTED]', $statusJson);
     }
 
+    /**
+     * `collection-status.json` is JSON, and a driver error is very often
+     * not valid UTF-8. `json_encode()` answers `false` on such a subject —
+     * not a throw, not a partial document — and renderStatus() casts that
+     * to string, so one collector reporting a latin-1 message used to empty
+     * the entire status file and take every other collector's outcome with
+     * it. The archive is still always produced; the file inside it has to
+     * be readable too.
+     */
+    public function testANonUtf8FailureReasonDoesNotEmptyTheWholeStatusFile(): void
+    {
+        $fileId = $this->service([
+            new ThrowingCollector("SQLSTATE[HY000] acc\xE8s refus\xE9 par le serveur"),
+            new NotingCollector(),
+        ])->generate(null);
+
+        $statusJson = $this->readArchive($fileId)['collection-status.json'];
+        $this->assertNotSame('', $statusJson);
+
+        $status = json_decode($statusJson, true);
+        $this->assertIsArray($status);
+
+        $collectors = array_column($status['collectors'], null, 'name');
+        $this->assertSame('failed', $collectors['throwing']['status']);
+        $this->assertStringContainsString('SQLSTATE', (string) $collectors['throwing']['reason']);
+        $this->assertSame('success', $collectors['noting']['status'], 'one bad reason must not erase the others');
+    }
+
     public function testStatisticsJsonIsProducedEvenWhenReportingIsDisabled(): void
     {
         $this->settingRepository->updateValue(null, 'statistics_enabled', '0');
@@ -478,5 +506,63 @@ class SupportPackageServiceTest extends TestCase
             $this->assertIsArray($status);
             $this->assertCount(5, $status['collectors'], "Broken table: {$table}");
         }
+    }
+
+    /**
+     * A stamp that cannot be parsed cannot be proven to be within
+     * retention, so the archive goes. Erring the other way would leave the
+     * most sensitive artefact this codebase produces on disk forever
+     * because of one bad string.
+     */
+    public function testAnUnreadableGenerationStampDropsTheArchive(): void
+    {
+        $fileId = $this->service([$this->statisticsCollector()])->generate(null);
+        $this->settingRepository->updateValue(null, SupportPackageState::GENERATED_AT, 'pas une date');
+        $this->settings->clearCache();
+
+        $this->assertTrue($this->service()->purgeExpired());
+        $this->assertNull((new FileRepository($this->pdo))->findById($fileId));
+    }
+
+    public function testPurgingWhenThereIsNoPackageAtAllIsANoOp(): void
+    {
+        $this->assertFalse($this->service()->purgeExpired());
+    }
+
+    /**
+     * A FileRecord whose bytes are already gone must not stop a new package
+     * from being produced — the record is dropped and generation carries on.
+     */
+    public function testAHalfDeletedPackageDoesNotBlockTheNextGeneration(): void
+    {
+        $service = $this->service([$this->statisticsCollector()]);
+        $first = $service->generate(null);
+
+        $record = (new FileRepository($this->pdo))->findById($first);
+        $this->assertNotNull($record);
+        @unlink($this->storagePath . '/' . $record->storagePath);
+
+        $second = $service->generate(null);
+
+        $this->assertNotSame($first, $second);
+        $this->assertNull((new FileRepository($this->pdo))->findById($first));
+    }
+
+    public function testTheCurrentPackageAccessorsReportNothingBeforeAnyGeneration(): void
+    {
+        $service = $this->service();
+
+        $this->assertNull($service->currentPackageFileId());
+        $this->assertNull($service->currentPackageGeneratedAt());
+    }
+
+    public function testTheCurrentPackageAccessorsReportTheGeneratedArchive(): void
+    {
+        $service = $this->service([$this->statisticsCollector()]);
+        $fileId = $service->generate(null);
+
+        $this->settings->clearCache();
+        $this->assertSame($fileId, $service->currentPackageFileId());
+        $this->assertNotNull($service->currentPackageGeneratedAt());
     }
 }

@@ -62,6 +62,13 @@ class SupportDashboardService
      */
     public const UNKNOWN_LABEL = 'Non renseigné';
 
+    /**
+     * What marks a development build in a version/build label. The same
+     * word the table's badge already shows next to the version, so the
+     * chart legend and the table read as one vocabulary.
+     */
+    public const DEV_BUILD_SUFFIX = '(dev)';
+
     public function __construct(
         private SupportInstallationRepository $installations,
         private ?SettingService $settings = null,
@@ -239,6 +246,15 @@ class SupportDashboardService
             'id' => (int) $row['id'],
             'installation_id' => (string) $row['installation_id'],
             'instance_url' => self::stringOrNull($row['instance_url'] ?? null),
+            // The href, which is NOT the same thing as the text. A row
+            // written before Modules\SupportDashboard\Service\
+            // StatisticsIntakeService started refusing non-http schemes can
+            // still hold `javascript:…`, and rendering that as an <a href>
+            // puts a superadmin one click from a remote installation's
+            // script running in the receiver's origin. The template links
+            // the href and prints the text; null means "show it, do not
+            // link it".
+            'instance_url_href' => self::httpUrlOrNull($row['instance_url'] ?? null),
             'scoutmagic_version' => self::stringOrNull($row['scoutmagic_version'] ?? null),
             'is_dev_build' => self::boolOrNull($row['is_dev_build'] ?? null),
             'active_members' => self::intOrNull($row['active_members'] ?? null),
@@ -577,13 +593,35 @@ class SupportDashboardService
     }
 
     /**
+     * The bucket a build belongs to — the value the chart slices, the
+     * filter compares and the export writes under "Version / build".
+     *
+     * **A development build is its own bucket.** "1.0.33" and "1.0.33 built
+     * from the dev branch" are not the same thing running: the second is
+     * whatever the branch happened to contain that day, and a support
+     * question answered as if it were the release is answered wrongly. The
+     * column is named "Version / build" and the chart "Répartition des
+     * versions / builds" precisely because of this distinction — which the
+     * label did not actually make until now, quietly collapsing the two
+     * into one slice.
+     *
+     * `is_dev_build` not reported is not "release": the suffix is added
+     * only on a reported `true`, so an older sender that cannot answer
+     * stays in the plain version bucket rather than being asserted into
+     * either one.
+     *
      * @param array<string, mixed> $row
      */
     private static function versionLabel(array $row): ?string
     {
         $version = self::stringOrNull($row['scoutmagic_version'] ?? null);
+        if ($version === null) {
+            return null;
+        }
 
-        return $version;
+        return self::boolOrNull($row['is_dev_build'] ?? null) === true
+            ? $version . ' ' . self::DEV_BUILD_SUFFIX
+            : $version;
     }
 
     private static function prettyJson(string $raw): string
@@ -605,6 +643,22 @@ class SupportDashboardService
         $value = trim($value);
 
         return $value !== '' ? $value : null;
+    }
+
+    /**
+     * The value only when it is an `http://` or `https://` URL — the only
+     * two schemes this dashboard will ever put behind an `<a href>`.
+     */
+    private static function httpUrlOrNull(mixed $value): ?string
+    {
+        $url = self::stringOrNull($value);
+        if ($url === null) {
+            return null;
+        }
+
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+
+        return in_array($scheme, ['http', 'https'], true) ? $url : null;
     }
 
     private static function intOrNull(mixed $value): ?int

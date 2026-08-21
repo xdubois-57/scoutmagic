@@ -460,4 +460,163 @@ class StatisticsSenderTest extends TestCase
         $this->assertLessThanOrEqual(200, mb_strlen($reason));
         $this->assertDoesNotMatchRegularExpression('/[\x00-\x1F\x7F]/', $reason);
     }
+
+    // --- destination guards (audit M4/M5/M6 applied to where the bearer
+    // secret actually goes) ---
+
+    /**
+     * The sender already refuses to *report from* a non-public host. It had
+     * nothing to say about the destination it reports *to* — which is where
+     * the bearer secret is carried, in a header, from inside the hosting
+     * network. Every other configured outbound endpoint in this codebase
+     * (web push, LLM, S3) goes through a public-address check; this one now
+     * does too.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('nonPublicDestinations')]
+    public function testANonPublicDestinationIsAFailureAndNothingIsTransmitted(string $destination): void
+    {
+        $this->set('statistics_destination', $destination);
+
+        $transport = new RecordingTransport();
+        $result = $this->sender($transport)->send();
+
+        $this->assertTrue($result->isFailed());
+        $this->assertSame('non_public_destination', $result->reason);
+        $this->assertSame([], $transport->calls, 'nothing may leave for a non-public destination');
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function nonPublicDestinations(): array
+    {
+        return [
+            'localhost' => ['https://localhost/'],
+            'IPv4 literal' => ['https://192.168.1.10/'],
+            'public IPv4 literal' => ['https://93.184.216.34/'],
+            'IPv6 literal' => ['https://[::1]/'],
+            'cloud metadata' => ['https://169.254.169.254/'],
+            'single label' => ['https://intranet/'],
+            'dot-local' => ['https://receveur.local/'],
+            'dot-internal' => ['https://receveur.internal/'],
+        ];
+    }
+
+    public function testAnOrdinaryPublicDestinationStillSends(): void
+    {
+        $this->set('statistics_destination', 'https://stats.example.be');
+
+        $transport = new RecordingTransport();
+        $result = $this->sender($transport)->send();
+
+        $this->assertTrue($result->isSent());
+        $this->assertSame('https://stats.example.be/api/statistics', $transport->calls[0]['url']);
+    }
+
+    /**
+     * Order matters for the message the administrator gets: cleartext is
+     * its own diagnosis with its own fix, and reporting it as "not public"
+     * would send them looking at DNS instead of at the scheme.
+     */
+    public function testCleartextIsStillReportedAsItsOwnFailureNotAsANonPublicHost(): void
+    {
+        $this->set('statistics_destination', 'http://localhost/');
+
+        $result = $this->sender(new RecordingTransport())->send();
+
+        $this->assertSame('insecure_destination', $result->reason);
+    }
+
+    // --- failure reasons that are not valid UTF-8 ---
+
+    /**
+     * A remote error body is very often not valid UTF-8. `preg_replace()`
+     * with the `/u` flag returns null on such a subject, and the cast that
+     * followed turned that into an empty string — so the Support page
+     * showed a failure with a blank "Motif", having thrown away even the
+     * HTTP status the reason was built around.
+     */
+    public function testANonUtf8ResponseBodyStillYieldsAReadableReason(): void
+    {
+        $transport = new RecordingTransport(
+            StatisticsTransportResponse::response(502, "\xFF\xFE Bad Gateway \x80\x81")
+        );
+
+        $result = $this->sender($transport)->send();
+
+        $this->assertTrue($result->isFailed());
+        $reason = (string) $result->reason;
+        $this->assertNotSame('', $reason);
+        $this->assertStringStartsWith('http_502', $reason);
+        $this->assertStringContainsString('Bad Gateway', $reason);
+    }
+
+    public function testANonUtf8ResponseBodyIsStillScrubbedOfTheSecret(): void
+    {
+        $secret = $this->identityService->getSecret();
+        $this->assertNotNull($secret);
+
+        $transport = new RecordingTransport(
+            StatisticsTransportResponse::response(401, "\xFF token " . $secret . " rejected")
+        );
+
+        $result = $this->sender($transport)->send();
+
+        $this->assertStringNotContainsString($secret, (string) $result->reason);
+        $this->assertStringContainsString('[REDACTED]', (string) $result->reason);
+    }
+
+    public function testANonUtf8TransportExceptionMessageStillYieldsAReason(): void
+    {
+        $transport = new RecordingTransport(null, new \RuntimeException("\xFF\xFE connexion perdue"));
+
+        $result = $this->sender($transport)->send();
+
+        $this->assertTrue($result->isFailed());
+        $this->assertStringContainsString('transport_error', (string) $result->reason);
+        $this->assertStringContainsString('connexion perdue', (string) $result->reason);
+    }
+
+    /**
+     * A transport that never got an answer it could read reports no status
+     * at all — StreamStatisticsTransport answers that way for an
+     * unreachable host and for a response with no parseable status line,
+     * rather than letting a status of 0 through as the nonsense reason
+     * "http_0".
+     */
+    public function testATransportErrorResponseIsReportedWithItsMessage(): void
+    {
+        $transport = new RecordingTransport(StatisticsTransportResponse::transportError('no_status_line'));
+
+        $result = $this->sender($transport)->send();
+
+        $this->assertTrue($result->isFailed());
+        $this->assertSame('transport_error: no_status_line', $result->reason);
+    }
+
+    public function testATransportErrorMessageIsAlsoScrubbedOfTheSecret(): void
+    {
+        $secret = $this->identityService->getSecret();
+        $this->assertNotNull($secret);
+
+        $transport = new RecordingTransport(StatisticsTransportResponse::transportError('refused with ' . $secret));
+
+        $result = $this->sender($transport)->send();
+
+        $this->assertStringNotContainsString($secret, (string) $result->reason);
+    }
+
+    /**
+     * A 2xx with an empty body is the receiver's documented answer (a bare
+     * 204), and must not be mistaken for a transport failure.
+     */
+    public function testABare204IsASuccess(): void
+    {
+        $transport = new RecordingTransport(StatisticsTransportResponse::response(204, ''));
+
+        $result = $this->sender($transport)->send();
+
+        $this->assertTrue($result->isSent());
+        $this->assertSame(204, $result->statusCode);
+    }
 }

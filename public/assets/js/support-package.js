@@ -19,6 +19,12 @@
     var generatedAtEl = document.getElementById('support-package-generated-at');
     var pollTimer = null;
 
+    var POLL_INTERVAL_MS = 3000;
+    // Ten minutes. The collectors shell out, walk the filesystem and read
+    // logs, so a slow shared host legitimately takes minutes — but a poll
+    // that never gives up is a button that never comes back.
+    var MAX_POLL_MS = 600000;
+
     function csrf() {
         var meta = /** @type {HTMLMetaElement|null} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
@@ -64,13 +70,37 @@
     }
 
     /**
+     * Polling stops on its own, in every branch.
+     *
+     * Three ways this used to spin forever with the button disabled and the
+     * spinner turning: the endpoint answering 404 (the scheduled action was
+     * purged, or the id is stale) sends back `{error: …}` with no `status`,
+     * which matched none of the branches below; a task left `pending`
+     * because nothing is draining the queue never changes status at all;
+     * and a `catch` that swallows everything means a server that is simply
+     * down looks identical to one that is thinking. A generation that has
+     * not finished within the deadline says so instead — the archive may
+     * still appear, and reloading the page is exactly how to find out.
+     *
      * @param {number} actionId
      * @returns {void}
      */
     function pollStatus(actionId) {
+        var deadline = Date.now() + MAX_POLL_MS;
+
         pollTimer = window.setInterval(function () {
+            if (Date.now() > deadline) {
+                showError('La génération prend plus de temps que prévu. Rechargez la page pour voir si l’archive est disponible.');
+                return;
+            }
+
             fetch('/api/support/package-status/' + actionId)
-                .then(function (res) { return res.json(); })
+                .then(function (res) {
+                    if (res.status === 404) {
+                        throw new Error('gone');
+                    }
+                    return res.json();
+                })
                 .then(function (data) {
                     if (data.status === 'done') {
                         if (data.download_url) {
@@ -81,12 +111,16 @@
                     } else if (data.status === 'failed' || data.status === 'canceled') {
                         showError('La génération de l’archive de support a échoué.');
                     }
-                    // pending / processing: keep polling.
+                    // pending / processing: keep polling until the deadline.
                 })
-                .catch(function () {
-                    // Transient network hiccup — the next tick will retry.
+                .catch(function (error) {
+                    if (error && error.message === 'gone') {
+                        showError('Cette génération est introuvable. Rechargez la page.');
+                    }
+                    // Anything else is a transient network hiccup — the next
+                    // tick retries, and the deadline bounds how long it can.
                 });
-        }, 3000);
+        }, POLL_INTERVAL_MS);
     }
 
     button.addEventListener('click', function () {

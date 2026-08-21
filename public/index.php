@@ -2795,10 +2795,28 @@ if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) 
         )
     );
 
-    // Rate-limit rows are written on every accepted report and only ever
-    // read for the last hour — without this the table grows forever.
-    if ($schedulerService->find('support_dashboard', \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::TASK_KEY, \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::REFERENCE) === null) {
-        $schedulerService->schedule('support_dashboard', \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::TASK_KEY, new DateTimeImmutable(), [], \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::REFERENCE);
+    // Every one of this module's self-rescheduling daily tasks needs its
+    // FIRST occurrence seeded here: declaring a handler in module.json only
+    // teaches SchedulerRunner how to run the task, it never queues one, and
+    // a task that is never queued reschedules itself never. Two of the
+    // three were missing, which silently disabled retention entirely and
+    // left support_monthly_aggregates permanently empty — the whole of
+    // ARCHITECTURE.md §8.51 — with nothing anywhere saying so.
+    // Tests\Modules\SupportDashboard\ModuleSchedulingTest now fails if this
+    // list ever drifts from module.json's `scheduled_tasks` again.
+    foreach ([
+        // Rate-limit rows are written on every accepted report and only ever
+        // read for the last hour — without this the table grows forever.
+        \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::TASK_KEY => \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::REFERENCE,
+        // Retention (§8.50): past support_retention_months with no report,
+        // the whole record goes — id, URL, payload and credential hash.
+        \Modules\SupportDashboard\Task\PurgeInstallationsHandler::TASK_KEY => \Modules\SupportDashboard\Task\PurgeInstallationsHandler::REFERENCE,
+        // Monthly history (§8.51): closes every calendar month that ended.
+        \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::TASK_KEY => \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::REFERENCE,
+    ] as $supportTaskKey => $supportTaskReference) {
+        if ($schedulerService->find('support_dashboard', $supportTaskKey, $supportTaskReference) === null) {
+            $schedulerService->schedule('support_dashboard', $supportTaskKey, new DateTimeImmutable(), [], $supportTaskReference);
+        }
     }
 }
 

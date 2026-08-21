@@ -65,6 +65,21 @@ class StatisticsSender
             return $this->recordFailure('insecure_destination');
         }
 
+        // The same public-host rule already applied to `base_url` above,
+        // applied to where the bearer secret is actually being sent. A
+        // destination of `https://localhost/`, `https://10.0.0.5/` or
+        // `https://intranet/` is a request leaving with our credential
+        // towards something inside the hosting network — the shape
+        // Core\Security\SsrfUrlValidator exists for on the other configured
+        // endpoints (audit M4/M5/M6). This check is deliberately the
+        // structural one and not that validator: it must run inside a
+        // background task on every host, with no DNS lookup and no network
+        // in the test suite, and the destination is a superadmin-typed
+        // value rather than something a member supplies.
+        if (!self::isPublicHost($destination)) {
+            return $this->recordFailure('non_public_destination');
+        }
+
         $secret = $this->identityService->getSecret();
         if ($secret === null || $secret === '') {
             return $this->recordFailure('secret_unavailable');
@@ -318,8 +333,31 @@ class StatisticsSender
             $reason = str_ireplace($secret, '[REDACTED]', $reason);
         }
 
-        $reason = (string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $reason);
-        $reason = trim((string) preg_replace('/\s+/u', ' ', $reason));
+        // Byte-oriented, not `/u`: a remote error body is very often not
+        // valid UTF-8, and `preg_replace()` with `/u` returns null on such
+        // a subject — which the old `(string)` cast turned into an empty
+        // string, throwing away the HTTP status this reason was built
+        // around and leaving the Support page showing a blank "Motif".
+        // The ASCII ranges matched here never occur inside a multi-byte
+        // UTF-8 sequence, so dropping `/u` cannot corrupt a valid one.
+        // Core\Support\SupportCollectorContext::collapseWhitespace() does
+        // the same job for the support package; the three lines are copied
+        // rather than shared because Core\Support already depends on
+        // Core\Statistics (its statistics.json collector) and a cycle
+        // between the two namespaces costs more than this does.
+        $reason = (string) preg_replace('/[\x00-\x1F\x7F]+/', ' ', $reason);
+        $reason = trim((string) preg_replace('/[ \t]+/', ' ', $reason));
+
+        // Then made valid UTF-8, because this string is written straight
+        // into a journal context that JournalService runs through
+        // json_encode(). That returns `false` on an invalid byte sequence,
+        // and JournalRepository::insert() takes ?string — so a receiver
+        // answering with a latin-1 error body would have turned a recorded
+        // failure into a TypeError escaping the daily task. Dropping the
+        // offending bytes keeps the readable part of the answer.
+        if (!mb_check_encoding($reason, 'UTF-8')) {
+            $reason = (string) mb_convert_encoding($reason, 'UTF-8', 'UTF-8');
+        }
 
         if (mb_strlen($reason) > self::MAX_REASON_LENGTH) {
             $reason = mb_substr($reason, 0, self::MAX_REASON_LENGTH);

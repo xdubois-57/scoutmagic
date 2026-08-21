@@ -61,10 +61,13 @@
         {% endif %}
 
         {% if last_failure_at %}
-            <p class="small mb-0">
+            <p class="small mb-0 {% if last_failure_superseded %}text-body-secondary{% endif %}">
                 Dernier échec ou envoi sauté : <strong>{{ last_failure_at|french_date }}</strong>
                 <span class="text-body-secondary">({{ last_failure_at }})</span>
                 {% if last_failure_reason %}<br>Motif : <code>{{ last_failure_reason }}</code>{% endif %}
+                {% if last_failure_superseded %}
+                    <br><em>Un envoi a abouti depuis : cet échec est résolu.</em>
+                {% endif %}
             </p>
         {% endif %}
     </div>
@@ -125,7 +128,9 @@
 
         <p class="small text-body-secondary mt-2 mb-0 {% if not package_generated_at %}d-none{% endif %}"
            id="support-package-generated-at">
-            Archive disponible, générée le {{ package_generated_at }}.
+            {# The stamp is stored ISO 8601 UTC; every other date on this page
+               is rendered in French, and this one was reading raw. #}
+            Archive disponible, générée le {% if package_generated_at %}{{ package_generated_at|french_date }}{% endif %}.
         </p>
 
         <div class="alert alert-danger small mt-2 mb-0 d-none" id="support-package-error" role="alert"></div>

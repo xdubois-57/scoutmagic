@@ -95,4 +95,53 @@ class InstallationDateServiceTest extends TestCase
         );
         $stmt->execute([$loggedAt, 'core', 'test_event', 'info', 'Test']);
     }
+
+    /**
+     * The backfill reads the journal, which on an installation predating
+     * this feature is the only birth certificate available. A journal that
+     * cannot be read at all is not a reason to fail a boot — the honest
+     * fallback is "now".
+     */
+    public function testAnUnreadableJournalFallsBackToNowRatherThanFailing(): void
+    {
+        $this->pdo->exec('DROP TABLE event_log');
+
+        $recorded = $this->service()->ensureRecorded();
+
+        $this->assertNotNull($recorded);
+        $this->assertNotFalse(strtotime($recorded));
+    }
+
+    public function testAnUnparseableOldestEntryFallsBackToNow(): void
+    {
+        $this->pdo
+            ->prepare('INSERT INTO event_log (category, event_type, level, description, logged_at) VALUES (?, ?, ?, ?, ?)')
+            ->execute(['core', 'x', 'info', 'x', 'pas une date']);
+
+        $recorded = $this->service()->ensureRecorded();
+
+        $this->assertNotNull($recorded);
+        $this->assertNotFalse(strtotime($recorded));
+    }
+
+    /**
+     * The setting declares itself from this service precisely so
+     * SetupController can write it before the composition root has ever
+     * run. Called before that declaration, there is nowhere to record it —
+     * null, not an exception, and certainly not a silent success.
+     */
+    public function testAnUnregisteredSettingRecordsNothingAndSaysSo(): void
+    {
+        $this->pdo->exec("DELETE FROM settings WHERE setting_key = '" . InstallationDateService::SETTING_KEY . "'");
+        $this->settings->clearCache();
+
+        $this->assertNull($this->service()->ensureRecorded());
+    }
+
+    public function testNowIsoIsAlwaysUtcAndIso8601(): void
+    {
+        $now = InstallationDateService::nowIso();
+
+        $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$/', $now);
+    }
 }

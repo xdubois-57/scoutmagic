@@ -127,9 +127,17 @@ class StatisticsPayloadBuilder
      */
     public function buildJson(): string
     {
+        // JSON_INVALID_UTF8_SUBSTITUTE completes rule 3 above: every
+        // collector is independent, so a single field that came back as an
+        // invalid byte sequence — a database server banner, a `php_uname`
+        // on an exotic host — must cost that field its readability and
+        // nothing more. Without it json_encode() answers `false` for the
+        // whole document, and the cast turns that into an empty string:
+        // an empty POST body the receiver rejects as malformed, and an
+        // empty preview on the Support page, from one bad byte.
         return (string) json_encode(
             $this->build(),
-            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
         );
     }
 

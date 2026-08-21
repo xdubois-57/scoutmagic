@@ -28,6 +28,7 @@ class StatisticsIntakeControllerTest extends TestCase
 
     protected function setUp(): void
     {
+        SupportDashboardTestHelper::ensureAutoloadable();
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         SupportDashboardTestHelper::createTables($this->pdo);
 
@@ -97,5 +98,96 @@ class StatisticsIntakeControllerTest extends TestCase
         $this->assertNotSame(403, $response->getStatusCode());
         $this->assertSame(400, $response->getStatusCode());
         unlink($configFile);
+    }
+
+    /**
+     * The two ways this codebase decides "this request came over TLS"
+     * (Core\Security\SessionManager's convention): the `HTTPS` server
+     * variable, or port 443 behind a proxy that does not set it. Either one
+     * alone is enough, and neither being present is cleartext.
+     *
+     * php://input is not settable from a test, so every request here lands
+     * on the malformed-payload path — which is exactly what makes the
+     * journalled reason the readable signal: reaching `malformed_payload`
+     * proves the transport check passed, and `insecure_transport` proves it
+     * did not.
+     */
+    public function testPortFourFourThreeAloneCountsAsSecureTransport(): void
+    {
+        $this->controller->receive(new Request('POST', '/api/statistics', [], [], [], [
+            'HTTP_AUTHORIZATION' => 'Bearer ' . str_repeat('f', 64),
+            'REMOTE_ADDR' => '203.0.113.1',
+            'SERVER_PORT' => 443,
+        ]), []);
+
+        $this->assertSame('malformed_payload', $this->lastRejectionReason());
+    }
+
+    public function testTheHttpsServerVariableAloneCountsAsSecureTransport(): void
+    {
+        $this->controller->receive(new Request('POST', '/api/statistics', [], [], [], [
+            'HTTP_AUTHORIZATION' => 'Bearer ' . str_repeat('f', 64),
+            'REMOTE_ADDR' => '203.0.113.1',
+            'HTTPS' => 'on',
+            'SERVER_PORT' => 8443,
+        ]), []);
+
+        $this->assertSame('malformed_payload', $this->lastRejectionReason());
+    }
+
+    public function testNeitherHttpsNorPortFourFourThreeIsCleartext(): void
+    {
+        $this->controller->receive(new Request('POST', '/api/statistics', [], [], [], [
+            'HTTP_AUTHORIZATION' => 'Bearer ' . str_repeat('f', 64),
+            'REMOTE_ADDR' => '203.0.113.1',
+            'SERVER_PORT' => 8080,
+        ]), []);
+
+        $this->assertSame('insecure_transport', $this->lastRejectionReason());
+    }
+
+    public function testAnHttpsValueOfOffIsCleartext(): void
+    {
+        $this->controller->receive(new Request('POST', '/api/statistics', [], [], [], [
+            'HTTP_AUTHORIZATION' => 'Bearer ' . str_repeat('f', 64),
+            'REMOTE_ADDR' => '203.0.113.1',
+            'HTTPS' => 'off',
+            'SERVER_PORT' => 8080,
+        ]), []);
+
+        $this->assertSame('insecure_transport', $this->lastRejectionReason());
+    }
+
+    /**
+     * A rejection is journalled with its source IP and a fixed reason
+     * category — the one place the spec asks for the raw address, because
+     * an intake endpoint under abuse is unreadable without it — and never
+     * with free text or an echo of the payload.
+     */
+    public function testARejectionIsJournalledWithItsSourceIpAndACategory(): void
+    {
+        $this->controller->receive($this->request(), []);
+
+        $stmt = $this->pdo->query("SELECT level, context FROM event_log WHERE event_type = 'statistics_report_rejected' ORDER BY id DESC LIMIT 1");
+        $row = $stmt !== false ? $stmt->fetch(\PDO::FETCH_ASSOC) : null;
+        $this->assertIsArray($row);
+        $this->assertSame('warning', $row['level']);
+
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame('203.0.113.1', $context['source_ip']);
+        $this->assertSame('malformed_payload', $context['reason']);
+    }
+
+    private function lastRejectionReason(): ?string
+    {
+        $stmt = $this->pdo->query("SELECT context FROM event_log WHERE event_type = 'statistics_report_rejected' ORDER BY id DESC LIMIT 1");
+        $context = $stmt !== false ? $stmt->fetchColumn() : false;
+        if (!is_string($context)) {
+            return null;
+        }
+
+        $decoded = json_decode($context, true);
+
+        return is_array($decoded) ? (string) ($decoded['reason'] ?? '') : null;
     }
 }

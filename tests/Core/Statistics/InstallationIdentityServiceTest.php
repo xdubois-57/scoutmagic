@@ -181,4 +181,90 @@ class InstallationIdentityServiceTest extends TestCase
         $this->assertSame('security', $entries[0]['level']);
         $this->assertStringNotContainsString((string) $secretBefore, json_encode($entries[0]) ?: '');
     }
+
+    /**
+     * `getSecret()` returns null rather than throwing while `secrets.enc`
+     * cannot be read — the first-run installer and the Support page's
+     * payload preview both call it, and neither may fatal there. A corrupt
+     * file is the same situation as a missing one from the caller's point
+     * of view: no report can be sent yet.
+     */
+    public function testAnUnreadableSecretsFileYieldsNullRatherThanAFatal(): void
+    {
+        $this->initializeSecrets();
+        file_put_contents($this->tempDir . '/config/secrets.enc', 'ceci n\'est pas un blob chiffré');
+
+        $this->assertNull($this->service()->getSecret());
+    }
+
+    /**
+     * A stored value that is not 32 hex characters is not an identifier —
+     * it is corruption, and adopting it would register this installation on
+     * the receiver under something meaningless. A fresh one is claimed.
+     */
+    public function testACorruptedStoredIdentifierIsReplacedRatherThanAdopted(): void
+    {
+        $this->settingRepository->updateValue(null, InstallationIdentityService::INSTALLATION_ID_SETTING, 'pas-un-identifiant');
+        $this->settings->clearCache();
+
+        $id = $this->service()->getInstallationId();
+
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $id);
+    }
+
+    public function testSurroundingWhitespaceOnAStoredIdentifierIsTolerated(): void
+    {
+        $stored = str_repeat('ab', 16);
+        $this->settingRepository->updateValue(null, InstallationIdentityService::INSTALLATION_ID_SETTING, "  {$stored}\n");
+        $this->settings->clearCache();
+
+        $this->assertSame($stored, $this->service()->getInstallationId());
+    }
+
+    /**
+     * Regenerating before the site has any secrets at all still gives the
+     * installation a new identifier: the first run of `getSecret()` after
+     * initialisation will mint the matching secret, and the receiver treats
+     * the pair as a first registration either way.
+     */
+    public function testRegenerateWorksBeforeTheSiteIsInitialized(): void
+    {
+        $journal = new JournalService(new JournalRepository($this->pdo));
+
+        $this->service($journal)->regenerate();
+
+        $this->settings->clearCache();
+        $this->assertMatchesRegularExpression(
+            '/^[0-9a-f]{32}$/',
+            (string) $this->settings->get(InstallationIdentityService::INSTALLATION_ID_SETTING)
+        );
+        $this->assertFalse($this->secretManager->isInitialized());
+    }
+
+    /**
+     * The secret is a credential: whatever else regenerate() writes, it
+     * must never write that.
+     */
+    public function testRegenerateNeverWritesTheSecretIntoSettingsOrTheJournal(): void
+    {
+        $this->initializeSecrets();
+        $journal = new JournalService(new JournalRepository($this->pdo));
+
+        $service = $this->service($journal);
+        $service->getSecret();
+        $service->regenerate();
+
+        $secret = (string) $service->getSecret();
+        $this->assertNotSame('', $secret);
+
+        $settingsDump = (string) json_encode(
+            $this->pdo->query('SELECT setting_key, setting_value FROM settings')->fetchAll(\PDO::FETCH_ASSOC)
+        );
+        $journalDump = (string) json_encode(
+            $this->pdo->query('SELECT event_type, description, context FROM event_log')->fetchAll(\PDO::FETCH_ASSOC)
+        );
+
+        $this->assertStringNotContainsString($secret, $settingsDump);
+        $this->assertStringNotContainsString($secret, $journalDump);
+    }
 }
