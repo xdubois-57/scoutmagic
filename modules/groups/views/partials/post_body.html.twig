@@ -3,9 +3,12 @@
   nothing else — swapping the whole card would throw away the reply thread
   the member had expanded underneath it.
 
-  Plain text, escaped by Twig (never |raw), with line breaks preserved by
-  nl2br on the already-escaped output. Rendered here in one place so the
-  feed and Controller\PostController::edit()'s own AJAX response can never
-  disagree about that escaping.
+  Plain text, never |raw. `autolink` (Core\View\TextLinker) escapes it
+  first and only then builds anchors around the escaped spans, so nothing
+  a member typed reaches the page as markup and the only tags in the
+  output are the ones it built; it also does the job |nl2br used to do
+  here, which is why the two are never combined. Rendered in one place so
+  the feed and Controller\PostController::edit()'s own AJAX response can
+  never disagree about that escaping.
 #}
-<p class="mb-0 mt-2 groups-post-body" id="post-body-{{ post.id }}">{{ post.body|nl2br }}</p>
+<p class="mb-0 mt-2 groups-post-body" id="post-body-{{ post.id }}">{{ post.body|autolink }}</p>

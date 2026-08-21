@@ -4,8 +4,9 @@
   which actions this viewer may take — every one of them re-checked
   server-side by the action itself.
 
-  The body is plain text, escaped by Twig (never |raw), with line breaks
-  preserved by nl2br on the already-escaped output — same as a post's.
+  The body is plain text, never |raw: `autolink` escapes it and then
+  turns its URLs into links and its newlines into <br> — same as a post's
+  (partials/post_body.html.twig, Core\View\TextLinker).
 
   `row.is_hidden` is moderator-only, exactly as on a post: for anyone else
   an auto-hidden reply never comes back from the query
@@ -81,7 +82,7 @@
             </div>
 
             {% if row.reply.body %}
-                <p class="mb-0 groups-post-body" id="reply-body-{{ row.reply.id }}">{{ row.reply.body|nl2br }}</p>
+                <p class="mb-0 groups-post-body" id="reply-body-{{ row.reply.id }}">{{ row.reply.body|autolink }}</p>
             {% endif %}
 
             {% if row.media %}

@@ -118,9 +118,9 @@ class GroupFeedService
 
         // Replies and reactions for the whole set, never per post: the
         // first few replies of every post plus their true totals come back
-        // in two queries (Repository\ReplyRepository::findFirstForPosts()),
+        // in two queries (Repository\ReplyRepository::findLastForPosts()),
         // and the post reactions in two more.
-        $replyData = $this->replyRepository->findFirstForPosts($postIds, ReplyService::PAGE_SIZE, $canModerate);
+        $replyData = $this->replyRepository->findLastForPosts($postIds, ReplyService::PAGE_SIZE, $canModerate);
         $postReactions = $this->reactionService->forPosts($postIds, $context->linkedMemberIds);
         $postReports = $this->reportService->forPosts($postIds, $context->linkedMemberIds);
         $seenCounts = $this->readStateService?->seenCountsForPosts($group, $posts) ?? [];
@@ -292,11 +292,12 @@ class GroupFeedService
             'link' => $page['links'][$post->id] ?? null,
             'replies' => $shownReplies,
             'reply_count' => $totalReplies,
-            // The cursor "Charger plus" continues from: the last reply
-            // actually rendered. Null when everything already fits, which
-            // is also what hides the button.
-            'replies_next_after_id' => $totalReplies > count($shownReplies) && $shownReplies !== []
-                ? $shownReplies[count($shownReplies) - 1]['reply']->id
+            // The cursor "Voir les commentaires précédents" continues
+            // from, and it points BACKWARDS: the OLDEST reply on screen is
+            // where the previous page resumes. Null when everything
+            // already fits, which is also what hides the button.
+            'replies_prev_before_id' => $totalReplies > count($shownReplies) && $shownReplies !== []
+                ? $shownReplies[0]['reply']->id
                 : null,
             'reactions' => ReactionSummary::build(
                 $page['reactions']['counts'][$post->id] ?? [],

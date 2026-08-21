@@ -342,6 +342,15 @@ class TwigFactory
             return MarkdownRenderer::toHtml((string) $text);
         }, ['is_safe' => ['html']]));
 
+        // Free text a member typed, with its URLs as links and its
+        // newlines as <br> (Core\View\TextLinker). Escapes first and
+        // builds the anchors around the escaped text, so it replaces
+        // `|nl2br` on user content rather than being combined with it —
+        // `{{ body|autolink }}`, never `{{ body|autolink|nl2br }}`.
+        $environment->addFilter(new TwigFilter('autolink', function (?string $text): string {
+            return TextLinker::toHtml($text);
+        }, ['is_safe' => ['html']]));
+
         return $environment;
     }
 

@@ -64,9 +64,13 @@ class ReplyController extends AbstractController
     }
 
     /**
-     * GET /groups/{id}/posts/{postId}/replies?after=… — one more page of a
-     * post's replies, oldest first, rendered as the same cards the feed
-     * itself uses.
+     * GET /groups/{id}/posts/{postId}/replies?before=… — the page of a
+     * post's replies immediately OLDER than the cursor, rendered as the
+     * same cards the feed itself uses.
+     *
+     * Backwards, because that is the direction a conversation is read
+     * back in: the thread opens on what was just said, and this fetches
+     * what came before it (Repository\ReplyRepository::findLastForPosts()).
      *
      * @param array<string, string> $params
      */
@@ -85,20 +89,27 @@ class ReplyController extends AbstractController
 
         $canModerate = $this->accessService->canModerate($group, $context);
 
-        $after = (int) $request->getQuery('after', '0');
+        $before = (int) $request->getQuery('before', '0');
+        if ($before <= 0) {
+            return new Response('Bad Request', 400);
+        }
+
         // One extra row, to know whether another page exists without a
         // second COUNT — same trick as the feed's own pagination. And the
         // same rule as the feed on auto-hidden replies: excluded in the
         // SQL for everyone but a moderator, so this page can never be the
         // way a member reaches one.
-        $replies = $this->replyRepository->findPage(
+        $replies = $this->replyRepository->findPageBefore(
             $post->id,
             ReplyService::PAGE_SIZE + 1,
-            $after > 0 ? $after : null,
+            $before,
             $canModerate
         );
         $hasMore = count($replies) > ReplyService::PAGE_SIZE;
-        $replies = array_slice($replies, 0, ReplyService::PAGE_SIZE);
+        // The extra row is the OLDEST one here, so it comes off the FRONT
+        // — dropping it from the end would silently discard a reply the
+        // reader was owed and leave a hole in the middle of the thread.
+        $replies = $hasMore ? array_slice($replies, 1) : $replies;
 
         $rows = $this->replyPresenter->decorate(
             $replies,
@@ -112,7 +123,7 @@ class ReplyController extends AbstractController
             'group' => $group,
             'post' => $post,
             'replies' => $rows,
-            'replies_next_after_id' => $hasMore && $rows !== [] ? $rows[count($rows) - 1]['reply']->id : null,
+            'replies_prev_before_id' => $hasMore && $rows !== [] ? $rows[0]['reply']->id : null,
         ]);
     }
 
