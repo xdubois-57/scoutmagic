@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -163,6 +163,15 @@
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
       "action": "deleteBlock",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/caution",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "recordSecurityDeposit",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -377,6 +386,15 @@
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "saveConstraints",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/locations/payments",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "savePayments",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""

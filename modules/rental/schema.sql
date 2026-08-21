@@ -102,6 +102,36 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     -- availability is counted in nights or in full days (§6.8) — the two are
     -- never configured separately, or the calendar ends up contradicting the
     -- invoice. See Pricing\BillingUnit.
+    -- ── Payments (§6.19, §6.20) ──────────────────────────────────────
+    -- Entirely optional, and OFF by default. The Finance module is a
+    -- nullable dependency: with it disabled these columns are simply never
+    -- read, and the whole module keeps working — a unit that settles its
+    -- rentals by hand is a perfectly normal unit.
+    payments_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    -- Finance's own account id, reached only through
+    -- Modules\Finance\Api\FinanceAccountInterface — never by joining
+    -- Finance's tables, which is why there is no foreign key here.
+    finance_account_id INT UNSIGNED NULL,
+
+    -- 'none' | 'fixed' | 'percentage'. The deposit is a THRESHOLD on the
+    -- single rental receivable, never a second receivable (§6.19): the
+    -- deposit and the balance share one communication, and "deposit
+    -- received" means amount_received >= deposit_amount.
+    deposit_mode VARCHAR(20) NOT NULL DEFAULT 'none',
+    deposit_amount_cents INT UNSIGNED NULL,
+    deposit_percentage TINYINT UNSIGNED NULL,
+    -- Days after confirmation, not a fixed date: an asset's rule has to
+    -- outlive any single booking.
+    deposit_due_days SMALLINT UNSIGNED NULL,
+    balance_due_days SMALLINT UNSIGNED NULL,
+
+    -- 'none' | 'fixed'. The security deposit IS its own receivable with its
+    -- own communication (§6.20) — it is not part of the rental price and
+    -- must never be counted as rental revenue.
+    security_deposit_mode VARCHAR(20) NOT NULL DEFAULT 'none',
+    security_deposit_amount_cents INT UNSIGNED NULL,
+    security_deposit_due_days SMALLINT UNSIGNED NULL,
+
     billing_unit VARCHAR(30) NOT NULL DEFAULT 'flat_stay',
     -- Rate used when the period × category grid has no cell for the resolved
     -- pair. NULL means "not priced yet", which produces a visible warning
@@ -376,6 +406,45 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     privacy_version VARCHAR(40) NULL,
     privacy_hash CHAR(64) NULL,
     privacy_acknowledged_at DATETIME NULL,
+
+    -- ── Payments (§6.19, §6.20) ──────────────────────────────────────
+    -- ONE receivable for the whole rental. The deposit is a threshold on
+    -- it, not a second one: two receivables would mean two communications,
+    -- and a renter paying the balance with the deposit's reference would
+    -- settle the wrong one.
+    --
+    -- The id points into Finance and is reached only through its public
+    -- API (Modules\Finance\Api\ExpectedReceivableInterface), so there is
+    -- deliberately no foreign key: Finance may be disabled, may be enabled
+    -- later, and a rental must survive either.
+    rental_receivable_id INT UNSIGNED NULL,
+    rental_communication VARCHAR(24) NULL,
+    -- Snapshotted when the receivable is created, so the threshold cannot
+    -- move under a renter who was told a figure. A percentage that changes
+    -- on the asset afterwards does not rewrite what was asked.
+    deposit_amount_cents INT UNSIGNED NULL,
+    deposit_due_date DATE NULL,
+    balance_due_date DATE NULL,
+
+    -- The security deposit: its OWN receivable, its OWN communication, and
+    -- never rental revenue (§6.20).
+    security_deposit_receivable_id INT UNSIGNED NULL,
+    security_deposit_communication VARCHAR(24) NULL,
+    security_deposit_amount_cents INT UNSIGNED NULL,
+    security_deposit_due_date DATE NULL,
+    -- 'none' | 'to_receive' | 'received' | 'to_return' | 'returned'
+    -- | 'partially_withheld' | 'fully_withheld'.
+    security_deposit_status VARCHAR(30) NOT NULL DEFAULT 'none',
+    -- The return is tracked BY HAND here, deliberately: Finance does not
+    -- reconcile outgoing payments, and inventing that would be out of
+    -- scope. Documented rather than hidden (§6.20).
+    security_deposit_returned_cents INT UNSIGNED NULL,
+    security_deposit_withheld_cents INT UNSIGNED NULL,
+    security_deposit_returned_at DATE NULL,
+    -- Why something was withheld. Written by a manager about a renter's
+    -- group and their damage, so it is personal data in practice and is
+    -- encrypted like every other such field.
+    security_deposit_note_encrypted BLOB NULL,
 
     -- ── Renter tracking token (§13 of the conventions) ───────────────
     -- A sensitive capability token: cryptographically random, stored ONLY

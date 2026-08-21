@@ -38,6 +38,40 @@ interface ExpectedReceivableInterface
     ): int;
 
     /**
+     * Changes what an existing receivable expects, keeping its
+     * communication — and therefore every payment already matched against
+     * it.
+     *
+     * A receivable's amount is not fixed for life: a negotiated price
+     * changes, a final settlement replaces an estimate, an order is
+     * amended. Deleting and recreating would mint a new communication and
+     * orphan the transfers the payer already made against the old one, so
+     * the amount moves in place instead.
+     *
+     * **Lowering it below what has already come in is refused** unless the
+     * caller says, in so many words, that it means to create an
+     * overpayment. Silently producing one is how a refund nobody knows
+     * about happens: the receivable reads "paid", the surplus sits on the
+     * account, and nothing anywhere says somebody is owed money. With
+     * $allowBelowReceived the caller has stated it knows, and owes the
+     * payer the difference.
+     *
+     * Deliberately generic: nothing in this signature names a module, and
+     * the same call serves a rental's renegotiated price, an event's
+     * amended order, or anything later.
+     *
+     * @throws \Modules\Finance\Service\FinanceException when the receivable
+     *         does not exist, when $amountCents is negative, or when it is
+     *         below the amount already received and $allowBelowReceived is
+     *         false.
+     */
+    public function updateReceivableAmount(
+        int $receivableId,
+        int $amountCents,
+        bool $allowBelowReceived = false
+    ): void;
+
+    /**
      * @return array{amount_due: int, amount_received: int, status: 'paid'|'partial'|'unpaid'}
      */
     public function getReceivableStatus(int $receivableId): array;

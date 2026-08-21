@@ -36,6 +36,7 @@ use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBlockService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalOperationsService;
+use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
 use Twig\Environment;
 
@@ -79,7 +80,13 @@ class RentalManagementController extends AbstractController
         private RentalAvailabilityService $availabilityService,
         private RentalPricingService $pricingService,
         private MemberService $memberService,
-        private DayStateGridBuilder $gridBuilder
+        private DayStateGridBuilder $gridBuilder,
+        /**
+         * Optional (§6.19): null on an installation without the Finance
+         * module, where the payment panel says so rather than rendering a
+         * dead section.
+         */
+        private ?RentalPaymentService $paymentService = null
     ) {
         parent::__construct($twig);
     }
@@ -229,9 +236,63 @@ class RentalManagementController extends AbstractController
             ),
             'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
             'is_in_progress' => $booking->isInProgress($now),
+            'payment' => $this->paymentStatus($booking, $asset),
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'bookings',
         ]);
+    }
+
+    /**
+     * Where this booking's money is (§6.19, §6.20), or a flat "not
+     * available" when Finance is off — the template then renders one honest
+     * sentence rather than a dead panel.
+     *
+     * @return array<string, mixed>
+     */
+    private function paymentStatus(RentalBooking $booking, RentalAsset $asset): array
+    {
+        if ($this->paymentService === null) {
+            return [
+                'available' => false,
+                'enabled' => false,
+                'security_deposit' => ['amount_cents' => null],
+            ];
+        }
+
+        return $this->paymentService->statusFor($booking, $this->paymentService->settingsFor($asset->id));
+    }
+
+    /**
+     * POST /mes-locations/caution — records what was actually given back
+     * (§6.20).
+     *
+     * By hand, deliberately: Finance reconciles incoming transfers, not
+     * outgoing ones, so no bank statement can confirm this.
+     *
+     * @param array<string, string> $params
+     */
+    public function recordSecurityDeposit(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            if ($this->paymentService === null) {
+                throw new RentalException("Le module « Finances » n'est pas actif.");
+            }
+
+            $returnedAt = \DateTimeImmutable::createFromFormat(
+                'Y-m-d',
+                (string) $request->getBody('returned_at', '')
+            ) ?: new \DateTimeImmutable('today');
+
+            $this->paymentService->recordSecurityDepositReturn(
+                $booking,
+                RentalPricingService::parseAmountToCents((string) $request->getBody('returned', '')) ?? 0,
+                self::optionalString($request->getBody('note')),
+                $returnedAt,
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Restitution de la caution enregistrée.');
+        });
     }
 
     /**

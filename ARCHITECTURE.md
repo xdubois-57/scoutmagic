@@ -1140,6 +1140,20 @@ The edited quote is stored as `agreed_price_snapshot`, a **second column** besid
 
 **The private calendar pages into the past, the public one does not.** `Availability\MonthWindow` is the single place that clamping lives, with a floor that is zero for visitors (§6.7) and two years for managers, because half a manager's work is about stays that already happened. Clamping is server-side: the month is a query parameter, and a hidden arrow is not a boundary (§12).
 
+### 8.54 Rental payments (`Modules\Rental\Service\RentalPaymentService`)
+
+The **only** place `rental` touches money (§6.19, §6.20). Everything goes through Finance's four public interfaces (§7.5) and never near its tables — there is deliberately no foreign key from a rental row to a Finance one, because a constraint would make `rental` unusable without `finance`.
+
+**All four dependencies are nullable, and that is the feature.** With Finance disabled — or simply not installed — every method degrades to "no receivable, no QR, nothing raised", the configuration section explains itself instead of offering an empty account picker, and the booking's payment panel says so in one sentence. A unit that settles its rentals by hand is a perfectly normal unit and must not meet a single error page. The tests cover that path as its own set, not as an afterthought.
+
+**One receivable for the whole rental.** The deposit is a **threshold** on it — "deposit received" is `amount_received >= deposit_amount`, compared live, never a stored flag that would spend part of its life disagreeing with the bank statement — and the deposit and the balance share one structured communication. Two receivables would mean two communications, and a renter paying the balance with the deposit's reference would settle the wrong one. Raising receivables is idempotent: called again it moves the amount in place rather than minting a second communication, which would orphan every transfer already made.
+
+**The security deposit is a different debt**: its own receivable, its own communication (so a renter transferring it cannot accidentally settle part of the rental), and **never rental revenue** — a unit holding 500 € of somebody else's money has not earned 500 €. Its **return is recorded by hand**, deliberately: Finance reconciles incoming transfers and not outgoing ones, so no bank statement can confirm it. That limitation is documented on the screen rather than papered over with a feature that would only look like it worked. The resulting status is derived from the amounts rather than picked from a dropdown, and withholding any part of it requires a written reason — the renter is entitled to know why, and six months later nobody remembers. The reason is encrypted like every other field written about a renter.
+
+**`ExpectedReceivableInterface::updateReceivableAmount()`** is the generic extension this iteration adds to Finance (roadmap §Itération 6). Nothing in its signature names a module: the same call serves a renegotiated rental price, an amended order, or anything later. It keeps the communication — deleting and recreating would orphan the payer's transfers — and **refuses to drop below what has already come in** unless the caller passes `allowBelowReceived`. Silently producing an overpayment is how a refund nobody knows about happens: the receivable reads "paid", the surplus sits on the account, and nothing anywhere says somebody is owed money. With the flag, the caller has stated it knows.
+
+Receivables are raised **at confirmation**, which is when the unit actually expects to be paid, and a Finance failure there is journaled rather than thrown: the confirmation has committed and the manager has been told it worked, so undoing it would be a worse lie than a rental whose payment panel plainly shows no receivable yet. A price change pushes the new total onto the existing receivable; a refusal ("this would drop below what came in") is likewise journaled, because the price change itself is legitimate and what is left is a situation a manager has to look at, not a reason to reject their edit.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

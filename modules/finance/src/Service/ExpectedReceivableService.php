@@ -55,6 +55,42 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
     }
 
     /**
+     * @throws FinanceException when the receivable does not exist, when
+     *         $amountCents is negative, or when lowering it below what has
+     *         already come in without $allowBelowReceived.
+     */
+    public function updateReceivableAmount(
+        int $receivableId,
+        int $amountCents,
+        bool $allowBelowReceived = false
+    ): void {
+        if ($amountCents < 0) {
+            throw new FinanceException('Un montant attendu ne peut pas être négatif.');
+        }
+
+        $receivable = $this->repository->findById($receivableId);
+        if ($receivable === null) {
+            throw new FinanceException("Cette créance n'existe pas.");
+        }
+
+        // Computed live from the matched transfers, like every other status
+        // here: what has come in is a fact about the bank statement, never
+        // a stored number that could be stale at exactly this moment.
+        $received = $this->computeAmountReceivedCents($receivable);
+
+        if (!$allowBelowReceived && $amountCents < $received) {
+            throw new FinanceException(sprintf(
+                'Le nouveau montant (%s €) est inférieur à ce qui a déjà été reçu (%s €). '
+                . 'Cela créerait un trop-perçu à rembourser : confirmez explicitement si c\'est voulu.',
+                number_format($amountCents / 100, 2, ',', ' '),
+                number_format($received / 100, 2, ',', ' ')
+            ));
+        }
+
+        $this->repository->updateAmount($receivableId, $amountCents);
+    }
+
+    /**
      * @return array{amount_due: int, amount_received: int, status: 'paid'|'partial'|'unpaid'}
      */
     public function getReceivableStatus(int $receivableId): array

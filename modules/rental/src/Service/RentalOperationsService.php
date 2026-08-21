@@ -55,7 +55,13 @@ class RentalOperationsService
         private RentalAvailabilityService $availabilityService,
         private RentalPricingService $pricingService,
         private QuoteEditor $quoteEditor,
-        private JournalService $journal
+        private JournalService $journal,
+        /**
+         * Optional, and null on an installation without the Finance module
+         * (§6.19). Every call below goes through `?->`, so a rental settled
+         * by hand behaves exactly as it did before payments existed.
+         */
+        private ?RentalPaymentService $paymentService = null
     ) {
     }
 
@@ -192,6 +198,13 @@ class RentalOperationsService
             // deadline has done its job and would only expire noisily later.
             $this->bookingRepository->clearHold($current->id);
             $this->recordStatusChange($current, BookingStatus::CONFIRMED, $actorMemberId);
+
+            // Confirmation is when the unit actually expects to be paid, so
+            // it is when the receivables are raised (§6.19, §6.20). Guarded
+            // rather than left to throw: a Finance hiccup must not undo a
+            // confirmation the manager has already been told about, and the
+            // configuration screen is where a missing account is reported.
+            $this->raiseReceivables($current, $asset, $now, $actorMemberId);
         });
     }
 
@@ -577,6 +590,7 @@ class RentalOperationsService
     {
         $before = $booking->effectiveTotalCents();
         $this->bookingRepository->setAgreedPrice($booking->id, $quote);
+        $this->syncReceivableAmount($booking, $quote->totalCents, $actorMemberId);
 
         $this->eventRepository->record(
             $booking->id,
@@ -635,6 +649,76 @@ class RentalOperationsService
             $request->summary(),
             $actorMemberId
         );
+    }
+
+    /**
+     * Raises the booking's receivables, if there are any to raise.
+     *
+     * Deliberately swallows a Finance failure into a journal entry: the
+     * confirmation itself has committed, the manager has been told it
+     * worked, and undoing it because a receivable could not be created
+     * would be a worse lie than a rental with no receivable yet — which the
+     * payment panel shows plainly and a manager can retry.
+     */
+    private function raiseReceivables(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        \DateTimeImmutable $now,
+        ?int $actorMemberId
+    ): void {
+        if ($this->paymentService === null) {
+            return;
+        }
+
+        try {
+            $this->paymentService->ensureReceivables(
+                $booking,
+                $this->paymentService->settingsFor($asset->id),
+                $now,
+                $actorMemberId
+            );
+        } catch (\Throwable $e) {
+            $this->journal->log(
+                'rental',
+                'rental_receivable_failed',
+                'warning',
+                'Créance non créée pour ' . $booking->reference . ' : ' . $e->getMessage(),
+                ['booking_id' => $booking->id, 'asset_id' => $booking->assetId]
+            );
+        }
+    }
+
+    /**
+     * Pushes a new total onto an existing receivable (§6.12).
+     *
+     * A refusal — "this would drop below what has already come in" — is
+     * journaled rather than thrown: the price change itself is legitimate
+     * and has been recorded, and what is left is a real situation a manager
+     * has to look at, not a reason to reject their edit.
+     */
+    private function syncReceivableAmount(RentalBooking $booking, int $totalCents, ?int $actorMemberId): void
+    {
+        if ($this->paymentService === null) {
+            return;
+        }
+
+        try {
+            $this->paymentService->updateRentalAmount(
+                $booking,
+                $this->paymentService->settingsFor($booking->assetId),
+                $totalCents,
+                false,
+                $actorMemberId
+            );
+        } catch (\Throwable $e) {
+            $this->journal->log(
+                'rental',
+                'rental_receivable_not_updated',
+                'warning',
+                'Créance non mise à jour pour ' . $booking->reference . ' : ' . $e->getMessage(),
+                ['booking_id' => $booking->id, 'to_cents' => $totalCents]
+            );
+        }
     }
 
     /** `467,50 €` — for a history line a human reads, never for arithmetic. */

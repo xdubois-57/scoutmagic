@@ -22,6 +22,9 @@ use Modules\Rental\Service\RentalAssetService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalManagerService;
 use Modules\Rental\Service\RentalAvailabilityService;
+use Modules\Rental\Payment\DepositMode;
+use Modules\Rental\Payment\PaymentSettings;
+use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
 use Twig\Environment;
 
@@ -62,7 +65,13 @@ class RentalConfigController extends AbstractController
         private ScoutYearService $scoutYearService,
         private SettingService $settingService,
         private RentalPricingService $pricingService,
-        private RentalAvailabilityService $availabilityService
+        private RentalAvailabilityService $availabilityService,
+        /**
+         * Optional (§6.19): null on an installation without the Finance
+         * module, where the payments section explains that instead of
+         * offering a picker with nothing in it.
+         */
+        private ?RentalPaymentService $paymentService = null
     ) {
         parent::__construct($twig);
     }
@@ -109,10 +118,69 @@ class RentalConfigController extends AbstractController
                     'sim_category' => $request->getQuery('sim_category', ''),
                 ])
                 : null,
+            // Finance is a nullable dependency: with it off, the section
+            // says so rather than rendering a broken account picker.
+            'finance_available' => $this->paymentService?->isAvailable() ?? false,
+            'finance_accounts' => $this->paymentService?->availableAccounts() ?? [],
+            'payment_settings' => $selected !== null && $this->paymentService !== null
+                ? $this->paymentService->settingsFor($selected->id)
+                : new PaymentSettings(),
+            'deposit_modes' => DepositMode::all(),
             'csrf_token' => CsrfGuard::generateToken(),
             'current_path' => '/admin/locations',
         ]);
     }
+
+    /**
+     * POST /admin/locations/payments — the asset's money configuration
+     * (§6.19, §6.20).
+     *
+     * Its own action, like every other section here: a single
+     * two-hundred-field form is the thing this screen is designed against.
+     *
+     * @param array<string, string> $params
+     */
+    public function savePayments(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Forbidden', 403);
+        }
+
+        $assetId = (int) $request->getBody('asset_id', 0);
+        if ($this->paymentService === null || $this->assetRepository->findById($assetId) === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $accountId = (int) $request->getBody('finance_account_id', 0);
+
+        try {
+            $this->paymentService->saveSettings($assetId, new PaymentSettings(
+                enabled: $request->getBody('payments_enabled') !== null,
+                financeAccountId: $accountId > 0 ? $accountId : null,
+                depositMode: DepositMode::tryFrom((string) $request->getBody('deposit_mode', 'none'))
+                    ?? DepositMode::NONE,
+                depositAmountCents: RentalPricingService::parseAmountToCents(
+                    (string) $request->getBody('deposit_amount', '')
+                ),
+                depositPercentage: self::optionalInt($request->getBody('deposit_percentage')),
+                depositDueDays: self::optionalInt($request->getBody('deposit_due_days')),
+                balanceDueDays: self::optionalInt($request->getBody('balance_due_days')),
+                securityDepositEnabled: $request->getBody('security_deposit_enabled') !== null,
+                securityDepositAmountCents: RentalPricingService::parseAmountToCents(
+                    (string) $request->getBody('security_deposit_amount', '')
+                ),
+                securityDepositDueDays: self::optionalInt($request->getBody('security_deposit_due_days'))
+            ));
+
+            FlashMessage::set('success', 'Configuration des paiements enregistrée.');
+        } catch (RentalException $e) {
+            FlashMessage::set('danger', $e->getMessage());
+        }
+
+        return $this->redirect('/admin/locations?asset=' . $assetId . '#paiements');
+    }
+
+
 
     /**
      * POST /admin/locations/create
