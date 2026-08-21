@@ -228,6 +228,89 @@ class ReportControllerTest extends GroupsControllerTestCase
         $this->assertTrue($this->postRepo->findById($this->postId)->isHidden());
     }
 
+    /**
+     * The dynamic path (groups.js): the same X-Requested-With header a
+     * fetch() sends gets JSON back instead of the flash-and-redirect, so
+     * the confirmation appears next to the message that was reported and
+     * the group is never reloaded for one line of reassurance.
+     */
+    public function testReportingViaAjaxAnswersTheConfirmationAsJson(): void
+    {
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->memberId])->reportPost($this->ajaxRequest(), $this->params($this->postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/json', $response->getHeaders()['Content-Type']);
+        $body = json_decode($response->getBody(), true);
+        $this->assertTrue($body['reported']);
+        $this->assertStringContainsString('signalement a bien été transmis', $body['message']);
+        $this->assertSame(1, $this->postReportCount());
+    }
+
+    /**
+     * The reporter must not be able to tell a first report from a repeat —
+     * so the dynamic path answers the identical body either way, exactly
+     * as the redirect path sets the identical flash.
+     */
+    public function testASecondReportViaAjaxIsIndistinguishableFromTheFirst(): void
+    {
+        $this->withCsrf([]);
+        $first = $this->controller([$this->memberId])->reportPost($this->ajaxRequest(), $this->params($this->postId));
+
+        $this->withCsrf([]);
+        $second = $this->controller([$this->memberId])->reportPost($this->ajaxRequest(), $this->params($this->postId));
+
+        $this->assertSame($first->getStatusCode(), $second->getStatusCode());
+        $this->assertSame($first->getBody(), $second->getBody());
+        $this->assertSame(1, $this->postReportCount(), 'the UNIQUE index still records one');
+    }
+
+    public function testReportingAReplyViaAjaxAnswersTheSameConfirmation(): void
+    {
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->memberId])->reportReply($this->ajaxRequest(), $this->params(null, $this->replyId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue(json_decode($response->getBody(), true)['reported']);
+    }
+
+    public function testRestoringViaAjaxAnswersJsonAndReallyRestores(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-02-01 00:00:00');
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->restorePost($this->ajaxRequest(), $this->params($this->postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue(json_decode($response->getBody(), true)['restored']);
+        $this->assertFalse($this->postRepo->findById($this->postId)->isHidden());
+    }
+
+    /**
+     * The one refusal this endpoint has has to reach the moderator as
+     * something they can read, not as a silent non-event — so the dynamic
+     * path answers 403 with the message rather than a redirect carrying a
+     * flash nothing will ever render.
+     */
+    public function testAModeratorRestoringTheirOwnContentViaAjaxGetsTheRefusalAsJson(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-02-01 00:00:00');
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->moderatorMemberId], self::AUTHOR_ACCOUNT)
+            ->restorePost($this->ajaxRequest(), $this->params($this->postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertStringContainsString(
+            'ne pouvez pas rétablir un contenu que vous avez écrit',
+            json_decode($response->getBody(), true)['error']
+        );
+        $this->assertTrue($this->postRepo->findById($this->postId)->isHidden());
+    }
+
     public function testRestoreRejectsAMissingCsrfToken(): void
     {
         $this->postRepo->setHiddenAt($this->postId, '2026-02-01 00:00:00');
@@ -428,6 +511,22 @@ class ReportControllerTest extends GroupsControllerTestCase
     private function request(): Request
     {
         return new Request('POST', '/groups/' . $this->groupId . '/posts/' . $this->postId . '/report', [], $_POST, [], []);
+    }
+
+    /**
+     * The same request with the header groups.js sends — the only thing
+     * that distinguishes the dynamic path from a plain form POST.
+     */
+    private function ajaxRequest(): Request
+    {
+        return new Request(
+            'POST',
+            '/groups/' . $this->groupId . '/posts/' . $this->postId . '/report',
+            [],
+            $_POST,
+            [],
+            ['HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest']
+        );
     }
 
     /**

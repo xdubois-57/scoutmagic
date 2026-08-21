@@ -66,8 +66,10 @@ class GroupFeedServiceTest extends TestCase
         );
     }
 
-    private function buildFeedService(PostAuthorResolver $authorResolver): GroupFeedService
-    {
+    private function buildFeedService(
+        PostAuthorResolver $authorResolver,
+        ?\Modules\Groups\Service\GroupReadStateService $readStateService = null
+    ): GroupFeedService {
         $activityService = new GroupActivityService($this->groupRepo, $this->postRepo);
         $postMediaService = $this->postMediaService();
         $stack = GroupsTestHelper::replyStack($this->pdo, $activityService, $postMediaService, $authorResolver);
@@ -81,7 +83,39 @@ class GroupFeedServiceTest extends TestCase
             $stack['replyRepository'],
             $stack['replyPresenter'],
             $stack['reactionService'],
-            $stack['reportService']
+            $stack['reportService'],
+            $readStateService
+        );
+    }
+
+    /**
+     * A feed that knows where this reader left off — what a collapsed
+     * conversation's "nouveaux" badge is computed from. The member is
+     * added to the group explicitly so GroupAccessService resolves the
+     * same identity markRead() and the badge both key on.
+     */
+    private function feedServiceWithReadState(int $memberId = 3): GroupFeedService
+    {
+        $memberRepo = new \Modules\Groups\Repository\GroupMemberRepository($this->pdo);
+        $memberRepo->add($this->groupId, $memberId, false, null);
+
+        $access = new \Modules\Groups\Service\GroupAccessService(
+            $memberRepo,
+            new \Modules\Groups\Repository\GroupSectionRepository($this->pdo),
+            new \Core\Member\SectionMembershipRepository($this->pdo)
+        );
+
+        $memberService = $this->createMock(MemberService::class);
+        $memberService->method('findDisplayNamesByMemberIds')->willReturn([3 => 'Akéla']);
+        $accountRepo = $this->createMock(UserAccountRepository::class);
+        $accountRepo->method('findNamesByIds')->willReturn([7 => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
+
+        return $this->buildFeedService(
+            new PostAuthorResolver($memberService, $accountRepo),
+            new \Modules\Groups\Service\GroupReadStateService(
+                new \Modules\Groups\Repository\GroupReadRepository($this->pdo),
+                $access
+            )
         );
     }
 
@@ -263,5 +297,88 @@ class GroupFeedServiceTest extends TestCase
         $page = $feedService->page($this->groupRepo->findById($this->groupId), $this->context(), false);
 
         $this->assertCount(GroupFeedService::PAGE_SIZE, $page->posts);
+    }
+
+    public function testAThreadCountsWhatArrivedSinceTheReaderLastOpenedTheGroup(): void
+    {
+        $feed = $this->feedServiceWithReadState();
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'sujet', '2026-01-01 09:00:00');
+        (new \Modules\Groups\Repository\GroupReadRepository($this->pdo))
+            ->markRead($this->groupId, 3, '2026-01-01 11:00:00');
+
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'avant', '2026-01-01 10:00:00', 1, 9);
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'après', '2026-01-01 12:00:00', 1, 9);
+
+        $row = $feed->page($this->groupRepo->findById($this->groupId), $this->context(), false)->posts[0];
+
+        $this->assertSame(2, $row['reply_count']);
+        $this->assertSame(1, $row['new_reply_count']);
+    }
+
+    /**
+     * A comment the reader wrote themselves is never new to them —
+     * otherwise every thread they had just taken part in would wear a
+     * badge on the next visit.
+     */
+    public function testAThreadNeverCountsTheReadersOwnCommentAsNew(): void
+    {
+        $feed = $this->feedServiceWithReadState();
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'sujet', '2026-01-01 09:00:00');
+        (new \Modules\Groups\Repository\GroupReadRepository($this->pdo))
+            ->markRead($this->groupId, 3, '2026-01-01 11:00:00');
+
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'la mienne', '2026-01-01 12:00:00', 7, 3);
+
+        $row = $feed->page($this->groupRepo->findById($this->groupId), $this->context(), false)->posts[0];
+
+        $this->assertSame(1, $row['reply_count']);
+        $this->assertSame(0, $row['new_reply_count']);
+    }
+
+    /**
+     * A first visit has nothing to compare against. Treating it as
+     * "everything is new" would put a badge on every thread of a group
+     * somebody has just joined, which says nothing and trains the reader
+     * to ignore the badge.
+     */
+    public function testAFirstVisitMarksNothingNew(): void
+    {
+        $feed = $this->feedServiceWithReadState();
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'sujet', '2026-01-01 09:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'une réponse', '2026-01-01 12:00:00', 1, 9);
+
+        $row = $feed->page($this->groupRepo->findById($this->groupId), $this->context(), false)->posts[0];
+
+        $this->assertSame(1, $row['reply_count']);
+        $this->assertSame(0, $row['new_reply_count']);
+    }
+
+    /**
+     * A feed built with no read-state service at all (the collaborator is
+     * optional, like every other one here) still renders — it simply
+     * never says anything is new.
+     */
+    public function testAFeedWithNoReadStateServiceReportsNothingNew(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'sujet', '2026-01-01 09:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'une réponse', '2026-01-01 12:00:00', 1, 9);
+
+        $row = $this->feedService->page($this->groupRepo->findById($this->groupId), $this->context(), false)->posts[0];
+
+        $this->assertSame(0, $row['new_reply_count']);
+    }
+
+    public function testABrandNewPostCarriesNoNewCommentsAtAll(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'tout neuf', '2026-01-01 09:00:00');
+
+        $row = $this->feedService->rowForNewPost(
+            $this->groupRepo->findById($this->groupId),
+            $this->postRepo->findById($postId),
+            $this->context(),
+            false
+        );
+
+        $this->assertSame(0, $row['new_reply_count']);
     }
 }

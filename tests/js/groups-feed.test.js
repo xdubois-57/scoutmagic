@@ -31,6 +31,25 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
     // just swapping document.body.innerHTML per test is both safe and
     // matches how the script actually runs in production.
     beforeAll(async () => {
+        // base.html.twig ships ONE delegated confirmation handler for the
+        // whole site — every form carrying data-confirm goes through it,
+        // and a cancelled answer calls preventDefault(). groups.js reads
+        // that verdict rather than asking again (it used to ask again, and
+        // prompted twice).
+        //
+        // Registered BEFORE the import, because that is the order
+        // production guarantees: base.html.twig's is an inline classic
+        // script and groups.js is loaded with `defer`, which the HTML
+        // standard runs after every inline script in the document. A test
+        // that registered these the other way round would be exercising an
+        // ordering no browser produces.
+        document.addEventListener('submit', function (event) {
+            var form = /** @type {HTMLElement} */ (event.target).closest('form[data-confirm]');
+            if (form && !confirm(form.dataset.confirm)) {
+                event.preventDefault();
+            }
+        });
+
         await import('../../public/assets/js/groups.js');
     });
 
@@ -525,6 +544,109 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         expect(options.headers).toEqual({ 'X-Requested-With': 'XMLHttpRequest' });
     });
 
+    // partials/post_card.html.twig folds a message's conversation behind a
+    // <details>; its summary carries the count, and the count has to stay
+    // honest as comments come and go without a reload. The number lives in
+    // data-count and the sentence is rewritten from it.
+    describe('the collapsed conversation count', () => {
+        function threadMarkup(count, label) {
+            return `
+                <article>
+                    <details class="groups-thread" id="post-thread-9" open>
+                        <summary class="groups-thread-summary">
+                            <span class="groups-thread-count" data-count="${count}">${label}</span>
+                        </summary>
+                        <div class="groups-replies"></div>
+                        <form class="groups-reply-form" action="/groups/1/posts/9/replies" method="post">
+                            <input type="text" name="body">
+                            <button type="submit">Envoyer</button>
+                        </form>
+                    </details>
+                </article>
+            `;
+        }
+
+        function count() {
+            return document.querySelector('.groups-thread-count');
+        }
+
+        it('goes from "Commenter" to "1 commentaire" when the first one is posted', async () => {
+            document.body.innerHTML = threadMarkup(0, 'Commenter');
+            document.querySelector('input[name="body"]').value = 'Bien reçu';
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ html: '<div class="groups-reply" id="reply-5">Bien reçu</div>' })
+            }));
+
+            document.querySelector('.groups-reply-form button').click();
+            await vi.waitFor(() => expect(document.getElementById('reply-5')).not.toBeNull());
+
+            expect(count().textContent).toBe('1 commentaire');
+            expect(count().dataset.count).toBe('1');
+        });
+
+        it('pluralises past the first one', async () => {
+            document.body.innerHTML = threadMarkup(1, '1 commentaire');
+            document.querySelector('input[name="body"]').value = 'Moi aussi';
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ html: '<div class="groups-reply" id="reply-6">Moi aussi</div>' })
+            }));
+
+            document.querySelector('.groups-reply-form button').click();
+            await vi.waitFor(() => expect(document.getElementById('reply-6')).not.toBeNull());
+
+            expect(count().textContent).toBe('2 commentaires');
+        });
+
+        it('counts back down when a comment is deleted, and back to "Commenter" at zero', async () => {
+            document.body.innerHTML = `
+                <article>
+                    <details class="groups-thread" open>
+                        <summary><span class="groups-thread-count" data-count="1">1 commentaire</span></summary>
+                        <div class="groups-replies">
+                            <div class="groups-reply" id="reply-3">
+                                <form class="groups-reply-delete-form" action="/groups/1/replies/3/delete" data-confirm="Supprimer ?">
+                                    <button type="submit">Supprimer</button>
+                                </form>
+                            </div>
+                        </div>
+                    </details>
+                </article>
+            `;
+            global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
+            vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+            document.querySelector('.groups-reply-delete-form button').click();
+            await vi.waitFor(() => expect(document.getElementById('reply-3')).toBeNull());
+
+            expect(count().textContent).toBe('Commenter');
+            expect(count().dataset.count).toBe('0');
+        });
+
+        it('leaves the count alone when the whole message is deleted', async () => {
+            document.body.innerHTML = `
+                <article id="post-9">
+                    <form class="groups-post-delete-form" action="/groups/1/posts/9/delete" data-confirm="Supprimer ?">
+                        <button type="submit">Supprimer</button>
+                    </form>
+                    <details class="groups-thread" open>
+                        <summary><span class="groups-thread-count" data-count="2">2 commentaires</span></summary>
+                    </details>
+                </article>
+            `;
+            global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
+            vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+            document.querySelector('.groups-post-delete-form button').click();
+            await vi.waitFor(() => expect(document.getElementById('post-9')).toBeNull());
+
+            // Nothing to assert on the count itself — the point is that
+            // removing the article must not throw on a detached form.
+            expect(document.querySelector('.groups-thread-count')).toBeNull();
+        });
+    });
+
     it('shows a refused reply inline, without touching the replies list', async () => {
         document.body.innerHTML = `
             <article>
@@ -562,6 +684,49 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
 
         document.querySelector('.groups-post-delete-form button').click();
 
+        expect(fetch).not.toHaveBeenCalled();
+        expect(document.getElementById('post-9')).not.toBeNull();
+    });
+
+    // Regression: groups.js called confirm() itself AND left
+    // base.html.twig's site-wide handler to call it too, on the belief
+    // that its own listener ran first and could stopImmediatePropagation()
+    // the other away. `defer` means it never ran first, so every
+    // data-confirm form in this module asked twice — and answering the
+    // second prompt with "Annuler" left the first one's request already
+    // sent.
+    it('asks for confirmation exactly once, not twice', async () => {
+        document.body.innerHTML = `
+            <article id="post-9">
+                <form class="groups-post-delete-form" action="/groups/1/posts/9/delete" data-confirm="Supprimer ?">
+                    <button type="submit">Supprimer</button>
+                </form>
+            </article>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+        document.querySelector('.groups-post-delete-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('post-9')).toBeNull());
+
+        expect(confirmSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends nothing at all when the one confirmation is declined', async () => {
+        document.body.innerHTML = `
+            <article id="post-9">
+                <form class="groups-post-delete-form" action="/groups/1/posts/9/delete" data-confirm="Supprimer ?">
+                    <button type="submit">Supprimer</button>
+                </form>
+            </article>
+        `;
+        global.fetch = vi.fn();
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+        document.querySelector('.groups-post-delete-form button').click();
+        await Promise.resolve();
+
+        expect(confirmSpy).toHaveBeenCalledTimes(1);
         expect(fetch).not.toHaveBeenCalled();
         expect(document.getElementById('post-9')).not.toBeNull();
     });
@@ -639,6 +804,120 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
 
         expect(document.getElementById('post-9')).not.toBeNull();
         expect(fetch.mock.calls[0][0]).toContain('/groups/1/replies/3/delete');
+    });
+
+    // Reporting used to reload the whole group to show one line of
+    // reassurance; the line now lands next to the item that was reported.
+    describe('reporting without a reload', () => {
+        function cardWithReportEntry() {
+            document.body.innerHTML = `
+                <article id="post-9">
+                    <ul>
+                        <li>
+                            <form class="groups-report-form" action="/groups/1/posts/9/report" data-confirm="Signaler ?">
+                                <button type="submit">Signaler</button>
+                            </form>
+                        </li>
+                        <li><button type="button">Supprimer</button></li>
+                    </ul>
+                    <p class="groups-report-confirmation d-none"></p>
+                </article>
+            `;
+            vi.spyOn(window, 'confirm').mockReturnValue(true);
+        }
+
+        it('shows the server confirmation on the card and takes the entry out of the menu', async () => {
+            cardWithReportEntry();
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ reported: true, message: 'Merci, votre signalement a bien été transmis.' })
+            }));
+
+            document.querySelector('.groups-report-form button').click();
+
+            const note = document.querySelector('.groups-report-confirmation');
+            await vi.waitFor(() => expect(note.classList.contains('d-none')).toBe(false));
+            expect(note.textContent).toBe('Merci, votre signalement a bien été transmis.');
+            expect(document.querySelector('.groups-report-form')).toBeNull();
+            // The menu itself stays — only the entry went.
+            expect(document.querySelectorAll('article li')).toHaveLength(1);
+            expect(fetch.mock.calls[0][1].headers).toEqual({ 'X-Requested-With': 'XMLHttpRequest' });
+        });
+
+        it('nothing happens at all when the confirmation is declined', async () => {
+            cardWithReportEntry();
+            vi.spyOn(window, 'confirm').mockReturnValue(false);
+            global.fetch = vi.fn();
+
+            document.querySelector('.groups-report-form button').click();
+            await Promise.resolve();
+
+            expect(fetch).not.toHaveBeenCalled();
+            expect(document.querySelector('.groups-report-form')).not.toBeNull();
+        });
+
+        it('falls back to a real form submit when the answer is not the JSON it expects', async () => {
+            cardWithReportEntry();
+            const form = document.querySelector('.groups-report-form');
+            form.submit = vi.fn();
+            global.fetch = vi.fn(() => Promise.resolve({ ok: false, json: () => Promise.reject(new Error('not json')) }));
+
+            form.querySelector('button').click();
+
+            await vi.waitFor(() => expect(form.submit).toHaveBeenCalled());
+        });
+    });
+
+    // "Rétablir": nothing about the item changes except that it stops
+    // being hidden, so the warning and the dimming come off where it
+    // stands rather than the group reloading around them.
+    describe('restoring a hidden item without a reload', () => {
+        function hiddenCard() {
+            document.body.innerHTML = `
+                <article id="post-9" class="card groups-post-hidden">
+                    <div class="groups-hidden-banner">
+                        Message masqué.
+                        <form class="groups-restore-form" action="/groups/1/posts/9/restore">
+                            <button type="submit">Rétablir</button>
+                        </form>
+                    </div>
+                    <p>le message</p>
+                </article>
+            `;
+        }
+
+        it('takes the warning and the dimming off the item', async () => {
+            hiddenCard();
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ restored: true })
+            }));
+
+            document.querySelector('.groups-restore-form button').click();
+
+            await vi.waitFor(() => expect(document.querySelector('.groups-hidden-banner')).toBeNull());
+            const article = document.getElementById('post-9');
+            expect(article).not.toBeNull();
+            expect(article.classList.contains('groups-post-hidden')).toBe(false);
+        });
+
+        // The one refusal this endpoint has: a moderator may not restore
+        // content they wrote themselves. It has to be read, not swallowed.
+        it('shows the refusal when a moderator tries to restore their own content', async () => {
+            hiddenCard();
+            const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: false,
+                json: () => Promise.resolve({ error: 'Vous ne pouvez pas rétablir un contenu que vous avez écrit.' })
+            }));
+
+            document.querySelector('.groups-restore-form button').click();
+
+            await vi.waitFor(() => expect(alertSpy).toHaveBeenCalledWith(
+                'Vous ne pouvez pas rétablir un contenu que vous avez écrit.'
+            ));
+            expect(document.querySelector('.groups-hidden-banner')).not.toBeNull();
+        });
     });
 
     it('editing a post swaps only its body, leaving the replies underneath alone', async () => {

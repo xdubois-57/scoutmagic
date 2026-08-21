@@ -80,7 +80,7 @@ class ReportController extends AbstractController
      */
     public function reportPost(Request $request, array $params): Response
     {
-        return $this->reportAction($params, 'postId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context, int $memberId) {
+        return $this->reportAction($request, $params, 'postId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context, int $memberId) {
             $post = $this->postRepository->findById($itemId);
             if ($post === null || $post->groupId !== $group->id) {
                 return false;
@@ -114,7 +114,7 @@ class ReportController extends AbstractController
      */
     public function reportReply(Request $request, array $params): Response
     {
-        return $this->reportAction($params, 'replyId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context, int $memberId) {
+        return $this->reportAction($request, $params, 'replyId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context, int $memberId) {
             $reply = $this->replyRepository->findById($itemId);
             if ($reply === null) {
                 return false;
@@ -147,7 +147,7 @@ class ReportController extends AbstractController
      */
     public function restorePost(Request $request, array $params): Response
     {
-        return $this->restoreAction($params, 'postId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context) {
+        return $this->restoreAction($request, $params, 'postId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context) {
             $post = $this->postRepository->findById($itemId);
             if ($post === null || $post->groupId !== $group->id) {
                 return false;
@@ -170,7 +170,7 @@ class ReportController extends AbstractController
      */
     public function restoreReply(Request $request, array $params): Response
     {
-        return $this->restoreAction($params, 'replyId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context) {
+        return $this->restoreAction($request, $params, 'replyId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context) {
             $reply = $this->replyRepository->findById($itemId);
             if ($reply === null) {
                 return false;
@@ -204,7 +204,7 @@ class ReportController extends AbstractController
      * @param array<string, string> $params
      * @param callable(DiscussionGroup, int, GroupSessionContext, int): bool $locate
      */
-    private function reportAction(array $params, string $idKey, callable $locate): Response
+    private function reportAction(Request $request, array $params, string $idKey, callable $locate): Response
     {
         if (!CsrfGuard::validateRequest()) {
             return new Response('Jeton CSRF invalide.', 403);
@@ -229,6 +229,16 @@ class ReportController extends AbstractController
             return new Response('Not Found', 404);
         }
 
+        // groups.js shows the confirmation next to the message that was
+        // reported instead of reloading the whole group for one line of
+        // reassurance. The SAME sentence either way, for the same reason
+        // it is a constant: the reporter must not be able to tell a first
+        // report from a repeat, nor a report from the one that crossed
+        // the threshold (this class's own docblock).
+        if ($this->wantsJson($request)) {
+            return $this->json(['reported' => true, 'message' => self::CONFIRMATION]);
+        }
+
         FlashMessage::set('success', self::CONFIRMATION);
 
         return $this->redirect('/groups/' . $group->id);
@@ -238,7 +248,7 @@ class ReportController extends AbstractController
      * @param array<string, string> $params
      * @param callable(DiscussionGroup, int, GroupSessionContext): (bool|string) $restore
      */
-    private function restoreAction(array $params, string $idKey, callable $restore): Response
+    private function restoreAction(Request $request, array $params, string $idKey, callable $restore): Response
     {
         if (!CsrfGuard::validateRequest()) {
             return new Response('Jeton CSRF invalide.', 403);
@@ -265,11 +275,14 @@ class ReportController extends AbstractController
         // the person who decides the report was wrong. Deleting their own
         // item stays allowed — that is only deleting your own content.
         if ($result === self::SELF_RESTORE) {
-            FlashMessage::set(
-                'error',
-                'Vous ne pouvez pas rétablir un contenu que vous avez écrit : un autre modérateur du groupe, '
-                . 'ou un administrateur du site, doit s\'en charger.'
-            );
+            $message = 'Vous ne pouvez pas rétablir un contenu que vous avez écrit : un autre modérateur du groupe, '
+                . 'ou un administrateur du site, doit s\'en charger.';
+
+            if ($this->wantsJson($request)) {
+                return $this->json(['error' => $message], 403);
+            }
+
+            FlashMessage::set('error', $message);
 
             return $this->redirect('/groups/' . $group->id);
         }
@@ -278,9 +291,29 @@ class ReportController extends AbstractController
             return new Response('Not Found', 404);
         }
 
+        // Nothing but the hidden state changed, so groups.js takes the
+        // banner and the dimming off the item where it stands rather than
+        // reloading the group around it — there is no re-render to ask
+        // for, because a restored item is the item as it already reads
+        // underneath its own warning.
+        if ($this->wantsJson($request)) {
+            return $this->json(['restored' => true]);
+        }
+
         FlashMessage::set('success', 'Le contenu a été rétabli et ne sera plus masqué automatiquement.');
 
         return $this->redirect('/groups/' . $group->id);
+    }
+
+    /**
+     * groups.js sends this header on every dynamic submit — the same
+     * signal Controller\PostController and Controller\ReactionController
+     * answer to. A plain form POST (no JS, or JS that failed to load)
+     * never sets it and keeps the flash-and-redirect behaviour unchanged.
+     */
+    private function wantsJson(Request $request): bool
+    {
+        return $request->getServer('HTTP_X_REQUESTED_WITH') === 'XMLHttpRequest';
     }
 
     /**

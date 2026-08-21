@@ -95,6 +95,9 @@
             hiddenInput.files = dataTransfer.files;
             if (countLabel) countLabel.textContent = selectedFiles.length + ' / ' + maxMedia + ' médias';
             renderMediaPreviews();
+            // A photo on its own is a publishable post, and picking one
+            // fires no 'input' event on the form.
+            refreshSubmitState();
         }
 
         function addFiles(fileList) {
@@ -396,6 +399,54 @@
 
         restoreDraft();
 
+        // --- "Publier", offered only when there is something to publish.
+        //
+        // The same four things the server accepts a post for (Service\
+        // PostService::isPostable()): some text, a photo, a link, or a
+        // poll with a question and at least two choices. Pressing the
+        // button with none of them used to spend a round trip to be told
+        // « Un message ne peut pas être vide. », which is a sentence
+        // nobody should ever have to read about a form they can see is
+        // empty — and which Controller\PostController::create() has
+        // always assumed the composer prevented.
+        //
+        // Client-side convenience only: the server still refuses an empty
+        // post on its own, exactly as before, because this button is not
+        // a boundary.
+        var pollQuestion = /** @type {HTMLInputElement} */ (form.querySelector('[name="poll_question"]'));
+
+        function hasSomethingToPost() {
+            if (textarea.value.trim() !== '' || selectedFiles.length > 0) {
+                return true;
+            }
+            // A poll is only a poll with a question AND two real choices,
+            // the same rule Service\PollService::normalise() applies — so
+            // a half-filled one must not light the button up either.
+            if (!pollQuestion || pollQuestion.value.trim() === '') {
+                return false;
+            }
+            var filled = Array.prototype.filter.call(
+                form.querySelectorAll('[name="poll_options[]"]'),
+                function (option) { return option.value.trim() !== ''; }
+            );
+
+            return filled.length >= 2;
+        }
+
+        function refreshSubmitState() {
+            if (submitBtn && !form.classList.contains('groups-composer-busy')) {
+                submitBtn.disabled = !hasSomethingToPost();
+            }
+        }
+
+        // 'input' on the form itself rather than on each field: it bubbles
+        // from every control inside it, so the poll boxes, the message and
+        // anything added to the composer later are all covered by one
+        // listener. The media picker calls it directly (syncMedia), since
+        // choosing a file fires no 'input' on the form.
+        form.addEventListener('input', refreshSubmitState);
+        refreshSubmitState();
+
         // --- Dynamic submit: greys out the composer while the post
         // publishes in the background (module spec: "no reload to
         // publish a post"), instead of the plain form POST + redirect
@@ -404,6 +455,12 @@
             textarea.disabled = busy;
             if (submitBtn) submitBtn.disabled = busy;
             form.classList.toggle('groups-composer-busy', busy);
+            if (!busy) {
+                // Back to whatever the composer's own contents justify —
+                // never unconditionally enabled, or a failed submit would
+                // leave an empty composer offering to publish nothing.
+                refreshSubmitState();
+            }
         }
 
         function showComposerError(message) {
@@ -847,23 +904,100 @@
 
     kickOffMediaPolling();
 
+    // A collapsed conversation, opened for the two cases where the reader
+    // has already said they want it.
+    (function initThreads() {
+        // 1. A deep link. Every notification about a group points at
+        // /groups/{id}/posts/{postId}, which redirects to the feed
+        // anchored on #post-{postId} (Controller\GroupController::post()).
+        // For a "somebody answered you" notification the answer is inside
+        // the fold, so landing on a closed thread would show the reader
+        // the message they already knew about and nothing else.
+        var anchored = /^#post-\d+$/.test(window.location.hash)
+            ? /** @type {HTMLDetailsElement} */ (
+                document.getElementById('post-thread-' + window.location.hash.slice('#post-'.length))
+            )
+            : null;
+        if (anchored) {
+            anchored.open = true;
+            // The anchor was resolved by the browser before this ran, so
+            // the page is scrolled to where the card USED to end. Bring it
+            // back into view now that it is taller.
+            anchored.scrollIntoView({ block: 'nearest' });
+        }
+
+        // 2. Opening a thread that has no comments at all. The summary
+        // reads "Commenter" in that case, so there is nothing to read and
+        // exactly one thing the reader can have meant. A thread that does
+        // have comments is left alone: focusing its input would scroll
+        // past them and, on a phone, raise the keyboard over what the
+        // reader opened it to see.
+        document.addEventListener('toggle', function (event) {
+            var thread = /** @type {HTMLDetailsElement} */ (event.target);
+            if (!thread.classList || !thread.classList.contains('groups-thread') || !thread.open) {
+                return;
+            }
+            var count = /** @type {HTMLElement} */ (thread.querySelector('.groups-thread-count'));
+            if (!count || (parseInt(count.dataset.count, 10) || 0) > 0) {
+                return;
+            }
+            /** @type {HTMLInputElement} */ (
+                thread.querySelector('.groups-reply-form input[name="body"]')
+            )?.focus();
+        }, true);
+    })();
+
     // Delete/reply/react all still post and redirect with no JS at all —
     // every branch below only upgrades that same POST to a fetch() so the
     // page never reloads, each falling back to the real form submit on
     // anything its own JSON path does not recognise (a stale CSRF token,
     // an unexpected response).
-    // "Supprimer", on a post or on a reply: the base.html.twig confirm()
-    // dialog is answered HERE rather than left to that later, separately
-    // registered listener — this one runs first (it is registered by the
-    // time base.html.twig's own script tag runs, later in the page) and
-    // would otherwise fire off the delete fetch() before the member had
-    // even answered the prompt. stopImmediatePropagation() is what stops
-    // base.html.twig's listener from then asking a second, redundant time.
+    // "Supprimer", on a post or on a reply. The confirmation itself is
+    // base.html.twig's, site-wide, and has already been answered by the
+    // time this runs — see the delegated submit listener below for why
+    // that ordering holds. This only decides what a confirmed deletion
+    // does: remove the item where it stands instead of reloading.
+    // A message's collapsed conversation (partials/post_card.html.twig's
+    // <details>): keeping the "3 commentaires" line honest as comments are
+    // added and removed without a reload. The number lives in data-count
+    // and the sentence is rewritten from it, so the plural can never drift
+    // from the figure beside it.
     //
-    // The caller has already called preventDefault/stopImmediatePropagation
-    // — this only decides what the confirmed deletion does.
+    // The wording is duplicated from the template on purpose, and it is
+    // the same trade the media counter already makes: the alternative is a
+    // round trip to the server for three words.
+    /**
+     * @param {HTMLElement|null} anyElementInsideTheThread
+     * @param {number} delta
+     */
+    function adjustThreadCount(anyElementInsideTheThread, delta) {
+        var thread = /** @type {HTMLDetailsElement} */ (
+            anyElementInsideTheThread ? anyElementInsideTheThread.closest('.groups-thread') : null
+        );
+        if (!thread) {
+            return;
+        }
+        var label = /** @type {HTMLElement} */ (thread.querySelector('.groups-thread-count'));
+        if (!label) {
+            return;
+        }
+
+        var count = Math.max(0, (parseInt(label.dataset.count, 10) || 0) + delta);
+        label.dataset.count = String(count);
+        if (count === 0) {
+            label.textContent = 'Commenter';
+        } else if (count === 1) {
+            label.textContent = '1 commentaire';
+        } else {
+            label.textContent = count + ' commentaires';
+        }
+    }
+
     function submitDeleteInPlace(form, removeSelector) {
         var container = form.closest(removeSelector);
+        // Resolved BEFORE the fetch: once container.remove() has run, the
+        // form is detached and can no longer find the thread it was in.
+        var thread = /** @type {HTMLElement} */ (form.closest('.groups-thread'));
         fetch(form.action, {
             method: 'POST',
             body: new FormData(form),
@@ -871,6 +1005,11 @@
         }).then(function (response) {
             if (response.ok && container) {
                 container.remove();
+                // Only a reply changes a thread's count — deleting the
+                // post takes the whole thread with it.
+                if (removeSelector === '.groups-reply') {
+                    adjustThreadCount(thread, -1);
+                }
             } else {
                 form.submit();
             }
@@ -919,19 +1058,141 @@
         });
     }
 
+    // "Signaler", on a message or on a reply — its data-confirm answered
+    // by base.html.twig, like every other one. Reporting used to reload the
+    // whole group to show one line of reassurance; the line now appears
+    // next to the item that was reported, which is also where the reader
+    // is looking.
+    //
+    // The confirmation is whatever the server sends and nothing else, and
+    // the entry is taken out of the menu afterwards: a second report by
+    // the same member is refused by the UNIQUE index anyway, and offering
+    // it again would invite the reporter to read something into the fact
+    // that nothing visibly happened.
+    /**
+     * @param {HTMLFormElement} form
+     * @param {string} itemSelector
+     */
+    function submitReportInPlace(form, itemSelector) {
+        var item = form.closest(itemSelector);
+        var entry = form.closest('li');
+        fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(function (response) {
+            return response.json().catch(function () { return null; }).then(function (data) {
+                return { ok: response.ok, data: data };
+            });
+        }).then(function (result) {
+            if (!result.ok || !result.data || result.data.reported !== true) {
+                form.submit();
+                return;
+            }
+            var note = /** @type {HTMLElement} */ (
+                item ? item.querySelector('.groups-report-confirmation') : null
+            );
+            if (note) {
+                note.textContent = result.data.message || '';
+                note.classList.remove('d-none');
+            }
+            if (entry) {
+                entry.remove();
+            }
+        }).catch(function () {
+            form.submit();
+        });
+    }
+
+    // "Rétablir", the moderator's answer to an auto-hidden item. Nothing
+    // about the item itself changes — a restored message is the message
+    // as it already reads underneath its own warning — so the warning and
+    // the dimming simply come off where it stands, with no fragment to
+    // fetch and no reload.
+    /**
+     * @param {HTMLFormElement} form
+     * @param {string} itemSelector
+     */
+    function submitRestoreInPlace(form, itemSelector) {
+        var item = /** @type {HTMLElement} */ (form.closest(itemSelector));
+        var banner = form.closest('.groups-hidden-banner');
+        fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(function (response) {
+            return response.json().catch(function () { return null; }).then(function (data) {
+                return { ok: response.ok, data: data };
+            });
+        }).then(function (result) {
+            if (result.ok && result.data && result.data.restored === true) {
+                if (banner) {
+                    banner.remove();
+                }
+                if (item) {
+                    item.classList.remove('groups-post-hidden');
+                    // A reply dims its bubble rather than its own wrapper.
+                    item.querySelectorAll('.groups-post-hidden').forEach(function (dimmed) {
+                        dimmed.classList.remove('groups-post-hidden');
+                    });
+                }
+            } else if (result.data && typeof result.data.error === 'string') {
+                // A moderator trying to restore their own reported content
+                // — the one refusal this endpoint has, and one the member
+                // has to actually read.
+                window.alert(result.data.error);
+            } else {
+                form.submit();
+            }
+        }).catch(function () {
+            form.submit();
+        });
+    }
+
     document.addEventListener('submit', function (event) {
         var target = /** @type {HTMLElement} */ (event.target);
+
+        // The "êtes-vous sûr ?" behind data-confirm is asked ONCE, by
+        // base.html.twig's site-wide handler, and this listener only reads
+        // its verdict.
+        //
+        // The ordering is a guarantee, not a coincidence: base.html.twig's
+        // handler is an inline classic script, and this file is loaded
+        // with `defer`, which the HTML standard runs after every inline
+        // script in the document — whatever order the two tags appear in.
+        // So by the time anything below runs, the member has already
+        // answered, and a cancelled confirmation has already called
+        // preventDefault() for us.
+        //
+        // This file used to call confirm() itself as well, on the belief
+        // that it ran first and could stopImmediatePropagation() the other
+        // one away. It never did run first, so deleting a message asked
+        // twice — and answering the second prompt with "Annuler" left the
+        // deletion already sent.
+        if (event.defaultPrevented) {
+            return;
+        }
 
         var postDeleteForm = /** @type {HTMLFormElement} */ (target.closest('.groups-post-delete-form'));
         var replyDeleteForm = /** @type {HTMLFormElement} */ (target.closest('.groups-reply-delete-form'));
         var deleteForm = postDeleteForm || replyDeleteForm;
         if (deleteForm) {
             event.preventDefault();
-            event.stopImmediatePropagation();
-            if (deleteForm.dataset.confirm && !confirm(deleteForm.dataset.confirm)) {
-                return;
-            }
             submitDeleteInPlace(deleteForm, postDeleteForm ? 'article' : '.groups-reply');
+            return;
+        }
+
+        var reportForm = /** @type {HTMLFormElement} */ (target.closest('.groups-report-form'));
+        if (reportForm) {
+            event.preventDefault();
+            submitReportInPlace(reportForm, reportForm.closest('.groups-reply') ? '.groups-reply' : 'article');
+            return;
+        }
+
+        var restoreForm = /** @type {HTMLFormElement} */ (target.closest('.groups-restore-form'));
+        if (restoreForm) {
+            event.preventDefault();
+            submitRestoreInPlace(restoreForm, restoreForm.closest('.groups-reply') ? '.groups-reply' : 'article');
             return;
         }
 
@@ -994,6 +1255,7 @@
                         repliesContainer.insertAdjacentHTML('beforeend', result.data.html);
                         kickOffMediaPolling();
                     }
+                    adjustThreadCount(replyForm, 1);
                     replyForm.reset();
                     var replyImageName = replyForm.querySelector('.groups-reply-image-name');
                     if (replyImageName) {

@@ -59,6 +59,28 @@ class GroupReadStateService
     }
 
     /**
+     * When this reader last opened the group, or null when they never
+     * have (or have no member identity in it at all).
+     *
+     * Null is deliberately "nothing is new" rather than "everything is":
+     * a member joining a group with two hundred existing comments would
+     * otherwise meet a badge on every single thread, which says nothing
+     * useful and is exactly the noise the badge exists to avoid.
+     *
+     * Read through the same member resolution as markRead(), so the two
+     * always agree about whose reading position this is.
+     */
+    public function lastReadAt(DiscussionGroup $group, GroupSessionContext $context): ?string
+    {
+        $memberIds = $this->accessService->memberIdsAllowedToPostAs($group, $context);
+        if ($memberIds === []) {
+            return null;
+        }
+
+        return $this->repository->lastReadFor([$group->id], $memberIds)[$group->id] ?? null;
+    }
+
+    /**
      * Which member ids count as "has seen everything published before
      * their last visit" for one post — the seen-by list.
      *

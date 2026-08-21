@@ -175,6 +175,115 @@ describe('groups.js dynamic post submit and draft cache', () => {
         expect(options.headers).toEqual({ 'X-Requested-With': 'XMLHttpRequest' });
     });
 
+    // Controller\PostController::create()'s own comment has always assumed
+    // the composer prevents an empty submit ("the composer already
+    // disables its own submit button on an empty draft"). It never did:
+    // pressing "Publier" on an empty composer spent a round trip to be
+    // told « Un message ne peut pas être vide. » about a form the member
+    // can see is empty.
+    describe('the publish button', () => {
+        function publishButton() {
+            return document.querySelector('#groups-post-form button[type="submit"]');
+        }
+
+        function type(value) {
+            textarea().value = value;
+            textarea().dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        it('starts disabled on an empty composer', async () => {
+            await loadGroups();
+
+            expect(publishButton().disabled).toBe(true);
+        });
+
+        it('enables as soon as there is text, and disables again when it is cleared', async () => {
+            await loadGroups();
+
+            type('Bonjour');
+            expect(publishButton().disabled).toBe(false);
+
+            type('   ');
+            expect(publishButton().disabled).toBe(true, 'whitespace is not a message');
+        });
+
+        it('enables on a photo alone — a media-only post is valid', async () => {
+            await loadGroups();
+            const input = document.getElementById('groups-media-input');
+            Object.defineProperty(input, 'files', {
+                value: [new File(['x'], 'a.jpg', { type: 'image/jpeg' })],
+                configurable: true,
+            });
+
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+
+            expect(publishButton().disabled).toBe(false);
+        });
+
+        // Service\PollService::normalise() refuses a poll with fewer than
+        // two real choices, so a half-filled one must not light the button
+        // up either — the server would answer "empty" for it.
+        it('stays disabled for a half-filled poll, and enables on the second choice', async () => {
+            await loadGroups();
+            const options = document.querySelectorAll('input[name="poll_options[]"]');
+
+            document.querySelector('input[name="poll_question"]').value = 'Qui vient ?';
+            document.querySelector('input[name="poll_question"]').dispatchEvent(new Event('input', { bubbles: true }));
+            expect(publishButton().disabled).toBe(true, 'a question with no choice is not a poll');
+
+            options[0].value = 'Oui';
+            options[0].dispatchEvent(new Event('input', { bubbles: true }));
+            expect(publishButton().disabled).toBe(true, 'one choice is not a poll either');
+
+            options[1].value = 'Non';
+            options[1].dispatchEvent(new Event('input', { bubbles: true }));
+            expect(publishButton().disabled).toBe(false);
+        });
+
+        it('comes back disabled once the post has published and emptied the composer', async () => {
+            await loadGroups();
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ html: '<article id="post-3"></article>' })
+            }));
+
+            // Value set directly rather than through type(): an 'input'
+            // event also starts the draft cache's own 500 ms debounce,
+            // whose timer would outlive this test and write to
+            // localStorage in the middle of a later one. The submit event
+            // is dispatched on the form, so the button's disabled state is
+            // not in the way either.
+            textarea().value = 'Bonjour';
+            submit(document.getElementById('groups-post-form'));
+            await vi.waitFor(() => expect(document.getElementById('post-3')).not.toBeNull());
+
+            expect(publishButton().disabled).toBe(true);
+        });
+
+        it('comes back ENABLED after a refused post, so the member can resend', async () => {
+            await loadGroups();
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: false,
+                json: () => Promise.resolve({ error: 'Vous avez atteint la limite de messages.' })
+            }));
+
+            textarea().value = 'Trop de messages';
+            submit(document.getElementById('groups-post-form'));
+
+            await vi.waitFor(() => expect(publishButton().disabled).toBe(false));
+            expect(textarea().value).toBe('Trop de messages');
+        });
+
+        it('is enabled again for a draft restored from the browser', async () => {
+            localStorage.setItem('groups-draft-1', JSON.stringify({ body: 'Repris', savedAt: Date.now() }));
+
+            await loadGroups();
+
+            expect(textarea().value).toBe('Repris');
+            expect(publishButton().disabled).toBe(false);
+        });
+    });
+
     // Regression: the composer used to build its FormData AFTER
     // setBusy(true) had disabled the textarea, and a disabled control
     // contributes nothing to a form's data set. The message never reached
@@ -737,3 +846,95 @@ describe('groups.js invite-member search (members.html.twig)', () => {
         expect(document.getElementById('invite-member').value).toBe('');
     });
 });
+
+// partials/post_card.html.twig folds each message's conversation behind a
+// <details>. groups.js opens it in the two cases where the reader has
+// already said they want it — and, just as importantly, in no other.
+describe('groups.js opening a collapsed conversation', () => {
+    beforeEach(() => {
+        // jsdom implements neither scrollIntoView nor a layout, and the
+        // production code only uses it to bring a now-taller card back
+        // into view. Stubbed rather than guarded in production, where
+        // every browser has it.
+        Element.prototype.scrollIntoView = vi.fn();
+        window.location.hash = '';
+    });
+
+    function feedWithThreads() {
+        document.body.innerHTML = `
+            <div id="groups-feed">
+                <article id="post-8">
+                    <details class="groups-thread" id="post-thread-8">
+                        <summary><span class="groups-thread-count" data-count="4">4 commentaires</span></summary>
+                        <form class="groups-reply-form"><input type="text" name="body"></form>
+                    </details>
+                </article>
+                <article id="post-9">
+                    <details class="groups-thread" id="post-thread-9">
+                        <summary><span class="groups-thread-count" data-count="0">Commenter</span></summary>
+                        <form class="groups-reply-form"><input type="text" name="body" id="reply-input-9"></form>
+                    </details>
+                </article>
+            </div>
+        `;
+    }
+
+    // Every group notification deep-links to /groups/{id}/posts/{postId},
+    // which redirects to the feed anchored on #post-{postId}. For a
+    // "somebody answered you" notification the answer is inside the
+    // fold, so a closed thread would show the reader only the message
+    // they already knew about.
+    it('opens the thread a deep link points at, and only that one', async () => {
+        feedWithThreads();
+        window.location.hash = '#post-9';
+
+        await loadGroups();
+
+        expect(document.getElementById('post-thread-9').open).toBe(true);
+        expect(document.getElementById('post-thread-8').open).toBe(false);
+    });
+
+    it('opens nothing when there is no deep link', async () => {
+        feedWithThreads();
+
+        await loadGroups();
+
+        expect(document.getElementById('post-thread-9').open).toBe(false);
+        expect(document.getElementById('post-thread-8').open).toBe(false);
+    });
+
+    it('ignores a hash that is not a message anchor', async () => {
+        feedWithThreads();
+        window.location.hash = '#post-9x';
+
+        await loadGroups();
+
+        expect(document.getElementById('post-thread-9').open).toBe(false);
+    });
+
+    // "Commenter" can only mean one thing; "4 commentaires" means the
+    // reader wants to read, and stealing focus there would scroll past
+    // what they opened it for (and raise a phone keyboard over it).
+    it('focuses the box when a conversation with no comments is opened', async () => {
+        feedWithThreads();
+        await loadGroups();
+
+        const thread = document.getElementById('post-thread-9');
+        thread.open = true;
+        thread.dispatchEvent(new Event('toggle'));
+
+        expect(document.activeElement.id).toBe('reply-input-9');
+    });
+
+    it('does not steal focus when a conversation that has comments is opened', async () => {
+        feedWithThreads();
+        await loadGroups();
+
+        const thread = document.getElementById('post-thread-8');
+        thread.open = true;
+        thread.dispatchEvent(new Event('toggle'));
+
+        expect(document.activeElement).toBe(document.body);
+    });
+});
+

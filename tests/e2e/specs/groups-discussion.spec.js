@@ -64,7 +64,7 @@
 // .groups-reactions, .groups-reply-bubble).
 import { expect, test } from '@playwright/test';
 
-import { loginAsAdmin } from '../support/admin-login.js';
+import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 
 // Unique per run so a re-run against a database that somehow survived
 // (E2E_DB_NAME pointed elsewhere, a killed teardown) still starts from an
@@ -186,20 +186,36 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await expect(pollPost.locator('.groups-poll')).toContainText('1 vote');
     await expect(pollPost.locator('.groups-poll')).toContainText('100 %');
 
-    // --- 4. A reply (a comment) on the first message published.
+    // --- 4. A comment, through the collapsed conversation.
     //
-    // Matched by its text rather than by its position: the stream is
-    // ordered by last activity, so replying to a post and reacting to it
-    // both move it (Service\GroupActivityService) — which is the feature,
-    // not something to pin an assertion on.
+    // The post is matched by its text rather than by its position: the
+    // stream is ordered by last activity, so commenting on a post and
+    // reacting to it both move it (Service\GroupActivityService) — which
+    // is the feature, not something to pin an assertion on.
     const firstPost = feed.getByRole('article').filter({ hasText: MESSAGE });
     await expect(firstPost).toHaveCount(1);
-    await firstPost.getByPlaceholder('Répondre…').fill('Parfait, je serai là.');
+
+    const thread = firstPost.locator('details.groups-thread');
+    const threadCount = thread.locator('.groups-thread-count');
+    const replyBox = thread.getByPlaceholder('Répondre…');
+
+    // Folded away by default, composer included — a feed of twenty
+    // messages has to read as twenty messages.
+    await expect(replyBox).toBeHidden();
+    await expect(threadCount).toHaveText('Commenter');
+
+    await thread.locator('summary').click();
+    await expect(replyBox).toBeVisible();
+
+    await replyBox.fill('Parfait, je serai là.');
     await firstPost.getByRole('button', { name: 'Envoyer la réponse' }).click();
 
     await expect(firstPost.locator('.groups-reply')).toHaveCount(1);
     await expect(firstPost.locator('.groups-reply-bubble')).toContainText('Parfait, je serai là.');
     await expect(firstPost.locator('.groups-reply-error')).toBeHidden();
+    // The summary counts what was just added, without a reload and with
+    // the right plural.
+    await expect(threadCount).toHaveText('1 commentaire');
 
     // --- 5. A reaction on that same message, and the dialog behind its
     // tally.
@@ -235,8 +251,130 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await expect(feed.getByRole('link', { name: /example\.invalid/ })).toHaveAttribute('href', LINK_URL);
     await expect(feed.locator('.groups-poll')).toContainText(POLL_QUESTION);
     await expect(feed.locator('.groups-poll')).toContainText('1 vote');
-    await expect(reloadedTextPost.locator('.groups-reply-bubble')).toContainText('Parfait, je serai là.');
     await expect(reloadedTextPost.locator('.groups-reaction-tally').first()).toContainText('1');
+
+    // The conversation comes back folded, and counted — and carries no
+    // "nouveau" badge, because the only comment on it is this reader's
+    // own (Repository\ReplyRepository::countNewerForPosts()).
+    const reloadedThread = reloadedTextPost.locator('details.groups-thread');
+    await expect(reloadedThread.locator('.groups-thread-count')).toHaveText('1 commentaire');
+    await expect(reloadedThread.locator('.groups-thread-new')).toHaveCount(0);
+    await expect(reloadedThread.locator('.groups-reply-bubble')).toBeHidden();
+
+    await reloadedThread.locator('summary').click();
+    await expect(reloadedThread.locator('.groups-reply-bubble')).toContainText('Parfait, je serai là.');
+
+    expect(serverErrors, 'no request in this scenario may answer 5xx').toEqual([]);
+});
+
+// ============================================================================
+// Two people in one conversation.
+//
+// Three of this module's behaviours only exist between two members, and no
+// amount of care makes them reachable with one: a comment is never new to
+// the person who wrote it, "Signaler" is never offered on your own message,
+// and the badge that says something arrived means nothing if you put it
+// there yourself. scripts/e2e-support.php provisions a second, ordinary
+// member (no super-admin flag, no function, so RoleResolver puts them at
+// `identified`) and a section both of them belong to.
+//
+// A section group rather than an invitation one: its membership is DERIVED
+// per request from member_section_periods (Service\GroupAccessService), so
+// both members are in it the moment it exists — which is also how most
+// real groups in a unit come to be.
+// ============================================================================
+const SECTION_NAME = 'Meute E2E';
+const SECTION_GROUP_NAME = `Meute E2E ${Date.now()}`;
+const ANNOUNCEMENT = 'Le camp est confirmé du 1er au 10 juillet.';
+const COMMENT = 'Super, on peut aider au montage ?';
+
+test('a comment from somebody else is announced as new, and can be reported without a reload', async ({ page }) => {
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
+
+    // --- The section's group, and one announcement in it.
+    await loginAsAdmin(page);
+    await page.goto('/groups', { waitUntil: 'domcontentloaded' });
+    await page.getByLabel('Nom du groupe').fill(SECTION_GROUP_NAME);
+    await page.getByLabel('Section').selectOption({ label: SECTION_NAME });
+    await page.getByRole('button', { name: 'Créer' }).click();
+
+    await expect(page.getByRole('heading', { name: SECTION_GROUP_NAME })).toBeVisible();
+    const groupUrl = new URL(page.url()).pathname;
+
+    await page.getByLabel('Écrire un message').fill(ANNOUNCEMENT);
+    await page.locator('#groups-post-form').getByRole('button', { name: 'Publier' }).click();
+    await expect(page.locator('#groups-feed').getByRole('article')).toHaveCount(1);
+
+    // --- The other member: in the group without ever being invited, because
+    // they are in its section.
+    await page.context().clearCookies();
+    await loginAsMember(page);
+    await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#groups-feed').getByRole('article')).toHaveCount(1);
+
+    const theirThread = page.locator('details.groups-thread');
+    await theirThread.locator('summary').click();
+    await theirThread.getByPlaceholder('Répondre…').fill(COMMENT);
+    await page.getByRole('button', { name: 'Envoyer la réponse' }).click();
+    await expect(page.locator('.groups-reply-bubble')).toContainText(COMMENT);
+
+    // --- Back to the author. The comment arrived after their last visit and
+    // is not their own, so the conversation says so — and has opened itself,
+    // because a badge you have to click to act on is a badge that gets
+    // ignored.
+    await page.context().clearCookies();
+    await loginAsAdmin(page);
+    await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
+
+    const thread = page.locator('details.groups-thread');
+    await expect(thread.locator('.groups-thread-new')).toHaveText('1 nouveau');
+    await expect(thread).toHaveJSProperty('open', true);
+    await expect(thread.locator('.groups-reply-bubble')).toContainText(COMMENT);
+    await expect(thread.locator('.groups-thread-count')).toHaveText('1 commentaire');
+
+    // --- Reporting it. Offered at all only because somebody else wrote it,
+    // and answered where the reader is looking instead of by reloading the
+    // whole group for one line of reassurance.
+    page.once('dialog', (dialog) => dialog.accept());
+    const reply = page.locator('.groups-reply').first();
+    await reply.getByRole('button', { name: 'Actions sur cette réponse' }).click();
+    await reply.getByRole('button', { name: 'Signaler' }).click();
+
+    await expect(reply.locator('.groups-report-confirmation')).toContainText('votre signalement a bien été transmis');
+    // Still the same page, and the comment still there: reporting hides
+    // nothing on its own (it takes groups_report_hide_threshold reports),
+    // and the reporter is told nothing about what came of it.
+    expect(new URL(page.url()).pathname).toBe(groupUrl);
+    await expect(thread.locator('.groups-reply-bubble')).toContainText(COMMENT);
+    // The entry is gone: a second report by the same member is refused by
+    // the UNIQUE index anyway, and offering it again would invite the
+    // reporter to read something into nothing visibly happening.
+    await expect(reply.getByRole('button', { name: 'Signaler' })).toHaveCount(0);
+
+    // And after a reload: the badge is gone (the comment was new on the
+    // visit before, and this module marks a group read when you open it —
+    // Controller\GroupController::show()), so the conversation is folded
+    // again. The report survived too: the menu does not offer it a second
+    // time.
+    await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
+
+    const reloadedThread = page.locator('details.groups-thread');
+    await expect(reloadedThread.locator('.groups-thread-new')).toHaveCount(0);
+    await expect(reloadedThread).toHaveJSProperty('open', false);
+
+    await reloadedThread.locator('summary').click();
+    const reloadedReply = page.locator('.groups-reply').first();
+    await reloadedReply.getByRole('button', { name: 'Actions sur cette réponse' }).click();
+    await expect(reloadedReply.getByRole('button', { name: 'Signaler' })).toHaveCount(0);
+    // The rest of the menu is still there — the entry was removed, not the
+    // menu, and a moderator can still act on the comment.
+    await expect(reloadedReply.getByRole('button', { name: 'Supprimer' })).toBeVisible();
 
     expect(serverErrors, 'no request in this scenario may answer 5xx').toEqual([]);
 });
