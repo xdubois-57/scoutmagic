@@ -172,8 +172,14 @@
     {% endif %}
 
     <div id="groups-feed" data-group-id="{{ group.id }}">
+        {#
+          id: groups.js removes this line when the composer publishes the
+          group's very first message, which it inserts into this same
+          container without reloading — otherwise "Aucun message" stayed
+          sitting underneath the message that had just disproved it.
+        #}
         {% if posts is empty and pinned is empty %}
-            <p class="text-body-secondary text-center py-5 mb-0">Aucun message dans ce groupe pour le moment.</p>
+            <p class="text-body-secondary text-center py-5 mb-0" id="groups-feed-empty">Aucun message dans ce groupe pour le moment.</p>
         {% else %}
             {% include '@groups/partials/feed_page.html.twig' with { posts: posts, group: group, next_cursor: next_cursor } %}
         {% endif %}

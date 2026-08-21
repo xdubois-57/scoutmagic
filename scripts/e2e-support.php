@@ -417,6 +417,18 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // otherwise empty install.
     e2e_create_super_admin($connection, $encryptionKey, $blindIndexKey, $adminEmail, e2e_admin_password());
 
+    // --- The one member fixture the suite needs, and no more. ---
+    //
+    // A super-admin alone cannot use the groups module at all: a
+    // discussion group is written and read as a MEMBER, never as an
+    // account (Modules\Groups\Service\GroupSessionContext::
+    // $linkedMemberIds), and posting additionally requires the account to
+    // carry a first and last name (GroupAccessService::canPost()'s
+    // REASON_INCOMPLETE_PROFILE). Both are provisioned here, once, so the
+    // scenario that drives the composer spends its time on the composer
+    // rather than on re-importing a Desk export to obtain an identity.
+    e2e_seed_member_for_admin($connection, $encryptionKey, $blindIndexKey, $adminEmail);
+
     // --- Every module, activated the way an admin activates one. ---
     //
     // The throwaway instance is pointed at ITSELF as the statistics
@@ -677,6 +689,83 @@ function e2e_create_super_admin(
         $encryptionService->blindIndex($normalizedEmail, 'email'),
         password_hash($password, PASSWORD_DEFAULT),
     ]);
+}
+
+/**
+ * Give the throwaway super-admin a scout identity: a members row, a
+ * member_years row for the current scout year carrying the SAME email
+ * address as the account, and a first/last name on the account itself.
+ *
+ * Why this exists at all — the two things it unlocks, both of which are
+ * real production rules and not test conveniences:
+ *
+ * - Core\Member\MemberService::getLinkedMembers() matches an account to
+ *   its members by the blind index of the email address, for one scout
+ *   year. Without a matching member_years row every module that acts "as
+ *   a member" (groups first among them) refuses every write with
+ *   "Aucun membre de ce groupe n'est associé à votre compte", admin or
+ *   not — that bypass does not exist, on purpose.
+ * - Modules\Groups\Service\GroupAccessService::canPost() additionally
+ *   requires the account's own first and last name, because they
+ *   accompany every message; an account without them is offered no
+ *   composer at all.
+ *
+ * The names are invented and the address is the same @example.invalid
+ * one the account already uses (RFC 6761 — never a real mailbox), so no
+ * personal data enters the fixture. Everything lands in the throwaway
+ * database that teardown drops.
+ *
+ * The row is written for the CURRENT scout year — the year
+ * Core\ScoutYear\ScoutYearResolver resolves on a freshly provisioned
+ * instance, since neither year setting is configured yet. A scenario that
+ * moves the public year forward (specs/scout-year-transition.spec.js
+ * does, deliberately) leaves this member behind in the previous one; that
+ * is why the groups scenario runs before it, which Playwright's
+ * alphabetical file ordering already guarantees.
+ */
+function e2e_seed_member_for_admin(
+    Core\Database\Connection $connection,
+    string $encodedEncryptionKey,
+    string $encodedBlindIndexKey,
+    string $email
+): void {
+    $pdo = $connection->getPdo();
+    $encryptionService = Core\Security\EncryptionService::fromEncodedKeys($encodedEncryptionKey, $encodedBlindIndexKey);
+    $normalizedEmail = strtolower(trim($email));
+    $blindIndex = $encryptionService->blindIndex($normalizedEmail, 'email');
+
+    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+
+    $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['E2E-ADMIN']);
+    $memberId = (int) $pdo->lastInsertId();
+
+    // is_active = 1 is not decoration: findAllByEmail() filters on it, so
+    // an inactive row would link to nothing at all.
+    $statement = $pdo->prepare(
+        'INSERT INTO member_years'
+        . ' (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index, is_active)'
+        . ' VALUES (?, ?, ?, ?, ?, ?, 1)'
+    );
+    $statement->execute([
+        $memberId,
+        $scoutYearId,
+        $encryptionService->encrypt('Baden', 'member_years.first_name'),
+        $encryptionService->encrypt('Powell', 'member_years.last_name'),
+        $encryptionService->encrypt($normalizedEmail, 'member_years.email'),
+        $blindIndex,
+    ]);
+
+    // Through the repository rather than by hand: the account's names are
+    // encrypted with their own contexts, and this is the one call site
+    // that already knows which (Core\Security\UserAccountRepository::
+    // updateProfile(), the same method the "Mon compte" page calls).
+    $userAccountRepository = new Core\Security\UserAccountRepository($pdo, $encryptionService);
+    $account = $userAccountRepository->findByEmail($normalizedEmail);
+    if ($account === null) {
+        fwrite(STDERR, "E2E provisioning failed: the super-admin account just created cannot be found back.\n");
+        exit(1);
+    }
+    $userAccountRepository->updateProfile($account->id, 'Baden', 'Powell');
 }
 
 /**

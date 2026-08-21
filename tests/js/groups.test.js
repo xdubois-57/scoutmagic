@@ -130,7 +130,10 @@ describe('groups.js dynamic post submit and draft cache', () => {
         document.body.innerHTML = `
             <div id="groups-feed"></div>
             <form id="groups-post-form" action="/groups/1/posts" data-max-media="4" data-group-id="1" data-draft-ttl-minutes="60">
-                <textarea id="post-body"></textarea>
+                <textarea id="post-body" name="body"></textarea>
+                <input type="text" name="poll_question">
+                <input type="text" name="poll_options[]">
+                <input type="text" name="poll_options[]">
                 <div id="groups-media-previews"></div>
                 <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple>
                 <input type="file" id="groups-media-input" multiple>
@@ -170,6 +173,76 @@ describe('groups.js dynamic post submit and draft cache', () => {
         const [url, options] = fetch.mock.calls[0];
         expect(url).toContain('/groups/1/posts');
         expect(options.headers).toEqual({ 'X-Requested-With': 'XMLHttpRequest' });
+    });
+
+    // Regression: the composer used to build its FormData AFTER
+    // setBusy(true) had disabled the textarea, and a disabled control
+    // contributes nothing to a form's data set. The message never reached
+    // the server, which answered {error:'empty'} — the member saw
+    // « Un message ne peut pas être vide. » for a message they had
+    // plainly just typed. A post that also carried a photo published, but
+    // with its text silently dropped.
+    it('submits the typed message even though the composer is greyed out during the request', async () => {
+        await loadGroups();
+        /** @type {FormData|null} */
+        let sent = null;
+        global.fetch = vi.fn((url, options) => {
+            sent = options.body;
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ html: '<article id="post-7"></article>' }) });
+        });
+
+        textarea().value = 'Rendez-vous samedi à 9h';
+        submit(document.getElementById('groups-post-form'));
+        await vi.waitFor(() => expect(document.getElementById('post-7')).not.toBeNull());
+
+        expect(sent).toBeInstanceOf(FormData);
+        expect(sent.get('body')).toBe('Rendez-vous samedi à 9h');
+        // The composer really was greyed out for the round trip — the fix
+        // is the ordering, not dropping the busy state.
+        expect(textarea().disabled).toBe(false);
+    });
+
+    it('submits a poll question and its options alongside the message', async () => {
+        await loadGroups();
+        /** @type {FormData|null} */
+        let sent = null;
+        global.fetch = vi.fn((url, options) => {
+            sent = options.body;
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ html: '<article id="post-8"></article>' }) });
+        });
+
+        textarea().value = 'On se decide';
+        const options = document.querySelectorAll('input[name="poll_options[]"]');
+        document.querySelector('input[name="poll_question"]').value = 'Qui vient au week-end ?';
+        options[0].value = 'Oui';
+        options[1].value = 'Non';
+
+        submit(document.getElementById('groups-post-form'));
+        await vi.waitFor(() => expect(document.getElementById('post-8')).not.toBeNull());
+
+        expect(sent.get('poll_question')).toBe('Qui vient au week-end ?');
+        expect(sent.getAll('poll_options[]')).toEqual(['Oui', 'Non']);
+    });
+
+    // Regression: the empty-state line lives INSIDE #groups-feed, and the
+    // composer inserts the new card into that same container without
+    // reloading — so the group's very first message used to appear right
+    // above "Aucun message dans ce groupe pour le moment."
+    it('removes the "no message yet" line when the first post is published', async () => {
+        await loadGroups();
+        document.getElementById('groups-feed').innerHTML =
+            '<p id="groups-feed-empty">Aucun message dans ce groupe pour le moment.</p>';
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<article id="post-11">Premier</article>' })
+        }));
+
+        textarea().value = 'Premier';
+        submit(document.getElementById('groups-post-form'));
+        await vi.waitFor(() => expect(document.getElementById('post-11')).not.toBeNull());
+
+        expect(document.getElementById('groups-feed-empty')).toBeNull();
+        expect(document.getElementById('groups-feed').children).toHaveLength(1);
     });
 
     it('disables the textarea and the submit button while the request is in flight', async () => {
@@ -306,6 +379,7 @@ describe('groups.js live link preview', () => {
                 <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple>
                 <input type="file" id="groups-media-input" multiple>
                 <div class="d-none" id="groups-link-preview" data-preview-url="/groups/1/link-preview"></div>
+                <button type="submit">Publier</button>
             </form>
         `;
     });
@@ -316,6 +390,10 @@ describe('groups.js live link preview', () => {
 
     function preview() {
         return document.getElementById('groups-link-preview');
+    }
+
+    function submitButton() {
+        return document.querySelector('#groups-post-form button[type="submit"]');
     }
 
     it('does nothing for plain text with no URL — no fetch, stays hidden', async () => {
@@ -373,6 +451,38 @@ describe('groups.js live link preview', () => {
 
         textarea().value = 'https://example.org';
         textarea().dispatchEvent(new Event('blur'));
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    });
+
+    // Regression: the preview container sits directly ABOVE the publish
+    // button, and pressing that button moves focus, which fires this very
+    // blur. Revealing the container (spinner first) from inside the blur
+    // handler moved the button down between mousedown and mouseup, so no
+    // `click` was ever produced and pressing "Publier" on a message
+    // containing a link silently did nothing the first time.
+    it('does not fire on the blur caused by pressing the publish button', async () => {
+        await loadGroups();
+        global.fetch = vi.fn();
+
+        textarea().value = 'Regarde https://example.org';
+        textarea().dispatchEvent(new FocusEvent('blur', { relatedTarget: submitButton() }));
+
+        expect(fetch).not.toHaveBeenCalled();
+        expect(preview().classList.contains('d-none')).toBe(true);
+    });
+
+    // …and leaving the field for anything else still previews immediately,
+    // which is what the blur trigger exists for.
+    it('still fires on the blur caused by leaving the field for another control', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ url: 'https://example.org', title: null, description: null, image_data_uri: null })
+        }));
+
+        textarea().value = 'Regarde https://example.org';
+        textarea().dispatchEvent(new FocusEvent('blur', { relatedTarget: document.getElementById('groups-media-input') }));
+
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     });
 
