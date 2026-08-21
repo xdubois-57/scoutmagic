@@ -152,30 +152,128 @@ class AuthServiceTest extends TestCase
         $this->assertFalse($this->emailSent);
     }
 
-    public function testRequestMagicLinkWithValidSecondaryEmailSendsAndAttachesToThePrimaryAccount(): void
+    public function testRequestMagicLinkWithValidSecondaryEmailSendsAndStoresTheSubmittedAddress(): void
     {
         $this->userRepo->create('primary@test.com');
-
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
-
-        $memberId = 42;
-        $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, email_blind_index) VALUES (?, 1, ?)')
-            ->execute([$memberId, $this->encryption->blindIndex('primary@test.com', 'email')]);
-        $this->pdo->prepare(
-            'INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
-             VALUES (?, ?, ?, "manual", "valid")'
-        )->execute([$memberId, $this->encryption->encrypt('secondary@test.com', 'member_emails.email'), $this->encryption->blindIndex('secondary@test.com', 'email')]);
+        $this->givenValidSecondaryEmail(42, 'primary@test.com', 'secondary@test.com');
 
         $result = $this->authService->requestMagicLink('secondary@test.com');
 
         $this->assertTrue($result->success);
         $this->assertTrue($this->emailSent);
 
-        // The stored magic link must resolve to the PRIMARY account's blind
-        // index, not the secondary address's — otherwise verifyMagicLink()
-        // could never find a matching user_accounts row.
+        // The link must be stored against the SUBMITTED address, never the
+        // member's primary one: that blind index is the identity the link
+        // confers, and it is what the rate limit counts.
         $stmt = $this->pdo->query('SELECT email_blind_index FROM magic_links ORDER BY id DESC LIMIT 1');
-        $this->assertSame($this->encryption->blindIndex('primary@test.com', 'email'), $stmt->fetchColumn());
+        $this->assertSame($this->encryption->blindIndex('secondary@test.com', 'email'), $stmt->fetchColumn());
+
+        // Nothing is created before the token is proven.
+        $this->assertNull($this->userRepo->findByEmail('secondary@test.com'));
+    }
+
+    /**
+     * The security regression this whole path exists for: confirming a
+     * magic link sent to a member's secondary address used to log the
+     * clicker in as the account behind that member's PRIMARY address —
+     * i.e. as somebody else, with every member and every credential of
+     * that account.
+     */
+    public function testVerifyMagicLinkForSecondaryEmailLogsInAsThatAddressNotAsThePrimaryAccount(): void
+    {
+        $primary = $this->userRepo->create('primary@test.com');
+        $this->givenValidSecondaryEmail(42, 'primary@test.com', 'secondary@test.com');
+
+        $rawToken = bin2hex(random_bytes(32));
+        $id = $this->givenMagicLink('secondary@test.com', $rawToken);
+
+        $verified = $this->authService->verifyMagicLink($id, $rawToken);
+
+        $this->assertNotNull($verified);
+        $this->assertSame('secondary@test.com', $verified->email);
+        $this->assertNotSame($primary->id, $verified->userAccountId);
+
+        // The address got its own account row, never super-admin.
+        $created = $this->userRepo->findByEmail('secondary@test.com');
+        $this->assertNotNull($created);
+        $this->assertSame($created->id, $verified->userAccountId);
+        $this->assertFalse($created->isSuperAdmin);
+    }
+
+    public function testVerifyMagicLinkForSecondaryEmailReusesItsAccountOnTheNextLogin(): void
+    {
+        $this->userRepo->create('primary@test.com');
+        $this->givenValidSecondaryEmail(42, 'primary@test.com', 'secondary@test.com');
+
+        $firstToken = bin2hex(random_bytes(32));
+        $first = $this->authService->verifyMagicLink($this->givenMagicLink('secondary@test.com', $firstToken), $firstToken);
+
+        $secondToken = bin2hex(random_bytes(32));
+        $second = $this->authService->verifyMagicLink($this->givenMagicLink('secondary@test.com', $secondToken), $secondToken);
+
+        $this->assertNotNull($first);
+        $this->assertNotNull($second);
+        $this->assertSame($first->userAccountId, $second->userAccountId);
+
+        $count = $this->pdo->query('SELECT COUNT(*) FROM user_accounts')->fetchColumn();
+        $this->assertSame(2, (int) $count);
+    }
+
+    public function testVerifyMagicLinkForAnAddressThatIsNoLongerValidFails(): void
+    {
+        $this->userRepo->create('primary@test.com');
+        $this->givenValidSecondaryEmail(42, 'primary@test.com', 'secondary@test.com');
+
+        $rawToken = bin2hex(random_bytes(32));
+        $id = $this->givenMagicLink('secondary@test.com', $rawToken);
+
+        // The member removes/deactivates the address between the send and
+        // the click — the link must not resolve any account at all.
+        $this->pdo->exec("UPDATE member_emails SET status = 'inactive'");
+
+        $this->assertNull($this->authService->verifyMagicLink($id, $rawToken));
+        $this->assertNull($this->userRepo->findByEmail('secondary@test.com'));
+    }
+
+    public function testRequestMagicLinkRateLimitsASecondaryAddressToo(): void
+    {
+        $this->userRepo->create('primary@test.com');
+        $this->givenValidSecondaryEmail(42, 'primary@test.com', 'secondary@test.com');
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->assertTrue($this->authService->requestMagicLink('secondary@test.com')->success);
+        }
+
+        $this->assertFalse($this->authService->requestMagicLink('secondary@test.com')->success);
+    }
+
+    private function givenValidSecondaryEmail(int $memberId, string $primaryEmail, string $secondaryEmail): void
+    {
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
+        $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, email_blind_index) VALUES (?, 1, ?)')
+            ->execute([$memberId, $this->encryption->blindIndex($primaryEmail, 'email')]);
+        $this->pdo->prepare(
+            'INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
+             VALUES (?, ?, ?, "manual", "valid")'
+        )->execute([
+            $memberId,
+            $this->encryption->encrypt($secondaryEmail, 'member_emails.email'),
+            $this->encryption->blindIndex($secondaryEmail, 'email'),
+        ]);
+    }
+
+    private function givenMagicLink(string $email, string $rawToken): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO magic_links (email_blind_index, token_hash, expires_at) VALUES (?, ?, ?)'
+        );
+        $stmt->execute([
+            $this->encryption->blindIndex($email, 'email'),
+            password_hash($rawToken, PASSWORD_DEFAULT),
+            (new \DateTimeImmutable('+15 minutes'))->format('Y-m-d H:i:s'),
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
     }
 
     public function testRequestMagicLinkWithPendingSecondaryEmailDoesNotSend(): void

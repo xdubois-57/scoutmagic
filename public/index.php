@@ -978,7 +978,7 @@ $notificationService = new NotificationService(
 // Constructed here, in the composition root, because it is the only place
 // with a session to read: MemberService itself never touches $_SESSION.
 $temporaryMemberProvider = new \Core\Member\SessionTemporaryMemberProvider();
-$memberService = new MemberService($memberYearRepo, $encryptionService, $connection, $temporaryMemberProvider);
+$memberService = new MemberService($memberYearRepo, $encryptionService, $connection, $temporaryMemberProvider, $memberEmailRepository);
 $memberYearService = new MemberYearService();
 $memberSearchService = new MemberSearchService(new MemberSearchRepository($connection, $encryptionService));
 // "Won't be back next scout year" marking (ARCHITECTURE.md §8) — a plain

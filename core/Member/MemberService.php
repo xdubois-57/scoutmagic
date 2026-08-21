@@ -22,12 +22,21 @@ class MemberService
      * whole test suite construct this service with three arguments and get
      * the plain email-only behavior. Same backward-compatibility shape as
      * Core\Http\FrontController's optional OfflineWhitelist.
+     *
+     * $memberEmailRepo is optional for the same reason and follows
+     * Core\Security\RoleResolver's own optional dependency on it exactly:
+     * given one, every "which members is this address linked to" question
+     * below also resolves a member reachable only through a currently-
+     * 'valid' secondary address (Core\Member\MemberEmailService), which is
+     * what makes logging in with such an address land on that member's
+     * page rather than on an empty one.
      */
     public function __construct(
         private MemberYearRepository $memberYearRepo,
         private EncryptionService $encryption,
         private Connection $connection,
-        private ?TemporaryMemberProviderInterface $temporaryMemberProvider = null
+        private ?TemporaryMemberProviderInterface $temporaryMemberProvider = null,
+        private ?MemberEmailRepository $memberEmailRepo = null
     ) {
     }
 
@@ -41,11 +50,20 @@ class MemberService
     {
         $normalizedEmail = strtolower(trim($email));
         $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
-        $memberYearRows = $this->memberYearRepo->findAllByEmail($blindIndex, $scoutYearId);
+        $memberYearRows = [
+            ...$this->memberYearRepo->findAllByEmail($blindIndex, $scoutYearId),
+            ...$this->memberYearRowsViaSecondaryEmail($blindIndex, $scoutYearId),
+        ];
 
         $profiles = [];
         $seenMemberYearIds = [];
         foreach ($memberYearRows as $row) {
+            if (in_array((int) $row['id'], $seenMemberYearIds, true)) {
+                // The same member can match both paths (their Desk address
+                // re-added as one of their own secondary addresses).
+                continue;
+            }
+
             $seenMemberYearIds[] = (int) $row['id'];
             $profiles[] = $this->hydrateMemberProfile($row);
         }
@@ -56,6 +74,40 @@ class MemberService
         }
 
         return $profiles;
+    }
+
+    /**
+     * The active member_year rows for $scoutYearId of every member this
+     * address reaches as a currently-'valid' secondary address — empty
+     * without a MemberEmailRepository, and empty for a 'pending' or
+     * 'inactive' row, which grants nothing anywhere (same rule as
+     * Core\Security\RoleResolver).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function memberYearRowsViaSecondaryEmail(string $blindIndex, int $scoutYearId): array
+    {
+        if ($this->memberEmailRepo === null) {
+            return [];
+        }
+
+        return $this->memberYearRepo->findAllByMemberIds(
+            $this->memberEmailRepo->findMemberIdsByValidBlindIndex($blindIndex),
+            $scoutYearId
+        );
+    }
+
+    /**
+     * Whether $blindIndex is a currently-'valid' secondary address of the
+     * persistent member $memberId.
+     */
+    private function isValidSecondaryEmailOf(int $memberId, string $blindIndex): bool
+    {
+        if ($this->memberEmailRepo === null) {
+            return false;
+        }
+
+        return in_array($memberId, $this->memberEmailRepo->findMemberIdsByValidBlindIndex($blindIndex), true);
     }
 
     /**
@@ -223,6 +275,14 @@ class MemberService
             return true;
         }
 
+        // A confirmed secondary address of that same member passes too:
+        // the member added it themselves and confirmed it from that
+        // mailbox, which is exactly the "this is really you" evidence the
+        // Desk address carries.
+        if ($this->isValidSecondaryEmailOf((int) $row['member_id'], $userBlindIndex)) {
+            return true;
+        }
+
         // A temporary member (ARCHITECTURE.md §8.42) passes this check too.
         // It matters most where canAccess() is called with 'identified'
         // rather than the caller's real role — Core\Http\Controller\
@@ -263,6 +323,12 @@ class MemberService
 
         $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
         if ($row['email_blind_index'] === $userBlindIndex) {
+            return true;
+        }
+
+        // Same widening as canAccess(): a currently-'valid' secondary
+        // address of this member is that member.
+        if ($this->isValidSecondaryEmailOf($memberId, $userBlindIndex)) {
             return true;
         }
 

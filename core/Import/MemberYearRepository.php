@@ -162,16 +162,22 @@ class MemberYearRepository
 
     /**
      * The member's own (Desk-imported) email blind index, from their most
-     * recent scout year that actually has one — Core\Security\AuthService's
-     * resolution point for "which user_accounts row does this member's
-     * primary address belong to", used when a magic link is requested via
-     * a secondary address instead (Core\Member\MemberEmailRepository) so
-     * the link can still be tied to a real account. Not scout-year-gated
-     * on purpose: unlike login authorization (Core\Security\RoleResolver::
+     * recent scout year that actually has one — "which user_accounts row
+     * does this member's primary address belong to", for the notification
+     * senders that start from a member and need the account behind them
+     * (Modules\Groups\Service\GroupRecipientResolver, Modules\Rental\
+     * Service\RentalReminderService). Not scout-year-gated on purpose:
+     * unlike login authorization (Core\Security\RoleResolver::
      * isEmailAuthorizedToLogin(), which correctly requires a CURRENT-year
      * row), this only needs to find whichever user_accounts row Core\
      * Import\DeskImportService::ensureUserAccount() already created for
-     * this member — that check happens separately, later in the flow.
+     * this member.
+     *
+     * NOT a login resolution point: a magic link requested from a member's
+     * secondary address is never attached to the account behind their
+     * primary one (Core\Security\AuthService gives that address its own
+     * account instead) — doing so would have let any confirmed secondary
+     * address log in AS the member's primary account.
      */
     public function findMostRecentEmailBlindIndexForMember(int $memberId): ?string
     {

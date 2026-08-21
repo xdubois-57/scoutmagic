@@ -10,6 +10,7 @@ namespace Modules\SosStaff\Task;
 
 use Core\Badge\MemberBadgeRepository;
 use Core\Import\MemberYearRepository;
+use Core\Member\MemberEmailRepository;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
@@ -42,7 +43,13 @@ class ApplyRedirectHandler implements TaskHandlerInterface
 
         $sectionService = new SectionService($context->connection, $context->encryption, new MemberBadgeRepository($pdo));
         $memberYearRepository = new MemberYearRepository($pdo);
-        $memberService = new MemberService($memberYearRepository, $context->encryption, $context->connection);
+        $memberService = new MemberService(
+            $memberYearRepository,
+            $context->encryption,
+            $context->connection,
+            null,
+            new MemberEmailRepository($pdo, $context->encryption)
+        );
 
         $settingsService = new SosSettingsService(
             new ExcludedSectionRepository($pdo),
