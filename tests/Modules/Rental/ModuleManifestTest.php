@@ -41,7 +41,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.6.0', $this->manifest->version);
+        $this->assertSame('1.7.0', $this->manifest->version);
     }
 
     /**
@@ -68,6 +68,14 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/document-ajouter',
             '/mes-locations/document-supprimer',
             '/mes-locations/facturation',
+            '/mes-locations/compteur',
+            '/mes-locations/inventaire-modele',
+            '/mes-locations/releve',
+            '/mes-locations/inventaire',
+            '/mes-locations/incident',
+            '/mes-locations/incident-decision',
+            '/mes-locations/decompte',
+            '/mes-locations/decompte-valider',
             '/locations/suivi/{id}/{token}/demande',
             '/locations/suivi/{id}/{token}/reponse',
             '/admin/locations/payments',
@@ -229,6 +237,21 @@ class ModuleManifestTest extends TestCase
         $keys = array_column($this->manifest->scheduledTasks, 'key');
 
         $this->assertContains(\Modules\Rental\Task\ExpireRentalHoldsHandler::TASK_KEY, $keys);
+    }
+
+    /**
+     * §6.23 is explicit: the meter and inventory pages are WRITE pages and
+     * must never be cached for offline use.
+     *
+     * The `offline` section is opt-in, so the exclusion is achieved by the
+     * module declaring nothing at all — and this test is what stops a
+     * future iteration from casually adding "/mes-locations" to it and
+     * silently making an inventory form fillable in a cellar with no
+     * signal, to be lost on the way home.
+     */
+    public function testNoPageOfThisModuleIsEverCachedForOfflineUse(): void
+    {
+        $this->assertSame([], $this->manifest->offline);
     }
 
     public function testTheModuleDeclaresNoCookies(): void

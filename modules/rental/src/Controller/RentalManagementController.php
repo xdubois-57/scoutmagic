@@ -44,6 +44,10 @@ use Modules\Rental\Service\RentalDocumentService;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
+use Modules\Rental\Service\RentalStayService;
+use Modules\Rental\Stay\IncidentDecision;
+use Modules\Rental\Stay\InventoryState;
+use Modules\Rental\Stay\ReadingPhase;
 use Twig\Environment;
 
 /**
@@ -91,6 +95,22 @@ class RentalManagementController extends AbstractController
     /** 15 MB — a phone photo of a signed contract, with room to spare. */
     private const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
 
+    /**
+     * Meter and damage photos: images only, no PDF.
+     *
+     * Narrower than the document list on purpose — a photo of a dial is a
+     * photo, and every one of these types has its EXIF stripped by
+     * `UploadHandler`, which matters more here than anywhere else in the
+     * module: a phone photograph taken inside somebody's rented hall
+     * carries GPS coordinates.
+     */
+    private const ALLOWED_PHOTO_MIMES = [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'image/heic',
+    ];
+
     public function __construct(
         Environment $twig,
         private RentalAuthorizationService $authorizationService,
@@ -114,7 +134,8 @@ class RentalManagementController extends AbstractController
         private ?RentalPaymentService $paymentService = null,
         private ?RentalDocumentService $documentService = null,
         private ?RentalBookingMailService $mailService = null,
-        private ?UploadHandler $uploadHandler = null
+        private ?UploadHandler $uploadHandler = null,
+        private ?RentalStayService $stayService = null
     ) {
         parent::__construct($twig);
     }
@@ -678,9 +699,110 @@ class RentalManagementController extends AbstractController
             'templates' => $templates,
             'keywords' => DocumentKeywords::catalogue(),
             'vat_note' => $asset->vatExemptionNote,
+            // Meters and the inventory checklist share this page because
+            // all three are "what this asset needs before a stay can be
+            // settled" (§6.22, §6.23).
+            'meters' => $this->stayService?->metersFor($asset->id) ?? [],
+            'meter_kinds' => \Modules\Rental\Stay\MeterKind::all(),
+            'meter_fees' => array_values(array_filter(
+                $this->pricingService->loadSettings($asset->id)->fees,
+                static fn($fee) => $fee->nature === \Modules\Rental\Pricing\RentalFee::NATURE_METER
+            )),
+            'inventory_template' => $this->stayService?->inventoryTemplateFor($asset->id) ?? [],
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'templates',
         ]);
+    }
+
+    /**
+     * POST /mes-locations/compteur — add or retire a meter (§6.22).
+     *
+     * In the managed space, like the contract templates: what is metered on
+     * a hall is its managers' business, and they are not necessarily chiefs
+     * (§6.4).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveMeter(Request $request, array $params): Response
+    {
+        return $this->assetSetupAction($request, function (RentalAsset $asset) use ($request): void {
+            if ((string) $request->getBody('meter_action', '') === 'retire') {
+                $this->stayService?->retireMeter($asset->id, (int) $request->getBody('meter_id', 0));
+                FlashMessage::set(
+                    'success',
+                    'Compteur retiré. Les relevés déjà pris restent, ils servent de preuve.'
+                );
+
+                return;
+            }
+
+            $feeId = (int) $request->getBody('fee_id', 0);
+            $this->stayService?->addMeter(
+                $asset->id,
+                (string) $request->getBody('label', ''),
+                \Modules\Rental\Stay\MeterKind::tryFrom((string) $request->getBody('kind', ''))
+                    ?? \Modules\Rental\Stay\MeterKind::OTHER,
+                (string) $request->getBody('unit', ''),
+                $feeId > 0 ? $feeId : null,
+                (int) $request->getBody('sort_order', 0)
+            );
+
+            FlashMessage::set('success', 'Compteur ajouté.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/inventaire-modele — the asset's checklist (§6.23).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveInventoryTemplate(Request $request, array $params): Response
+    {
+        return $this->assetSetupAction($request, function (RentalAsset $asset) use ($request): void {
+            if ((string) $request->getBody('item_action', '') === 'remove') {
+                $this->stayService?->removeInventoryItem((int) $request->getBody('item_id', 0));
+                FlashMessage::set(
+                    'success',
+                    'Élément retiré du modèle. Les états des lieux déjà figés ne changent pas.'
+                );
+
+                return;
+            }
+
+            $this->stayService?->addInventoryItem(
+                $asset->id,
+                (string) $request->getBody('label', ''),
+                (int) $request->getBody('sort_order', 0)
+            );
+
+            FlashMessage::set('success', 'Élément ajouté au modèle.');
+        });
+    }
+
+    /**
+     * The shared shape of an asset-level setup write: CSRF, authorisation,
+     * the work, back to the templates page.
+     *
+     * @param callable(RentalAsset): void $work
+     */
+    private function assetSetupAction(Request $request, callable $work): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Forbidden', 403);
+        }
+
+        $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
+        if ($asset === null || $this->stayService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        try {
+            $work($asset);
+        } catch (RentalException $e) {
+            FlashMessage::set('danger', $e->getMessage());
+        }
+
+        return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
     }
 
     /**
@@ -730,6 +852,257 @@ class RentalManagementController extends AbstractController
         );
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/sejour — meters,
+     * inventory, incidents and the settlement (§6.21–§6.23).
+     *
+     * Its own page rather than another card on the booking's file: this is
+     * what a manager opens on the day, and burying it under a contract
+     * editor and a payment panel would make the one screen used with muddy
+     * boots on the hardest to reach.
+     *
+     * **Deliberately absent from `Core\Offline\OfflineWhitelist`** (§6.23).
+     * The module declares no `offline` section at all, so nothing here is
+     * ever cached — and it must stay that way: these are WRITE pages, and
+     * the offline layer caches reads. A cached inventory form would let a
+     * manager fill it in on a phone with no signal and lose everything on
+     * the way home. The documented workaround is the honest one: photograph
+     * on site, type it up on return.
+     *
+     * @param array<string, string> $params
+     */
+    public function stay(Request $request, array $params): Response
+    {
+        $asset = $this->manageableAsset($params);
+        if ($asset === null || $this->stayService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $booking = $this->bookingOfAsset($asset, (int) ($params['id'] ?? 0));
+        if ($booking === null) {
+            return new Response('Not Found', 404);
+        }
+
+        // The count from the last settlement if one exists, else what was
+        // announced — a manager correcting a figure should not have to
+        // retype the one they already recorded.
+        $latestSettlement = $this->stayService->latestSettlement($booking->id);
+        $finalPersons = $latestSettlement !== null && $latestSettlement->finalPersons !== null
+            ? $latestSettlement->finalPersons
+            : $booking->estimatedPersons;
+
+        return $this->render('@rental/management/stay.html.twig', [
+            'asset' => $asset,
+            'booking' => $booking,
+            'breadcrumb_current' => 'Séjour',
+            'consumptions' => $this->stayService->consumptionsFor($booking, $asset->id),
+            'inventory' => $this->stayService->inventoryFor($booking->id),
+            'inventory_states' => InventoryState::all(),
+            'incidents' => $this->stayService->incidentsFor($booking->id),
+            'incident_decisions' => IncidentDecision::decidable(),
+            'settlements' => $this->stayService->settlementsFor($booking->id),
+            'final_persons' => $finalPersons,
+            // Recomputed live so a manager sees the effect of the reading
+            // they just typed — looking never creates a version.
+            'preview' => $this->stayService->previewSettlement($booking, $asset->id, $finalPersons),
+            'phases' => ReadingPhase::cases(),
+            'csrf_token' => CsrfGuard::generateToken(),
+            'nav_page' => 'bookings',
+        ]);
+    }
+
+    /**
+     * POST /mes-locations/releve — one meter reading (§6.22).
+     *
+     * @param array<string, string> $params
+     */
+    public function recordReading(Request $request, array $params): Response
+    {
+        return $this->stayAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+            $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
+            if ($phase === null) {
+                throw new RentalException("Cette phase n'existe pas.");
+            }
+
+            $readAt = \DateTimeImmutable::createFromFormat('Y-m-d\TH:i', (string) $request->getBody('read_at', ''))
+                ?: new \DateTimeImmutable();
+
+            $fileId = null;
+            $uploaded = $request->getFile('photo');
+            if ($uploaded !== null && $this->uploadHandler !== null) {
+                try {
+                    $fileId = $this->uploadHandler->handle(
+                        $uploaded,
+                        RentalDocumentService::STORAGE_SUBDIRECTORY,
+                        self::ALLOWED_PHOTO_MIMES,
+                        self::MAX_DOCUMENT_BYTES,
+                        RentalDocumentService::FILE_ROLE_MIN,
+                        'rental',
+                        AuthSession::getUserAccountId(),
+                        RentalDocumentService::OWNER_TYPE,
+                        $booking->id
+                    );
+                } catch (\Throwable $e) {
+                    throw new RentalException($e->getMessage(), 0, $e);
+                }
+            }
+
+            $this->stayService?->recordReading(
+                $booking,
+                $asset->id,
+                (int) $request->getBody('meter_id', 0),
+                $phase,
+                self::optionalString($request->getBody('value')),
+                $readAt,
+                $fileId,
+                self::optionalString($request->getBody('comment')),
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Relevé enregistré.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/inventaire — one checklist line (§6.23).
+     *
+     * @param array<string, string> $params
+     */
+    public function recordInventory(Request $request, array $params): Response
+    {
+        return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
+            $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
+            $state = InventoryState::tryFrom((string) $request->getBody('state', ''));
+            if ($phase === null || $state === null) {
+                throw new RentalException("Cet état n'existe pas.");
+            }
+
+            $this->stayService?->setInventoryState(
+                $booking,
+                (int) $request->getBody('inventory_id', 0),
+                $phase,
+                $state,
+                self::optionalString($request->getBody('note'))
+            );
+
+            FlashMessage::set('success', "État des lieux mis à jour.");
+        });
+    }
+
+    /**
+     * POST /mes-locations/incident — report a damage (§6.23).
+     *
+     * @param array<string, string> $params
+     */
+    public function reportIncident(Request $request, array $params): Response
+    {
+        return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
+            $fileId = null;
+            $uploaded = $request->getFile('photo');
+            if ($uploaded !== null && $this->uploadHandler !== null) {
+                try {
+                    $fileId = $this->uploadHandler->handle(
+                        $uploaded,
+                        RentalDocumentService::STORAGE_SUBDIRECTORY,
+                        self::ALLOWED_PHOTO_MIMES,
+                        self::MAX_DOCUMENT_BYTES,
+                        RentalDocumentService::FILE_ROLE_MIN,
+                        'rental',
+                        AuthSession::getUserAccountId(),
+                        RentalDocumentService::OWNER_TYPE,
+                        $booking->id
+                    );
+                } catch (\Throwable $e) {
+                    throw new RentalException($e->getMessage(), 0, $e);
+                }
+            }
+
+            $this->stayService?->reportIncident(
+                $booking,
+                (string) $request->getBody('description', ''),
+                RentalPricingService::parseAmountToCents((string) $request->getBody('amount', '')),
+                $fileId,
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set(
+                'success',
+                'Incident enregistré. Rien n\'est facturé tant que vous n\'avez pas tranché.'
+            );
+        });
+    }
+
+    /**
+     * POST /mes-locations/incident-decision — the human decision (§6.23).
+     *
+     * @param array<string, string> $params
+     */
+    public function decideIncident(Request $request, array $params): Response
+    {
+        return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
+            $decision = IncidentDecision::tryFrom((string) $request->getBody('decision', ''));
+            if ($decision === null) {
+                throw new RentalException("Cette décision n'existe pas.");
+            }
+
+            $this->stayService?->decideIncident(
+                $booking,
+                (int) $request->getBody('incident_id', 0),
+                $decision,
+                RentalPricingService::parseAmountToCents((string) $request->getBody('amount', '')),
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Décision enregistrée : ' . $decision->label() . '.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/decompte — record a settlement version (§6.21).
+     *
+     * @param array<string, string> $params
+     */
+    public function recordSettlement(Request $request, array $params): Response
+    {
+        return $this->stayAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+            if ($this->stayService === null) {
+                throw new RentalException('Le décompte final n\'est pas disponible.');
+            }
+
+            $settlement = $this->stayService->recordSettlement(
+                $booking,
+                $asset->id,
+                self::optionalInt($request->getBody('final_persons')),
+                [],
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set(
+                'success',
+                'Décompte v' . $settlement->version . ' enregistré. '
+                . 'Le prix convenu n\'est pas modifié.'
+            );
+        });
+    }
+
+    /**
+     * POST /mes-locations/decompte-valider (§6.21).
+     *
+     * @param array<string, string> $params
+     */
+    public function validateSettlement(Request $request, array $params): Response
+    {
+        return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
+            $this->stayService?->validateSettlement(
+                $booking,
+                (int) $request->getBody('settlement_id', 0),
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Décompte validé. Il ne peut plus être modifié.');
+        });
     }
 
     // ── Write actions ───────────────────────────────────────────────────
@@ -1033,6 +1406,57 @@ class RentalManagementController extends AbstractController
         }
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/reservations/' . $booking->id);
+    }
+
+    /**
+     * Same shape as `bookingAction()`, but back to the stay page.
+     *
+     * A manager recording eight meter readings should land where they were,
+     * not on the booking's file eight times.
+     *
+     * @param callable(RentalBooking, RentalAsset): void $work
+     */
+    private function stayAction(Request $request, callable $work): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Forbidden', 403);
+        }
+
+        $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
+        if ($asset === null || $this->stayService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $booking = $this->bookingOfAsset($asset, (int) $request->getBody('booking_id', 0));
+        if ($booking === null) {
+            return new Response('Not Found', 404);
+        }
+
+        try {
+            $work($booking, $asset);
+        } catch (RentalException $e) {
+            FlashMessage::set('danger', $e->getMessage());
+        }
+
+        return $this->redirect(
+            '/mes-locations/' . $asset->slug . '/reservations/' . $booking->id . '/sejour'
+        );
+    }
+
+    /**
+     * An integer a form actually carried, or null for a field left empty.
+     *
+     * `(int) ''` is `0`, and zero participants is a real answer — a group
+     * that cancelled on the day — so an empty field has to stay
+     * distinguishable from a typed zero.
+     */
+    private static function optionalInt(mixed $value): ?int
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        return (int) trim($value);
     }
 
     /**

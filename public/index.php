@@ -3313,6 +3313,21 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
     );
 
+    // The stay itself (§6.21–§6.23): meters, inventory, incidents and the
+    // versioned final settlement. Note what is NOT here: the module
+    // declares no `offline` section, so none of these pages is ever
+    // whitelisted for offline caching — they are write pages, and the
+    // offline layer caches reads (§6.23).
+    $rentalStayRepository = new \Modules\Rental\Repository\RentalStayRepository($pdo, $encryptionService);
+    $rentalStayService = new \Modules\Rental\Service\RentalStayService(
+        $rentalStayRepository,
+        $rentalEventRepository,
+        $rentalPricingService,
+        new \Modules\Rental\Stay\SettlementCalculator(),
+        $journalService,
+        $rentalPaymentService
+    );
+
     $rentalOperationsService = new \Modules\Rental\Service\RentalOperationsService(
         $rentalBookingRepository,
         $rentalEventRepository,
@@ -3322,7 +3337,8 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $rentalPricingService,
         new \Modules\Rental\Pricing\QuoteEditor(),
         $journalService,
-        $rentalPaymentService
+        $rentalPaymentService,
+        $rentalStayService
     );
     $rentalBlockService = new \Modules\Rental\Service\RentalBlockService(
         $rentalBlockRepository,
@@ -3337,7 +3353,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             $rentalChangeRequestRepository, $rentalOperationsService, $rentalBlockService,
             $rentalAvailabilityService, $rentalPricingService, $memberService,
             new \Core\View\MonthGrid\DayStateGridBuilder(), $rentalPaymentService,
-            $rentalDocumentService, $rentalBookingMailService, $uploadHandler
+            $rentalDocumentService, $rentalBookingMailService, $uploadHandler, $rentalStayService
         )
     );
     $frontController->registerController(

@@ -61,7 +61,13 @@ class RentalOperationsService
          * (§6.19). Every call below goes through `?->`, so a rental settled
          * by hand behaves exactly as it did before payments existed.
          */
-        private ?RentalPaymentService $paymentService = null
+        private ?RentalPaymentService $paymentService = null,
+        /**
+         * Optional only so the constructor stays additive; in practice it
+         * is always wired. Confirmation is when the inventory checklist is
+         * copied into the booking (§6.23).
+         */
+        private ?RentalStayService $stayService = null
     ) {
     }
 
@@ -205,6 +211,14 @@ class RentalOperationsService
             // confirmation the manager has already been told about, and the
             // configuration screen is where a missing account is reported.
             $this->raiseReceivables($current, $asset, $now, $actorMemberId);
+
+            // The inventory checklist is copied into the booking here
+            // (§6.23), so that editing the asset's checklist afterwards
+            // cannot change an inventory somebody already signed off.
+            // Idempotent: confirmation can be reached more than once, and
+            // re-snapshotting would overwrite a completed inventory with
+            // blanks.
+            $this->stayService?->snapshotInventory($current, $asset->id);
         });
     }
 

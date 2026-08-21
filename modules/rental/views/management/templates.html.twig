@@ -77,5 +77,129 @@
                 </div>
             </div>
         {% endfor %}
+
+        {# ── Meters (§6.22) ────────────────────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Compteurs</h2>
+                <p class="text-body-secondary small">
+                    Ce qui se relève sur ce bien. Un compteur relié à un frais « relevé de compteur »
+                    est facturé à la consommation réelle ; sans frais, il est relevé sans être facturé.
+                </p>
+
+                {% if meters is empty %}
+                    <p class="text-body-secondary">Aucun compteur.</p>
+                {% else %}
+                    <ul class="list-unstyled">
+                        {% for meter in meters %}
+                            <li class="d-flex justify-content-between align-items-center gap-2 border-bottom py-2">
+                                <span>
+                                    <span class="fw-semibold">{{ meter.label }}</span>
+                                    <span class="text-body-secondary small d-block">
+                                        {{ meter.kind.label }}
+                                        {% if meter.displayUnit %}· {{ meter.displayUnit }}{% endif %}
+                                        {% if meter.feeId is null %}· non facturé{% endif %}
+                                    </span>
+                                </span>
+                                <form method="post" action="/mes-locations/compteur">
+                                    {{ csrf_field()|raw }}
+                                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                    <input type="hidden" name="meter_id" value="{{ meter.id }}">
+                                    <input type="hidden" name="meter_action" value="retire">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"
+                                            data-confirm="Retirer « {{ meter.label }} » ? Les relevés déjà pris sont conservés.">
+                                        Retirer
+                                    </button>
+                                </form>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+
+                <form method="post" action="/mes-locations/compteur" class="row g-2 align-items-end mt-2">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <div class="col-12 col-md-4">
+                        <label class="form-label" for="meter-label">Nom</label>
+                        <input type="text" class="form-control form-control-sm" id="meter-label" name="label"
+                               placeholder="Électricité" required>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label" for="meter-kind">Type</label>
+                        <select class="form-select form-select-sm" id="meter-kind" name="kind">
+                            {% for kind in meter_kinds %}
+                                <option value="{{ kind.value }}">{{ kind.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label" for="meter-unit">Unité</label>
+                        <input type="text" class="form-control form-control-sm" id="meter-unit" name="unit"
+                               placeholder="kWh">
+                    </div>
+                    <div class="col-8 col-md-2">
+                        <label class="form-label" for="meter-fee">Frais</label>
+                        <select class="form-select form-select-sm" id="meter-fee" name="fee_id">
+                            <option value="">—</option>
+                            {% for fee in meter_fees %}
+                                <option value="{{ fee.id }}">{{ fee.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-4 col-md-2">
+                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {# ── Inventory checklist (§6.23) ───────────────────────────── #}
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Modèle d'état des lieux</h2>
+                <p class="text-body-secondary small">
+                    Copié dans chaque réservation à sa confirmation. Modifier ce modèle ensuite ne
+                    change aucun état des lieux déjà figé — c'est voulu : un élément renommé ne doit
+                    pas réécrire ce qui a été constaté.
+                </p>
+
+                {% if inventory_template is empty %}
+                    <p class="text-body-secondary">Aucun élément.</p>
+                {% else %}
+                    <ul class="list-unstyled">
+                        {% for item in inventory_template %}
+                            <li class="d-flex justify-content-between align-items-center gap-2 border-bottom py-2">
+                                <span>{{ item.label }}</span>
+                                <form method="post" action="/mes-locations/inventaire-modele">
+                                    {{ csrf_field()|raw }}
+                                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                    <input type="hidden" name="item_id" value="{{ item.id }}">
+                                    <input type="hidden" name="item_action" value="remove">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Retirer</button>
+                                </form>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+
+                <form method="post" action="/mes-locations/inventaire-modele" class="row g-2 align-items-end mt-2">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <div class="col-8 col-md-6">
+                        <label class="form-label" for="item-label">Élément à vérifier</label>
+                        <input type="text" class="form-control form-control-sm" id="item-label" name="label"
+                               placeholder="Clés, tables, chaises, cuisine…" required>
+                    </div>
+                    <div class="col-4 col-md-2">
+                        <label class="form-label" for="item-order">Ordre</label>
+                        <input type="number" min="0" class="form-control form-control-sm" id="item-order"
+                               name="sort_order" value="0">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 {% endblock %}

@@ -1,0 +1,398 @@
+{% extends 'base.html.twig' %}
+{% block title %}Séjour {{ booking.reference }} — {{ site_name }}{% endblock %}
+{#
+  The stay itself (§6.21–§6.23): meters, inventory, incidents, settlement.
+
+  DELIBERATELY NOT CACHED FOR OFFLINE USE. The rental module declares no
+  `offline` section at all, so none of this is ever whitelisted — and it must
+  stay that way. These are WRITE pages, and the offline layer caches reads: a
+  cached inventory form would let a manager fill it in in a cellar with no
+  signal and lose the lot on the way home. The documented workaround is the
+  honest one, and it is on the page: photograph on site, type it up on return.
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 960px;">
+        <nav aria-label="Fil d'Ariane" class="mb-2">
+            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}"
+               class="small text-decoration-none">&larr; {{ booking.reference }}</a>
+        </nav>
+
+        <h1 class="h3 mb-1">Séjour — {{ booking.reference }}</h1>
+        <p class="text-body-secondary small mb-3">
+            {{ asset.name }} · du {{ booking.arrivalDate }} au {{ booking.departureDate }}
+        </p>
+
+        <div class="alert alert-secondary">
+            <strong>Cette page ne fonctionne qu'en ligne.</strong> Les relevés et états des lieux ne
+            sont jamais enregistrés hors connexion : photographiez sur place, saisissez au retour.
+        </div>
+
+        {# ── Meters (§6.22) ────────────────────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Compteurs</h2>
+
+                {% if consumptions is empty %}
+                    <p class="text-body-secondary mb-0">
+                        Aucun compteur configuré pour ce bien. Ajoutez-en depuis
+                        <a href="/mes-locations/{{ asset.slug }}/gabarits">les gabarits du bien</a>.
+                    </p>
+                {% else %}
+                    {% for consumption in consumptions %}
+                        <div class="border rounded p-3 mb-3">
+                            <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                <span>
+                                    <span class="fw-semibold">{{ consumption.meter.label }}</span>
+                                    <span class="text-body-secondary small d-block">
+                                        {{ consumption.meter.kind.label }}
+                                        {% if consumption.meter.displayUnit %}· {{ consumption.meter.displayUnit }}{% endif %}
+                                        {% if consumption.unitPriceCents is null %}· non facturé{% endif %}
+                                    </span>
+                                </span>
+                                <span class="text-end">
+                                    <span class="d-block">{{ consumption.formattedConsumption }}</span>
+                                    {% if consumption.isBillable %}
+                                        <span class="fw-semibold">
+                                            {{ (consumption.amountCents / 100)|number_format(2, ',', ' ') }} €
+                                        </span>
+                                    {% endif %}
+                                </span>
+                            </div>
+
+                            {% if consumption.warning %}
+                                <div class="alert alert-warning py-2 small mb-2">{{ consumption.warning }}</div>
+                            {% endif %}
+
+                            <div class="row g-3">
+                                {% for phase in phases %}
+                                    {% set reading = phase.value == 'arrival' ? consumption.arrival : consumption.departure %}
+                                    <div class="col-12 col-md-6">
+                                        <form method="post" action="/mes-locations/releve"
+                                              enctype="multipart/form-data" class="row g-2 align-items-end">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="meter_id" value="{{ consumption.meter.id }}">
+                                            <input type="hidden" name="phase" value="{{ phase.value }}">
+                                            <div class="col-12">
+                                                <label class="form-label small"
+                                                       for="reading-{{ consumption.meter.id }}-{{ phase.value }}">
+                                                    Relevé {{ phase.label|lower }}
+                                                </label>
+                                                <input type="text" inputmode="decimal"
+                                                       class="form-control form-control-sm"
+                                                       id="reading-{{ consumption.meter.id }}-{{ phase.value }}"
+                                                       name="value"
+                                                       value="{{ reading ? reading.formatted : '' }}"
+                                                       placeholder="1234,567">
+                                            </div>
+                                            <div class="col-7">
+                                                <label class="form-label small visually-hidden"
+                                                       for="photo-{{ consumption.meter.id }}-{{ phase.value }}">Photo</label>
+                                                <input type="file" class="form-control form-control-sm"
+                                                       id="photo-{{ consumption.meter.id }}-{{ phase.value }}"
+                                                       name="photo" accept="image/*">
+                                            </div>
+                                            <div class="col-5">
+                                                <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+                                                    Enregistrer
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+
+        {# ── Inventory (§6.23) ─────────────────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-2">État des lieux</h2>
+                <p class="text-body-secondary small">
+                    La liste a été figée à la confirmation : modifier le modèle du bien ensuite ne
+                    change rien ici. « Non vérifié » n'est pas « conforme » — laissez-le tel quel si
+                    personne n'a regardé.
+                </p>
+
+                {% if inventory is empty %}
+                    <p class="text-body-secondary mb-0">
+                        Aucune liste figée pour cette réservation. Elle est copiée depuis le modèle du
+                        bien à la confirmation.
+                    </p>
+                {% else %}
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <caption class="visually-hidden">État des lieux d'entrée et de sortie</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Élément</th>
+                                    <th scope="col">Entrée</th>
+                                    <th scope="col">Sortie</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in inventory %}
+                                    <tr>
+                                        <td>{{ item.label }}</td>
+                                        {% for phase in phases %}
+                                            {% set state = phase.value == 'arrival' ? item.arrival_state : item.departure_state %}
+                                            {% set note = phase.value == 'arrival' ? item.arrival_note : item.departure_note %}
+                                            <td>
+                                                <form method="post" action="/mes-locations/inventaire"
+                                                      class="row g-1 align-items-center">
+                                                    {{ csrf_field()|raw }}
+                                                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                                    <input type="hidden" name="inventory_id" value="{{ item.id }}">
+                                                    <input type="hidden" name="phase" value="{{ phase.value }}">
+                                                    <div class="col-12 col-lg-5">
+                                                        <label class="visually-hidden"
+                                                               for="state-{{ item.id }}-{{ phase.value }}">
+                                                            {{ item.label }} — {{ phase.label }}
+                                                        </label>
+                                                        <select class="form-select form-select-sm" name="state"
+                                                                id="state-{{ item.id }}-{{ phase.value }}">
+                                                            {% for option in inventory_states %}
+                                                                <option value="{{ option.value }}"
+                                                                        {{ state.value == option.value ? 'selected' : '' }}>
+                                                                    {{ option.label }}
+                                                                </option>
+                                                            {% endfor %}
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-8 col-lg-5">
+                                                        <label class="visually-hidden"
+                                                               for="note-{{ item.id }}-{{ phase.value }}">Note</label>
+                                                        <input type="text" class="form-control form-control-sm"
+                                                               id="note-{{ item.id }}-{{ phase.value }}"
+                                                               name="note" value="{{ note }}" placeholder="Note">
+                                                    </div>
+                                                    <div class="col-4 col-lg-2">
+                                                        <button type="submit"
+                                                                class="btn btn-sm btn-outline-secondary w-100">OK</button>
+                                                    </div>
+                                                </form>
+                                            </td>
+                                        {% endfor %}
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {# ── Incidents (§6.23) ─────────────────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Incidents et dégâts</h2>
+                <p class="text-body-secondary small">
+                    Rien n'est facturé automatiquement. Vous constatez, puis vous décidez : ajouter au
+                    décompte, retenir sur la caution, ou ne pas facturer. Tant que rien n'est tranché,
+                    le locataire ne voit rien.
+                </p>
+
+                {% if incidents is empty %}
+                    <p class="text-body-secondary">Aucun incident.</p>
+                {% else %}
+                    <ul class="list-unstyled">
+                        {% for incident in incidents %}
+                            <li class="border-bottom py-2">
+                                <div class="d-flex justify-content-between align-items-start gap-2">
+                                    <span>
+                                        {{ incident.description }}
+                                        {% if incident.fileId %}
+                                            <a href="{{ file_url(incident.fileId) }}" class="small d-block">Photo</a>
+                                        {% endif %}
+                                    </span>
+                                    <span class="text-end">
+                                        <span class="badge {{ incident.isDecided ? 'bg-secondary' : 'bg-warning text-dark' }}">
+                                            {{ incident.decision.label }}
+                                        </span>
+                                        {% if incident.effectiveAmountCents %}
+                                            <span class="d-block small">
+                                                {{ (incident.effectiveAmountCents / 100)|number_format(2, ',', ' ') }} €
+                                            </span>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <form method="post" action="/mes-locations/incident-decision"
+                                      class="row g-1 align-items-end mt-2">
+                                    {{ csrf_field()|raw }}
+                                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                    <input type="hidden" name="incident_id" value="{{ incident.id }}">
+                                    <div class="col-12 col-md-5">
+                                        <label class="visually-hidden" for="decision-{{ incident.id }}">Décision</label>
+                                        <select class="form-select form-select-sm" name="decision"
+                                                id="decision-{{ incident.id }}">
+                                            {% for option in incident_decisions %}
+                                                <option value="{{ option.value }}"
+                                                        {{ incident.decision.value == option.value ? 'selected' : '' }}>
+                                                    {{ option.label }}
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-7 col-md-4">
+                                        <label class="visually-hidden" for="amount-{{ incident.id }}">Montant</label>
+                                        <input type="text" inputmode="decimal" class="form-control form-control-sm"
+                                               id="amount-{{ incident.id }}" name="amount"
+                                               placeholder="Montant (€)"
+                                               value="{{ incident.effectiveAmountCents
+                                                   ? (incident.effectiveAmountCents / 100)|number_format(2, ',', '') : '' }}">
+                                    </div>
+                                    <div class="col-5 col-md-3">
+                                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Trancher</button>
+                                    </div>
+                                </form>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+
+                <form method="post" action="/mes-locations/incident" enctype="multipart/form-data"
+                      class="row g-2 align-items-end mt-2">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <div class="col-12 col-md-5">
+                        <label class="form-label" for="incident-description">Constater un incident</label>
+                        <input type="text" class="form-control form-control-sm" id="incident-description"
+                               name="description" required>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label" for="incident-amount">Montant estimé (€)</label>
+                        <input type="text" inputmode="decimal" class="form-control form-control-sm"
+                               id="incident-amount" name="amount">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="incident-photo">Photo</label>
+                        <input type="file" class="form-control form-control-sm" id="incident-photo"
+                               name="photo" accept="image/*">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {# ── The final settlement (§6.21) ──────────────────────────── #}
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Décompte final</h2>
+                <p class="text-body-secondary small">
+                    Le décompte a ses propres lignes. <strong>Il ne modifie jamais le prix convenu</strong> :
+                    celui-ci reste le témoin de ce qui a été négocié.
+                </p>
+
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <caption class="visually-hidden">Aperçu du décompte final</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Ligne</th>
+                                <th scope="col" class="text-end">Montant</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for line in preview.lines %}
+                                <tr>
+                                    <td>
+                                        {{ line.label }}
+                                        {% if line.detail %}
+                                            <span class="text-body-secondary small d-block">{{ line.detail }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end">{{ (line.amountCents / 100)|number_format(2, ',', ' ') }} €</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-semibold">
+                                <td>Total</td>
+                                <td class="text-end">{{ (preview.total_cents / 100)|number_format(2, ',', ' ') }} €</td>
+                            </tr>
+                            <tr>
+                                <td>Solde {{ preview.balance_cents < 0 ? 'à rembourser' : 'restant dû' }}</td>
+                                <td class="text-end">
+                                    {{ (preview.balance_cents|abs / 100)|number_format(2, ',', ' ') }} €
+                                </td>
+                            </tr>
+                            {% if preview.security_deposit_return_cents or preview.security_deposit_withheld_cents %}
+                                <tr>
+                                    <td>Caution à restituer</td>
+                                    <td class="text-end">
+                                        {{ (preview.security_deposit_return_cents / 100)|number_format(2, ',', ' ') }} €
+                                        {% if preview.security_deposit_withheld_cents %}
+                                            <span class="text-body-secondary small d-block">
+                                                dont {{ (preview.security_deposit_withheld_cents / 100)|number_format(2, ',', ' ') }} €
+                                                retenus
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        </tfoot>
+                    </table>
+                </div>
+
+                <form method="post" action="/mes-locations/decompte" class="row g-2 align-items-end mb-3">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="final-persons">Participants réels</label>
+                        <input type="number" min="0" class="form-control form-control-sm" id="final-persons"
+                               name="final_persons" value="{{ final_persons }}">
+                    </div>
+                    <div class="col-6 col-md-4">
+                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+                            Enregistrer un décompte
+                        </button>
+                    </div>
+                </form>
+
+                {% if settlements is not empty %}
+                    <h3 class="h6">Versions</h3>
+                    <ul class="list-unstyled mb-0">
+                        {% for settlement in settlements %}
+                            <li class="d-flex justify-content-between align-items-center gap-2 border-bottom py-2">
+                                <span>
+                                    <span class="fw-semibold">v{{ settlement.version }}</span>
+                                    — {{ (settlement.totalCents / 100)|number_format(2, ',', ' ') }} €
+                                    <span class="text-body-secondary small d-block">
+                                        {{ settlement.createdAt|date('d/m/Y') }}
+                                        {% if settlement.finalPersons is not null %}
+                                            · {{ settlement.finalPersons }} participants
+                                        {% endif %}
+                                    </span>
+                                </span>
+                                {% if settlement.isValidated %}
+                                    <span class="badge bg-success">Validé</span>
+                                {% else %}
+                                    <form method="post" action="/mes-locations/decompte-valider">
+                                        {{ csrf_field()|raw }}
+                                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                        <input type="hidden" name="settlement_id" value="{{ settlement.id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-success"
+                                                data-confirm="Valider ce décompte ? Il ne pourra plus être modifié.">
+                                            Valider
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
