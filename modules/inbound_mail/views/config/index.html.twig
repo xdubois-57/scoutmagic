@@ -1,0 +1,205 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Courrier entrant — {{ site_name }}{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-4">Courrier entrant</h1>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h6 mb-3">À quoi sert ce module ?</h2>
+        <p class="mb-2">
+            Il connecte ScoutMagic à une ou plusieurs boîtes mail de l'unité <strong>en lecture
+            seule</strong>, pour que d'autres modules puissent rattacher automatiquement les
+            réponses reçues aux dossiers concernés.
+        </p>
+        <ul class="mb-3">
+            <li>Rien n'est jamais modifié dans la boîte distante : aucun message n'est marqué
+                comme lu, déplacé ou supprimé.</li>
+            <li>Un message qu'aucun module ne reconnaît est <strong>ignoré</strong> : il n'est ni
+                enregistré, ni listé, ni notifié. ScoutMagic n'est pas une archive de votre boîte.</li>
+            <li>Les identifiants sont chiffrés et ne sont jamais réaffichés, même partiellement.</li>
+        </ul>
+        <div class="alert alert-warning mb-0">
+            <strong>Gmail et Outlook :</strong> utilisez un <em>mot de passe d'application</em>
+            plutôt que le mot de passe du compte. Le connecteur natif Gmail n'existe pas
+            volontairement — il imposerait à votre unité une évaluation de sécurité annuelle payante
+            chez Google, sans quoi la synchronisation casserait chaque semaine.
+        </div>
+    </div>
+</div>
+
+{# ── Configured mailboxes ───────────────────────────────────────────── #}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Boîtes configurées</h2>
+
+        {% if mailboxes is empty %}
+            <p class="text-body-secondary mb-0">Aucune boîte n'est configurée pour l'instant.</p>
+        {% else %}
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th scope="col">Nom</th>
+                            <th scope="col">Compte</th>
+                            <th scope="col">État</th>
+                            <th scope="col">Dernière synchro</th>
+                            <th scope="col" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for mailbox in mailboxes %}
+                            <tr>
+                                <td>
+                                    {{ mailbox.name }}
+                                    {% if not mailbox.isEnabled %}
+                                        <span class="badge text-bg-secondary">désactivée</span>
+                                    {% endif %}
+                                    <div class="form-text">
+                                        {{ mailbox.host }}:{{ mailbox.port }} ({{ mailbox.encryption }})
+                                    </div>
+                                </td>
+                                <td>{{ mailbox.username }}</td>
+                                <td>
+                                    <span class="badge {{ mailbox.syncState.badgeClass }}">
+                                        {{ mailbox.syncState.label }}
+                                    </span>
+                                    {% if mailbox.lastError %}
+                                        {# The operator-facing sentence, written by
+                                           MailboxErrorFormatter — never a library's own
+                                           exception text, which carries the account name. #}
+                                        <div class="form-text text-danger">{{ mailbox.lastError }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if mailbox.lastSyncedAt %}
+                                        {{ mailbox.lastSyncedAt|date('d/m/Y H:i') }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <div class="d-flex flex-wrap gap-2 justify-content-end">
+                                        <form method="post"
+                                              action="/config/courrier-entrant/boites/{{ mailbox.id }}/test">
+                                            {{ csrf_field()|raw }}
+                                            <button type="submit" class="btn btn-sm btn-outline-primary">
+                                                Tester
+                                            </button>
+                                        </form>
+                                        <form method="post"
+                                              action="/config/courrier-entrant/boites/{{ mailbox.id }}/activation">
+                                            {{ csrf_field()|raw }}
+                                            {% if not mailbox.isEnabled %}
+                                                <input type="hidden" name="enable" value="1">
+                                            {% endif %}
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                                {{ mailbox.isEnabled ? 'Désactiver' : 'Réactiver' }}
+                                            </button>
+                                        </form>
+                                        <form method="post"
+                                              action="/config/courrier-entrant/boites/{{ mailbox.id }}/suppression"
+                                              onsubmit="return confirm('Supprimer cette boîte ? Les messages déjà rattachés à un dossier sont conservés.');">
+                                            {{ csrf_field()|raw }}
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                Supprimer
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+{# ── Add a mailbox ──────────────────────────────────────────────────── #}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Ajouter une boîte</h2>
+
+        <form method="post" action="/config/courrier-entrant/boites" class="row g-3">
+            {{ csrf_field()|raw }}
+
+            <div class="col-12 col-md-6">
+                <label class="form-label" for="mailbox-name">Nom</label>
+                <input type="text" class="form-control" id="mailbox-name" name="name"
+                       maxlength="150" required
+                       placeholder="Locations">
+                <div class="form-text">
+                    Le seul élément que verront les gestionnaires : ni l'hôte, ni le compte.
+                </div>
+            </div>
+
+            <div class="col-12 col-md-6">
+                <label class="form-label" for="mailbox-username">Compte</label>
+                <input type="text" class="form-control" id="mailbox-username" name="username"
+                       autocomplete="off" required
+                       placeholder="locations@unite.be">
+            </div>
+
+            <div class="col-12 col-md-6">
+                <label class="form-label" for="mailbox-host">Serveur IMAP</label>
+                <input type="text" class="form-control" id="mailbox-host" name="host" required
+                       placeholder="imap.gmail.com">
+            </div>
+
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="mailbox-port">Port</label>
+                <input type="number" class="form-control" id="mailbox-port" name="port"
+                       value="993" min="1" max="65535" required>
+            </div>
+
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="mailbox-encryption">Chiffrement</label>
+                <select class="form-select" id="mailbox-encryption" name="encryption">
+                    <option value="ssl" selected>SSL</option>
+                    <option value="tls">TLS</option>
+                    <option value="starttls">STARTTLS</option>
+                </select>
+                <div class="form-text">
+                    Un certificat invalide fait échouer la connexion : il n'y a pas d'option pour
+                    l'ignorer.
+                </div>
+            </div>
+
+            <div class="col-12 col-md-6">
+                <label class="form-label" for="mailbox-password">Mot de passe</label>
+                <input type="password" class="form-control" id="mailbox-password" name="password"
+                       autocomplete="new-password" required>
+                <div class="form-text">
+                    Il ne sera plus jamais réaffiché. Laissez le champ vide lors d'une modification
+                    pour conserver celui déjà enregistré.
+                </div>
+            </div>
+
+            <div class="col-12 col-md-6">
+                <label class="form-label" for="mailbox-folders">Dossiers surveillés</label>
+                <textarea class="form-control" id="mailbox-folders" name="folders" rows="3"
+                          placeholder="INBOX"></textarea>
+                <div class="form-text">
+                    Un par ligne, avec leur nom exact sur le serveur. Vide = INBOX.
+                </div>
+            </div>
+
+            <div class="col-12">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="mailbox-enabled"
+                           name="is_enabled" checked>
+                    <label class="form-check-label" for="mailbox-enabled">
+                        Synchroniser cette boîte
+                    </label>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Ajouter la boîte</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

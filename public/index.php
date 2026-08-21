@@ -2167,6 +2167,57 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
+// Inbound mail (§7). The consumer registry is created empty here and
+// appended to from each consuming module's block further down — the
+// ARCHITECTURE.md §7.6 pattern, the same shape as
+// $calendarVirtualEventRegistry above: the sync service holds the registry
+// object rather than a snapshot of its contents, so a consumer registered
+// later still reaches it.
+//
+// Null when `inbound_mail` is disabled: a consumer then registers nothing
+// and shows no communications, which is the clean degradation in that
+// direction.
+$inboundMailConsumerRegistry = null;
+$inboundMailForOthers = null;
+
+if (in_array('inbound_mail', $moduleManager->getEnabledModuleIds(), true)) {
+    $inboundMailConsumerRegistry = new \Modules\InboundMail\Service\MessageConsumerRegistry();
+    $inboundMailboxRepository = new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService);
+    $inboundMessageRepository = new \Modules\InboundMail\Repository\InboundMessageRepository($pdo, $encryptionService);
+
+    $inboundMailForOthers = new \Modules\InboundMail\Service\InboundMailService(
+        $inboundMessageRepository,
+        $inboundMailboxRepository,
+        new \Core\File\FileRepository($pdo)
+    );
+
+    $frontController->registerController(
+        \Modules\InboundMail\Controller\InboundMailConfigController::class,
+        new \Modules\InboundMail\Controller\InboundMailConfigController(
+            $twig,
+            new \Modules\InboundMail\Service\MailboxAdminService(
+                $inboundMailboxRepository,
+                new \Modules\InboundMail\Service\MailboxClientFactory(),
+                new \Modules\InboundMail\Service\MailboxErrorFormatter()
+            ),
+            $journalService
+        )
+    );
+
+    // The polling task needs the consumer registry, which only this file
+    // can build — so unlike most module tasks it is registered explicitly
+    // rather than auto-resolved from the manifest, HERE AND IN
+    // public/cron.php both. Registering it in only one of the two entry
+    // points is a bug this codebase has shipped before (§8.17/§8.20), and
+    // a test pins both call sites.
+    $schedulerRunner->registerHandler(
+        'inbound_mail',
+        \Modules\InboundMail\Task\SyncMailboxesHandler::TASK_KEY,
+        new \Modules\InboundMail\Task\SyncMailboxesHandler($inboundMailConsumerRegistry)
+    );
+    \Modules\InboundMail\Task\SyncMailboxesHandler::bootstrap($schedulerService);
+}
+
 // Optional dependency on the finance module (ARCHITECTURE.md §7.5) — set
 // below only when 'finance' is enabled; every consumer (e.g. the news
 // module's payment feature) takes these as nullable constructor deps and

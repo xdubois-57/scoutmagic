@@ -200,6 +200,27 @@ if (VapidKeyPairFactory::isValid(
     );
 }
 
+// Inbound mail's polling task (§7.4) is the one module task that cannot be
+// auto-resolved from its manifest: it needs the consumer registry, and only
+// a composition root can build one. The same registration exists in
+// public/index.php — a handler registered in only one of the two entry
+// points fails unconditionally under the other with "No handler
+// registered" (§8.17/§8.20), which is precisely the bug create_backup once
+// shipped.
+//
+// Under a real crontab there is no HTTP request and therefore no consuming
+// module's block to append to this registry; each enabled consumer
+// registers itself below, exactly as it does on the web path.
+if (in_array('inbound_mail', $moduleManager->getEnabledModuleIds(), true)) {
+    $inboundMailConsumerRegistry = new \Modules\InboundMail\Service\MessageConsumerRegistry();
+
+    $runner->registerHandler(
+        'inbound_mail',
+        \Modules\InboundMail\Task\SyncMailboxesHandler::TASK_KEY,
+        new \Modules\InboundMail\Task\SyncMailboxesHandler($inboundMailConsumerRegistry)
+    );
+}
+
 // Task handlers need the same shared services a real request builds (DB,
 // encryption, mail, journal, settings, and the super-admin lookup used for
 // system-alert emails) — see Core\Scheduler\TaskContext.

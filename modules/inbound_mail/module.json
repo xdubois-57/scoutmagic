@@ -1,0 +1,68 @@
+{
+  "id": "inbound_mail",
+  "name": "Courrier entrant",
+  "description": "Passerelle de courrier entrant en lecture seule : connecte une ou plusieurs boîtes IMAP, détecte les nouveaux messages et les met à disposition des autres modules. Ne modifie jamais la boîte distante.",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/config/courrier-entrant",
+      "method": "GET",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Courrier entrant",
+      "breadcrumb": { "label": "Courrier entrant", "parents": ["Configuration"] }
+    },
+    {
+      "path": "/config/courrier-entrant/boites",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "save",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/courrier-entrant/boites/{id}/test",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "testConnection",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/courrier-entrant/boites/{id}/activation",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "toggle",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/courrier-entrant/boites/{id}/suppression",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "delete",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "sync_mailboxes",
+      "handler": "Modules\\InboundMail\\Task\\SyncMailboxesHandler"
+    }
+  ],
+  "storage": {
+    "inbound_mail/attachments": {
+      "role_min": "intendant"
+    }
+  }
+}

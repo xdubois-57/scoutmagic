@@ -19,7 +19,8 @@
         "phpoffice/phpspreadsheet": "^5.9",
         "aws/aws-sdk-php": "^3.0",
         "minishlink/web-push": "^11.0",
-        "ifsnop/mysqldump-php": "^2.13"
+        "ifsnop/mysqldump-php": "^2.13",
+        "webklex/php-imap": "^6.2"
     },
     "require-dev": {
         "phpunit/phpunit": "^13.3",
@@ -34,6 +35,7 @@
             "Modules\\Finance\\": "modules/finance/src/",
             "Modules\\Gallery\\": "modules/gallery/src/",
             "Modules\\Groups\\": "modules/groups/src/",
+            "Modules\\InboundMail\\": "modules/inbound_mail/src/",
             "Modules\\LlmConnector\\": "modules/llm_connector/src/",
             "Modules\\MassMail\\": "modules/mass_mail/src/",
             "Modules\\MemberStats\\": "modules/member_stats/src/",

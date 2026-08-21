@@ -1,0 +1,54 @@
+<?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+declare(strict_types=1);
+
+namespace Modules\InboundMail\Api;
+
+/**
+ * How a message came to be attached to a business object (§7.6), from the
+ * most reliable to the weakest.
+ *
+ * **Shown to the manager, never hidden.** A message attached because its
+ * subject carried an explicit reference is a near-certainty; one attached
+ * because the sender's address matched inside a time window is a guess, and
+ * a manager reading a thread deserves to know which of the two they are
+ * looking at.
+ */
+enum LinkOrigin: string
+{
+    /** An explicit business reference in the subject. */
+    case REFERENCE = 'reference';
+
+    /** RFC 5322 threading: In-Reply-To / References pointing at a known message. */
+    case THREAD = 'thread';
+
+    /** The sender's address, bounded by a time window around the object. */
+    case SENDER = 'sender';
+
+    /** A model's suggestion, used only where 1-3 failed or were ambiguous. */
+    case AI = 'ai';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::REFERENCE => 'Référence dans le sujet',
+            self::THREAD => 'Réponse dans la conversation',
+            self::SENDER => 'Adresse de l\'expéditeur',
+            self::AI => 'Suggestion automatique',
+        };
+    }
+
+    /**
+     * Whether this origin is certain enough to be presented without a
+     * caveat. Sender matching and AI are not: both can attach a message to
+     * the wrong file, and the interface says so.
+     */
+    public function isCertain(): bool
+    {
+        return $this === self::REFERENCE || $this === self::THREAD;
+    }
+}
