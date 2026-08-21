@@ -1,0 +1,136 @@
+{% extends 'base.html.twig' %}
+{% block title %}Suivi {{ booking.reference }} — {{ site_name }}{% endblock %}
+{#
+  The renter's tracking page (§6.26), reached with a capability token and no
+  account at all.
+
+  What it shows: the asset, the dates, the status, the FULL live price
+  breakdown (every line, every change, immediately), the flagged managers'
+  contact details, and the emergency number.
+
+  What it must NEVER show: internal comments, notes on a damage still being
+  assessed, or any downloadable file. An external renter downloads nothing
+  from the site — their contract and invoice arrive by email only.
+
+  The URL of this page contains the token, so it is never logged and never
+  shown to anyone else.
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 720px;">
+        <h1 class="h3 mb-1">Votre demande {{ booking.reference }}</h1>
+        <p class="text-body-secondary mb-4">{{ asset.name }}</p>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Où en est votre demande</h2>
+                <p class="mb-2">
+                    <span class="badge bg-secondary">{{ booking.status.label }}</span>
+                </p>
+                {% if booking.holdUntil %}
+                    <p class="mb-0">
+                        {{ booking.holdLabel }} jusqu'au
+                        <strong>{{ booking.holdUntil|date('d/m/Y') }}</strong>.
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Votre séjour</h2>
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Du</dt>
+                    <dd class="col-sm-8">{{ booking.arrivalDate }}</dd>
+                    <dt class="col-sm-4">Au</dt>
+                    <dd class="col-sm-8">{{ booking.departureDate }}</dd>
+                    {% if booking.estimatedPersons %}
+                        <dt class="col-sm-4">Participants</dt>
+                        <dd class="col-sm-8">{{ booking.estimatedPersons }}</dd>
+                    {% endif %}
+                    {% if asset.arrivalTime %}
+                        <dt class="col-sm-4">Heure d'arrivée</dt>
+                        <dd class="col-sm-8">{{ asset.arrivalTime }}</dd>
+                    {% endif %}
+                    {% if asset.departureTime %}
+                        <dt class="col-sm-4">Heure de départ</dt>
+                        <dd class="col-sm-8">{{ asset.departureTime }}</dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+
+        {% if quote %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Détail du prix</h2>
+                    <table class="table table-sm">
+                        <caption class="visually-hidden">Détail du prix de votre location</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Ligne</th>
+                                <th scope="col" class="text-end">Quantité</th>
+                                <th scope="col" class="text-end">Montant</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for line in quote.lines %}
+                                <tr{{ line.isInformational ? ' class="text-body-secondary fst-italic"' : '' }}>
+                                    <td>{{ line.label }}</td>
+                                    <td class="text-end">{{ line.isInformational ? '—' : line.quantity }}</td>
+                                    <td class="text-end">
+                                        {{ line.isInformational
+                                            ? 'Selon relevé'
+                                            : (line.amountCents / 100)|number_format(2, ',', ' ') ~ ' €' }}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-semibold">
+                                <th scope="row" colspan="2" class="text-end">Total</th>
+                                <td class="text-end">{{ (quote.totalCents / 100)|number_format(2, ',', ' ') }} €</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    <p class="small text-body-secondary mb-0">
+                        Ce détail reflète en permanence l'état de votre dossier.
+                    </p>
+                </div>
+            </div>
+        {% endif %}
+
+        {% if renter_contacts is not empty or emergency_phone %}
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Vos contacts</h2>
+                    {#
+                      Only the managers explicitly flagged as renter contacts
+                      reach this list — the filter is in SQL, never here
+                      (§6.3, §6.6). No manager's name, email or phone is ever
+                      shown on a public page.
+                    #}
+                    {% if renter_contacts is not empty %}
+                        <ul class="list-unstyled mb-2">
+                            {% for contact in renter_contacts %}
+                                <li class="mb-2">
+                                    <strong>{{ contact.display_name }}</strong>
+                                    {% if contact.email %}
+                                        <br><a href="mailto:{{ contact.email }}">{{ contact.email }}</a>
+                                    {% endif %}
+                                    {% if contact.phone %}
+                                        <br><a href="tel:{{ contact.phone|replace({' ': ''}) }}">{{ contact.phone }}</a>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                    {% if emergency_phone %}
+                        <p class="mb-0">
+                            <strong>Numéro d'urgence pendant votre séjour</strong> : {{ emergency_phone }}
+                        </p>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

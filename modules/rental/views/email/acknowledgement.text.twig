@@ -1,0 +1,19 @@
+Bonjour {{ booking.renterName }},
+
+Nous avons bien reçu votre demande de location pour {{ asset.name }},
+du {{ booking.arrivalDate }} au {{ booking.departureDate }}.
+
+Votre référence : {{ booking.reference }}
+
+Suivez votre demande à tout moment ici :
+{{ tracking_url }}
+
+Conservez ce lien : il est personnel et c'est votre seul accès au suivi de
+votre demande.
+{% if booking.holdUntil %}
+Nous bloquons ces dates jusqu'au {{ booking.holdUntil|date('d/m/Y') }}, le temps
+de vous répondre.
+{% endif %}
+
+À bientôt,
+{{ site_name }}

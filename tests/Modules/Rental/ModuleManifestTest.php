@@ -41,7 +41,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.2.0', $this->manifest->version);
+        $this->assertSame('1.3.0', $this->manifest->version);
     }
 
     /**
@@ -169,6 +169,38 @@ class ModuleManifestTest extends TestCase
             $this->assertArrayHasKey('description', $setting);
             $this->assertNotSame('', trim((string) $setting['description']), $setting['key'] . ' needs a description.');
         }
+    }
+
+    public function testEveryDeclaredScheduledTaskHasARealHandlerClass(): void
+    {
+        // A key declared here with no class behind it fails at run time as
+        // "No handler registered", from a background pass nobody is
+        // watching — the worst place to discover a typo.
+        $this->assertNotSame([], $this->manifest->scheduledTasks);
+
+        foreach ($this->manifest->scheduledTasks as $task) {
+            $this->assertArrayHasKey('key', $task);
+            $this->assertArrayHasKey('handler', $task);
+            $this->assertTrue(
+                class_exists((string) $task['handler']),
+                $task['handler'] . ' is declared in module.json but does not exist.'
+            );
+            $this->assertContains(
+                \Core\Scheduler\TaskHandlerInterface::class,
+                class_implements((string) $task['handler']) ?: [],
+                $task['handler'] . ' must implement TaskHandlerInterface.'
+            );
+        }
+    }
+
+    public function testTheHoldExpiryTaskIsDeclaredUnderTheKeyItsHandlerUses(): void
+    {
+        // The handler re-schedules itself under its own TASK_KEY; if that
+        // ever drifts from the manifest, the first run works (it was
+        // bootstrapped by hand) and every later one silently fails.
+        $keys = array_column($this->manifest->scheduledTasks, 'key');
+
+        $this->assertContains(\Modules\Rental\Task\ExpireRentalHoldsHandler::TASK_KEY, $keys);
     }
 
     public function testTheModuleDeclaresNoCookies(): void

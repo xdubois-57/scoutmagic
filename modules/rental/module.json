@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -15,6 +15,21 @@
       "label": "",
       "breadcrumb": {
         "label": "Locations",
+        "parents": [
+          "Notre unité"
+        ]
+      }
+    },
+    {
+      "path": "/locations/suivi/{id}/{token}",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalRequestController",
+      "action": "tracking",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": {
+        "label": "Suivi de votre demande",
         "parents": [
           "Notre unité"
         ]
@@ -199,6 +214,30 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""
+    },
+    {
+      "path": "/locations/{slug}/demande",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalRequestController",
+      "action": "form",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": {
+        "label": "Demande de location",
+        "parents": [
+          "Notre unité"
+        ]
+      }
+    },
+    {
+      "path": "/locations/{slug}/demande",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalRequestController",
+      "action": "submit",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
     }
   ],
   "settings": [
@@ -208,9 +247,21 @@
       "type": "text",
       "label": "Types de biens proposés",
       "description": "Liste, séparée par des virgules, des types proposés à la création d'un bien. Ce ne sont que des suggestions : n'importe quel autre type peut être saisi."
+    },
+    {
+      "key": "automatic_hold_hours",
+      "default_value": "48",
+      "type": "number",
+      "label": "Blocage automatique des dates (heures)",
+      "description": "Durée pendant laquelle les dates d'une demande reçue sont retenues, en heures, le temps que les gestionnaires y répondent. Pendant ce délai les dates n'apparaissent plus libres pour les autres visiteurs ; passé ce délai elles se libèrent seules et la demande reste en attente — rien n'est refusé automatiquement. 0 désactive le blocage automatique : les dates restent alors proposées à tout le monde jusqu'à la confirmation."
     }
   ],
   "cookies": [],
-  "scheduled_tasks": [],
+  "scheduled_tasks": [
+    {
+      "key": "expire_rental_holds",
+      "handler": "Modules\\Rental\\Task\\ExpireRentalHoldsHandler"
+    }
+  ],
   "storage": {}
 }
