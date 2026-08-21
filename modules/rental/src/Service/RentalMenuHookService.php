@@ -20,9 +20,12 @@ use Modules\Rental\Repository\RentalAssetRepository;
  * contributes two different kinds of entry, which is exactly why the hook
  * had to be generalised beyond "Espace animés" in the first place:
  *
- * - **"Notre unité"** — one public entry per asset whose "afficher dans le
- *   menu" box is ticked, plus the "Locations" index page. Public, so it is
- *   contributed for an anonymous visitor too (`$email === null`).
+ * - **"Notre unité"** — the "Locations" index page, and only that. Public,
+ *   so it is contributed for an anonymous visitor too (`$email === null`).
+ *   **Deliberately not one entry per asset**: a unit with six assets would
+ *   push everything else in that menu off the screen, and the index page
+ *   already lists them with the context — type, capacity, a photo — that a
+ *   bare menu label cannot carry.
  * - **"Espace animés"** — "Mes locations", visible only to a visitor who
  *   actually manages at least one asset.
  *
@@ -38,10 +41,9 @@ use Modules\Rental\Repository\RentalAssetRepository;
 class RentalMenuHookService implements MenuEntryProvider
 {
     /**
-     * Sorts the index page ahead of the individual assets, and the assets
-     * among themselves in the repository's own name order. Both stay well
-     * clear of the core pages' small orders — MenuBuilder ranks by group
-     * first anyway, so this only orders module entries against each other.
+     * Well clear of the core pages' small orders — MenuBuilder ranks by
+     * group first anyway, so this only orders module entries against each
+     * other.
      */
     private const INDEX_ORDER = 500;
 
@@ -56,35 +58,17 @@ class RentalMenuHookService implements MenuEntryProvider
     {
         $entries = [];
 
-        // The "Locations" index exists as soon as ANY public asset does —
-        // not only when one is pinned. Gating it on a pinned asset would
-        // make an unpinned public asset unreachable: it would have no menu
-        // entry of its own and no index page to be listed on (roadmap §6.2).
-        $publicAssets = $this->assetRepository->findAllPublic();
-        if ($publicAssets !== []) {
+        // The "Locations" index exists as soon as ANY public asset does,
+        // and it is the only way into the module from the menu: an asset's
+        // own page is reached from the index, never from a menu entry of
+        // its own.
+        if ($this->assetRepository->findAllPublic() !== []) {
             $entries[] = new MenuEntry(
                 MenuBuilder::MENU_NOTRE_UNITE,
                 'Locations',
                 '/locations',
                 'public',
                 self::INDEX_ORDER
-            );
-        }
-
-        // One entry per pinned asset. Filtered from the already-loaded
-        // public list rather than re-queried: same rows, one query.
-        $order = self::INDEX_ORDER + 1;
-        foreach ($publicAssets as $asset) {
-            if (!$asset->isPinnedToMenu()) {
-                continue;
-            }
-
-            $entries[] = new MenuEntry(
-                MenuBuilder::MENU_NOTRE_UNITE,
-                $asset->name,
-                '/locations/' . $asset->slug,
-                'public',
-                $order++
             );
         }
 

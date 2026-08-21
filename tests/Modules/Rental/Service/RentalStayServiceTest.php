@@ -115,7 +115,7 @@ class RentalStayServiceTest extends TestCase
 
     private function createAsset(string $name, string $slug): int
     {
-        $id = $this->assetRepository->create('Local', $name, $slug, 60, 1, null, null, null, true, false);
+        $id = $this->assetRepository->create('Local', $name, $slug, 60, 1, null, null, null, true);
         $this->pricingService->saveAssetPricing($id, 'per_night', 12000, null, null);
 
         return $id;

@@ -178,6 +178,7 @@ class RentalOperationsService
                 new \DateTimeImmutable($current->arrivalDate),
                 new \DateTimeImmutable($current->departureDate),
                 $current->units,
+                $now,
                 $current->reference,
                 firmOnly: true
             );
@@ -401,6 +402,30 @@ class RentalOperationsService
      *
      * @throws RentalException
      */
+    /**
+     * A `Y-m-d` date, or null when there is nothing to check.
+     *
+     * Strict: `checkdate()` on the parsed parts, so "2026-02-30" and
+     * "demain" are both refused rather than silently rolled forward the way
+     * DateTimeImmutable would.
+     *
+     * @throws RentalException
+     */
+    private static function requireDate(?string $value, string $message): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m) !== 1
+            || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])
+        ) {
+            throw new RentalException($message);
+        }
+
+        return $value;
+    }
+
     public function requestChange(
         RentalBooking $booking,
         ChangeRequestOrigin $origin,
@@ -422,6 +447,20 @@ class RentalOperationsService
 
         if ($kind === ChangeRequestKind::DATES && ($arrivalDate === null || $departureDate === null)) {
             throw new RentalException('Une demande de changement de dates doit préciser les deux dates.');
+        }
+
+        // Validated HERE rather than in each controller: this is the one
+        // door both the renter's form and a manager's proposal go through,
+        // and what arrives is raw request text. A value that is not a date
+        // used to reach `new \DateTimeImmutable()` at acceptance time and
+        // throw a DateMalformedStringException in the manager's face — a
+        // 500 on their page, caused by something a renter typed weeks
+        // earlier.
+        $arrivalDate = self::requireDate($arrivalDate, "La date d'arrivée demandée n'est pas une date valide.");
+        $departureDate = self::requireDate($departureDate, 'La date de départ demandée n\'est pas une date valide.');
+
+        if ($arrivalDate !== null && $departureDate !== null && $departureDate < $arrivalDate) {
+            throw new RentalException("La date de départ doit suivre la date d'arrivée.");
         }
 
         $id = $this->changeRequestRepository->create(
@@ -477,12 +516,19 @@ class RentalOperationsService
         }
 
         if ($request->kind === ChangeRequestKind::CANCELLATION) {
+            // The status change first, deliberately. `decide()` consumes the
+            // request and there is no way to un-decide one: marking it
+            // accepted before a changeStatus() that then refuses the
+            // transition — because a manager cancelled the booking by hand
+            // in the meantime — left the renter's request permanently
+            // accepted with nothing applied and no way back.
+            $this->changeStatus($booking, BookingStatus::CANCELLED, $actorMemberId, $now);
+
             if (!$this->changeRequestRepository->decide($request->id, ChangeRequestStatus::ACCEPTED, $actorMemberId)) {
                 throw new RentalException('Cette demande a déjà été traitée.');
             }
 
             $this->recordChangeDecision($request, ChangeRequestStatus::ACCEPTED, $actorMemberId);
-            $this->changeStatus($booking, BookingStatus::CANCELLED, $actorMemberId, $now);
 
             return;
         }
@@ -494,7 +540,8 @@ class RentalOperationsService
             $booking,
             $asset,
             $billingUnit,
-            $actorMemberId
+            $actorMemberId,
+            $now
         ): void {
             $current = $this->bookingRepository->findById($booking->id);
             if ($current === null) {
@@ -513,6 +560,7 @@ class RentalOperationsService
                     new \DateTimeImmutable($arrival),
                     new \DateTimeImmutable($departure),
                     $units,
+                    $now,
                     $current->reference,
                     // Same reasoning as confirmation: moving a booking onto
                     // dates another *request* is merely holding is a

@@ -37,6 +37,71 @@ class SettlementCalculatorTest extends TestCase
         $this->calculator = new SettlementCalculator();
     }
 
+    public function testAPerPersonLineIsRescaledAgainstItsOwnQuantityNotTheBillableMinimum(): void
+    {
+        // A per-person fee is billed on the head count the renter ANNOUNCED;
+        // `$quote->persons` is that count already raised to the billable
+        // minimum. Dividing by the raised one cut a 20,00 € tax to 16,00 €
+        // — and captioned it "20 participants au lieu de 25" — when nobody
+        // had dropped out at all.
+        $agreed = new PriceQuote(
+            lines: [
+                new PriceLine('25 pers. (minimum) × 3 nuits', 75, 800, 60000, PriceLine::RULE_BASE),
+                new PriceLine('Taxe de séjour', 20, 100, 2000, PriceLine::RULE_FEE_PER_PERSON),
+            ],
+            totalCents: 62000,
+            nights: 3,
+            persons: 25,
+            quantity: 75,
+            billingUnit: BillingUnit::PER_PERSON_NIGHT
+        );
+
+        $settlement = $this->calculator->compute($agreed, 20, [], [], [], 0, null);
+
+        $tax = $this->lineLabelled($settlement, 'Taxe de séjour');
+        $this->assertSame(2000, $tax->amountCents, 'Exactly the announced head count: nothing to re-scale.');
+        $this->assertSame(SettlementLine::ORIGIN_AGREED, $tax->origin);
+        $this->assertNull($tax->detail, 'No "au lieu de" note when nothing changed.');
+    }
+
+    public function testAPerPersonLineIsRescaledWhenTheHeadCountActuallyChanges(): void
+    {
+        $agreed = new PriceQuote(
+            lines: [
+                new PriceLine('25 pers. (minimum) × 3 nuits', 75, 800, 60000, PriceLine::RULE_BASE),
+                new PriceLine('Taxe de séjour', 20, 100, 2000, PriceLine::RULE_FEE_PER_PERSON),
+            ],
+            totalCents: 62000,
+            nights: 3,
+            persons: 25,
+            quantity: 75,
+            billingUnit: BillingUnit::PER_PERSON_NIGHT
+        );
+
+        $settlement = $this->calculator->compute($agreed, 28, [], [], [], 0, null);
+
+        $tax = $this->lineLabelled($settlement, 'Taxe de séjour');
+        $this->assertSame(2800, $tax->amountCents, '28 people at 1,00 € each.');
+        $this->assertSame('28 participants au lieu de 20', $tax->detail);
+    }
+
+    /**
+     * The one settlement line carrying $label, so a test can assert on the
+     * amount without depending on where the calculator put it.
+     *
+     * @param array{lines: SettlementLine[], total_cents: int, balance_cents: int, security_deposit_withheld_cents: int, security_deposit_return_cents: int} $settlement
+     */
+    private function lineLabelled(array $settlement, string $label): SettlementLine
+    {
+        foreach ($settlement['lines'] as $line) {
+            if ($line->label === $label) {
+                return $line;
+            }
+        }
+
+        $this->fail('No settlement line labelled ' . $label . '.');
+    }
+
     /**
      * A 3-night stay for 40 people: 360,00 € for the hall plus a 1,00 €
      * per-person tourist tax.

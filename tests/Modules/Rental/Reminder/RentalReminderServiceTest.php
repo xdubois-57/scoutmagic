@@ -101,8 +101,7 @@ class RentalReminderServiceTest extends TestCase
             '18:00',
             '11:00',
             null,
-            true,
-            false
+            true
         );
     }
 

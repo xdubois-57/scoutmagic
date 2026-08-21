@@ -98,6 +98,16 @@ final class SettlementCalculator
      * which fee produced the line, and it cannot disagree with the engine
      * about anything except the head count it was told to use.
      *
+     * **The denominator is the line's own quantity, never `$quote->persons`.**
+     * A per-person fee is billed on the head count the renter announced
+     * (Pricing\RentalFee::amountForCents), while `$quote->persons` is that
+     * count already raised to the billable minimum. The two differ exactly
+     * when a minimum applies, and using the raised one re-scaled the fee
+     * against a number it was never billed on: 20 people announced with a
+     * minimum of 25 had their tourist tax cut to 16,00 € — and the detail
+     * read "20 participants au lieu de 25" — when nobody had dropped out at
+     * all.
+     *
      * @return SettlementLine[]
      */
     private function agreedLines(?PriceQuote $agreedPrice, ?int $finalPersons): array
@@ -115,17 +125,26 @@ final class SettlementCalculator
                 continue;
             }
 
-            if ($finalPersons === null || !$this->isPerPerson($line) || $agreedPrice->persons <= 0) {
+            $billedFor = $line->quantity;
+
+            if ($finalPersons === null || !$this->isPerPerson($line) || $billedFor <= 0) {
                 $lines[] = new SettlementLine($line->label, $line->amountCents, SettlementLine::ORIGIN_AGREED);
                 continue;
             }
 
-            $rescaled = (int) round($line->amountCents * $finalPersons / $agreedPrice->persons);
+            if ($finalPersons === $billedFor) {
+                // Nobody dropped out and nobody extra came: the line stands
+                // as agreed, with no "au lieu de" note implying otherwise.
+                $lines[] = new SettlementLine($line->label, $line->amountCents, SettlementLine::ORIGIN_AGREED);
+                continue;
+            }
+
+            $rescaled = (int) round($line->amountCents * $finalPersons / $billedFor);
             $lines[] = new SettlementLine(
                 $line->label,
                 $rescaled,
                 SettlementLine::ORIGIN_PER_PERSON,
-                $finalPersons . ' participants au lieu de ' . $agreedPrice->persons
+                $finalPersons . ' participants au lieu de ' . $billedFor
             );
         }
 

@@ -113,8 +113,7 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            true,
-            false
+            true
         );
         $this->pricingService->saveAssetPricing($this->assetId, 'per_night', 12000, null, null);
     }
@@ -140,8 +139,7 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            true,
-            false
+            true
         );
         $this->pricingService->saveAssetPricing($id, 'per_night', 1500, null, null);
 
@@ -630,6 +628,71 @@ class RentalOperationsServiceTest extends TestCase
         $this->assertSame('Mon fils est allergique aux arachides.', $requests[0]->message);
     }
 
+    public function testAChangeRequestRefusesADateThatIsNotOne(): void
+    {
+        // The renter's form posts raw text. An unparseable value used to
+        // travel all the way to acceptance and throw a
+        // DateMalformedStringException in the MANAGER's face — a 500 on
+        // their page, caused by something a renter typed weeks earlier.
+        $booking = $this->createBooking();
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches("/n'est pas une date valide/");
+
+        $this->service->requestChange(
+            $booking,
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::DATES,
+            'demain',
+            '2027-07-11',
+            null,
+            null,
+            null,
+            null
+        );
+    }
+
+    public function testAChangeRequestRefusesACalendarDateThatDoesNotExist(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->expectException(RentalException::class);
+
+        $this->service->requestChange(
+            $booking,
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::DATES,
+            '2027-02-30',
+            '2027-03-02',
+            null,
+            null,
+            null,
+            null
+        );
+    }
+
+    public function testAChangeRequestRefusesADepartureBeforeTheArrival(): void
+    {
+        // Which is also what used to slip through isRangeFree() — a range
+        // covering no day answered "available" on a fully booked asset.
+        $booking = $this->createBooking();
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/doit suivre/');
+
+        $this->service->requestChange(
+            $booking,
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::DATES,
+            '2027-07-11',
+            '2027-07-08',
+            null,
+            null,
+            null,
+            null
+        );
+    }
+
     public function testAManagerAcceptingARenterRequestAppliesIt(): void
     {
         $booking = $this->createBooking();
@@ -910,7 +973,8 @@ class RentalOperationsServiceTest extends TestCase
         $occupancies = $this->blockRepository->findOccupancies(
             $this->assetId,
             new \DateTimeImmutable('2027-09-01'),
-            new \DateTimeImmutable('2027-09-30')
+            new \DateTimeImmutable('2027-09-30'),
+            new \DateTimeImmutable('2027-06-01')
         );
 
         $this->assertCount(1, $occupancies);

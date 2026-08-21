@@ -252,6 +252,26 @@ class RentalPaymentService
 
         $depositCents = $payment['deposit_amount_cents'] ?? null;
 
+        $securityAmountCents = $payment['security_deposit_amount_cents'] ?? null;
+        $securityReceivedCents = $payment['security_deposit_receivable_id'] !== null
+            ? $this->receivableAmounts($payment['security_deposit_receivable_id'])['amount_received']
+            : 0;
+
+        // "Reçue" is DERIVED from the account, exactly like `deposit_received`
+        // just below, and for the same reason: nothing reconciles an incoming
+        // transfer into a status column, so a stored flag would spend its
+        // whole life saying "À recevoir" about money the unit is already
+        // holding. Only the outstanding state is derived — once a manager has
+        // moved the deposit on to `to_return` or settled it, what they
+        // recorded stands.
+        if ($depositStatus === SecurityDepositStatus::TO_RECEIVE
+            && $securityAmountCents !== null
+            && $securityAmountCents > 0
+            && $securityReceivedCents >= $securityAmountCents
+        ) {
+            $depositStatus = SecurityDepositStatus::RECEIVED;
+        }
+
         return [
             'available' => $this->isAvailable(),
             'enabled' => $settings->enabled,
@@ -269,10 +289,8 @@ class RentalPaymentService
             'balance_due_date' => $payment['balance_due_date'] ?? null,
             'security_deposit' => [
                 'status' => $depositStatus,
-                'amount_cents' => $payment['security_deposit_amount_cents'] ?? null,
-                'received_cents' => $payment['security_deposit_receivable_id'] !== null
-                    ? $this->receivableAmounts($payment['security_deposit_receivable_id'])['amount_received']
-                    : 0,
+                'amount_cents' => $securityAmountCents,
+                'received_cents' => $securityReceivedCents,
                 'communication' => $payment['security_deposit_communication'] ?? null,
                 'due_date' => $payment['security_deposit_due_date'] ?? null,
                 'returned_cents' => $payment['security_deposit_returned_cents'] ?? null,

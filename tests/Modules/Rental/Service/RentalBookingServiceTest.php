@@ -527,6 +527,102 @@ class RentalBookingServiceTest extends TestCase
         $this->assertSame(['released' => 0, 'expired' => 0], $second);
     }
 
+    // ── A lapsed hold frees its dates, with or without the task ─────────
+
+    public function testALapsedHoldFreesItsDatesOnTheVeryNextPageLoad(): void
+    {
+        // "Availability is computed, never stored" (§22.2): a hold that
+        // lapsed a minute ago frees its dates NOW, not on the next run of
+        // the expiry task. Reading occupancy off the status alone made the
+        // 48-hour hold decorative — an abandoned request blocked its dates
+        // against every visitor for ever.
+        $this->submit();
+        $window = [$this->now('2027-07-01 00:00:00'), $this->now('2027-07-31 00:00:00')];
+
+        $this->assertCount(
+            1,
+            $this->service->findOccupancies($this->assetId, ...[...$window, $this->now('2027-06-02 09:00:00')]),
+            'While the hold runs, the dates are taken.'
+        );
+
+        $this->assertCount(
+            0,
+            $this->service->findOccupancies($this->assetId, ...[...$window, $this->now('2027-06-03 10:00:01')]),
+            'One second past the deadline, and before any task has run.'
+        );
+    }
+
+    public function testTheExpiryTaskDoesNotResurrectAReleasedRequest(): void
+    {
+        // The task clears `hold_until` and deliberately leaves the request
+        // waiting. That must not make the dates busy again — which is
+        // exactly what happened while occupancy came from the status alone.
+        $this->submit();
+        $window = [$this->now('2027-07-01 00:00:00'), $this->now('2027-07-31 00:00:00')];
+
+        $this->service->expireLapsedHolds($this->now('2027-06-04 10:00:00'));
+
+        $this->assertCount(
+            0,
+            $this->service->findOccupancies($this->assetId, ...[...$window, $this->now('2027-06-04 10:00:00')])
+        );
+    }
+
+    public function testARequestWhoseHoldLapsedIsStillWaitingForAnAnswer(): void
+    {
+        // Releasing the dates refuses nothing (§22.5).
+        $booking = $this->submit()['booking'];
+        $this->service->expireLapsedHolds($this->now('2027-06-04 10:00:00'));
+
+        $this->assertSame(BookingStatus::RECEIVED, $this->repository->findById($booking->id)?->status);
+    }
+
+    public function testAConfirmedBookingHoldsItsDatesWithNoHoldAtAll(): void
+    {
+        // A commitment, not a deadline: clearing the hold is tidying up.
+        $booking = $this->submit()['booking'];
+        $this->repository->setStatus($booking->id, BookingStatus::CONFIRMED, $this->now());
+        $this->repository->clearHold($booking->id);
+
+        $this->assertCount(1, $this->service->findOccupancies(
+            $this->assetId,
+            $this->now('2027-07-01 00:00:00'),
+            $this->now('2027-07-31 00:00:00'),
+            $this->now('2028-01-01 00:00:00')
+        ));
+    }
+
+    public function testAManagersOptionHoldsTheDatesUntilItsOwnDeadline(): void
+    {
+        $booking = $this->submit()['booking'];
+        $this->repository->setStatus($booking->id, BookingStatus::PROPOSED, $this->now());
+        $this->repository->setHold($booking->id, $this->now('2027-06-10 12:00:00'), HoldOrigin::MANAGER);
+        $window = [$this->now('2027-07-01 00:00:00'), $this->now('2027-07-31 00:00:00')];
+
+        $this->assertCount(
+            1,
+            $this->service->findOccupancies($this->assetId, ...[...$window, $this->now('2027-06-09 12:00:00')])
+        );
+        $this->assertCount(
+            0,
+            $this->service->findOccupancies($this->assetId, ...[...$window, $this->now('2027-06-11 12:00:00')])
+        );
+    }
+
+    public function testWithTheAutomaticHoldDisabledARequestNeverBlocksAnyone(): void
+    {
+        // What `automatic_hold_hours = 0` says in as many words: "les dates
+        // restent alors proposées à tout le monde jusqu'à la confirmation".
+        $this->submit(['hold_hours' => 0]);
+
+        $this->assertCount(0, $this->service->findOccupancies(
+            $this->assetId,
+            $this->now('2027-07-01 00:00:00'),
+            $this->now('2027-07-31 00:00:00'),
+            $this->now()
+        ));
+    }
+
     // ── The service is the occupancy source iteration 3 was waiting for ──
 
     public function testABookingImmediatelyOccupiesItsAssetInTheCalendar(): void
@@ -536,7 +632,8 @@ class RentalBookingServiceTest extends TestCase
         $occupancies = $this->service->findOccupancies(
             $this->assetId,
             $this->now('2027-07-01 00:00:00'),
-            $this->now('2027-07-31 00:00:00')
+            $this->now('2027-07-31 00:00:00'),
+            $this->now()
         );
 
         $this->assertCount(1, $occupancies);
@@ -555,7 +652,8 @@ class RentalBookingServiceTest extends TestCase
         $occupancy = $this->service->findOccupancies(
             $this->assetId,
             $this->now('2027-07-01 00:00:00'),
-            $this->now('2027-07-31 00:00:00')
+            $this->now('2027-07-31 00:00:00'),
+            $this->now()
         )[0];
 
         $serialized = json_encode($occupancy);
@@ -570,7 +668,7 @@ class RentalBookingServiceTest extends TestCase
         // Leaving them held would quietly make an asset look busy for stays
         // that will never happen.
         $booking = $this->submit()['booking'];
-        $window = [$this->now('2027-07-01 00:00:00'), $this->now('2027-07-31 00:00:00')];
+        $window = [$this->now('2027-07-01 00:00:00'), $this->now('2027-07-31 00:00:00'), $this->now()];
 
         $this->assertCount(1, $this->service->findOccupancies($this->assetId, ...$window));
 
@@ -592,7 +690,8 @@ class RentalBookingServiceTest extends TestCase
         $this->assertCount(1, $this->service->findOccupancies(
             $this->assetId,
             $this->now('2027-07-01 00:00:00'),
-            $this->now('2027-07-31 00:00:00')
+            $this->now('2027-07-31 00:00:00'),
+            $this->now()
         ));
     }
 
@@ -607,7 +706,8 @@ class RentalBookingServiceTest extends TestCase
         $this->assertCount(0, $this->service->findOccupancies(
             $otherAssetId,
             $this->now('2027-07-01 00:00:00'),
-            $this->now('2027-07-31 00:00:00')
+            $this->now('2027-07-31 00:00:00'),
+            $this->now()
         ));
     }
 
@@ -618,7 +718,8 @@ class RentalBookingServiceTest extends TestCase
         $this->assertCount(0, $this->service->findOccupancies(
             $this->assetId,
             $this->now('2027-09-01 00:00:00'),
-            $this->now('2027-09-30 00:00:00')
+            $this->now('2027-09-30 00:00:00'),
+            $this->now()
         ));
     }
 
@@ -632,7 +733,8 @@ class RentalBookingServiceTest extends TestCase
         $this->assertCount(1, $this->service->findOccupancies(
             $this->assetId,
             $this->now('2027-07-19 00:00:00'),
-            $this->now('2027-08-15 00:00:00')
+            $this->now('2027-08-15 00:00:00'),
+            $this->now()
         ));
     }
 

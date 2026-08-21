@@ -302,9 +302,14 @@ class RentalRequestController extends AbstractController
         return $this->render('@rental/public/tracking.html.twig', [
             'booking' => $booking,
             'asset' => $asset,
-            // The live price, recomputed from the snapshot the renter was
-            // quoted — every line, every change, immediately (§6.26).
-            'quote' => $booking->estimatedPrice,
+            // The price actually in force: the agreed one once it exists,
+            // the estimate until then. `effectivePrice()` is the single
+            // source both sides read (Booking\RentalBooking) — reading
+            // `estimatedPrice` here left this page showing the frozen
+            // estimate for ever while the manager's panel showed the
+            // negotiated total, and the manager was being told "le locataire
+            // le voit immédiatement sur sa page de suivi".
+            'quote' => $booking->effectivePrice(),
             // Only the managers explicitly flagged as renter contacts, and
             // the filter is in SQL rather than in the template: a template
             // that forgot the condition would hand every manager's details

@@ -34,7 +34,18 @@ interface OccupancyProvider
      * the grid it renders, so an implementation should return any occupancy
      * that touches the window at all rather than only those wholly inside it.
      *
+     * `$now` is passed rather than read from the clock because availability
+     * is **computed, never stored** (spec §22.2): a temporary hold that
+     * lapsed a minute ago frees its dates on the next page load, not on the
+     * next run of the expiry task. A source with no deadline of its own — a
+     * manual block — simply ignores it.
+     *
      * @return Occupancy[]
      */
-    public function findOccupancies(int $assetId, \DateTimeImmutable $from, \DateTimeImmutable $to): array;
+    public function findOccupancies(
+        int $assetId,
+        \DateTimeImmutable $from,
+        \DateTimeImmutable $to,
+        \DateTimeImmutable $now
+    ): array;
 }

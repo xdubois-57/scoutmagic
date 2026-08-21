@@ -33,6 +33,14 @@ namespace Modules\Rental\Availability;
  * blocked the confirmation, neither could ever be accepted. A confirmed
  * booking or a manual block is a different matter: those are commitments,
  * and they do stop a confirmation.
+ *
+ * **`$endDateIsHeld` is not a second billing unit.** A *stay* is half-open
+ * under the nights model — the departure day frees up for the next arrival,
+ * which is the whole point of letting a hall by night. A *manual block* is
+ * not a stay: "du 10 au 11" means both days are off the market, and it means
+ * that whether the asset is let by night or by day. Without this flag the
+ * night-based rule silently dropped a block's last day, so a caretaker who
+ * blocked two days for cleaning got one, and the second was bookable.
  */
 final class Occupancy
 {
@@ -42,13 +50,15 @@ final class Occupancy
      * @param int $units How much of a countable stock this takes. 1 for an exclusive asset.
      * @param string|null $reference An internal identifier for the manager-facing calendar. NEVER rendered publicly — see the class docblock.
      * @param bool $isFirm Whether this is a commitment or merely a temporary hold. See the note below.
+     * @param bool $endDateIsHeld Whether `$departureDate` is itself taken, whatever the billing unit. See the note below.
      */
     public function __construct(
         public readonly string $arrivalDate,
         public readonly string $departureDate,
         public readonly int $units = 1,
         public readonly ?string $reference = null,
-        public readonly bool $isFirm = true
+        public readonly bool $isFirm = true,
+        public readonly bool $endDateIsHeld = false
     ) {
     }
 }

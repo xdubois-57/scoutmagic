@@ -269,7 +269,6 @@ class RentalConfigController extends AbstractController
                 self::optionalString($request->getBody('departure_time')),
                 self::optionalString($request->getBody('emergency_phone')),
                 $request->getBody('is_public') !== null,
-                $request->getBody('show_in_menu') !== null,
                 AuthSession::getUserAccountId()
             );
             FlashMessage::set('success', 'Le bien a été créé.');
@@ -306,7 +305,6 @@ class RentalConfigController extends AbstractController
                 self::optionalString($request->getBody('departure_time')),
                 self::optionalString($request->getBody('emergency_phone')),
                 $request->getBody('is_public') !== null,
-                $request->getBody('show_in_menu') !== null,
                 AuthSession::getUserAccountId()
             );
             FlashMessage::set('success', 'Les informations générales ont été enregistrées.');

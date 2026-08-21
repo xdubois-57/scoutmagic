@@ -41,7 +41,13 @@ final class RentalBlock
             arrivalDate: $this->startDate,
             departureDate: $this->endDate,
             units: max(1, $this->units),
-            reference: 'block:' . $this->id
+            reference: 'block:' . $this->id,
+            // `end_date` is the last day blocked, inclusive — that is what
+            // findUpcoming()'s `end_date >= ?` and the manager calendar's
+            // "du X au Y" both mean. A stay's departure day is not held
+            // under the nights model; a block's end date always is, so it
+            // must be flagged rather than left to the billing unit.
+            endDateIsHeld: true
         );
     }
 }

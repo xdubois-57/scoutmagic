@@ -105,8 +105,7 @@ class RentalDocumentServiceTest extends TestCase
             '18:00',
             '11:00',
             null,
-            true,
-            false
+            true
         );
     }
 
@@ -666,7 +665,7 @@ class RentalDocumentServiceTest extends TestCase
     public function testAManagerOfAnotherAssetMayNot(): void
     {
         $otherAssetId = $this->assetRepository->create(
-            'Local', 'Autre', 'autre', null, 1, null, null, null, true, false
+            'Local', 'Autre', 'autre', null, 1, null, null, null, true
         );
         $this->addManager('autre@test.be', $otherAssetId);
         $booking = $this->createBooking();

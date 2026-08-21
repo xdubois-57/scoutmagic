@@ -37,6 +37,12 @@ use Modules\Rental\Repository\RentalConstraintsRepository;
 class RentalAvailabilityService
 {
     /**
+     * The grid a month view renders spans whole weeks either side, so the
+     * window never narrows below this however short the asset's buffer is.
+     */
+    private const MINIMUM_WINDOW_PAD_DAYS = 7;
+
+    /**
      * @param OccupancyProvider[] $occupancyProviders
      */
     public function __construct(
@@ -49,6 +55,21 @@ class RentalAvailabilityService
     public function constraintsFor(int $assetId): BookingConstraints
     {
         return $this->constraintsRepository->load($assetId);
+    }
+
+    /**
+     * How far either side of a range the occupancy query has to reach.
+     *
+     * A week used to be hard-coded, which was quietly wrong for any asset
+     * whose turnaround buffer is longer than that: the conflicting stay fell
+     * outside the window, was never returned, and the range came back free.
+     * `bufferNights` has no configured ceiling, so the pad has to follow it —
+     * plus one day, because the buffer is counted from the day AFTER the last
+     * one held.
+     */
+    private function windowPadDays(BookingConstraints $constraints): int
+    {
+        return max(self::MINIMUM_WINDOW_PAD_DAYS, $constraints->bufferNights + 1);
     }
 
     /**
@@ -67,11 +88,12 @@ class RentalAvailabilityService
         int $assetId,
         \DateTimeImmutable $from,
         \DateTimeImmutable $to,
+        \DateTimeImmutable $now,
         ?string $excludeReference = null
     ): array {
         $all = [];
         foreach ($this->occupancyProviders as $provider) {
-            foreach ($provider->findOccupancies($assetId, $from, $to) as $occupancy) {
+            foreach ($provider->findOccupancies($assetId, $from, $to, $now) as $occupancy) {
                 if ($excludeReference !== null && $occupancy->reference === $excludeReference) {
                     continue;
                 }
@@ -102,13 +124,18 @@ class RentalAvailabilityService
         \DateTimeImmutable $arrival,
         \DateTimeImmutable $departure,
         int $units,
+        \DateTimeImmutable $now,
         ?string $excludeReference = null,
         bool $firmOnly = false
     ): bool {
+        $constraints = $this->constraintsFor($asset->id);
+        $pad = $this->windowPadDays($constraints);
+
         $occupancies = $this->occupanciesFor(
             $asset->id,
-            $arrival->modify('-7 days'),
-            $departure->modify('+7 days'),
+            $arrival->modify('-' . $pad . ' days'),
+            $departure->modify('+' . $pad . ' days'),
+            $now,
             $excludeReference
         );
 
@@ -132,7 +159,7 @@ class RentalAvailabilityService
             max(1, $asset->quantity),
             $occupancies,
             $billingUnit,
-            $this->constraintsFor($asset->id)->bufferNights
+            $constraints->bufferNights
         );
     }
 
@@ -148,16 +175,21 @@ class RentalAvailabilityService
         int $year,
         int $month,
         \DateTimeImmutable $today,
-        ?array $selection = null
+        ?array $selection = null,
+        bool $discloseOccupancy = false
     ): array {
-        // Widened by a week either side, matching the whole-weeks grid the
-        // caller renders — a stay crossing the month boundary must not
-        // appear to stop at the 1st.
+        // Widened either side, matching the whole-weeks grid the caller
+        // renders — a stay crossing the month boundary must not appear to
+        // stop at the 1st — and never by less than the asset's own buffer.
+        $constraints = $this->constraintsFor($asset->id);
+        $pad = $this->windowPadDays($constraints);
+
         $first = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
         $occupancies = $this->occupanciesFor(
             $asset->id,
-            $first->modify('-7 days'),
-            $first->modify('last day of this month')->modify('+7 days')
+            $first->modify('-' . $pad . ' days'),
+            $first->modify('last day of this month')->modify('+' . $pad . ' days'),
+            $today
         );
 
         return $this->calculator->monthDayStates(
@@ -166,9 +198,10 @@ class RentalAvailabilityService
             max(1, $asset->quantity),
             $occupancies,
             $billingUnit,
-            $this->constraintsFor($asset->id),
+            $constraints,
             $today,
-            $selection
+            $selection,
+            $discloseOccupancy
         );
     }
 
@@ -213,8 +246,9 @@ class RentalAvailabilityService
             max(1, $asset->quantity),
             $this->occupanciesFor(
                 $asset->id,
-                $arrival->modify('-7 days'),
-                $departure->modify('+7 days'),
+                $arrival->modify('-' . $this->windowPadDays($constraints) . ' days'),
+                $departure->modify('+' . $this->windowPadDays($constraints) . ' days'),
+                $today,
                 $excludeReference
             ),
             $billingUnit,

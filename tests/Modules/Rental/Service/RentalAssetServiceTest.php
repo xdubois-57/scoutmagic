@@ -62,7 +62,7 @@ class RentalAssetServiceTest extends TestCase
 
     private function create(string $name = 'Local Saint-Georges'): int
     {
-        return $this->service->create($name, 'Local', 60, 1, '17:00', '11:00', null, true, false);
+        return $this->service->create($name, 'Local', 60, 1, '17:00', '11:00', null, true);
     }
 
     public function testCreateMintsASlugFromTheName(): void
@@ -86,7 +86,7 @@ class RentalAssetServiceTest extends TestCase
         // working after the asset is renamed.
         $id = $this->create('Local Saint-Georges');
 
-        $this->service->updateGeneral($id, 'Local Saint-Georges (rénové)', 'Local', 60, 1, null, null, null, true, false);
+        $this->service->updateGeneral($id, 'Local Saint-Georges (rénové)', 'Local', 60, 1, null, null, null, true);
 
         $asset = $this->assetRepository->findById($id);
         $this->assertSame('local-saint-georges', $asset?->slug);
@@ -96,26 +96,26 @@ class RentalAssetServiceTest extends TestCase
     public function testCreateRejectsAnEmptyNameOrType(): void
     {
         $this->expectException(RentalException::class);
-        $this->service->create('   ', 'Local', null, 1, null, null, null, false, false);
+        $this->service->create('   ', 'Local', null, 1, null, null, null, false);
     }
 
     public function testCreateRejectsAnEmptyType(): void
     {
         $this->expectException(RentalException::class);
-        $this->service->create('Local', '  ', null, 1, null, null, null, false, false);
+        $this->service->create('Local', '  ', null, 1, null, null, null, false);
     }
 
     public function testCreateRejectsANonPositiveQuantityOrCapacity(): void
     {
         try {
-            $this->service->create('Local', 'Local', null, 0, null, null, null, false, false);
+            $this->service->create('Local', 'Local', null, 0, null, null, null, false);
             $this->fail('A quantity below 1 must be refused.');
         } catch (RentalException $e) {
             $this->assertStringContainsString('quantité', $e->getMessage());
         }
 
         try {
-            $this->service->create('Local', 'Local', 0, 1, null, null, null, false, false);
+            $this->service->create('Local', 'Local', 0, 1, null, null, null, false);
             $this->fail('A capacity below 1 must be refused.');
         } catch (RentalException $e) {
             $this->assertStringContainsString('capacité', $e->getMessage());
@@ -125,7 +125,7 @@ class RentalAssetServiceTest extends TestCase
     public function testCreateAcceptsANullCapacityAsNotApplicable(): void
     {
         // A trailer has no capacity — that is not the same as zero.
-        $id = $this->service->create('Remorque', 'Remorque', null, 1, null, null, null, false, false);
+        $id = $this->service->create('Remorque', 'Remorque', null, 1, null, null, null, false);
 
         $this->assertNull($this->assetRepository->findById($id)?->capacity);
     }
@@ -133,7 +133,7 @@ class RentalAssetServiceTest extends TestCase
     public function testCreateRejectsAMalformedTime(): void
     {
         $this->expectException(RentalException::class);
-        $this->service->create('Local', 'Local', null, 1, '25:99', null, null, false, false);
+        $this->service->create('Local', 'Local', null, 1, '25:99', null, null, false);
     }
 
     public function testNormalizeTimeAcceptsSecondsAndDropsThem(): void
@@ -178,7 +178,7 @@ class RentalAssetServiceTest extends TestCase
             fn() => $this->service->archive(999),
             fn() => $this->service->restore(999),
             fn() => $this->service->delete(999),
-            fn() => $this->service->updateGeneral(999, 'X', 'Local', null, 1, null, null, null, false, false),
+            fn() => $this->service->updateGeneral(999, 'X', 'Local', null, 1, null, null, null, false),
             fn() => $this->service->requireAsset(999),
         ] as $operation) {
             try {
@@ -203,10 +203,9 @@ class RentalAssetServiceTest extends TestCase
             null,
             null,
             '+32 470 12 34 56',
-            true,
-            false
+            true
         );
-        $this->service->updateGeneral($id, 'Local Saint-Georges', 'Local', 60, 1, null, null, '+32 471 00 00 00', true, false);
+        $this->service->updateGeneral($id, 'Local Saint-Georges', 'Local', 60, 1, null, null, '+32 471 00 00 00', true);
         $this->service->archive($id);
 
         $this->assertNotSame([], $this->journalEntries);
@@ -226,7 +225,7 @@ class RentalAssetServiceTest extends TestCase
     {
         $id = $this->create();
 
-        $this->service->updateGeneral($id, '  Terrain  ', '  Terrain  ', null, 2, null, null, null, false, true);
+        $this->service->updateGeneral($id, '  Terrain  ', '  Terrain  ', null, 2, null, null, null, false);
 
         $asset = $this->assetRepository->findById($id);
         $this->assertSame('Terrain', $asset?->name);

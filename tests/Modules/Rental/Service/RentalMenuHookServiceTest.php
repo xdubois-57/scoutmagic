@@ -41,7 +41,7 @@ class RentalMenuHookServiceTest extends TestCase
         $this->managerRepository = new RentalAssetManagerRepository($pdo);
     }
 
-    private function createAsset(string $name, string $slug, bool $isPublic, bool $showInMenu): int
+    private function createAsset(string $name, string $slug, bool $isPublic): int
     {
         return $this->assetRepository->create(
             'Local',
@@ -52,8 +52,7 @@ class RentalMenuHookServiceTest extends TestCase
             null,
             null,
             null,
-            $isPublic,
-            $showInMenu
+            $isPublic
         );
     }
 
@@ -131,42 +130,54 @@ class RentalMenuHookServiceTest extends TestCase
         $this->assertSame([], $this->hook()->getMenuEntries('someone@example.org'));
     }
 
-    public function testOnePinnedAndOneUnpinnedPublicAssetProduceACoherentMenu(): void
+    public function testSeveralPublicAssetsStillProduceExactlyOneMenuEntry(): void
     {
-        // The iteration's acceptance criterion. The index page exists
-        // because a public asset exists — NOT because one is pinned — and
-        // the unpinned asset is reachable through it.
-        $this->createAsset('Local Saint-Georges', 'local-saint-georges', true, true);
-        $this->createAsset('Terrain de la Sablière', 'terrain-de-la-sabliere', true, false);
-
-        $entries = $this->hook()->getMenuEntries(null);
-
-        $this->assertSame([
-            ['label' => 'Locations', 'url' => '/locations', 'menu' => MenuBuilder::MENU_NOTRE_UNITE],
-            ['label' => 'Local Saint-Georges', 'url' => '/locations/local-saint-georges', 'menu' => MenuBuilder::MENU_NOTRE_UNITE],
-        ], $this->simplify($entries));
-
-        // Both are still listed by the index page itself.
-        $this->assertCount(2, $this->hook()->listPublicAssets());
-    }
-
-    public function testTheIndexPageExistsAsSoonAsOneUnpinnedPublicAssetExists(): void
-    {
-        // Without this, an unpinned public asset would have no menu entry
-        // and no index to be listed on — unreachable to anyone who did not
-        // already know the URL (roadmap §6.2).
-        $this->createAsset('Terrain', 'terrain', true, false);
+        // The point of the whole entry set: however many assets a unit
+        // publishes, "Notre unité" gains ONE line. Six assets used to mean
+        // six entries, which pushed every other page in that menu off the
+        // screen; each asset is reached from the index page instead.
+        $this->createAsset('Local Saint-Georges', 'local-saint-georges', true);
+        $this->createAsset('Terrain de la Sablière', 'terrain-de-la-sabliere', true);
+        $this->createAsset('Remorque', 'remorque', true);
 
         $entries = $this->hook()->getMenuEntries(null);
 
         $this->assertSame([
             ['label' => 'Locations', 'url' => '/locations', 'menu' => MenuBuilder::MENU_NOTRE_UNITE],
         ], $this->simplify($entries));
+
+        // All three are still listed by the index page itself.
+        $this->assertCount(3, $this->hook()->listPublicAssets());
     }
 
-    public function testAPrivateAssetProducesNoPublicEntryEvenWhenPinned(): void
+    public function testNoEntryEverPointsAtASingleAsset(): void
     {
-        $this->createAsset('Local privé', 'local-prive', false, true);
+        // Guards the removal directly: an entry whose URL is deeper than
+        // /locations would be a per-asset entry by another name.
+        $this->createAsset('Local Saint-Georges', 'local-saint-georges', true);
+
+        foreach ($this->hook()->getMenuEntries(null) as $entry) {
+            $this->assertSame('/locations', $entry->url);
+        }
+    }
+
+    public function testTheIndexPageExistsAsSoonAsOnePublicAssetExists(): void
+    {
+        // Without this the module would have no menu entry at all, and its
+        // assets would be unreachable to anyone who did not already know
+        // the URL (roadmap §6.2).
+        $this->createAsset('Terrain', 'terrain', true);
+
+        $entries = $this->hook()->getMenuEntries(null);
+
+        $this->assertSame([
+            ['label' => 'Locations', 'url' => '/locations', 'menu' => MenuBuilder::MENU_NOTRE_UNITE],
+        ], $this->simplify($entries));
+    }
+
+    public function testAPrivateAssetProducesNoPublicEntry(): void
+    {
+        $this->createAsset('Local privé', 'local-prive', false);
 
         $this->assertSame([], $this->hook()->getMenuEntries(null));
         $this->assertSame([], $this->hook()->listPublicAssets());
@@ -174,8 +185,8 @@ class RentalMenuHookServiceTest extends TestCase
 
     public function testAnArchivedAssetDropsOutOfTheMenuAndTheIndex(): void
     {
-        $id = $this->createAsset('Local', 'local', true, true);
-        $this->assertCount(2, $this->hook()->getMenuEntries(null));
+        $id = $this->createAsset('Local', 'local', true);
+        $this->assertCount(1, $this->hook()->getMenuEntries(null));
 
         $this->assetRepository->setArchived($id, true);
 
@@ -186,11 +197,11 @@ class RentalMenuHookServiceTest extends TestCase
     {
         // The generalised hook takes a nullable email precisely so a public
         // entry is expressible; the old one could not do this.
-        $this->createAsset('Local', 'local', true, true);
+        $this->createAsset('Local', 'local', true);
 
         $entries = $this->hook()->getMenuEntries(null);
 
-        $this->assertCount(2, $entries);
+        $this->assertCount(1, $entries);
         foreach ($entries as $entry) {
             $this->assertSame('public', $entry->roleMin);
             $this->assertSame(MenuBuilder::MENU_NOTRE_UNITE, $entry->menuId);
@@ -199,7 +210,7 @@ class RentalMenuHookServiceTest extends TestCase
 
     public function testMesLocationsAppearsOnlyForAnActualManager(): void
     {
-        $asset = $this->createAsset('Local', 'local', true, false);
+        $asset = $this->createAsset('Local', 'local', true);
         $this->managerRepository->grant($asset, 1, false);
 
         $hook = $this->hook([
@@ -219,7 +230,7 @@ class RentalMenuHookServiceTest extends TestCase
 
     public function testMesLocationsAppearsForUnitStaffWithoutAnyGrant(): void
     {
-        $this->createAsset('Local', 'local', true, false);
+        $this->createAsset('Local', 'local', true);
         $hook = $this->hook(['chief@example.org' => [5]], ['chief@example.org']);
 
         $urls = array_column($this->simplify($hook->getMenuEntries('chief@example.org')), 'url');
@@ -229,7 +240,7 @@ class RentalMenuHookServiceTest extends TestCase
 
     public function testMesLocationsIsGatedOnIdentifiedAndSitsInEspaceAnimes(): void
     {
-        $asset = $this->createAsset('Local', 'local', false, false);
+        $asset = $this->createAsset('Local', 'local', false);
         $this->managerRepository->grant($asset, 1, false);
 
         $entries = $this->hook(['manager@example.org' => [1]])->getMenuEntries('manager@example.org');
@@ -240,24 +251,12 @@ class RentalMenuHookServiceTest extends TestCase
         $this->assertSame('identified', $entries[0]->roleMin);
     }
 
-    public function testAssetEntriesSortAfterTheIndexEntry(): void
-    {
-        $this->createAsset('Alpha', 'alpha', true, true);
-        $this->createAsset('Bravo', 'bravo', true, true);
-
-        $entries = $this->hook()->getMenuEntries(null);
-
-        $this->assertSame(['Locations', 'Alpha', 'Bravo'], array_map(fn(MenuEntry $e) => $e->label, $entries));
-        $this->assertLessThan($entries[1]->order, $entries[0]->order);
-        $this->assertLessThan($entries[2]->order, $entries[1]->order);
-    }
-
     public function testEntriesRenderIntoTheRealMenuBuilderForAPublicVisitor(): void
     {
         // End-to-end through MenuBuilder itself, so a mistake in the entry's
         // roleMin or menu id shows up as a missing page rather than as a
         // passing unit test.
-        $this->createAsset('Local Saint-Georges', 'local-saint-georges', true, true);
+        $this->createAsset('Local Saint-Georges', 'local-saint-georges', true);
         $builder = new MenuBuilder(\Core\Security\Role::fromString('public'));
 
         foreach ($this->hook()->getMenuEntries(null) as $entry) {
@@ -276,9 +275,6 @@ class RentalMenuHookServiceTest extends TestCase
         $menus = $builder->build();
         $this->assertCount(1, $menus);
         $this->assertSame(MenuBuilder::MENU_NOTRE_UNITE, $menus[0]['id']);
-        $this->assertSame(
-            ['Locations', 'Local Saint-Georges'],
-            array_column($menus[0]['pages'], 'label')
-        );
+        $this->assertSame(['Locations'], array_column($menus[0]['pages'], 'label'));
     }
 }

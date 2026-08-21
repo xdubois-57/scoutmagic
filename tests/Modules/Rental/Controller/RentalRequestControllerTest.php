@@ -25,6 +25,8 @@ use Core\View\TwigFactory;
 use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Availability\BookingConstraints;
 use Modules\Rental\Controller\RentalRequestController;
+use Modules\Rental\Pricing\PriceLine;
+use Modules\Rental\Pricing\PriceQuote;
 use Modules\Rental\Pricing\RentalPricingEngine;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
@@ -245,8 +247,7 @@ class RentalRequestControllerTest extends TestCase
             null,
             null,
             '+32 470 00 00 00',
-            $isPublic,
-            false
+            $isPublic
         );
         $this->pricingService->saveAssetPricing($assetId, 'per_night', 12000, null, null);
 
@@ -651,7 +652,7 @@ class RentalRequestControllerTest extends TestCase
         $this->addManager($assetId, 'gestionnaire1@test.be');
         $this->addManager($assetId, 'gestionnaire2@test.be');
 
-        $otherAssetId = $this->assetRepository->create('Local', 'Autre', 'autre', null, 1, null, null, null, true, false);
+        $otherAssetId = $this->assetRepository->create('Local', 'Autre', 'autre', null, 1, null, null, null, true);
         $this->addManager($otherAssetId, 'pas-concerne@test.be');
 
         $this->submit($this->validBody());
@@ -767,6 +768,35 @@ class RentalRequestControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
         $this->assertStringContainsString('LOC-', (string) $response->getBody());
+    }
+
+    public function testTheRentersPageShowsTheAgreedPriceOnceThereIsOne(): void
+    {
+        // Booking\RentalBooking::effectivePrice() exists so the renter's
+        // page and the manager's panel can never show different figures.
+        // Reading `estimatedPrice` here left this page on the frozen
+        // estimate for ever, while the manager was being told "le locataire
+        // le voit immédiatement sur sa page de suivi".
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $booking = $this->bookingRepository->findById($bookingId);
+        $this->assertNotNull($booking);
+        $this->assertNotNull($booking->estimatedPrice);
+
+        $this->bookingRepository->setAgreedPrice($bookingId, new PriceQuote(
+            lines: [new PriceLine('Forfait négocié', 1, 40000, 40000, PriceLine::RULE_MANUAL, isManual: true)],
+            totalCents: 40000,
+            nights: $booking->estimatedPrice->nights,
+            persons: $booking->estimatedPrice->persons,
+            quantity: 1,
+            billingUnit: $booking->estimatedPrice->billingUnit
+        ));
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $this->assertStringContainsString('Forfait négocié', $body);
+        $this->assertStringContainsString('400,00', $body);
     }
 
     public function testAWrongTokenIsA404(): void

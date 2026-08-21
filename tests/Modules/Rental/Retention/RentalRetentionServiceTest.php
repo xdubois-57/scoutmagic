@@ -90,7 +90,7 @@ class RentalRetentionServiceTest extends TestCase
         );
 
         $this->assetId = (new RentalAssetRepository($this->pdo, $this->encryption))
-            ->create('Local', 'Local Saint-Georges', 'local-saint-georges', 60, 1, '18:00', '11:00', null, true, false);
+            ->create('Local', 'Local Saint-Georges', 'local-saint-georges', 60, 1, '18:00', '11:00', null, true);
 
         // Accounting years, so the cutoff has something to resolve against.
         foreach ([['2017-2018', '2017-09-01', '2018-08-31'], ['2018-2019', '2018-09-01', '2019-08-31']] as $year) {

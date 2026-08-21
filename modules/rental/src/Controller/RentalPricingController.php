@@ -281,7 +281,13 @@ class RentalPricingController extends AbstractController
         $arrival = isset($query['sim_arrival']) ? (string) $query['sim_arrival'] : '';
         $departure = isset($query['sim_departure']) ? (string) $query['sim_departure'] : '';
 
-        if ($arrival === '' || $departure === '') {
+        // A simulation is a query string on the configuration page, so both
+        // values are raw text. PricingRequest::nights() hands them to
+        // DateTimeImmutable, which throws on anything that is not a date —
+        // and simulate() runs inline while the template context is built, so
+        // that throw used to take the whole configuration page down with a
+        // 500. An unparseable simulation simply has no result.
+        if (!self::isDate($arrival) || !self::isDate($departure)) {
             return null;
         }
 
@@ -300,6 +306,17 @@ class RentalPricingController extends AbstractController
             'request' => $request,
             'quote' => $pricingService->quoteWithSettings($settings, $request),
         ];
+    }
+
+    /**
+     * A strict `Y-m-d` check — `checkdate()` on the parts, so 2026-02-30 is
+     * refused rather than rolled forward to 1 March the way
+     * DateTimeImmutable would.
+     */
+    private static function isDate(string $value): bool
+    {
+        return preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m) === 1
+            && checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
     }
 
     private static function optionalInt(mixed $value): ?int

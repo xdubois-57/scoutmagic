@@ -66,7 +66,7 @@ class RentalComplianceServiceTest extends TestCase
         );
 
         $this->assetId = (new RentalAssetRepository($this->pdo, $encryption))
-            ->create('Local', 'Local Saint-Georges', 'local-saint-georges', 60, 1, '18:00', '11:00', null, true, false);
+            ->create('Local', 'Local Saint-Georges', 'local-saint-georges', 60, 1, '18:00', '11:00', null, true);
     }
 
     // ── The register itself ─────────────────────────────────────────────
@@ -152,7 +152,7 @@ class RentalComplianceServiceTest extends TestCase
         // manager of one asset reach another asset's register.
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $otherAssetId = (new RentalAssetRepository($this->pdo, $encryption))
-            ->create('Local', 'Hangar', 'hangar', 20, 1, null, null, null, true, false);
+            ->create('Local', 'Hangar', 'hangar', 20, 1, null, null, null, true);
 
         $id = $this->service->add($otherAssetId, 'Assurance RC', '2027-06-01', null);
 
@@ -164,7 +164,7 @@ class RentalComplianceServiceTest extends TestCase
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $otherAssetId = (new RentalAssetRepository($this->pdo, $encryption))
-            ->create('Local', 'Hangar', 'hangar', 20, 1, null, null, null, true, false);
+            ->create('Local', 'Hangar', 'hangar', 20, 1, null, null, null, true);
 
         $id = $this->service->add($otherAssetId, 'Assurance RC', '2027-06-01', null);
 

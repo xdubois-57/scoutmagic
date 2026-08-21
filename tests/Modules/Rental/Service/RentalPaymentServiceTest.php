@@ -109,8 +109,7 @@ class RentalPaymentServiceTest extends TestCase
             null,
             null,
             null,
-            true,
-            false
+            true
         );
     }
 
@@ -574,6 +573,57 @@ class RentalPaymentServiceTest extends TestCase
 
         $this->assertSame(
             SecurityDepositStatus::TO_RECEIVE,
+            $this->service->statusFor($booking, $settings)['security_deposit']['status']
+        );
+    }
+
+    public function testAFullyPaidSecurityDepositReadsAsReceived(): void
+    {
+        // Derived from the account, exactly like `deposit_received`: nothing
+        // reconciles an incoming transfer into a status column, so the badge
+        // used to read "À recevoir" over money the unit was already holding.
+        $booking = $this->createBooking();
+        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
+        $this->service->ensureReceivables($booking, $settings, $this->now());
+
+        $status = $this->service->statusFor($booking, $settings);
+        $this->pay((string) $status['security_deposit']['communication'], 500.00);
+
+        $after = $this->service->statusFor($booking, $settings)['security_deposit'];
+        $this->assertSame(SecurityDepositStatus::RECEIVED, $after['status']);
+        $this->assertTrue($after['status']->isHeld());
+    }
+
+    public function testAPartlyPaidSecurityDepositIsStillToReceive(): void
+    {
+        $booking = $this->createBooking();
+        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
+        $this->service->ensureReceivables($booking, $settings, $this->now());
+
+        $status = $this->service->statusFor($booking, $settings);
+        $this->pay((string) $status['security_deposit']['communication'], 200.00);
+
+        $this->assertSame(
+            SecurityDepositStatus::TO_RECEIVE,
+            $this->service->statusFor($booking, $settings)['security_deposit']['status']
+        );
+    }
+
+    public function testWhatAManagerRecordedAboutTheReturnIsNeverOverwritten(): void
+    {
+        // Only the outstanding state is derived. Once the deposit has been
+        // settled by hand, the money is back with the renter and the account
+        // still shows it as received — re-deriving would undo the manager.
+        $booking = $this->createBooking();
+        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
+        $this->service->ensureReceivables($booking, $settings, $this->now());
+
+        $status = $this->service->statusFor($booking, $settings);
+        $this->pay((string) $status['security_deposit']['communication'], 500.00);
+        $this->service->recordSecurityDepositReturn($booking, 50000, null, new \DateTimeImmutable('2027-07-10'), 1);
+
+        $this->assertSame(
+            SecurityDepositStatus::RETURNED,
             $this->service->statusFor($booking, $settings)['security_deposit']['status']
         );
     }

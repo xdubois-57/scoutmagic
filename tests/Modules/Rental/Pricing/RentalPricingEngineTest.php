@@ -326,6 +326,21 @@ class RentalPricingEngineTest extends TestCase
         $this->assertStringContainsString('200,00 €', $topUp->label);
     }
 
+    public function testAMinimumAmountTopsUpNothingWhenThereIsNoStayToPriceAtAll(): void
+    {
+        // A visitor tapping the same day twice on a night-based calendar
+        // quotes zero nights. There is no base line to top up, and the floor
+        // on its own used to answer "Complément jusqu'au minimum de 150,00 €"
+        // for a 150,00 € total — a price for a stay covering nothing.
+        $settings = $this->settings(BillingUnit::PER_NIGHT, unitPriceCents: 5000, minimumAmountCents: 15000);
+
+        $quote = $this->engine->quote($settings, new PricingRequest('2027-07-16', '2027-07-16'));
+
+        $this->assertSame(0, $quote->totalCents);
+        $this->assertFalse($quote->minimumApplied);
+        $this->assertSame([], $quote->lines);
+    }
+
     public function testAMinimumAmountDoesNothingWhenTheBaseAlreadyExceedsIt(): void
     {
         $settings = $this->settings(BillingUnit::PER_NIGHT, unitPriceCents: 5000, minimumAmountCents: 5000);

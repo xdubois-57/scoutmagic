@@ -65,15 +65,12 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     -- deleting it would destroy the history the accounting exercise and the
     -- retention aggregate both depend on.
     is_archived TINYINT(1) NOT NULL DEFAULT 0,
-    -- Visible to the public at all. An asset can be public without being
-    -- pinned to the menu (show_in_menu below) — it is then reachable from
-    -- the /locations index page, which is exactly why that page exists
-    -- unconditionally once any public asset exists.
+    -- Visible to the public at all. A public asset is reached from the
+    -- /locations index page, which is the module's single entry in the
+    -- "Notre unité" menu — there is deliberately no per-asset menu entry,
+    -- so this flag alone decides public reachability.
     is_public TINYINT(1) NOT NULL DEFAULT 0,
-    -- "Afficher ce bien dans le menu Notre unité". Only ever honoured for a
-    -- public, non-archived asset — a private asset with the box ticked must
-    -- not appear, so the filter lives in the query, not in the template.
-    show_in_menu TINYINT(1) NOT NULL DEFAULT 0,
+
     -- ── Booking constraints (module spec, iteration 3) ───────────────
     -- What a visitor may ASK for, as opposed to whether the asset is free.
     -- The two are kept strictly apart: a day inside the notice window is
@@ -175,7 +172,6 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     KEY idx_rental_assets_public (is_public, is_archived, name),
     -- The menu hook's query, run on every request that builds a menu —
     -- narrow enough to be answered from the index alone.
-    KEY idx_rental_assets_menu (show_in_menu, is_public, is_archived)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------

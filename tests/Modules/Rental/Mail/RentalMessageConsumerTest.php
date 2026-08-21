@@ -187,7 +187,7 @@ class RentalMessageConsumerTest extends TestCase
 
     private function createAsset(string $name, string $slug): int
     {
-        return $this->assetRepository->create($name, $name, $slug, 60, 1, '18:00', '11:00', null, true, false);
+        return $this->assetRepository->create($name, $name, $slug, 60, 1, '18:00', '11:00', null, true);
     }
 
     private function createBooking(

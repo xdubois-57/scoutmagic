@@ -924,7 +924,14 @@ class RentalManagementController extends AbstractController
             $pricing->billingUnit,
             $window->year,
             $window->month,
-            $today
+            $today,
+            // A manager's grid, not a visitor's form. Occupancy outranks the
+            // bookable window here: this page can page 24 months back, and
+            // the public precedence greyed every one of those days out as
+            // "Date passée" — hiding the very bookings the calendar exists
+            // to show. Same for a day inside the notice period, which is not
+            // in the past at all.
+            discloseOccupancy: true
         );
 
         $from = $window->firstDay()->modify('-7 days');

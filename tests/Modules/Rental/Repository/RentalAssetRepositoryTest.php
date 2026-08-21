@@ -30,7 +30,6 @@ class RentalAssetRepositoryTest extends TestCase
         string $name = 'Local Saint-Georges',
         string $slug = 'local-saint-georges',
         bool $isPublic = true,
-        bool $showInMenu = false,
         int $quantity = 1,
         ?string $phone = null
     ): int {
@@ -43,8 +42,7 @@ class RentalAssetRepositoryTest extends TestCase
             '17:00',
             '11:00',
             $phone,
-            $isPublic,
-            $showInMenu
+            $isPublic
         );
     }
 
@@ -65,7 +63,6 @@ class RentalAssetRepositoryTest extends TestCase
         $this->assertSame('+32 470 12 34 56', $asset->emergencyPhone);
         $this->assertFalse($asset->isArchived);
         $this->assertTrue($asset->isPublic);
-        $this->assertFalse($asset->showInMenu);
     }
 
     public function testTheEmergencyPhoneIsStoredEncryptedNotInClear(): void
@@ -94,7 +91,7 @@ class RentalAssetRepositoryTest extends TestCase
 
         // A whitespace-only submission is the same as none — otherwise the
         // renter's page shows an "emergency number" that is a blank line.
-        $blankId = $this->repository->create('Tente', 'T', 't', null, 1, null, null, '   ', false, false);
+        $blankId = $this->repository->create('Tente', 'T', 't', null, 1, null, null, '   ', false);
         $this->assertNull($this->repository->findById($blankId)?->emergencyPhone);
     }
 
@@ -126,22 +123,6 @@ class RentalAssetRepositoryTest extends TestCase
 
         $this->assertSame(['Public'], $names);
         $this->assertNotNull($this->repository->findById($public));
-    }
-
-    public function testFindAllPinnedToMenuRequiresAllThreeConditions(): void
-    {
-        // A private asset with the menu box ticked must never surface, and
-        // neither must an archived one. The filter is in SQL for exactly
-        // this reason.
-        $this->createAsset('Épinglé', 'epingle', isPublic: true, showInMenu: true);
-        $this->createAsset('Public non épinglé', 'public-non-epingle', isPublic: true, showInMenu: false);
-        $this->createAsset('Privé épinglé', 'prive-epingle', isPublic: false, showInMenu: true);
-        $archived = $this->createAsset('Archivé épinglé', 'archive-epingle', isPublic: true, showInMenu: true);
-        $this->repository->setArchived($archived, true);
-
-        $names = array_map(fn($a) => $a->name, $this->repository->findAllPinnedToMenu());
-
-        $this->assertSame(['Épinglé'], $names);
     }
 
     public function testFindAllIncludesArchivedAssetsAndSortsThemLast(): void
@@ -202,8 +183,7 @@ class RentalAssetRepositoryTest extends TestCase
             '14:00',
             '10:00',
             '+32 471 99 99 99',
-            false,
-            true
+            false
         );
 
         $asset = $this->repository->findById($id);
@@ -215,7 +195,6 @@ class RentalAssetRepositoryTest extends TestCase
         $this->assertSame('14:00', $asset->arrivalTime);
         $this->assertSame('+32 471 99 99 99', $asset->emergencyPhone);
         $this->assertFalse($asset->isPublic);
-        $this->assertTrue($asset->showInMenu);
     }
 
     public function testSetArchivedTogglesBothWays(): void

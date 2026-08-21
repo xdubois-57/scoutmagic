@@ -201,7 +201,7 @@ class RentalRbacTest extends TestCase
 
     private function createAsset(string $name, string $slug, bool $isPublic = true): int
     {
-        return $this->assetRepository->create('Local', $name, $slug, null, 1, null, null, null, $isPublic, false);
+        return $this->assetRepository->create('Local', $name, $slug, null, 1, null, null, null, $isPublic);
     }
 
     private function pricingServiceFor(): RentalPricingService
@@ -579,8 +579,7 @@ class RentalRbacTest extends TestCase
             null,
             null,
             '+32 470 12 34 56',
-            true,
-            false
+            true
         );
 
         $body = (string) $this->dispatchPublicAsset('local-saint-georges')->getBody();

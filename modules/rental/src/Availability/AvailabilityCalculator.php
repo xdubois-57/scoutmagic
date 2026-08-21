@@ -101,12 +101,16 @@ class AvailabilityCalculator
      *
      * Nights model: the day before departure (the departure day frees up).
      * Days model: the departure day itself.
+     *
+     * An occupancy whose end date is held outright — a manual block, which
+     * is a closed interval of days and not a stay — skips that rule
+     * entirely (Availability\Occupancy::$endDateIsHeld).
      */
     private function lastOccupiedDay(Occupancy $occupancy, BillingUnit $billingUnit, int $bufferNights): string
     {
         $departure = new \DateTimeImmutable($occupancy->departureDate);
 
-        $last = $billingUnit->isNightBased()
+        $last = ($billingUnit->isNightBased() && !$occupancy->endDateIsHeld)
             ? $departure->modify('-1 day')
             : $departure;
 
@@ -139,7 +143,31 @@ class AvailabilityCalculator
         BillingUnit $billingUnit,
         int $bufferNights = 0
     ): bool {
-        foreach ($this->daysCoveredByStay($arrival, $departure, $billingUnit) as $day) {
+        $days = $this->daysCoveredByStay($arrival, $departure, $billingUnit);
+
+        if ($days === []) {
+            // A range holding no day at all — a departure before the
+            // arrival, or a same-day range on a night-based asset. The loop
+            // below would report "available" by never running, which is how
+            // a zero-night stay used to be written onto a fully booked
+            // asset. Nothing is available for a stay that is not one.
+            return false;
+        }
+
+        // The buffer has to bite in BOTH directions, or the answer for an
+        // identical pair of stays would depend on which was created first:
+        // lastOccupiedDay() pushes a stored occupancy forward, so a
+        // candidate arriving after one is held off — but a candidate
+        // *ending* where a stored one begins met no buffer at all. Testing
+        // the candidate's own trailing buffer nights closes that half.
+        if ($bufferNights > 0) {
+            $lastDay = $days[count($days) - 1];
+            for ($i = 1; $i <= $bufferNights; $i++) {
+                $days[] = $lastDay->modify('+' . $i . ' days');
+            }
+        }
+
+        foreach ($days as $day) {
             if ($this->remainingUnitsOn($day, $totalUnits, $occupancies, $billingUnit, $bufferNights) < $units) {
                 return false;
             }
@@ -253,8 +281,15 @@ class AvailabilityCalculator
             $errors[] = 'La quantité demandée doit valoir au moins 1.';
         } elseif ($units > $totalUnits) {
             $errors[] = sprintf('Seul%s %d exemplaire%s existe%s.', $totalUnits > 1 ? 's' : '', $totalUnits, $totalUnits > 1 ? 's' : '', $totalUnits > 1 ? 'nt' : '');
-        } elseif (!$this->isRangeAvailable($start, $end, $units, $totalUnits, $occupancies, $billingUnit, $constraints->bufferNights)) {
-            // Says nothing about WHY the period is taken.
+        } elseif (
+            $this->daysCoveredByStay($start, $end, $billingUnit) !== []
+            && !$this->isRangeAvailable($start, $end, $units, $totalUnits, $occupancies, $billingUnit, $constraints->bufferNights)
+        ) {
+            // Says nothing about WHY the period is taken. Skipped outright
+            // for a range covering no day: the duration rules above have
+            // already said what is wrong with it, and adding "cette période
+            // n'est pas disponible" on top would blame the asset for what
+            // is really a zero-night request.
             $errors[] = 'Cette période n\'est pas disponible.';
         }
 
@@ -276,6 +311,15 @@ class AvailabilityCalculator
      * 4. **Departing** — held in the morning, free from midday.
      * 5. **Free**.
      *
+     * `$discloseOccupancy` swaps 2 and 3 — and only for the managed space.
+     * The bookable window is a rule about what a *visitor may ask for*, not
+     * about what is happening in the hall: applied to a manager's calendar it
+     * greyed out every past month and every day inside the notice period,
+     * hiding the very bookings that calendar exists to show. A manager has
+     * already passed the per-asset authority check, so there is nothing left
+     * to withhold from them; nothing else about the occupancy is disclosed
+     * either way.
+     *
      * @param Occupancy[] $occupancies
      * @param array{0: string, 1: string|null}|null $selection [arrival, departure|null] as `Y-m-d`.
      * @return array<string, DayState> Keyed by `Y-m-d`.
@@ -288,7 +332,8 @@ class AvailabilityCalculator
         BillingUnit $billingUnit,
         BookingConstraints $constraints,
         \DateTimeImmutable $today,
-        ?array $selection = null
+        ?array $selection = null,
+        bool $discloseOccupancy = false
     ): array {
         // The grid the caller will render spans whole weeks, so states are
         // produced for the padding days of the adjacent months too —
@@ -309,7 +354,8 @@ class AvailabilityCalculator
                 $billingUnit,
                 $constraints,
                 $today,
-                $selectedDays
+                $selectedDays,
+                $discloseOccupancy
             );
         }
 
@@ -327,12 +373,22 @@ class AvailabilityCalculator
         BillingUnit $billingUnit,
         BookingConstraints $constraints,
         \DateTimeImmutable $today,
-        array $selectedDays
+        array $selectedDays,
+        bool $discloseOccupancy = false
     ): DayState {
         $key = $day->format('Y-m-d');
 
         if (isset($selectedDays[$key])) {
             return new DayState(DayState::STATE_SELECTED, 'Sélectionné', null, true);
+        }
+
+        $remaining = $this->remainingUnitsOn($day, $totalUnits, $occupancies, $billingUnit, $constraints->bufferNights);
+
+        if ($discloseOccupancy && $remaining <= 0) {
+            // A manager's grid: a booked day reads "Occupé" even in a past
+            // month, where the public rule below would have greyed it out
+            // and shown nothing at all.
+            return new DayState(DayState::STATE_OCCUPIED, 'Occupé', null, false);
         }
 
         if ($constraints->isOutsideBookableWindow($day, $today)) {
@@ -346,8 +402,6 @@ class AvailabilityCalculator
 
             return new DayState(DayState::STATE_UNSELECTABLE, $label, null, false);
         }
-
-        $remaining = $this->remainingUnitsOn($day, $totalUnits, $occupancies, $billingUnit, $constraints->bufferNights);
 
         if ($remaining <= 0) {
             return new DayState(DayState::STATE_OCCUPIED, 'Occupé', null, false);

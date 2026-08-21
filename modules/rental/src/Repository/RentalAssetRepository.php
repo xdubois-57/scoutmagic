@@ -40,15 +40,14 @@ class RentalAssetRepository
         ?string $departureTime,
         ?string $emergencyPhone,
         bool $isPublic,
-        bool $showInMenu
     ): int {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_assets (
                 asset_type, name, slug, capacity, quantity, arrival_time, departure_time,
-                emergency_phone_encrypted, is_archived, is_public, show_in_menu,
+                emergency_phone_encrypted, is_archived, is_public,
                 created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)'
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)'
         );
         $stmt->execute([
             $assetType,
@@ -60,7 +59,6 @@ class RentalAssetRepository
             $departureTime,
             $this->encryptPhone($emergencyPhone),
             $isPublic ? 1 : 0,
-            $showInMenu ? 1 : 0,
             $now,
             $now,
         ]);
@@ -130,23 +128,6 @@ class RentalAssetRepository
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
-    /**
-     * The assets pinned to the "Notre unité" menu. Runs on every request
-     * that builds a menu, so it is a single indexed query returning a
-     * handful of rows (idx_rental_assets_menu), never a walk.
-     *
-     * @return RentalAsset[]
-     */
-    public function findAllPinnedToMenu(): array
-    {
-        $stmt = $this->pdo->query(
-            'SELECT * FROM rental_assets
-             WHERE show_in_menu = 1 AND is_public = 1 AND is_archived = 0
-             ORDER BY name ASC'
-        );
-
-        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
-    }
 
     /**
      * @param int[] $ids
@@ -202,13 +183,12 @@ class RentalAssetRepository
         ?string $departureTime,
         ?string $emergencyPhone,
         bool $isPublic,
-        bool $showInMenu
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE rental_assets
              SET asset_type = ?, name = ?, slug = ?, capacity = ?, quantity = ?,
                  arrival_time = ?, departure_time = ?, emergency_phone_encrypted = ?,
-                 is_public = ?, show_in_menu = ?, updated_at = ?
+                 is_public = ?, updated_at = ?
              WHERE id = ?'
         );
         $stmt->execute([
@@ -221,7 +201,6 @@ class RentalAssetRepository
             $departureTime,
             $this->encryptPhone($emergencyPhone),
             $isPublic ? 1 : 0,
-            $showInMenu ? 1 : 0,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             $id,
         ]);
@@ -345,7 +324,6 @@ class RentalAssetRepository
                 : null,
             isArchived: (bool) $row['is_archived'],
             isPublic: (bool) $row['is_public'],
-            showInMenu: (bool) $row['show_in_menu'],
             vatExemptionNote: isset($row['vat_exemption_note']) ? (string) $row['vat_exemption_note'] : null,
             calendarPublicationEnabled: (bool) ($row['calendar_publication_enabled'] ?? false),
             calendarId: isset($row['calendar_id']) ? (int) $row['calendar_id'] : null,

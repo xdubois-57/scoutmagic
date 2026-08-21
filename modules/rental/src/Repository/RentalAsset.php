@@ -31,7 +31,6 @@ final class RentalAsset
         public readonly ?string $emergencyPhone,
         public readonly bool $isArchived,
         public readonly bool $isPublic,
-        public readonly bool $showInMenu,
         /**
          * The sentence an invoice for this asset carries instead of a VAT
          * line (§6.27). **No VAT is ever computed** — a unit letting a hall
@@ -57,17 +56,6 @@ final class RentalAsset
         return $this->quantity > 1;
     }
 
-    /**
-     * Whether this asset earns its own entry in the "Notre unité" menu.
-     * All three conditions matter: a private asset with the box ticked, or
-     * an archived one, must never surface. Keeping the rule here (rather
-     * than in a template) is what stops a future caller from re-deriving
-     * two thirds of it and leaking the third.
-     */
-    public function isPinnedToMenu(): bool
-    {
-        return $this->showInMenu && $this->isPublic && !$this->isArchived;
-    }
 
     /**
      * Whether the public may see this asset at all — on the /locations

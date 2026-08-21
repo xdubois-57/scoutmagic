@@ -192,18 +192,33 @@ class RentalBookingService implements OccupancyProvider
      * become the same shape, which is what makes them indistinguishable to
      * every public surface (§6.7/§6.14).
      *
+     * The filter on `occupiesTheAsset($now)` is what makes a lapsed hold
+     * release its dates on this very request rather than on the next run of
+     * the expiry task. The SQL prefilter cannot do it alone: the repository
+     * query is also what the manager's calendar lists, and a manager must
+     * still see a request whose hold has run out.
+     *
      * @return Occupancy[]
      */
-    public function findOccupancies(int $assetId, \DateTimeImmutable $from, \DateTimeImmutable $to): array
-    {
-        return array_map(
-            static fn(RentalBooking $booking) => $booking->toOccupancy(),
+    public function findOccupancies(
+        int $assetId,
+        \DateTimeImmutable $from,
+        \DateTimeImmutable $to,
+        \DateTimeImmutable $now
+    ): array {
+        $occupying = array_filter(
             $this->bookingRepository->findOccupyingBetween(
                 $assetId,
                 $from->format('Y-m-d'),
                 $to->format('Y-m-d')
-            )
+            ),
+            static fn(RentalBooking $booking) => $booking->occupiesTheAsset($now)
         );
+
+        return array_values(array_map(
+            static fn(RentalBooking $booking) => $booking->toOccupancy(),
+            $occupying
+        ));
     }
 
     // ── Tracking ────────────────────────────────────────────────────────

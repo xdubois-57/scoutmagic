@@ -82,8 +82,18 @@ class RentalPricingEngine
         // rather than by rewriting the base line: the renter has to be able
         // to see both the rate they were quoted and the top-up that was
         // added, not a base line whose arithmetic does not check out.
+        //
+        // `$quantity > 0` matters as much as the rate existing: with no
+        // quantity there is no base line to top up, and the floor on its own
+        // quoted the full minimum for a stay covering nothing at all — a
+        // visitor who tapped the same day twice on the calendar was shown
+        // "Complément jusqu'au minimum de 150,00 €" and a 150 € total.
         $minimumAmountApplied = false;
-        if ($settings->minimumAmountCents !== null && $unitPriceCents !== null && $baseCents < $settings->minimumAmountCents) {
+        if ($settings->minimumAmountCents !== null
+            && $unitPriceCents !== null
+            && $quantity > 0
+            && $baseCents < $settings->minimumAmountCents
+        ) {
             $topUpCents = $settings->minimumAmountCents - $baseCents;
             $minimumAmountApplied = true;
             $lines[] = new PriceLine(

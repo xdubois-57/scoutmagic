@@ -63,21 +63,19 @@
     </div>
 </div>
 
-<div class="form-check mb-2">
+{#
+  The only publication switch there is. A public asset is listed on the
+  /locations index — which is itself the module's single "Notre unité" menu
+  entry — and reached from there; there is deliberately no per-asset menu
+  entry to opt into, so this checkbox alone decides public reachability.
+#}
+<div class="form-check mb-3">
     <input class="form-check-input" type="checkbox" id="{{ p }}-is-public" name="is_public"
            {{ asset and asset.isPublic ? 'checked' : '' }}>
     <label class="form-check-label" for="{{ p }}-is-public">
         Rendre ce bien visible publiquement
     </label>
-</div>
-<div class="form-check mb-3">
-    <input class="form-check-input" type="checkbox" id="{{ p }}-show-in-menu" name="show_in_menu"
-           {{ asset and asset.showInMenu ? 'checked' : '' }}>
-    <label class="form-check-label" for="{{ p }}-show-in-menu">
-        Afficher ce bien dans le menu « Notre unité »
-    </label>
     <div class="form-text">
-        Sans effet tant que le bien n'est pas public. Un bien public non affiché au menu reste
-        accessible depuis la page « Locations ».
+        Le bien apparaît alors sur la page « Locations » du menu « Notre unité ».
     </div>
 </div>

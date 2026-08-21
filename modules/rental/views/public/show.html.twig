@@ -1,6 +1,21 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ asset.name }} — {{ site_name }}{% endblock %}
 {#
+  The availability grid (partials/month_day_grid.html.twig) is styled by
+  components.css, which base.html.twig deliberately does NOT load — it is
+  opt-in per page, the same way members/show.html.twig, chefs/staffs.html.twig
+  and registration/departures.html.twig link it.
+
+  Without this link every `.daygrid-week` falls back to `display: block` and
+  the month renders as a vertical stack of 42 unstyled cells: the calendar is
+  unreadable and, because the cells lose their sizing, effectively unusable.
+  That is the actual root cause of "le calendrier ne s'affiche pas" — not the
+  grid builder, which was producing the right cells all along.
+#}
+{% block stylesheets %}
+<link rel="stylesheet" href="/assets/css/components.css">
+{% endblock %}
+{#
   One public asset: its editable presentation blocks, its availability
   calendar, and a live price estimate.
 

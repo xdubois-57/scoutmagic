@@ -55,7 +55,6 @@ class RentalAssetService
         ?string $departureTime,
         ?string $emergencyPhone,
         bool $isPublic,
-        bool $showInMenu,
         ?int $userId = null
     ): int {
         $name = trim($name);
@@ -72,8 +71,7 @@ class RentalAssetService
             self::normalizeTime($arrivalTime),
             self::normalizeTime($departureTime),
             $emergencyPhone,
-            $isPublic,
-            $showInMenu
+            $isPublic
         );
 
         // The asset's own name is a chief's label for a building, not
@@ -104,7 +102,6 @@ class RentalAssetService
         ?string $departureTime,
         ?string $emergencyPhone,
         bool $isPublic,
-        bool $showInMenu,
         ?int $userId = null
     ): void {
         $asset = $this->requireAsset($assetId);
@@ -129,8 +126,7 @@ class RentalAssetService
             self::normalizeTime($arrivalTime),
             self::normalizeTime($departureTime),
             $emergencyPhone,
-            $isPublic,
-            $showInMenu
+            $isPublic
         );
 
         $this->journal->log(

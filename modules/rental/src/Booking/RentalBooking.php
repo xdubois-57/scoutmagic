@@ -89,13 +89,39 @@ final class RentalBooking
     /**
      * Whether this booking holds its dates against everyone else at $now.
      *
-     * Two independent reasons: the status itself (confirmed, under review…)
-     * or a live temporary hold. A booking whose hold has lapsed still holds
-     * the dates if its status says so.
+     * Three cases, and the middle one is the whole reason this takes a
+     * clock:
+     *
+     * - **Refused, cancelled, expired** — never. The period is released the
+     *   moment the decision is taken.
+     * - **Confirmed or closed** — always. It is a commitment; no deadline
+     *   enters into it.
+     * - **Anything still provisional** (received, under review, information
+     *   requested, an option proposed) — **only while a hold is running**.
+     *   A request holds the dates for a configurable period so two visitors
+     *   cannot both be told yes, and when that period lapses the dates are
+     *   free again while the request itself stays waiting (spec §22.5). The
+     *   `automatic_hold_hours` setting says so in as many words, down to
+     *   what 0 means.
+     *
+     * Reading it off the status alone made the hold decorative: an abandoned
+     * request blocked its dates against every visitor for ever, and the
+     * expiry task clearing `hold_until` made it worse rather than better.
+     * Availability is computed, never stored (spec §22.2) — so a hold that
+     * lapsed a minute ago frees its dates on this page load, not on the next
+     * run of the task.
      */
     public function occupiesTheAsset(\DateTimeImmutable $now): bool
     {
-        return $this->status->occupiesTheAsset();
+        if (!$this->status->occupiesTheAsset()) {
+            return false;
+        }
+
+        if ($this->status->firmlyOccupiesTheAsset()) {
+            return true;
+        }
+
+        return $this->holdIsActive($now);
     }
 
     /**

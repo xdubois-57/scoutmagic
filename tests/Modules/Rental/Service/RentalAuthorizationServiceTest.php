@@ -44,7 +44,7 @@ class RentalAuthorizationServiceTest extends TestCase
 
     private function createAsset(string $name, string $slug, bool $archived = false): int
     {
-        $id = $this->assetRepository->create('Local', $name, $slug, null, 1, null, null, null, true, false);
+        $id = $this->assetRepository->create('Local', $name, $slug, null, 1, null, null, null, true);
         if ($archived) {
             $this->assetRepository->setArchived($id, true);
         }

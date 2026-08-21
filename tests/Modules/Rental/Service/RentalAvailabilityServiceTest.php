@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Rental\Service;
 
+use Modules\Rental\Availability\BookingConstraints;
 use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Availability\Occupancy;
 use Modules\Rental\Availability\OccupancyProvider;
@@ -53,7 +54,7 @@ class RentalAvailabilityServiceTest extends TestCase
                 {
                 }
 
-                public function findOccupancies(int $assetId, \DateTimeImmutable $from, \DateTimeImmutable $to): array
+                public function findOccupancies(int $assetId, \DateTimeImmutable $from, \DateTimeImmutable $to, \DateTimeImmutable $now): array
                 {
                     return $this->occupancies;
                 }
@@ -76,8 +77,7 @@ class RentalAvailabilityServiceTest extends TestCase
             departureTime: null,
             emergencyPhone: null,
             isArchived: false,
-            isPublic: true,
-            showInMenu: false
+            isPublic: true
         );
     }
 
@@ -213,7 +213,7 @@ class RentalAvailabilityServiceTest extends TestCase
             {
             }
 
-            public function findOccupancies(int $assetId, \DateTimeImmutable $from, \DateTimeImmutable $to): array
+            public function findOccupancies(int $assetId, \DateTimeImmutable $from, \DateTimeImmutable $to, \DateTimeImmutable $now): array
             {
                 return $this->occupancies;
             }
@@ -224,11 +224,61 @@ class RentalAvailabilityServiceTest extends TestCase
             $makeProvider([new Occupancy('2027-07-17', '2027-07-19', 2)]),
         ]);
 
-        $occupancies = $service->occupanciesFor($this->assetId, new \DateTimeImmutable('2027-07-01'), new \DateTimeImmutable('2027-07-31'));
+        $occupancies = $service->occupanciesFor(
+            $this->assetId,
+            new \DateTimeImmutable('2027-07-01'),
+            new \DateTimeImmutable('2027-07-31'),
+            new \DateTimeImmutable('2027-06-01')
+        );
         $this->assertCount(2, $occupancies);
 
         $states = $service->monthDayStates($this->asset(8), BillingUnit::PER_NIGHT, 2027, 7, new \DateTimeImmutable('2027-06-01'));
         $this->assertSame(['remaining' => '3'], $states['2027-07-18']->data, '8 − 3 − 2 = 3.');
+    }
+
+    public function testTheOccupancyWindowFollowsTheBufferInsteadOfAHardCodedWeek(): void
+    {
+        // The window used to be ±7 days flat. `bufferNights` has no ceiling,
+        // so a 10-night turnaround reached past it: the conflicting stay was
+        // never returned by the query and the range came back free.
+        $this->repository->save($this->assetId, new BookingConstraints(bufferNights: 10));
+
+        $windows = [];
+        $provider = new class ($windows) implements OccupancyProvider {
+            /** @var array<int, array{0: string, 1: string}> */
+            public array $windows = [];
+
+            /** @param array<int, array{0: string, 1: string}> $seed */
+            public function __construct(array $seed)
+            {
+                $this->windows = $seed;
+            }
+
+            public function findOccupancies(
+                int $assetId,
+                \DateTimeImmutable $from,
+                \DateTimeImmutable $to,
+                \DateTimeImmutable $now
+            ): array {
+                $this->windows[] = [$from->format('Y-m-d'), $to->format('Y-m-d')];
+
+                return [new Occupancy('2027-06-20', '2027-06-23')];
+            }
+        };
+
+        $service = new RentalAvailabilityService(new AvailabilityCalculator(), $this->repository, [$provider]);
+
+        $free = $service->isRangeFree(
+            $this->asset(),
+            BillingUnit::PER_NIGHT,
+            new \DateTimeImmutable('2027-07-01'),
+            new \DateTimeImmutable('2027-07-03'),
+            1,
+            new \DateTimeImmutable('2027-06-01')
+        );
+
+        $this->assertSame(['2027-06-20', '2027-07-14'], $provider->windows[0], 'Padded by the buffer plus a day.');
+        $this->assertFalse($free, 'The buffered stay still runs to 2 July.');
     }
 
     // ── Range validation through the service ────────────────────────────

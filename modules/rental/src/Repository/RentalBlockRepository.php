@@ -134,10 +134,18 @@ class RentalBlockRepository implements OccupancyProvider
     // ── OccupancyProvider ───────────────────────────────────────────────
 
     /**
+     * A manual block has no deadline — a manager put the asset off the
+     * market and only a manager takes it back — so `$now` is accepted to
+     * satisfy the interface and deliberately unused.
+     *
      * @return Occupancy[]
      */
-    public function findOccupancies(int $assetId, \DateTimeImmutable $from, \DateTimeImmutable $to): array
-    {
+    public function findOccupancies(
+        int $assetId,
+        \DateTimeImmutable $from,
+        \DateTimeImmutable $to,
+        \DateTimeImmutable $now
+    ): array {
         return array_map(
             static fn(RentalBlock $block) => $block->toOccupancy(),
             $this->findBetween($assetId, $from->format('Y-m-d'), $to->format('Y-m-d'))

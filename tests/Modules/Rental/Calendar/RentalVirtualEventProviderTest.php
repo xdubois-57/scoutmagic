@@ -90,7 +90,7 @@ class RentalVirtualEventProviderTest extends TestCase
 
     private function createAsset(string $name, string $slug, bool $publish = true, int $calendarId = self::CALENDAR_ID): int
     {
-        $id = $this->assetRepository->create('Local', $name, $slug, 60, 1, '18:00', '11:00', '+32 470 00 00 00', true, false);
+        $id = $this->assetRepository->create('Local', $name, $slug, 60, 1, '18:00', '11:00', '+32 470 00 00 00', true);
         if ($publish) {
             $this->assetRepository->saveCalendarPublication($id, true, $calendarId, PublishFrom::CONFIRMATION);
         }
@@ -502,7 +502,7 @@ class RentalVirtualEventProviderTest extends TestCase
     public function testWithoutTimesTheOccupancyIsAnAllDayEvent(): void
     {
         // The honest rendering of "we do not know the hour".
-        $bare = $this->assetRepository->create('Terrain', 'Terrain', 'terrain', null, 1, null, null, null, true, false);
+        $bare = $this->assetRepository->create('Terrain', 'Terrain', 'terrain', null, 1, null, null, null, true);
         $this->assetRepository->saveCalendarPublication($bare, true, self::CALENDAR_ID, PublishFrom::CONFIRMATION);
         $this->createBooking('LOC-2027-0002', $bare);
 

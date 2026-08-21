@@ -28,7 +28,6 @@ class RentalTestHelper
             emergency_phone_encrypted BLOB,
             is_archived INTEGER NOT NULL DEFAULT 0,
             is_public INTEGER NOT NULL DEFAULT 0,
-            show_in_menu INTEGER NOT NULL DEFAULT 0,
             min_nights INTEGER NOT NULL DEFAULT 0,
             max_nights INTEGER NOT NULL DEFAULT 0,
             min_notice_days INTEGER NOT NULL DEFAULT 0,

@@ -31,7 +31,7 @@ class RentalSlugGeneratorTest extends TestCase
 
     private function createWithSlug(string $slug): int
     {
-        return $this->assetRepository->create('Local', $slug, $slug, null, 1, null, null, null, true, false);
+        return $this->assetRepository->create('Local', $slug, $slug, null, 1, null, null, null, true);
     }
 
     public function testSlugifyLowercasesAndHyphenates(): void

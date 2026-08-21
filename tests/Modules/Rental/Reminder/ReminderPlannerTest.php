@@ -47,7 +47,6 @@ class ReminderPlannerTest extends TestCase
             emergencyPhone: null,
             isArchived: false,
             isPublic: true,
-            showInMenu: false,
             vatExemptionNote: null,
             calendarPublicationEnabled: false,
             calendarId: null,
