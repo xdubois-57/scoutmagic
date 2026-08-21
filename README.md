@@ -110,12 +110,13 @@ npm run e2e            # exécuter le scénario complet
 
 1. crée une installation ScoutMagic jetable dans un répertoire temporaire (son propre `storage/`, sa propre `config/app.php`, ses propres secrets générés) — **votre installation locale n'est jamais lue ni modifiée** ;
 2. crée et vide une base de données dédiée (`scoutmagic_e2e` par défaut, jamais `test_db` ni une base de développement), puis y applique `schema/core.sql` via le vrai `Core\Database\MigrationRunner` ;
-3. active **tous** les modules du dépôt, via le vrai `Core\Module\ModuleManager::activate()` — le même appel que la page Modules de l'administration, donc le `schema.sql`, les paramètres par défaut, l'entrée de registre et le journal de chaque module. Pourquoi tous et pas seulement les trois `enabled_by_default` : `public/index.php` câble **chaque** module actif dans le contrôleur frontal avant de router quoi que ce soit, donc un module laissé inactif est un pan de cette racine de composition qu'aucun test navigateur n'exécute — et une faute à cet endroit ne casse pas une page, elle renvoie 500 sur *toutes* les routes du site. C'est déjà arrivé (voir `all-modules-enabled.spec.js` ci-dessous). Un module qui ne peut pas être activé arrête le provisionnement avec son propre message, plutôt que de laisser l'exécution prétendre à une couverture qu'elle n'a pas ;
-4. démarre `php -S` sur un port libre, avec pour racine le `public/` de cette installation jetable — le vrai `public/index.php`, pas une application de test ;
-5. attend (par sondage, jamais par `sleep`) que le serveur réponde ;
-6. lance Playwright/Chromium en mode *headless* ;
-7. rend le code de sortie de Playwright tel quel ;
-8. arrête le serveur, supprime la base et le répertoire temporaire — après un succès, après un échec, et sur Ctrl-C.
+3. pointe l'instance sur elle-même comme destination des statistiques — c'est ce qui en fait le *récepteur* (`Core\Statistics\DestinationMatcher`, ARCHITECTURE.md §8.49) et donc ce qui rend visible le module réservé au récepteur (`support_dashboard`), que `ModuleManager` masque partout ailleurs : un module invisible est un module dont le câblage n'est jamais démarré. Cela ne coûte rien d'autre — `StatisticsSender` refuse d'envoyer vers lui-même, et `127.0.0.1` n'est de toute façon pas un hôte public, donc aucune exécution n'émet jamais de rapport ;
+4. active **tous** les modules du dépôt, via le vrai `Core\Module\ModuleManager::activate()` — le même appel que la page Modules de l'administration, donc le `schema.sql`, les paramètres par défaut, l'entrée de registre et le journal de chaque module. Pourquoi tous et pas seulement les trois `enabled_by_default` : `public/index.php` câble **chaque** module actif dans le contrôleur frontal avant de router quoi que ce soit, donc un module laissé inactif est un pan de cette racine de composition qu'aucun test navigateur n'exécute — et une faute à cet endroit ne casse pas une page, elle renvoie 500 sur *toutes* les routes du site. C'est déjà arrivé (voir `all-modules-enabled.spec.js` ci-dessous). Un module qui ne peut pas être activé arrête le provisionnement avec son propre message, plutôt que de laisser l'exécution prétendre à une couverture qu'elle n'a pas ;
+5. démarre `php -S` sur un port libre, avec pour racine le `public/` de cette installation jetable — le vrai `public/index.php`, pas une application de test ;
+6. attend (par sondage, jamais par `sleep`) que le serveur réponde ;
+7. lance Playwright/Chromium en mode *headless* ;
+8. rend le code de sortie de Playwright tel quel ;
+9. arrête le serveur, supprime la base et le répertoire temporaire — après un succès, après un échec, et sur Ctrl-C.
 
 Scénarios actuels (`tests/e2e/specs/`), chacun bootant l'application réelle de bout en bout :
 

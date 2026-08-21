@@ -418,7 +418,44 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     e2e_create_super_admin($connection, $encryptionKey, $blindIndexKey, $adminEmail, e2e_admin_password());
 
     // --- Every module, activated the way an admin activates one. ---
-    $activated = e2e_activate_all_modules($repoRoot, $connection, $migrationRunner());
+    //
+    // The throwaway instance is pointed at ITSELF as the statistics
+    // destination, which is what makes it the receiver
+    // (Core\Statistics\DestinationMatcher, ARCHITECTURE.md §8.49) and so
+    // what makes the receiver-only support_dashboard module visible at
+    // all — ModuleManager hides it everywhere else, and a module nobody
+    // can see is a module whose wiring no run ever boots, which is the one
+    // blind spot this harness exists to close. It costs nothing else:
+    // Core\Statistics\StatisticsSender refuses to send to itself
+    // ('self_destination'), and 127.0.0.1 is not a public host either, so
+    // no run ever emits a report.
+    //
+    // Registered rather than updated because the row does not exist yet
+    // (public/index.php registers it at boot, later than this): the insert
+    // carries the value, and index.php's own register() call then only
+    // refreshes default_value, leaving this one's value alone.
+    $settingService = new Core\Config\SettingService(new Core\Config\SettingRepository($connection->getPdo()));
+    $settingService->register(
+        'statistics_destination',
+        'http://127.0.0.1:' . $port,
+        'url',
+        'Destination des statistiques',
+        "Adresse du site qui reçoit les rapports d'utilisation. Pointée sur cette instance elle-même "
+        . "par le harnais E2E, pour que le module réservé au récepteur soit lui aussi câblé et testé.",
+        null,
+        null,
+        null,
+        true,
+        281
+    );
+
+    $activated = e2e_activate_all_modules(
+        $repoRoot,
+        $connection,
+        $migrationRunner(),
+        $settingService,
+        'http://127.0.0.1:' . $port
+    );
 
     echo "E2E instance provisioned at {$instanceDir} (database '{$config['name']}', port {$port}).\n";
     echo 'E2E: ' . count($activated) . ' modules activated: ' . implode(', ', $activated) . ".\n";
@@ -442,6 +479,11 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
  * the three (see Tests\Core\System\TypeHintResolutionTest, the unit-level
  * twin of this).
  *
+ * "Every module" means every module this installation can SEE — which is
+ * every directory under modules/, receiver-only ones included, because
+ * e2e_provision() makes the instance the statistics receiver precisely so
+ * that ModuleManager stops hiding them (see its own comment there).
+ *
  * Fails closed: a module that cannot be activated aborts provisioning
  * with its own message, rather than quietly leaving the run with less
  * coverage than it claims.
@@ -451,20 +493,36 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
 function e2e_activate_all_modules(
     string $repoRoot,
     Core\Database\Connection $connection,
-    Core\Database\MigrationRunner $migrationRunner
+    Core\Database\MigrationRunner $migrationRunner,
+    Core\Config\SettingService $settingService,
+    string $baseUrl
 ): array {
     $pdo = $connection->getPdo();
     $modulesDir = $repoRoot . '/modules';
 
+    // The same question public/index.php asks on every request, through
+    // the same matcher, rather than a hand-set boolean: what the
+    // application will decide on the first request is what decides the set
+    // of modules discovered here. $baseUrl is passed in rather than read
+    // from the settings table because index.php only copies it there out
+    // of secrets.enc on that first request — later than this.
+    $isStatisticsReceiver = Core\Statistics\DestinationMatcher::isReceiver(
+        $baseUrl,
+        (string) ($settingService->get('statistics_destination') ?? '')
+    );
+
     $moduleManager = new Core\Module\ModuleManager(
         $modulesDir,
-        new Core\Config\SettingService(new Core\Config\SettingRepository($pdo)),
+        $settingService,
         new Core\Cookie\CookieConsentService(),
         new Core\View\MenuBuilder(Core\Security\Role::SUPERADMIN),
         new Core\Module\ModuleRegistryRepository($pdo),
         $migrationRunner,
         new Core\Journal\JournalService(new Core\Journal\JournalRepository($pdo)),
-        new Core\Http\Router()
+        new Core\Http\Router(),
+        null,
+        new Core\Offline\OfflineWhitelist(),
+        $isStatisticsReceiver
     );
 
     // discoverModules() returns a LIST (sorted by the admin's own module
