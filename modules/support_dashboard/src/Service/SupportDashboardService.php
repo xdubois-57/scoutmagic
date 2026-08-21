@@ -10,6 +10,7 @@ namespace Modules\SupportDashboard\Service;
 
 use Core\Config\SettingService;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
+use Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository;
 
 /**
  * Everything the support dashboard shows: the filtered table, its counters,
@@ -63,7 +64,8 @@ class SupportDashboardService
 
     public function __construct(
         private SupportInstallationRepository $installations,
-        private ?SettingService $settings = null
+        private ?SettingService $settings = null,
+        private ?SupportMonthlyAggregateRepository $monthlyAggregates = null
     ) {
     }
 
@@ -90,6 +92,37 @@ class SupportDashboardService
             'available' => $this->availableFilterValues($all),
             'active_threshold_days' => $this->activeThresholdDays(),
             'retention_months' => $this->retentionMonths(),
+        ];
+    }
+
+    /**
+     * The monthly history section (ARCHITECTURE.md §8.50).
+     *
+     * **Totally independent of the current-state filters, search and sort.**
+     * It takes only its own period, and it is a separate method for exactly
+     * that reason: a history that moved when somebody typed in the search
+     * box would be answering a different question than the one its axis
+     * claims. The only thing the period changes is how far back the series
+     * is cut.
+     *
+     * @return array<string, mixed>
+     */
+    public function buildHistory(SupportHistoryPeriod $period): array
+    {
+        $rows = $this->monthlyAggregates?->findSeries($period->months) ?? [];
+
+        $series = [];
+        foreach ($rows as $row) {
+            $series[] = [
+                'month' => (string) $row['month'],
+                'count' => (int) $row['installation_count'],
+            ];
+        }
+
+        return [
+            'period' => $period,
+            'series' => $series,
+            'has_data' => $series !== [],
         ];
     }
 

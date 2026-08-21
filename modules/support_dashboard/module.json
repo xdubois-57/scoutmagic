@@ -2,7 +2,7 @@
   "id": "support_dashboard",
   "name": "Tableau de bord support",
   "description": "Réception et consultation des rapports d'utilisation envoyés par les installations ScoutMagic.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled_by_default": false,
   "receiver_only": true,
   "routes": [
@@ -78,6 +78,10 @@
     {
       "key": "purge_installations",
       "handler": "Modules\\SupportDashboard\\Task\\PurgeInstallationsHandler"
+    },
+    {
+      "key": "finalize_monthly_aggregate",
+      "handler": "Modules\\SupportDashboard\\Task\\FinalizeMonthlyAggregateHandler"
     }
   ],
   "storage": {}

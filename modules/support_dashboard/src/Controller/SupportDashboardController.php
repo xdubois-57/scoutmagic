@@ -15,6 +15,7 @@ use Core\Journal\JournalService;
 use Core\Security\CsrfGuard;
 use Modules\SupportDashboard\Service\SupportDashboardFilters;
 use Modules\SupportDashboard\Service\SupportDashboardService;
+use Modules\SupportDashboard\Service\SupportHistoryPeriod;
 use Modules\SupportDashboard\Service\SupportInstallationExporter;
 use Twig\Environment;
 
@@ -42,9 +43,15 @@ class SupportDashboardController extends AbstractController
     {
         $filters = SupportDashboardFilters::fromQuery($request->getQueryAll());
 
+        // The history takes its own period and nothing else: it must not
+        // move when a current-state filter does (ARCHITECTURE.md §8.50).
         return $this->render('@support_dashboard/index.html.twig', [
             'filters' => $filters,
             'view' => $this->dashboardService->buildView($filters),
+            'history' => $this->dashboardService->buildHistory(
+                SupportHistoryPeriod::fromQuery($request->getQueryAll())
+            ),
+            'history_choices' => SupportHistoryPeriod::CHOICES,
         ]);
     }
 

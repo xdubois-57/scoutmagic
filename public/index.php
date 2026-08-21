@@ -2766,12 +2766,17 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
 if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) {
     $supportInstallationRepo = new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo);
     $supportRateLimitRepo = new \Modules\SupportDashboard\Repository\SupportReportRateLimitRepository($pdo);
+    $supportMonthlyAggregateRepo = new \Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository($pdo);
 
     $frontController->registerController(
         \Modules\SupportDashboard\Controller\SupportDashboardController::class,
         new \Modules\SupportDashboard\Controller\SupportDashboardController(
             $twig,
-            new \Modules\SupportDashboard\Service\SupportDashboardService($supportInstallationRepo, $settingService),
+            new \Modules\SupportDashboard\Service\SupportDashboardService(
+                $supportInstallationRepo,
+                $settingService,
+                $supportMonthlyAggregateRepo
+            ),
             $journalService
         )
     );
@@ -2784,7 +2789,8 @@ if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) 
                 $supportInstallationRepo,
                 $supportRateLimitRepo,
                 $encryptionService,
-                $journalService
+                $journalService,
+                $supportMonthlyAggregateRepo
             )
         )
     );

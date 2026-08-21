@@ -698,3 +698,71 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 ### Reporté volontairement
 
 - Agrégats mensuels, graphe historique et sélecteur de période : IT-11.
+
+---
+
+## IT-11 — Historique mensuel
+
+### Implémenté
+
+- `support_monthly_aggregates` (mois `YYYY-MM` unique, nombre
+  d'installations, horodatage de finalisation) et
+  `support_monthly_contributions` (table de travail, unicité
+  `(month, installation_id)`). `module.json` passe en `1.1.0` — le schéma a
+  changé (AGENTS.md § Database).
+- `SupportMonthlyAggregateRepository` : enregistrement d'une contribution,
+  recherche des mois révolus non finalisés, finalisation transactionnelle
+  (écriture de l'agrégat **et** suppression des contributions du mois).
+- Enregistrement d'une contribution à chaque rapport accepté, sur les deux
+  chemins (première inscription et rapport ultérieur).
+- Tâche `support_dashboard`/`finalize_monthly_aggregate` (quotidienne,
+  auto-replanifiée) : finalise **tout** mois révolu non finalisé, ce qui
+  rend le rattrapage de plusieurs mois gratuit.
+- Section historique du tableau de bord : **un seul graphe** (ligne,
+  installations ayant émis par mois), sélecteur de période 6 / 12 / 24 mois
+  / tout l'historique, défaut 12, non persistant.
+- `ARCHITECTURE.md` §8.50.
+
+### Décisions autonomes
+
+1. **L'unicité mois + installation est une contrainte de table, pas un
+   test en PHP.** Un `SELECT` puis `INSERT` laisse deux rapports simultanés
+   s'intercaler ; l'index unique ne le permet pas. `INSERT IGNORE` (MySQL)
+   / `INSERT OR IGNORE` (SQLite) selon le pilote.
+2. **La suppression des contributions à la finalisation est faite dans la
+   même transaction que l'écriture de l'agrégat.** Sinon un incident entre
+   les deux laisse soit un agrégat sans base, soit — bien pire — des
+   identifiants individuels à côté d'un agrégat censé n'en contenir aucun.
+3. **`SupportHistoryPeriod` est un type distinct de
+   `SupportDashboardFilters`**, et `buildHistory()` une méthode distincte de
+   `buildView()`. L'indépendance exigée par le document devient ainsi
+   structurelle : les filtres d'état courant ne sont même pas un argument
+   de la construction de l'historique. Un test le vérifie en appliquant
+   tous les filtres à la fois et en constatant que la série ne bouge pas.
+4. **L'enregistrement d'une contribution n'est jamais fatal.** Un receveur
+   qui refuserait un rapport parce qu'une écriture de comptabilité a échoué
+   échangerait ce qui compte contre ce qui ne compte pas.
+5. **Le mois courant n'est jamais finalisé.** Il peut encore gagner des
+   contributeurs, et un agrégat est immuable une fois écrit : le finaliser
+   tôt figerait un demi-mois comme s'il était complet.
+6. **Le graphe est une ligne, pas un histogramme, et son axe démarre à
+   zéro** avec des graduations entières — un décompte d'installations est
+   un entier, et démarrer ailleurs qu'à zéro exagère chaque oscillation.
+7. **Le sélecteur de période soumet son propre formulaire**, qui ne
+   transporte que `history`. Le partager avec le formulaire de filtres
+   ferait perdre l'indépendance à la première soumission.
+
+### Divergence constatée avec le document
+
+- Le document décrit `support_monthly_aggregates` avec « mois, nombre
+  d'installations ayant émis, horodatage de finalisation ». Une clé
+  primaire technique `id` a été ajoutée à côté de la contrainte d'unicité
+  sur `month`, par cohérence avec toutes les autres tables du dépôt.
+
+### Piège rencontré
+
+- `TwigFactory::create()` compile dans `storage/temp/twig_cache/{version}`
+  avec `auto_reload` désactivé hors mode debug : une modification de
+  gabarit reste invisible tant que ce cache n'est pas vidé. Sans incidence
+  sur les tests (qui construisent leur propre environnement), mais à savoir
+  pour toute vérification visuelle.

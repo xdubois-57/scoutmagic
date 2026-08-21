@@ -43,10 +43,48 @@
         });
     }
 
+    /**
+     * The monthly history: one line, one point per finalised month. A line
+     * rather than a doughnut because the axis is time, and the whole point
+     * of the series is the shape it makes across it.
+     *
+     * @param {Array<{month: string, count: number}>} series
+     * @returns {void}
+     */
+    function renderHistoryChart(series) {
+        var canvas = /** @type {HTMLCanvasElement|null} */ (document.getElementById('chart-history'));
+        if (!canvas || typeof window.Chart !== 'function' || !series || series.length === 0) {
+            return;
+        }
+
+        new window.Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: series.map(function (entry) { return entry.month; }),
+                datasets: [{
+                    label: 'Installations ayant émis',
+                    data: series.map(function (entry) { return entry.count; }),
+                    borderColor: palette[0],
+                    backgroundColor: palette[0],
+                    tension: 0.2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                // A count of installations is a whole number, and starting
+                // the axis anywhere but zero would exaggerate every wobble.
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            }
+        });
+    }
+
     var charts = window.supportDashboardCharts;
     if (charts) {
         renderChart(charts.versions, 'chart-versions');
         renderChart(charts.autoUpdate, 'chart-auto-update');
+        renderHistoryChart(charts.history);
     }
 
     var modalElement = document.getElementById('support-detail-modal');

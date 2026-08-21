@@ -141,24 +141,23 @@ class PurgeInstallationsHandlerTest extends TestCase
     }
 
     /**
-     * The hard requirement of D-13/IT-11: retention removes an
-     * installation, never a finalised aggregate. The aggregate table
-     * arrives in IT-11; this asserts the property that has to hold as soon
-     * as it does — the purge issues no statement against any table other
-     * than support_installations.
+     * The hard requirement: retention removes an installation, never a
+     * finalised aggregate. A history rewritten because a contributor later
+     * disappeared would mean nothing.
      */
-    public function testThePurgeTouchesNoTableOtherThanSupportInstallations(): void
+    public function testThePurgeLeavesFinalizedAggregatesUntouched(): void
     {
         $this->seed('aaaa', '-9 months');
 
-        $this->pdo->exec('CREATE TABLE support_monthly_aggregates (month TEXT PRIMARY KEY, installation_count INTEGER NOT NULL, finalized_at TEXT NOT NULL)');
-        $this->pdo->exec("INSERT INTO support_monthly_aggregates VALUES ('2026-01', 42, '2026-02-01 00:00:00')");
+        $this->pdo->prepare(
+            'INSERT INTO support_monthly_aggregates (month, installation_count, finalized_at) VALUES (?, ?, ?)'
+        )->execute(['2026-01', 42, '2026-02-01 00:00:00']);
 
         (new PurgeInstallationsHandler())->handle([], $this->context);
 
         $this->assertSame(
-            '42',
-            (string) $this->pdo->query("SELECT installation_count FROM support_monthly_aggregates WHERE month = '2026-01'")->fetchColumn()
+            42,
+            (int) $this->pdo->query("SELECT installation_count FROM support_monthly_aggregates WHERE month = '2026-01'")->fetchColumn()
         );
     }
 }
