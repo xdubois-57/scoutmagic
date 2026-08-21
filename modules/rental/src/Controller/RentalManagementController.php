@@ -49,6 +49,7 @@ use Modules\Rental\Service\RentalDocumentService;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
+use Modules\Rental\Service\RentalStatisticsService;
 use Modules\Rental\Service\RentalStayService;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryState;
@@ -162,7 +163,8 @@ class RentalManagementController extends AbstractController
          * controller stays constructible in tests that do not care about
          * it — the module always wires one.
          */
-        private ?RentalComplianceService $complianceService = null
+        private ?RentalComplianceService $complianceService = null,
+        private ?RentalStatisticsService $statisticsService = null
     ) {
         parent::__construct($twig);
     }
@@ -392,6 +394,10 @@ class RentalManagementController extends AbstractController
                 static fn(RentalBooking $b) => $b->isInProgress($now)
             )),
             'upcoming_blocks' => $this->blockService->upcomingFor($asset->id, $now),
+            // The three figures of §6.34, read from the live bookings AND
+            // the anonymous aggregates a purge left behind — otherwise the
+            // year's revenue drops to zero the morning the purge runs.
+            'statistics' => $this->statisticsService?->forAsset($asset->id, $now),
             'nav_page' => 'overview',
         ]);
     }

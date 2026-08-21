@@ -45,8 +45,10 @@ volontaire, sans garantie de délai.
 - Centre de notifications avec Web Push, préférences par type (in-app/push/email), plages horaires de silence, et un mode discret
 - Sauvegardes chiffrées à la demande et automatiques, mise à jour en un clic depuis les releases GitHub, réinitialisation/restauration
 - Page Support : envoi optionnel (activable/désactivable) de statistiques d'utilisation agrégées vers ScoutMagic, avec aperçu exact de ce qui est transmis et sans aucune donnée de membre ; génération à la demande d'une archive de diagnostic (chiffrée, réservée au superadmin, jamais transmise automatiquement)
-- Modules optionnels : gestion financière (import de relevés bancaires, reçus, créances), articles actualités/événements avec formulaires d'inscription et paiement, calendrier d'activités avec flux ICS, galerie photo/vidéo (stockage local ou S3), groupes de discussion privés par section, location des biens de l'unité (locaux, terrains, tentes, remorques, matériel), tableaux de rétrospective post-activité, trombinoscope du staff, envoi de mails groupés, bannières de la page d'accueil, statistiques des membres, transfert d'appel du numéro d'urgence de l'unité
-- Intégration IA optionnelle (extraction de données de reçus, génération de texte RGPD, modération des rétrospectives, résumés d'articles)
+- Modules optionnels : gestion financière (import de relevés bancaires, reçus, créances), articles actualités/événements avec formulaires d'inscription et paiement, calendrier d'activités avec flux ICS, galerie photo/vidéo (stockage local ou S3), groupes de discussion privés par section, location des biens de l'unité (locaux, terrains, tentes, remorques, matériel), courrier entrant en lecture seule (IMAP), tableaux de rétrospective post-activité, trombinoscope du staff, envoi de mails groupés, bannières de la page d'accueil, statistiques des membres, transfert d'appel du numéro d'urgence de l'unité
+- Location des biens : calendrier de disponibilité public, demandes en ligne sans compte, moteur tarifaire (nuits ou jours pleins, minimum facturable, catégories de locataire), contrat et facture versionnés en PDF, acompte/solde/caution via le module Finances, relevés de compteurs et état des lieux, décompte final, publication de l'occupation au calendrier de l'unité sans jamais nommer le locataire, registre de conformité par bien et rappels automatiques
+- Courrier entrant : passerelle IMAP **en lecture seule** vers une ou plusieurs boîtes de l'unité — aucun message n'est jamais marqué comme lu, déplacé ni supprimé sur le serveur distant. Les réponses des locataires sont rattachées automatiquement à la bonne réservation ; un message qu'aucun module ne reconnaît n'est jamais enregistré
+- Intégration IA optionnelle (extraction de données de reçus, génération de texte RGPD, modération des rétrospectives, résumés d'articles, lecture d'un index de compteur sur photo, classement d'une pièce jointe reçue par email) — l'IA propose toujours, elle ne décide jamais : aucune suggestion ne modifie une donnée métier sans validation humaine
 
 ## Prérequis
 
@@ -227,6 +229,12 @@ Voir [CONTRIBUTING.md](CONTRIBUTING.md) pour les recommandations de contribution
 ## Développement de modules
 
 Voir [docs/module-development.md](docs/module-development.md) pour savoir comment créer un module.
+
+## Guides
+
+- [docs/rental-guide.md](docs/rental-guide.md) — louer les biens de l'unité, pour le Staff d'U et les gestionnaires
+- [docs/inbound-mail-setup.md](docs/inbound-mail-setup.md) — connecter une boîte mail en lecture seule, pour le superadministrateur
+- [docs/support-statistics.md](docs/support-statistics.md) — statistiques d'utilisation et archive de diagnostic
 
 ## Licence
 

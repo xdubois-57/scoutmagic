@@ -21,6 +21,41 @@
 
         {% include '@rental/management/_nav.html.twig' %}
 
+        {% if statistics %}
+            {#
+              Three figures, no graph and no dedicated page (§6.34). They read
+              the live bookings AND the anonymous aggregates a purge left
+              behind — otherwise the year's revenue would drop to zero on the
+              morning the purge ran, and nobody would know why.
+            #}
+            <div class="row g-3 mb-4">
+                <div class="col-4">
+                    <div class="card h-100">
+                        <div class="card-body text-center">
+                            <div class="h4 mb-0">{{ statistics.pending }}</div>
+                            <div class="form-text">Demandes en attente</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-4">
+                    <div class="card h-100">
+                        <div class="card-body text-center">
+                            <div class="h4 mb-0">{{ statistics.occupied_days }}</div>
+                            <div class="form-text">Jours loués cette année</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-4">
+                    <div class="card h-100">
+                        <div class="card-body text-center">
+                            <div class="h4 mb-0">{{ (statistics.revenue_cents / 100)|number_format(2, ',', ' ') }} €</div>
+                            <div class="form-text">Revenu de l'année</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">À traiter</h2>

@@ -215,6 +215,15 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Rental\Task\SendRentalRemindersHandler::TASK_KEY,
         new \Modules\Rental\Task\SendRentalRemindersHandler()
     );
+
+    // The retention purge (§6.35), same shape. Its self-built service
+    // reaches everything except `inbound_mail`; under a real crontab a
+    // purged booking's emails are cleaned up on the next web-path run.
+    $runner->registerHandler(
+        'rental',
+        \Modules\Rental\Task\PurgeRentalBookingsHandler::TASK_KEY,
+        new \Modules\Rental\Task\PurgeRentalBookingsHandler()
+    );
 }
 
 // Inbound mail's polling task (§7.4) is the one module task that cannot be

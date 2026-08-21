@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -732,6 +732,13 @@
       "type": "text",
       "label": "Intitulés proposés au registre de conformité",
       "description": "Liste, séparée par des virgules, des intitulés proposés comme point de départ dans le registre de conformité d'un bien. Ce ne sont que des suggestions : n'importe quel autre intitulé peut être saisi. ScoutMagic ne connaît aucune règle réglementaire et ne vérifie aucune conformité — le registre rappelle uniquement ce qui expire."
+    },
+    {
+      "key": "purge_retention_years",
+      "default_value": "7",
+      "type": "number",
+      "label": "Rétention des réservations (années)",
+      "description": "Nombre d'années pendant lesquelles une réservation et ses documents sont conservés, comptées depuis la clôture de l'exercice comptable contenant le séjour — pas depuis le séjour lui-même, pour que toutes les locations d'un même exercice se purgent ensemble. Passé ce délai, la réservation, ses lignes, ses documents, ses jetons, ses relevés et les emails qui lui sont rattachés sont supprimés définitivement ; seule subsiste une ligne d'agrégat anonyme (bien, mois, nombre de jours, montant) pour que les statistiques de l'année restent justes. La valeur par défaut de 7 ans reprend l'usage comptable belge courant : c'est une aide, jamais un conseil juridique."
     }
   ],
   "cookies": [],
@@ -743,6 +750,10 @@
     {
       "key": "send_rental_reminders",
       "handler": "Modules\\Rental\\Task\\SendRentalRemindersHandler"
+    },
+    {
+      "key": "purge_rental_bookings",
+      "handler": "Modules\\Rental\\Task\\PurgeRentalBookingsHandler"
     }
   ],
   "storage": {

@@ -364,6 +364,16 @@ class RentalTestHelper
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
+        $pdo->exec('CREATE TABLE rental_booking_aggregates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            stay_month TEXT NOT NULL,
+            occupied_days INTEGER NOT NULL DEFAULT 0,
+            amount_cents INTEGER NOT NULL DEFAULT 0,
+            scout_year_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
         $pdo->exec('CREATE TABLE rental_reminders_sent (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             subject_type TEXT NOT NULL,

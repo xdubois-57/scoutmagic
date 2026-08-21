@@ -175,14 +175,35 @@
                         <p class="small text-body-secondary mb-1">{{ warning }}</p>
                     {% endfor %}
 
-                    <p class="small text-body-secondary mb-0">
+                    <p class="small text-body-secondary mb-2">
                         Estimation indicative, sans engagement.
                     </p>
+
+                    {#
+                      The way into the request form (§6.13). Placed after the
+                      estimate rather than beside the calendar on purpose: a
+                      visitor should see what it costs before they are asked
+                      for their name, and the dates they chose travel with
+                      them so they do not retype what they just picked.
+                    #}
+                    <a class="btn btn-primary"
+                       href="/locations/{{ asset.slug }}/demande?arrival={{ selection[0] }}&departure={{ selection[1] }}{{ form_persons ? '&persons=' ~ form_persons : '' }}{{ form_units > 1 ? '&units=' ~ form_units : '' }}{{ form_category ? '&category=' ~ form_category : '' }}">
+                        Introduire une demande
+                    </a>
                 {% else %}
-                    <p class="text-body-secondary fst-italic mb-0">
+                    <p class="text-body-secondary fst-italic mb-2">
                         Choisissez une date d'arrivée et une date de départ dans le calendrier
                         pour obtenir une estimation.
                     </p>
+
+                    {#
+                      Offered here too, not only after an estimate: somebody
+                      who already knows what they want should not have to
+                      price it first, and a page whose only way forward is a
+                      form they did not ask for is a dead end.
+                    #}
+                    <a class="btn btn-outline-primary"
+                       href="/locations/{{ asset.slug }}/demande">Introduire une demande</a>
                 {% endif %}
             </div>
         </div>

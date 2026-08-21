@@ -386,6 +386,26 @@ A module may want to use a capability offered by another module — e.g. `financ
 
 This keeps both modules independently activatable in any combination without either one breaking.
 
+## Letting another module contribute to yours (a mutable registry)
+
+The third shape, after "core extended by a module" and "a module using another module's capability": a module whose own output another module **contributes to**. `calendar` renders a calendar and `rental` has occupancy that belongs on it; `inbound_mail` reads a mailbox and `rental` knows which of its bookings a message is about. Neither pair can be wired with a plain constructor dependency, because that would be a cycle.
+
+The pattern (`ARCHITECTURE.md` §7.6), in the order you build it:
+
+1. **The extended module publishes the contribution interface** under its own `Api` namespace, plus the value objects it exchanges — `Modules\Calendar\Api\VirtualEventProviderInterface` with `VirtualEvent` and `VirtualEventViewer`; `Modules\InboundMail\Api\MessageConsumerInterface` with `CandidateMessage` and `MessageClaim`. **None of these ever names a contributing module.** If one did, disabling the contributor would break the extended module at autoload time rather than leaving it with one fewer source, and a test should assert that it does not.
+2. **The extended module owns a mutable registry** (`Service\VirtualEventRegistry`, `Service\MessageConsumerRegistry`) and hands **the object** — never a snapshot of its contents — to its own controllers and services.
+3. **The composition root creates the registry inside the extended module's block**, seeded `null` above it so the variable is defined whichever modules are enabled. The contributing module's block, which runs later in the straight-line script, guards on `!== null` and appends its provider. A contributor registered after the extended module's controllers were constructed still reaches them, which is exactly what breaks the cycle.
+
+Three rules a contribution interface should impose, because the alternative fails quietly:
+
+- **One call per window, never one per entity or per day.** A month view carries dozens of items and a feed hundreds.
+- **Rights resolved once per generation**, handed in as one resolved viewer object rather than re-derived per item.
+- **Build only what the viewer may see.** Put the privacy decision *before* serialisation, in separate builders rather than one builder with a flag — a field that is never constructed cannot leak through a template, a JSON payload or an ICS line.
+
+And two rules for the registry itself: **swallow a contributor's exception** (one module in trouble must not take the extended module down) and **deduplicate on a stable, contributor-owned identifier** rather than a generated one, so the same underlying thing reaching a reader twice is one item.
+
+Test both directions of disabling. The contributor must degrade to "feature not offered", and the extended module must work with an empty registry — including producing a valid, complete output rather than a truncated one.
+
 ## Storing media in a gallery album you own (`Modules\Gallery\Api`)
 
 A module that needs to store photos or videos should not build its own upload, thumbnail, storage-backend and retention machinery — the `gallery` module already has all of it, and its `Api` namespace exposes it as a **delegated album**: a real gallery album that belongs to your module, never listed in the gallery's own pages, whose access rule is entirely yours.
@@ -607,3 +627,16 @@ If your form has its own, differently-scoped rate limiting already (e.g. a per-e
 - Every route must have `role_min`.
 - All code and comments in English; all UI text in French.
 - Automated tests are mandatory for every feature. If your module ships its own `public/assets/js/` behavior that is deterministic and reasonably decoupled from the DOM (not just wiring existing core components like the chip picker together), add a Vitest spec under `tests/js/` exercising it — see `AGENTS.md` § Tests and `ARCHITECTURE.md` § 15. Your module's own PHP-side JavaScript never needs a Node/build dependency to ship — the test tooling stays dev-only.
+
+## Reading a mailbox (`Modules\InboundMail\Api`)
+
+A module that needs the replies people send about its own objects — a booking, an invoice, a registration — should not build IMAP, MIME parsing and attachment handling of its own. The `inbound_mail` module has all of it, and consuming it is the registry pattern above with one extra rule.
+
+1. **Implement `Api\MessageConsumerInterface`.** `consumerId()` returns a stable string (your module id). `claim(CandidateMessage)` answers *which of my objects is this about* — returning `null` for "not mine", **and also for "several of mine"**: attaching a message to whichever of two candidates sorted first is worse than not attaching it, because the person reading the wrong file has no way to know. `onMessageStored(InboundMessage)` runs after the message is written, and is where you do your own bookkeeping (turning attachments into your own documents, for instance).
+2. **Try the reliable identifications first.** An explicit reference in the subject, then the thread headers (`InboundMailInterface::findReferenceByThread()` resolves those for you — you cannot look inside the other module's storage, and should not), then anything weaker, bounded. Record which one answered: `Api\LinkOrigin` carries it, and your interface should show a weak match as the guess it is.
+3. **Register the consumer in the composition root**, guarded on the registry existing.
+4. **Consume `Api\InboundMailInterface` as a nullable dependency** for everything else — listing a thread, detaching, moving, purging. Every method is scoped to your consumer id and one business reference, and there is deliberately no way to ask for anything broader.
+
+Two things this module guarantees so you do not have to: **nothing is ever written to the remote mailbox**, and **a message nobody claims is never stored**. The second is the one to keep in mind while writing `claim()` — a permissive matcher does not just mis-file a message, it turns the site into an archive of somebody's mailbox.
+
+What your own module still owns: whether the *user* in front of you may reach the reference you are asking about. `inbound_mail` cannot know your authorisation rules, so it does not try.

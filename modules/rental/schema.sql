@@ -1060,3 +1060,38 @@ CREATE TABLE IF NOT EXISTS rental_reminders_sent (
     UNIQUE KEY idx_rental_reminder_once (subject_type, subject_id, reminder_key),
     KEY idx_rental_reminder_sent_on (sent_on)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- rental_booking_aggregates: what survives a purge (§6.35).
+--
+-- **One anonymous row per booking, and nothing that can be tied back to a
+-- person.** No booking id, no reference, no token, no file, no name — the
+-- asset, the month, the number of days and the amount, which is exactly
+-- what the overview's three figures need and nothing more.
+--
+-- It exists because the alternative is worse in both directions: keeping
+-- the booking forever to keep the statistics, or letting the year's revenue
+-- drop to zero on the morning the purge runs. The aggregate is written when
+-- the booking is purged, not before, so a live booking is never counted
+-- twice (§6.34 reads both sources).
+--
+-- Deliberately carries no foreign key to rental_bookings: the row it
+-- describes is gone by the time this one matters.
+CREATE TABLE IF NOT EXISTS rental_booking_aggregates (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT UNSIGNED NOT NULL,
+    -- 'YYYY-MM' of the arrival. A month rather than a date: a date plus an
+    -- asset plus an amount is close enough to a fingerprint of one letting
+    -- to be worth blunting, and no statistic here needs the day.
+    stay_month CHAR(7) NOT NULL,
+    -- Days occupied, so §6.34's "days let this year" survives the purge.
+    occupied_days SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    -- The agreed price in cents, security deposit excluded — a deposit is
+    -- not revenue, it is somebody else's money held briefly.
+    amount_cents INT UNSIGNED NOT NULL DEFAULT 0,
+    -- Which accounting year this fell in, so a purge and a statistic agree
+    -- on what "this year" means.
+    scout_year_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_rental_aggregate_asset_month (asset_id, stay_month),
+    KEY idx_rental_aggregate_year (scout_year_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
