@@ -174,6 +174,26 @@ class MemberEmailRepository
     }
 
     /**
+     * Every currently-'valid' row matching this blind index, decrypted —
+     * the plaintext twin of findMemberIdsByValidBlindIndex(), for the one
+     * caller that needs the address itself and not just the members it
+     * reaches: Core\Security\AuthService, which gives a secondary address
+     * logging in for the first time its own user_accounts row and has
+     * nothing but the magic link's blind index to go on.
+     *
+     * @return MemberEmail[]
+     */
+    public function findValidByBlindIndex(string $blindIndex): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM member_emails WHERE email_blind_index = ? AND status = 'valid' ORDER BY id"
+        );
+        $stmt->execute([$blindIndex]);
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Whether this exact (member, address) pair has been unsubscribed —
      * Core\Security\RoleResolver's extension point for the one Desk-
      * address exception (schema/core.sql): unlike every other Desk-

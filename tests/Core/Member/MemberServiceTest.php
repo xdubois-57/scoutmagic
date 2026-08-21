@@ -241,6 +241,102 @@ class MemberServiceTest extends TestCase
     }
 
     /**
+     * Logging in with a member's own confirmed secondary address must land
+     * on that member — and on that member ONLY. Before this, the address
+     * had no linked member at all, which is why AuthService used to attach
+     * such a login to the account behind the member's primary address (and
+     * so to every member THAT address is linked to).
+     */
+    public function testGetLinkedMembersResolvesAValidSecondaryAddress(): void
+    {
+        $service = $this->serviceWithSecondaryEmails();
+        $memberYearId = $this->createTestMember($this->testEmail, 'Baloo');
+        $this->createTestMember($this->testEmail, 'Mowgli');
+        $this->addSecondaryEmail($this->memberIdOf($memberYearId), 'alias@example.com', 'valid');
+
+        $members = $service->getLinkedMembers('alias@example.com', $this->scoutYearId);
+
+        $this->assertCount(1, $members);
+        $this->assertSame('Baloo', $members[0]->getDisplayName());
+    }
+
+    public function testGetLinkedMembersIgnoresAPendingOrInactiveSecondaryAddress(): void
+    {
+        $service = $this->serviceWithSecondaryEmails();
+        $memberYearId = $this->createTestMember($this->testEmail, 'Baloo');
+        $memberId = $this->memberIdOf($memberYearId);
+        $this->addSecondaryEmail($memberId, 'pending@example.com', 'pending');
+        $this->addSecondaryEmail($memberId, 'gone@example.com', 'inactive');
+
+        $this->assertEmpty($service->getLinkedMembers('pending@example.com', $this->scoutYearId));
+        $this->assertEmpty($service->getLinkedMembers('gone@example.com', $this->scoutYearId));
+    }
+
+    public function testGetLinkedMembersDoesNotDuplicateAMemberMatchingBothPaths(): void
+    {
+        $service = $this->serviceWithSecondaryEmails();
+        $memberYearId = $this->createTestMember($this->testEmail, 'Baloo');
+        $this->addSecondaryEmail($this->memberIdOf($memberYearId), $this->testEmail, 'valid');
+
+        $this->assertCount(1, $service->getLinkedMembers($this->testEmail, $this->scoutYearId));
+    }
+
+    public function testCanAccessAndIsLinkedToMemberAcceptAValidSecondaryAddress(): void
+    {
+        $service = $this->serviceWithSecondaryEmails();
+        $memberYearId = $this->createTestMember($this->testEmail, 'Baloo');
+        $otherMemberYearId = $this->createTestMember('someone.else@example.com', 'Kaa');
+        $memberId = $this->memberIdOf($memberYearId);
+        $this->addSecondaryEmail($memberId, 'alias@example.com', 'valid');
+
+        $this->assertTrue($service->canAccess('alias@example.com', $memberYearId, 'identified'));
+        $this->assertTrue($service->isLinkedToMember('alias@example.com', $memberId, $this->scoutYearId));
+
+        // ...and nothing beyond that member.
+        $this->assertFalse($service->canAccess('alias@example.com', $otherMemberYearId, 'identified'));
+        $this->assertFalse(
+            $service->isLinkedToMember('alias@example.com', $this->memberIdOf($otherMemberYearId), $this->scoutYearId)
+        );
+    }
+
+    private function serviceWithSecondaryEmails(): MemberService
+    {
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return new MemberService(
+            memberYearRepo: new \Core\Import\MemberYearRepository($this->pdo),
+            encryption: $encryption,
+            connection: \Core\Database\Connection::withPdo($this->pdo),
+            temporaryMemberProvider: null,
+            memberEmailRepo: new \Core\Member\MemberEmailRepository($this->pdo, $encryption)
+        );
+    }
+
+    private function memberIdOf(int $memberYearId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT member_id FROM member_years WHERE id = ?');
+        $stmt->execute([$memberYearId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    private function addSecondaryEmail(int $memberId, string $email, string $status): void
+    {
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
+             VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId,
+            $encryption->encrypt($email, 'member_emails.email'),
+            $encryption->blindIndex(strtolower($email), 'email'),
+            'manual',
+            $status,
+        ]);
+    }
+
+    /**
      * Creates a confirmed, main function for $memberYearId with the given
      * role and section desk_code (creating the section on the fly if
      * needed) — the exact shape isUnitChief() reads via getMainFunction().

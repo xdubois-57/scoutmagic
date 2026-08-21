@@ -11,6 +11,7 @@ namespace Modules\Gallery\Api;
 use Core\Config\ScoutYearService;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
+use Core\Member\MemberEmailRepository;
 use Core\Member\MemberService;
 use Core\Badge\MemberBadgeRepository;
 use Core\Member\SectionService;
@@ -84,7 +85,13 @@ final class DelegatedAlbumManagerFactory
             new SchedulerService(new SchedulerRepository($pdo)),
             $context->settings,
             new GalleryAccessService(
-                new MemberService(new MemberYearRepository($pdo), $context->encryption, $context->connection),
+                new MemberService(
+                    new MemberYearRepository($pdo),
+                    $context->encryption,
+                    $context->connection,
+                    null,
+                    new MemberEmailRepository($pdo, $context->encryption)
+                ),
                 new SectionService($context->connection, $context->encryption, new MemberBadgeRepository($pdo)),
                 $scoutYearService
             ),
