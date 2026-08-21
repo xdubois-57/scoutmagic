@@ -277,6 +277,129 @@ class ExpectedReceivableServiceTest extends TestCase
         $this->assertSame('unpaid', $statuses[$unpaidId]['status']);
     }
 
+    // ── updateReceivableAmount() ────────────────────────────────────────
+
+    public function testUpdatingTheAmountKeepsTheCommunicationAndTheMatchedPayments(): void
+    {
+        // Deleting and recreating would mint a new communication and orphan
+        // the transfer the payer already made — the amount has to move in
+        // place.
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $this->createTransaction('Acompte +++100/0000/00034+++', 200.00);
+
+        $this->service->updateReceivableAmount($id, 40000);
+
+        $status = $this->service->getReceivableStatus($id);
+        $this->assertSame(40000, $status['amount_due']);
+        $this->assertSame(20000, $status['amount_received']);
+        $this->assertSame('partial', $status['status']);
+    }
+
+    public function testRaisingTheAmountTurnsAPaidReceivableBackIntoAPartialOne(): void
+    {
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 20000, '+++100/0000/00034+++', null);
+        $this->createTransaction('Solde +++100/0000/00034+++', 200.00);
+        $this->assertSame('paid', $this->service->getReceivableStatus($id)['status']);
+
+        $this->service->updateReceivableAmount($id, 25000);
+
+        $this->assertSame('partial', $this->service->getReceivableStatus($id)['status']);
+    }
+
+    public function testLoweringBelowWhatHasAlreadyComeInIsRefused(): void
+    {
+        // Silently producing an overpayment is how a refund nobody knows
+        // about happens: the receivable reads "paid", the surplus sits on
+        // the account, and nothing says somebody is owed money.
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $this->createTransaction('Paiement +++100/0000/00034+++', 300.00);
+
+        $this->expectException(FinanceException::class);
+        $this->expectExceptionMessageMatches('/trop-per/');
+
+        $this->service->updateReceivableAmount($id, 25000);
+    }
+
+    public function testARefusedLoweringChangesNothing(): void
+    {
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $this->createTransaction('Paiement +++100/0000/00034+++', 300.00);
+
+        try {
+            $this->service->updateReceivableAmount($id, 25000);
+            $this->fail('Lowering below the received amount must be refused.');
+        } catch (FinanceException) {
+            // Expected.
+        }
+
+        $this->assertSame(46750, $this->service->getReceivableStatus($id)['amount_due']);
+    }
+
+    public function testLoweringBelowTheReceivedAmountGoesThroughWhenTheCallerSaysSo(): void
+    {
+        // The caller has stated it knows it is creating an overpayment, and
+        // owes the payer the difference.
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $this->createTransaction('Paiement +++100/0000/00034+++', 300.00);
+
+        $this->service->updateReceivableAmount($id, 25000, allowBelowReceived: true);
+
+        $status = $this->service->getReceivableStatus($id);
+        $this->assertSame(25000, $status['amount_due']);
+        $this->assertSame(30000, $status['amount_received']);
+        // Reads "paid" because more came in than is due — which is exactly
+        // the state the flag exists to make deliberate.
+        $this->assertSame('paid', $status['status']);
+    }
+
+    public function testLoweringToExactlyWhatCameInIsNotAnOverpaymentAndIsAllowed(): void
+    {
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $this->createTransaction('Paiement +++100/0000/00034+++', 300.00);
+
+        $this->service->updateReceivableAmount($id, 30000);
+
+        $this->assertSame('paid', $this->service->getReceivableStatus($id)['status']);
+    }
+
+    public function testLoweringToZeroOnAnUnpaidReceivableNeedsNoConfirmation(): void
+    {
+        // Nothing has come in, so there is no overpayment to warn about —
+        // the guard is about money already received, not about the amount.
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+
+        $this->service->updateReceivableAmount($id, 0);
+
+        $this->assertSame(0, $this->service->getReceivableStatus($id)['amount_due']);
+    }
+
+    public function testANegativeAmountIsRefused(): void
+    {
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+
+        $this->expectException(FinanceException::class);
+        $this->expectExceptionMessageMatches('/négatif/');
+
+        $this->service->updateReceivableAmount($id, -100);
+    }
+
+    public function testUpdatingAReceivableThatDoesNotExistIsRefused(): void
+    {
+        $this->expectException(FinanceException::class);
+
+        $this->service->updateReceivableAmount(9999, 1000);
+    }
+
+    public function testUpdatingOneReceivableLeavesTheOthersAlone(): void
+    {
+        $first = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $second = $this->service->createReceivable('rental', 4, $this->accountId, 12000, '+++100/0000/00047+++', null);
+
+        $this->service->updateReceivableAmount($first, 40000);
+
+        $this->assertSame(12000, $this->service->getReceivableStatus($second)['amount_due']);
+    }
+
     private function createTransaction(string $label, float $amount): void
     {
         $this->transactionRepository->create(

@@ -3222,12 +3222,31 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $rentalOccupancyProviders
     );
 
+    $rentalEventRepository = new \Modules\Rental\Repository\RentalBookingEventRepository($pdo);
+    $rentalCommentRepository = new \Modules\Rental\Repository\RentalBookingCommentRepository($pdo, $encryptionService);
+    $rentalChangeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository($pdo, $encryptionService);
+    // Payments (§6.19, §6.20). Every Finance dependency is nullable and
+    // stays null when the module is disabled — the service then degrades to
+    // "no receivable, no QR, nothing raised" and the rest of `rental` is
+    // unaffected. A unit that settles its rentals by hand is a perfectly
+    // normal unit (ARCHITECTURE.md §7.5).
+    $rentalPaymentRepository = new \Modules\Rental\Repository\RentalPaymentRepository($pdo, $encryptionService);
+    $rentalPaymentService = new \Modules\Rental\Service\RentalPaymentService(
+        $rentalPaymentRepository,
+        $rentalEventRepository,
+        $journalService,
+        $financeExpectedReceivableForOthers,
+        $financeStructuredCommunicationForOthers,
+        $financeSepaQrCodeForOthers,
+        $financeAccountForOthers
+    );
+
     $frontController->registerController(
         \Modules\Rental\Controller\RentalConfigController::class,
         new \Modules\Rental\Controller\RentalConfigController(
             $twig, $rentalAssetRepository, $rentalAssetService, $rentalManagerService,
             $memberService, $scoutYearService, $settingService, $rentalPricingService,
-            $rentalAvailabilityService
+            $rentalAvailabilityService, $rentalPaymentService
         )
     );
     $frontController->registerController(
@@ -3243,9 +3262,6 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             $rentalAvailabilityService, $rentalPricingService, new \Core\View\MonthGrid\DayStateGridBuilder()
         )
     );
-    $rentalEventRepository = new \Modules\Rental\Repository\RentalBookingEventRepository($pdo);
-    $rentalCommentRepository = new \Modules\Rental\Repository\RentalBookingCommentRepository($pdo, $encryptionService);
-    $rentalChangeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository($pdo, $encryptionService);
     $rentalOperationsService = new \Modules\Rental\Service\RentalOperationsService(
         $rentalBookingRepository,
         $rentalEventRepository,
@@ -3254,7 +3270,8 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $rentalAvailabilityService,
         $rentalPricingService,
         new \Modules\Rental\Pricing\QuoteEditor(),
-        $journalService
+        $journalService,
+        $rentalPaymentService
     );
     $rentalBlockService = new \Modules\Rental\Service\RentalBlockService(
         $rentalBlockRepository,
@@ -3268,7 +3285,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             $rentalBookingRepository, $rentalEventRepository, $rentalCommentRepository,
             $rentalChangeRequestRepository, $rentalOperationsService, $rentalBlockService,
             $rentalAvailabilityService, $rentalPricingService, $memberService,
-            new \Core\View\MonthGrid\DayStateGridBuilder()
+            new \Core\View\MonthGrid\DayStateGridBuilder(), $rentalPaymentService
         )
     );
     $frontController->registerController(

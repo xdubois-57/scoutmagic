@@ -1,0 +1,143 @@
+{#
+  "Paiements" — the asset's money configuration (§6.19, §6.20).
+
+  Entirely optional and off by default. Without the Finance module this
+  section explains that rather than offering a picker with nothing in it: a
+  unit that settles its rentals by hand is a perfectly normal unit, and it
+  must not meet a half-working screen.
+
+  Two distinct things live here and must not be confused. The DEPOSIT is a
+  threshold on the single rental receivable — same communication as the
+  balance, because two communications would let a renter settle the wrong
+  one. The SECURITY DEPOSIT is a separate receivable with its own
+  communication, and never counts as rental revenue.
+
+  Requires `selected_asset`, `payment_settings`, `finance_available` and
+  `finance_accounts`.
+#}
+<div class="card mb-4" id="paiements">
+    <div class="card-body">
+        <h2 class="h5 mb-1">Paiements</h2>
+
+        {% if not finance_available %}
+            <p class="text-body-secondary small mb-0">
+                Le module « Finances » n'est pas actif sur ce site. Les locations fonctionnent
+                normalement sans lui : aucune créance n'est créée et le suivi des paiements se fait
+                hors ScoutMagic. Activez « Finances » pour demander un acompte, un solde et une
+                caution depuis ici.
+            </p>
+        {% else %}
+            <p class="text-body-secondary small mb-3">
+                Une seule créance est créée pour toute la location. L'acompte n'est pas une créance
+                séparée : c'est un <strong>seuil</strong> atteint dès que le montant reçu l'atteint,
+                avec la même communication structurée que le solde. La caution, elle, est bien une
+                créance distincte, avec sa propre communication — et elle n'entre jamais dans le
+                revenu de location.
+            </p>
+
+            <form method="post" action="/admin/locations/payments">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
+
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="payments-enabled" name="payments_enabled"
+                           {{ payment_settings.enabled ? 'checked' : '' }}>
+                    <label class="form-check-label" for="payments-enabled">
+                        Demander les paiements de ce bien via Finances
+                    </label>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label" for="finance-account">Compte</label>
+                    <select class="form-select" id="finance-account" name="finance_account_id">
+                        <option value="">—</option>
+                        {% for account in finance_accounts %}
+                            <option value="{{ account.id }}"
+                                    {{ payment_settings.financeAccountId == account.id ? 'selected' : '' }}>
+                                {{ account.name }}{% if account.iban %} ({{ account.iban }}){% endif %}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">
+                        Le compte sur lequel les virements sont attendus. Sans IBAN sur ce compte,
+                        aucun QR code SEPA ne peut être proposé au locataire.
+                    </div>
+                </div>
+
+                <h3 class="h6 mt-4">Acompte</h3>
+                <div class="row g-3 mb-3">
+                    <div class="col-12 col-md-4">
+                        <label class="form-label" for="deposit-mode">Type</label>
+                        <select class="form-select" id="deposit-mode" name="deposit_mode">
+                            {% for mode in deposit_modes %}
+                                <option value="{{ mode.value }}"
+                                        {{ payment_settings.depositMode.value == mode.value ? 'selected' : '' }}>
+                                    {{ mode.label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="deposit-amount">Montant fixe (€)</label>
+                        <input type="text" class="form-control" id="deposit-amount" name="deposit_amount"
+                               inputmode="decimal"
+                               value="{{ payment_settings.depositAmountCents is not null
+                                   ? (payment_settings.depositAmountCents / 100)|number_format(2, ',', '') : '' }}">
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label" for="deposit-percentage">Pourcentage</label>
+                        <input type="number" min="0" max="100" class="form-control" id="deposit-percentage"
+                               name="deposit_percentage" value="{{ payment_settings.depositPercentage }}">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="deposit-due-days">Échéance (jours)</label>
+                        <input type="number" min="0" class="form-control" id="deposit-due-days"
+                               name="deposit_due_days" value="{{ payment_settings.depositDueDays }}">
+                        <div class="form-text">Après la confirmation.</div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label" for="balance-due-days">Échéance du solde (jours)</label>
+                    <input type="number" min="0" class="form-control" id="balance-due-days"
+                           name="balance_due_days" value="{{ payment_settings.balanceDueDays }}"
+                           style="max-width: 12rem;">
+                    <div class="form-text">Après la confirmation également. Laissez vide pour ne rien annoncer.</div>
+                </div>
+
+                <h3 class="h6 mt-4">Caution</h3>
+                <p class="text-body-secondary small">
+                    La caution fait l'objet d'une créance distincte, avec sa propre communication.
+                    Sa <strong>restitution se saisit à la main</strong> : Finances rapproche les
+                    virements entrants, pas les sortants — c'est une limite assumée, pas un oubli.
+                </p>
+                <div class="row g-3 mb-3">
+                    <div class="col-12 col-md-4">
+                        <div class="form-check mt-4">
+                            <input class="form-check-input" type="checkbox" id="security-deposit-enabled"
+                                   name="security_deposit_enabled"
+                                   {{ payment_settings.securityDepositEnabled ? 'checked' : '' }}>
+                            <label class="form-check-label" for="security-deposit-enabled">
+                                Demander une caution
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-4">
+                        <label class="form-label" for="security-deposit-amount">Montant (€)</label>
+                        <input type="text" class="form-control" id="security-deposit-amount"
+                               name="security_deposit_amount" inputmode="decimal"
+                               value="{{ payment_settings.securityDepositAmountCents is not null
+                                   ? (payment_settings.securityDepositAmountCents / 100)|number_format(2, ',', '') : '' }}">
+                    </div>
+                    <div class="col-6 col-md-4">
+                        <label class="form-label" for="security-deposit-due-days">Échéance (jours)</label>
+                        <input type="number" min="0" class="form-control" id="security-deposit-due-days"
+                               name="security_deposit_due_days" value="{{ payment_settings.securityDepositDueDays }}">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Enregistrer les paiements</button>
+            </form>
+        {% endif %}
+    </div>
+</div>

@@ -48,6 +48,21 @@ class ExpectedReceivableRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * Changes what a receivable expects, keeping its communication.
+     *
+     * Deleting and recreating would mint a new communication and orphan
+     * every transfer the payer already made against the old one — the
+     * amount has to move in place.
+     */
+    public function updateAmount(int $id, int $amountDueCents): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE finance_expected_receivables SET amount_due_cents = ? WHERE id = ?'
+        );
+        $stmt->execute([$amountDueCents, $id]);
+    }
+
     public function findById(int $id): ?ExpectedReceivable
     {
         $stmt = $this->pdo->prepare('SELECT * FROM finance_expected_receivables WHERE id = ?');
