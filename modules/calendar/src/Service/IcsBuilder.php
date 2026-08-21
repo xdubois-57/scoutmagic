@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Calendar\Service;
 
+use Modules\Calendar\Api\VirtualEvent;
 use Modules\Calendar\Repository\CalendarEvent;
 
 /**
@@ -22,8 +23,12 @@ class IcsBuilder
 
     /**
      * @param CalendarEvent[] $events
+     * @param VirtualEvent[] $virtualEvents Events another module computes on
+     *   the fly (Api\VirtualEventProviderInterface). They render through the
+     *   same code as stored ones — one generator behind both paths — and
+     *   carry their own stable UID rather than a `cal-event-` one.
      */
-    public function build(string $calendarName, array $events): string
+    public function build(string $calendarName, array $events, array $virtualEvents = []): string
     {
         $lines = [
             'BEGIN:VCALENDAR',
@@ -38,6 +43,10 @@ class IcsBuilder
 
         foreach ($events as $event) {
             array_push($lines, ...$this->buildEventBlock($event));
+        }
+
+        foreach ($virtualEvents as $virtualEvent) {
+            array_push($lines, ...$this->buildVirtualEventBlock($virtualEvent));
         }
 
         $lines[] = 'END:VCALENDAR';
@@ -125,6 +134,74 @@ class IcsBuilder
         $lines[] = $this->property('SEQUENCE', (string) $event->sequence);
         $lines[] = $this->property('LAST-MODIFIED', $this->formatUtc(
             new \DateTimeImmutable($event->updatedAt, new \DateTimeZone('UTC'))
+        ));
+
+        $lines[] = 'END:VEVENT';
+
+        return $lines;
+    }
+
+    /**
+     * The same VEVENT shape as a stored event, from a provider's DTO.
+     *
+     * Deliberately its own method rather than a conversion into
+     * `CalendarEvent`: a virtual event carries two things a stored one has
+     * no column for — its own UID and a cancelled flag — and faking a
+     * `CalendarEvent` to reuse the block would mean inventing an id that
+     * would then collide with a real event's UID.
+     *
+     * @return string[]
+     */
+    private function buildVirtualEventBlock(VirtualEvent $event): array
+    {
+        $lines = ['BEGIN:VEVENT'];
+        $lines[] = $this->property('UID', $event->uid);
+        $lines[] = $this->property('DTSTAMP', $this->formatUtc(new \DateTimeImmutable('now', new \DateTimeZone('UTC'))));
+
+        if ($event->isAllDay()) {
+            // DTEND for an all-day event is exclusive per RFC 5545 — the
+            // day after the last day the event actually occupies.
+            $exclusiveEnd = (new \DateTimeImmutable($event->endDate, new \DateTimeZone('UTC')))->modify('+1 day');
+
+            $lines[] = $this->property(
+                'DTSTART',
+                (new \DateTimeImmutable($event->startDate, new \DateTimeZone('UTC')))->format('Ymd'),
+                ['VALUE' => 'DATE']
+            );
+            $lines[] = $this->property('DTEND', $exclusiveEnd->format('Ymd'), ['VALUE' => 'DATE']);
+        } else {
+            $start = new \DateTimeImmutable(
+                $event->startDate . ' ' . $event->startTime,
+                new \DateTimeZone(self::TIMEZONE_ID)
+            );
+            $lines[] = $this->property('DTSTART', $start->format('Ymd\THis'), ['TZID' => self::TIMEZONE_ID]);
+
+            $end = new \DateTimeImmutable(
+                $event->endDate . ' ' . ($event->endTime ?? $event->startTime),
+                new \DateTimeZone(self::TIMEZONE_ID)
+            );
+            $lines[] = $this->property('DTEND', $end->format('Ymd\THis'), ['TZID' => self::TIMEZONE_ID]);
+        }
+
+        $lines[] = $this->property('SUMMARY', $this->escapeText($event->title));
+
+        if ($event->location !== null && $event->location !== '') {
+            $lines[] = $this->property('LOCATION', $this->escapeText($event->location));
+        }
+        if ($event->description !== null && $event->description !== '') {
+            $lines[] = $this->property('DESCRIPTION', $this->escapeText($event->description));
+        }
+        if ($event->url !== null && $event->url !== '') {
+            $lines[] = $this->property('URL', $this->escapeText($event->url));
+        }
+
+        // A cancelled event is PUBLISHED as cancelled, never omitted: a
+        // subscriber who already has it needs to be told it is off, and
+        // dropping it from the feed leaves it in their calendar forever.
+        $lines[] = $this->property('STATUS', $event->isCancelled ? 'CANCELLED' : 'CONFIRMED');
+        $lines[] = $this->property('SEQUENCE', (string) $event->sequence);
+        $lines[] = $this->property('LAST-MODIFIED', $this->formatUtc(
+            ($event->updatedAt ?? new \DateTimeImmutable('now'))->setTimezone(new \DateTimeZone('UTC'))
         ));
 
         $lines[] = 'END:VEVENT';

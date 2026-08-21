@@ -22,10 +22,23 @@ use Modules\Calendar\Service\CalendarPickerService;
 use Modules\Calendar\Service\CalendarService;
 use Modules\Calendar\Service\IcsBuilder;
 use Modules\Calendar\Service\PersonalFeedService;
+use Modules\Calendar\Api\VirtualEventViewer;
+use Modules\Calendar\Service\VirtualEventRegistry;
 use Twig\Environment;
 
 class CalendarPublicController extends AbstractController
 {
+    /**
+     * How far an ICS feed reaches, either way.
+     *
+     * Bounded on purpose (§6.31): a subscribed client re-fetches these
+     * every few hours forever, and "every event ever" is not a thing to
+     * ask a provider to enumerate. A year back covers the history anybody
+     * scrolls to; two years ahead covers any booking anybody has made.
+     */
+    private const FEED_MONTHS_BACK = 12;
+    private const FEED_MONTHS_AHEAD = 24;
+
     public function __construct(
         protected Environment $twig,
         private CalendarService $calendarService,
@@ -34,7 +47,15 @@ class CalendarPublicController extends AbstractController
         private PersonalFeedService $personalFeedService,
         private IcsBuilder $icsBuilder,
         private ScoutYearResolver $scoutYearResolver,
-        private JournalService $journalService
+        private JournalService $journalService,
+        /**
+         * Where other modules plug in computed events (§7.6). Optional so
+         * the controller stays constructible without one; in practice
+         * `public/index.php` always passes the shared registry, which the
+         * rental block appends to further down — see
+         * Service\VirtualEventRegistry for why that ordering works.
+         */
+        private ?VirtualEventRegistry $virtualEventRegistry = null
     ) {
     }
 
@@ -152,7 +173,14 @@ class CalendarPublicController extends AbstractController
             return (new Response('Calendrier introuvable.', 404))->setHeader('Content-Type', 'text/plain; charset=utf-8');
         }
 
-        return $this->icsResponse($calendar->name ?? 'Calendrier', $this->calendarService->getAllEventsForCalendar($calendar->id));
+        // A calendar's own public token has NO identified reader at all, so
+        // the viewer carries no email and every provider gives it the
+        // least detailed rendering it has (§6.30).
+        return $this->icsResponse(
+            $calendar->name ?? 'Calendrier',
+            $this->calendarService->getAllEventsForCalendar($calendar->id),
+            $this->virtualEventsFor([$calendar->id], null)
+        );
     }
 
     /**
@@ -178,7 +206,11 @@ class CalendarPublicController extends AbstractController
             array_push($events, ...$this->calendarService->getAllEventsForCalendar($calendarId));
         }
 
-        return $this->icsResponse('Unité complète', $events);
+        return $this->icsResponse(
+            'Unité complète',
+            $events,
+            $this->virtualEventsFor($allCalendarIds, null)
+        );
     }
 
     /**
@@ -195,7 +227,20 @@ class CalendarPublicController extends AbstractController
 
         $events = $this->personalFeedService->getEventsForToken($token, $effectiveYear['id']);
 
-        return $this->icsResponse('Mon calendrier', $events);
+        // The one feed with a real, identified reader — and therefore the
+        // only one where a provider may build the detailed rendering
+        // (§6.30, §6.32). Enriching the existing personal feed rather than
+        // adding a second one is deliberate: two feeds would mean two links
+        // to subscribe to and two chances to see the same booking twice.
+        return $this->icsResponse(
+            'Mon calendrier',
+            $events,
+            $this->personalFeedService->getVirtualEventsForToken(
+                $token,
+                $effectiveYear['id'],
+                $this->virtualEventRegistry
+            )
+        );
     }
 
     /**
@@ -238,9 +283,45 @@ class CalendarPublicController extends AbstractController
     /**
      * @param \Modules\Calendar\Repository\CalendarEvent[] $events
      */
-    private function icsResponse(string $name, array $events): Response
+    /**
+     * Events other modules compute, for a reader looking at $calendarIds.
+     *
+     * **The window is bounded**, exactly as the calendar bounds its own
+     * feeds: a provider asked for "everything" would be asked to enumerate
+     * an unbounded range, and an ICS feed is fetched by a subscribed client
+     * every few hours forever.
+     *
+     * @param int[] $calendarIds
+     * @return \Modules\Calendar\Api\VirtualEvent[]
+     */
+    private function virtualEventsFor(array $calendarIds, ?string $viewerEmail): array
     {
-        $ics = $this->icsBuilder->build($name, $events);
+        if ($this->virtualEventRegistry === null || !$this->virtualEventRegistry->hasProviders()) {
+            return [];
+        }
+
+        $today = new \DateTimeImmutable('today');
+        $effectiveYear = $this->scoutYearResolver->getCurrentPublicYear();
+
+        return $this->virtualEventRegistry->collect(
+            $today->modify('-' . self::FEED_MONTHS_BACK . ' months'),
+            $today->modify('+' . self::FEED_MONTHS_AHEAD . ' months'),
+            new VirtualEventViewer(
+                Role::fromString('public'),
+                $viewerEmail,
+                (int) $effectiveYear['id'],
+                $calendarIds
+            )
+        );
+    }
+
+    /**
+     * @param \Modules\Calendar\Repository\CalendarEvent[] $events
+     * @param \Modules\Calendar\Api\VirtualEvent[] $virtualEvents
+     */
+    private function icsResponse(string $name, array $events, array $virtualEvents = []): Response
+    {
+        $ics = $this->icsBuilder->build($name, $events, $virtualEvents);
 
         return (new Response($ics))
             ->setHeader('Content-Type', 'text/calendar; charset=utf-8')

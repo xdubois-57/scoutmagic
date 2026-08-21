@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -64,6 +64,15 @@
           "Notre unité"
         ]
       }
+    },
+    {
+      "path": "/locations/suivi/{id}/{token}/calendrier.ics",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalRequestController",
+      "action": "renterFeed",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
     },
     {
       "path": "/locations/{slug}",
@@ -307,6 +316,15 @@
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
       "action": "validateSettlement",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/calendrier-publication",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "saveCalendarPublication",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""

@@ -132,6 +132,23 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     security_deposit_amount_cents INT UNSIGNED NULL,
     security_deposit_due_days SMALLINT UNSIGNED NULL,
 
+    -- ── Calendar publication (§6.30) ─────────────────────────────────
+    -- Occupancy is published as VIRTUAL events (§6.31): nothing is ever
+    -- written to `calendar_events`, so the booking stays the single source
+    -- of truth and the two can never disagree. With the `calendar` module
+    -- disabled these columns are simply never read.
+    calendar_publication_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    -- Which calendar the occupancy appears on. Points into the calendar
+    -- module and is reached only through its public API, so there is
+    -- deliberately no foreign key — a constraint would make `rental`
+    -- unusable without `calendar`.
+    calendar_id INT UNSIGNED NULL,
+    -- 'confirmation' | 'hold'. Publishing from the hold shows the unit its
+    -- own pencilled-in dates; publishing from confirmation shows only what
+    -- is actually let. Neither is right for everyone, which is why it is a
+    -- choice rather than a rule.
+    calendar_publish_from VARCHAR(20) NOT NULL DEFAULT 'confirmation',
+
     -- ── Invoicing (§6.27) ────────────────────────────────────────────
     -- **No VAT is ever computed.** Prices are what the renter pays, full
     -- stop. A unit letting a hall is not a VAT-registered business in the

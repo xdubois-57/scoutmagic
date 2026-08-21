@@ -13,6 +13,7 @@ use Core\Member\SectionService;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
 use Core\Security\UserAccountRepository;
+use Modules\Calendar\Api\VirtualEventViewer;
 use Modules\Calendar\Repository\CalendarEvent;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarPersonalTokenRepository;
@@ -58,6 +59,64 @@ class PersonalFeedService
         $token = $this->calendarService->generateToken();
         $this->tokenRepository->setToken($userAccountId, $token);
         return $token;
+    }
+
+    /**
+     * How far the personal feed reaches, either way — the same bound the
+     * public feeds use (§6.31).
+     */
+    private const FEED_MONTHS_BACK = 12;
+    private const FEED_MONTHS_AHEAD = 24;
+
+    /**
+     * The virtual events another module contributes to this reader's feed
+     * (§6.32).
+     *
+     * **Enriches the existing personal feed rather than adding a second
+     * one.** Two feeds would mean two links to subscribe to and two chances
+     * to end up with the same booking twice; one feed with a stable UID per
+     * booking means a client that already has an event updates it in place.
+     *
+     * This is the only ICS path with a real, identified reader, so it is
+     * the only one where a provider may build its detailed rendering — and
+     * the rights behind that are recomputed here, at generation time, never
+     * cached from when the token was issued. A manager who lost their grant
+     * yesterday must stop seeing the detail today, and a token that
+     * remembered their old rights would be a permanent leak.
+     *
+     * @return \Modules\Calendar\Api\VirtualEvent[]
+     */
+    public function getVirtualEventsForToken(
+        string $token,
+        int $scoutYearId,
+        ?VirtualEventRegistry $registry
+    ): array {
+        if ($registry === null || !$registry->hasProviders()) {
+            return [];
+        }
+
+        $userAccountId = $this->tokenRepository->findUserAccountIdByToken($token);
+        if ($userAccountId === null) {
+            return [];
+        }
+
+        $userAccount = $this->userAccountRepository->findById($userAccountId);
+        if ($userAccount === null) {
+            return [];
+        }
+
+        $today = new \DateTimeImmutable('today');
+
+        return $registry->collect(
+            $today->modify('-' . self::FEED_MONTHS_BACK . ' months'),
+            $today->modify('+' . self::FEED_MONTHS_AHEAD . ' months'),
+            new VirtualEventViewer(
+                Role::fromString($this->roleResolver->resolve($userAccount->email, $scoutYearId)),
+                $userAccount->email,
+                $scoutYearId,
+                $this->resolveCalendarIdsForEmail($userAccount->email, $scoutYearId)
+            )
+        );
     }
 
     /**

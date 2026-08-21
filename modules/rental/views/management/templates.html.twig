@@ -78,6 +78,80 @@
             </div>
         {% endfor %}
 
+        {# ── Calendar publication (§6.30) ──────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Publication dans le calendrier</h2>
+
+                {% if not calendar_available %}
+                    <p class="text-body-secondary small mb-0">
+                        Le module « Calendrier » n'est pas actif sur ce site. Les locations
+                        fonctionnent normalement sans lui : l'occupation reste visible sur le
+                        calendrier du bien, dans cet espace.
+                    </p>
+                {% else %}
+                    <p class="text-body-secondary small">
+                        L'occupation apparaît comme <strong>événement calculé</strong> : rien n'est
+                        jamais écrit dans le calendrier, la réservation reste la seule source de
+                        vérité. Un lecteur ordinaire voit
+                        « <em>{{ asset.name }} — loué</em> » et rien d'autre ; seuls les
+                        gestionnaires du bien et le staff d'unité voient le détail. Ce n'est pas
+                        configurable.
+                    </p>
+
+                    <form method="post" action="/mes-locations/calendrier-publication" class="row g-3">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="publication-enabled"
+                                       name="publication_enabled"
+                                       {{ asset.calendarPublicationEnabled ? 'checked' : '' }}>
+                                <label class="form-check-label" for="publication-enabled">
+                                    Publier l'occupation de ce bien dans un calendrier
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" for="publication-calendar">Calendrier</label>
+                            <select class="form-select" id="publication-calendar" name="calendar_id">
+                                <option value="">—</option>
+                                {% for calendar in calendars %}
+                                    <option value="{{ calendar.id }}"
+                                            {{ asset.calendarId == calendar.id ? 'selected' : '' }}>
+                                        {{ calendar.name }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" for="publication-from">Publier à partir de</label>
+                            <select class="form-select" id="publication-from" name="publish_from">
+                                {% for option in publish_from_options %}
+                                    <option value="{{ option.value }}"
+                                            {{ asset.calendarPublishFrom.value == option.value ? 'selected' : '' }}>
+                                        {{ option.label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">
+                                {% for option in publish_from_options %}
+                                    {% if asset.calendarPublishFrom.value == option.value %}{{ option.explanation }}{% endif %}
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-primary">Enregistrer la publication</button>
+                        </div>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+
         {# ── Meters (§6.22) ────────────────────────────────────────── #}
         <div class="card mb-4">
             <div class="card-body">

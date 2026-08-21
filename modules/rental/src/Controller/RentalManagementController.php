@@ -25,7 +25,9 @@ use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
+use Modules\Calendar\Service\CalendarService;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Calendar\PublishFrom;
 use Modules\Rental\Document\DocumentKeywords;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Payment\PaymentSettings;
@@ -135,7 +137,16 @@ class RentalManagementController extends AbstractController
         private ?RentalDocumentService $documentService = null,
         private ?RentalBookingMailService $mailService = null,
         private ?UploadHandler $uploadHandler = null,
-        private ?RentalStayService $stayService = null
+        private ?RentalStayService $stayService = null,
+        /**
+         * Optional (§6.31): null without the `calendar` module, in which
+         * case the publication section explains that instead of offering a
+         * picker with nothing in it. `rental` consuming `calendar` is one
+         * half of the circular dependency — see
+         * Modules\Calendar\Service\VirtualEventRegistry for how the other
+         * half is wired.
+         */
+        private ?CalendarService $calendarService = null
     ) {
         parent::__construct($twig);
     }
@@ -709,6 +720,16 @@ class RentalManagementController extends AbstractController
                 static fn($fee) => $fee->nature === \Modules\Rental\Pricing\RentalFee::NATURE_METER
             )),
             'inventory_template' => $this->stayService?->inventoryTemplateFor($asset->id) ?? [],
+            // Calendar publication (§6.30). With the module off there is
+            // nothing to publish onto, and the section says so.
+            'calendar_available' => $this->calendarService !== null,
+            'calendars' => $this->calendarService !== null
+                ? [
+                    ...$this->calendarService->getSectionCalendars(),
+                    ...$this->calendarService->getSupplementaryCalendars(),
+                ]
+                : [],
+            'publish_from_options' => PublishFrom::all(),
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'templates',
         ]);
@@ -801,6 +822,51 @@ class RentalManagementController extends AbstractController
         } catch (RentalException $e) {
             FlashMessage::set('danger', $e->getMessage());
         }
+
+        return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
+    }
+
+    /**
+     * POST /mes-locations/calendrier-publication — where this asset's
+     * occupancy is published (§6.30).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveCalendarPublication(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Forbidden', 403);
+        }
+
+        $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
+        if ($asset === null || $this->calendarService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $calendarId = (int) $request->getBody('calendar_id', 0);
+        $enabled = $request->getBody('publication_enabled') !== null;
+
+        if ($enabled && $calendarId <= 0) {
+            // Half-configured is worse than off: an asset that says
+            // "publish" but has nowhere to publish to looks like it works.
+            FlashMessage::set('danger', 'Choisissez le calendrier sur lequel publier cette occupation.');
+
+            return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
+        }
+
+        $this->assetRepository->saveCalendarPublication(
+            $asset->id,
+            $enabled,
+            $calendarId > 0 ? $calendarId : null,
+            PublishFrom::tryFrom((string) $request->getBody('publish_from', '')) ?? PublishFrom::CONFIRMATION
+        );
+
+        FlashMessage::set(
+            'success',
+            $enabled
+                ? "Publication activée. L'occupation apparaît comme événement calculé : rien n'est écrit dans le calendrier."
+                : 'Publication désactivée.'
+        );
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
     }

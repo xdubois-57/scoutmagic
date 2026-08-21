@@ -241,6 +241,42 @@ class RentalBookingRepository
     }
 
     /**
+     * Every booking of **several** assets overlapping a window, in ONE
+     * query.
+     *
+     * The calendar provider's entry point (§6.31): a month view or an ICS
+     * feed asks once for the whole range across every publishing asset.
+     * One query per asset would turn a unit with six lettable things into
+     * six queries per calendar render, and the ICS feed into far more.
+     *
+     * Cancelled, refused and expired bookings are **included on purpose**:
+     * a subscriber who already has the event has to be told it is off
+     * (§6.32), and the caller decides what to do with it. Filtering them
+     * out here would make that impossible.
+     *
+     * @param int[] $assetIds
+     * @return RentalBooking[]
+     */
+    public function findForAssetsBetween(array $assetIds, string $from, string $to): array
+    {
+        if ($assetIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($assetIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM rental_bookings
+             WHERE asset_id IN ({$placeholders})
+               AND arrival_date <= ?
+               AND departure_date >= ?
+             ORDER BY arrival_date ASC, id ASC"
+        );
+        $stmt->execute([...array_values($assetIds), $to, $from]);
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * @param int[] $assetIds
      * @return RentalBooking[]
      */
