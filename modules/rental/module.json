@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -177,6 +177,69 @@
       "label": ""
     },
     {
+      "path": "/mes-locations/gabarit",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "saveTemplate",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/document-texte",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "saveDocumentText",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/document-generer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "generateDocument",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/document-envoyer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "sendDocument",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/document-ajouter",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "uploadDocument",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/document-supprimer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "deleteDocument",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/facturation",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "saveBillingIdentity",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/mes-locations/{slug}",
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
@@ -186,6 +249,38 @@
       "label": "",
       "breadcrumb": {
         "label": "Gestion",
+        "parents": [
+          "Espace animés",
+          "Mes locations"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "templates",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Gabarits",
+        "parents": [
+          "Espace animés",
+          "Mes locations"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/reservations/{id}/document/{type}",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "documentEditor",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Document",
         "parents": [
           "Espace animés",
           "Mes locations"
@@ -447,5 +542,9 @@
       "handler": "Modules\\Rental\\Task\\ExpireRentalHoldsHandler"
     }
   ],
-  "storage": {}
+  "storage": {
+    "rental/documents": {
+      "role_min": "identified"
+    }
+  }
 }

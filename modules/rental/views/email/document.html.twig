@@ -1,0 +1,28 @@
+{#
+  A generated document on its way to the renter (§6.24, §6.26).
+
+  The document is ATTACHED, never linked: an external renter downloads
+  nothing from this site, so there is no URL here to hand out and nothing to
+  guess. A lost email is resent by a manager, which is the whole recourse.
+#}
+<p>Bonjour {{ booking.renterName }},</p>
+
+{% if is_resend %}
+    <p>
+        Voici à nouveau votre <strong>{{ document_label|lower }}</strong> pour la location
+        <strong>{{ booking.reference }}</strong> ({{ asset.name }}), en pièce jointe.
+    </p>
+{% else %}
+    <p>
+        Vous trouverez en pièce jointe votre <strong>{{ document_label|lower }}</strong> pour la location
+        <strong>{{ booking.reference }}</strong> ({{ asset.name }}),
+        du {{ booking.arrivalDate }} au {{ booking.departureDate }}.
+    </p>
+{% endif %}
+
+<p>
+    Conservez ce document : il ne peut pas être téléchargé depuis le site. Si vous le perdez,
+    demandez-nous simplement de vous le renvoyer.
+</p>
+
+<p>Bien à vous,<br>{{ site_name }}</p>

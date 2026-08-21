@@ -84,6 +84,9 @@ class RentalManagementControllerTest extends TestCase
     private int $scoutYearId;
     private int $assetId;
     private int $otherAssetId;
+    private string $storagePath;
+    private \Core\File\FileRepository $fileRepository;
+    private \Modules\Rental\Service\RentalDocumentService $documentService;
 
     protected function setUp(): void
     {
@@ -147,6 +150,22 @@ class RentalManagementControllerTest extends TestCase
         $this->twig->addGlobal('current_path', '/mes-locations');
         $this->twig->addGlobal('csp_nonce', 'test-nonce');
 
+        $this->storagePath = sys_get_temp_dir() . '/rental_mgmt_' . bin2hex(random_bytes(6));
+        mkdir($this->storagePath, 0755, true);
+        $this->fileRepository = new \Core\File\FileRepository($this->pdo);
+        $this->documentService = new \Modules\Rental\Service\RentalDocumentService(
+            new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
+            $this->bookingRepository,
+            $eventRepository,
+            new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
+            $this->fileRepository,
+            new \Core\Pdf\DocumentPdfService(),
+            new \Core\Security\HtmlSanitizer(),
+            $settingService,
+            $journal,
+            $this->storagePath
+        );
+
         $this->controller = new RentalManagementController(
             $this->twig,
             new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository),
@@ -161,7 +180,11 @@ class RentalManagementControllerTest extends TestCase
             $availabilityService,
             $this->pricingService,
             $memberService,
-            new DayStateGridBuilder()
+            new DayStateGridBuilder(),
+            null,
+            $this->documentService,
+            $this->createMock(\Modules\Rental\Service\RentalBookingMailService::class),
+            new \Core\File\UploadHandler($this->fileRepository, $this->storagePath)
         );
 
         $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
@@ -179,6 +202,15 @@ class RentalManagementControllerTest extends TestCase
         AuthSession::logout();
         $_SESSION = [];
         $_POST = [];
+
+        // The document tests write real PDFs; leaving them behind would
+        // fill the runner's temp directory over a full suite.
+        foreach (glob($this->storagePath . '/rental/documents/*') ?: [] as $file) {
+            @unlink($file);
+        }
+        @rmdir($this->storagePath . '/rental/documents');
+        @rmdir($this->storagePath . '/rental');
+        @rmdir($this->storagePath);
     }
 
     // ── Fixtures ────────────────────────────────────────────────────────
@@ -364,6 +396,11 @@ class RentalManagementControllerTest extends TestCase
             ['/mes-locations/ligne', 'priceLine', ['line_action' => 'recalculate']],
             ['/mes-locations/proposition', 'propose', ['kind' => 'dates']],
             ['/mes-locations/demande', 'decideChange', ['request_id' => '1', 'decision' => 'accept']],
+            ['/mes-locations/document-texte', 'saveDocumentText', ['document_type' => 'contract', 'body' => 'x']],
+            ['/mes-locations/document-generer', 'generateDocument', ['document_type' => 'contract']],
+            ['/mes-locations/document-envoyer', 'sendDocument', ['document_id' => '1']],
+            ['/mes-locations/document-supprimer', 'deleteDocument', ['document_id' => '1']],
+            ['/mes-locations/facturation', 'saveBillingIdentity', ['billing_name' => 'x']],
         ];
 
         foreach ($actions as [$path, $action, $body]) {
@@ -704,6 +741,209 @@ class RentalManagementControllerTest extends TestCase
         ]);
 
         $this->assertSame('2027-07-08', $this->bookingRepository->findById($booking->id)?->arrivalDate);
+    }
+
+    // ── Documents (§6.24, §6.25) ────────────────────────────────────────
+
+    private function setContractTemplate(string $body = '<p>Contrat pour {{ locataire_nom }}.</p>'): void
+    {
+        (new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)))
+            ->set(\Modules\Rental\Document\DocumentType::CONTRACT->templateKey($this->assetId), $body, 'rich_text', 1);
+    }
+
+    public function testAManagerGeneratesAContractAndItIsListedOnTheBooking(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+
+        $response = $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $documents = $this->documentService->forBooking($booking->id);
+        $this->assertCount(1, $documents);
+        $this->assertSame('contrat-LOC-2027-0001-v1.pdf', $documents[0]->originalName);
+    }
+
+    public function testRegeneratingAddsAVersionRatherThanReplacingTheFirst(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+
+        for ($i = 0; $i < 2; $i++) {
+            $this->post('/mes-locations/document-generer', 'generateDocument', [
+                'asset_id' => (string) $this->assetId,
+                'booking_id' => (string) $booking->id,
+                'document_type' => 'contract',
+            ]);
+        }
+
+        $versions = array_map(
+            static fn($d) => $d->version,
+            $this->documentService->forBooking($booking->id)
+        );
+        sort($versions);
+        $this->assertSame([1, 2], $versions);
+    }
+
+    public function testAContractOfAnotherAssetsBookingCannotBeGeneratedHere(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+
+        $response = $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $foreign->id,
+            'document_type' => 'contract',
+        ]);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame([], $this->documentService->forBooking($foreign->id));
+    }
+
+    public function testADocumentOfAnotherBookingCannotBeDeletedThroughThisOne(): void
+    {
+        // A document id alone must not be enough: the booking check is the
+        // guard that matters.
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $mine = $this->createBooking(null, 'LOC-2027-0001');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreignDocumentId = $this->documentService->attachUploaded(
+            $foreign,
+            $this->fileRepository->create('rental/documents/x.pdf', 'x.pdf', 'application/pdf', 1, 'identified', 'rental', null),
+            \Modules\Rental\Document\DocumentType::OTHER,
+            false
+        );
+
+        $this->post('/mes-locations/document-supprimer', 'deleteDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $mine->id,
+            'document_id' => (string) $foreignDocumentId,
+        ]);
+
+        $this->assertNotNull($this->documentService->find($foreignDocumentId));
+    }
+
+    public function testAnEmptyTemplateIsReportedRatherThanProducingABlankContract(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+
+        $this->assertSame([], $this->documentService->forBooking($booking->id));
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('danger', $flash['type'] ?? null);
+    }
+
+    public function testAPhotoCannotBeGeneratedBecauseItIsUploadOnly(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'photo',
+        ]);
+
+        $this->assertSame([], $this->documentService->forBooking($booking->id));
+    }
+
+    public function testAnUnknownKeywordIsReportedWhenSavingABookingsText(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/document-texte', 'saveDocumentText', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+            'body' => '<p>{{ reference }} et {{ prix_ttc }}</p>',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('warning', $flash['type'] ?? null);
+        $this->assertStringContainsString('prix_ttc', $flash['message'] ?? '');
+    }
+
+    public function testTheTemplateEditorIsRefusedToANonManager(): void
+    {
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+
+        $this->assertSame(404, $this->get(
+            '/mes-locations/{slug}/gabarits',
+            '/mes-locations/local-saint-georges/gabarits',
+            'templates'
+        )->getStatusCode());
+    }
+
+    public function testTheTemplateEditorIsReachableByAManager(): void
+    {
+        $this->loginAsManager();
+
+        $body = (string) $this->get(
+            '/mes-locations/{slug}/gabarits',
+            '/mes-locations/local-saint-georges/gabarits',
+            'templates'
+        )->getBody();
+
+        $this->assertStringContainsString('Gabarits', $body);
+        $this->assertStringContainsString('{{ locataire_nom }}', $body);
+    }
+
+    public function testTheDocumentEditorIsRefusedForAnotherAssetsBooking(): void
+    {
+        $this->loginAsManager();
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+
+        $router = new Router();
+        $router->addRoute(
+            'GET',
+            '/mes-locations/{slug}/reservations/{id}/document/{type}',
+            RentalManagementController::class,
+            'documentEditor',
+            'identified'
+        );
+        $response = $this->dispatch($router, new Request(
+            'GET',
+            '/mes-locations/local-saint-georges/reservations/' . $foreign->id . '/document/contract',
+            [],
+            [],
+            [],
+            []
+        ));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testTheBillingIdentityIsSavedFromTheBookingPage(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/facturation', 'saveBillingIdentity', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'billing_name' => 'ASBL Les Scouts',
+            'billing_country' => 'be',
+            'billing_vat_number' => 'BE0123456789',
+        ]);
+
+        $identity = $this->bookingRepository->findBillingIdentity($booking->id);
+        $this->assertSame('ASBL Les Scouts', $identity['name']);
+        $this->assertSame('BE', $identity['country']);
     }
 
     public function testAChangeRequestOfAnotherBookingCannotBeDecidedHere(): void

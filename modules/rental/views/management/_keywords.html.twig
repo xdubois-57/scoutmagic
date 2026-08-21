@@ -1,0 +1,35 @@
+{#
+  The keyword panel shown beside a template editor (§6.25).
+
+  The list is CLOSED: a template can say exactly these things and nothing
+  else. Anything else it asks for is reported at edit time rather than
+  rendered as literal braces in a signed contract.
+
+  Requires `keywords`.
+#}
+<details class="mb-3">
+    <summary class="fw-semibold">Mots-clés disponibles</summary>
+    <p class="text-body-secondary small mt-2">
+        Écrivez-les tels quels dans le texte : ils seront remplacés à la génération du document.
+        Un mot-clé sans valeur (pas d'organisation, pas de caution…) devient un tiret.
+    </p>
+    <div class="table-responsive">
+        <table class="table table-sm">
+            <caption class="visually-hidden">Mots-clés utilisables dans un gabarit</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Mot-clé</th>
+                    <th scope="col">Valeur</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for keyword in keywords %}
+                    <tr>
+                        <td><code>{{ keyword.placeholder }}</code></td>
+                        <td class="small">{{ keyword.description }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</details>

@@ -31,7 +31,14 @@ final class RentalAsset
         public readonly ?string $emergencyPhone,
         public readonly bool $isArchived,
         public readonly bool $isPublic,
-        public readonly bool $showInMenu
+        public readonly bool $showInMenu,
+        /**
+         * The sentence an invoice for this asset carries instead of a VAT
+         * line (§6.27). **No VAT is ever computed** — a unit letting a hall
+         * is not a VAT-registered business in the general case — but a
+         * Belgian invoice with no VAT on it has to say why.
+         */
+        public readonly ?string $vatExemptionNote = null
     ) {
     }
 
