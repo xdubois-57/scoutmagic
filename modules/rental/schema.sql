@@ -455,6 +455,18 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- encrypted like every other such field.
     security_deposit_note_encrypted BLOB NULL,
 
+    -- ── The stay (§6.21, §6.23) ──────────────────────────────────────
+    -- The version counter for this booking's settlements. Forward-only,
+    -- never MAX(version) over the surviving rows: a deleted v2 must not
+    -- make the next settlement v2 again, since v2 may already have been
+    -- sent. Same reasoning as document versions and booking references.
+    settlement_last_version SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    -- Whether the inventory checklist has been copied in from the asset
+    -- (§6.23). A flag rather than "are there rows?", because an asset with
+    -- an empty checklist snapshots legitimately into zero rows, and
+    -- re-snapshotting later would overwrite a completed inventory.
+    inventory_snapshotted TINYINT(1) NOT NULL DEFAULT 0,
+
     -- ── Billing identity (§6.27) ─────────────────────────────────────
     -- Collected when it becomes relevant, not at the request form: an
     -- anonymous visitor asking about a weekend has no reason to type a VAT
@@ -759,5 +771,214 @@ CREATE TABLE IF NOT EXISTS rental_booking_document_texts (
 
     UNIQUE KEY uniq_rental_booking_document_text (booking_id, document_type),
     CONSTRAINT fk_rental_booking_document_texts_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Meters (§6.22)
+-- ─────────────────────────────────────────────────────────────────────
+--
+-- What can be read on an asset — electricity, gas, water, anything else.
+-- Each one points at the `meter`-nature fee that prices it, which is the
+-- fee iteration 2 already refused to put in a quote because its amount is
+-- not merely unknown before the stay, it is unknowable.
+CREATE TABLE IF NOT EXISTS rental_meters (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT UNSIGNED NOT NULL,
+    label VARCHAR(120) NOT NULL,
+    -- 'electricity' | 'gas' | 'water' | 'other'. Presentation only: the
+    -- arithmetic is identical for all of them, and inventing a kind-specific
+    -- calculation is how a module ends up unable to meter something nobody
+    -- thought of.
+    meter_kind VARCHAR(20) NOT NULL DEFAULT 'other',
+    -- "kWh", "m³". Shown beside every reading so a number is never naked.
+    unit VARCHAR(20) NOT NULL DEFAULT '',
+    -- The `meter` fee that prices a unit read. Null means "read it, but do
+    -- not bill it" — a legitimate choice for a meter kept for evidence.
+    fee_id INT UNSIGNED NULL,
+    sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    KEY idx_rental_meters_asset (asset_id, sort_order),
+    CONSTRAINT fk_rental_meters_asset
+        FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Meter readings (§6.22)
+-- ─────────────────────────────────────────────────────────────────────
+--
+-- **Stored in thousandths of a unit, as an integer.** A meter index is not
+-- money, but it has money's problem: 1234.567 kWh in a float, differenced
+-- against another float and multiplied by a unit price, is how a bill ends
+-- up a cent off in a way nobody can reproduce. Integers make the
+-- subtraction exact, and the one rounding that does happen is the final
+-- multiplication into cents, where it belongs.
+CREATE TABLE IF NOT EXISTS rental_meter_readings (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    meter_id INT UNSIGNED NOT NULL,
+    -- 'arrival' | 'departure'. One of each per meter and booking: a second
+    -- arrival reading is a correction, and corrections replace rather than
+    -- accumulate, or consumption becomes a guess about which pair to use.
+    phase VARCHAR(20) NOT NULL,
+    value_milli BIGINT NOT NULL,
+    read_at DATETIME NOT NULL,
+    -- Optional photo of the dial. Goes through UploadHandler and is served
+    -- only through FileAccessGuard, like every other rental file.
+    file_id INT UNSIGNED NULL,
+    -- Free text about the READING — "compteur difficile à lire", "cadran
+    -- remplacé". Same rule as `rental_blocks.reason`: it is about a device,
+    -- never about a person, which is why it is not encrypted and why the
+    -- interface must keep it that way.
+    comment VARCHAR(255) NULL,
+    recorded_by_member_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uniq_rental_meter_reading (booking_id, meter_id, phase),
+    CONSTRAINT fk_rental_meter_readings_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Inventory checklist: the asset's template (§6.23)
+-- ─────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS rental_inventory_items (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT UNSIGNED NOT NULL,
+    label VARCHAR(160) NOT NULL,
+    sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    KEY idx_rental_inventory_items_asset (asset_id, sort_order),
+    CONSTRAINT fk_rental_inventory_items_asset
+        FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Inventory checklist: the booking's snapshot (§6.23)
+-- ─────────────────────────────────────────────────────────────────────
+--
+-- **Copied into the booking at confirmation**, label and all. Editing the
+-- asset's checklist afterwards must not change an inventory somebody
+-- already signed off: an item renamed from "chaises" to "chaises (x40)" in
+-- June would otherwise silently rewrite what was checked in March, and an
+-- item deleted would erase a finding.
+--
+-- One row per item and booking, carrying BOTH phases: an arrival and a
+-- departure state are two observations of the same thing, and splitting
+-- them across rows makes "what changed during the stay?" a join.
+CREATE TABLE IF NOT EXISTS rental_booking_inventory (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    -- The label AS IT WAS at confirmation, not a reference to the template.
+    label VARCHAR(160) NOT NULL,
+    sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+
+    -- 'not_checked' | 'ok' | 'issue' | 'missing'. `not_checked` is the
+    -- honest default and is distinct from `ok`: "nobody looked" and
+    -- "somebody looked and it was fine" are different facts, and conflating
+    -- them is how a missing set of keys becomes nobody's fault.
+    arrival_state VARCHAR(20) NOT NULL DEFAULT 'not_checked',
+    departure_state VARCHAR(20) NOT NULL DEFAULT 'not_checked',
+    arrival_note VARCHAR(255) NULL,
+    departure_note VARCHAR(255) NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    KEY idx_rental_booking_inventory (booking_id, sort_order),
+    CONSTRAINT fk_rental_booking_inventory_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Incidents and damage (§6.23)
+-- ─────────────────────────────────────────────────────────────────────
+--
+-- **The financial decision stays human.** Nothing in this module ever
+-- turns a damage into a charge on its own: a manager proposes an amount,
+-- and a manager decides whether it is billed, withheld from the security
+-- deposit, or waived. An automatic scale would be wrong about the one case
+-- that matters — the group that broke something and immediately said so.
+CREATE TABLE IF NOT EXISTS rental_incidents (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+
+    -- Written by a manager about what a renter's group did, so it is
+    -- personal data in practice and carries the same protection as the
+    -- renter's own fields (SECURITY.md §5).
+    description_encrypted BLOB NOT NULL,
+    proposed_amount_cents INT UNSIGNED NULL,
+
+    -- 'pending' | 'charge' | 'withhold' | 'waive'. `pending` is a real
+    -- state, not a placeholder: an assessment in progress must never leak
+    -- to the renter's page (§6.26), and it is the flag that keeps it off.
+    decision VARCHAR(20) NOT NULL DEFAULT 'pending',
+    decided_amount_cents INT UNSIGNED NULL,
+    decided_at DATETIME NULL,
+    decided_by_member_id INT UNSIGNED NULL,
+
+    -- Optional photo, through UploadHandler and FileAccessGuard.
+    file_id INT UNSIGNED NULL,
+    created_by_member_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    KEY idx_rental_incidents_booking (booking_id, created_at),
+    CONSTRAINT fk_rental_incidents_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ─────────────────────────────────────────────────────────────────────
+-- The final settlement (§6.21)
+-- ─────────────────────────────────────────────────────────────────────
+--
+-- **Its own lines and its own snapshot**, deliberately separate from the
+-- agreed price. The spec is explicit: a settlement must never silently
+-- modify the agreed price. The two answer different questions — "what did
+-- we agree?" and "what does it come to now that the stay has happened?" —
+-- and a module that let the second overwrite the first would lose the
+-- evidence for every dispute it exists to settle.
+--
+-- **Versioned, and a validated version is immutable.** Changing a
+-- settlement after validation produces a new version beside it, exactly
+-- like a contract: v1 may already have been sent, and "modification après
+-- validation est historisée" is the requirement.
+CREATE TABLE IF NOT EXISTS rental_settlements (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    version SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+
+    -- The head count that ACTUALLY turned up, which is what per-person
+    -- charges are recomputed on. Distinct from the booking's estimate,
+    -- which stays as the record of what was announced.
+    final_persons INT UNSIGNED NULL,
+
+    -- The settlement's own lines, self-contained like every other snapshot
+    -- in this module: base, meters read, extra fees, damage. Never a
+    -- reference to live configuration.
+    lines_snapshot MEDIUMTEXT NULL,
+    total_cents INT NOT NULL DEFAULT 0,
+    already_paid_cents INT NOT NULL DEFAULT 0,
+    -- May be NEGATIVE: an overpayment is a real outcome and hiding it
+    -- behind a floor of zero is how a refund nobody knows about happens.
+    balance_cents INT NOT NULL DEFAULT 0,
+
+    security_deposit_withheld_cents INT UNSIGNED NULL,
+    security_deposit_return_cents INT UNSIGNED NULL,
+
+    is_validated TINYINT(1) NOT NULL DEFAULT 0,
+    validated_at DATETIME NULL,
+    validated_by_member_id INT UNSIGNED NULL,
+    created_by_member_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    KEY idx_rental_settlements_booking (booking_id, version),
+    CONSTRAINT fk_rental_settlements_booking
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

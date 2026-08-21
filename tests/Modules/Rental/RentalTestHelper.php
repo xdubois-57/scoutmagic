@@ -158,6 +158,8 @@ class RentalTestHelper
             security_deposit_withheld_cents INTEGER,
             security_deposit_returned_at TEXT,
             security_deposit_note_encrypted BLOB,
+            settlement_last_version INTEGER NOT NULL DEFAULT 0,
+            inventory_snapshotted INTEGER NOT NULL DEFAULT 0,
             billing_name_encrypted BLOB,
             billing_address_encrypted BLOB,
             billing_country TEXT,
@@ -232,6 +234,91 @@ class RentalTestHelper
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (booking_id, document_type),
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_meters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            meter_kind TEXT NOT NULL DEFAULT "other",
+            unit TEXT NOT NULL DEFAULT "",
+            fee_id INTEGER,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_meter_readings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            meter_id INTEGER NOT NULL,
+            phase TEXT NOT NULL,
+            value_milli INTEGER NOT NULL,
+            read_at TEXT NOT NULL,
+            file_id INTEGER,
+            comment TEXT,
+            recorded_by_member_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (booking_id, meter_id, phase),
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_inventory_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_booking_inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            arrival_state TEXT NOT NULL DEFAULT "not_checked",
+            departure_state TEXT NOT NULL DEFAULT "not_checked",
+            arrival_note TEXT,
+            departure_note TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_incidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            description_encrypted BLOB NOT NULL,
+            proposed_amount_cents INTEGER,
+            decision TEXT NOT NULL DEFAULT "pending",
+            decided_amount_cents INTEGER,
+            decided_at TEXT,
+            decided_by_member_id INTEGER,
+            file_id INTEGER,
+            created_by_member_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_settlements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            final_persons INTEGER,
+            lines_snapshot TEXT,
+            total_cents INTEGER NOT NULL DEFAULT 0,
+            already_paid_cents INTEGER NOT NULL DEFAULT 0,
+            balance_cents INTEGER NOT NULL DEFAULT 0,
+            security_deposit_withheld_cents INTEGER,
+            security_deposit_return_cents INTEGER,
+            is_validated INTEGER NOT NULL DEFAULT 0,
+            validated_at TEXT,
+            validated_by_member_id INTEGER,
+            created_by_member_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 

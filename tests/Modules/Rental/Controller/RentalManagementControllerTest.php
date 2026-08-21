@@ -87,6 +87,7 @@ class RentalManagementControllerTest extends TestCase
     private string $storagePath;
     private \Core\File\FileRepository $fileRepository;
     private \Modules\Rental\Service\RentalDocumentService $documentService;
+    private \Modules\Rental\Service\RentalStayService $stayService;
 
     protected function setUp(): void
     {
@@ -125,6 +126,14 @@ class RentalManagementControllerTest extends TestCase
             new RentalConstraintsRepository($this->pdo),
             [new RentalBookingService($this->bookingRepository, $journal), $this->blockRepository]
         );
+        $this->stayService = new \Modules\Rental\Service\RentalStayService(
+            new \Modules\Rental\Repository\RentalStayRepository($this->pdo, $this->encryption),
+            $eventRepository,
+            $this->pricingService,
+            new \Modules\Rental\Stay\SettlementCalculator(),
+            $journal
+        );
+
         $this->operationsService = new RentalOperationsService(
             $this->bookingRepository,
             $eventRepository,
@@ -133,7 +142,12 @@ class RentalManagementControllerTest extends TestCase
             $availabilityService,
             $this->pricingService,
             new QuoteEditor(),
-            $journal
+            $journal,
+            null,
+            // Wired exactly as public/index.php does, so the inventory
+            // snapshot at confirmation is genuinely covered here rather
+            // than only in production.
+            $this->stayService
         );
 
         $this->twig = TwigFactory::create(
@@ -184,7 +198,8 @@ class RentalManagementControllerTest extends TestCase
             null,
             $this->documentService,
             $this->createMock(\Modules\Rental\Service\RentalBookingMailService::class),
-            new \Core\File\UploadHandler($this->fileRepository, $this->storagePath)
+            new \Core\File\UploadHandler($this->fileRepository, $this->storagePath),
+            $this->stayService
         );
 
         $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
@@ -401,6 +416,12 @@ class RentalManagementControllerTest extends TestCase
             ['/mes-locations/document-envoyer', 'sendDocument', ['document_id' => '1']],
             ['/mes-locations/document-supprimer', 'deleteDocument', ['document_id' => '1']],
             ['/mes-locations/facturation', 'saveBillingIdentity', ['billing_name' => 'x']],
+            ['/mes-locations/releve', 'recordReading', ['meter_id' => '1', 'phase' => 'arrival', 'value' => '1000']],
+            ['/mes-locations/inventaire', 'recordInventory', ['inventory_id' => '1', 'phase' => 'arrival', 'state' => 'ok']],
+            ['/mes-locations/incident', 'reportIncident', ['description' => 'x']],
+            ['/mes-locations/incident-decision', 'decideIncident', ['incident_id' => '1', 'decision' => 'charge']],
+            ['/mes-locations/decompte', 'recordSettlement', ['final_persons' => '10']],
+            ['/mes-locations/decompte-valider', 'validateSettlement', ['settlement_id' => '1']],
         ];
 
         foreach ($actions as [$path, $action, $body]) {
@@ -944,6 +965,246 @@ class RentalManagementControllerTest extends TestCase
         $identity = $this->bookingRepository->findBillingIdentity($booking->id);
         $this->assertSame('ASBL Les Scouts', $identity['name']);
         $this->assertSame('BE', $identity['country']);
+    }
+
+    // ── The stay (§6.21–§6.23) ──────────────────────────────────────────
+
+    private function stayPage(string $slug, int $bookingId): \Core\Http\Response
+    {
+        return $this->get(
+            '/mes-locations/{slug}/reservations/{id}/sejour',
+            '/mes-locations/' . $slug . '/reservations/' . $bookingId . '/sejour',
+            'stay'
+        );
+    }
+
+    public function testTheStayPageIsRefusedToANonManager(): void
+    {
+        $booking = $this->createBooking();
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+
+        $this->assertSame(404, $this->stayPage('local-saint-georges', $booking->id)->getStatusCode());
+    }
+
+    public function testTheStayPageOfAnotherAssetsBookingIsA404(): void
+    {
+        $this->loginAsManager();
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+
+        $this->assertSame(404, $this->stayPage('local-saint-georges', $foreign->id)->getStatusCode());
+    }
+
+    public function testTheStayPageSaysItDoesNotWorkOffline(): void
+    {
+        // §6.23: these are write pages, never cached. The page tells a
+        // manager the workaround rather than letting them discover it by
+        // losing an inventory on the way home.
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->stayPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('en ligne', $body);
+        $this->assertStringContainsString('hotographiez sur place', $body);
+    }
+
+    public function testAManagerRecordsAReadingFromTheStayPage(): void
+    {
+        $this->loginAsManager();
+        $meterId = $this->stayService->addMeter(
+            $this->assetId, 'Électricité', \Modules\Rental\Stay\MeterKind::ELECTRICITY, 'kWh', null
+        );
+        $booking = $this->createBooking();
+
+        $response = $this->post('/mes-locations/releve', 'recordReading', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'meter_id' => (string) $meterId,
+            'phase' => 'arrival',
+            'value' => '1234,567',
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            1234567,
+            (int) $this->pdo->query('SELECT value_milli FROM rental_meter_readings')->fetchColumn()
+        );
+    }
+
+    public function testAReadingRedirectsBackToTheStayPageNotTheBookingFile(): void
+    {
+        // A manager recording eight readings should land where they were.
+        $this->loginAsManager();
+        $meterId = $this->stayService->addMeter(
+            $this->assetId, 'Eau', \Modules\Rental\Stay\MeterKind::WATER, 'm³', null
+        );
+        $booking = $this->createBooking();
+
+        $response = $this->post('/mes-locations/releve', 'recordReading', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'meter_id' => (string) $meterId,
+            'phase' => 'arrival',
+            'value' => '12',
+        ]);
+
+        $this->assertStringEndsWith('/sejour', (string) $response->getHeaders()['Location']);
+    }
+
+    public function testAnUnknownPhaseIsRefused(): void
+    {
+        $this->loginAsManager();
+        $meterId = $this->stayService->addMeter(
+            $this->assetId, 'Eau', \Modules\Rental\Stay\MeterKind::WATER, 'm³', null
+        );
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/releve', 'recordReading', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'meter_id' => (string) $meterId,
+            'phase' => 'milieu',
+            'value' => '12',
+        ]);
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM rental_meter_readings')->fetchColumn());
+    }
+
+    public function testAManagerReportsAndThenDecidesAnIncident(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/incident', 'reportIncident', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'description' => 'Vitre cassée',
+            'amount' => '50,00',
+        ]);
+
+        $incidents = $this->stayService->incidentsFor($booking->id);
+        $this->assertCount(1, $incidents);
+        $this->assertSame(5000, $incidents[0]->proposedAmountCents);
+        // Nothing is charged until a human says so.
+        $this->assertSame(\Modules\Rental\Stay\IncidentDecision::PENDING, $incidents[0]->decision);
+
+        $this->post('/mes-locations/incident-decision', 'decideIncident', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'incident_id' => (string) $incidents[0]->id,
+            'decision' => 'withhold',
+            'amount' => '30,00',
+        ]);
+
+        $decided = $this->stayService->incidentsFor($booking->id)[0];
+        $this->assertSame(\Modules\Rental\Stay\IncidentDecision::WITHHOLD, $decided->decision);
+        $this->assertSame(3000, $decided->decidedAmountCents);
+    }
+
+    public function testAnIncidentOfAnotherBookingCannotBeDecidedHere(): void
+    {
+        $this->loginAsManager();
+        $mine = $this->createBooking(null, 'LOC-2027-0001');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreignId = $this->stayService->reportIncident($foreign, 'Vitre cassée', 5000, null, 1);
+
+        $this->post('/mes-locations/incident-decision', 'decideIncident', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $mine->id,
+            'incident_id' => (string) $foreignId,
+            'decision' => 'charge',
+        ]);
+
+        $this->assertSame(
+            \Modules\Rental\Stay\IncidentDecision::PENDING,
+            $this->stayService->incidentsFor($foreign->id)[0]->decision
+        );
+    }
+
+    public function testAManagerRecordsAndValidatesASettlement(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/decompte', 'recordSettlement', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'final_persons' => '28',
+        ]);
+
+        $settlement = $this->stayService->latestSettlement($booking->id);
+        $this->assertNotNull($settlement);
+        $this->assertSame(28, $settlement->finalPersons);
+        $this->assertFalse($settlement->isValidated);
+
+        $this->post('/mes-locations/decompte-valider', 'validateSettlement', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'settlement_id' => (string) $settlement->id,
+        ]);
+
+        $this->assertTrue($this->stayService->latestSettlement($booking->id)?->isValidated);
+    }
+
+    public function testValidatingTwiceIsRefusedAndSaysSo(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $settlement = $this->stayService->recordSettlement($booking, $this->assetId, 28, [], 1);
+        $this->stayService->validateSettlement($booking, $settlement->id, 1);
+
+        $this->post('/mes-locations/decompte-valider', 'validateSettlement', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'settlement_id' => (string) $settlement->id,
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('danger', $flash['type'] ?? null);
+        $this->assertStringContainsString('déjà validé', $flash['message'] ?? '');
+    }
+
+    public function testTheChecklistIsSnapshottedWhenTheBookingIsConfirmed(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés', 0);
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'confirmed',
+        ]);
+
+        $this->assertCount(1, $this->stayService->inventoryFor($booking->id));
+    }
+
+    public function testAManagerConfiguresAMeterFromTheTemplatesPage(): void
+    {
+        $this->loginAsManager();
+
+        $this->post('/mes-locations/compteur', 'saveMeter', [
+            'asset_id' => (string) $this->assetId,
+            'label' => 'Électricité',
+            'kind' => 'electricity',
+            'unit' => 'kWh',
+        ]);
+
+        $this->assertCount(1, $this->stayService->metersFor($this->assetId));
+    }
+
+    public function testAMeterCannotBeConfiguredOnAnAssetTheManagerDoesNotManage(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->post('/mes-locations/compteur', 'saveMeter', [
+            'asset_id' => (string) $this->otherAssetId,
+            'label' => 'Électricité',
+            'kind' => 'electricity',
+        ]);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame([], $this->stayService->metersFor($this->otherAssetId));
     }
 
     public function testAChangeRequestOfAnotherBookingCannotBeDecidedHere(): void
