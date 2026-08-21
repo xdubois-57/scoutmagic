@@ -1,0 +1,81 @@
+{% extends 'base.html.twig' %}
+{% block title %}Gabarits — {{ asset.name }} — {{ site_name }}{% endblock %}
+{#
+  The asset's contract and invoice templates (§6.25, level 1).
+
+  In the MANAGED space rather than the configuration one: the wording a unit
+  lets its hall under is its managers' business, and a manager is not
+  necessarily a chief (§6.4).
+
+  The editor is a plain HTML textarea rather than the rich-text modal, on
+  purpose. A contenteditable surface happily splits a run of text across
+  elements as it is edited, so a placeholder can silently become
+  `{{ pri<b>x</b>_total }}` — still readable to a human, no longer a keyword
+  to the substituter, and only noticed once a contract goes out with visible
+  braces in it. A textarea cannot do that.
+
+  Everything typed here is sanitized server-side before it is stored
+  (EditableContentService, SECURITY.md §7).
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 900px;">
+        <nav aria-label="Fil d'Ariane" class="mb-2">
+            <a href="/mes-locations/{{ asset.slug }}" class="small text-decoration-none">&larr; {{ asset.name }}</a>
+        </nav>
+
+        <h1 class="h3 mb-3">Gabarits — {{ asset.name }}</h1>
+
+        {% include '@rental/management/_nav.html.twig' %}
+
+        <div class="alert alert-info">
+            Ces gabarits servent de point de départ. À la première génération, chaque réservation en
+            prend <strong>sa propre copie</strong> : modifier un gabarit ensuite ne touche aucune
+            réservation existante.
+        </div>
+
+        {% include '@rental/management/_keywords.html.twig' %}
+
+        {% for template in templates %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">{{ template.type.label }}</h2>
+
+                    {% if template.unknown_keywords is not empty %}
+                        <div class="alert alert-warning">
+                            Mots-clés non reconnus, qui apparaîtront tels quels dans le document :
+                            {% for keyword in template.unknown_keywords %}
+                                <code>{{ '{{ ' ~ keyword ~ ' }}' }}</code>{{ not loop.last ? ', ' : '' }}
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <form method="post" action="/mes-locations/gabarit">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <input type="hidden" name="document_type" value="{{ template.type.value }}">
+
+                        <label class="form-label" for="body-{{ template.type.value }}">
+                            Texte du gabarit (HTML simple)
+                        </label>
+                        <textarea class="form-control font-monospace mb-3" rows="14"
+                                  id="body-{{ template.type.value }}" name="body">{{ template.body }}</textarea>
+
+                        {% if template.type.value == 'invoice' %}
+                            <div class="mb-3">
+                                <label class="form-label" for="vat-note">Mention de TVA</label>
+                                <input type="text" class="form-control" id="vat-note" name="vat_exemption_note"
+                                       maxlength="255" value="{{ vat_note }}">
+                                <div class="form-text">
+                                    Aucune TVA n'est jamais calculée : les prix sont ceux que paie le locataire.
+                                    Cette phrase explique pourquoi la facture n'en porte pas.
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <button type="submit" class="btn btn-primary">Enregistrer le gabarit</button>
+                    </form>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% endblock %}

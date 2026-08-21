@@ -3262,6 +3262,39 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             $rentalAvailabilityService, $rentalPricingService, new \Core\View\MonthGrid\DayStateGridBuilder()
         )
     );
+    // Documents: contracts, invoices and whatever a manager attaches
+    // (§6.24, §6.25, §6.27). The PDF path reuses dompdf through
+    // Core\Pdf\DocumentPdfService — no new PDF dependency — and every file
+    // lands under storage/ and is served only through FileAccessGuard.
+    $rentalDocumentRepository = new \Modules\Rental\Repository\RentalDocumentRepository($pdo);
+    $rentalDocumentService = new \Modules\Rental\Service\RentalDocumentService(
+        $rentalDocumentRepository,
+        $rentalBookingRepository,
+        $rentalEventRepository,
+        $editableContentService,
+        $fileRepository,
+        new \Core\Pdf\DocumentPdfService(),
+        new \Core\Security\HtmlSanitizer(),
+        $settingService,
+        $journalService,
+        $storagePath
+    );
+    $rentalBookingMailService = new \Modules\Rental\Service\RentalBookingMailService(
+        $mailService, $twig, $settingService, $journalService
+    );
+
+    // A rental document is readable only by somebody who may manage the
+    // asset its booking belongs to — ARCHITECTURE.md §8.3's owner_type
+    // registry, appended here so it reaches FileAccessGuard, which is built
+    // after every module block. A renter is never allowed: their contract
+    // reaches them by email and only by email (§6.24, §6.26).
+    $fileOwnershipCheckers[] = new \Modules\Rental\File\RentalDocumentOwnershipChecker(
+        $rentalBookingRepository,
+        $rentalAuthorizationService,
+        $rentalCurrentYearId,
+        AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+    );
+
     $rentalOperationsService = new \Modules\Rental\Service\RentalOperationsService(
         $rentalBookingRepository,
         $rentalEventRepository,
@@ -3285,7 +3318,8 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             $rentalBookingRepository, $rentalEventRepository, $rentalCommentRepository,
             $rentalChangeRequestRepository, $rentalOperationsService, $rentalBlockService,
             $rentalAvailabilityService, $rentalPricingService, $memberService,
-            new \Core\View\MonthGrid\DayStateGridBuilder(), $rentalPaymentService
+            new \Core\View\MonthGrid\DayStateGridBuilder(), $rentalPaymentService,
+            $rentalDocumentService, $rentalBookingMailService, $uploadHandler
         )
     );
     $frontController->registerController(
@@ -3293,9 +3327,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Rental\Controller\RentalRequestController(
             $twig, $rentalAssetRepository, $rentalBookingService, $rentalAvailabilityService,
             $rentalPricingService,
-            new \Modules\Rental\Service\RentalBookingMailService(
-                $mailService, $twig, $settingService, $journalService
-            ),
+            $rentalBookingMailService,
             $rentalManagerService, $memberService, $scoutYearService, $editableContentService,
             $humanCheckService, $settingService, $rentalOperationsService, $rentalChangeRequestRepository
         )

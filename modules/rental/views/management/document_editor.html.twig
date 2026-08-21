@@ -1,0 +1,63 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ document_type.label }} {{ booking.reference }} — {{ site_name }}{% endblock %}
+{#
+  The booking's OWN copy of a template (§6.25, level 2).
+
+  Taken from the asset the first time this page is opened, and independent
+  from then on: editing the asset's template afterwards touches nothing
+  here, and editing here touches no other booking.
+
+  Plain textarea for the same reason as the asset templates: a
+  contenteditable surface can split `{{ prix_total }}` across elements as it
+  is edited, silently turning a keyword into prose.
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 900px;">
+        <nav aria-label="Fil d'Ariane" class="mb-2">
+            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}"
+               class="small text-decoration-none">&larr; {{ booking.reference }}</a>
+        </nav>
+
+        <h1 class="h3 mb-1">{{ document_type.label }} — {{ booking.reference }}</h1>
+        <p class="text-body-secondary small mb-3">{{ asset.name }}</p>
+
+        <div class="alert alert-info">
+            Ce texte n'appartient qu'à cette réservation. Modifier le gabarit du bien ensuite ne le
+            changera pas, et le modifier ici ne change aucune autre réservation.
+        </div>
+
+        {% if unknown_keywords is not empty %}
+            <div class="alert alert-warning">
+                Mots-clés non reconnus, qui apparaîtront tels quels dans le document :
+                {% for keyword in unknown_keywords %}
+                    <code>{{ '{{ ' ~ keyword ~ ' }}' }}</code>{{ not loop.last ? ', ' : '' }}
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% include '@rental/management/_keywords.html.twig' %}
+
+        <form method="post" action="/mes-locations/document-texte">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <input type="hidden" name="document_type" value="{{ document_type.value }}">
+
+            <label class="form-label" for="document-body">Texte (HTML simple)</label>
+            <textarea class="form-control font-monospace mb-3" rows="18" id="document-body" name="body">{{ body_html }}</textarea>
+
+            <div class="d-flex flex-wrap gap-2">
+                <button type="submit" class="btn btn-primary">Enregistrer</button>
+            </div>
+        </form>
+
+        {% if asset_template %}
+            <details class="mt-4">
+                <summary class="fw-semibold">Gabarit du bien, pour comparaison</summary>
+                <div class="border rounded p-3 mt-2 bg-body-tertiary">
+                    <pre class="mb-0 small" style="white-space: pre-wrap;">{{ asset_template }}</pre>
+                </div>
+            </details>
+        {% endif %}
+    </div>
+{% endblock %}

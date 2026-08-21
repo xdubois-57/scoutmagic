@@ -132,6 +132,15 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     security_deposit_amount_cents INT UNSIGNED NULL,
     security_deposit_due_days SMALLINT UNSIGNED NULL,
 
+    -- ── Invoicing (§6.27) ────────────────────────────────────────────
+    -- **No VAT is ever computed.** Prices are what the renter pays, full
+    -- stop. A unit letting a hall is not a VAT-registered business in the
+    -- general case, and a module that computed VAT would be quietly wrong
+    -- for almost every installation. What an invoice does carry is a
+    -- configurable exemption sentence, because a Belgian invoice with no
+    -- VAT on it needs to say why.
+    vat_exemption_note VARCHAR(255) NULL,
+
     billing_unit VARCHAR(30) NOT NULL DEFAULT 'flat_stay',
     -- Rate used when the period × category grid has no cell for the resolved
     -- pair. NULL means "not priced yet", which produces a visible warning
@@ -446,6 +455,25 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- encrypted like every other such field.
     security_deposit_note_encrypted BLOB NULL,
 
+    -- ── Billing identity (§6.27) ─────────────────────────────────────
+    -- Collected when it becomes relevant, not at the request form: an
+    -- anonymous visitor asking about a weekend has no reason to type a VAT
+    -- number, and asking for one up front loses requests. All of it is
+    -- personal or commercially identifying data about the renter, so all of
+    -- it is encrypted at rest like the rest of their identity.
+    --
+    -- Modelled with Peppol in mind without implementing it: the fields an
+    -- e-invoice needs (legal name, address, country, enterprise and VAT
+    -- numbers, a buyer reference) are all here, so adding it later is a new
+    -- exporter rather than a migration.
+    billing_name_encrypted BLOB NULL,
+    billing_address_encrypted BLOB NULL,
+    billing_country VARCHAR(2) NULL,
+    billing_vat_number_encrypted BLOB NULL,
+    billing_enterprise_number_encrypted BLOB NULL,
+    billing_email_encrypted BLOB NULL,
+    billing_reference_encrypted BLOB NULL,
+
     -- ── Renter tracking token (§13 of the conventions) ───────────────
     -- A sensitive capability token: cryptographically random, stored ONLY
     -- as a hash (password_hash, same technique as the registration module's
@@ -639,5 +667,97 @@ CREATE TABLE IF NOT EXISTS rental_change_requests (
 
     KEY idx_rental_change_requests_booking (booking_id, status, created_at),
     CONSTRAINT fk_rental_change_requests_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Documents attached to a booking (§6.24, §6.25, §6.27)
+-- ─────────────────────────────────────────────────────────────────────
+--
+-- The file itself lives in `files` and is served only through
+-- `Core\File\FileAccessGuard` / `file_url()` — never from under `public/`.
+-- This table is the rental-specific metadata around it: what kind of
+-- document it is, which version, and the data it was generated from.
+--
+-- **`is_for_renter` is an EMAIL flag, not an access right** (§6.24, §6.26).
+-- An external renter downloads nothing from this site: they have no
+-- account, and the tracking token is not a file-access credential. The flag
+-- says "this one gets attached to an email", and nothing anywhere turns it
+-- into a download permission. That is why there is no new exception to
+-- SECURITY.md §6 here.
+--
+-- **A generated document is never overwritten.** Regenerating a contract
+-- produces v2 alongside v1, because v1 may already have been sent, printed
+-- and signed — and a signature refers to a text, not to a file name.
+CREATE TABLE IF NOT EXISTS rental_documents (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    file_id INT UNSIGNED NOT NULL,
+
+    -- 'contract' | 'signed_contract' | 'invoice' | 'inventory' | 'photo'
+    -- | 'meter_reading' | 'certificate' | 'evidence' | 'unsorted' | 'other'.
+    document_type VARCHAR(30) NOT NULL,
+    -- 1 for the first generation of a type, 2 for the next… An uploaded
+    -- document is always version 1: versioning is about regeneration.
+    version SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    is_for_renter TINYINT(1) NOT NULL DEFAULT 0,
+
+    -- The values the document was rendered from, frozen (§6.25). Without
+    -- it, "why does v1 say 467,50 € when the booking says 400,00 €?" has no
+    -- answer six months later. Never personal data beyond what the document
+    -- itself already contains, and never read back into the application —
+    -- it is evidence, not state.
+    generated_snapshot MEDIUMTEXT NULL,
+
+    -- When it was last emailed to the renter, so a manager can see whether
+    -- a resend is a resend.
+    sent_at DATETIME NULL,
+
+    created_by_member_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    KEY idx_rental_documents_booking (booking_id, document_type, version),
+    CONSTRAINT fk_rental_documents_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ─────────────────────────────────────────────────────────────────────
+-- The booking's own copy of a document template (§6.25, level 2)
+-- ─────────────────────────────────────────────────────────────────────
+--
+-- Three levels, each frozen the moment the next is born: the ASSET's
+-- template (in `editable_contents`), the BOOKING's copy (here), and the
+-- PDF (a `rental_documents` row).
+--
+-- The copy is taken at the first generation and is editable on its own
+-- afterwards. Editing the asset's template later touches **no existing
+-- booking** — which is the whole reason this level exists: a template
+-- reworded in March must not silently change what a renter agreed to in
+-- February.
+--
+-- Holds the template text WITH its keywords still in place, not the
+-- substituted result: the values are re-resolved at every generation, so a
+-- corrected head count reaches v2 without anybody re-editing prose.
+CREATE TABLE IF NOT EXISTS rental_booking_document_texts (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    document_type VARCHAR(30) NOT NULL,
+    body_html MEDIUMTEXT NOT NULL,
+
+    -- The highest version ever handed out for this booking and type — a
+    -- forward-only counter, never `MAX(version)` over the surviving
+    -- documents. Deleting v2 must not make the next generation v2 again:
+    -- v2 may already have been emailed, and two different PDFs under one
+    -- version number is exactly the confusion versioning exists to
+    -- prevent. Same reasoning, and the same shape, as
+    -- `rental_reference_sequences`.
+    last_version SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uniq_rental_booking_document_text (booking_id, document_type),
+    CONSTRAINT fk_rental_booking_document_texts_booking
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

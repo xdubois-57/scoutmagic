@@ -151,6 +151,62 @@ class RentalBookingMailService
     }
 
     /**
+     * Sends a generated document to the renter (§6.24, §6.26).
+     *
+     * **This is the only way a renter ever receives their contract or their
+     * invoice.** They have no account, and the tracking token is a
+     * capability for their own page rather than a file credential — so
+     * there is no download link anywhere, and the only recourse for a lost
+     * email is a manager pressing this again. That is why resending is a
+     * first-class action rather than something to work around.
+     *
+     * @param string $absolutePath The file's real path on disk, resolved by the caller.
+     * @return string The Message-ID, for threading later replies.
+     * @throws \Core\Mail\MailException
+     */
+    public function sendDocument(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        string $documentLabel,
+        string $absolutePath,
+        string $fileName,
+        bool $isResend = false
+    ): string {
+        $messageId = $this->newMessageId();
+        $context = [
+            'booking' => $booking,
+            'asset' => $asset,
+            'document_label' => $documentLabel,
+            'is_resend' => $isResend,
+            'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
+        ];
+
+        $this->mailService->send(
+            $booking->renterEmail,
+            $this->subjectFor($booking, ($isResend ? 'À nouveau : ' : '') . $documentLabel),
+            $this->twig->render('@rental/email/document.html.twig', $context),
+            $this->twig->render('@rental/email/document.text.twig', $context),
+            null,
+            [['path' => $absolutePath, 'name' => $fileName]],
+            null,
+            null,
+            ['Message-ID' => $messageId]
+        );
+
+        // The reference and the document's label, never the renter and
+        // never the file's path (SECURITY.md §5).
+        $this->journal->log(
+            'rental',
+            'rental_document_sent',
+            'info',
+            $documentLabel . ' envoyé pour ' . $booking->reference,
+            ['booking_id' => $booking->id, 'is_resend' => $isResend]
+        );
+
+        return $messageId;
+    }
+
+    /**
      * `[LOC-2027-0042] Votre demande de location`.
      *
      * The reference goes in **every** subject, and first: it is the most

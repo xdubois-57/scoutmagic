@@ -1007,6 +1007,25 @@ class RentalRequestControllerTest extends TestCase
         $this->assertStringNotContainsString('surveiller la cuisine', $body);
     }
 
+    public function testTheTrackingPageOffersNoDownloadAtAll(): void
+    {
+        // §6.24/§6.26: an external renter downloads nothing from this site.
+        // Their contract and invoice reach them by email and only by email,
+        // and the tracking token is a capability for THIS page, never a
+        // file credential. If a download link ever appears here, it is a
+        // new exception to SECURITY.md §6 that the spec says must not
+        // exist.
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $this->assertStringNotContainsString('/fichier/', $body);
+        $this->assertStringNotContainsString('/file/', $body);
+        $this->assertStringNotContainsString('download', strtolower($body));
+        $this->assertStringNotContainsString('.pdf', strtolower($body));
+    }
+
     public function testTheTrackingPageShowsThePriceTheRenterWasQuoted(): void
     {
         $this->createAsset();

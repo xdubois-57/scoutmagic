@@ -1,0 +1,12 @@
+Bonjour {{ booking.renterName }},
+
+{% if is_resend %}
+Voici à nouveau votre {{ document_label|lower }} pour la location {{ booking.reference }} ({{ asset.name }}), en pièce jointe.
+{% else %}
+Vous trouverez en pièce jointe votre {{ document_label|lower }} pour la location {{ booking.reference }} ({{ asset.name }}), du {{ booking.arrivalDate }} au {{ booking.departureDate }}.
+{% endif %}
+
+Conservez ce document : il ne peut pas être téléchargé depuis le site. Si vous le perdez, demandez-nous simplement de vous le renvoyer.
+
+Bien à vous,
+{{ site_name }}

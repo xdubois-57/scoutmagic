@@ -1,0 +1,197 @@
+{#
+  Documents attached to a booking (§6.24), on the booking's file.
+
+  Two things worth being clear about on this panel, because both are easy to
+  assume the other way:
+
+  - "Destiné au locataire" is an EMAIL flag, not a download right. An
+    external renter fetches nothing from this site — they have no account,
+    and their tracking token is a capability for their own page, not a file
+    credential. The only way a document reaches them is the send button
+    here, and the only recourse for a lost email is pressing it again.
+  - A generated document is never overwritten. Regenerating adds v2 beside
+    v1, because v1 may already be signed.
+
+  Requires `asset`, `booking`, `documents` and `uploadable_types`.
+#}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h5 mb-2">Documents</h2>
+        <p class="text-body-secondary small">
+            Le locataire ne télécharge rien depuis le site : ses documents lui parviennent
+            uniquement par email. En cas d'email perdu, renvoyez-le.
+        </p>
+
+        <div class="d-flex flex-wrap gap-2 mb-3">
+            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/contract"
+               class="btn btn-sm btn-outline-secondary">Rédiger le contrat</a>
+            <form method="post" action="/mes-locations/document-generer" class="d-inline">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="document_type" value="contract">
+                <button type="submit" class="btn btn-sm btn-outline-primary">Générer le contrat</button>
+            </form>
+            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/invoice"
+               class="btn btn-sm btn-outline-secondary">Rédiger la facture</a>
+            <form method="post" action="/mes-locations/document-generer" class="d-inline">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="document_type" value="invoice">
+                <button type="submit" class="btn btn-sm btn-outline-primary">Générer la facture</button>
+            </form>
+        </div>
+
+        {% if documents is empty %}
+            <p class="text-body-secondary">Aucun document.</p>
+        {% else %}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <caption class="visually-hidden">Documents de la réservation</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Document</th>
+                            <th scope="col">Ajouté</th>
+                            <th scope="col">Envoi</th>
+                            <th scope="col"><span class="visually-hidden">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for document in documents %}
+                            <tr>
+                                <td>
+                                    {{ document.label }}
+                                    {% if document.isForRenter %}
+                                        <span class="badge bg-light text-dark border ms-1"
+                                              title="Sera joint à un email — jamais téléchargeable par le locataire">
+                                            Destiné au locataire
+                                        </span>
+                                    {% endif %}
+                                    <span class="text-body-secondary small d-block">{{ document.originalName }}</span>
+                                </td>
+                                <td class="small">{{ document.createdAt|date('d/m/Y') }}</td>
+                                <td class="small">
+                                    {% if document.hasBeenSent %}
+                                        Envoyé le {{ document.sentAt|date('d/m/Y') }}
+                                    {% else %}
+                                        <span class="text-body-secondary">Jamais</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <div class="d-flex flex-wrap gap-1 justify-content-end">
+                                        <a href="{{ file_url(document.fileId) }}"
+                                           class="btn btn-sm btn-outline-secondary">Ouvrir</a>
+                                        {% if document.isForRenter %}
+                                            <form method="post" action="/mes-locations/document-envoyer" class="d-inline">
+                                                {{ csrf_field()|raw }}
+                                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                                <input type="hidden" name="document_id" value="{{ document.id }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                                    {{ document.hasBeenSent ? 'Renvoyer' : 'Envoyer' }}
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                        <form method="post" action="/mes-locations/document-supprimer" class="d-inline">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="document_id" value="{{ document.id }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                    data-confirm="Supprimer « {{ document.label }} » ?">Supprimer</button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+
+        <form method="post" action="/mes-locations/document-ajouter" enctype="multipart/form-data"
+              class="row g-2 align-items-end mt-2">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <div class="col-12 col-md-4">
+                <label class="form-label" for="document-file">Ajouter un document</label>
+                <input type="file" class="form-control form-control-sm" id="document-file" name="document"
+                       accept=".pdf,image/jpeg,image/png,image/webp,image/heic" required>
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="document-type">Type</label>
+                <select class="form-select form-select-sm" id="document-type" name="document_type">
+                    {% for type in uploadable_types %}
+                        <option value="{{ type.value }}">{{ type.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="form-check mt-4">
+                    <input class="form-check-input" type="checkbox" id="document-for-renter" name="is_for_renter">
+                    <label class="form-check-label small" for="document-for-renter">
+                        À envoyer au locataire
+                    </label>
+                </div>
+            </div>
+            <div class="col-12 col-md-2">
+                <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h5 mb-2">Coordonnées de facturation</h2>
+        <p class="text-body-secondary small">
+            Demandées au moment utile, pas au formulaire public : un visiteur qui se renseigne sur un
+            week-end n'a aucune raison de taper un numéro de TVA. Tout est chiffré au repos.
+        </p>
+        <form method="post" action="/mes-locations/facturation" class="row g-2">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <div class="col-12 col-md-6">
+                <label class="form-label" for="billing-name">Raison sociale</label>
+                <input type="text" class="form-control form-control-sm" id="billing-name" name="billing_name"
+                       value="{{ billing.name }}">
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label" for="billing-email">Email de facturation</label>
+                <input type="email" class="form-control form-control-sm" id="billing-email" name="billing_email"
+                       value="{{ billing.email }}">
+            </div>
+            <div class="col-12">
+                <label class="form-label" for="billing-address">Adresse</label>
+                <input type="text" class="form-control form-control-sm" id="billing-address" name="billing_address"
+                       value="{{ billing.address }}">
+            </div>
+            <div class="col-4 col-md-2">
+                <label class="form-label" for="billing-country">Pays</label>
+                <input type="text" class="form-control form-control-sm" id="billing-country" name="billing_country"
+                       maxlength="2" placeholder="BE" value="{{ billing.country }}">
+            </div>
+            <div class="col-8 col-md-3">
+                <label class="form-label" for="billing-vat">N° de TVA</label>
+                <input type="text" class="form-control form-control-sm" id="billing-vat" name="billing_vat_number"
+                       value="{{ billing.vat_number }}">
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="billing-enterprise">N° BCE</label>
+                <input type="text" class="form-control form-control-sm" id="billing-enterprise"
+                       name="billing_enterprise_number" value="{{ billing.enterprise_number }}">
+            </div>
+            <div class="col-6 col-md-4">
+                <label class="form-label" for="billing-reference">Référence / bon de commande</label>
+                <input type="text" class="form-control form-control-sm" id="billing-reference"
+                       name="billing_reference" value="{{ billing.reference }}">
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-sm btn-outline-primary">Enregistrer</button>
+            </div>
+        </form>
+    </div>
+</div>

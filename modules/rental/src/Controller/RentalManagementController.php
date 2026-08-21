@@ -16,6 +16,7 @@ use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\File\UploadHandler;
 use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
 use Modules\Rental\Availability\MonthWindow;
@@ -25,6 +26,9 @@ use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Document\DocumentKeywords;
+use Modules\Rental\Document\DocumentType;
+use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
@@ -35,6 +39,8 @@ use Modules\Rental\Service\RentalAuthorizationService;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBlockService;
 use Modules\Rental\Service\RentalException;
+use Modules\Rental\Service\RentalBookingMailService;
+use Modules\Rental\Service\RentalDocumentService;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
@@ -66,6 +72,25 @@ class RentalManagementController extends AbstractController
     private const MONTHS_BACK = 24;
     private const MONTHS_AHEAD = 36;
 
+    /**
+     * What a manager may attach to a booking (§6.24).
+     *
+     * A closed list of document and image types, checked by
+     * `UploadHandler` against the file's **real** MIME rather than its
+     * extension or the browser's claim. No archives and nothing executable:
+     * a rental document is a scan, a photo or a PDF.
+     */
+    private const ALLOWED_DOCUMENT_MIMES = [
+        'application/pdf',
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'image/heic',
+    ];
+
+    /** 15 MB — a phone photo of a signed contract, with room to spare. */
+    private const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
+
     public function __construct(
         Environment $twig,
         private RentalAuthorizationService $authorizationService,
@@ -86,7 +111,10 @@ class RentalManagementController extends AbstractController
          * module, where the payment panel says so rather than rendering a
          * dead section.
          */
-        private ?RentalPaymentService $paymentService = null
+        private ?RentalPaymentService $paymentService = null,
+        private ?RentalDocumentService $documentService = null,
+        private ?RentalBookingMailService $mailService = null,
+        private ?UploadHandler $uploadHandler = null
     ) {
         parent::__construct($twig);
     }
@@ -237,9 +265,263 @@ class RentalManagementController extends AbstractController
             'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
             'is_in_progress' => $booking->isInProgress($now),
             'payment' => $this->paymentStatus($booking, $asset),
+            'documents' => $this->documentService?->forBooking($booking->id) ?? [],
+            'uploadable_types' => DocumentType::uploadable(),
+            'billing' => $this->bookingRepository->findBillingIdentity($booking->id),
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'bookings',
         ]);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/document/{type} — the
+     * booking's own copy of a contract or invoice template (§6.25, level 2).
+     *
+     * @param array<string, string> $params
+     */
+    public function documentEditor(Request $request, array $params): Response
+    {
+        $asset = $this->manageableAsset($params);
+        if ($asset === null || $this->documentService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $booking = $this->bookingOfAsset($asset, (int) ($params['id'] ?? 0));
+        $type = DocumentType::tryFrom((string) ($params['type'] ?? ''));
+        if ($booking === null || $type === null || !$type->isGenerated()) {
+            return new Response('Not Found', 404);
+        }
+
+        $body = $this->documentService->bookingText($booking, $asset, $type);
+
+        return $this->render('@rental/management/document_editor.html.twig', [
+            'asset' => $asset,
+            'booking' => $booking,
+            'document_type' => $type,
+            'breadcrumb_current' => $type->label(),
+            'body_html' => $body,
+            // Level 1 for reference, so a manager can see what they are
+            // diverging from without leaving the page.
+            'asset_template' => $this->documentService->template($asset, $type),
+            'keywords' => DocumentKeywords::catalogue(),
+            // Reported while there is still time to fix them: a keyword
+            // nobody recognises must never survive into a signed contract
+            // as literal braces (§6.25).
+            'unknown_keywords' => DocumentKeywords::unknownIn($body),
+            'csrf_token' => CsrfGuard::generateToken(),
+            'nav_page' => 'bookings',
+        ]);
+    }
+
+    /**
+     * POST /mes-locations/document-texte
+     *
+     * @param array<string, string> $params
+     */
+    public function saveDocumentText(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            if ($this->documentService === null) {
+                throw new RentalException('Les documents ne sont pas disponibles.');
+            }
+
+            $type = DocumentType::tryFrom((string) $request->getBody('document_type', ''));
+            if ($type === null || !$type->isGenerated()) {
+                throw new RentalException("Ce type de document ne se rédige pas.");
+            }
+
+            $unknown = $this->documentService->saveBookingText(
+                $booking,
+                $type,
+                (string) $request->getBody('body', ''),
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set(
+                $unknown === [] ? 'success' : 'warning',
+                $unknown === []
+                    ? 'Texte enregistré.'
+                    : 'Texte enregistré, mais ces mots-clés ne sont pas reconnus et resteront tels quels '
+                        . 'dans le document : ' . implode(', ', $unknown) . '.'
+            );
+        });
+    }
+
+    /**
+     * POST /mes-locations/document-generer — a new version, never an
+     * overwrite (§6.25).
+     *
+     * @param array<string, string> $params
+     */
+    public function generateDocument(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+            if ($this->documentService === null) {
+                throw new RentalException('Les documents ne sont pas disponibles.');
+            }
+
+            $type = DocumentType::tryFrom((string) $request->getBody('document_type', ''));
+            if ($type === null || !$type->isGenerated()) {
+                throw new RentalException("Ce type de document ne se génère pas.");
+            }
+
+            $settings = $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings();
+            $communication = $this->paymentService?->statusFor($booking, $settings)['communication'] ?? null;
+
+            $document = $this->documentService->generate(
+                $booking,
+                $asset,
+                $type,
+                $settings,
+                $communication,
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set(
+                'success',
+                $type->label() . ' v' . $document->version . ' généré. '
+                . 'Les versions précédentes sont conservées.'
+            );
+        });
+    }
+
+    /**
+     * POST /mes-locations/document-envoyer — email it to the renter
+     * (§6.24, §6.26).
+     *
+     * @param array<string, string> $params
+     */
+    public function sendDocument(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+            if ($this->documentService === null || $this->mailService === null) {
+                throw new RentalException("L'envoi de documents n'est pas disponible.");
+            }
+
+            $document = $this->documentService->find((int) $request->getBody('document_id', 0));
+            // The booking check is the guard that matters: a document id
+            // alone must not let a manager mail another booking's contract.
+            if ($document === null || $document->bookingId !== $booking->id) {
+                throw new RentalException("Ce document n'existe pas.");
+            }
+
+            $path = $this->documentService->absolutePath($document);
+            if ($path === null) {
+                throw new RentalException("Le fichier de ce document est introuvable. Régénérez-le.");
+            }
+
+            $this->mailService->sendDocument(
+                $booking,
+                $asset,
+                $document->label(),
+                $path,
+                $document->originalName ?? 'document.pdf',
+                $document->hasBeenSent()
+            );
+            $this->documentService->markSent($document->id, new \DateTimeImmutable());
+
+            FlashMessage::set('success', $document->label() . ' envoyé au locataire par email.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/document-ajouter — a manager uploads a file
+     * (§6.24).
+     *
+     * @param array<string, string> $params
+     */
+    public function uploadDocument(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            if ($this->documentService === null || $this->uploadHandler === null) {
+                throw new RentalException("L'ajout de documents n'est pas disponible.");
+            }
+
+            $type = DocumentType::tryFrom((string) $request->getBody('document_type', ''))
+                ?? DocumentType::UNSORTED;
+            if ($type->isGenerated()) {
+                throw new RentalException('Un contrat ou une facture se génèrent, ils ne se téléversent pas.');
+            }
+
+            $uploaded = $request->getFile('document');
+            if ($uploaded === null) {
+                throw new RentalException('Aucun fichier reçu.');
+            }
+
+            try {
+                // UploadHandler does the real work: true MIME check,
+                // regenerated file name, EXIF stripped, size cap, stored
+                // outside public/.
+                $fileId = $this->uploadHandler->handle(
+                    $uploaded,
+                    RentalDocumentService::STORAGE_SUBDIRECTORY,
+                    self::ALLOWED_DOCUMENT_MIMES,
+                    self::MAX_DOCUMENT_BYTES,
+                    RentalDocumentService::FILE_ROLE_MIN,
+                    'rental',
+                    AuthSession::getUserAccountId(),
+                    RentalDocumentService::OWNER_TYPE,
+                    $booking->id
+                );
+            } catch (\Throwable $e) {
+                throw new RentalException($e->getMessage(), 0, $e);
+            }
+
+            $this->documentService->attachUploaded(
+                $booking,
+                $fileId,
+                $type,
+                $request->getBody('is_for_renter') !== null,
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Document ajouté.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/document-supprimer
+     *
+     * @param array<string, string> $params
+     */
+    public function deleteDocument(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            if ($this->documentService === null) {
+                throw new RentalException('Les documents ne sont pas disponibles.');
+            }
+
+            $document = $this->documentService->find((int) $request->getBody('document_id', 0));
+            if ($document === null || $document->bookingId !== $booking->id) {
+                throw new RentalException("Ce document n'existe pas.");
+            }
+
+            $this->documentService->delete($document, $this->actorMemberId());
+            FlashMessage::set('success', 'Document supprimé.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/facturation — the renter's billing identity
+     * (§6.27).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveBillingIdentity(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $this->bookingRepository->saveBillingIdentity($booking->id, [
+                'name' => self::optionalString($request->getBody('billing_name')),
+                'address' => self::optionalString($request->getBody('billing_address')),
+                'country' => self::optionalString($request->getBody('billing_country')),
+                'vat_number' => self::optionalString($request->getBody('billing_vat_number')),
+                'enterprise_number' => self::optionalString($request->getBody('billing_enterprise_number')),
+                'email' => self::optionalString($request->getBody('billing_email')),
+                'reference' => self::optionalString($request->getBody('billing_reference')),
+            ]);
+
+            FlashMessage::set('success', 'Coordonnées de facturation enregistrées.');
+        });
     }
 
     /**
@@ -360,6 +642,94 @@ class RentalManagementController extends AbstractController
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'calendar',
         ]);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/gabarits — the asset's contract and invoice
+     * templates (§6.25, level 1).
+     *
+     * **In the managed space, not in the configuration one.** The wording a
+     * unit lets its hall under is the managers' business, and they are not
+     * necessarily chiefs (§6.4). Unit staff reach it too, being implicit
+     * managers of every asset.
+     *
+     * @param array<string, string> $params
+     */
+    public function templates(Request $request, array $params): Response
+    {
+        $asset = $this->manageableAsset($params);
+        if ($asset === null || $this->documentService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $templates = [];
+        foreach ([DocumentType::CONTRACT, DocumentType::INVOICE] as $type) {
+            $body = $this->documentService->template($asset, $type);
+            $templates[] = [
+                'type' => $type,
+                'body' => $body,
+                'unknown_keywords' => DocumentKeywords::unknownIn($body),
+            ];
+        }
+
+        return $this->render('@rental/management/templates.html.twig', [
+            'asset' => $asset,
+            'breadcrumb_current' => 'Gabarits',
+            'templates' => $templates,
+            'keywords' => DocumentKeywords::catalogue(),
+            'vat_note' => $asset->vatExemptionNote,
+            'csrf_token' => CsrfGuard::generateToken(),
+            'nav_page' => 'templates',
+        ]);
+    }
+
+    /**
+     * POST /mes-locations/gabarit
+     *
+     * @param array<string, string> $params
+     */
+    public function saveTemplate(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Forbidden', 403);
+        }
+
+        $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
+        if ($asset === null || $this->documentService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $type = DocumentType::tryFrom((string) $request->getBody('document_type', ''));
+        if ($type === null || !$type->isGenerated()) {
+            return new Response('Not Found', 404);
+        }
+
+        $unknown = $this->documentService->saveTemplate(
+            $asset,
+            $type,
+            (string) $request->getBody('body', ''),
+            AuthSession::getUserAccountId(),
+            $this->actorMemberId()
+        );
+
+        // The VAT-exemption sentence lives with the invoice template
+        // because that is the only place it is ever read (§6.27).
+        if ($type === DocumentType::INVOICE) {
+            $this->assetRepository->saveVatExemptionNote(
+                $asset->id,
+                self::optionalString($request->getBody('vat_exemption_note'))
+            );
+        }
+
+        FlashMessage::set(
+            $unknown === [] ? 'success' : 'warning',
+            $unknown === []
+                ? 'Gabarit enregistré.'
+                : 'Gabarit enregistré, mais ces mots-clés ne sont pas reconnus et resteront tels quels '
+                    . 'dans les documents : ' . implode(', ', $unknown) . '.'
+        );
+
+        return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
     }
 
     // ── Write actions ───────────────────────────────────────────────────

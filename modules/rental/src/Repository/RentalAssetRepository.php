@@ -256,6 +256,30 @@ class RentalAssetRepository
     /**
      * @param array<string, mixed> $row
      */
+    /**
+     * The asset's VAT-exemption sentence (§6.27).
+     *
+     * Its own tiny write rather than a field on the general form: it
+     * belongs with the invoice configuration, and every section of the
+     * configuration screen saves independently.
+     */
+    public function saveVatExemptionNote(int $assetId, ?string $note): void
+    {
+        $note = $note !== null ? trim($note) : null;
+
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_assets SET vat_exemption_note = ?, updated_at = ? WHERE id = ?'
+        );
+        $stmt->execute([
+            $note !== null && $note !== '' ? mb_substr($note, 0, 255) : null,
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $assetId,
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
     private function hydrate(array $row): RentalAsset
     {
         $encrypted = $row['emergency_phone_encrypted'] ?? null;
@@ -274,7 +298,8 @@ class RentalAssetRepository
                 : null,
             isArchived: (bool) $row['is_archived'],
             isPublic: (bool) $row['is_public'],
-            showInMenu: (bool) $row['show_in_menu']
+            showInMenu: (bool) $row['show_in_menu'],
+            vatExemptionNote: isset($row['vat_exemption_note']) ? (string) $row['vat_exemption_note'] : null
         );
     }
 }

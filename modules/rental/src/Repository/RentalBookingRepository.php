@@ -37,6 +37,12 @@ class RentalBookingRepository
     private const CTX_ORGANISATION = 'rental_bookings.renter_organisation';
     private const CTX_PURPOSE = 'rental_bookings.purpose';
     private const CTX_COMMENT = 'rental_bookings.renter_comment';
+    private const CTX_BILLING_NAME = 'rental_bookings.billing_name';
+    private const CTX_BILLING_ADDRESS = 'rental_bookings.billing_address';
+    private const CTX_BILLING_VAT = 'rental_bookings.billing_vat_number';
+    private const CTX_BILLING_ENTERPRISE = 'rental_bookings.billing_enterprise_number';
+    private const CTX_BILLING_EMAIL = 'rental_bookings.billing_email';
+    private const CTX_BILLING_REFERENCE = 'rental_bookings.billing_reference';
 
     /**
      * Blind-index purpose. Shared with nothing else: an index computed under
@@ -460,6 +466,82 @@ class RentalBookingRepository
             }
             throw $e;
         }
+    }
+
+    /**
+     * The renter's billing identity (§6.27), decrypted.
+     *
+     * Its own read rather than part of `hydrate()`: these seven columns are
+     * touched by the invoice screen alone, and decrypting them on every
+     * booking load — including the availability path, which reads bookings
+     * by the hundred — would cost the whole module for one screen's
+     * benefit.
+     *
+     * @return array{name: ?string, address: ?string, country: ?string, vat_number: ?string, enterprise_number: ?string, email: ?string, reference: ?string}
+     */
+    public function findBillingIdentity(int $bookingId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT billing_name_encrypted, billing_address_encrypted, billing_country,
+                    billing_vat_number_encrypted, billing_enterprise_number_encrypted,
+                    billing_email_encrypted, billing_reference_encrypted
+             FROM rental_bookings WHERE id = ?'
+        );
+        $stmt->execute([$bookingId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if ($row === false) {
+            return [
+                'name' => null, 'address' => null, 'country' => null, 'vat_number' => null,
+                'enterprise_number' => null, 'email' => null, 'reference' => null,
+            ];
+        }
+
+        return [
+            'name' => $this->decryptOptional($row['billing_name_encrypted'] ?? null, self::CTX_BILLING_NAME),
+            'address' => $this->decryptOptional($row['billing_address_encrypted'] ?? null, self::CTX_BILLING_ADDRESS),
+            'country' => $row['billing_country'] !== null ? (string) $row['billing_country'] : null,
+            'vat_number' => $this->decryptOptional($row['billing_vat_number_encrypted'] ?? null, self::CTX_BILLING_VAT),
+            'enterprise_number' => $this->decryptOptional(
+                $row['billing_enterprise_number_encrypted'] ?? null,
+                self::CTX_BILLING_ENTERPRISE
+            ),
+            'email' => $this->decryptOptional($row['billing_email_encrypted'] ?? null, self::CTX_BILLING_EMAIL),
+            'reference' => $this->decryptOptional(
+                $row['billing_reference_encrypted'] ?? null,
+                self::CTX_BILLING_REFERENCE
+            ),
+        ];
+    }
+
+    /**
+     * @param array{name?: ?string, address?: ?string, country?: ?string, vat_number?: ?string, enterprise_number?: ?string, email?: ?string, reference?: ?string} $identity
+     */
+    public function saveBillingIdentity(int $bookingId, array $identity): void
+    {
+        $country = isset($identity['country']) ? strtoupper(trim((string) $identity['country'])) : '';
+
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_bookings SET
+                billing_name_encrypted = ?, billing_address_encrypted = ?, billing_country = ?,
+                billing_vat_number_encrypted = ?, billing_enterprise_number_encrypted = ?,
+                billing_email_encrypted = ?, billing_reference_encrypted = ?, updated_at = ?
+             WHERE id = ?'
+        );
+        $stmt->execute([
+            $this->encryptOptional($identity['name'] ?? null, self::CTX_BILLING_NAME),
+            $this->encryptOptional($identity['address'] ?? null, self::CTX_BILLING_ADDRESS),
+            // Two letters or nothing: a country field holding "Belgique" in
+            // one row and "BE" in another is what makes a later e-invoice
+            // export a guessing game.
+            preg_match('/^[A-Z]{2}$/', $country) === 1 ? $country : null,
+            $this->encryptOptional($identity['vat_number'] ?? null, self::CTX_BILLING_VAT),
+            $this->encryptOptional($identity['enterprise_number'] ?? null, self::CTX_BILLING_ENTERPRISE),
+            $this->encryptOptional($identity['email'] ?? null, self::CTX_BILLING_EMAIL),
+            $this->encryptOptional($identity['reference'] ?? null, self::CTX_BILLING_REFERENCE),
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $bookingId,
+        ]);
     }
 
     /**

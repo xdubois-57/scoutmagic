@@ -43,6 +43,7 @@ class RentalTestHelper
             deposit_percentage INTEGER,
             deposit_due_days INTEGER,
             balance_due_days INTEGER,
+            vat_exemption_note TEXT,
             security_deposit_mode TEXT NOT NULL DEFAULT "none",
             security_deposit_amount_cents INTEGER,
             security_deposit_due_days INTEGER,
@@ -157,6 +158,13 @@ class RentalTestHelper
             security_deposit_withheld_cents INTEGER,
             security_deposit_returned_at TEXT,
             security_deposit_note_encrypted BLOB,
+            billing_name_encrypted BLOB,
+            billing_address_encrypted BLOB,
+            billing_country TEXT,
+            billing_vat_number_encrypted BLOB,
+            billing_enterprise_number_encrypted BLOB,
+            billing_email_encrypted BLOB,
+            billing_reference_encrypted BLOB,
             conditions_version TEXT,
             conditions_hash TEXT,
             conditions_accepted_at TEXT,
@@ -198,6 +206,32 @@ class RentalTestHelper
             summary TEXT,
             actor_member_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            file_id INTEGER NOT NULL,
+            document_type TEXT NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            is_for_renter INTEGER NOT NULL DEFAULT 0,
+            generated_snapshot TEXT,
+            sent_at TEXT,
+            created_by_member_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_booking_document_texts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            document_type TEXT NOT NULL,
+            body_html TEXT NOT NULL,
+            last_version INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (booking_id, document_type),
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 
