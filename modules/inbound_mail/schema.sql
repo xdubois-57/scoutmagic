@@ -101,6 +101,10 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
     from_name_encrypted BLOB NULL,
     message_id_encrypted BLOB NOT NULL,
     in_reply_to_encrypted BLOB NULL,
+    -- Every address the message named, newline-separated and encrypted like
+    -- the rest. A consumer's timeline shows them so a manager can tell a
+    -- private reply from one copied to the whole staff.
+    to_emails_encrypted BLOB NULL,
     body_text_encrypted BLOB NOT NULL,
     -- Already sanitised through HtmlSanitizer and stripped of remote images
     -- before it was written (§7.9). The raw HTML is never stored: keeping it

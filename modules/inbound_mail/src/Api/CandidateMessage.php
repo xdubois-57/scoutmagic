@@ -29,6 +29,13 @@ class CandidateMessage
      *   own without this module knowing anything about it
      */
     public function __construct(
+        /**
+         * Which configured mailbox this arrived in. A consumer that is only
+         * meant to listen to one of the unit's boxes needs it to say so —
+         * without it, configuring `rental` to watch `locations@` would not
+         * stop it claiming a reply that landed in `tresorerie@`.
+         */
+        public readonly int $mailboxId,
         public readonly string $subject,
         public readonly string $fromEmail,
         public readonly ?string $fromName,

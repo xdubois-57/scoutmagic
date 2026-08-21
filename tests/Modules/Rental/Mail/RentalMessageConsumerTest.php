@@ -1,0 +1,854 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Modules\Rental\Mail;
+
+use Core\Database\Connection;
+use Core\File\FileRepository;
+use Core\File\UploadHandler;
+use Core\Import\MemberYearRepository;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Core\Member\MemberService;
+use Core\Security\EncryptionService;
+use Core\Security\HtmlSanitizer;
+use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Client\FakeMailboxClient;
+use Modules\InboundMail\Mailbox\ProviderType;
+use Modules\InboundMail\Repository\InboundMailboxRepository;
+use Modules\InboundMail\Repository\InboundMessageRepository;
+use Modules\InboundMail\Service\AttachmentPolicy;
+use Modules\InboundMail\Service\InboundMailService;
+use Modules\InboundMail\Service\MailboxClientFactory;
+use Modules\InboundMail\Service\MailboxErrorFormatter;
+use Modules\InboundMail\Service\MailboxSyncService;
+use Modules\InboundMail\Service\MessageConsumerRegistry;
+use Modules\InboundMail\Service\MessageContentSanitizer;
+use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Document\DocumentType;
+use Modules\Rental\Mail\RentalMessageConsumer;
+use Modules\Rental\Repository\RentalAssetManagerRepository;
+use Modules\Rental\Repository\RentalAssetRepository;
+use Modules\Rental\Repository\RentalBookingRepository;
+use Modules\Rental\Repository\RentalDocumentRepository;
+use Modules\Rental\Service\RentalAuthorizationService;
+use Modules\Rental\Service\RentalCommunicationService;
+use Modules\Rental\Service\RentalException;
+use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
+use Tests\Modules\InboundMail\InboundMailTestHelper;
+use Tests\Modules\Rental\RentalTestHelper;
+
+/**
+ * `rental` claiming its own mail (§7.6, §7.7, §7.8).
+ *
+ * Driven end to end through the real sync service and a scripted mailbox,
+ * because the interesting failures are not in any one class: they are in
+ * "did the reference win over the sender", "did an ambiguous match attach
+ * anything", "did the attachment become a document". A unit test of the
+ * consumer alone would pass while the wiring lost the message.
+ *
+ * @group database
+ */
+#[\PHPUnit\Framework\Attributes\Group('database')]
+class RentalMessageConsumerTest extends TestCase
+{
+    private \PDO $pdo;
+    private EncryptionService $encryption;
+    private RentalBookingRepository $bookingRepository;
+    private RentalAssetRepository $assetRepository;
+    private RentalAssetManagerRepository $managerRepository;
+    private RentalDocumentRepository $documentRepository;
+    private \Modules\Rental\Service\RentalDocumentService $documentService;
+    private RentalAuthorizationService $authorizationService;
+    private InboundMessageRepository $messageRepository;
+    private InboundMailboxRepository $mailboxRepository;
+    private InboundMailService $inboundMail;
+    private MessageConsumerRegistry $registry;
+    private FakeMailboxClient $client;
+    private MailboxSyncService $syncService;
+    private RentalCommunicationService $communicationService;
+    private int $mailboxId;
+    private int $assetId;
+    private int $scoutYearId;
+    private string $storagePath;
+
+    protected function setUp(): void
+    {
+        $this->pdo = DatabaseTestHelper::createTestDatabase();
+        RentalTestHelper::createTables($this->pdo);
+        InboundMailTestHelper::createTables($this->pdo);
+        $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        $this->bookingRepository = new RentalBookingRepository($this->pdo, $this->encryption);
+        $this->assetRepository = new RentalAssetRepository($this->pdo, $this->encryption);
+        $this->managerRepository = new RentalAssetManagerRepository($this->pdo);
+        $this->documentRepository = new RentalDocumentRepository($this->pdo);
+        $this->messageRepository = new InboundMessageRepository($this->pdo, $this->encryption);
+        $this->mailboxRepository = new InboundMailboxRepository($this->pdo, $this->encryption);
+
+        $memberService = new MemberService(
+            new MemberYearRepository($this->pdo),
+            $this->encryption,
+            Connection::withPdo($this->pdo)
+        );
+        $this->authorizationService = new RentalAuthorizationService(
+            $memberService,
+            $this->assetRepository,
+            $this->managerRepository
+        );
+
+        $fileRepository = new FileRepository($this->pdo);
+        $this->inboundMail = new InboundMailService(
+            $this->messageRepository,
+            $this->mailboxRepository,
+            $fileRepository
+        );
+
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $this->documentService = new \Modules\Rental\Service\RentalDocumentService(
+            $this->documentRepository,
+            $this->bookingRepository,
+            new \Modules\Rental\Repository\RentalBookingEventRepository($this->pdo, $this->encryption),
+            new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
+            $fileRepository,
+            new \Core\Pdf\DocumentPdfService(),
+            new HtmlSanitizer(),
+            new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+            $journal,
+            sys_get_temp_dir()
+        );
+
+        $this->registry = new MessageConsumerRegistry();
+        $this->registry->register(new RentalMessageConsumer(
+            $this->bookingRepository,
+            $this->inboundMail,
+            $this->documentService
+        ));
+
+        $this->client = new FakeMailboxClient();
+        $factory = new MailboxClientFactory();
+        $factory->register(ProviderType::FAKE, $this->client);
+
+        $this->storagePath = sys_get_temp_dir() . '/rental-inbound-test-' . bin2hex(random_bytes(6));
+        mkdir($this->storagePath, 0777, true);
+
+        $this->syncService = new MailboxSyncService(
+            $this->mailboxRepository,
+            $this->messageRepository,
+            $this->registry,
+            new MessageContentSanitizer(new HtmlSanitizer()),
+            new AttachmentPolicy(),
+            new MailboxErrorFormatter(),
+            $factory,
+            new UploadHandler($fileRepository, $this->storagePath)
+        );
+
+        $this->communicationService = new RentalCommunicationService(
+            $this->bookingRepository,
+            $this->documentRepository,
+            $this->authorizationService,
+            $journal,
+            $this->inboundMail
+        );
+
+        $this->mailboxId = $this->mailboxRepository->create(
+            'Locations',
+            ProviderType::FAKE,
+            'imap.test',
+            993,
+            'ssl',
+            'locations@unite.be',
+            'mdp',
+            ['INBOX'],
+            true
+        );
+
+        $this->scoutYearId = (new \Core\Config\ScoutYearService($this->pdo))->getCurrentYear()['id'];
+        $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
+    }
+
+    protected function tearDown(): void
+    {
+        if (is_dir($this->storagePath)) {
+            foreach (glob($this->storagePath . '/*/*') ?: [] as $file) {
+                @unlink($file);
+            }
+            foreach (glob($this->storagePath . '/*') ?: [] as $directory) {
+                @rmdir($directory);
+            }
+            @rmdir($this->storagePath);
+        }
+    }
+
+    // ── Fixtures ────────────────────────────────────────────────────────
+
+    private function createAsset(string $name, string $slug): int
+    {
+        return $this->assetRepository->create($name, $name, $slug, 60, 1, '18:00', '11:00', null, true, false);
+    }
+
+    private function createBooking(
+        string $reference = 'LOC-2027-0042',
+        string $email = 'jeanne@example.be',
+        ?int $assetId = null,
+        string $arrival = '2027-07-01',
+        string $departure = '2027-07-04',
+        \DateTimeImmutable $receivedAt = new \DateTimeImmutable('2027-01-01 10:00:00')
+    ): RentalBooking {
+        $created = $this->bookingRepository->create(
+            $assetId ?? $this->assetId,
+            $reference,
+            $arrival,
+            $departure,
+            1,
+            20,
+            null,
+            [
+                'name' => 'Jeanne Martin',
+                'email' => $email,
+                'phone' => null,
+                'organisation' => 'Les Scouts de Nulle Part',
+                'purpose' => null,
+                'comment' => null,
+            ],
+            null,
+            null,
+            null,
+            'v1',
+            str_repeat('0', 64),
+            'v1',
+            str_repeat('0', 64),
+            $receivedAt
+        );
+
+        $this->bookingRepository->setStatus($created['id'], BookingStatus::CONFIRMED, $receivedAt);
+        $booking = $this->bookingRepository->findById($created['id']);
+        $this->assertNotNull($booking);
+
+        return $booking;
+    }
+
+    private function addManager(string $email, ?int $assetId = null): int
+    {
+        $memberId = RentalTestHelper::insertMember($this->pdo, 'D-' . strtoupper(substr(md5($email . ($assetId ?? 0)), 0, 8)));
+        RentalTestHelper::insertMemberYear($this->pdo, $this->encryption, $memberId, $this->scoutYearId, $email);
+        $this->managerRepository->grant($assetId ?? $this->assetId, $memberId, false);
+
+        return $memberId;
+    }
+
+    /**
+     * @param array<string, string> $extraHeaders
+     */
+    private function deliver(
+        int $uid,
+        string $subject,
+        string $from = 'jeanne@example.be',
+        string $body = 'Bonjour,',
+        array $extraHeaders = [],
+        string $date = 'Mon, 12 Jul 2027 09:30:00 +0200',
+        string $messageId = 'msg-1@example.be'
+    ): void {
+        $headers = array_merge([
+            'From' => 'Jeanne Martin <' . $from . '>',
+            'To' => 'locations@unite.be',
+            'Subject' => $subject,
+            'Message-ID' => '<' . $messageId . '>',
+            'Date' => $date,
+            'Content-Type' => 'text/plain; charset=UTF-8',
+        ], $extraHeaders);
+
+        $this->client->addRawMessage('INBOX', $uid, InboundMailTestHelper::rawMessage($headers, $body));
+    }
+
+    private function sync(): void
+    {
+        $mailbox = $this->mailboxRepository->findById($this->mailboxId);
+        $this->assertNotNull($mailbox);
+        $this->syncService->syncMailbox($mailbox, new \DateTimeImmutable('2027-07-12 10:00:00'));
+    }
+
+    // ── Level 1: the reference (§7.6) ───────────────────────────────────
+
+    public function testAReplyCarryingTheReferenceLandsOnTheRightBooking(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Re: Votre réservation [LOC-2027-0042]');
+
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::REFERENCE, $messages[0]->linkOrigin);
+    }
+
+    public function testAReferenceThatMatchesNoBookingAttachesNothing(): void
+    {
+        $this->createBooking('LOC-2027-0042');
+        $this->deliver(10, 'Re: [LOC-2027-9999]', from: 'inconnu@example.be');
+
+        $this->sync();
+
+        $this->assertSame(0, $this->countStoredMessages());
+    }
+
+    // ── Level 2: the thread (§7.6) ──────────────────────────────────────
+
+    public function testAReplyWithNoReferenceButInTheThreadStillLands(): void
+    {
+        // The second message carries no reference at all — only an
+        // In-Reply-To naming the first, which is already attached.
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Re: [LOC-2027-0042]', messageId: 'first@example.be');
+        $this->sync();
+
+        $this->deliver(
+            11,
+            'Une question de plus',
+            from: 'quelquun.dautre@example.be',
+            messageId: 'second@example.be',
+            extraHeaders: ['In-Reply-To' => '<first@example.be>']
+        );
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(2, $messages);
+        $this->assertSame(LinkOrigin::THREAD, $messages[1]->linkOrigin);
+    }
+
+    public function testTheReferenceWinsOverTheThreadWhenBothPoint(): void
+    {
+        // Both are certain, but the reference is the module's own marker —
+        // and a thread can be hijacked by replying to an old email about a
+        // different booking.
+        $first = $this->createBooking('LOC-2027-0042');
+        $second = $this->createBooking('LOC-2027-0043');
+
+        $this->deliver(10, '[LOC-2027-0042]', messageId: 'first@example.be');
+        $this->sync();
+
+        $this->deliver(
+            11,
+            'Re: [LOC-2027-0043]',
+            messageId: 'second@example.be',
+            extraHeaders: ['In-Reply-To' => '<first@example.be>']
+        );
+        $this->sync();
+
+        $this->assertCount(1, $this->communicationService->timeline($first));
+        $this->assertCount(1, $this->communicationService->timeline($second));
+        $this->assertSame(
+            LinkOrigin::REFERENCE,
+            $this->communicationService->timeline($second)[0]->linkOrigin
+        );
+    }
+
+    // ── Level 3: the sender, bounded (§7.6) ─────────────────────────────
+
+    public function testTheRentersOwnAddressInsideTheWindowAttaches(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Une question', from: 'jeanne@example.be');
+
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::SENDER, $messages[0]->linkOrigin);
+    }
+
+    public function testTheSameAddressOutsideTheWindowAttachesNothing(): void
+    {
+        // Next year's enquiry from the same group must not land on last
+        // year's booking.
+        $this->createBooking(
+            arrival: '2025-07-01',
+            departure: '2025-07-04',
+            receivedAt: new \DateTimeImmutable('2025-01-01 10:00:00')
+        );
+        $this->deliver(10, 'Une question', from: 'jeanne@example.be');
+
+        $this->sync();
+
+        $this->assertSame(0, $this->countStoredMessages());
+    }
+
+    public function testAMessageSentBeforeTheRequestWasEvenMadeAttachesNothing(): void
+    {
+        $this->createBooking(receivedAt: new \DateTimeImmutable('2027-07-20 10:00:00'));
+        $this->deliver(10, 'Une question', from: 'jeanne@example.be');
+
+        $this->sync();
+
+        $this->assertSame(0, $this->countStoredMessages());
+    }
+
+    public function testTwoBookingsInTheWindowUnderOneAddressAttachNothing(): void
+    {
+        // §7.6, and the rule that matters most here: an ambiguous match is
+        // answered with silence, never a guess. A manager reading the wrong
+        // file has no way to know it is the wrong file.
+        $this->createBooking('LOC-2027-0042', 'jeanne@example.be');
+        $this->createBooking('LOC-2027-0043', 'jeanne@example.be', arrival: '2027-08-01', departure: '2027-08-04');
+
+        $this->deliver(10, 'Une question sans référence', from: 'jeanne@example.be');
+        $this->sync();
+
+        $this->assertSame(0, $this->countStoredMessages());
+    }
+
+    public function testAStrangersAddressAttachesNothing(): void
+    {
+        $this->createBooking();
+        $this->deliver(10, 'Publicité', from: 'marketing@example.com');
+
+        $this->sync();
+
+        $this->assertSame(0, $this->countStoredMessages());
+    }
+
+    public function testAnUnclaimedMessageAdvancesTheCursorAnyway(): void
+    {
+        $this->createBooking();
+        $this->deliver(10, 'Publicité', from: 'marketing@example.com');
+
+        $this->sync();
+
+        $this->assertSame(10, $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->lastUid);
+    }
+
+    // ── Mailbox selection (§7.4) ────────────────────────────────────────
+
+    public function testAModuleListeningToAnotherMailboxClaimsNothing(): void
+    {
+        $this->registry = new MessageConsumerRegistry();
+        $consumer = new RentalMessageConsumer(
+            $this->bookingRepository,
+            $this->inboundMail,
+            $this->createStub(\Modules\Rental\Service\RentalDocumentService::class),
+            [$this->mailboxId + 99]
+        );
+
+        $this->createBooking();
+        $claim = $consumer->claim(new \Modules\InboundMail\Api\CandidateMessage(
+            mailboxId: $this->mailboxId,
+            subject: '[LOC-2027-0042]',
+            fromEmail: 'jeanne@example.be',
+            fromName: null,
+            messageId: 'a@b',
+            inReplyTo: null,
+            references: [],
+            toEmails: [],
+            sentAt: new \DateTimeImmutable('2027-07-12 09:30:00'),
+            bodyText: '',
+            bodyHtml: ''
+        ));
+
+        $this->assertNull($claim);
+    }
+
+    public function testAnEmptySelectionMeansEveryMailbox(): void
+    {
+        $consumer = new RentalMessageConsumer(
+            $this->bookingRepository,
+            $this->inboundMail,
+            $this->createStub(\Modules\Rental\Service\RentalDocumentService::class),
+            []
+        );
+
+        $this->createBooking();
+        $claim = $consumer->claim(new \Modules\InboundMail\Api\CandidateMessage(
+            mailboxId: 12345,
+            subject: '[LOC-2027-0042]',
+            fromEmail: 'jeanne@example.be',
+            fromName: null,
+            messageId: 'a@b',
+            inReplyTo: null,
+            references: [],
+            toEmails: [],
+            sentAt: new \DateTimeImmutable('2027-07-12 09:30:00'),
+            bodyText: '',
+            bodyHtml: ''
+        ));
+
+        $this->assertNotNull($claim);
+    }
+
+    // ── Attachments become documents (§7.8) ─────────────────────────────
+
+    private function deliverWithPdf(int $uid, string $subject, string $filename = 'contrat.pdf'): void
+    {
+        $this->client->addRawMessage('INBOX', $uid, implode("\r\n", [
+            'From: Jeanne Martin <jeanne@example.be>',
+            'Subject: ' . $subject,
+            'Message-ID: <pdf-' . $uid . '@example.be>',
+            'Date: Mon, 12 Jul 2027 09:30:00 +0200',
+            'Content-Type: multipart/mixed; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: text/plain',
+            '',
+            'Voici le contrat signé.',
+            '--frontier',
+            'Content-Type: application/pdf',
+            'Content-Disposition: attachment; filename="' . $filename . '"',
+            'Content-Transfer-Encoding: base64',
+            '',
+            base64_encode("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"),
+            '--frontier--',
+        ]));
+    }
+
+    public function testAnAttachedPdfBecomesAnUnsortedInternalDocument(): void
+    {
+        // §7.8: never presumed to be the signed contract, never visible to
+        // the renter. A manager reclassifies it in one click.
+        $booking = $this->createBooking();
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+
+        $this->sync();
+
+        $documents = $this->documentRepository->findForBooking($booking->id);
+        $this->assertCount(1, $documents);
+        $this->assertSame(DocumentType::UNSORTED, $documents[0]->type);
+        $this->assertFalse($documents[0]->isForRenter);
+    }
+
+    public function testTheDocumentPointsAtTheSameStoredFileAsTheAttachment(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+
+        $this->sync();
+
+        $message = $this->communicationService->timeline($booking)[0];
+        $document = $this->documentRepository->findForBooking($booking->id)[0];
+
+        $this->assertSame($message->attachments[0]->fileId, $document->fileId);
+    }
+
+    public function testASignatureLogoNeverBecomesADocument(): void
+    {
+        $booking = $this->createBooking();
+
+        $image = imagecreatetruecolor(80, 40);
+        self::assertNotFalse($image);
+        ob_start();
+        imagepng($image);
+        $logo = (string) ob_get_clean();
+        imagedestroy($image);
+
+        $this->client->addRawMessage('INBOX', 10, implode("\r\n", [
+            'From: Jeanne Martin <jeanne@example.be>',
+            'Subject: Re: [LOC-2027-0042]',
+            'Message-ID: <logo@example.be>',
+            'Date: Mon, 12 Jul 2027 09:30:00 +0200',
+            'Content-Type: multipart/related; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: text/html',
+            '',
+            '<p>Cordialement<img src="cid:logo123"></p>',
+            '--frontier',
+            'Content-Type: image/png',
+            'Content-Disposition: inline; filename="logo.png"',
+            'Content-ID: <logo123>',
+            'Content-Transfer-Encoding: base64',
+            '',
+            base64_encode($logo),
+            '--frontier--',
+        ]));
+
+        $this->sync();
+
+        $this->assertCount(1, $this->communicationService->timeline($booking));
+        $this->assertSame([], $this->documentRepository->findForBooking($booking->id));
+    }
+
+    public function testAnArchiveAttachmentIsRefusedButTheMessageSurvives(): void
+    {
+        $booking = $this->createBooking();
+        $this->client->addRawMessage('INBOX', 10, implode("\r\n", [
+            'From: Jeanne Martin <jeanne@example.be>',
+            'Subject: Re: [LOC-2027-0042]',
+            'Message-ID: <zip@example.be>',
+            'Date: Mon, 12 Jul 2027 09:30:00 +0200',
+            'Content-Type: multipart/mixed; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: application/pdf',
+            'Content-Disposition: attachment; filename="photos.pdf"',
+            'Content-Transfer-Encoding: base64',
+            '',
+            base64_encode("PK\x03\x04" . str_repeat("\x00", 60)),
+            '--frontier--',
+        ]));
+
+        $this->sync();
+
+        $this->assertCount(1, $this->communicationService->timeline($booking));
+        $this->assertSame([], $this->documentRepository->findForBooking($booking->id));
+    }
+
+    public function testAnUnsortedAttachmentIsReclassifiableAsASignedContract(): void
+    {
+        // The roadmap's acceptance criterion, end to end: reply to a
+        // `[LOC-…]` email with a PDF, and the message turns up on the right
+        // booking with the PDF filed as `Non classé` — reclassifiable in
+        // one step into a signed contract.
+        $booking = $this->createBooking();
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042] contrat signé');
+        $this->sync();
+
+        $document = $this->documentRepository->findForBooking($booking->id)[0];
+        $this->assertSame(DocumentType::UNSORTED, $document->type);
+
+        $this->documentService->reclassify($booking, $document->id, DocumentType::SIGNED_CONTRACT, false);
+
+        $reclassified = $this->documentRepository->findForBooking($booking->id)[0];
+        $this->assertSame(DocumentType::SIGNED_CONTRACT, $reclassified->type);
+        $this->assertSame($document->fileId, $reclassified->fileId, 'The very bytes that arrived, not a copy.');
+    }
+
+    public function testAGeneratedDocumentIsNeverReclassified(): void
+    {
+        // A contract is what this module produced from a template; calling
+        // it something else would break the versioning a signed v1 depends
+        // on — and would let a manager quietly turn an invoice into a
+        // "photo" to hide it.
+        $booking = $this->createBooking();
+        $fileId = (new FileRepository($this->pdo))->create(
+            'rental/documents/x.pdf',
+            'contrat.pdf',
+            'application/pdf',
+            10,
+            'identified',
+            'rental',
+            null
+        );
+        $documentId = $this->documentRepository->create(
+            $booking->id,
+            $fileId,
+            DocumentType::CONTRACT,
+            1,
+            true,
+            null,
+            null
+        );
+
+        $this->expectException(RentalException::class);
+        $this->documentService->reclassify($booking, $documentId, DocumentType::EVIDENCE, false);
+    }
+
+    public function testADocumentOfAnotherBookingIsNeverReclassified(): void
+    {
+        $mine = $this->createBooking('LOC-2027-0042');
+        $theirs = $this->createBooking('LOC-2027-0043');
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0043]');
+        $this->sync();
+
+        $document = $this->documentRepository->findForBooking($theirs->id)[0];
+
+        $this->expectException(RentalException::class);
+        $this->documentService->reclassify($mine, $document->id, DocumentType::PHOTO, false);
+    }
+
+    // ── Untrusted content (§7.9) ────────────────────────────────────────
+
+    public function testScriptInAnIncomingBodyNeverReachesStorage(): void
+    {
+        $booking = $this->createBooking();
+        $this->client->addRawMessage('INBOX', 10, InboundMailTestHelper::rawMessage([
+            'From' => 'Jeanne Martin <jeanne@example.be>',
+            'Subject' => 'Re: [LOC-2027-0042]',
+            'Message-ID' => '<xss@example.be>',
+            'Date' => 'Mon, 12 Jul 2027 09:30:00 +0200',
+            'Content-Type' => 'text/html; charset=UTF-8',
+        ], '<p>Bonjour</p><script>alert(document.cookie)</script>'));
+
+        $this->sync();
+
+        $stored = $this->communicationService->timeline($booking)[0];
+        $this->assertStringNotContainsString('<script', $stored->bodyHtml);
+        $this->assertStringNotContainsString('document.cookie', $stored->bodyHtml);
+    }
+
+    public function testATrackingPixelNeverReachesStorageEither(): void
+    {
+        $booking = $this->createBooking();
+        $this->client->addRawMessage('INBOX', 10, InboundMailTestHelper::rawMessage([
+            'From' => 'Jeanne Martin <jeanne@example.be>',
+            'Subject' => 'Re: [LOC-2027-0042]',
+            'Message-ID' => '<pixel@example.be>',
+            'Date' => 'Mon, 12 Jul 2027 09:30:00 +0200',
+            'Content-Type' => 'text/html; charset=UTF-8',
+        ], '<p>Bonjour</p><img src="https://tracker.example/p.gif?u=42" width="1" height="1">'));
+
+        $this->sync();
+
+        $stored = $this->communicationService->timeline($booking)[0];
+        $this->assertStringNotContainsString('tracker.example', $stored->bodyHtml);
+        $this->assertStringNotContainsString('<img', $stored->bodyHtml);
+    }
+
+    // ── Correcting the automatic rules (§7.7) ───────────────────────────
+
+    public function testDetachingRemovesTheMessageAndItsUnsortedAttachment(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+        $this->sync();
+
+        $message = $this->communicationService->timeline($booking)[0];
+        $this->assertTrue($this->communicationService->detach($booking, $message->id));
+
+        $this->assertSame([], $this->communicationService->timeline($booking));
+        $this->assertSame([], $this->documentRepository->findForBooking($booking->id));
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+    }
+
+    public function testDetachingKeepsAnAttachmentAManagerAlreadyReclassified(): void
+    {
+        // §7.7: an attachment that was reclassified survives; an untouched
+        // one goes with the message. A signed contract a manager already
+        // filed must not vanish because they tidied the thread.
+        $booking = $this->createBooking();
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+        $this->sync();
+
+        $document = $this->documentRepository->findForBooking($booking->id)[0];
+        $this->documentRepository->updateType($document->id, DocumentType::SIGNED_CONTRACT);
+
+        $message = $this->communicationService->timeline($booking)[0];
+        $this->communicationService->detach($booking, $message->id);
+
+        $remaining = $this->documentRepository->findForBooking($booking->id);
+        $this->assertCount(1, $remaining);
+        $this->assertSame(DocumentType::SIGNED_CONTRACT, $remaining[0]->type);
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+    }
+
+    public function testDetachingAMessageOfAnotherBookingChangesNothing(): void
+    {
+        $mine = $this->createBooking('LOC-2027-0042');
+        $theirs = $this->createBooking('LOC-2027-0043');
+        $this->deliver(10, '[LOC-2027-0043]');
+        $this->sync();
+
+        $message = $this->communicationService->timeline($theirs)[0];
+
+        $this->assertFalse($this->communicationService->detach($mine, $message->id));
+        $this->assertCount(1, $this->communicationService->timeline($theirs));
+    }
+
+    public function testAManagerMovesAMessageToAnotherBookingOfTheirOwnAsset(): void
+    {
+        $this->addManager('chef@unite.be');
+        $from = $this->createBooking('LOC-2027-0042');
+        $to = $this->createBooking('LOC-2027-0043');
+        $this->deliver(10, '[LOC-2027-0042]');
+        $this->sync();
+
+        $message = $this->communicationService->timeline($from)[0];
+
+        $this->assertTrue(
+            $this->communicationService->move($from, $message->id, $to->id, 'chef@unite.be', $this->scoutYearId)
+        );
+        $this->assertSame([], $this->communicationService->timeline($from));
+        $this->assertCount(1, $this->communicationService->timeline($to));
+    }
+
+    public function testAManagerCannotMoveAMessageToAnAssetTheyDoNotManage(): void
+    {
+        // The bound that stops "move" from becoming a doorway into the rest
+        // of the unit's bookings (§7.7).
+        $this->addManager('chef@unite.be');
+        $otherAssetId = $this->createAsset('Hangar', 'hangar');
+
+        $from = $this->createBooking('LOC-2027-0042');
+        $to = $this->createBooking('LOC-2027-0043', assetId: $otherAssetId);
+        $this->deliver(10, '[LOC-2027-0042]');
+        $this->sync();
+
+        $message = $this->communicationService->timeline($from)[0];
+
+        $this->expectException(RentalException::class);
+        $this->communicationService->move($from, $message->id, $to->id, 'chef@unite.be', $this->scoutYearId);
+    }
+
+    public function testTheMoveTargetListOnlyEverHoldsTheirOwnBookings(): void
+    {
+        $this->addManager('chef@unite.be');
+        $otherAssetId = $this->createAsset('Hangar', 'hangar');
+
+        $from = $this->createBooking('LOC-2027-0042');
+        $this->createBooking('LOC-2027-0043');
+        $this->createBooking('LOC-2027-0044', assetId: $otherAssetId);
+
+        $references = array_map(
+            static fn(RentalBooking $booking) => $booking->reference,
+            $this->communicationService->moveTargets($from, 'chef@unite.be', $this->scoutYearId)
+        );
+
+        $this->assertSame(['LOC-2027-0043'], $references);
+    }
+
+    public function testAMovedMessageTakesItsDocumentsWithIt(): void
+    {
+        $this->addManager('chef@unite.be');
+        $from = $this->createBooking('LOC-2027-0042');
+        $to = $this->createBooking('LOC-2027-0043');
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+        $this->sync();
+
+        $message = $this->communicationService->timeline($from)[0];
+        $this->communicationService->move($from, $message->id, $to->id, 'chef@unite.be', $this->scoutYearId);
+
+        $this->assertSame([], $this->documentRepository->findForBooking($from->id));
+        $this->assertCount(1, $this->documentRepository->findForBooking($to->id));
+    }
+
+    // ── Degrading without the module (§7.5) ─────────────────────────────
+
+    public function testWithoutInboundMailTheTabIsNotOffered(): void
+    {
+        $service = new RentalCommunicationService(
+            $this->bookingRepository,
+            $this->documentRepository,
+            $this->authorizationService,
+            new JournalService(new JournalRepository($this->pdo))
+        );
+
+        $booking = $this->createBooking();
+
+        $this->assertFalse($service->isAvailable());
+        $this->assertSame([], $service->timeline($booking));
+        $this->assertFalse($service->detach($booking, 1));
+    }
+
+    public function testWithEveryMailboxDisabledTheTabIsNotOfferedEither(): void
+    {
+        $this->mailboxRepository->setEnabled($this->mailboxId, false);
+
+        $this->assertFalse($this->communicationService->isAvailable());
+    }
+
+    public function testADisabledMailboxCollectsNothing(): void
+    {
+        $this->createBooking();
+        $this->deliver(10, 'Re: [LOC-2027-0042]');
+        $this->mailboxRepository->setEnabled($this->mailboxId, false);
+
+        $this->syncService->syncAll(new \DateTimeImmutable('2027-07-12 10:00:00'));
+
+        $this->assertSame(0, $this->countStoredMessages());
+    }
+
+    private function countStoredMessages(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn();
+    }
+}

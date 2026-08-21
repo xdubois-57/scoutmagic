@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -240,6 +240,15 @@
       "label": ""
     },
     {
+      "path": "/mes-locations/document-reclasser",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "reclassifyDocument",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/mes-locations/facturation",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
@@ -325,6 +334,24 @@
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
       "action": "saveCalendarPublication",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/message/detacher",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "detachMessage",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/message/deplacer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "moveMessage",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -601,6 +628,15 @@
       "label": ""
     },
     {
+      "path": "/admin/locations/courrier",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "saveMailboxes",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/locations/{slug}/demande",
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalRequestController",
@@ -639,6 +675,13 @@
       "type": "number",
       "label": "Blocage automatique des dates (heures)",
       "description": "Durée pendant laquelle les dates d'une demande reçue sont retenues, en heures, le temps que les gestionnaires y répondent. Pendant ce délai les dates n'apparaissent plus libres pour les autres visiteurs ; passé ce délai elles se libèrent seules et la demande reste en attente — rien n'est refusé automatiquement. 0 désactive le blocage automatique : les dates restent alors proposées à tout le monde jusqu'à la confirmation."
+    },
+    {
+      "key": "inbound_mailbox_ids",
+      "default_value": "",
+      "type": "text",
+      "label": "Boîtes de courrier entrant surveillées",
+      "description": "Identifiants des boîtes, séparés par des virgules, dont les messages sont rattachés automatiquement aux réservations. Vide = toutes les boîtes configurées. Se règle depuis la page Locations plutôt qu'ici : elle affiche le nom de chaque boîte, ce que cette liste d'identifiants ne fait pas."
     }
   ],
   "cookies": [],

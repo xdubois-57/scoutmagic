@@ -43,9 +43,21 @@ interface InboundMailInterface
      * unattached queue to fall into (§7.6), is deleted along with the
      * attachments nothing else has claimed.
      *
+     * `$preserveFileIds` names the files the consumer has re-classified as
+     * something of its own and wants kept — §7.7: an attachment that was
+     * reclassified survives a detach, an untouched one goes with the
+     * message. The consumer decides, because only it knows what it did with
+     * them.
+     *
+     * @param int[] $preserveFileIds
      * @return bool false when the message does not belong to that reference
      */
-    public function detach(string $consumerId, string $businessReference, int $messageId): bool;
+    public function detach(
+        string $consumerId,
+        string $businessReference,
+        int $messageId,
+        array $preserveFileIds = []
+    ): bool;
 
     /**
      * Move a message from one business object to another **within the same
@@ -72,4 +84,27 @@ interface InboundMailInterface
      * otherwise always be empty.
      */
     public function isCollecting(): bool;
+
+    /**
+     * The business object a message belongs to, found from the Message-IDs
+     * a reply names — §7.6's second level, and the reason a reply carrying
+     * no reference still lands on the right file.
+     *
+     * It lives here rather than in the consumer because the consumer has no
+     * way to look inside this module's storage, and it is scoped to the
+     * caller's own consumer id for the same reason everything else is.
+     *
+     * @param string[] $messageIds most specific first
+     */
+    public function findReferenceByThread(string $consumerId, int $mailboxId, array $messageIds): ?string;
+
+    /**
+     * What a non-superadmin may know about the configured mailboxes: a name
+     * and whether it is working (§7.4). Never the host, the port or the
+     * account — a manager choosing which box their module listens to needs
+     * to recognise it, not to be able to reach it.
+     *
+     * @return array<int, array{name: string, state: string, is_enabled: bool}> keyed by mailbox id
+     */
+    public function listMailboxSummaries(): array;
 }

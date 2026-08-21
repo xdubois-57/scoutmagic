@@ -56,8 +56,15 @@ class InboundMailService implements InboundMailInterface
      * would create exactly the invisible archive the module exists to
      * avoid.
      */
-    public function detach(string $consumerId, string $businessReference, int $messageId): bool
-    {
+    /**
+     * @param int[] $preserveFileIds
+     */
+    public function detach(
+        string $consumerId,
+        string $businessReference,
+        int $messageId,
+        array $preserveFileIds = []
+    ): bool {
         if ($this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId) === null) {
             return false;
         }
@@ -68,14 +75,7 @@ class InboundMailService implements InboundMailInterface
             return false;
         }
 
-        // After the message row is gone: a file another message
-        // deduplicated onto still has a live attachment row pointing at it,
-        // and deleting it would break that one.
-        foreach ($fileIds as $fileId) {
-            if ($this->messageRepository->countAttachmentsForFile($fileId) === 0) {
-                $this->fileRepository?->delete($fileId);
-            }
-        }
+        $this->deleteUnreferencedFiles($fileIds, $preserveFileIds);
 
         return true;
     }
@@ -94,13 +94,57 @@ class InboundMailService implements InboundMailInterface
         $fileIds = $this->messageRepository->findFileIdsForReference($consumerId, $businessReference);
         $removed = $this->messageRepository->deleteForReference($consumerId, $businessReference);
 
+        $this->deleteUnreferencedFiles($fileIds, []);
+
+        return $removed;
+    }
+
+    /**
+     * Delete the stored files nothing points at any more.
+     *
+     * Two things can still point at one: another message that deduplicated
+     * onto the same bytes (§7.8), and the consumer itself, which may have
+     * re-classified the attachment into something of its own and asked for
+     * it to be kept. Both have to be checked *after* the message rows are
+     * gone, since the first is a live count rather than a fixed list.
+     *
+     * @param int[] $fileIds
+     * @param int[] $preserveFileIds
+     */
+    private function deleteUnreferencedFiles(array $fileIds, array $preserveFileIds): void
+    {
         foreach (array_unique($fileIds) as $fileId) {
+            if (in_array($fileId, $preserveFileIds, true)) {
+                continue;
+            }
+
             if ($this->messageRepository->countAttachmentsForFile($fileId) === 0) {
                 $this->fileRepository?->delete($fileId);
             }
         }
+    }
 
-        return $removed;
+    /**
+     * @param string[] $messageIds
+     */
+    public function findReferenceByThread(string $consumerId, int $mailboxId, array $messageIds): ?string
+    {
+        $found = $this->messageRepository->findReferenceByThread($mailboxId, $consumerId, $messageIds);
+
+        return $found === null ? null : $found['reference'];
+    }
+
+    /**
+     * @return array<int, array{name: string, state: string, is_enabled: bool}>
+     */
+    public function listMailboxSummaries(): array
+    {
+        $summaries = [];
+        foreach ($this->mailboxRepository->findAll() as $mailbox) {
+            $summaries[$mailbox->id] = $mailbox->publicSummary();
+        }
+
+        return $summaries;
     }
 
     public function isCollecting(): bool

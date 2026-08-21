@@ -93,6 +93,46 @@
                                                 </button>
                                             </form>
                                         {% endif %}
+                                        {% if not document.type.isGenerated %}
+                                            {# Reclassification (§6.24, §7.8): what an email
+                                               attachment arriving as « Non classé » is for. A
+                                               generated contract or invoice is deliberately
+                                               absent — it is what the module produced, and
+                                               calling it something else would break the
+                                               versioning a signed v1 depends on. #}
+                                            <form method="post" action="/mes-locations/document-reclasser"
+                                                  class="d-inline d-flex flex-wrap gap-1 align-items-center">
+                                                {{ csrf_field()|raw }}
+                                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                                <input type="hidden" name="document_id" value="{{ document.id }}">
+                                                <label class="visually-hidden" for="reclass-{{ document.id }}">
+                                                    Reclasser
+                                                </label>
+                                                <select class="form-select form-select-sm w-auto"
+                                                        id="reclass-{{ document.id }}" name="document_type">
+                                                    {% for type in uploadable_types %}
+                                                        <option value="{{ type.value }}"
+                                                                {{ document.type == type ? 'selected' : '' }}>
+                                                            {{ type.label }}
+                                                        </option>
+                                                    {% endfor %}
+                                                </select>
+                                                <div class="form-check form-check-inline m-0">
+                                                    <input class="form-check-input" type="checkbox"
+                                                           id="reclass-renter-{{ document.id }}"
+                                                           name="is_for_renter"
+                                                           {{ document.isForRenter ? 'checked' : '' }}>
+                                                    <label class="form-check-label small"
+                                                           for="reclass-renter-{{ document.id }}">
+                                                        Destiné au locataire
+                                                    </label>
+                                                </div>
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                                    Reclasser
+                                                </button>
+                                            </form>
+                                        {% endif %}
                                         <form method="post" action="/mes-locations/document-supprimer" class="d-inline">
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">

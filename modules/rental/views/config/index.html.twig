@@ -199,6 +199,60 @@
             </div>
         {% endif %}
 
+        {# ── Section: courrier entrant (§7.4) ─────────────────────────── #}
+        <div class="card mb-4" id="courrier">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Courrier entrant</h2>
+
+                {% if not inbound_mail_available %}
+                    <p class="text-body-secondary small mb-0">
+                        Le module « Courrier entrant » n'est pas actif sur ce site. Les locations
+                        fonctionnent normalement sans lui : les réponses des locataires arrivent
+                        simplement dans la boîte de l'unité, sans être rattachées automatiquement
+                        aux réservations.
+                    </p>
+                {% elseif inbound_mailboxes is empty %}
+                    <p class="text-body-secondary small mb-0">
+                        Aucune boîte n'est configurée. Un superadministrateur peut en ajouter une
+                        depuis <em>Configuration &gt; Courrier entrant</em>.
+                    </p>
+                {% else %}
+                    <p class="text-body-secondary small">
+                        Les réponses reçues dans ces boîtes sont rattachées automatiquement à la
+                        réservation concernée : d'abord par la référence dans le sujet, puis par la
+                        conversation, puis par l'adresse de l'expéditeur dans une fenêtre de temps
+                        autour du séjour. En cas d'ambiguïté, rien n'est rattaché.
+                        <strong>Ne rien cocher revient à surveiller toutes les boîtes.</strong>
+                    </p>
+
+                    <form method="post" action="/admin/locations/courrier">
+                        {{ csrf_field()|raw }}
+
+                        {% for mailbox_id, mailbox in inbound_mailboxes %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox"
+                                       id="mailbox-{{ mailbox_id }}" name="mailbox_ids[]"
+                                       value="{{ mailbox_id }}"
+                                       {{ mailbox_id in selected_mailbox_ids ? 'checked' : '' }}>
+                                <label class="form-check-label" for="mailbox-{{ mailbox_id }}">
+                                    {{ mailbox.name }}
+                                    {# Name and state only: the host, the port and the account
+                                       stay on the superadmin page (§7.4). #}
+                                    <span class="form-text">
+                                        — {{ mailbox.state }}{% if not mailbox.is_enabled %}, désactivée{% endif %}
+                                    </span>
+                                </label>
+                            </div>
+                        {% endfor %}
+
+                        <button type="submit" class="btn btn-primary mt-3">
+                            Enregistrer les boîtes surveillées
+                        </button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+
         {# ── Création ─────────────────────────────────────────────────── #}
         <div class="card">
             <div class="card-body">

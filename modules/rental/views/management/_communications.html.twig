@@ -1,0 +1,138 @@
+{#
+  The Communications tab of a booking (§7.7): the emails that arrived about
+  this stay, in the order they arrived.
+
+  Three things this panel is deliberate about:
+
+  - **The origin of every attachment is shown.** A message attached because
+    its subject carried the reference is a near-certainty; one attached
+    because the sender's address matched inside a time window is a guess.
+    Presenting both as simply "attached" would let a manager act on the
+    second with the confidence of the first.
+  - **There is no way to attach a message here.** Attaching is what the
+    automatic rules do; correcting them is what detach and move are for.
+    A button that opened the mailbox would be a doorway onto everybody's
+    correspondence.
+  - **Remote images are already gone** from the bodies below — a hidden
+    image in a stranger's email is a read receipt, and it was stripped when
+    the message was stored, not when it is rendered.
+
+  Requires `asset`, `booking`, `messages`, `message_documents` and
+  `move_targets`.
+#}
+<div class="card mb-4" id="communications">
+    <div class="card-body">
+        <h2 class="h5 mb-2">Communications</h2>
+        <p class="text-body-secondary small">
+            Les emails reçus au sujet de cette réservation, rattachés automatiquement.
+            ScoutMagic lit la boîte de l'unité sans jamais la modifier : rien n'y est
+            marqué comme lu, déplacé ni supprimé.
+        </p>
+
+        {% if messages is empty %}
+            <p class="text-body-secondary mb-0">
+                Aucun message n'a encore été rattaché à cette réservation.
+            </p>
+        {% else %}
+            {% for message in messages %}
+                <div class="border rounded p-3 mb-3">
+                    <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+                        <div>
+                            <strong>{{ message.displayFrom }}</strong>
+                            <div class="form-text mb-0">
+                                {{ message.sentAt|date('d/m/Y H:i') }}
+                                {% if message.toEmails is not empty %}
+                                    · à {{ message.toEmails|join(', ') }}
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div>
+                            {% if message.linkOrigin.isCertain %}
+                                <span class="badge text-bg-secondary">{{ message.linkOrigin.label }}</span>
+                            {% else %}
+                                {# Said out loud, not buried: this one could be wrong. #}
+                                <span class="badge text-bg-warning">
+                                    Rattachement incertain · {{ message.linkOrigin.label }}
+                                </span>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="fw-semibold mb-2">{{ message.subject }}</div>
+
+                    <div class="rental-message-body mb-3">
+                        {% if message.bodyHtml is not empty %}
+                            {# Already sanitised and stripped of remote images when it
+                               was stored (§7.9) — never at render time, so no future
+                               template has to remember. #}
+                            {{ message.bodyHtml|raw }}
+                        {% else %}
+                            <pre class="mb-0 text-body-secondary" style="white-space: pre-wrap;">{{ message.bodyText }}</pre>
+                        {% endif %}
+                    </div>
+
+                    {% if message.hasAttachments %}
+                        <div class="mb-3">
+                            <div class="form-text mb-1">Pièces jointes</div>
+                            <ul class="list-unstyled mb-0">
+                                {% for attachment in message.attachments %}
+                                    {% set document = message_documents[attachment.fileId] ?? null %}
+                                    <li class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                                        <span>{{ attachment.filename }}</span>
+                                        {% if document %}
+                                            <span class="badge text-bg-light">{{ document.type.label }}</span>
+                                            <a href="{{ file_url(attachment.fileId) }}"
+                                               class="btn btn-sm btn-outline-secondary">Ouvrir</a>
+                                        {% else %}
+                                            <span class="badge text-bg-light">Non classé</span>
+                                        {% endif %}
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                            <div class="form-text">
+                                Chaque pièce jointe est enregistrée en « Non classé », en visibilité
+                                interne. Reclassez-la dans le panneau Documents si elle est autre chose.
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <div class="d-flex flex-wrap gap-2">
+                        <form method="post" action="/mes-locations/message/detacher"
+                              onsubmit="return confirm('Détacher ce message ? Il sera supprimé, ainsi que ses pièces jointes non reclassées.');">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                            <input type="hidden" name="message_id" value="{{ message.id }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Détacher</button>
+                        </form>
+
+                        {% if move_targets is not empty %}
+                            <form method="post" action="/mes-locations/message/deplacer"
+                                  class="d-flex flex-wrap gap-2 align-items-center">
+                                {{ csrf_field()|raw }}
+                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                <input type="hidden" name="message_id" value="{{ message.id }}">
+                                <label class="visually-hidden" for="move-{{ message.id }}">
+                                    Déplacer vers
+                                </label>
+                                <select class="form-select form-select-sm w-auto"
+                                        id="move-{{ message.id }}" name="target_booking_id">
+                                    {# Only bookings of assets this manager manages: the
+                                       list is built from their own assets, never filtered
+                                       from a global one (§7.7). #}
+                                    {% for target in move_targets %}
+                                        <option value="{{ target.id }}">
+                                            {{ target.reference }} — {{ target.arrivalDate }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">Déplacer</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+</div>

@@ -1268,6 +1268,75 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **The polling task is the one module task registered by hand** rather than auto-resolved from its manifest, because it needs the consumer registry and only a composition root can build one — in `public/index.php` **and** `public/cron.php` both. A handler registered in only one of the two fails unconditionally under the other with "No handler registered" (§8.17/§8.20), so a test pins both call sites.
 
+### 8.59 A booking's correspondence (`Modules\Rental\Mail`)
+
+**`rental` claims its own mail; `inbound_mail` has no idea what a booking
+is.** The consumer (`Mail\RentalMessageConsumer`) is registered into that
+module's registry from the composition root, and everything about *which*
+booking a message belongs to lives on this side of the boundary — §8.58's
+module knows how to read a mailbox and nothing else.
+
+**The matching order goes from certain to plausible and stops at the first
+answer:**
+
+1. **A reference in the subject** (`[LOC-2027-0042]`) — the module put it
+   there itself, so a reply carrying it back is as close to certain as
+   automatic attachment gets. Bracketed beats bare, and the subject beats
+   the body, because a body is full of quoted history. **Two different
+   references means no match**: a renter forwarding one booking's email
+   while asking about another leaves both in the text.
+2. **The thread headers** — `In-Reply-To`/`References` naming a message
+   already attached. Resolved through `InboundMailInterface`, scoped to this
+   consumer, because `rental` cannot look inside the other module's storage.
+   The reference still wins when both point, since a thread can be hijacked
+   by replying to an old email about a different booking.
+3. **The sender's address, bounded by time** — the renter's own address
+   *and* a message falling between the request and some weeks after the
+   departure. Neither half works alone: without the address this attaches
+   anything, without the window it attaches next summer's enquiry to last
+   summer's stay.
+
+**Ambiguity is answered with silence.** Two bookings matching the sender
+inside the window attaches nothing at all — a manager reading the wrong file
+has no way to know it is the wrong file, which makes a wrong attachment
+worse than none.
+
+**An attachment becomes a `Non classé`, internal document of the booking**,
+pointing at the very file `UploadHandler` stored rather than a copy. Never
+presumed to be the signed contract (that would put an unverified PDF where a
+signed contract goes) and never "for the renter" (that flag queues it to be
+emailed back to them). `RentalDocumentService::reclassify()` is the one-click
+correction, and it refuses generated documents: a contract or invoice is what
+the module produced from a template, and renaming one would break the
+versioning a signed v1 depends on.
+
+**Correcting the automatic rules is bounded by what the manager manages.**
+Detaching deletes the message *and the attachments nobody re-classified* —
+one already filed as a signed contract survives, an untouched `Non classé`
+goes with it. Moving is offered only to bookings of that manager's own
+assets, and the target list is **built from their assets** rather than
+filtered from a global list, so the picker is never itself a window onto the
+unit's other bookings; a hand-crafted POST naming somebody else's booking
+gets the same "not accessible" as one naming a booking that does not exist.
+A moved message takes its documents with it, since `FileAccessGuard` resolves
+a rental file's readers through its document row.
+
+**There is no way to attach a message by hand**, anywhere. Attaching is what
+the rules do; a button that opened the mailbox would be a doorway onto
+everybody's correspondence, which is the whole thing §7.11's scoped API
+exists to prevent.
+
+**Which mailboxes feed the module is a rental setting, and a manager sees a
+name and a state.** Never a host, a port or an account: `listMailboxSummaries()`
+is the whole of what crosses that boundary. **Empty means every mailbox** —
+most units have one, and asking them to tick it before anything works would
+be a configuration step whose only sensible answer is "yes" and whose
+omission would look exactly like a broken sync.
+
+**Without `inbound_mail` the booking page loses a tab and nothing else.**
+`RentalCommunicationService` takes the API as a nullable dependency and
+answers as though no message ever arrived, which is exactly true.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

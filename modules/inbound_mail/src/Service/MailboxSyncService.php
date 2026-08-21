@@ -11,6 +11,7 @@ namespace Modules\InboundMail\Service;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Modules\InboundMail\Api\CandidateMessage;
+use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Client\FetchedMessage;
 use Modules\InboundMail\Client\IncomingMailboxClientInterface;
 use Modules\InboundMail\Client\MailboxConnectionException;
@@ -146,6 +147,7 @@ class MailboxSyncService
     private function store(Mailbox $mailbox, FetchedMessage $message): bool
     {
         $candidate = new CandidateMessage(
+            mailboxId: $mailbox->id,
             subject: $message->subject,
             fromEmail: $message->fromEmail,
             fromName: $message->fromName,
@@ -193,12 +195,44 @@ class MailboxSyncService
             fromName: $message->fromName,
             bodyText: $candidate->bodyText,
             bodyHtml: $candidate->bodyHtml,
-            sentAt: $message->sentAt
+            sentAt: $message->sentAt,
+            toEmails: $message->toEmails
         );
 
         $this->storeAttachments($message, $messageId, $consumerId, $reference, $candidate->bodyHtml);
 
+        $this->notifyConsumer($claimed['consumer'], $consumerId, $reference, $messageId);
+
         return true;
+    }
+
+    /**
+     * Hand the stored message back to the consumer that claimed it, so it
+     * can do its own bookkeeping — turning attachments into documents, for
+     * instance (§7.8).
+     *
+     * Deliberately after the write, and deliberately unable to fail the
+     * run: the message is already stored, and one module's bookkeeping
+     * throwing must not cost the unit the rest of its mail. Nothing about
+     * the failure is logged either, since anything identifying enough to be
+     * useful would be personal data in the journal (§7.9).
+     */
+    private function notifyConsumer(
+        MessageConsumerInterface $consumer,
+        string $consumerId,
+        string $reference,
+        int $messageId
+    ): void {
+        $stored = $this->messageRepository->findOneForReference($consumerId, $reference, $messageId);
+        if ($stored === null) {
+            return;
+        }
+
+        try {
+            $consumer->onMessageStored($stored);
+        } catch (\Throwable) {
+            // See the docblock: swallowed on purpose, and silently.
+        }
     }
 
     private function storeAttachments(
