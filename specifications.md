@@ -279,6 +279,12 @@ Members can manage their own secondary email addresses (self-service only, no ch
 - No chief/admin bypass — this is strictly self-service
 - Public confirmation link (unauthenticated, like password reset)
 
+### 14.5 Logging in with a secondary address
+- An active secondary address is a login identity **of its own**, never an alias for the member's main address
+- It logs in by magic link (the only method available to it — it starts with no password and no passkey)
+- What it gives access to is exactly the member(s) it is currently active on, and the role those members carry — never the other members reachable from the main address, and never that account's own password or passkeys
+- Deactivating or deleting it ends that access on the next page load
+
 ## 15. Section documents
 
 Chiefs can attach PDF documents to sections (per scout year), displayed on both the Staffs page and member pages.
