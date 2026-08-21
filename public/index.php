@@ -3051,13 +3051,26 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $memberService,
         $journalService
     );
+    // The pricing engine is pure and stateless, so one instance serves every
+    // caller — the configuration simulator, the public page and the contract
+    // are then provably the same code path, which is the only thing that
+    // makes the simulator a real guard-rail against a wrong tariff.
+    $rentalPricingService = new \Modules\Rental\Service\RentalPricingService(
+        new \Modules\Rental\Repository\RentalPricingRepository($pdo),
+        new \Modules\Rental\Pricing\RentalPricingEngine(),
+        $journalService
+    );
 
     $frontController->registerController(
         \Modules\Rental\Controller\RentalConfigController::class,
         new \Modules\Rental\Controller\RentalConfigController(
             $twig, $rentalAssetRepository, $rentalAssetService, $rentalManagerService,
-            $memberService, $scoutYearService, $settingService
+            $memberService, $scoutYearService, $settingService, $rentalPricingService
         )
+    );
+    $frontController->registerController(
+        \Modules\Rental\Controller\RentalPricingController::class,
+        new \Modules\Rental\Controller\RentalPricingController($twig, $rentalPricingService)
     );
     $frontController->registerController(
         \Modules\Rental\Controller\RentalPublicController::class,

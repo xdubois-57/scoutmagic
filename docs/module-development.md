@@ -248,6 +248,55 @@ layer" pattern**: `core/View/templates/partials/section_picker.html.twig`
 truncation logic itself — each only maps its own domain data into the
 generic item format and includes `chip_picker.html.twig`.
 
+## Contributing menu entries (`Core\Module\MenuEntryProvider`)
+
+A module's own pages get their menu entry from `module.json` automatically — a route with a non-empty `label` becomes one. Use this hook only for entries the manifest cannot express: one per row of your own data, or one that depends on who is looking.
+
+```php
+class MyMenuHookService implements \Core\Module\MenuEntryProvider
+{
+    /** @return \Core\Module\MenuEntry[] */
+    public function getMenuEntries(?string $email): array
+    {
+        // Runs on EVERY request that builds a menu. Keep it to a bounded
+        // indexed query or two — never an N+1 walk, never a write.
+        return [
+            new \Core\Module\MenuEntry(
+                \Core\View\MenuBuilder::MENU_NOTRE_UNITE,
+                'Local Saint-Georges',
+                '/locations/local-saint-georges'
+            ),
+        ];
+    }
+}
+```
+
+`$email` is the authenticated visitor's address, or **null for an anonymous visitor**. A provider contributing public entries ignores it; one contributing per-visitor entries returns `[]` when it is null.
+
+Wire it in `public/index.php`, inside your module's own conditional block, with `Core\View\DynamicMenuRegistrar` — see ARCHITECTURE.md §7.4 for why the composition root has to call back into `MenuBuilder` there rather than earlier, and use the registrar rather than hand-writing the re-derivation (a copy that drops the active-page refresh yields a correct page with no nav highlight, which no route test catches).
+
+**A menu entry is never a permission.** `MenuEntry::$roleMin` filters display only; the route it points at carries its own `role_min`, and any per-object rule is re-checked server-side in the controller.
+
+## Reacting to a Desk import (`Core\Import\DeskImportListener`)
+
+If your module stores references to `members.id` — a per-object permission grant, an assignment, an ownership — it has derived state to re-sync when the roster becomes authoritative again.
+
+```php
+class MyDeskImportListener implements \Core\Import\DeskImportListener
+{
+    /** @param int[] $activeMemberIds */
+    public function onDeskImportCompleted(int $scoutYearId, array $activeMemberIds): void
+    {
+        // Deactivate, never delete — see below.
+    }
+}
+```
+
+Two rules, both learned the hard way by core itself:
+
+- **Listeners run inside the import transaction**, so a listener that throws rolls the whole import back. Keep the work to bounded, idempotent queries; never a mail send or an HTTP call.
+- **Deactivate, never delete.** A member missing from one import (a data-entry slip, a late registration) must come back without an admin re-granting anything, while a member who genuinely left loses access immediately. Journal a **count**, never the member ids — "who has access to what" must not become readable as personal data in the journal.
+
 ## Accessing core services
 
 Module controllers receive whatever services they need via constructor injection — there is no fixed list. The composition root (`public/index.php`) is where every controller is actually built and registered: inside the module's `if (in_array('my_module', $moduleManager->getEnabledModuleIds(), true)) { ... }` block, construct the module's repositories/services (passing `$pdo`/`$connection`, `$encryptionService`, `$mailService`, `$schedulerService`, `$sectionService`, or any other already-built core service the module needs), then `$frontController->registerController(MyModuleController::class, new MyModuleController($twig, ...))`. See any existing module block in `public/index.php` for the pattern.

@@ -161,6 +161,8 @@
                 </div>
             </div>
 
+            {% include '@rental/config/_pricing.html.twig' %}
+
             {# ── Section: cycle de vie ────────────────────────────────── #}
             <div class="card mb-4">
                 <div class="card-body">
@@ -209,4 +211,8 @@
             </div>
         </div>
     </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/rental-pricing.js" defer></script>
 {% endblock %}

@@ -74,6 +74,21 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     -- public, non-archived asset — a private asset with the box ticked must
     -- not appear, so the filter lives in the query, not in the template.
     show_in_menu TINYINT(1) NOT NULL DEFAULT 0,
+    -- ── Pricing (module spec §6.10) ──────────────────────────────────
+    -- What the unit price is the price OF. Also decides, on its own, whether
+    -- availability is counted in nights or in full days (§6.8) — the two are
+    -- never configured separately, or the calendar ends up contradicting the
+    -- invoice. See Pricing\BillingUnit.
+    billing_unit VARCHAR(30) NOT NULL DEFAULT 'flat_stay',
+    -- Rate used when the period × category grid has no cell for the resolved
+    -- pair. NULL means "not priced yet", which produces a visible warning
+    -- rather than a silent zero.
+    default_unit_price_cents INT UNSIGNED NULL,
+    -- A floor on what renting the asset is worth. Mutually exclusive with
+    -- minimum_persons — the spec says "un montant plancher OU un nombre de
+    -- personnes plancher", and the service refuses to store both.
+    minimum_amount_cents INT UNSIGNED NULL,
+    minimum_persons INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uniq_rental_assets_slug (slug),
@@ -127,5 +142,104 @@ CREATE TABLE IF NOT EXISTS rental_asset_managers (
     -- every managed-space request, and the "Mes locations" entry.
     KEY idx_rental_asset_managers_member (member_id, is_active),
     CONSTRAINT fk_rental_asset_managers_asset
+        FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- Pricing (module spec §6.10)
+-- ---------------------------------------------------------------------
+-- The engine is deliberately narrow: quantity × unit price, the quantity
+-- raised to a floor if a minimum applies, plus fees. There is no rule
+-- precedence, no resolution, and no rule that cancels another — which is
+-- exactly why this schema has no "priority", "rank" or "condition" column
+-- anywhere. Adding one would be the first step back towards a rules engine.
+--
+-- Money is stored in CENTS, as integers, everywhere. Never a DECIMAL and
+-- never a float: a price that has to survive a snapshot, a contract and an
+-- invoice unchanged cannot be subject to binary rounding.
+--
+-- Periods and categories are per ASSET rather than unit-wide. The spec
+-- describes four configuration blocks "par bien", and a unit renting out a
+-- hall and a set of tents genuinely prices them on unrelated seasons and
+-- unrelated audiences. The cost is a little duplication between two assets
+-- that happen to agree; the alternative couples every asset's pricing to a
+-- shared list nobody can change safely.
+
+-- First axis of the price grid.
+CREATE TABLE IF NOT EXISTS rental_price_periods (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT UNSIGNED NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    -- For a recurring period only the month and day matter, but a full date
+    -- is stored anyway so the column type stays honest and a period can be
+    -- switched between recurring and one-off without losing its dates.
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    -- "1 July → 31 August, every year" is how a high season is really
+    -- expressed; making an operator re-enter it annually is how it ends up
+    -- wrong. A recurring range may wrap the new year (20 Dec → 5 Jan).
+    recurs_yearly TINYINT(1) NOT NULL DEFAULT 0,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_rental_price_periods_asset (asset_id, sort_order),
+    CONSTRAINT fk_rental_price_periods_asset
+        FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Second axis of the price grid.
+CREATE TABLE IF NOT EXISTS rental_renter_categories (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT UNSIGNED NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    -- Pre-selected on the public request form. A convenience, never a
+    -- permission: the price is always recomputed server-side from the
+    -- category actually recorded on the booking.
+    is_default TINYINT(1) NOT NULL DEFAULT 0,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_rental_renter_categories_asset (asset_id, sort_order),
+    CONSTRAINT fk_rental_renter_categories_asset
+        FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One cell of the two-axis grid. A sparse table rather than a dense matrix:
+-- a missing cell falls back to the asset's default rate, so adding a
+-- category does not silently price every period at zero until someone fills
+-- the whole new column.
+CREATE TABLE IF NOT EXISTS rental_price_grid (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT UNSIGNED NOT NULL,
+    -- NULL means "whatever the period, this row applies" — the axis is
+    -- simply not in use for this asset.
+    period_id INT UNSIGNED NULL,
+    category_id INT UNSIGNED NULL,
+    unit_price_cents INT UNSIGNED NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_rental_price_grid_asset (asset_id),
+    CONSTRAINT fk_rental_price_grid_asset
+        FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE,
+    CONSTRAINT fk_rental_price_grid_period
+        FOREIGN KEY (period_id) REFERENCES rental_price_periods (id) ON DELETE CASCADE,
+    CONSTRAINT fk_rental_price_grid_category
+        FOREIGN KEY (category_id) REFERENCES rental_renter_categories (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Ordered list of fees. Three natures and three only (fixed / per person /
+-- meter reading). The order is presentational: fees are summed, and none
+-- ever modifies, caps or cancels another.
+CREATE TABLE IF NOT EXISTS rental_fees (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT UNSIGNED NOT NULL,
+    label VARCHAR(150) NOT NULL,
+    -- 'fixed' | 'per_person' | 'meter'
+    nature VARCHAR(20) NOT NULL,
+    -- For 'meter', the price of ONE unit read (one kWh, one m³) — never an
+    -- estimated total, which is why a meter fee never enters a quote.
+    amount_cents INT UNSIGNED NOT NULL,
+    meter_unit VARCHAR(20) NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_rental_fees_asset (asset_id, sort_order),
+    CONSTRAINT fk_rental_fees_asset
         FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

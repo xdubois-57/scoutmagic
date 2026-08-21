@@ -27,7 +27,10 @@ use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAssetService;
 use Modules\Rental\Service\RentalAuthorizationService;
+use Modules\Rental\Pricing\RentalPricingEngine;
+use Modules\Rental\Repository\RentalPricingRepository;
 use Modules\Rental\Service\RentalManagerService;
+use Modules\Rental\Service\RentalPricingService;
 use Modules\Rental\Service\RentalSlugGenerator;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -109,6 +112,11 @@ class RentalRbacTest extends TestCase
             $journalService
         );
         $managerService = new RentalManagerService($this->managerRepository, $memberService, $journalService);
+        $pricingService = new RentalPricingService(
+            new RentalPricingRepository($this->pdo),
+            new RentalPricingEngine(),
+            $journalService
+        );
 
         $this->twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
@@ -131,7 +139,8 @@ class RentalRbacTest extends TestCase
             $managerService,
             $memberService,
             $scoutYearService,
-            $settingService
+            $settingService,
+            $pricingService
         );
         $this->managementController = new RentalManagementController(
             $this->twig,
@@ -163,12 +172,16 @@ class RentalRbacTest extends TestCase
     /**
      * @param array<string, string> $params
      */
+    /**
+     * @param array<string, string> $query
+     */
     private function dispatch(
         string $routePath,
         string $requestPath,
         string $controllerClass,
         string $action,
-        string $roleMin
+        string $roleMin,
+        array $query = []
     ): Response {
         $router = new Router();
         $router->addRoute('GET', $routePath, $controllerClass, $action, $roleMin);
@@ -180,10 +193,18 @@ class RentalRbacTest extends TestCase
         $frontController->registerController($controllerClass, match ($controllerClass) {
             RentalConfigController::class => $this->configController,
             RentalManagementController::class => $this->managementController,
+            \Modules\Rental\Controller\RentalPricingController::class => new \Modules\Rental\Controller\RentalPricingController(
+                $this->twig,
+                new RentalPricingService(
+                    new RentalPricingRepository($this->pdo),
+                    new RentalPricingEngine(),
+                    new JournalService(new JournalRepository($this->pdo))
+                )
+            ),
             default => $this->publicController,
         });
 
-        $response = $frontController->handle(new Request('GET', $requestPath, [], [], [], []));
+        $response = $frontController->handle(new Request('GET', $requestPath, $query, [], [], []));
         @unlink($configFile);
 
         return $response;
@@ -347,6 +368,90 @@ class RentalRbacTest extends TestCase
         $body = (string) $this->dispatchPublicAsset('local')->getBody();
 
         $this->assertStringNotContainsString('Gérer ce bien', $body);
+    }
+
+    // ── The pricing section renders, and the simulator is the real engine ──
+
+    public function testTheConfigurationPageRendersTheBillingUnitSelectorAndItsExplanation(): void
+    {
+        // §6.8 requires the explanatory text under the selector; it is
+        // rendered server-side from BillingUnit so the page is already
+        // correct before any JavaScript runs.
+        $this->createAsset('Local', 'local');
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatchConfig()->getBody();
+
+        $this->assertStringContainsString('Unité de facturation', $body);
+        $this->assertStringContainsString('Par personne et par nuit', $body);
+        $this->assertStringContainsString('jour de départ reste disponible', $body);
+        $this->assertStringContainsString('data-explanation', $body);
+        $this->assertStringContainsString('Minimum facturable', $body);
+        $this->assertStringContainsString('Simulateur', $body);
+    }
+
+    public function testTheSimulatorRendersARealBreakdownFromTheStoredTariff(): void
+    {
+        // End to end: a tariff saved through the service, priced by the same
+        // engine the public page uses, rendered on the configuration screen.
+        $assetId = $this->createAsset('Local', 'local');
+        $pricingService = new RentalPricingService(
+            new RentalPricingRepository($this->pdo),
+            new RentalPricingEngine(),
+            new JournalService(new JournalRepository($this->pdo))
+        );
+        $pricingService->saveAssetPricing($assetId, 'per_person_night', 250, null, 25);
+        $pricingService->addFee($assetId, 'Nettoyage', \Modules\Rental\Pricing\RentalFee::NATURE_FIXED, 5000, null);
+
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $response = $this->dispatch(
+            '/admin/locations',
+            '/admin/locations',
+            RentalConfigController::class,
+            'index',
+            'admin',
+            [
+                'asset_id' => (string) $assetId,
+                'sim_arrival' => '2027-07-16',
+                'sim_departure' => '2027-07-19',
+                'sim_persons' => '18',
+            ]
+        );
+        $body = (string) $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        // 25 × 3 × 2,50 € = 187,50 €, plus 50,00 € cleaning = 237,50 €.
+        $this->assertStringContainsString('25 pers. (minimum) × 3 nuits', $body);
+        $this->assertStringContainsString('237,50', $body);
+        $this->assertStringContainsString('minimum appliqué', $body);
+    }
+
+    public function testTheSimulatorShowsNothingUntilDatesAreGiven(): void
+    {
+        $this->createAsset('Local', 'local');
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatchConfig()->getBody();
+
+        $this->assertStringContainsString('Simulateur', $body);
+        $this->assertStringNotContainsString('Détail du prix simulé', $body);
+    }
+
+    public function testAChiefCannotReachThePricingActions(): void
+    {
+        // Same admin boundary as the rest of the configuration space.
+        $this->createAsset('Local', 'local');
+        AuthSession::login(1, 'chief@test.be', 'chief');
+
+        $response = $this->dispatch(
+            '/admin/locations/pricing',
+            '/admin/locations/pricing',
+            \Modules\Rental\Controller\RentalPricingController::class,
+            'savePricing',
+            'admin'
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
     }
 
     public function testTheManageButtonIsShownToAManager(): void

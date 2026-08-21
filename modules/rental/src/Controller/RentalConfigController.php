@@ -21,6 +21,7 @@ use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAssetService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalManagerService;
+use Modules\Rental\Service\RentalPricingService;
 use Twig\Environment;
 
 /**
@@ -58,7 +59,8 @@ class RentalConfigController extends AbstractController
         private RentalManagerService $managerService,
         private MemberService $memberService,
         private ScoutYearService $scoutYearService,
-        private SettingService $settingService
+        private SettingService $settingService,
+        private RentalPricingService $pricingService
     ) {
         parent::__construct($twig);
     }
@@ -73,6 +75,7 @@ class RentalConfigController extends AbstractController
         $assets = $this->assetRepository->findAll();
         $selected = $this->resolveSelectedAsset($request, $assets);
         $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
+        $pricingSettings = $selected !== null ? $this->pricingService->loadSettings($selected->id) : null;
 
         return $this->render('@rental/config/index.html.twig', [
             'assets' => $assets,
@@ -84,6 +87,23 @@ class RentalConfigController extends AbstractController
                 ? $this->assignableMembers($selected->id, $scoutYearId)
                 : [],
             'type_suggestions' => $this->typeSuggestions(),
+            'billing_units' => \Modules\Rental\Pricing\BillingUnit::all(),
+            'fee_natures' => \Modules\Rental\Pricing\RentalFee::natures(),
+            'pricing' => $pricingSettings,
+            // The simulator runs through the very same engine as the public
+            // page and the contract (see RentalPricingController::simulate()),
+            // which is the only thing that makes it a real guard-rail against
+            // a wrong tariff rather than a second opinion.
+            'simulation' => $selected !== null && $pricingSettings !== null
+                ? RentalPricingController::simulate($this->pricingService, $pricingSettings, [
+                    'sim_arrival' => $request->getQuery('sim_arrival', ''),
+                    'sim_departure' => $request->getQuery('sim_departure', ''),
+                    'sim_persons' => $request->getQuery('sim_persons', 0),
+                    'sim_units' => $request->getQuery('sim_units', 1),
+                    'sim_rooms' => $request->getQuery('sim_rooms', 1),
+                    'sim_category' => $request->getQuery('sim_category', ''),
+                ])
+                : null,
             'csrf_token' => CsrfGuard::generateToken(),
             'current_path' => '/admin/locations',
         ]);
