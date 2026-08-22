@@ -157,10 +157,14 @@ test('a magic link signs in the device that asked for it, and says nothing about
         await otherPage.goto(linkFromMail(mail, '/auth/verify'), { waitUntil: 'domcontentloaded' });
 
         await expect(otherPage.getByRole('heading', { name: 'Connexion confirmée' })).toBeVisible();
-        // The click signed THIS device in too — the link is a login, not
-        // merely a confirmation button for the other one.
+        // …and THIS device is not signed in by the click. A link travels
+        // by email and an email is read wherever it is convenient — a
+        // shared tablet, a work laptop, a corporate scanner that follows
+        // every URL — so confirming a link is not logging in: the session
+        // belongs to the window that asked for it, which collects it by
+        // polling below (Tests\Integration\MagicLinkWindowIdentityTest).
         await otherPage.goto('/account', { waitUntil: 'domcontentloaded' });
-        await expect(otherPage).toHaveURL(/\/account$/);
+        await expect(otherPage).toHaveURL(/\/login/);
     } finally {
         await otherDevice.close();
     }

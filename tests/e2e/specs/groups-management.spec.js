@@ -242,7 +242,22 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
         await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
         const postCard = page.locator('article').filter({ hasText: MEMBER_MESSAGE });
         await postCard.getByRole('button', { name: 'Actions sur ce message' }).click();
-        await submitAndReload(page, postCard.getByRole('button', { name: 'Épingler' }), '/pin');
+        await postCard.getByRole('button', { name: 'Épingler' }).click();
+
+        // Pinning asks first, because it is exclusive and dated: a group
+        // keeps one pinned message, and the moderator says for how long
+        // (public/assets/js/groups.js's askPinDuration()). The dialog is
+        // the only way through with the script running — which is exactly
+        // what this scenario exists to exercise, since neither PHPUnit nor
+        // Vitest sees the browser hand-build this submit.
+        const pinDialog = page.locator('#groups-detail-modal');
+        await expect(pinDialog.getByText('Pendant combien de temps ?')).toBeVisible();
+        await Promise.all([
+            page.waitForResponse((response) =>
+                response.url().includes('/pin') && response.request().method() === 'POST'),
+            pinDialog.getByRole('button', { name: '1 semaine' }).click(),
+        ]);
+        await page.waitForLoadState('domcontentloaded');
 
         await expect(page.getByText('Épinglé')).toBeVisible();
 
