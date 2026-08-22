@@ -1508,6 +1508,77 @@
         });
     }
 
+    // Replying to a post still posts and redirects with no JS at all —
+    // this upgrades it to a fetch() exactly like a reaction's own form
+    // (see swapFragmentOnSubmit()), appending the new reply under the
+    // post instead of reloading. Same X-Requested-With signal, same
+    // fallback to a real form submit on anything the JSON path does not
+    // recognise.
+    /**
+     * @param {HTMLFormElement} form
+     */
+    function submitReplyInPlace(form) {
+        var repliesContainer = form.closest('article')?.querySelector('.groups-replies');
+        var replyError = form.querySelector('.groups-reply-error');
+        var replySubmitBtn = /** @type {HTMLButtonElement} */ (form.querySelector('button[type="submit"]'));
+        if (replyError) {
+            replyError.textContent = '';
+            replyError.classList.add('d-none');
+        }
+        // Snapshotted before anything in the form is disabled, for the
+        // same reason the composer's own submit does it in that order: a
+        // disabled control contributes nothing to a form's data set (see
+        // initComposer()'s submit handler).
+        var replyPayload = new FormData(form);
+        if (replySubmitBtn) replySubmitBtn.disabled = true;
+
+        fetch(form.action, {
+            method: 'POST',
+            body: replyPayload,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(function (response) {
+            return response.json().catch(function () { return null; }).then(function (data) {
+                return { ok: response.ok, data: data };
+            });
+        }).then(function (result) {
+            if (result.ok && result.data && typeof result.data.html === 'string') {
+                if (repliesContainer) {
+                    // At the very end, after the "Voir plus de réponses"
+                    // button when there is one — and that is deliberate,
+                    // not an oversight. Comments are shown oldest first
+                    // and that button loads the ones BETWEEN what is on
+                    // screen and this new one, so slipping it in above
+                    // the button would place it before comments written
+                    // before it. Loading the rest folds it back into
+                    // place; scrolling to it is what answers "where did
+                    // mine go?" meanwhile.
+                    repliesContainer.insertAdjacentHTML('beforeend', result.data.html);
+                    var posted = repliesContainer.lastElementChild;
+                    if (posted && typeof posted.scrollIntoView === 'function') {
+                        posted.scrollIntoView({ block: 'nearest' });
+                    }
+                    kickOffMediaPolling();
+                }
+                adjustThreadCount(form, 1);
+                form.reset();
+                clearReplyDraft(form);
+                clearReplyImagePreview(form);
+            } else if (result.data && typeof result.data.error === 'string' && replyError) {
+                replyError.textContent = result.data.error === 'empty' ? 'Une réponse ne peut pas être vide.' : result.data.error;
+                replyError.classList.remove('d-none');
+            } else if (!result.data) {
+                form.submit();
+            }
+        }).catch(function () {
+            if (replyError) {
+                replyError.textContent = 'Connexion perdue : la réponse n\'a pas pu être envoyée. Réessayez.';
+                replyError.classList.remove('d-none');
+            }
+        }).finally(function () {
+            if (replySubmitBtn) replySubmitBtn.disabled = false;
+        });
+    }
+
     document.addEventListener('submit', function (event) {
         var target = /** @type {HTMLElement} */ (event.target);
 
@@ -1591,74 +1662,10 @@
             return;
         }
 
-        // Replying to a post still posts and redirects with no JS at all
-        // — this upgrades it to a fetch() exactly like a reaction's own
-        // form just below, appending the new reply under the post instead
-        // of reloading. Same X-Requested-With signal, same fallback to a
-        // real form submit on anything the JSON path does not recognise.
         var replyForm = /** @type {HTMLFormElement} */ (target.closest('.groups-reply-form'));
         if (replyForm) {
             event.preventDefault();
-
-            var repliesContainer = replyForm.closest('article')?.querySelector('.groups-replies');
-            var replyError = replyForm.querySelector('.groups-reply-error');
-            var replySubmitBtn = /** @type {HTMLButtonElement} */ (replyForm.querySelector('button[type="submit"]'));
-            if (replyError) {
-                replyError.textContent = '';
-                replyError.classList.add('d-none');
-            }
-            // Snapshotted before anything in the form is disabled, for
-            // the same reason the composer's own submit does it in that
-            // order: a disabled control contributes nothing to a form's
-            // data set (see initComposer()'s submit handler).
-            var replyPayload = new FormData(replyForm);
-            if (replySubmitBtn) replySubmitBtn.disabled = true;
-
-            fetch(replyForm.action, {
-                method: 'POST',
-                body: replyPayload,
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            }).then(function (response) {
-                return response.json().catch(function () { return null; }).then(function (data) {
-                    return { ok: response.ok, data: data };
-                });
-            }).then(function (result) {
-                if (result.ok && result.data && typeof result.data.html === 'string') {
-                    if (repliesContainer) {
-                        // At the very end, after the "Voir plus de
-                        // réponses" button when there is one — and that is
-                        // deliberate, not an oversight. Comments are shown
-                        // oldest first and that button loads the ones
-                        // BETWEEN what is on screen and this new one, so
-                        // slipping it in above the button would place it
-                        // before comments written before it. Loading the
-                        // rest folds it back into place; scrolling to it
-                        // is what answers "where did mine go?" meanwhile.
-                        repliesContainer.insertAdjacentHTML('beforeend', result.data.html);
-                        var posted = repliesContainer.lastElementChild;
-                        if (posted && typeof posted.scrollIntoView === 'function') {
-                            posted.scrollIntoView({ block: 'nearest' });
-                        }
-                        kickOffMediaPolling();
-                    }
-                    adjustThreadCount(replyForm, 1);
-                    replyForm.reset();
-                    clearReplyDraft(replyForm);
-                    clearReplyImagePreview(replyForm);
-                } else if (result.data && typeof result.data.error === 'string' && replyError) {
-                    replyError.textContent = result.data.error === 'empty' ? 'Une réponse ne peut pas être vide.' : result.data.error;
-                    replyError.classList.remove('d-none');
-                } else if (!result.data) {
-                    replyForm.submit();
-                }
-            }).catch(function () {
-                if (replyError) {
-                    replyError.textContent = 'Connexion perdue : la réponse n\'a pas pu être envoyée. Réessayez.';
-                    replyError.classList.remove('d-none');
-                }
-            }).finally(function () {
-                if (replySubmitBtn) replySubmitBtn.disabled = false;
-            });
+            submitReplyInPlace(replyForm);
             return;
         }
 
@@ -1947,28 +1954,49 @@
     // <select> would be a second control asking it twice. Hidden rather
     // than removed — it is where the dialog reads its options from, and
     // where the chosen value is written back.
-    (function hideInlinePollVoters() {
-        document.querySelectorAll('.groups-poll-voter').forEach(function (block) {
+    //
+    // Each step below is its own top-level function, rather than nested
+    // inline like the rest of this file's small handlers, purely to keep
+    // the MutationObserver callback shallow — inlined, it nested five
+    // functions deep (observer callback > mutations.forEach > a mutation's
+    // addedNodes.forEach > the added-node check > its own querySelectorAll
+    // .forEach), past what a reader can hold in their head at once.
+
+    /**
+     * @param {Document|HTMLElement} root
+     */
+    function hidePollVotersIn(root) {
+        root.querySelectorAll('.groups-poll-voter').forEach(function (block) {
             block.classList.add('d-none');
         });
+    }
 
-        // The fragment the server returns after a vote carries its own
-        // picker, so the same rule has to hold for it. One delegated
-        // observer rather than a call at every swap site: the feed, the
-        // search page and "Charger plus" all insert cards this way.
-        var observer = new MutationObserver(function (mutations) {
-            mutations.forEach(function (mutation) {
-                mutation.addedNodes.forEach(function (node) {
-                    if (node instanceof HTMLElement) {
-                        node.querySelectorAll('.groups-poll-voter').forEach(function (block) {
-                            block.classList.add('d-none');
-                        });
-                    }
-                });
-            });
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-    })();
+    /**
+     * @param {Node} node
+     */
+    function hidePollVotersInAddedNode(node) {
+        if (node instanceof HTMLElement) {
+            hidePollVotersIn(node);
+        }
+    }
+
+    /**
+     * @param {MutationRecord} mutation
+     */
+    function hidePollVotersInMutation(mutation) {
+        mutation.addedNodes.forEach(hidePollVotersInAddedNode);
+    }
+
+    hidePollVotersIn(document);
+
+    // The fragment the server returns after a vote carries its own picker,
+    // so the same rule has to hold for it. One delegated observer rather
+    // than a call at every swap site: the feed, the search page and
+    // "Charger plus" all insert cards this way.
+    var pollVoterObserver = new MutationObserver(function (mutations) {
+        mutations.forEach(hidePollVotersInMutation);
+    });
+    pollVoterObserver.observe(document.body, { childList: true, subtree: true });
 
     // Shared by "Charger plus" (the feed) and "Voir plus de réponses" (a
     // post's replies) — both append the next keyset page in place and

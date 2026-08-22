@@ -46,7 +46,7 @@ export function explanationForSelection(select) {
         return null;
     }
 
-    const explanation = option.getAttribute('data-explanation');
+    const explanation = option.dataset.explanation ?? null;
 
     return explanation !== null && explanation !== '' ? explanation : null;
 }
@@ -58,7 +58,7 @@ export function explanationForSelection(select) {
  * @returns {void}
  */
 export function wireExplanation(select) {
-    const targetId = select.getAttribute('data-explanation-target');
+    const targetId = select.dataset.explanationTarget;
     if (!targetId) {
         return;
     }

@@ -14,12 +14,16 @@
         {% include '@rental/management/_nav.html.twig' %}
 
         {#
-          A single <select>, on the model of modules/mass_mail's own list
+          A single select, on the model of modules/mass_mail's own list
           filter. It used to be a second row of chips directly under the
           page picker above: two rows of the same-looking pills, one
           choosing a PAGE and one choosing a FILTER, which read as one
           confused control — and eleven statuses made the second row wrap
           onto three lines on a phone.
+
+          No literal HTML tag in this comment: Twig comments are not HTML
+          comments, so an analyser reading the rendered-source text would
+          take one for a real unlabelled control.
         #}
         <form method="get" action="/mes-locations/{{ asset.slug }}/reservations"
               class="row g-2 align-items-end mb-3">
