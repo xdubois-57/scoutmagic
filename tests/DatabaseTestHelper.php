@@ -257,6 +257,16 @@ class DatabaseTestHelper
             attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
+        $pdo->exec('CREATE TABLE user_account_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_account_id INTEGER NOT NULL,
+            file_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_account_id),
+            FOREIGN KEY (user_account_id) REFERENCES user_accounts(id),
+            FOREIGN KEY (file_id) REFERENCES files(id)
+        )');
+
         $pdo->exec('CREATE TABLE member_photos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             member_id INTEGER NOT NULL,

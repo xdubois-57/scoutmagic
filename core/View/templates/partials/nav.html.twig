@@ -71,10 +71,16 @@
                                        background is the highlight instead. #}
                                     <li class="list-group-item list-group-item-action border-0 ps-4" style="min-height:44px;">
                                         <a href="{{ page.url }}" class="d-flex align-items-center gap-2 text-decoration-none{% if current_path == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}"{{ current_path == page.url ? ' aria-current="page"' : '' }}>
-                                            <div class="rounded-circle bg-primary-subtle d-flex align-items-center justify-content-center"
-                                                 style="width:32px;height:32px;min-width:32px;">
-                                                <span class="small fw-semibold text-primary">{{ page.label[:2] }}</span>
-                                            </div>
+                                            {#
+                                              The member this entry is for, drawn by the shared
+                                              component (person_avatar(), Core\View\PersonAvatar):
+                                              their photo for the year in effect when one exists,
+                                              their initials otherwise — the same circle the header
+                                              draws for the person connected. The two-letters-of-a-
+                                              label version this replaced was the look every other
+                                              avatar on the site is now modelled on.
+                                            #}
+                                            {{ person_avatar(page.label, { member_id: page.avatarMemberId|default(0), size: 32 }) }}
                                             <div class="lh-sm">
                                                 <span class="d-block small">{{ page.label }}</span>
                                                 {% if page.subtitle %}
@@ -88,7 +94,23 @@
                                        `active` class, since it would paint the same blue background that
                                        the (!important) text-primary color below turns invisible against. #}
                                     <li class="list-group-item list-group-item-action border-0 ps-4 d-flex align-items-center" style="min-height:44px;">
-                                        <a href="{{ page.url }}" class="text-decoration-none d-block{% if active_page_url|default('') == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}"{{ active_page_url|default('') == page.url ? ' aria-current="page"' : '' }}>{{ page.label }}</a>
+                                        {#
+                                          An icon in the same 32px box a member entry's avatar
+                                          occupies, so every label in a menu starts at the same
+                                          x — a list where the member pages are indented and
+                                          everything else is not reads as two lists.
+                                          `page.icon` is what the entry declared
+                                          (Core\View\MenuBuilder::addPage(), module.json's
+                                          `menu_icon`); the fallback keeps the alignment for an
+                                          entry that declared none rather than leaving a hole.
+                                        #}
+                                        <a href="{{ page.url }}" class="d-flex align-items-center gap-2 text-decoration-none{% if active_page_url|default('') == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}"{{ active_page_url|default('') == page.url ? ' aria-current="page"' : '' }}>
+                                            <span class="d-inline-flex align-items-center justify-content-center text-body-secondary"
+                                                  style="width:32px;min-width:32px;" aria-hidden="true">
+                                                <i class="bi {{ page.icon|default('') ?: 'bi-dot' }}"></i>
+                                            </span>
+                                            <span>{{ page.label }}</span>
+                                        </a>
                                     </li>
                                 {% endif %}
                             {% endfor %}
@@ -158,12 +180,11 @@
         <div class="container-fluid px-3 py-2 d-flex flex-wrap gap-2">
             {% for page in menu.pages %}
                 {% if page.isDynamic %}
+                    {# Same component as the mobile entry above, smaller: one
+                       definition of what a person looks like on this site. #}
                     <a href="{{ page.url }}"
                        class="btn btn-sm {% if current_path == page.url %}btn-primary{% else %}btn-outline-secondary{% endif %} d-flex align-items-center gap-1">
-                        <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary-subtle text-primary fw-bold"
-                              style="width:20px;height:20px;font-size:.7rem;">
-                            {{ page.label[:2] }}
-                        </span>
+                        {{ person_avatar(page.label, { member_id: page.avatarMemberId|default(0), size: 20 }) }}
                         <span>{{ page.label }}</span>
                     </a>
                 {% else %}

@@ -14,6 +14,8 @@ use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
+use Core\Photo\AccountPhotoRepository;
+use Core\Photo\AccountPhotoService;
 use Core\Photo\ImageVariantProcessor;
 use Core\Photo\ImageVariantService;
 use Core\Photo\LandscapeImageProcessor;
@@ -43,6 +45,7 @@ class UploadControllerTest extends TestCase
     private string $tmpDir;
     private UploadController $controller;
     private MemberPhotoService $memberPhotoService;
+    private AccountPhotoService $accountPhotoService;
     private SectionPhotoService $sectionPhotoService;
     private \Core\Photo\UnitLogoService $unitLogoService;
     private JournalRepository $journalRepo;
@@ -72,6 +75,11 @@ class UploadControllerTest extends TestCase
 
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $this->memberPhotoService = new MemberPhotoService(new MemberPhotoRepository($this->pdo));
+        $this->accountPhotoService = new AccountPhotoService(
+            new AccountPhotoRepository($this->pdo),
+            $fileRepo,
+            $this->tmpDir
+        );
         $this->sectionPhotoService = new SectionPhotoService(new SectionPhotoRepository($this->pdo));
         $this->journalRepo = new JournalRepository($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
@@ -103,7 +111,8 @@ class UploadControllerTest extends TestCase
         $this->controller = new UploadController(
             $twig, $uploadHandler, $editableContentService, $this->memberPhotoService,
             $this->sectionPhotoService, new SectionPhotoProcessor(), new LandscapeImageProcessor(),
-            $memberService, new AgeBranchRepository($this->pdo), $this->unitLogoService, $imageVariantService
+            $memberService, new AgeBranchRepository($this->pdo), $this->unitLogoService, $imageVariantService,
+            $this->accountPhotoService
         );
         $this->controller->setJournalService(new JournalService($this->journalRepo));
 
@@ -151,6 +160,79 @@ class UploadControllerTest extends TestCase
             $this->encryption->encrypt($email, 'member_years.email'),
             $blindIndex,
         ]);
+    }
+
+    // --- account_photo: your own face, and nobody else's ----------------
+
+    public function testAccountPhotoContextSetsThePhotoOfTheCallersOwnAccount(): void
+    {
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'me.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $response = $this->controller->store($this->accountPhotoRequest('1'), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNotNull($this->accountPhotoService->resolveFileId(1));
+
+        $stmt = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'account_photo_updated'");
+        $this->assertSame(1, (int) $stmt->fetchColumn());
+
+        unset($_FILES['file']);
+    }
+
+    /**
+     * The whole boundary of this context: an account id in a request is
+     * not an authorisation to set that account's face. Configuration
+     * mode does not widen it either — which is why this test runs with it
+     * active (setUp() activates it).
+     */
+    public function testAccountPhotoContextRefusesAnotherAccountsIdEvenInConfigurationMode(): void
+    {
+        // Two rows, so the second one is certainly not the id the session
+        // carries (1) whatever this table's auto-increment starts at.
+        $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
+        $stmt->execute(['enc-me', 'idx-me']);
+        $stmt->execute(['enc-other', 'idx-other']);
+        $otherAccountId = (int) $this->pdo->lastInsertId();
+        $this->assertNotSame(1, $otherAccountId);
+
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'me.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $response = $this->controller->store($this->accountPhotoRequest((string) $otherAccountId), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertNull($this->accountPhotoService->resolveFileId($otherAccountId));
+        // Nothing was stored at all — the refusal happens before the file
+        // is ever handled.
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+
+        unset($_FILES['file']);
+    }
+
+    public function testAccountPhotoContextRefusesASessionWithNoAccountAtAll(): void
+    {
+        AuthSession::logout();
+
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'me.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $response = $this->controller->store($this->accountPhotoRequest('1'), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+
+        unset($_FILES['file']);
+        AuthSession::login(1, 'admin@test.com', 'superadmin');
+    }
+
+    private function accountPhotoRequest(string $key): Request
+    {
+        return new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'account_photo',
+            'key' => $key,
+            'return_url' => '/account',
+        ], [], []);
     }
 
     public function testMemberPhotoContextSetsPhotoForMemberAndYear(): void

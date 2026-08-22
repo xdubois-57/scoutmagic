@@ -34,6 +34,12 @@ class NavRenderingTest extends TestCase
         $this->twig->addFunction(new \Twig\TwigFunction('editable', function (): string {
             return '';
         }, ['is_safe' => ['html']]));
+        // The shared person avatar (Core\View\PersonAvatar), registered here
+        // the way Core\View\TwigFactory does with no photo service: same
+        // markup as production for an account that has set no photo.
+        $this->twig->addFunction(new \Twig\TwigFunction('person_avatar', function (string $name, array $options = []): string {
+            return \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40));
+        }, ['is_safe' => ['html']]));
         $this->twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
             return '';
         }, ['is_safe' => ['html']]));
@@ -184,8 +190,11 @@ class NavRenderingTest extends TestCase
         // class from the <li> and relies on the bold blue text alone.
         $html = $this->renderNav(Role::INTENDANT, true, '/chefs/staffs');
 
+        // The entry carries its icon in a fixed 32px box (so its label
+        // lines up with the per-member avatars above it) and then the
+        // active-state classes on the anchor itself.
         $this->assertMatchesRegularExpression(
-            '/<li class="list-group-item list-group-item-action border-0 ps-4 d-flex align-items-center" style="min-height:44px;">\s*<a href="\/chefs\/staffs" class="text-decoration-none d-block fw-semibold text-primary"/',
+            '/<li class="list-group-item list-group-item-action border-0 ps-4 d-flex align-items-center" style="min-height:44px;">\s*(?:\{#.*?#\}\s*)?<a href="\/chefs\/staffs" class="d-flex align-items-center gap-2 text-decoration-none fw-semibold text-primary"/s',
             $html
         );
         $this->assertStringNotContainsString(
@@ -294,8 +303,11 @@ class NavRenderingTest extends TestCase
         $offcanvas = substr($html, $offcanvasStart, $offcanvasEnd - $offcanvasStart);
 
         $this->assertStringContainsString('href="/account"', $offcanvas);
+        // The avatar is the shared component's circle (Core\View\PersonAvatar)
+        // — an <img> when this person has a photo, an initials <span>
+        // otherwise, which is what this harness renders.
         $this->assertMatchesRegularExpression(
-            '/<a href="\/account"[^>]*>\s*<span class="d-inline-flex[^"]*rounded-circle/',
+            '/<a href="\/account"[^>]*>\s*<span class="person-avatar rounded-circle/',
             $offcanvas
         );
     }
@@ -308,7 +320,7 @@ class NavRenderingTest extends TestCase
         $desktop = substr($html, $desktopStart);
 
         $this->assertMatchesRegularExpression(
-            '/<a href="\/account"[^>]*>\s*<span class="d-inline-flex[^"]*rounded-circle/',
+            '/<a href="\/account"[^>]*>\s*<span class="person-avatar rounded-circle/',
             $desktop
         );
     }

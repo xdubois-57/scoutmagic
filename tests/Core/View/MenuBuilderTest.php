@@ -220,4 +220,60 @@ class MenuBuilderTest extends TestCase
     {
         $this->assertSame('', MenuBuilder::labelFor('not_a_real_menu'));
     }
+
+    /**
+     * What the mobile menu draws in front of an entry: an icon for an
+     * ordinary page, the member's own avatar for a per-member one — so
+     * every label in a menu starts at the same x
+     * (partials/nav.html.twig).
+     */
+    public function testAPageCarriesItsIconAndAMemberEntryCarriesItsMember(): void
+    {
+        $builder = new MenuBuilder(Role::IDENTIFIED);
+        $builder->addPage(
+            MenuBuilder::MENU_ESPACE_ANIMES,
+            'Akéla',
+            '/members/7',
+            'identified',
+            10,
+            true,
+            'Louveteaux',
+            MenuBuilder::GROUP_DYNAMIC,
+            null,
+            42
+        );
+        $builder->addPage(
+            MenuBuilder::MENU_ESPACE_ANIMES,
+            'Notifications',
+            '/notifications',
+            'identified',
+            20,
+            false,
+            null,
+            MenuBuilder::GROUP_CORE,
+            'bi-bell'
+        );
+
+        $pages = $builder->build()[0]['pages'];
+
+        $this->assertSame(42, $pages[0]['avatarMemberId']);
+        $this->assertNull($pages[0]['icon']);
+        $this->assertSame('bi-bell', $pages[1]['icon']);
+        $this->assertNull($pages[1]['avatarMemberId']);
+    }
+
+    /**
+     * Both are optional, and an entry that names neither still renders —
+     * the template falls back to a neutral icon rather than a hole.
+     */
+    public function testAnEntryThatNamesNeitherKeepsBothKeysAsNull(): void
+    {
+        $builder = new MenuBuilder(Role::PUBLIC);
+        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10);
+
+        $page = $builder->build()[0]['pages'][0];
+
+        $this->assertNull($page['icon']);
+        $this->assertNull($page['avatarMemberId']);
+    }
 }

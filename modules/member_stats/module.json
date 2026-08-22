@@ -11,6 +11,7 @@
       "action": "index",
       "menu": "espace_chefs",
       "label": "Statistiques",
+      "menu_icon": "bi-bar-chart",
       "role_min": "chief",
       "breadcrumb": { "label": "Statistiques", "parents": ["Espace chefs"] }
     }

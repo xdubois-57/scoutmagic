@@ -55,6 +55,12 @@ class ScoutYearRbacTest extends TestCase
         $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
         $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
         $this->twig->addFunction(new \Twig\TwigFunction('editable', fn() => '', ['is_safe' => ['html']]));
+        // The shared person avatar (Core\View\PersonAvatar), registered here
+        // the way Core\View\TwigFactory does with no photo service: same
+        // markup as production for an account that has set no photo.
+        $this->twig->addFunction(new \Twig\TwigFunction('person_avatar', function (string $name, array $options = []): string {
+            return \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40));
+        }, ['is_safe' => ['html']]));
         $this->twig->addFunction(new \Twig\TwigFunction('editable_image', fn() => '', ['is_safe' => ['html']]));
         $this->twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
 

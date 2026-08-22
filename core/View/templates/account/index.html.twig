@@ -5,6 +5,38 @@
     <h1>Mon compte</h1>
     <p class="text-body-secondary mb-4">{{ current_user_email }}</p>
 
+    {#
+      The photo of this LOGIN — the shared avatar (person_avatar(),
+      Core\View\PersonAvatar), the same component that draws this person
+      in the header, in the menu and beside their messages. `editable`
+      only offers the overlay; Core\Http\Controller\UploadController
+      re-checks that the account being changed is the caller's own.
+    #}
+    <div class="card mb-3">
+        <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+            {{ person_avatar(
+                (account.firstName ~ ' ' ~ account.lastName)|trim ?: (current_user_display_name|default('')),
+                { account_id: account.id, size: 96, editable: true }
+            ) }}
+            <div class="flex-grow-1" style="min-width:200px;">
+                <h2 class="h5 mb-1">Photo</h2>
+                <p class="text-body-secondary small mb-2">
+                    Elle vous représente partout sur le site : dans le menu, en haut de l'écran et à côté
+                    de vos messages dans les groupes. Sans photo, ce sont vos initiales qui s'affichent.
+                </p>
+                {% if has_account_photo|default(false) %}
+                    <form method="post" action="/account/photo/delete" class="m-0"
+                          data-confirm="Retirer votre photo ? Vos initiales seront affichées à la place.">
+                        {{ csrf_field() }}
+                        <button type="submit" class="btn btn-sm btn-outline-secondary" style="min-height:44px;">
+                            Retirer la photo
+                        </button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
     {# Profile section #}
     <div class="card mb-3">
         <div class="card-body">

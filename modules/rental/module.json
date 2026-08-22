@@ -512,6 +512,7 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "Locations",
+      "menu_icon": "bi-house-door",
       "breadcrumb": {
         "label": "Locations",
         "parents": [

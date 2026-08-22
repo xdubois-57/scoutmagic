@@ -441,6 +441,30 @@ CREATE TABLE event_log (
     CONSTRAINT fk_el_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- The photo of an identified LOGIN — what "Mon compte" sets, and what the
+-- shared avatar draws wherever the site shows the person who is connected
+-- (Core\Photo\AccountPhotoService, person_avatar() in Core\View\TwigFactory).
+--
+-- Its own table rather than a column on user_accounts, and deliberately
+-- NOT scout-year-scoped, unlike member_photos below: a login is a person,
+-- not a membership, and a face does not become wrong in September. One row
+-- per account, replaced in place — the previous photo is a `files` row that
+-- goes when it is replaced (Core\Photo\AccountPhotoService::setPhoto()).
+--
+-- No personal data of its own: an account id and a file id. The picture
+-- itself is a `files` row like every other upload, served through
+-- /files/{id} with role_min 'identified' (Core\File\FileAccessGuard), never
+-- from under public/.
+CREATE TABLE user_account_photos (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_account_id INT UNSIGNED NOT NULL,
+    file_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_uap_account (user_account_id),
+    CONSTRAINT fk_uap_account FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_uap_file FOREIGN KEY (file_id) REFERENCES files(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Generic "photo per person per year" core component (ARCHITECTURE.md §8):
 -- one row per (member, scout_year). Reused anywhere a person's photo needs to
 -- track the site's current scout year — not specific to any one module.

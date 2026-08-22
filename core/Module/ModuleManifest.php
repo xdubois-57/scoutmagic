@@ -44,7 +44,7 @@ class ModuleManifest
     private const VALID_OFFLINE_MATCH_VALUES = ['exact', 'child'];
 
     /**
-     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, breadcrumb: ?array{label: string, parents: array<string>}}> $routes
+     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, breadcrumb: ?array{label: string, parents: array<string>}}> $routes
      * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string}> $settings
      * @param array<int, array{name: string, category: string, purpose: string, duration: string}> $cookies
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
@@ -255,7 +255,7 @@ class ModuleManifest
 
     /**
      * @param array<string, mixed>|mixed $route
-     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, breadcrumb: ?array{label: string, parents: array<string>}}
+     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, breadcrumb: ?array{label: string, parents: array<string>}}
      */
     private static function validateRoute(string $moduleId, mixed $route, int $index): array
     {
@@ -306,9 +306,34 @@ class ModuleManifest
             $menuOrder = $route['menu_order'];
         }
 
+        // Optional: the Bootstrap Icons class shown in front of this
+        // entry in the mobile menu, so a module's page lines its label up
+        // with the per-member entries' avatars instead of starting
+        // further left (partials/nav.html.twig). Declared rather than
+        // derived: only the module knows what its page is about, and a
+        // core-side map keyed on paths would be exactly the kind of
+        // module knowledge that does not belong in core. An entry that
+        // declares none gets a neutral fallback at render time.
+        $menuIcon = null;
+        if (isset($route['menu_icon'])) {
+            if (!is_string($route['menu_icon'])) {
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] 'menu_icon' must be a string");
+            }
+            // A class name, never markup: it is interpolated into a
+            // class attribute, so anything outside the Bootstrap Icons
+            // vocabulary's own shape is refused rather than escaped.
+            if ($route['menu_icon'] !== '' && preg_match('/^bi-[a-z0-9-]+$/', $route['menu_icon']) !== 1) {
+                throw new ModuleException(
+                    "Module '{$moduleId}' route[{$index}] 'menu_icon' must be a Bootstrap Icons class, e.g. 'bi-calendar3'"
+                );
+            }
+            $menuIcon = $route['menu_icon'] !== '' ? $route['menu_icon'] : null;
+        }
+
         $breadcrumb = self::validateBreadcrumb($moduleId, $route['breadcrumb'] ?? null, $index);
 
         return [
+            'menu_icon' => $menuIcon,
             'path' => $route['path'],
             'method' => $method,
             'controller' => $route['controller'],

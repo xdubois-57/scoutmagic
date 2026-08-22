@@ -13,6 +13,7 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "Actualités",
+      "menu_icon": "bi-newspaper",
       "breadcrumb": { "label": "Actualités", "parents": ["Notre unité"] }
     },
     {
@@ -23,6 +24,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Actualités",
+      "menu_icon": "bi-pencil-square",
       "breadcrumb": { "label": "Actualités", "parents": ["Espace chefs"] }
     },
     {

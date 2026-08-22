@@ -13,6 +13,7 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "SOS Staff d'U",
+      "menu_icon": "bi-life-preserver",
       "menu_order": 50,
       "breadcrumb": { "label": "SOS Staff d'U", "parents": ["Espace chefs d'U"] }
     },
@@ -60,6 +61,7 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "SOS Staff d'U",
+      "menu_icon": "bi-life-preserver",
       "breadcrumb": { "label": "SOS Staff d'U", "parents": ["Configuration"] }
     },
     {

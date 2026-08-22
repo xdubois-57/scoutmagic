@@ -58,8 +58,14 @@ Administrative tools.
 Site-wide settings, modules, functions.
 
 ### 3.6 Navigation
-- **Mobile**: hamburger (left), unit name (right). Offcanvas from left. User card, accordion sub-menus, login/logout.
+- **Mobile**: hamburger (left), unit name (right). Offcanvas from left. User card, accordion sub-menus, login/logout. Every sub-page entry starts with an icon, in the same box the per-member entries use for their avatar, so all the labels in a menu line up.
 - **Desktop**: horizontal bar, wrapping sub-menu row below. User at right.
+
+### 3.7 How a person is shown
+
+One shared component draws a person everywhere the site shows one — the member entries in the menu, the connected person in the header and menu, the author of a message in a discussion group, "Mon compte": a circle holding **their photo if one is known, their initials otherwise**.
+
+Two photos, never mixed. A **member's** photo belongs to a scout year and is the one on their member page. A **login's** photo is set from "Mon compte", belongs to the person rather than to a year, and is what appears next to their name and their messages. It is optional (initials otherwise), only its owner can set or remove it — an administrator cannot, from anywhere — it is visible only to identified visitors, and removing it deletes the file.
 
 ## 4. Core pages
 

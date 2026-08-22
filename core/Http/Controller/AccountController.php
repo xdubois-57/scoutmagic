@@ -11,6 +11,7 @@ namespace Core\Http\Controller;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Photo\AccountPhotoService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\PasswordPolicy;
@@ -25,7 +26,11 @@ class AccountController extends AbstractController
         protected Environment $twig,
         private UserAccountRepository $userAccountRepo,
         private WebAuthnCredentialRepository $webAuthnCredentialRepo,
-        private WebAuthnService $webAuthnService
+        private WebAuthnService $webAuthnService,
+        // Trailing and optional, like every other late collaborator in
+        // this codebase: with none, the page simply never offers to
+        // remove a photo and the avatar draws initials.
+        private ?AccountPhotoService $accountPhotoService = null
     ) {
     }
 
@@ -54,7 +59,39 @@ class AccountController extends AbstractController
             'has_password' => $hasPassword,
             'passkeys' => $passkeys,
             'password_changed_at' => $account->passwordChangedAt,
+            // Only to decide whether "Retirer la photo" is offered — the
+            // avatar itself resolves the photo on its own
+            // (person_avatar(), Core\View\TwigFactory).
+            'has_account_photo' => $this->accountPhotoService?->resolveFileId($userId) !== null,
         ]);
+    }
+
+    /**
+     * POST /account/photo/delete — remove my own account photo.
+     *
+     * Scoped to the session's own account and nothing else: there is no
+     * id in the request to get wrong, and no page anywhere that removes
+     * somebody else's (Controller\UploadController applies the same rule
+     * to setting one).
+     *
+     * @param array<string, string> $params
+     */
+    public function deletePhoto(Request $request, array $params): Response
+    {
+        $userId = AuthSession::getUserAccountId();
+        if ($userId === null) {
+            return $this->redirect('/login');
+        }
+
+        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
+            FlashMessage::set('error', 'Session expirée. Veuillez réessayer.');
+            return $this->redirect('/account');
+        }
+
+        $this->accountPhotoService?->removePhoto($userId);
+        FlashMessage::set('success', 'Photo retirée.');
+
+        return $this->redirect('/account');
     }
 
     /**

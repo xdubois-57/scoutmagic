@@ -16,6 +16,7 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": "Groupes",
+      "menu_icon": "bi-chat-dots",
       "menu_order": 7,
       "breadcrumb": {
         "label": "Groupes",
