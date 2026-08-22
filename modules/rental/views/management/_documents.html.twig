@@ -133,13 +133,13 @@
                                                 </button>
                                             </form>
                                         {% endif %}
-                                        <form method="post" action="/mes-locations/document-supprimer" class="d-inline">
+                                        <form method="post" action="/mes-locations/document-supprimer" class="d-inline"
+                                              data-confirm="Supprimer « {{ document.label }} » ?">
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                             <input type="hidden" name="document_id" value="{{ document.id }}">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger"
-                                                    data-confirm="Supprimer « {{ document.label }} » ?">Supprimer</button>
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer</button>
                                         </form>
                                     </div>
                                 </td>

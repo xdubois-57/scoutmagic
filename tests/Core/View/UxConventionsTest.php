@@ -50,17 +50,7 @@ final class UxConventionsTest extends TestCase
      *
      * @var array<string, int> template path => count of non-form carriers
      */
-    private const DATA_CONFIRM_ALLOWLIST = [
-        // Not a confirmation at all — the partial reuses the attribute
-        // name for its own confirm-password field id. To rename.
-        'core/View/templates/partials/password_field.html.twig' => 1,
-        'modules/rental/views/management/_documents.html.twig' => 1,
-        'modules/rental/views/management/booking.html.twig' => 2,
-        'modules/rental/views/management/calendar.html.twig' => 1,
-        'modules/rental/views/management/compliance.html.twig' => 1,
-        'modules/rental/views/management/stay.html.twig' => 1,
-        'modules/rental/views/management/templates.html.twig' => 1,
-    ];
+    private const DATA_CONFIRM_ALLOWLIST = [];
 
     /**
      * design.md §7.3 — the breadcrumb bar is the site's only back

@@ -96,16 +96,16 @@
                 {% else %}
                     <div class="d-flex flex-wrap gap-2">
                         {% for target in allowed_transitions %}
-                            <form method="post" action="/mes-locations/statut" class="d-inline">
+                            <form method="post" action="/mes-locations/statut" class="d-inline"
+                                  {% if target.value in ['refused', 'cancelled'] %}
+                                      data-confirm="Confirmer le passage à « {{ target.label }} » ? Les dates seront libérées."
+                                  {% endif %}>
                                 {{ csrf_field()|raw }}
                                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                 <input type="hidden" name="status" value="{{ target.value }}">
                                 <button type="submit"
-                                        class="btn btn-sm {{ target.value == 'confirmed' ? 'btn-success' : 'btn-outline-secondary' }}"
-                                        {% if target.value in ['refused', 'cancelled'] %}
-                                            data-confirm="Confirmer le passage à « {{ target.label }} » ? Les dates seront libérées."
-                                        {% endif %}>
+                                        class="btn btn-sm {{ target.value == 'confirmed' ? 'btn-success' : 'btn-outline-secondary' }}">
                                     {{ target.label }}
                                 </button>
                             </form>
@@ -187,14 +187,14 @@
                                     <td class="text-end">{{ line.quantity }}</td>
                                     <td class="text-end">{{ (line.amountCents / 100)|number_format(2, ',', ' ') }} €</td>
                                     <td class="text-end">
-                                        <form method="post" action="/mes-locations/ligne" class="d-inline">
+                                        <form method="post" action="/mes-locations/ligne" class="d-inline"
+                                              data-confirm="Supprimer la ligne « {{ line.label }} » ?">
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                             <input type="hidden" name="line_action" value="remove">
                                             <input type="hidden" name="index" value="{{ loop.index0 }}">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger"
-                                                    data-confirm="Supprimer la ligne « {{ line.label }} » ?">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">
                                                 Supprimer
                                             </button>
                                         </form>

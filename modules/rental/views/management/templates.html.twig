@@ -268,13 +268,13 @@
                                         {% if meter.feeId is null %}· non facturé{% endif %}
                                     </span>
                                 </span>
-                                <form method="post" action="/mes-locations/compteur">
+                                <form method="post" action="/mes-locations/compteur"
+                                      data-confirm="Retirer « {{ meter.label }} » ? Les relevés déjà pris sont conservés.">
                                     {{ csrf_field()|raw }}
                                     <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                     <input type="hidden" name="meter_id" value="{{ meter.id }}">
                                     <input type="hidden" name="meter_action" value="retire">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger"
-                                            data-confirm="Retirer « {{ meter.label }} » ? Les relevés déjà pris sont conservés.">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
                                         Retirer
                                     </button>
                                 </form>

@@ -78,12 +78,12 @@
                                 </td>
                                 <td>{{ item.remark ?? '—' }}</td>
                                 <td class="text-end">
-                                    <form method="post" action="/mes-locations/conformite-supprimer" class="d-inline">
+                                    <form method="post" action="/mes-locations/conformite-supprimer" class="d-inline"
+                                          data-confirm="Supprimer « {{ item.label }} » du registre ?">
                                         {{ csrf_field()|raw }}
                                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                         <input type="hidden" name="item_id" value="{{ item.id }}">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger"
-                                                data-confirm="Supprimer « {{ item.label }} » du registre ?">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">
                                             Supprimer
                                         </button>
                                     </form>

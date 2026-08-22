@@ -111,6 +111,11 @@
         <div class="card-body">
             <h2 class="h5 mb-3">Clés numériques</h2>
 
+            {# Filled by the delete handler on a refused or failed
+               deletion — role="alert" so a screen reader hears the one
+               message on this page that must never be missed. #}
+            <div id="passkey-error" class="alert alert-danger d-none" role="alert"></div>
+
             <div id="passkey-list">
                 {% for key in passkeys %}
                     <div class="d-flex align-items-center justify-content-between border rounded p-2 mb-2"
@@ -289,22 +294,45 @@
         });
     }
 
-    // Delete passkey
+    // Delete passkey. The row only disappears on a CONFIRMED deletion:
+    // res.ok is not that — the endpoint answers HTTP 200 with
+    // {success:false, error} on a business refusal ("Clé introuvable."),
+    // and this handler used to read res.ok as success, remove the row,
+    // and let the owner of a lost device believe a still-valid key had
+    // been revoked. Authentication is the one place the UI must never
+    // claim more than the server did.
     document.querySelectorAll('.passkey-delete-btn').forEach(function(btn) {
         btn.addEventListener('click', async function() {
-            if (!confirm('Supprimer cette clé ?')) return;
+            if (!confirm('Supprimer cette clé ? Vous ne pourrez plus vous connecter avec.')) return;
             var id = btn.dataset.id;
-            var res = await fetch('/account/passkey/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
-                body: JSON.stringify({ id: parseInt(id) })
-            });
-            if (res.ok) {
-                btn.closest('[data-passkey-id]').remove();
-                if (document.querySelectorAll('[data-passkey-id]').length === 0) {
-                    var msg = document.getElementById('no-passkeys-msg');
-                    if (msg) msg.classList.remove('d-none');
+            var errorBox = document.getElementById('passkey-error');
+            if (errorBox) { errorBox.classList.add('d-none'); errorBox.textContent = ''; }
+            var failure = 'La clé n\'a pas pu être supprimée. Rechargez la page et réessayez.';
+            try {
+                var res = await fetch('/account/passkey/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+                    body: JSON.stringify({ id: parseInt(id) })
+                });
+                var data = await res.json();
+                if (!res.ok || !data.success) {
+                    if (errorBox) {
+                        errorBox.textContent = data.error || failure;
+                        errorBox.classList.remove('d-none');
+                    }
+                    return;
                 }
+            } catch (e) {
+                if (errorBox) {
+                    errorBox.textContent = failure;
+                    errorBox.classList.remove('d-none');
+                }
+                return;
+            }
+            btn.closest('[data-passkey-id]').remove();
+            if (document.querySelectorAll('[data-passkey-id]').length === 0) {
+                var msg = document.getElementById('no-passkeys-msg');
+                if (msg) msg.classList.remove('d-none');
             }
         });
     });

@@ -106,12 +106,12 @@
                                         <span class="text-body-secondary small d-block">{{ block.reason }}</span>
                                     {% endif %}
                                 </span>
-                                <form method="post" action="/mes-locations/blocage-supprimer">
+                                <form method="post" action="/mes-locations/blocage-supprimer"
+                                      data-confirm="Remettre cette période à la location ?">
                                     {{ csrf_field()|raw }}
                                     <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                     <input type="hidden" name="block_id" value="{{ block.id }}">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger"
-                                            data-confirm="Remettre cette période à la location ?">Supprimer</button>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer</button>
                                 </form>
                             </li>
                         {% endfor %}

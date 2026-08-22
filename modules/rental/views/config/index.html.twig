@@ -322,7 +322,8 @@
                                 <button type="submit" class="btn btn-outline-warning">Archiver</button>
                             </form>
                         {% endif %}
-                        <form method="post" action="/admin/locations/delete">
+                        <form method="post" action="/admin/locations/delete"
+                              data-confirm="Supprimer définitivement « {{ selected_asset.name }} » ? Cette action ne peut pas être annulée.">
                             {{ csrf_field()|raw }}
                             <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
                             <button type="submit" class="btn btn-outline-danger">Supprimer définitivement</button>

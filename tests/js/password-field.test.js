@@ -100,7 +100,7 @@ describe('wirePasswordField', () => {
     beforeEach(() => {
         document.body.innerHTML = `
             <form id="f">
-                <div data-password-field data-required="1" data-input="pwd" data-confirm="pwd-confirm">
+                <div data-password-field data-required="1" data-input="pwd" data-confirm-field="pwd-confirm">
                     <input type="password" id="pwd">
                     <ul id="pwd-checklist">
                         <li class="pwd-rule" data-rule="length"><i class="bi bi-circle"></i></li>

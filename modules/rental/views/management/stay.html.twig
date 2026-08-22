@@ -372,13 +372,13 @@
                                 {% if settlement.isValidated %}
                                     <span class="badge bg-success">Validé</span>
                                 {% else %}
-                                    <form method="post" action="/mes-locations/decompte-valider">
+                                    <form method="post" action="/mes-locations/decompte-valider"
+                                          data-confirm="Valider ce décompte ? Il ne pourra plus être modifié.">
                                         {{ csrf_field()|raw }}
                                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                         <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                         <input type="hidden" name="settlement_id" value="{{ settlement.id }}">
-                                        <button type="submit" class="btn btn-sm btn-outline-success"
-                                                data-confirm="Valider ce décompte ? Il ne pourra plus être modifié.">
+                                        <button type="submit" class="btn btn-sm btn-outline-success">
                                             Valider
                                         </button>
                                     </form>
