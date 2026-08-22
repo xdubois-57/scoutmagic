@@ -121,47 +121,6 @@ foreach (['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector'] 
 }
 $mailService = MailServiceFactory::create($secrets, $dkimManager);
 
-// Load enabled modules so their scheduled task handlers (module.json
-// "scheduled_tasks") are resolvable — without this, every module-registered
-// task fails unconditionally with "No handler registered", since
-// SchedulerRunner only knows about handlers a ModuleManager has loaded.
-// Router/MenuBuilder are only needed here to satisfy ModuleManager's
-// constructor; their route/menu output is never used in a CLI context.
-$migrationRunner = new MigrationRunner(
-    $connection,
-    new SchemaIntrospector($pdo),
-    new SchemaComparator(),
-    new SqlParser()
-);
-$moduleManager = new ModuleManager(
-    __DIR__ . '/../modules',
-    $settingService,
-    new CookieConsentService(),
-    new MenuBuilder(Role::SUPERADMIN),
-    new ModuleRegistryRepository($pdo),
-    $migrationRunner,
-    $journalService,
-    new Router(),
-    null,
-    new \Core\Offline\OfflineWhitelist(),
-    // Same profile resolution as public/index.php, through the same
-    // resolver — a module gated by visible_when must have its scheduled
-    // tasks resolvable under a real crontab too.
-    \Core\Module\InstallationProfile::resolve(
-        (string) ($settingService->get('base_url') ?? ''),
-        (string) ($settingService->get('statistics_destination') ?? '')
-    )
-);
-$moduleManager->loadEnabledModules();
-$runner->setModuleManager($moduleManager);
-
-// Core (not module) scheduled task handlers. Declared once in
-// Core\Scheduler\CoreTaskHandlers and registered identically here and in
-// public/index.php — this file used to carry its own hand-maintained copy
-// of the list, and create_backup being absent from it meant a real crontab
-// failed every background backup with "No handler registered" (§8.17).
-CoreTaskHandlers::registerAll($runner);
-
 // Web Push (Core\Notification) — same construction as public/index.php.
 // Null when VAPID keys aren't provisioned yet (e.g. this script running
 // before the site has ever been reached over HTTP, where the keys are
@@ -171,6 +130,16 @@ CoreTaskHandlers::registerAll($runner);
 // nullable and every handler calls it via ?->, so either case degrades to
 // "no push, everything else still runs" rather than crashing the whole
 // cron pass silently and invisibly.
+//
+// Built BEFORE ModuleManager on purpose: loadEnabledModules() below is
+// what registers each module's notification TYPES into this service, and
+// it can only do that for a service that already exists. When this block
+// lived after it, ModuleManager got null, no module type was ever
+// registered under a real crontab, and the first handler to dispatch one
+// (mass_mail's send_batch, for a recipient holding a login account) died
+// mid-batch on "Undeclared notification type" — stranding every recipient
+// after that one as 'pending' forever (caught by
+// tests/e2e/specs/mass-mail-merge.spec.js).
 $notificationService = null;
 if (VapidKeyPairFactory::isValid(
     (string) ($secrets['vapid_public_key'] ?? ''),
@@ -200,6 +169,47 @@ if (VapidKeyPairFactory::isValid(
         // as NotificationService's own class docblock.
     );
 }
+
+// Load enabled modules so their scheduled task handlers (module.json
+// "scheduled_tasks") are resolvable — without this, every module-registered
+// task fails unconditionally with "No handler registered", since
+// SchedulerRunner only knows about handlers a ModuleManager has loaded.
+// Router/MenuBuilder are only needed here to satisfy ModuleManager's
+// constructor; their route/menu output is never used in a CLI context.
+$migrationRunner = new MigrationRunner(
+    $connection,
+    new SchemaIntrospector($pdo),
+    new SchemaComparator(),
+    new SqlParser()
+);
+$moduleManager = new ModuleManager(
+    __DIR__ . '/../modules',
+    $settingService,
+    new CookieConsentService(),
+    new MenuBuilder(Role::SUPERADMIN),
+    new ModuleRegistryRepository($pdo),
+    $migrationRunner,
+    $journalService,
+    new Router(),
+    $notificationService,
+    new \Core\Offline\OfflineWhitelist(),
+    // Same profile resolution as public/index.php, through the same
+    // resolver — a module gated by visible_when must have its scheduled
+    // tasks resolvable under a real crontab too.
+    \Core\Module\InstallationProfile::resolve(
+        (string) ($settingService->get('base_url') ?? ''),
+        (string) ($settingService->get('statistics_destination') ?? '')
+    )
+);
+$moduleManager->loadEnabledModules();
+$runner->setModuleManager($moduleManager);
+
+// Core (not module) scheduled task handlers. Declared once in
+// Core\Scheduler\CoreTaskHandlers and registered identically here and in
+// public/index.php — this file used to carry its own hand-maintained copy
+// of the list, and create_backup being absent from it meant a real crontab
+// failed every background backup with "No handler registered" (§8.17).
+CoreTaskHandlers::registerAll($runner);
 
 // The rentals reminder pass (§6.29), for the same reason: its money
 // reminders need Finance's public API, which only a composition root can

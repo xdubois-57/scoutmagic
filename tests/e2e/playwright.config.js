@@ -75,7 +75,19 @@ export default defineConfig({
     projects: [
         {
             name: 'chromium',
-            use: { ...devices['Desktop Chrome'] },
+            use: {
+                ...devices['Desktop Chrome'],
+                // Escape hatch for environments where Playwright's own
+                // browser download is unavailable but a compatible
+                // Chromium already exists on disk (e.g. a remote or
+                // sandboxed Claude Code container shipping one under
+                // /opt/pw-browsers). Unset — the normal case, CI and
+                // developer machines alike — Playwright resolves its own
+                // managed browser exactly as before.
+                ...(process.env.E2E_CHROMIUM_EXECUTABLE
+                    ? { launchOptions: { executablePath: process.env.E2E_CHROMIUM_EXECUTABLE } }
+                    : {}),
+            },
         },
     ],
 });
