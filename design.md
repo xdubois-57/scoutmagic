@@ -156,3 +156,107 @@ Consent stored in strictly-necessary cookie `cookie_consent` (JSON: `{"functiona
 
 ### 6.3 Enforcement
 `CookieConsentService::isAllowed($category)` checked before any `setcookie()` for non-essential cookies. Middleware or helper — never left to individual controllers.
+
+## 7. UI conventions
+
+Rules the whole site follows. Several are enforced mechanically by
+`tests/Core/View/UxConventionsTest.php` — a convention no test defends
+drifts back into divergence within months (it already happened once).
+
+### 7.1 Lexicon
+
+One word per person, everywhere on screen:
+
+- **animé** — a child, member of a section.
+- **animateur** — a section leader (canonical on-screen word; « chef » is
+  never used alone). A section's animateurs form its **staff de section**.
+- **chef d'unité** — a unit leader; together they form the **Staff
+  d'Unité**, hierarchically above the animateurs. « Staff d'U » is the
+  accepted short form where space is tight.
+- Menus: « Espace membres » (identified visitors), « Espace animateurs »,
+  « Espace chefs d'U », « Configuration ».
+- Configuration pages are named by task, never by layer: « Édition du
+  site » (/config/general), « Installation & serveur » (/setup),
+  « Réglages » (/config/settings).
+
+URLs (`/chefs/...`, `espace_chefs`, role `chief`) are code identifiers and
+deliberately keep their historical names — renaming them breaks bookmarks
+and integrations for zero user benefit.
+
+### 7.2 Touch targets
+
+44px is a comfort **goal** for small controls (icon-only buttons, `.btn-sm`,
+checkboxes via their `<label>`), not a universal floor: WCAG 2.2 AA requires
+24×24 (2.5.8); 44px is the AAA criterion. Bootstrap's default 38px controls
+pass comfortably. Concretely:
+
+- The `pointer: coarse` block in `app.css` is the only place touch sizing
+  lives. Never `style="min-height:44px"` in a template — an inline style
+  overrides every stylesheet rule, including the desktop restore.
+- Never inflate standard inputs/selects to 44px — it lengthens forms for
+  zero gain (this exact recommendation was made and retracted once).
+- A checkbox grows its tappable zone through its `<label>`, never by
+  resizing the box.
+
+### 7.3 Going back
+
+The breadcrumb bar is the site's **only** back affordance. No « Retour »
+buttons — a destination that matters belongs in the breadcrumb trail
+(`parents` for menu sections, `breadcrumb_trail` for real ancestor pages).
+Documented exceptions live in `UxConventionsTest::BACK_BUTTON_EXCEPTIONS`.
+A `parents` entry must exactly match a `MenuBuilder` label, or it renders
+as dead text.
+
+### 7.4 Buttons
+
+Four variants, nothing else:
+
+- **Primary action** — `btn-primary`, at most one per screen. Creation
+  actions (« Nouvel article », « Créer le bien »...) are always primary,
+  never `btn-success`.
+- **Neutral / secondary** — `btn-outline-secondary`. « Annuler » is always
+  exactly `btn btn-outline-secondary`, same size as the action it sits
+  next to.
+- **Destructive trigger** — `btn-outline-danger` (opens the confirmation).
+- **Destructive confirmation** — `btn-danger`, only inside a confirmation
+  surface (modal footer, danger zone).
+
+A full-width mobile button is `w-100 w-sm-auto`, never `w-100` alone.
+Icon vocabulary is fixed: `bi-trash` delete, `bi-pencil` edit, `bi-plus-lg`
+add, `bi-three-dots-vertical` overflow menus.
+
+### 7.5 Feedback
+
+- Flash messages: types `success` | `error` | `warning` only
+  (`Core\Http\FlashMessage`); `danger` is not a type.
+- Destructive POSTs carry `data-confirm` **on the `<form>` element** — the
+  global handler in `base.html.twig` listens on `submit` and looks at
+  `e.target.closest('form[data-confirm]')`; the attribute on a button is
+  silently inert. Rule of thumb: every POST that deletes, removes, refuses
+  or revokes carries one; nothing else does. Messages state the
+  consequence: « {Verbe} {objet} ? {Conséquence concrète}. »
+- Never `alert()`/`confirm()`/`prompt()` and never `on*=` attributes in
+  templates — the CSP (`script-src 'self' 'nonce-…'`) makes inline
+  handlers dead code, silently.
+- Session-expiry text is a single constant: « Votre session a expiré.
+  Rechargez la page et réessayez. » — never « Jeton CSRF invalide. ».
+
+### 7.6 Page structure
+
+- `base.html.twig` already renders `<main class="container py-3">`. A view
+  never opens another `.container`. Page width is one of the shared width
+  classes (`page-narrow`, `page-medium`, `page-wide`) — never an inline
+  `max-width`.
+- Exactly one `<h1>` per page, one size site-wide (the `page_header`
+  partial's). The `<h1>` matches the page's `<title>` — eight pages all
+  titled « Finances » is a bug, not a convention.
+- Every `<table>` sits in a `.table-responsive` wrapper (or a documented
+  overflow container).
+
+### 7.7 Empty states
+
+Rendered through the `empty_state` partial, never hand-rolled. Canonical
+copy: « Aucun(e) {objet}. » followed, whenever the visitor has the right
+to create the missing thing, by the creation action (« Créez le premier
+album ! »). The variant without an action is only for visitors who
+genuinely cannot act.
