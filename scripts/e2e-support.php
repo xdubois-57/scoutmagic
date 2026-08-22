@@ -100,6 +100,14 @@ function e2e_support_main(array $argv): void
             e2e_provision($repoRoot, $instanceDir, $port);
             exit(0);
 
+        case 'run-scheduler':
+            $instanceDir = $argv[2] ?? '';
+            if ($instanceDir === '' || !is_file($instanceDir . '/public/cron.php')) {
+                fwrite(STDERR, "Usage: e2e-support.php run-scheduler <instance-dir>\n");
+                exit(1);
+            }
+            exit(e2e_run_scheduler($instanceDir));
+
         case 'teardown-db':
             require_once $repoRoot . '/vendor/autoload.php';
             e2e_teardown_database();
@@ -1131,6 +1139,41 @@ function e2e_merge_coverage(string $repoRoot, string $coverageDir, string $outpu
     }
 
     return true;
+}
+
+/**
+ * Runs the throwaway instance's OWN cron entry point once, exactly as a
+ * host's crontab would — same `public/cron.php`, same instance config,
+ * same Core\Scheduler\SchedulerRunner.
+ *
+ * A scenario needs this whenever the feature it exercises finishes in a
+ * background task rather than in the request: a gallery upload is stored
+ * immediately but has no renditions until `gallery`/`process_photo` runs,
+ * so "download this photo" cannot be tested at all without something
+ * turning the queue. The application does turn it by itself — the
+ * poor-man's cron at the foot of public/index.php — but no more than once
+ * a minute, which is a minute a test cannot spend and a race it should
+ * not depend on.
+ *
+ * A subprocess rather than an include: cron.php is a top-level script that
+ * builds its own container from the instance's config, and running it
+ * inside this process would inherit the repository's own bootstrap
+ * instead.
+ */
+function e2e_run_scheduler(string $instanceDir): int
+{
+    $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($instanceDir . '/public/cron.php') . ' 2>&1';
+    $output = [];
+    $exitCode = 0;
+    exec($command, $output, $exitCode);
+
+    // Echoed rather than swallowed: when a task handler fails, its message
+    // is the only clue the scenario that called this will ever get.
+    foreach ($output as $line) {
+        echo $line, "\n";
+    }
+
+    return $exitCode;
 }
 
 function e2e_teardown_database(): void

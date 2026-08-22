@@ -2,7 +2,7 @@
   "id": "gallery",
   "name": "Galerie photos et vidéos",
   "description": "Albums photo/vidéo (envoi local avec redimensionnement/transcodage automatique, ou lien vers un album externe) visibles par les membres identifiés.",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -52,6 +52,15 @@
       "method": "GET",
       "controller": "Modules\\Gallery\\Controller\\GalleryController",
       "action": "downloadZip",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/gallery/media/{media_id}/download",
+      "method": "GET",
+      "controller": "Modules\\Gallery\\Controller\\GalleryController",
+      "action": "downloadMedia",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""

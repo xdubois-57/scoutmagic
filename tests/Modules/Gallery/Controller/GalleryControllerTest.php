@@ -586,6 +586,169 @@ class GalleryControllerTest extends TestCase
         @unlink((string) $zipPath);
     }
 
+    // --- downloading ONE media ------------------------------------------
+
+    public function testDownloadMediaStreamsTheLargeRenditionUnderItsZipName(): void
+    {
+        $albumId = $this->createLocalAlbum(null);
+        $mediaId = $this->createDoneMediaNamed($albumId, 'IMG_1234.JPG');
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        // The best rendition kept for a photo, which is what the album's
+        // own zip puts in the archive for this media too.
+        $backend->method('get')->with('lg.jpg')->willReturn('fake-large-image-bytes');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+
+        $response = $this->controller->downloadMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/download', [], [], [], []),
+            ['media_id' => (string) $mediaId]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('fake-large-image-bytes', $response->getBody());
+        $this->assertSame('image/jpeg', $response->getHeaders()['Content-Type']);
+        $this->assertSame(
+            'attachment; filename="IMG_1234_' . $mediaId . '.jpg"',
+            $response->getHeaders()['Content-Disposition']
+        );
+    }
+
+    /**
+     * The point of the whole naming rule: two photos a phone both called
+     * IMG_1234 must not overwrite each other in somebody's downloads
+     * folder — and each must match what the album's zip calls it.
+     */
+    public function testTwoMediaWithTheSameOriginalNameDownloadAsTwoDifferentFiles(): void
+    {
+        $albumId = $this->createLocalAlbum(null);
+        $first = $this->createDoneMediaNamed($albumId, 'IMG_1234.jpg');
+        $second = $this->createDoneMediaNamed($albumId, 'IMG_1234.jpg');
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->method('get')->willReturn('bytes');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+
+        $names = [];
+        foreach ([$first, $second] as $mediaId) {
+            $response = $this->controller->downloadMedia(
+                new Request('GET', '/gallery/media/' . $mediaId . '/download', [], [], [], []),
+                ['media_id' => (string) $mediaId]
+            );
+            $names[] = $response->getHeaders()['Content-Disposition'];
+        }
+
+        $this->assertNotSame($names[0], $names[1]);
+        $this->assertSame('attachment; filename="IMG_1234_' . $first . '.jpg"', $names[0]);
+        $this->assertSame('attachment; filename="IMG_1234_' . $second . '.jpg"', $names[1]);
+    }
+
+    /**
+     * …and the archive agrees with them, entry for entry. This is the
+     * assertion that keeps the two paths from drifting: they call one
+     * naming rule (Service\MediaFileName).
+     */
+    public function testTheZipNamesItsEntriesExactlyAsEachMediaDownloadsOnItsOwn(): void
+    {
+        $albumId = $this->createLocalAlbum(null);
+        $first = $this->createDoneMediaNamed($albumId, 'IMG_1234.jpg');
+        $second = $this->createDoneMediaNamed($albumId, 'IMG_1234.jpg');
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->method('get')->willReturn('bytes');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+
+        $response = $this->controller->downloadZip(
+            new Request('GET', '/gallery/' . $albumId . '/download', [], [], [], []),
+            ['id' => (string) $albumId]
+        );
+
+        $zipPath = (string) $response->getBodyFilePath();
+        $zip = new \ZipArchive();
+        $zip->open($zipPath);
+        $entries = [];
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $entries[] = $zip->getNameIndex($i);
+        }
+        $zip->close();
+        @unlink($zipPath);
+
+        $this->assertSame(['IMG_1234_' . $first . '.jpg', 'IMG_1234_' . $second . '.jpg'], $entries);
+    }
+
+    public function testDownloadMediaRefusesASectionScopedAlbumTheMemberIsNotLinkedTo(): void
+    {
+        $albumId = $this->createLocalAlbum($this->sectionId);
+        $mediaId = $this->createDoneMedia($albumId);
+
+        $response = $this->controller->downloadMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/download', [], [], [], []),
+            ['media_id' => (string) $mediaId]
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * A delegated album belongs to another module, and gallery answers
+     * 404 rather than 403 there — the same rule serveMedia() follows, so
+     * a download URL cannot confirm that a discussion group's photo
+     * exists.
+     */
+    public function testDownloadMediaAnswersNotFoundForADelegatedAlbumTheCallerMayNotSee(): void
+    {
+        $albumId = $this->createDelegatedAlbum($this->locationId);
+        $mediaId = $this->createDoneMedia($albumId);
+
+        $response = $this->controller->downloadMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/download', [], [], [], []),
+            ['media_id' => (string) $mediaId]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testDownloadMediaAnswersNotFoundForAMediaStillProcessing(): void
+    {
+        $albumId = $this->createLocalAlbum(null);
+        $stmt = $this->pdo->prepare("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES ('a', 'a', 'image/jpeg', 1, 'identified')");
+        $stmt->execute();
+        $mediaId = $this->mediaRepository->create($albumId, 'photo', (int) $this->pdo->lastInsertId(), 0, 'pending.jpg');
+
+        $response = $this->controller->downloadMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/download', [], [], [], []),
+            ['media_id' => (string) $mediaId]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testDownloadMediaRefusesWhileTheAlbumIsMigrating(): void
+    {
+        $albumId = $this->createLocalAlbum(null);
+        $mediaId = $this->createDoneMedia($albumId);
+        $this->albumRepository->startMigration($albumId, $this->locationId);
+
+        $response = $this->controller->downloadMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/download', [], [], [], []),
+            ['media_id' => (string) $mediaId]
+        );
+
+        $this->assertSame(503, $response->getStatusCode());
+    }
+
+    private function createDoneMediaNamed(int $albumId, string $originalFilename): int
+    {
+        // A distinct relative_path per row: `files` is unique on it, and
+        // these tests deliberately create two media whose ORIGINAL names
+        // collide.
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min)
+             VALUES (?, ?, 'image/jpeg', 1, 'identified')"
+        );
+        $stmt->execute(['gallery/' . uniqid('f', true), $originalFilename]);
+        $mediaId = $this->mediaRepository->create($albumId, 'photo', (int) $this->pdo->lastInsertId(), 0, $originalFilename);
+        $this->mediaRepository->markPhotoDone($mediaId, 'thumb.jpg', 'med.jpg', 'lg.jpg', 100, 100);
+
+        return $mediaId;
+    }
+
     public function testShowMarksAMigratingAlbumUnavailableAndHidesMedia(): void
     {
         $id = $this->createLocalAlbum(null);

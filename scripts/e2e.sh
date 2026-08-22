@@ -78,6 +78,10 @@ set -euo pipefail
 #       Directory every email the run sends lands in, one RFC 5322 file
 #       per message. Read through tests/e2e/support/maildrop.js. Inside
 #       the run's own temporary directory, removed with it.
+#   E2E_INSTANCE_DIR
+#       The throwaway instance's own directory. Used through
+#       tests/e2e/support/scheduler.js to run its public/cron.php once,
+#       for scenarios whose feature finishes in a background task.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
@@ -318,6 +322,17 @@ BACKUP_SNAPSHOT="${INSTANCE_DIR}/backups-before-run.txt"
 E2E_MAILDROP="${INSTANCE_DIR}/maildrop"
 mkdir -p "${E2E_MAILDROP}"
 export E2E_MAILDROP
+
+# The instance itself, for the one thing a scenario cannot do through the
+# browser: turn the task queue. Background work (a gallery upload's
+# renditions, a notification's push) finishes in public/cron.php, and the
+# application's own poor-man's cron runs at most once a minute — a minute
+# a test cannot spend. tests/e2e/support/scheduler.js runs the instance's
+# cron entry point through scripts/e2e-support.php run-scheduler.
+# The application instance itself lives one level down (see the
+# `provision` call below) — this names THAT directory, the one
+# holding public/cron.php.
+export E2E_INSTANCE_DIR="${INSTANCE_DIR}/instance"
 
 # ---------------------------------------------------------------
 # PHP coverage of the application, when asked for. The fragments live
