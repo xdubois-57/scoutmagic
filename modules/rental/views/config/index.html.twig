@@ -17,9 +17,10 @@
     <div class="container py-4" style="max-width: 1100px;">
         <h1 class="h3 mb-1">Locations</h1>
         <p class="text-body-secondary small mb-4">
-            Configuration des biens que l'unité met en location. La gestion quotidienne d'un bien
-            (réservations, contrat, emails) se fait depuis l'espace de gestion du bien, accessible
-            à ses gestionnaires.
+            Les biens que l'unité met en location, et qui les gère. Tout le reste — règles de
+            réservation, tarif, acompte, réservations, contrats, séjour — se règle depuis l'espace
+            de gestion de chaque bien, accessible à ses gestionnaires. Le Staff d'U y accède
+            partout, sans avoir à être désigné nulle part.
         </p>
 
         {% if assets is empty %}
@@ -74,86 +75,150 @@
             </div>
 
             {# ── Section: gestionnaires ───────────────────────────────── #}
+            {#
+              A search box, not a checklist. The checklist rendered one row
+              per active member of the unit — three hundred rows to tick two
+              of them, with a second column of checkboxes beside every one.
+              The <select> below is what a visitor without JavaScript gets,
+              and it is also what the POST always carries: rental-managers.js
+              hides it and drives it, so both paths submit the identical form
+              (the same shape modules/groups' own invite search uses).
+            #}
             <div class="card mb-4">
                 <div class="card-body">
                     <h2 class="h5 mb-1">Gestionnaires</h2>
                     <p class="text-body-secondary small mb-3">
-                        Les gestionnaires exploitent le bien au quotidien. Ce ne sont pas nécessairement
-                        des chefs, et ils ont tous les mêmes droits sur le bien. Le Staff d'U est
-                        gestionnaire de tous les biens sans devoir être ajouté ici.
+                        Les gestionnaires exploitent le bien au quotidien : les demandes, l'argent, les
+                        documents, le séjour, et les réglages du bien (règles, tarif, acompte). Ce ne sont
+                        pas nécessairement des chefs, et ils ont tous les mêmes droits sur le bien. Le
+                        Staff d'U est gestionnaire de tous les biens sans devoir être ajouté ici.
                     </p>
 
-                    <form method="post" action="/admin/locations/managers">
+                    {% set inactive_managers = [] %}
+                    {% set current_ids = [] %}
+                    {% for row in managers %}
+                        {% set current_ids = current_ids|merge([row.manager.memberId]) %}
+                        {% if not row.manager.isActive %}
+                            {% set inactive_managers = inactive_managers|merge([row]) %}
+                        {% endif %}
+                    {% endfor %}
+                    {% if inactive_managers is not empty %}
+                        <div class="alert alert-warning small">
+                            {{ inactive_managers|length }} gestionnaire(s) n'apparaissent plus dans le
+                            dernier import Desk et sont donc désactivés. Leur accès est suspendu, mais
+                            l'attribution est conservée : elle se réactive d'elle-même s'ils
+                            réapparaissent dans un import. Les retirer ci-dessous les supprime
+                            définitivement.
+                        </div>
+                    {% endif %}
+
+                    <form method="post" action="/admin/locations/managers" id="rental-managers-form"
+                          data-search-url="/admin/locations/gestionnaire-recherche">
                         {{ csrf_field()|raw }}
                         <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
 
-                        {% set inactive_managers = [] %}
-                        {% for row in managers %}
-                            {% if not row.manager.isActive %}
-                                {% set inactive_managers = inactive_managers|merge([row]) %}
-                            {% endif %}
-                        {% endfor %}
-                        {% if inactive_managers is not empty %}
-                            <div class="alert alert-warning small">
-                                {{ inactive_managers|length }} gestionnaire(s) n'apparaissent plus dans le
-                                dernier import Desk et sont donc désactivés. Leur accès est suspendu, mais
-                                l'attribution est conservée : elle se réactive d'elle-même s'ils
-                                réapparaissent dans un import.
-                            </div>
-                        {% endif %}
-
-                        {% set current_ids = [] %}
-                        {% set contact_ids = [] %}
-                        {% for row in managers %}
-                            {% set current_ids = current_ids|merge([row.manager.memberId]) %}
-                            {% if row.manager.isRenterContact %}
-                                {% set contact_ids = contact_ids|merge([row.manager.memberId]) %}
-                            {% endif %}
-                        {% endfor %}
-
-                        {% if assignable_members is empty %}
-                            <p class="text-body-secondary fst-italic">
-                                Aucun membre actif n'est disponible pour cette année scoute.
+                        {% if candidates is empty and managers is empty %}
+                            <p class="text-body-secondary fst-italic mb-0">
+                                Aucun membre d'au moins {{ manager_minimum_age }} ans n'est disponible pour
+                                cette année scoute.
                             </p>
                         {% else %}
-                            <div class="table-responsive">
-                                <table class="table table-sm align-middle">
-                                    <thead>
-                                        <tr>
-                                            <th scope="col">Membre</th>
-                                            <th scope="col">Gestionnaire</th>
-                                            <th scope="col">Contact du locataire</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for member_id, display_name in assignable_members %}
-                                            <tr>
-                                                <th scope="row" class="fw-normal">
-                                                    <label for="manager-{{ member_id }}">{{ display_name }}</label>
-                                                </th>
-                                                <td>
-                                                    <input class="form-check-input" type="checkbox"
-                                                           id="manager-{{ member_id }}"
-                                                           name="manager_member_ids[]" value="{{ member_id }}"
-                                                           {{ member_id in current_ids ? 'checked' : '' }}>
-                                                </td>
-                                                <td>
-                                                    <input class="form-check-input" type="checkbox"
-                                                           id="contact-{{ member_id }}"
-                                                           name="renter_contact_member_ids[]" value="{{ member_id }}"
-                                                           {{ member_id in contact_ids ? 'checked' : '' }}>
-                                                    <label class="visually-hidden" for="contact-{{ member_id }}">
-                                                        Montrer les coordonnées de {{ display_name }} au locataire
-                                                    </label>
-                                                </td>
-                                            </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
+                            {#
+                              Two controls, one field name. The list below
+                              carries every CURRENT manager with a "Gestionnaire"
+                              checkbox — unticking one is how a grant is
+                              revoked — and the select adds somebody new. Both
+                              post `manager_member_ids[]`, and the server
+                              honours their union.
+
+                              That split is what makes preserving a manager the
+                              last Desk import deactivated structural rather
+                              than a rule to remember: they are not in the
+                              candidate list (they are not on the roster any
+                              more) but they ARE in this list, so a save that
+                              leaves them ticked posts them back.
+                            #}
+                            <div id="rental-manager-selected">
+                                <h3 class="h6">Gestionnaires de ce bien</h3>
+                                <p class="text-body-secondary fst-italic"
+                                   id="rental-manager-empty"{{ managers is empty ? '' : ' hidden' }}>
+                                    Aucun gestionnaire désigné. Seul le Staff d'U gère ce bien.
+                                </p>
+                                <ul class="list-group mb-3" id="rental-manager-selected-list">
+                                    {% for row in managers %}
+                                        <li class="list-group-item d-flex flex-wrap align-items-center gap-3"
+                                            data-member-id="{{ row.manager.memberId }}">
+                                            <div class="form-check m-0 me-auto">
+                                                <input class="form-check-input" type="checkbox"
+                                                       id="manager-{{ row.manager.memberId }}"
+                                                       name="manager_member_ids[]"
+                                                       value="{{ row.manager.memberId }}" checked>
+                                                <label class="form-check-label" for="manager-{{ row.manager.memberId }}">
+                                                    {{ row.display_name }}
+                                                    {% if not row.manager.isActive %}
+                                                        <span class="badge text-bg-warning">Désactivé</span>
+                                                    {% endif %}
+                                                </label>
+                                            </div>
+                                            <div class="form-check form-switch m-0">
+                                                <input class="form-check-input" type="checkbox"
+                                                       id="contact-{{ row.manager.memberId }}"
+                                                       name="renter_contact_member_ids[]"
+                                                       value="{{ row.manager.memberId }}"
+                                                       {{ row.manager.isRenterContact ? 'checked' : '' }}>
+                                                <label class="form-check-label small" for="contact-{{ row.manager.memberId }}">
+                                                    Contact du locataire
+                                                </label>
+                                            </div>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                                <p class="text-body-secondary small">
+                                    Décocher « Gestionnaire » retire l'attribution définitivement lors de
+                                    l'enregistrement.
+                                </p>
                             </div>
+
+                            <div class="mb-3">
+                                <label class="form-label" for="rental-manager-select">Ajouter un gestionnaire</label>
+                                {#
+                                  The no-JS control: every eligible member not
+                                  already a manager, as a plain multiple select.
+                                  rental-managers.js hides this wrapper and
+                                  drives the same field from a search box.
+                                #}
+                                <div id="rental-manager-select-wrapper">
+                                    <select class="form-select" id="rental-manager-select"
+                                            name="manager_member_ids[]" multiple size="8">
+                                        {% for candidate in candidates %}
+                                            {% if candidate.memberId not in current_ids %}
+                                                <option value="{{ candidate.memberId }}"
+                                                        data-sublabel="{{ candidate.sublabel() }}">
+                                                    {{ candidate.label() }}
+                                                </option>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </select>
+                                    <div class="form-text">
+                                        Membres d'au moins {{ manager_minimum_age }} ans. Maintenez Ctrl (ou ⌘)
+                                        pour en sélectionner plusieurs.
+                                    </div>
+                                </div>
+                                <input type="text" class="form-control d-none" id="rental-manager-search"
+                                       autocomplete="off" placeholder="Nom, prénom ou totem…"
+                                       aria-describedby="rental-manager-search-help">
+                                <div class="form-text d-none" id="rental-manager-search-help">
+                                    Tapez au moins deux lettres. Seuls les membres d'au moins
+                                    {{ manager_minimum_age }} ans sont proposés.
+                                </div>
+                                <ul class="list-group mt-1 d-none" id="rental-manager-results"
+                                    aria-label="Résultats de la recherche"></ul>
+                            </div>
+
                             <p class="text-body-secondary small">
-                                « Contact du locataire » montre les coordonnées de ce gestionnaire au locataire
-                                sur sa page de suivi. Cela ne les rend jamais publiques.
+                                « Contact du locataire » montre le nom et le téléphone de ce gestionnaire au
+                                locataire sur sa page de suivi et dans l'email d'informations pratiques. Cela
+                                ne les rend jamais publiques.
                             </p>
                             <button type="submit" class="btn btn-primary">Enregistrer les gestionnaires</button>
                         {% endif %}
@@ -161,27 +226,57 @@
                 </div>
             </div>
 
+            {# ── Section: compte des paiements ────────────────────────── #}
             {#
-              A jump list, because this page is long and everything past the
-              first screen was effectively undiscoverable: "où configure-t-on
-              le tarif ?" has a real answer that nobody could find. Anchors
-              rather than tabs — the sections still all render, so Ctrl-F and
-              a printed page keep working.
+              The one money field that stays with unit staff. Everything else
+              about the money — the deposit, the balance, the security
+              deposit — belongs to the asset's managers, on the asset's own
+              Réglages page. The reason this one did not follow is not taste:
+              the account list carries every account's IBAN and is not
+              filtered by role, while a manager may be a parent or a former
+              leader (SECURITY.md §3).
             #}
-            <nav class="mb-4" aria-label="Sections de la configuration">
-                <div class="d-flex flex-wrap gap-2">
-                    <a class="btn btn-sm btn-outline-secondary" href="#regles">Règles de réservation</a>
-                    <a class="btn btn-sm btn-outline-secondary" href="#tarification">Tarification</a>
-                    <a class="btn btn-sm btn-outline-secondary" href="#paiements">Acompte, solde et caution</a>
-                    <a class="btn btn-sm btn-outline-secondary" href="#courrier">Courrier entrant</a>
+            <div class="card mb-4" id="compte">
+                <div class="card-body">
+                    <h2 class="h5 mb-1">Compte des paiements</h2>
+
+                    {% if not finance_available %}
+                        <p class="text-body-secondary small mb-0">
+                            Le module « Finances » n'est pas actif sur ce site. Les locations fonctionnent
+                            normalement sans lui : aucune créance n'est créée et le suivi des paiements se
+                            fait hors ScoutMagic.
+                        </p>
+                    {% else %}
+                        <p class="text-body-secondary small mb-3">
+                            Le compte sur lequel les virements de ce bien sont attendus. Les gestionnaires
+                            règlent ensuite l'acompte, le solde et la caution depuis les
+                            <a href="/mes-locations/{{ selected_asset.slug }}/reglages#paiements">réglages du bien</a>
+                            — ils ne voient jamais cette liste, qui porte les IBAN de l'unité.
+                        </p>
+
+                        <form method="post" action="/admin/locations/compte">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
+                            <div class="mb-3" style="max-width: 32rem;">
+                                <label class="form-label" for="finance-account">Compte</label>
+                                <select class="form-select" id="finance-account" name="finance_account_id">
+                                    <option value="">—</option>
+                                    {% for account in finance_accounts %}
+                                        <option value="{{ account.id }}"
+                                                {{ payment_settings.financeAccountId == account.id ? 'selected' : '' }}>
+                                            {{ account.name }}{% if account.iban %} ({{ account.iban }}){% endif %}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text">
+                                    Sans IBAN sur ce compte, aucun QR code SEPA ne peut être proposé au locataire.
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Enregistrer le compte</button>
+                        </form>
+                    {% endif %}
                 </div>
-            </nav>
-
-            {% include '@rental/config/_constraints.html.twig' %}
-
-            {% include '@rental/config/_pricing.html.twig' %}
-
-            {% include '@rental/config/_payments.html.twig' %}
+            </div>
 
             {# ── Section: cycle de vie ────────────────────────────────── #}
             <div class="card mb-4">
@@ -304,4 +399,8 @@
     {# type="module" — the file uses `export`, and a classic <script> tag
        rejects it with a SyntaxError before a line of it runs. #}
     <script type="module" src="/assets/js/select-explanation.js"></script>
+    {# Plain script, no module: it enhances the managers form in place and
+       exports nothing the page needs. Without it the <select> it hides
+       stays visible and the form works unchanged. #}
+    <script src="/assets/js/rental-managers.js"></script>
 {% endblock %}

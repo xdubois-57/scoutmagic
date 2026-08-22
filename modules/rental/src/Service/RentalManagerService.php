@@ -8,7 +8,9 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Service;
 
+use Core\Config\SettingService;
 use Core\Journal\JournalService;
+use Core\Member\MemberDirectoryEntry;
 use Core\Member\MemberService;
 use Modules\Rental\Repository\RentalAssetManager;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
@@ -24,10 +26,25 @@ use Modules\Rental\Repository\RentalAssetManagerRepository;
  */
 class RentalManagerService
 {
+    /** The module setting a unit may raise or lower, and its declared default. */
+    public const SETTING_MINIMUM_AGE = 'rental_manager_minimum_age';
+    public const DEFAULT_MINIMUM_AGE = 16;
+
+    /** What a search-as-you-type box returns, and the shortest query worth running. */
+    public const SEARCH_RESULT_LIMIT = 10;
+    public const SEARCH_MINIMUM_LENGTH = 2;
+
     public function __construct(
         private RentalAssetManagerRepository $managerRepository,
         private MemberService $memberService,
-        private JournalService $journal
+        private JournalService $journal,
+        /**
+         * Optional and trailing so every existing construction — the renter
+         * contact lookup, the task handlers, the test suite — keeps working
+         * with three arguments; without it the minimum age is the declared
+         * default rather than whatever the unit configured.
+         */
+        private ?SettingService $settingService = null
     ) {
     }
 
@@ -67,6 +84,72 @@ class RentalManagerService
         }
 
         return $result;
+    }
+
+    /**
+     * Every member who may be designated a manager of any asset.
+     *
+     * Deliberately **not** narrowed by role: a manager is explicitly not
+     * required to be a chief (§6.3), and the guide's own typical case is the
+     * quartermaster, a parent or a former leader. Narrowing by function
+     * would defeat the point of the feature.
+     *
+     * What it *is* narrowed by is age — `rental_manager_minimum_age`,
+     * sixteen by default. Letting eight-year-old animés into the picker is
+     * how a chief mis-clicks a child into a screen carrying renters'
+     * identities, their money and their contracts. The filter runs inside
+     * Core\Member\MemberService, which never returns the birth dates it
+     * filtered on; a member with no birth date encoded in Desk stays
+     * selectable rather than silently disappearing.
+     *
+     * @return MemberDirectoryEntry[]
+     */
+    public function listCandidates(int $scoutYearId): array
+    {
+        return $this->memberService->findDirectoryForYear($scoutYearId, $this->minimumAge());
+    }
+
+    /**
+     * The candidates matching a typed query, capped.
+     *
+     * Matching happens in PHP over the decrypted roster rather than in SQL:
+     * names are encrypted BLOBs and SECURITY.md §5 forbids a `WHERE` on one,
+     * so there is no LIKE to write. Same shape and same cap as
+     * Modules\Groups' own invite search.
+     *
+     * @return MemberDirectoryEntry[]
+     */
+    public function searchCandidates(string $query, int $scoutYearId, int $limit = self::SEARCH_RESULT_LIMIT): array
+    {
+        $query = trim($query);
+        if (mb_strlen($query) < self::SEARCH_MINIMUM_LENGTH) {
+            // One letter in a unit of three hundred is not a search, it is
+            // the whole roster with extra steps.
+            return [];
+        }
+
+        $matches = array_values(array_filter(
+            $this->listCandidates($scoutYearId),
+            static fn(MemberDirectoryEntry $entry) => $entry->matches($query)
+        ));
+
+        return array_slice($matches, 0, max(1, $limit));
+    }
+
+    /**
+     * The configured minimum age, or the declared default when the setting
+     * holds something a unit could not have meant.
+     *
+     * A zero, a negative number or a blank is not obeyed — it would put
+     * every animé of the unit back in the picker, which is the one outcome
+     * this setting exists to prevent. Same posture as the support
+     * dashboard's own threshold settings (ARCHITECTURE.md §8.50).
+     */
+    public function minimumAge(): int
+    {
+        $configured = (int) ($this->settingService?->get(self::SETTING_MINIMUM_AGE, 'rental') ?? 0);
+
+        return $configured > 0 ? $configured : self::DEFAULT_MINIMUM_AGE;
     }
 
     public function grant(int $assetId, int $memberId, bool $isRenterContact, ?int $userId = null): void

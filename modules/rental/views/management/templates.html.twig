@@ -300,7 +300,7 @@
                             {% if meter_fees is empty %}
                                 Pour facturer la consommation, créez d'abord un frais de nature
                                 « relevé de compteur » dans
-                                <a href="/admin/locations?asset_id={{ asset.id }}#tarification">la tarification du bien</a>
+                                <a href="/mes-locations/{{ asset.slug }}/reglages#tarification">la tarification du bien</a>
                                 — c'est lui qui porte le prix du kWh ou du m³.
                             {% else %}
                                 Le frais « relevé de compteur » qui porte le prix d'une unité. Sans lui, le

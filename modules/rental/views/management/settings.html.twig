@@ -1,0 +1,58 @@
+{% extends 'base.html.twig' %}
+{% block title %}Réglages — {{ asset.name }} — {{ site_name }}{% endblock %}
+{#
+  One asset's own settings: what a visitor may ask for, what it costs, and
+  what is expected up front.
+
+  These three blocks used to live on "Espace chefs d'U > Locations" at
+  `role_min: admin`, which made a chief d'unité the only person able to price
+  a hall somebody else actually runs. They belong here, with the bookings, the
+  documents and the stay — reachable by the asset's managers, who the module
+  has always said are not necessarily chiefs (§6.3). Unit staff reach them the
+  same way, as implicit managers of every asset, rather than through a second
+  screen of their own.
+
+  Anchors rather than tabs, like the page they came from: every section still
+  renders, so Ctrl-F and a printed page keep working.
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 1100px;">
+        <h1 class="h3 mb-1">{{ asset.name }}</h1>
+        <p class="text-body-secondary small mb-3">Réglages du bien</p>
+
+        {% include '@rental/management/_nav.html.twig' %}
+
+        {% if asset.isArchived %}
+            <div class="alert alert-warning">
+                Ce bien est archivé : il n'apparaît plus publiquement et n'accepte plus de nouvelle
+                réservation. Ces réglages restent modifiables pour clôturer l'historique en cours.
+            </div>
+        {% endif %}
+
+        <p class="text-body-secondary small">
+            Ces réglages sont ceux du bien, pas ceux d'une réservation. Les modifier ne change
+            <strong>aucune réservation existante</strong> : le prix annoncé à un visiteur est figé
+            au moment de sa demande, et le prix convenu au moment de l'accord.
+        </p>
+
+        <nav class="mb-4" aria-label="Sections des réglages">
+            <div class="d-flex flex-wrap gap-2">
+                <a class="btn btn-sm btn-outline-secondary" href="#regles">Règles de réservation</a>
+                <a class="btn btn-sm btn-outline-secondary" href="#tarification">Tarification</a>
+                <a class="btn btn-sm btn-outline-secondary" href="#paiements">Acompte, solde et caution</a>
+            </div>
+        </nav>
+
+        {% include '@rental/management/_constraints.html.twig' %}
+
+        {% include '@rental/management/_pricing.html.twig' %}
+
+        {% include '@rental/management/_payments.html.twig' %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    {# type="module" — the file uses `export`, and a classic <script> tag
+       rejects it with a SyntaxError before a line of it runs. #}
+    <script type="module" src="/assets/js/select-explanation.js"></script>
+{% endblock %}

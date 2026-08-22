@@ -83,18 +83,41 @@ class RentalHardeningAuditTest extends TestCase
 
         foreach (['rental', 'inbound_mail'] as $module) {
             foreach (self::manifest($module)->routes as $route) {
-                $action = strtolower((string) ($route['action'] ?? ''));
+                $action = (string) ($route['action'] ?? '');
                 foreach ($writeVerbs as $verb) {
-                    if (str_starts_with($action, $verb)) {
-                        $this->assertSame(
-                            'POST',
-                            $route['method'],
-                            $module . ' ' . $route['path'] . ' (' . $route['action'] . ') changes state.'
-                        );
+                    // The verb must be the action's own first WORD, not
+                    // merely its first letters: actions are camelCase, so
+                    // "saveGrid" starts with the verb and "settings" —
+                    // which happens to begin with "set" — does not. Matching
+                    // on a bare prefix made a read-only page fail this audit
+                    // for the sound of its name.
+                    if (!self::actionStartsWithVerb($action, $verb)) {
+                        continue;
                     }
+
+                    $this->assertSame(
+                        'POST',
+                        $route['method'],
+                        $module . ' ' . $route['path'] . ' (' . $route['action'] . ') changes state.'
+                    );
                 }
             }
         }
+    }
+
+    /**
+     * Whether $action's first camelCase word is $verb — "saveGrid" for
+     * "save", "delete" for "delete", but never "settings" for "set".
+     */
+    private static function actionStartsWithVerb(string $action, string $verb): bool
+    {
+        if (!str_starts_with(strtolower($action), $verb)) {
+            return false;
+        }
+
+        $rest = substr($action, strlen($verb));
+
+        return $rest === '' || ctype_upper($rest[0]);
     }
 
     /**

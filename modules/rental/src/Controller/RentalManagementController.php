@@ -15,7 +15,6 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
-use Core\Security\Role;
 use Core\Security\CsrfGuard;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
@@ -33,6 +32,7 @@ use Modules\Rental\Calendar\PublishFrom;
 use Modules\Rental\Document\DocumentKeywords;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\StandardTemplates;
+use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
@@ -73,10 +73,13 @@ use Twig\Environment;
  * "this exists but is not yours" is itself a disclosure about the unit's
  * assets (§6.6).
  *
- * **Structural configuration is deliberately not here.** What an asset is,
- * who manages it, its rules and its tariff live in `Espace chefs d'U >
- * Locations` at `admin`. What happens to a booking lives here, reachable by
- * the people who actually do it.
+ * **What is administered elsewhere, and what is not.** Which assets exist
+ * and who manages each one live in `Espace chefs d'U > Locations` at
+ * `admin`. Everything that is a property of *one* asset lives here — its
+ * bookings, its documents, its stay, and (since the settings page below) its
+ * booking rules, its tariff and its deposit rules — reachable by the people
+ * who actually run it. Unit staff reach it the same way, as implicit
+ * managers of every asset, rather than through a second admin-only screen.
  */
 class RentalManagementController extends AbstractController
 {
@@ -169,6 +172,94 @@ class RentalManagementController extends AbstractController
         private ?RentalStatisticsService $statisticsService = null
     ) {
         parent::__construct($twig);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reglages — the asset's own settings: what a
+     * visitor may ask for, what it costs, and what is expected up front.
+     *
+     * These three blocks were reachable only at `role_min: admin` until now,
+     * which made a chief d'unité the only person able to price a hall
+     * somebody else runs day to day. There is one authority in this module
+     * and unit staff hold it over every asset (Service\RentalAuthorizationService),
+     * so they reach this page as implicit managers rather than through a
+     * second, admin-only screen.
+     *
+     * **The simulator is computed server-side, through the very same engine
+     * as the public page and the contract** (Controller\RentalPricingController::simulate()).
+     * That is the only thing that makes it a real guard-rail against a wrong
+     * tariff rather than a second opinion — a client-side re-implementation
+     * would be a guard-rail against nothing.
+     *
+     * @param array<string, string> $params
+     */
+    public function settings(Request $request, array $params): Response
+    {
+        $asset = $this->manageableAsset($params);
+        if ($asset === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $pricingSettings = $this->pricingService->loadSettings($asset->id);
+        $paymentSettings = $this->paymentService !== null
+            ? $this->paymentService->settingsFor($asset->id)
+            : new PaymentSettings();
+
+        return $this->render('@rental/management/settings.html.twig', [
+            'asset' => $asset,
+            'breadcrumb_current' => 'Réglages',
+            'breadcrumb_trail' => $this->assetSubPageTrail($asset),
+            'nav_page' => 'settings',
+            'constraints' => $this->availabilityService->constraintsFor($asset->id),
+            'pricing' => $pricingSettings,
+            'billing_units' => \Modules\Rental\Pricing\BillingUnit::all(),
+            'fee_natures' => \Modules\Rental\Pricing\RentalFee::natures(),
+            'simulation' => RentalPricingController::simulate($this->pricingService, $pricingSettings, [
+                'sim_arrival' => $request->getQuery('sim_arrival', ''),
+                'sim_departure' => $request->getQuery('sim_departure', ''),
+                'sim_persons' => $request->getQuery('sim_persons', 0),
+                'sim_units' => $request->getQuery('sim_units', 1),
+                'sim_rooms' => $request->getQuery('sim_rooms', 1),
+                'sim_category' => $request->getQuery('sim_category', ''),
+            ]),
+            'finance_available' => $this->paymentService?->isAvailable() ?? false,
+            'payment_settings' => $paymentSettings,
+            // The account's NAME, resolved server-side — never the picker,
+            // and never the IBAN the picker carries. Which account is in
+            // force is legitimate context for whoever runs the asset; the
+            // unit's account numbers are not (SECURITY.md §3).
+            'payment_account_name' => $this->financeAccountName($paymentSettings->financeAccountId),
+            // Whether to offer the link to the page that pins it, rather
+            // than a dead end for somebody who cannot reach it.
+            'can_pin_account' => $this->authorizationService->isUnitStaff(
+                AuthSession::getEmail(),
+                $this->scoutYearId()
+            ),
+            'deposit_modes' => DepositMode::all(),
+            'csrf_token' => CsrfGuard::generateToken(),
+            'current_path' => '/mes-locations/' . $asset->slug . '/reglages',
+        ]);
+    }
+
+    /**
+     * The display name of the Finance account an asset's money is expected
+     * on, or null. Deliberately the name alone: `availableAccounts()` also
+     * carries every account's IBAN, which has no business on a page a
+     * manager who is not a chief can open.
+     */
+    private function financeAccountName(?int $accountId): ?string
+    {
+        if ($accountId === null || $this->paymentService === null) {
+            return null;
+        }
+
+        foreach ($this->paymentService->availableAccounts() as $account) {
+            if ((int) $account['id'] === $accountId) {
+                return (string) $account['name'];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -388,13 +479,6 @@ class RentalManagementController extends AbstractController
             'asset' => $asset,
             'breadcrumb_current' => $asset->name,
             'breadcrumb_trail' => $this->assetTrail(),
-            // Whether to make "Espace chefs d'U > Locations" a link or just
-            // a place to point at: asset management is granted per asset and
-            // a manager is not necessarily a chief (§6.4), so the reader may
-            // well have no way in. Presentation only — /admin/locations
-            // re-checks the role itself, as every route does.
-            'can_configure' => Role::fromString(AuthSession::getRole())->level()
-                >= Role::ADMIN->level(),
             'bookings' => $bookings,
             'needs_attention' => array_values(array_filter(
                 $bookings,

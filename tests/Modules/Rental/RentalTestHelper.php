@@ -414,19 +414,30 @@ class RentalTestHelper
         int $memberId,
         int $scoutYearId,
         string $email,
-        string $firstName = 'Prénom'
+        string $firstName = 'Prénom',
+        /**
+         * `null` is a real, common case rather than a test convenience: a
+         * Desk record with no birth date encoded is exactly what the
+         * manager picker's age filter has to decide about.
+         */
+        ?string $birthDate = null,
+        string $lastName = 'Nom',
+        ?string $totem = null
     ): int {
         $stmt = $pdo->prepare(
             'INSERT INTO member_years (
                 member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                totem_encrypted, birth_date_encrypted,
                 email_encrypted, email_blind_index, is_active
-             ) VALUES (?, ?, ?, ?, ?, ?, 1)'
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)'
         );
         $stmt->execute([
             $memberId,
             $scoutYearId,
             $encryption->encrypt($firstName, 'member_years.first_name'),
-            $encryption->encrypt('Nom', 'member_years.last_name'),
+            $encryption->encrypt($lastName, 'member_years.last_name'),
+            $totem !== null ? $encryption->encrypt($totem, 'member_years.totem') : null,
+            $birthDate !== null ? $encryption->encrypt($birthDate, 'member_years.birth_date') : null,
             $encryption->encrypt($email, 'member_years.email'),
             $encryption->blindIndex(strtolower(trim($email)), 'email'),
         ]);

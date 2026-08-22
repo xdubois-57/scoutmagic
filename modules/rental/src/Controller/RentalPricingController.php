@@ -8,48 +8,71 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Controller;
 
+use Core\Config\ScoutYearService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Modules\Rental\Payment\DepositMode;
+use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Pricing\PricingSettings;
+use Modules\Rental\Repository\RentalAsset;
+use Modules\Rental\Repository\RentalAssetRepository;
+use Modules\Rental\Service\RentalAuthorizationService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalAvailabilityService;
+use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
 use Twig\Environment;
 
 /**
- * The pricing half of "Espace chefs d'U > Locations" — the four
- * configuration blocks of module spec §6.10, each saving independently
- * (§6.4). Kept apart from Controller\RentalConfigController so neither file
- * becomes the place where every asset setting lives; both render into the
- * same page, which Controller\RentalConfigController::index() assembles.
+ * The write half of an asset's "Réglages" page — its booking rules, its
+ * tariff and its deposit rules, each block saving independently (§6.4).
+ * Kept apart from Controller\RentalManagementController, which is already
+ * the largest file in the module, and from
+ * Controller\RentalConfigController, which administers the park rather than
+ * any one asset.
  *
- * Every action here re-reads its asset id from the request and scopes its
- * write by it, so an id from a stale form can only ever touch the asset it
- * names — never another one.
+ * **`role_min: identified`, and that is not the protection.** These actions
+ * used to sit at `admin`, which made a unit chief the only person who could
+ * price the hall an intendant actually lets. A manager is explicitly not
+ * required to be a chief (§6.3), so the route guard now grants almost
+ * nothing and `Service\RentalAuthorizationService` is what stands between a
+ * logged-in visitor and somebody else's tariff. It is re-checked at the top
+ * of **every** action here, from the slug in the URL, and an asset the
+ * visitor may not manage answers **404 rather than 403**: "this exists but
+ * is not yours" is itself a disclosure about the unit's assets (§6.6).
  */
 class RentalPricingController extends AbstractController
 {
     public function __construct(
         Environment $twig,
         private RentalPricingService $pricingService,
-        private RentalAvailabilityService $availabilityService
+        private RentalAvailabilityService $availabilityService,
+        private RentalAuthorizationService $authorizationService,
+        private RentalAssetRepository $assetRepository,
+        private ScoutYearService $scoutYearService,
+        /**
+         * Optional (§6.19): null on an installation without the Finance
+         * module, where the payments block explains that instead of
+         * offering a picker with nothing in it.
+         */
+        private ?RentalPaymentService $paymentService = null
     ) {
         parent::__construct($twig);
     }
 
     /**
-     * POST /admin/locations/pricing — the asset-level block: billing unit,
+     * POST /mes-locations/{slug}/reglages/tarif — the asset-level block: billing unit,
      * default rate and the billable minimum.
      *
      * @param array<string, string> $params
      */
     public function savePricing(Request $request, array $params): Response
     {
-        return $this->guarded($request, function (int $assetId) use ($request): string {
+        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
             // The minimum is one field with a mode, not two independent
             // ones: the spec says amount OR persons, and offering both as
             // free-standing inputs is how an operator ends up with both set
@@ -63,7 +86,7 @@ class RentalPricingController extends AbstractController
                 : null;
 
             $this->pricingService->saveAssetPricing(
-                $assetId,
+                $asset->id,
                 (string) $request->getBody('billing_unit', ''),
                 RentalPricingService::parseAmountToCents((string) $request->getBody('default_unit_price', '')),
                 $minimumAmountCents,
@@ -76,15 +99,15 @@ class RentalPricingController extends AbstractController
     }
 
     /**
-     * POST /admin/locations/pricing/period
+     * POST /mes-locations/{slug}/reglages/periode
      *
      * @param array<string, string> $params
      */
     public function addPeriod(Request $request, array $params): Response
     {
-        return $this->guarded($request, function (int $assetId) use ($request): string {
+        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
             $this->pricingService->addPeriod(
-                $assetId,
+                $asset->id,
                 (string) $request->getBody('label', ''),
                 (string) $request->getBody('start_date', ''),
                 (string) $request->getBody('end_date', ''),
@@ -96,29 +119,29 @@ class RentalPricingController extends AbstractController
     }
 
     /**
-     * POST /admin/locations/pricing/period-delete
+     * POST /mes-locations/{slug}/reglages/periode-supprimer
      *
      * @param array<string, string> $params
      */
     public function deletePeriod(Request $request, array $params): Response
     {
-        return $this->guarded($request, function (int $assetId) use ($request): string {
-            $this->pricingService->deletePeriod($assetId, (int) $request->getBody('period_id', 0));
+        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
+            $this->pricingService->deletePeriod($asset->id, (int) $request->getBody('period_id', 0));
 
             return 'La période a été supprimée.';
         });
     }
 
     /**
-     * POST /admin/locations/pricing/category
+     * POST /mes-locations/{slug}/reglages/categorie
      *
      * @param array<string, string> $params
      */
     public function addCategory(Request $request, array $params): Response
     {
-        return $this->guarded($request, function (int $assetId) use ($request): string {
+        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
             $this->pricingService->addCategory(
-                $assetId,
+                $asset->id,
                 (string) $request->getBody('label', ''),
                 $request->getBody('is_default') !== null
             );
@@ -128,27 +151,27 @@ class RentalPricingController extends AbstractController
     }
 
     /**
-     * POST /admin/locations/pricing/category-delete
+     * POST /mes-locations/{slug}/reglages/categorie-supprimer
      *
      * @param array<string, string> $params
      */
     public function deleteCategory(Request $request, array $params): Response
     {
-        return $this->guarded($request, function (int $assetId) use ($request): string {
-            $this->pricingService->deleteCategory($assetId, (int) $request->getBody('category_id', 0));
+        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
+            $this->pricingService->deleteCategory($asset->id, (int) $request->getBody('category_id', 0));
 
             return 'La catégorie a été supprimée.';
         });
     }
 
     /**
-     * POST /admin/locations/pricing/grid — the whole grid at once.
+     * POST /mes-locations/{slug}/reglages/grille — the whole grid at once.
      *
      * @param array<string, string> $params
      */
     public function saveGrid(Request $request, array $params): Response
     {
-        return $this->guarded($request, function (int $assetId) use ($request): string {
+        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
             $submitted = $request->getBody('grid', []);
             $cells = [];
 
@@ -164,24 +187,24 @@ class RentalPricingController extends AbstractController
                 }
             }
 
-            $this->pricingService->saveGrid($assetId, $cells);
+            $this->pricingService->saveGrid($asset->id, $cells);
 
             return 'La grille tarifaire a été enregistrée.';
         });
     }
 
     /**
-     * POST /admin/locations/pricing/fee
+     * POST /mes-locations/{slug}/reglages/frais
      *
      * @param array<string, string> $params
      */
     public function addFee(Request $request, array $params): Response
     {
-        return $this->guarded($request, function (int $assetId) use ($request): string {
+        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
             $amount = RentalPricingService::parseAmountToCents((string) $request->getBody('amount', ''));
 
             $this->pricingService->addFee(
-                $assetId,
+                $asset->id,
                 (string) $request->getBody('label', ''),
                 (string) $request->getBody('nature', ''),
                 $amount ?? 0,
@@ -193,21 +216,21 @@ class RentalPricingController extends AbstractController
     }
 
     /**
-     * POST /admin/locations/pricing/fee-delete
+     * POST /mes-locations/{slug}/reglages/frais-supprimer
      *
      * @param array<string, string> $params
      */
     public function deleteFee(Request $request, array $params): Response
     {
-        return $this->guarded($request, function (int $assetId) use ($request): string {
-            $this->pricingService->deleteFee($assetId, (int) $request->getBody('fee_id', 0));
+        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
+            $this->pricingService->deleteFee($asset->id, (int) $request->getBody('fee_id', 0));
 
             return 'Le frais a été supprimé.';
         });
     }
 
     /**
-     * POST /admin/locations/constraints — what a visitor may ASK for.
+     * POST /mes-locations/{slug}/reglages/regles — what a visitor may ASK for.
      *
      * Its own section, deliberately separate from pricing: constraints
      * decide whether a range may be requested, availability decides whether
@@ -218,18 +241,19 @@ class RentalPricingController extends AbstractController
      */
     public function saveConstraints(Request $request, array $params): Response
     {
-        return $this->guarded($request, function (int $assetId) use ($request): string {
+        return $this->guarded($params, 'regles', function (RentalAsset $asset) use ($request): string {
             $weekdays = $request->getBody('allowed_arrival_weekdays', []);
 
             $this->availabilityService->saveConstraints(
-                $assetId,
+                $asset->id,
                 max(0, (int) $request->getBody('min_nights', 0)),
                 max(0, (int) $request->getBody('max_nights', 0)),
                 max(0, (int) $request->getBody('min_notice_days', 0)),
                 max(0, (int) $request->getBody('max_horizon_days', 0)),
                 is_array($weekdays) ? $weekdays : [],
                 self::optionalInt($request->getBody('max_persons')),
-                max(0, (int) $request->getBody('buffer_nights', 0))
+                max(0, (int) $request->getBody('buffer_nights', 0)),
+                AuthSession::getUserAccountId()
             );
 
             return 'Les règles de réservation ont été enregistrées.';
@@ -237,27 +261,104 @@ class RentalPricingController extends AbstractController
     }
 
     /**
-     * The shape every action here shares: CSRF, asset id, run, turn a
-     * RentalException into a flash rather than a stack trace, and go back to
-     * the asset's own pricing section.
+     * POST /mes-locations/{slug}/reglages/paiements — the asset's money
+     * configuration (§6.19, §6.20), minus the Finance account.
      *
-     * @param callable(int): string $operation Returns the success message.
+     * Which account the money lands on is pinned by unit staff on
+     * "Espace chefs d'U > Locations" and is deliberately not a field here —
+     * see Controller\RentalConfigController::saveFinanceAccount() for why.
+     * `saveManagedSettings()` reads the stored account back and carries it
+     * across, so saving this form can never clear it.
+     *
+     * @param array<string, string> $params
      */
-    private function guarded(Request $request, callable $operation): Response
+    public function savePayments(Request $request, array $params): Response
+    {
+        return $this->guarded($params, 'paiements', function (RentalAsset $asset) use ($request): string {
+            if ($this->paymentService === null) {
+                throw new RentalException(
+                    'Le module Finances n\'est pas actif : la configuration des paiements est indisponible.'
+                );
+            }
+
+            $this->paymentService->saveManagedSettings($asset->id, new PaymentSettings(
+                enabled: $request->getBody('payments_enabled') !== null,
+                depositMode: DepositMode::tryFrom((string) $request->getBody('deposit_mode', 'none'))
+                    ?? DepositMode::NONE,
+                depositAmountCents: RentalPricingService::parseAmountToCents(
+                    (string) $request->getBody('deposit_amount', '')
+                ),
+                depositPercentage: self::optionalInt($request->getBody('deposit_percentage')),
+                depositDueDays: self::optionalInt($request->getBody('deposit_due_days')),
+                balanceDueDays: self::optionalInt($request->getBody('balance_due_days')),
+                securityDepositEnabled: $request->getBody('security_deposit_enabled') !== null,
+                securityDepositAmountCents: RentalPricingService::parseAmountToCents(
+                    (string) $request->getBody('security_deposit_amount', '')
+                ),
+                securityDepositDueDays: self::optionalInt($request->getBody('security_deposit_due_days'))
+            ));
+
+            return 'Configuration des paiements enregistrée.';
+        });
+    }
+
+    /**
+     * The shape every action here shares: CSRF, then **the per-asset
+     * authorization check**, then the one operation, turning a
+     * RentalException into a flash rather than a stack trace, and back to
+     * the section of the asset's own settings page the operator came from.
+     *
+     * The asset comes from the slug in the URL, never from a body field: it
+     * is the same resource the page itself is scoped to, and a request that
+     * names an asset the visitor cannot manage is answered 404 before a
+     * single write is attempted.
+     *
+     * @param array<string, string> $params
+     * @param callable(RentalAsset): string $operation Returns the success message.
+     */
+    private function guarded(array $params, string $anchor, callable $operation): Response
     {
         if (!CsrfGuard::validateRequest()) {
             return new Response('Forbidden', 403);
         }
 
-        $assetId = (int) $request->getBody('asset_id', 0);
+        $asset = $this->manageableAsset($params);
+        if ($asset === null) {
+            return new Response('Not Found', 404);
+        }
 
         try {
-            FlashMessage::set('success', $operation($assetId));
+            FlashMessage::set('success', $operation($asset));
         } catch (RentalException $e) {
             FlashMessage::set('error', $e->getMessage());
         }
 
-        return $this->redirect('/admin/locations?asset_id=' . $assetId . '#tarification');
+        return $this->redirect('/mes-locations/' . $asset->slug . '/reglages#' . $anchor);
+    }
+
+    /**
+     * The asset named by the URL, but only if the visitor may manage it.
+     *
+     * Same resolution and same 404-rather-than-403 answer as
+     * Controller\RentalManagementController's own helper of the same name —
+     * deliberately a second, three-line copy rather than a shared base
+     * class, so this controller's authorization is readable in the file
+     * that performs the writes rather than inherited from somewhere else.
+     *
+     * @param array<string, string> $params
+     */
+    private function manageableAsset(array $params): ?RentalAsset
+    {
+        $asset = $this->assetRepository->findBySlug((string) ($params['slug'] ?? ''));
+        if ($asset === null) {
+            return null;
+        }
+
+        return $this->authorizationService->canManageAsset(
+            AuthSession::getEmail(),
+            (int) $this->scoutYearService->getCurrentYear()['id'],
+            $asset
+        ) ? $asset : null;
     }
 
     /**
