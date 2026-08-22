@@ -24,6 +24,7 @@ use Modules\Rental\Service\RentalManagerService;
 use Modules\Rental\Mail\MailboxSelection;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Service\RentalPaymentService;
+use Modules\Rental\Service\RentalPricingService;
 use Twig\Environment;
 
 /**
@@ -82,7 +83,15 @@ class RentalConfigController extends AbstractController
          * in this controller ever reaches a mailbox — it only stores which
          * of the already-configured ones this module listens to.
          */
-        private ?MailboxSelection $mailboxSelection = null
+        private ?MailboxSelection $mailboxSelection = null,
+        /**
+         * Read here for one thing only: flagging a public asset that has no
+         * rate at all, so a chief learns it from this page rather than from
+         * a visitor met by "Tarif sur demande". Nullable only so the
+         * controller stays constructible in tests that do not care about
+         * it — the module always wires one.
+         */
+        private ?RentalPricingService $pricingService = null
     ) {
         parent::__construct($twig);
     }
@@ -157,6 +166,12 @@ class RentalConfigController extends AbstractController
                 : [],
             'manager_minimum_age' => $this->managerService->minimumAge(),
             'type_suggestions' => $this->typeSuggestions(),
+            // Ids of the public, live assets that have no rate configured at
+            // all — the one setup gap this page could not show and a visitor
+            // meets first. The chip picker badges them and the selected
+            // asset gets a warning linking to its own tariff page.
+            'tariff_missing_ids' => $this->tariffMissingIds($assets),
+            'billing_units' => \Modules\Rental\Pricing\BillingUnit::all(),
             // Finance is a nullable dependency: with it off, the section
             // says so rather than rendering a broken account picker.
             'finance_available' => $this->paymentService?->isAvailable() ?? false,
@@ -277,7 +292,16 @@ class RentalConfigController extends AbstractController
                 self::optionalString($request->getBody('departure_time')),
                 self::optionalString($request->getBody('emergency_phone')),
                 $request->getBody('is_public') !== null,
-                AuthSession::getUserAccountId()
+                AuthSession::getUserAccountId(),
+                // Asked at creation because it decides the calendar, the
+                // price AND the availability model together (§6.8) — a
+                // default nobody chose ("forfait par séjour" for a hall) was
+                // the first wrong thing every new asset carried. An unknown
+                // value falls back to the schema default rather than failing
+                // the whole creation.
+                \Modules\Rental\Pricing\BillingUnit::tryFrom(
+                    (string) $request->getBody('billing_unit', '')
+                )
             );
             FlashMessage::set('success', 'Le bien a été créé.');
 
@@ -519,6 +543,35 @@ class RentalConfigController extends AbstractController
         }
 
         return $assets[0] ?? null;
+    }
+
+    /**
+     * Ids of the assets a visitor can reach but nobody has priced: public,
+     * not archived, and with neither a default rate nor a single grid cell.
+     * Such an asset answers every estimate "Tarif sur demande", which is
+     * true but rarely what the unit meant — this is how a chief finds out
+     * before a renter does.
+     *
+     * @param \Modules\Rental\Repository\RentalAsset[] $assets
+     * @return int[]
+     */
+    private function tariffMissingIds(array $assets): array
+    {
+        if ($this->pricingService === null) {
+            return [];
+        }
+
+        $missing = [];
+        foreach ($assets as $asset) {
+            if (!$asset->isPublic || $asset->isArchived) {
+                continue;
+            }
+            if (!$this->pricingService->loadSettings($asset->id)->hasAnyRate()) {
+                $missing[] = $asset->id;
+            }
+        }
+
+        return $missing;
     }
 
     /**

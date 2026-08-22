@@ -410,12 +410,43 @@ class RentalDocumentServiceTest extends TestCase
         $this->assertSame('facture-LOC-2027-0042-v1.pdf', $invoice->originalName);
     }
 
-    public function testAnEmptyTemplateIsRefusedRatherThanProducingABlankContract(): void
+    public function testAnEmptyTemplateFallsBackToTheStandardContract(): void
     {
-        $this->expectException(RentalException::class);
-        $this->expectExceptionMessageMatches('/vide/');
+        // The shipped bodies are a real default: an asset whose managers
+        // never opened the template editor still hands its renter a complete
+        // contract rather than a generation error.
+        $document = $this->service->generate(
+            $this->createBooking(),
+            $this->asset(),
+            DocumentType::CONTRACT,
+            $this->settings()
+        );
 
-        $this->service->generate($this->createBooking(), $this->asset(), DocumentType::CONTRACT, $this->settings());
+        $this->assertSame(1, $document->version);
+        // And the booking's own copy — the text a manager reviews and a
+        // renter signs — is the standard body, keywords substituted at
+        // generation as for any other template.
+        $this->assertStringContainsString(
+            'Convention de location',
+            $this->service->bookingText($this->createBooking('Anne Petit', null, 'LOC-2027-0099'), $this->asset(), DocumentType::CONTRACT)
+        );
+    }
+
+    public function testTemplateOrStandardYieldsToACustomText(): void
+    {
+        $this->assertStringContainsString(
+            'Convention de location',
+            $this->service->templateOrStandard($this->asset(), DocumentType::CONTRACT)
+        );
+
+        $this->setTemplate('<p>Nos propres conditions.</p>');
+
+        $custom = $this->service->templateOrStandard($this->asset(), DocumentType::CONTRACT);
+        $this->assertStringContainsString('Nos propres conditions', $custom);
+        $this->assertStringNotContainsString('Convention de location', $custom);
+        // The raw accessor still tells "nothing written yet" apart — the
+        // fallback lives in templateOrStandard() only.
+        $this->assertSame('', $this->service->template($this->asset(), DocumentType::INVOICE));
     }
 
     public function testAnUploadOnlyTypeCannotBeGenerated(): void
@@ -491,6 +522,7 @@ class RentalDocumentServiceTest extends TestCase
         $this->assertSame('04/07/2027', $values['date_depart']);
         $this->assertSame('3', $values['nuits']);
         $this->assertSame('20', $values['participants']);
+        $this->assertSame('60', $values['capacite']);
         $this->assertSame('360,00 €', $values['prix_total']);
         $this->assertSame('100,00 €', $values['acompte']);
         $this->assertSame('500,00 €', $values['caution']);

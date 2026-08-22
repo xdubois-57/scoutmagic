@@ -48,14 +48,15 @@ class RentalAssetRepository
         ?string $departureTime,
         ?string $emergencyPhone,
         bool $isPublic,
+        ?\Modules\Rental\Pricing\BillingUnit $billingUnit = null,
     ): int {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_assets (
                 asset_type, name, slug, capacity, quantity, arrival_time, departure_time,
-                emergency_phone_encrypted, is_archived, is_public,
+                emergency_phone_encrypted, is_archived, is_public, billing_unit,
                 created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)'
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $assetType,
@@ -67,6 +68,11 @@ class RentalAssetRepository
             $departureTime,
             $this->encryptPhone($emergencyPhone),
             $isPublic ? 1 : 0,
+            // Chosen at creation since the iteration that asks for it on the
+            // creation form (§6.8); null falls back to the same value as the
+            // schema default, stated explicitly rather than left to the
+            // column definition.
+            ($billingUnit ?? \Modules\Rental\Pricing\BillingUnit::FLAT_STAY)->value,
             $now,
             $now,
         ]);

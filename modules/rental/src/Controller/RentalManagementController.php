@@ -429,11 +429,16 @@ class RentalManagementController extends AbstractController
         $scoutYearId = $this->scoutYearId();
         $assets = $this->authorizationService->listManageableAssets($email, $scoutYearId);
 
-        // Someone who manages nothing gets a plain 403 rather than an empty
-        // page: the menu entry is not shown to them at all, so reaching this
-        // URL means the id came from somewhere other than the interface.
+        // Someone who manages nothing is still refused (403 — the menu never
+        // offered them this page), but with a page saying what this space is
+        // and how one becomes able to open it, rather than a bare
+        // "Forbidden". The page names no asset and nobody: it is reached
+        // precisely by people the module must tell nothing to.
         if ($assets === []) {
-            return new Response('Forbidden', 403);
+            return new Response(
+                $this->renderToString('@rental/management/no_access.html.twig', []),
+                403
+            );
         }
 
         $bookings = $this->bookingRepository->findAllForAssets(array_map(
@@ -477,6 +482,13 @@ class RentalManagementController extends AbstractController
 
         return $this->render('@rental/management/overview.html.twig', [
             'asset' => $asset,
+            // A public asset with no rate at all answers every visitor
+            // "Tarif sur demande" — true, but rarely what the unit meant.
+            // Nobody used to be told; the public page just looked broken to
+            // whoever tried it first.
+            'tariff_missing' => $asset->isPublic
+                && !$asset->isArchived
+                && !$this->pricingService->loadSettings($asset->id)->hasAnyRate(),
             'breadcrumb_current' => $asset->name,
             'breadcrumb_trail' => $this->assetTrail(),
             'bookings' => $bookings,
@@ -1087,10 +1099,19 @@ class RentalManagementController extends AbstractController
 
         $templates = [];
         foreach ([DocumentType::CONTRACT, DocumentType::INVOICE] as $type) {
-            $body = $this->documentService->template($asset, $type);
+            // The editor shows the text generation would actually use: the
+            // asset's own wording, or the shipped standard while nobody has
+            // written any — never an empty surface asking a volunteer to
+            // write a rental contract from nothing.
+            $body = $this->documentService->templateOrStandard($asset, $type);
             $templates[] = [
                 'type' => $type,
                 'body' => $body,
+                // Drives the note vs. the "réinitialiser" button. Compared
+                // ignoring whitespace: the sanitizer may reflow what a reset
+                // stored, and a no-op reset button on a standard template is
+                // the harmless direction to fail in.
+                'is_standard' => self::isStandardBody($body, StandardTemplates::forType($type)),
                 'unknown_keywords' => DocumentKeywords::unknownIn($body),
             ];
         }
@@ -1133,6 +1154,25 @@ class RentalManagementController extends AbstractController
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'templates',
         ]);
+    }
+
+    /**
+     * Whether $body still is the shipped standard template, whitespace
+     * aside. The sanitizer may reflow markup on the way into storage, so an
+     * exact string comparison would misread a freshly reset template as a
+     * customised one; comparing without whitespace errs the other way — at
+     * worst the reset button shows on a standard template and resetting is
+     * a no-op.
+     */
+    private static function isStandardBody(string $body, ?string $standard): bool
+    {
+        if ($standard === null) {
+            return false;
+        }
+
+        $strip = static fn(string $html): string => (string) preg_replace('/\s+/u', '', $html);
+
+        return $strip($body) === $strip($standard);
     }
 
     /**

@@ -3486,7 +3486,10 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             // Which of the unit's already-configured mailboxes this module
             // listens to (§7.4). Never a host, an account or a password —
             // this only stores ids.
-            $rentalMailboxSelection
+            $rentalMailboxSelection,
+            // Read-only here: flags the public assets nobody has priced yet,
+            // so a chief learns it from this page rather than from a visitor.
+            $rentalPricingService
         )
     );
     $frontController->registerController(

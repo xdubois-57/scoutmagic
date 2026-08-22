@@ -9,7 +9,14 @@
 // isolation is exactly the two pure functions: which date a tap sets, and
 // what URL that becomes.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fragmentUrl, nextSelection, selectionUrl, wireCalendar } from '../../public/assets/js/rental-calendar.js';
+import {
+    estimateReady,
+    estimateUrl,
+    fragmentUrl,
+    nextSelection,
+    selectionUrl,
+    wireCalendar,
+} from '../../public/assets/js/rental-calendar.js';
 
 describe('nextSelection', () => {
     it('sets the arrival on the first tap', () => {
@@ -205,6 +212,55 @@ describe('wireCalendar', () => {
 
         expect(assigned[0]).toContain('arrival=2027-07-17');
         expect(assigned[0]).toContain('departure=2027-07-20');
+    });
+});
+
+describe('estimateUrl and estimateReady', () => {
+    /**
+     * @param {Record<string, string>} values
+     * @returns {HTMLFormElement}
+     */
+    function buildForm(values) {
+        const form = document.createElement('form');
+        Object.entries(values).forEach(([name, value]) => {
+            const field = document.createElement('input');
+            field.name = name;
+            field.value = value;
+            form.appendChild(field);
+        });
+        document.body.appendChild(form);
+
+        return form;
+    }
+
+    beforeEach(() => {
+        document.body.innerHTML = '';
+    });
+
+    it('builds the page URL from the non-empty fields only', () => {
+        // A blank field means "not chosen", not "chosen as empty": carrying
+        // it would read back server-side as a head count of zero.
+        const form = buildForm({
+            month: '2027-07',
+            estimate: '1',
+            arrival: '2027-07-17',
+            departure: '2027-07-20',
+            persons: '',
+        });
+
+        const url = estimateUrl(form, 'https://unite.test/locations/local?month=2027-06');
+
+        expect(url).toBe('/locations/local?month=2027-07&estimate=1&arrival=2027-07-17&departure=2027-07-20');
+        expect(url).not.toContain('persons=');
+    });
+
+    it('is ready only once both dates are present', () => {
+        // One date alone prices nothing, and refreshing on it would wipe
+        // what the visitor is in the middle of typing.
+        expect(estimateReady(buildForm({ arrival: '2027-07-17', departure: '2027-07-20' }))).toBe(true);
+        expect(estimateReady(buildForm({ arrival: '2027-07-17', departure: '' }))).toBe(false);
+        expect(estimateReady(buildForm({ arrival: '', departure: '2027-07-20' }))).toBe(false);
+        expect(estimateReady(buildForm({ persons: '20' }))).toBe(false);
     });
 });
 

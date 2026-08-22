@@ -34,7 +34,9 @@
                     id: asset.id,
                     label: asset.name,
                     sublabel: asset.assetType,
-                    badge: asset.isArchived ? 'Archivé' : null,
+                    badge: asset.isArchived
+                        ? 'Archivé'
+                        : (asset.id in tariff_missing_ids ? 'Tarif manquant' : null),
                     selected: selected_asset and asset.id == selected_asset.id,
                 }]) %}
             {% endfor %}
@@ -55,6 +57,19 @@
                 <div class="alert alert-warning">
                     Ce bien est archivé : il n'apparaît plus publiquement et n'accepte plus de nouvelle
                     réservation. Ses gestionnaires y gardent accès pour clôturer l'historique.
+                </div>
+            {% endif %}
+
+            {% if selected_asset.id in tariff_missing_ids %}
+                {# The setup gap a visitor meets first: public, but priced by
+                   nobody. Every estimate answers « Tarif sur demande » until
+                   somebody fills the tariff in the asset's own managed space. #}
+                <div class="alert alert-warning">
+                    <strong>Ce bien est visible publiquement mais n'a encore aucun tarif.</strong>
+                    Les visiteurs voient « Tarif sur demande » à la place d'une estimation. Le tarif
+                    se règle par ses gestionnaires (ou par vous) dans
+                    <a href="/mes-locations/{{ selected_asset.slug }}/reglages#tarification"
+                       class="alert-link">les réglages du bien</a>.
                 </div>
             {% endif %}
 
@@ -406,6 +421,10 @@
     {# type="module" — the file uses `export`, and a classic <script> tag
        rejects it with a SyntaxError before a line of it runs. #}
     <script type="module" src="/assets/js/select-explanation.js"></script>
+    {# Suggests a billing unit matching the chosen type on the creation
+       form (a hall → per person per night, a trailer → per full day).
+       Without it the form keeps its server-rendered default. #}
+    <script type="module" src="/assets/js/rental-asset-defaults.js"></script>
     {# Plain script, no module: it enhances the managers form in place and
        exports nothing the page needs. Without it the select it hides
        stays visible and the form works unchanged. No literal HTML tag in

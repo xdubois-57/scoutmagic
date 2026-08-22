@@ -107,7 +107,8 @@ class RentalAssetService
         ?string $departureTime,
         ?string $emergencyPhone,
         bool $isPublic,
-        ?int $userId = null
+        ?int $userId = null,
+        ?\Modules\Rental\Pricing\BillingUnit $billingUnit = null
     ): int {
         $name = trim($name);
         $assetType = trim($assetType);
@@ -123,7 +124,8 @@ class RentalAssetService
             self::normalizeTime($arrivalTime),
             self::normalizeTime($departureTime),
             $emergencyPhone,
-            $isPublic
+            $isPublic,
+            $billingUnit
         );
 
         // The asset's own name is a chief's label for a building, not

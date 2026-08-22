@@ -634,7 +634,7 @@ An asset is let either **by night** (a hall: the departure day is free again for
 
 ### 22.4 Price
 
-Money is integers in cents, everywhere. A quote is built from the asset's own tariff — per person per night, per night, per stay, per unit — plus fees and taxes, with a billable minimum and per-renter-category rates. Three amounts never mix: the **estimate** the visitor was shown, the **agreed** price the unit negotiated, and what has actually been **received**. The estimate is frozen at submission and never rewritten, precisely so a later negotiation cannot rewrite what somebody was told.
+Money is integers in cents, everywhere. A quote is built from the asset's own tariff — per person per night, per night, per stay, per unit — plus fees and taxes, with a billable minimum and per-renter-category rates. The billing unit is asked at the asset's creation (with a suggestion following the asset type) because it decides the calendar, the price and the availability together; it stays editable with the rest of the tariff. **An asset with no configured rate answers "tarif sur demande"** — never a table adding up to 0,00 € — and the managed and admin spaces both flag it until somebody fills the tariff in. Three amounts never mix: the **estimate** the visitor was shown, the **agreed** price the unit negotiated, and what has actually been **received**. The estimate is frozen at submission and never rewritten, precisely so a later negotiation cannot rewrite what somebody was told.
 
 A line a manager edited by hand is never re-priced, in either direction. When the head count falls below the billable minimum the line says so out loud — « 25 pers. (minimum) » — rather than quietly quoting for more people than are coming.
 
@@ -649,6 +649,8 @@ The renter's acknowledgement email carries a link to their own tracking page. **
 ### 22.6 Documents
 
 A contract and an invoice are generated from a per-asset template, in three frozen levels: the asset's template, the booking's own copy of it (taken at first generation, so editing the template afterwards changes no existing booking), and the PDF. **Regenerating never overwrites**: v2 appears beside v1, because v1 may already be signed.
+
+**A standard body ships as the working default.** While nobody has written a template, the editor opens pre-filled with ScoutMagic's standard Belgian contract and invoice (modelled on the Atouts Camps rental contract — a starting point to adapt, never legal advice) and generation uses that same text, so an asset whose managers never opened the editor still produces a complete contract. Saving any edit takes over; a « réinitialiser » action returns to the standard, and the page always says which of the two regimes is in force.
 
 Keyword substitution happens after the rich text is sanitised, and every substituted value is escaped — a renter whose organisation name contains markup would otherwise have it interpreted by the PDF renderer.
 

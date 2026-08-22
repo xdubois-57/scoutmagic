@@ -1,0 +1,30 @@
+{% extends 'base.html.twig' %}
+{% block title %}Mes locations — {{ site_name }}{% endblock %}
+{#
+  Rendered with a 403 status when a logged-in visitor who manages no asset
+  reaches /mes-locations. The refusal itself is unchanged — the menu never
+  offered them this page — but a bare "Forbidden" told them nothing about
+  what this page is or how one becomes able to open it.
+
+  No asset name, no manager name, nothing about what exists: this page is
+  reached precisely by people the module must tell nothing to.
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 720px;">
+        <h1 class="h3 mb-3">Mes locations</h1>
+
+        <div class="card">
+            <div class="card-body">
+                <p class="mb-2">
+                    Cette page est réservée aux <strong>gestionnaires des biens</strong> que l'unité
+                    met en location, et vous n'êtes actuellement gestionnaire d'aucun bien.
+                </p>
+                <p class="text-body-secondary mb-0">
+                    Les gestionnaires sont désignés bien par bien par le Staff d'unité, depuis
+                    « Espace chefs d'U &gt; Locations ». Si vous devriez gérer un bien, demandez à
+                    un chef d'unité de vous y ajouter.
+                </p>
+            </div>
+        </div>
+    </div>
+{% endblock %}
