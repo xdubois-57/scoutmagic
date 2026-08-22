@@ -1,18 +1,32 @@
 {% extends 'base.html.twig' %}
 {% block title %}Réglages — {{ param('site_name') }}{% endblock %}
 {% block content %}
-    <h1>Réglages</h1>
+    <h1 class="h3 mb-4">Réglages</h1>
 
+    {# One collapsible section per module group, all folded but the first.
+       Flat, this page measured over 11 000 px — every setting of every
+       module in one uninterrupted wall, with no way to see what modules
+       even have settings without scrolling through all of them. Folded,
+       the page is its own table of contents: ~20 headers, each opening
+       on demand. The rows inside a folded section are still in the DOM,
+       so settings.js's row wiring is untouched. #}
     {% for group_id, group in setting_groups %}
-        <div class="mb-4">
-            <div class="d-flex align-items-center gap-2 mb-2">
-                <i class="bi {{ group.icon ?? 'bi-gear' }} text-body-secondary"></i>
-                <h2 class="h5 mb-0">{{ group.label }}</h2>
-            </div>
-            {% if group.description %}
-                <p class="text-body-secondary small mb-2">{{ group.description }}</p>
-            {% endif %}
-
+        <div class="mb-3">
+            <button type="button"
+                    class="btn w-100 d-flex align-items-center gap-2 border rounded-3 p-3 text-start{{ loop.first ? '' : ' collapsed' }}"
+                    data-bs-toggle="collapse" data-bs-target="#settings-group-{{ group_id }}"
+                    aria-expanded="{{ loop.first ? 'true' : 'false' }}" aria-controls="settings-group-{{ group_id }}">
+                <i class="bi {{ group.icon ?? 'bi-gear' }} text-body-secondary" aria-hidden="true"></i>
+                <span class="flex-grow-1">
+                    <span class="h5 mb-0 d-block">{{ group.label }}</span>
+                    {% if group.description %}
+                        <span class="text-body-secondary small d-block">{{ group.description }}</span>
+                    {% endif %}
+                </span>
+                <span class="badge text-bg-secondary">{{ group.settings|length }}</span>
+                <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+            </button>
+            <div class="collapse{{ loop.first ? ' show' : '' }} mt-2" id="settings-group-{{ group_id }}">
             <div class="border rounded-3 overflow-hidden">
                 {% for setting in group.settings %}
                     {% if setting.editable %}
@@ -60,6 +74,7 @@
                         </div>
                     {% endif %}
                 {% endfor %}
+            </div>
             </div>
         </div>
     {% endfor %}

@@ -202,4 +202,60 @@ final class SharedPartialsRenderingTest extends TestCase
         $this->assertStringNotContainsString('modal-footer', $html);
         $this->assertStringNotContainsString('modal-fullscreen-sm-down', $html);
     }
+
+    public function testFormFieldWiresHelpAndRequiredCorrectly(): void
+    {
+        $html = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'asset-name', field_name: 'name', label: 'Nom du bien',
+                help: 'Affiché publiquement.', required: true, maxlength: 100,
+            } only %}"
+        );
+
+        $this->assertStringContainsString('for="asset-name"', $html);
+        // The one thing 135 of the 136 hand-written help texts missed.
+        $this->assertStringContainsString('aria-describedby="asset-name-help"', $html);
+        $this->assertStringContainsString('id="asset-name-help"', $html);
+        $this->assertStringContainsString(' required', $html);
+        $this->assertStringContainsString('aria-hidden="true">*</span>', $html);
+        $this->assertStringContainsString('maxlength="100"', $html);
+    }
+
+    public function testFormFieldSelectAndTextareaVariants(): void
+    {
+        $select = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'kind', field_name: 'kind', label: 'Type', type: 'select',
+                options: [ { value: 'a', label: 'A' }, { value: 'b', label: 'B', selected: true } ],
+            } only %}"
+        );
+        $this->assertStringContainsString('<option value="b" selected>B</option>', $select);
+
+        $textarea = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'note', field_name: 'note', label: 'Note', type: 'textarea', value: 'Ligne <un>',
+            } only %}"
+        );
+        $this->assertStringContainsString('rows="4"', $textarea);
+        $this->assertStringContainsString('Ligne &lt;un&gt;', $textarea);
+    }
+
+    public function testPagePickerFeedsChipPickerAndMatchesPrefixes(): void
+    {
+        $html = $this->render(
+            "{% include 'partials/page_picker.html.twig' with {
+                picker_id: 'finance-pages',
+                pages: [ { url: '/finance', label: 'Tableau de bord' }, { url: '/finance/movements', label: 'Mouvements' } ],
+                current_path: '/finance/movements/12',
+                match_prefix: true,
+            } only %}"
+        );
+
+        $this->assertStringContainsString('Tableau de bord', $html);
+        $this->assertStringContainsString('Mouvements', $html);
+        // Longest match wins: the sub-route selects « Mouvements » and
+        // never also « Tableau de bord » for happening to sit at /finance.
+        $this->assertMatchesRegularExpression('/data-id="\/finance\/movements"\s+data-selected="true"/', $html);
+        $this->assertDoesNotMatchRegularExpression('/data-id="\/finance"\s+data-selected="true"/', $html);
+    }
 }

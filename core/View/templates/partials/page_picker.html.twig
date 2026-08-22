@@ -1,0 +1,55 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  A module's sub-page navigation — the pages[] → chip_picker mapping
+  layer, written once (design.md §7.6 companion).
+
+  Six places used to copy this exact boilerplate (finance's _nav,
+  rental's management _nav, the calendar picker, staffs, rental config…),
+  a seventh re-drew the row with raw btn-primary pills, and two modules
+  used Bootstrap nav-pills — a third visual style for the same concept.
+  One include, chip_picker underneath, so every module's sub-navigation
+  looks and behaves the same (mobile truncation, "+N" bottom sheet).
+
+  Usage:
+  {% include 'partials/page_picker.html.twig' with {
+      picker_id: 'finance-page-picker',
+      pages: [
+          { url: '/finance', label: 'Tableau de bord' },
+          { url: '/finance/movements', label: 'Mouvements' },
+      ],
+      current_path: current_path,     -- the global; selection by equality
+                                      -- or by prefix (see match_prefix)
+      extra_query: '?account_id=3',   -- optional, appended to every link
+      sheet_title: 'Choisir une page',-- optional
+      match_prefix: true,             -- optional: a sub-route keeps its
+                                      -- parent page selected
+  } only %}
+#}
+{# Longest match wins — /finance/movements/12 selects « Mouvements »,
+   never also « Tableau de bord » because it happens to sit at /finance. #}
+{% set _best = '' %}
+{% for page in pages %}
+    {% set _matches = current_path == page.url
+        or (match_prefix|default(false) and page.url != '/' and current_path starts with page.url ~ '/') %}
+    {% if _matches and page.url|length > _best|length %}
+        {% set _best = page.url %}
+    {% endif %}
+{% endfor %}
+{% set _items = [] %}
+{% for page in pages %}
+    {% set _items = _items|merge([{ id: page.url, label: page.label, selected: page.url == _best }]) %}
+{% endfor %}
+<div class="page-picker mb-2">
+    {% include 'partials/chip_picker.html.twig' with {
+        picker_id: picker_id,
+        items: _items,
+        mode: 'single',
+        base_url: '',
+        extra_query: extra_query|default(''),
+        sheet_title: sheet_title|default('Choisir une page'),
+        empty_text: 'Aucune page disponible.',
+    } %}
+</div>
