@@ -1579,6 +1579,38 @@
         });
     }
 
+    // Pinning: exclusive, and for a chosen length of time — both of which
+    // the moderator has to be told before it happens, so the submit waits
+    // on a dialog instead of going straight out.
+    /**
+     * @param {HTMLFormElement} form
+     */
+    function submitPinForm(form) {
+        askPinDuration(form).then(function (chosen) {
+            if (chosen) {
+                form.submit();
+            }
+        });
+    }
+
+    // A poll option, upgraded the same way a reaction's own form is (see
+    // swapFragmentOnSubmit() below): its form posts and redirects
+    // perfectly well with no JS (partials/poll.html.twig's own docblock
+    // promise). A member-scoped poll asks WHOSE answer this is before
+    // recording it — the small dialog below, in place of the select the
+    // page renders for a visitor with no JavaScript. One member to choose
+    // from means there is nothing to ask.
+    /**
+     * @param {HTMLFormElement} form
+     */
+    function submitPollVote(form) {
+        askPollVoter(form).then(function (proceed) {
+            if (proceed) {
+                swapFragmentOnSubmit(form, '.groups-poll');
+            }
+        });
+    }
+
     document.addEventListener('submit', function (event) {
         var target = /** @type {HTMLElement} */ (event.target);
 
@@ -1603,17 +1635,10 @@
             return;
         }
 
-        // Pinning: exclusive, and for a chosen length of time — both of
-        // which the moderator has to be told before it happens, so the
-        // submit waits on a dialog instead of going straight out.
         var pinForm = /** @type {HTMLFormElement} */ (target.closest('.groups-pin-form'));
         if (pinForm) {
             event.preventDefault();
-            askPinDuration(pinForm).then(function (chosen) {
-                if (chosen) {
-                    pinForm.submit();
-                }
-            });
+            submitPinForm(pinForm);
             return;
         }
 
@@ -1673,22 +1698,10 @@
         // at all (partials/reactions.html.twig's own docblock promise) —
         // this only upgrades that same POST to a fetch() so the page
         // never reloads. See swapFragmentOnSubmit() below.
-        // A poll option, upgraded the same way and swapped the same way:
-        // its form posts and redirects perfectly well with no JS
-        // (partials/poll.html.twig's own docblock promise).
         var pollForm = /** @type {HTMLFormElement} */ (target.closest('.groups-poll-form'));
         if (pollForm) {
             event.preventDefault();
-            // A member-scoped poll asks WHOSE answer this is before
-            // recording it — the small dialog below, in place of the
-            // <select> the page renders for a visitor with no JavaScript
-            // (partials/poll.html.twig). One member to choose from means
-            // there is nothing to ask.
-            askPollVoter(pollForm).then(function (proceed) {
-                if (proceed) {
-                    swapFragmentOnSubmit(pollForm, '.groups-poll');
-                }
-            });
+            submitPollVote(pollForm);
             return;
         }
 
