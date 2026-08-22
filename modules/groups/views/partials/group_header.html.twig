@@ -40,9 +40,14 @@
     </div>
     <div class="d-flex gap-2 flex-wrap">
         {#
-          Closing and reopening are a moderator's, and only appear on the
-          group's own page (where `can_moderate` is defined) — the members
-          page includes this same partial without it.
+          Closing and reopening are a moderator's, and belong to the
+          group's OWN page only: GroupController::show() is the sole
+          caller that resolves `can_moderate` and `can_reopen` into this
+          partial. The members page includes it with `only` and passes
+          neither (its own context defines can_moderate for its member
+          controls, which used to leak in here and put a Clôturer button
+          on the members page); search and reports never receive them
+          from their controllers at all.
         #}
         {% if can_moderate|default(false) %}
             {% if group.isClosed %}

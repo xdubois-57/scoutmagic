@@ -251,6 +251,50 @@ class GroupMemberControllerTest extends TestCase
         $this->assertMatchesRegularExpression('/aria-current="page">\s*Membres\s*<\/li>/', $body);
     }
 
+    /**
+     * The header partial is included with `only`: the page's own
+     * `can_moderate` (which gates the member controls below) must not
+     * leak into it, where it used to render the Clôturer button on the
+     * members page.
+     */
+    public function testMembersPageOffersNoCloseControlEvenToAModerator(): void
+    {
+        $body = $this->controller([$this->moderatorId])->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
+
+        $this->assertStringNotContainsString('Clôturer', $body);
+        $this->assertStringNotContainsString('/groups/' . $this->groupId . '/close', $body);
+    }
+
+    /**
+     * `can_reopen` was never passed here, so the header claimed « il ne
+     * peut plus être rouvert » for EVERY closed group — including one of
+     * the current year, which its own page reopens fine. The members page
+     * says "Clôturé" and nothing more; reopening belongs to the group's
+     * own page.
+     */
+    public function testMembersPageOfAClosedCurrentYearGroupDoesNotClaimItCannotBeReopened(): void
+    {
+        $this->groupRepo->setClosed($this->groupId, '2026-01-01 00:00:00');
+
+        $body = $this->controller([$this->moderatorId])->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
+
+        $this->assertStringContainsString('Clôturé', $body);
+        $this->assertStringNotContainsString('ne peut plus être rouvert', $body);
+        $this->assertStringNotContainsString('Rouvrir', $body);
+    }
+
+    /**
+     * "Retirer la modération" is a plain form POST that used to fire on
+     * one click — it now asks first (base.html.twig's data-confirm
+     * handler), naming who is about to lose the flag.
+     */
+    public function testRevokeModerationButtonAsksForConfirmationNamingTheMember(): void
+    {
+        $body = $this->controller([$this->moderatorId])->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
+
+        $this->assertStringContainsString('data-confirm="Retirer la modération à ', $body);
+    }
+
     // ---- search ----
 
     private function candidateProfile(int $memberId, string $firstName, string $lastName, ?string $totem): MemberProfile
@@ -530,6 +574,46 @@ class GroupMemberControllerTest extends TestCase
         $this->assertNull($this->memberRepo->find($this->groupId, $this->plainMemberId));
     }
 
+    /**
+     * The same rule as leaving: a group must keep a moderator of its own
+     * (ARCHITECTURE.md §8.40). "Retirer la modération" on the group's only
+     * moderator is refused server-side, and the refusal is explained in a
+     * flash rather than silently swallowed.
+     */
+    public function testRevokingTheLastModeratorIsRefusedWithAnExplanation(): void
+    {
+        $this->withCsrf([
+            'member_id' => (string) $this->moderatorId,
+            'user_account_id' => '1',
+            'is_moderator' => '0',
+        ]);
+
+        $response = $this->controller([$this->moderatorId])->setModerator($this->postRequest(), $this->params());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $row = $this->memberRepo->find($this->groupId, $this->moderatorId);
+        $this->assertTrue($row->isModerator);
+        $this->assertSame(1, $row->moderatorUserAccountId);
+        $this->assertSame('error', $_SESSION['_flash_message']['type'] ?? null);
+        $this->assertStringContainsString('dernier modérateur', $_SESSION['_flash_message']['message'] ?? '');
+    }
+
+    public function testRevokingWithASecondModeratorInPlaceSucceeds(): void
+    {
+        $this->memberRepo->add($this->groupId, $this->plainMemberId, true, null, 2);
+
+        $this->withCsrf([
+            'member_id' => (string) $this->moderatorId,
+            'user_account_id' => '1',
+            'is_moderator' => '0',
+        ]);
+        $this->controller([$this->moderatorId])->setModerator($this->postRequest(), $this->params());
+
+        $row = $this->memberRepo->find($this->groupId, $this->moderatorId);
+        $this->assertFalse($row->isModerator);
+        $this->assertNull($row->moderatorUserAccountId);
+    }
+
     public function testSetModeratorIsRefusedToAnOrdinaryMember(): void
     {
         $this->withCsrf(['member_id' => (string) $this->plainMemberId, 'is_moderator' => '1']);
@@ -566,6 +650,33 @@ class GroupMemberControllerTest extends TestCase
 
         $this->assertSame(403, $response->getStatusCode());
         $this->assertNotNull($this->memberRepo->find($this->groupId, $this->outsiderId));
+    }
+
+    /**
+     * The other one-click path around the last-moderator guard: removing
+     * the member row outright. Refused with the same kind of explanation
+     * as revoking, and the row stays.
+     */
+    public function testRemovingTheLastModeratorIsRefusedWithAnExplanation(): void
+    {
+        $this->withCsrf(['member_id' => (string) $this->moderatorId]);
+
+        $response = $this->controller([$this->moderatorId])->removeMember($this->postRequest(), $this->params());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNotNull($this->memberRepo->find($this->groupId, $this->moderatorId));
+        $this->assertSame('error', $_SESSION['_flash_message']['type'] ?? null);
+        $this->assertStringContainsString('dernier modérateur', $_SESSION['_flash_message']['message'] ?? '');
+    }
+
+    public function testRemovingAModeratorWithASecondOneInPlaceSucceeds(): void
+    {
+        $this->memberRepo->add($this->groupId, $this->plainMemberId, true, null, 2);
+        $this->withCsrf(['member_id' => (string) $this->moderatorId]);
+
+        $this->controller([$this->moderatorId])->removeMember($this->postRequest(), $this->params());
+
+        $this->assertNull($this->memberRepo->find($this->groupId, $this->moderatorId));
     }
 
     public function testASiteAdminMayModerateWithoutBeingAMember(): void

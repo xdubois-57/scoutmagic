@@ -3,7 +3,20 @@
 {% block title %}Membres — {{ group_label|default(group.name) }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {% include '@groups/partials/group_header.html.twig' with { badges: { is_invitation: group.sectionId is null, section_names: derived_sections, is_archived: false, is_moderator: can_moderate } } %}
+    {#
+      `only`, and exactly the variables the header needs here: this page's
+      own context carries `can_moderate` (it gates the invite and removal
+      controls below), and letting it leak into the partial used to render
+      the Clôturer/Rouvrir buttons on the members page — plus, `can_reopen`
+      never being passed, the "il ne peut plus être rouvert" line on ANY
+      closed group, current year included. Those belong to the group's own
+      page (GroupController::show()), the only caller that resolves them.
+    #}
+    {% include '@groups/partials/group_header.html.twig' with {
+        group: group,
+        group_label: group_label,
+        badges: { is_invitation: group.sectionId is null, section_names: derived_sections, is_archived: false, is_moderator: can_moderate }
+    } only %}
 
     <div class="card mb-3">
         <div class="card-body">
@@ -86,9 +99,24 @@
                                         </span>
                                     {% else %}
                                         <div class="d-flex flex-column gap-1">
+                                            {#
+                                              How the confirmation below names the person: the account when
+                                              one is known (the same name the row itself shows), the member
+                                              number otherwise — never nothing.
+                                            #}
+                                            {% set member_display_name = row.identity and row.identity.account_name
+                                                ? row.identity.account_name
+                                                : 'Membre #' ~ row.member_id %}
                                             {% for login in row.logins %}
+                                                {#
+                                                  data-confirm on the revoke only (base.html.twig's site-wide
+                                                  handler): granting is reversible in the same click it took,
+                                                  while revoking strips a power — and on the last moderator the
+                                                  server refuses it outright (GroupService::setModerator).
+                                                #}
                                                 <form method="post" action="/groups/{{ group.id }}/moderator"
-                                                      class="d-flex align-items-center gap-2">
+                                                      class="d-flex align-items-center gap-2"
+                                                      {% if login.is_moderator %}data-confirm="Retirer la modération à {{ member_display_name }} ?"{% endif %}>
                                                     {{ csrf_field()|raw }}
                                                     <input type="hidden" name="member_id" value="{{ row.member_id }}">
                                                     <input type="hidden" name="user_account_id" value="{{ login.id }}">

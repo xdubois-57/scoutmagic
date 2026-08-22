@@ -604,6 +604,9 @@
                 errorBox.textContent = '';
                 errorBox.classList.add('d-none');
             }
+            // A stale suggestion goes with the stale error: the next
+            // refusal brings its own, or none.
+            clearModerationSuggestion(form);
         }
 
         function resetComposer() {
@@ -682,6 +685,9 @@
                     // past the UI) — shown inline, draft left untouched so
                     // the member can revise and resend.
                     showComposerError(result.data.error === 'empty' ? 'Un message ne peut pas être vide.' : result.data.error);
+                    // And when the moderation offered a rewording, the
+                    // panel the reload path has always had.
+                    showModerationSuggestion(form, textarea, result.data.suggestion);
                 } else {
                     // Not JSON at all (a stale CSRF token's plain-text
                     // 403, or anything else unexpected) — fall back to
@@ -1524,6 +1530,78 @@
         });
     }
 
+    // The AI moderation's proposed rewording, shown where the refusal
+    // happened. The server sends it alongside the refusal itself
+    // (PostController::refuse() / ReplyController's JSON shape:
+    // {error, type, suggestion}), and the no-JS path already renders it
+    // as a panel above the composer (show.html.twig's rejected_draft
+    // block, Support\RejectedDraft) — this is the same panel, same
+    // classes, built for the fetch() path that never reloads. The
+    // suggestion is a remote model's output over a minor's own words:
+    // textContent throughout, never innerHTML, exactly like the link
+    // preview's og: fields above.
+    /**
+     * @param {HTMLFormElement} form the composer or reply form the refusal answered
+     * @param {HTMLTextAreaElement|HTMLInputElement} field where "Reprendre cette formulation" writes the suggestion
+     * @param {*} suggestion the server's `suggestion` value — ignored unless a non-empty string
+     */
+    function showModerationSuggestion(form, field, suggestion) {
+        clearModerationSuggestion(form);
+        if (!field || typeof suggestion !== 'string' || suggestion === '') {
+            return;
+        }
+
+        var panel = document.createElement('div');
+        panel.className = 'alert alert-warning mt-2 mb-0 groups-moderation-suggestion';
+        panel.setAttribute('role', 'alert');
+
+        var intro = document.createElement('p');
+        intro.className = 'mb-1 small';
+        intro.textContent = 'Voici une reformulation possible, que vous pouvez reprendre telle quelle :';
+        panel.appendChild(intro);
+
+        var text = document.createElement('p');
+        text.className = 'mb-2 fst-italic groups-rejected-suggestion';
+        text.textContent = suggestion;
+        panel.appendChild(text);
+
+        var take = document.createElement('button');
+        // type="button": the panel lives inside the form, and this
+        // button must never re-submit the refused text it replaces.
+        take.type = 'button';
+        take.className = 'btn btn-sm btn-outline-secondary groups-suggestion-take';
+        take.textContent = 'Reprendre cette formulation';
+        take.addEventListener('click', function () {
+            field.value = suggestion;
+            // The same event typing would fire, so the submit button's
+            // enabled state and the draft cache follow the new text.
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            panel.remove();
+            field.focus();
+        });
+        panel.appendChild(take);
+
+        // Right under the form's own error line when it has one (the
+        // refusal the panel answers is printed there), at the end of the
+        // form otherwise.
+        var anchor = form.querySelector('#groups-post-error, .groups-reply-error');
+        if (anchor) {
+            anchor.insertAdjacentElement('afterend', panel);
+        } else {
+            form.appendChild(panel);
+        }
+    }
+
+    /**
+     * @param {HTMLFormElement} form
+     */
+    function clearModerationSuggestion(form) {
+        var panel = form.querySelector('.groups-moderation-suggestion');
+        if (panel) {
+            panel.remove();
+        }
+    }
+
     // Replying to a post still posts and redirects with no JS at all —
     // this upgrades it to a fetch() exactly like a reaction's own form
     // (see swapFragmentOnSubmit()), appending the new reply under the
@@ -1541,6 +1619,7 @@
             replyError.textContent = '';
             replyError.classList.add('d-none');
         }
+        clearModerationSuggestion(form);
         // Snapshotted before anything in the form is disabled, for the
         // same reason the composer's own submit does it in that order: a
         // disabled control contributes nothing to a form's data set (see
@@ -1582,6 +1661,9 @@
             } else if (result.data && typeof result.data.error === 'string' && replyError) {
                 replyError.textContent = result.data.error === 'empty' ? 'Une réponse ne peut pas être vide.' : result.data.error;
                 replyError.classList.remove('d-none');
+                // Same rewording panel as the composer's, under this
+                // reply's own error line.
+                showModerationSuggestion(form, /** @type {HTMLInputElement} */ (form.querySelector('input[name="body"]')), result.data.suggestion);
             } else if (!result.data) {
                 form.submit();
             }

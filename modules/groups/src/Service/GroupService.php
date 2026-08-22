@@ -126,6 +126,15 @@ class GroupService
      * to grant, ignored to revoke (Repository\GroupMemberRepository
      * clears both). The Controller has already checked that the account
      * can actually log in as this member.
+     *
+     * Revoking goes through the same last-moderator protection as
+     * leaving the group (ARCHITECTURE.md §8.40: a group must keep a
+     * moderator of its own — site admins do not count): "Retirer la
+     * modération" on the group's only moderator is refused rather than
+     * performed, and the caller says why in French.
+     *
+     * @return bool false when a revocation was refused because the
+     *         target is the group's last moderator
      */
     public function setModerator(
         DiscussionGroup $group,
@@ -133,14 +142,20 @@ class GroupService
         bool $isModerator,
         int $grantedByMemberId,
         ?int $moderatorUserAccountId = null
-    ): void {
+    ): bool {
+        if (!$isModerator) {
+            return $this->memberRepository->demoteUnlessLastModerator($group->id, $memberId);
+        }
+
         $this->memberRepository->setModerator(
             $group->id,
             $memberId,
-            $isModerator,
+            true,
             $grantedByMemberId,
             $moderatorUserAccountId
         );
+
+        return true;
     }
 
     /**
@@ -148,9 +163,17 @@ class GroupService
      * belongs through a linked section) has nothing to remove here and
      * stays a member — the Controller says so in French rather than
      * pretending the removal worked.
+     *
+     * Same guard as a voluntary departure (GroupMembershipService::
+     * leave()): removing the group's last explicit moderator is refused,
+     * or one click on the members page would leave the group with nobody
+     * of its own in charge.
+     *
+     * @return bool false when the removal was refused because the target
+     *         is the group's last moderator
      */
-    public function removeMember(DiscussionGroup $group, int $memberId): void
+    public function removeMember(DiscussionGroup $group, int $memberId): bool
     {
-        $this->memberRepository->remove($group->id, $memberId);
+        return $this->memberRepository->removeUnlessLastModerator($group->id, $memberId);
     }
 }

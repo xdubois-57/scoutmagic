@@ -1226,3 +1226,191 @@ describe('groups.js poll option boxes', () => {
         });
     });
 });
+
+// The AI moderation's proposed rewording. The server has always sent it
+// back with an AJAX refusal ({error, type, suggestion} — PostController::
+// refuse()), and the no-JS reload path has always shown it; the dynamic
+// submit used to read only `error` and silently drop the one thing that
+// helps the member fix their message. The panel mirrors the Twig one
+// (show.html.twig's rejected_draft block) and its "Reprendre cette
+// formulation" button rewrites the very field the refusal answered.
+describe('groups.js moderation suggestion panel', () => {
+    function refusalResponse(suggestion) {
+        return Promise.resolve({
+            ok: false,
+            json: () => Promise.resolve({
+                error: 'Votre message n\'a pas été publié.',
+                type: 'offensive',
+                suggestion: suggestion,
+            }),
+        });
+    }
+
+    describe('on the message composer', () => {
+        beforeEach(() => {
+            localStorage.clear();
+            global.DataTransfer = FakeDataTransfer;
+            global.URL.createObjectURL = vi.fn(() => 'blob:fake');
+            document.body.innerHTML = `
+                <div id="groups-feed"></div>
+                <form id="groups-post-form" action="/groups/1/posts" data-max-media="4" data-group-id="1" data-draft-ttl-minutes="60">
+                    <textarea id="post-body" name="body"></textarea>
+                    <div id="groups-media-previews"></div>
+                    <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple>
+                    <p class="d-none" id="groups-post-error"></p>
+                    <button type="submit">Publier</button>
+                </form>
+            `;
+            Object.defineProperty(document.getElementById('groups-media-hidden'), 'files', {
+                writable: true,
+                configurable: true,
+                value: [],
+            });
+        });
+
+        function textarea() {
+            return document.getElementById('post-body');
+        }
+
+        function submit() {
+            document.getElementById('groups-post-form')
+                .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        }
+
+        function panel() {
+            return document.querySelector('.groups-moderation-suggestion');
+        }
+
+        it('shows the suggestion under the error, with the Twig panel\'s own classes', async () => {
+            await loadGroups();
+            global.fetch = vi.fn(() => refusalResponse('Je ne suis pas d\'accord avec toi.'));
+
+            textarea().value = 'Version refusée';
+            submit();
+            await vi.waitFor(() => expect(panel()).not.toBeNull());
+
+            expect(panel().previousElementSibling.id).toBe('groups-post-error');
+            expect(panel().querySelector('.groups-rejected-suggestion').textContent)
+                .toBe('Je ne suis pas d\'accord avec toi.');
+            // And the refused draft stays where the member can revise it.
+            expect(textarea().value).toBe('Version refusée');
+        });
+
+        it('never interprets the suggestion as HTML — a remote model\'s output over a minor\'s words', async () => {
+            await loadGroups();
+            const hostile = 'Essaie plutôt : <img src=x onerror="alert(1)"> & fin';
+            global.fetch = vi.fn(() => refusalResponse(hostile));
+
+            textarea().value = 'x';
+            submit();
+            await vi.waitFor(() => expect(panel()).not.toBeNull());
+
+            expect(panel().querySelector('img')).toBeNull();
+            expect(panel().querySelector('.groups-rejected-suggestion').textContent).toBe(hostile);
+        });
+
+        it('"Reprendre cette formulation" rewrites the composer and removes the panel', async () => {
+            await loadGroups();
+            global.fetch = vi.fn(() => refusalResponse('Formulation adoucie'));
+
+            textarea().value = 'Version refusée';
+            submit();
+            await vi.waitFor(() => expect(panel()).not.toBeNull());
+
+            panel().querySelector('.groups-suggestion-take').click();
+
+            expect(textarea().value).toBe('Formulation adoucie');
+            expect(panel()).toBeNull();
+            // The input event the rewrite fires keeps the publish button
+            // in step with the (non-empty) new text.
+            expect(document.querySelector('#groups-post-form button[type="submit"]').disabled).toBe(false);
+        });
+
+        it('shows no panel when the refusal carries no suggestion', async () => {
+            await loadGroups();
+            global.fetch = vi.fn(() => refusalResponse(null));
+
+            textarea().value = 'x';
+            submit();
+            await vi.waitFor(() => expect(document.getElementById('groups-post-error').classList.contains('d-none')).toBe(false));
+
+            expect(panel()).toBeNull();
+        });
+
+        it('drops a stale panel when the message is resubmitted', async () => {
+            await loadGroups();
+            global.fetch = vi.fn(() => refusalResponse('Une reformulation'));
+            textarea().value = 'x';
+            submit();
+            await vi.waitFor(() => expect(panel()).not.toBeNull());
+
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ html: '<article id="post-7">Publié</article>', post_id: 7 }),
+            }));
+            submit();
+            await vi.waitFor(() => expect(document.getElementById('post-7')).not.toBeNull());
+
+            expect(panel()).toBeNull();
+        });
+    });
+
+    describe('on a reply form', () => {
+        beforeEach(() => {
+            localStorage.clear();
+            global.DataTransfer = FakeDataTransfer;
+            document.body.innerHTML = `
+                <div id="groups-feed">
+                    <article id="post-9">
+                        <details class="groups-thread" id="post-thread-9">
+                            <summary><span class="groups-thread-count" data-count="0">Commenter</span></summary>
+                            <div class="groups-replies"></div>
+                            <form class="groups-reply-form" action="/groups/1/posts/9/replies"
+                                  method="post" data-group-id="1" data-post-id="9">
+                                <input type="text" name="body">
+                                <p class="d-none groups-reply-error" role="alert"></p>
+                                <button type="submit">Envoyer</button>
+                            </form>
+                        </details>
+                    </article>
+                </div>
+            `;
+        });
+
+        function replyInput() {
+            return document.querySelector('.groups-reply-form input[name="body"]');
+        }
+
+        function panel() {
+            return document.querySelector('.groups-moderation-suggestion');
+        }
+
+        it('shows the suggestion inside the refused reply\'s own form', async () => {
+            await loadGroups();
+            global.fetch = vi.fn(() => refusalResponse('Réponse adoucie'));
+
+            replyInput().value = 'Réponse refusée';
+            document.querySelector('.groups-reply-form button').click();
+            await vi.waitFor(() => expect(panel()).not.toBeNull());
+
+            expect(panel().closest('.groups-reply-form')).not.toBeNull();
+            expect(panel().previousElementSibling.classList.contains('groups-reply-error')).toBe(true);
+            expect(panel().querySelector('.groups-rejected-suggestion').textContent).toBe('Réponse adoucie');
+            expect(replyInput().value).toBe('Réponse refusée');
+        });
+
+        it('"Reprendre cette formulation" rewrites the reply box and removes the panel', async () => {
+            await loadGroups();
+            global.fetch = vi.fn(() => refusalResponse('Réponse adoucie'));
+
+            replyInput().value = 'Réponse refusée';
+            document.querySelector('.groups-reply-form button').click();
+            await vi.waitFor(() => expect(panel()).not.toBeNull());
+
+            panel().querySelector('.groups-suggestion-take').click();
+
+            expect(replyInput().value).toBe('Réponse adoucie');
+            expect(panel()).toBeNull();
+        });
+    });
+});

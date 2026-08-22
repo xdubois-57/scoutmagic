@@ -239,6 +239,57 @@ class GroupMemberRepository
         }
     }
 
+    /**
+     * Revokes the moderator flag from $memberId, refusing when they are
+     * the group's last explicit moderator — the same rule as
+     * removeUnlessLastModerator() above ("Retirer la modération" must not
+     * be able to do in one click what leaving the group may not), with
+     * the same transactional shape: count and update run in ONE
+     * transaction, so two simultaneous revocations cannot both see
+     * "there are two of us" and both succeed.
+     *
+     * An unbound row (granted before the flag became per-login) moderates
+     * nobody, so clearing it takes nothing away and is always allowed. A
+     * missing row is nothing to demote and reports success.
+     *
+     * @return bool false when the revocation was refused because it would
+     *         have left the group without a moderator
+     */
+    public function demoteUnlessLastModerator(int $groupId, int $memberId): bool
+    {
+        $this->pdo->beginTransaction();
+
+        try {
+            $row = $this->find($groupId, $memberId);
+            if ($row === null) {
+                $this->pdo->commit();
+
+                return true;
+            }
+
+            if ($row->isModerator && $row->moderatorUserAccountId !== null && $this->countModerators($groupId) <= 1) {
+                $this->pdo->rollBack();
+
+                return false;
+            }
+
+            $stmt = $this->pdo->prepare(
+                'UPDATE discussion_group_members SET is_moderator = 0, moderator_user_account_id = NULL
+                 WHERE group_id = ? AND member_id = ?'
+            );
+            $stmt->execute([$groupId, $memberId]);
+            $this->pdo->commit();
+
+            return true;
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+
+            throw $e;
+        }
+    }
+
     public function remove(int $groupId, int $memberId): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM discussion_group_members WHERE group_id = ? AND member_id = ?');

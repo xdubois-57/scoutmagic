@@ -248,13 +248,22 @@ class GroupMemberController extends AbstractController
             }
 
             if ($memberId > 0) {
-                $this->groupService->setModerator(
+                $done = $this->groupService->setModerator(
                     $group,
                     $memberId,
                     $grant,
                     $context->linkedMemberIds[0] ?? 0,
                     $grant ? $accountId : null
                 );
+
+                // The same rule as leaving (LeaveOutcome::LAST_MODERATOR),
+                // told the same way this page tells its other refusal: a
+                // group must keep a moderator of its own, and revoking the
+                // last one is refused rather than performed.
+                if (!$done) {
+                    FlashMessage::set('error', 'Ce compte est le dernier modérateur de ce groupe : désignez '
+                        . 'd\'abord un autre modérateur avant de lui retirer la modération.');
+                }
             }
 
             return $this->redirect('/groups/' . $group->id . '/members');
@@ -270,8 +279,12 @@ class GroupMemberController extends AbstractController
     {
         return $this->moderatorAction($params, function (DiscussionGroup $group) use ($request) {
             $memberId = (int) $request->getBody('member_id', 0);
-            if ($memberId > 0) {
-                $this->groupService->removeMember($group, $memberId);
+            if ($memberId > 0 && !$this->groupService->removeMember($group, $memberId)) {
+                // Same protection as a voluntary departure: the last
+                // moderator cannot be removed either, or the group would
+                // be left with nobody of its own in charge.
+                FlashMessage::set('error', 'Ce membre est le dernier modérateur de ce groupe : désignez '
+                    . 'd\'abord un autre modérateur avant de le retirer.');
             }
 
             return $this->redirect('/groups/' . $group->id . '/members');
