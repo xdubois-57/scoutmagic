@@ -319,6 +319,37 @@ class PostRepository
     }
 
     /**
+     * How many visible posts landed in this group after $since, other
+     * people's only — the homepage's "nouveaux messages" counter. Own
+     * posts are excluded because "something new in your groups" must
+     * never be the reader's own words; hidden posts are excluded in SQL
+     * for the same reason as everywhere else in this class: the counter
+     * must never announce something the reader would not find.
+     *
+     * @param int[] $excludeMemberIds
+     */
+    public function countNewerForGroup(int $groupId, string $since, array $excludeMemberIds = []): int
+    {
+        if ($excludeMemberIds === []) {
+            $stmt = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM discussion_group_posts
+                 WHERE group_id = ? AND created_at > ? AND hidden_at IS NULL'
+            );
+            $stmt->execute([$groupId, $since]);
+        } else {
+            $authorPlaceholders = implode(',', array_fill(0, count($excludeMemberIds), '?'));
+            $stmt = $this->pdo->prepare(
+                "SELECT COUNT(*) FROM discussion_group_posts
+                 WHERE group_id = ? AND created_at > ? AND hidden_at IS NULL
+                   AND author_member_id NOT IN ({$authorPlaceholders})"
+            );
+            $stmt->execute([$groupId, $since, ...array_values($excludeMemberIds)]);
+        }
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): Post

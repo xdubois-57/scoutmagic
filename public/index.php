@@ -1514,18 +1514,18 @@ $router->addRoute('GET', '/sections', PageController::class, 'sections', 'public
 $router->addRoute('GET', '/rgpd', PageController::class, 'rgpd', 'public', ['label' => 'Protection des données', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]]);
 
 // Auth routes
-$router->addRoute('GET', '/login', AuthController::class, 'login', 'public');
+$router->addRoute('GET', '/login', AuthController::class, 'login', 'public', ['label' => 'Connexion', 'parents' => []]);
 $router->addRoute('POST', '/login/magic-link', AuthController::class, 'requestMagicLink', 'public');
 $router->addRoute('POST', '/login/password', AuthController::class, 'loginWithPassword', 'public');
 $router->addRoute('GET', '/login/passkey/options', AuthController::class, 'passkeyOptions', 'public');
 $router->addRoute('POST', '/login/passkey/verify', AuthController::class, 'passkeyVerify', 'public');
-$router->addRoute('GET', '/auth/verify', AuthController::class, 'verifyMagicLink', 'public');
+$router->addRoute('GET', '/auth/verify', AuthController::class, 'verifyMagicLink', 'public', ['label' => 'Connexion', 'parents' => []]);
 $router->addRoute('GET', '/auth/poll/{id}', AuthController::class, 'pollMagicLink', 'public');
 $router->addRoute('POST', '/logout', AuthController::class, 'logout', 'identified');
 
 // Password reset ("Mot de passe oublié")
 $router->addRoute('POST', '/password-reset/request', PasswordResetController::class, 'request', 'public');
-$router->addRoute('GET', '/password-reset/{id}', PasswordResetController::class, 'show', 'public');
+$router->addRoute('GET', '/password-reset/{id}', PasswordResetController::class, 'show', 'public', ['label' => 'Nouveau mot de passe', 'parents' => []]);
 $router->addRoute('POST', '/password-reset/{id}/check', PasswordResetController::class, 'check', 'public');
 $router->addRoute('POST', '/password-reset/{id}', PasswordResetController::class, 'submit', 'public');
 
@@ -1586,7 +1586,7 @@ $router->addRoute('POST', '/api/editable-content', EditableContentController::cl
 $router->addRoute('POST', '/api/rich-text-content', EditableContentController::class, 'updateField', 'superadmin');
 
 // Cookie consent
-$router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public');
+$router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public', ['label' => 'Préférences cookies', 'parents' => []]);
 $router->addRoute('POST', '/cookies/save', CookieController::class, 'save', 'public');
 $router->addRoute('POST', '/cookies/accept-all', CookieController::class, 'acceptAll', 'public');
 $router->addRoute('POST', '/cookies/reject-all', CookieController::class, 'rejectAll', 'public');
@@ -1621,7 +1621,7 @@ $router->addRoute('GET', '/s/{code}', ShortUrlController::class, 'resolve', 'pub
 // configuration mode; UploadController::isUploadAuthorized() is the real
 // authorization boundary per context (still effectively superadmin-only
 // for every context except member_photo — see that method's docblock).
-$router->addRoute('GET', '/upload', UploadController::class, 'index', 'identified');
+$router->addRoute('GET', '/upload', UploadController::class, 'index', 'identified', ['label' => 'Envoyer un fichier', 'parents' => []]);
 $router->addRoute('POST', '/upload', UploadController::class, 'store', 'identified');
 
 // Installable PWA (Lot 1) — all public: a manifest, its icons, and the
@@ -2930,7 +2930,16 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
             in_array('news', $moduleManager->getEnabledModuleIds(), true) ? $newsArticleService : null,
             $sectionResponsableProvider,
-            new \Modules\Groups\Api\HomeActivityService($groupsListService, $groupsContextFactory)
+            new \Modules\Groups\Api\HomeActivityService(
+                $groupsListService,
+                $groupsContextFactory,
+                $groupsReadRepo,
+                $groupsPostRepo,
+                $groupsReplyRepo,
+                \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
+                \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
+                $notificationRepo
+            )
         )
     );
     $frontController->registerController(

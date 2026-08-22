@@ -10,8 +10,9 @@
     <h2 class="h5 mb-3">Résultat de l'import</h2>
 
     {% if error %}
+        {# The way back to the import form is the breadcrumb trail
+           (design.md §7.3) — no « Retour » button here. #}
         <div class="alert alert-danger">{{ error }}</div>
-        <a href="/finance/import" class="btn btn-sm btn-outline-secondary">Retour</a>
     {% else %}
         <div class="alert alert-success">
             {{ result.linesTotal }} ligne(s) lue(s), {{ result.linesNew }} nouvelle(s), {{ result.linesDuplicate }} déjà présente(s) (ignorée(s)).

@@ -12,7 +12,8 @@
       "action": "show",
       "menu": "espace_animes",
       "role_min": "identified",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Email reçu", "parents": ["Espace membres"] }
     },
     {
       "path": "/mass-mail/unsubscribe/{id}",
@@ -21,7 +22,8 @@
       "action": "show",
       "menu": "notre_unite",
       "role_min": "public",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Désinscription", "parents": ["Notre unité"] }
     },
     {
       "path": "/mass-mail/unsubscribe/{id}",
@@ -140,7 +142,8 @@
       "action": "tracking",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Suivi de l'envoi", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/mass-mail/recipients/{id}/resend",

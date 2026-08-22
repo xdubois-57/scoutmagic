@@ -51,6 +51,9 @@ class MailSandboxController extends AbstractController
         );
 
         return $this->render('@test_tools/mail_sandbox.html.twig', [
+            'breadcrumb_trail' => [
+                ['label' => 'Outils de test', 'url' => '/test-tools'],
+            ],
             'armed' => $this->sandboxService->armed(),
             'filters' => $filters,
             'emails' => $this->sandboxService->page(
@@ -86,6 +89,10 @@ class MailSandboxController extends AbstractController
         }
 
         return $this->render('@test_tools/mail_detail.html.twig', [
+            'breadcrumb_trail' => [
+                ['label' => 'Outils de test', 'url' => '/test-tools'],
+                ['label' => 'Bac à sable e-mail', 'url' => '/test-tools/mail-sandbox'],
+            ],
             'email' => $email,
             'html_body' => $this->sandboxService->htmlBody($email),
             'text_body' => $this->sandboxService->textBody($email),

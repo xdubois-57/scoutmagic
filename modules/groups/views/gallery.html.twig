@@ -19,14 +19,11 @@
   this module's moderation state and must not.
 #}
 {% block content %}
-    <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap mb-3">
-        <div>
-            <h1 class="h4 mb-1">Galerie — {{ group_label|default(group.name) }}</h1>
-            <p class="text-body-secondary small mb-0">Tous les médias publiés dans ce groupe, du plus récent au plus ancien.</p>
-        </div>
-        <a class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;" href="/groups/{{ group.id }}">
-            <i class="bi bi-arrow-left me-1"></i> Retour au groupe
-        </a>
+    {# The way back to the group's page lives in the breadcrumb trail
+       (design.md §7.3) — no « Retour » button here. #}
+    <div class="mb-3">
+        <h1 class="h4 mb-1">Galerie — {{ group_label|default(group.name) }}</h1>
+        <p class="text-body-secondary small mb-0">Tous les médias publiés dans ce groupe, du plus récent au plus ancien.</p>
     </div>
 
     {% if media is empty %}

@@ -43,7 +43,8 @@
       "action": "create",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Nouvelle rétrospective", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/retro",
@@ -61,7 +62,8 @@
       "action": "edit",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Modifier la rétrospective", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/retro/{id}",
@@ -124,7 +126,8 @@
       "action": "show",
       "menu": "notre_unite",
       "role_min": "public",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Rétrospective", "parents": ["Notre unité"] }
     },
     {
       "path": "/r/{token}/qr",

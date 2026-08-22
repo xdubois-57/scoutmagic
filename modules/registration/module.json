@@ -46,7 +46,8 @@
       "action": "showLinked",
       "menu": "espace_animes",
       "role_min": "identified",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Ma demande", "parents": ["Espace membres"] }
     },
     {
       "path": "/inscriptions/suivi/{id}/{token}",
@@ -55,7 +56,8 @@
       "action": "showByToken",
       "menu": "notre_unite",
       "role_min": "public",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Suivi de la demande", "parents": ["Notre unité"] }
     },
     {
       "path": "/inscriptions/suivi/demande/{id}/emails",
@@ -82,7 +84,8 @@
       "action": "confirmEmail",
       "menu": "notre_unite",
       "role_min": "public",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Confirmation d'adresse", "parents": ["Notre unité"] }
     },
     {
       "path": "/inscriptions/suivi/emails/confirm/{id}",
@@ -179,7 +182,8 @@
       "action": "show",
       "menu": "espace_admin",
       "role_min": "admin",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Demande", "parents": ["Espace chefs d'U"] }
     },
     {
       "path": "/config/inscriptions/demandes/{id}/accept",

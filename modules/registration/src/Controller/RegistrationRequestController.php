@@ -367,6 +367,12 @@ class RegistrationRequestController extends AbstractController
 
         return [
             'r' => $registrationRequest,
+            // The child's name is already decrypted on the entity — no
+            // extra decryption for the breadcrumb title.
+            'breadcrumb_current' => trim($registrationRequest->childFirstName . ' ' . $registrationRequest->childLastName),
+            'breadcrumb_trail' => [
+                ['label' => 'Inscriptions', 'url' => '/config/inscriptions?year=' . $registrationRequest->scoutYearId],
+            ],
             'scout_year_label' => $scoutYearLabel,
             'slot_label' => $this->slotLabel($brackets, $slot),
             'desired_section_label' => $registrationRequest->desiredSectionId !== null

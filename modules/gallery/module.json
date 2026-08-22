@@ -45,7 +45,8 @@
       "action": "show",
       "menu": "espace_animes",
       "role_min": "identified",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Album", "parents": ["Espace membres"] }
     },
     {
       "path": "/gallery/{id}/download",
@@ -203,7 +204,8 @@
       "action": "create",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Nouvel emplacement", "parents": ["Configuration"] }
     },
     {
       "path": "/config/gallery/locations",
@@ -221,7 +223,8 @@
       "action": "edit",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Modifier l'emplacement", "parents": ["Configuration"] }
     },
     {
       "path": "/config/gallery/locations/{id}",

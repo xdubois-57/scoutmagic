@@ -376,6 +376,39 @@ class ReplyRepository
     }
 
     /**
+     * How many visible replies landed in this group after $since, other
+     * people's only — half of the homepage's "réactions ou réponses"
+     * counter. A reply under a hidden post is excluded with its post: the
+     * reader could not reach it by opening the group.
+     *
+     * @param int[] $excludeMemberIds
+     */
+    public function countNewerForGroup(int $groupId, string $since, array $excludeMemberIds = []): int
+    {
+        if ($excludeMemberIds === []) {
+            $stmt = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM discussion_group_replies r
+                 INNER JOIN discussion_group_posts p ON p.id = r.post_id
+                 WHERE p.group_id = ? AND r.created_at > ?
+                   AND r.hidden_at IS NULL AND p.hidden_at IS NULL'
+            );
+            $stmt->execute([$groupId, $since]);
+        } else {
+            $authorPlaceholders = implode(',', array_fill(0, count($excludeMemberIds), '?'));
+            $stmt = $this->pdo->prepare(
+                "SELECT COUNT(*) FROM discussion_group_replies r
+                 INNER JOIN discussion_group_posts p ON p.id = r.post_id
+                 WHERE p.group_id = ? AND r.created_at > ?
+                   AND r.hidden_at IS NULL AND p.hidden_at IS NULL
+                   AND r.author_member_id NOT IN ({$authorPlaceholders})"
+            );
+            $stmt->execute([$groupId, $since, ...array_values($excludeMemberIds)]);
+        }
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): Reply

@@ -92,28 +92,14 @@ final class UxConventionsTest extends TestCase
     ];
 
     /**
-     * Violations that existed when the rule landed — to migrate into the
-     * breadcrumb trail (or reword into a next-step label where the link
-     * is forward-flow, e.g. « Se connecter » after a password reset).
+     * Violations that existed when the rule landed have all been migrated
+     * into the breadcrumb trail (or reworded into a next-step label where
+     * the link is forward-flow, e.g. « Se connecter » after a password
+     * reset) — the list is empty and must stay so.
      *
      * @var array<string, int> template path => count
      */
-    private const BACK_BUTTON_ALLOWLIST = [
-        'core/View/templates/auth/password_reset.html.twig' => 1,
-        'core/View/templates/auth/verify.html.twig' => 1,
-        'core/View/templates/members/email_confirmed.html.twig' => 2,
-        'core/View/templates/members/email_detail.html.twig' => 1,
-        'modules/finance/views/import/result.html.twig' => 1,
-        'modules/gallery/views/album.html.twig' => 1,
-        'modules/gallery/views/location_form.html.twig' => 1,
-        'modules/groups/views/gallery.html.twig' => 1,
-        'modules/mass_mail/views/tracking.html.twig' => 1,
-        'modules/news/views/confirmation.html.twig' => 1,
-        'modules/registration/views/email_confirmed.html.twig' => 2,
-        'modules/registration/views/request_detail.html.twig' => 1,
-        'modules/registration/views/submitted.html.twig' => 1,
-        'modules/test_tools/views/mail_detail.html.twig' => 1,
-    ];
+    private const BACK_BUTTON_ALLOWLIST = [];
 
     /**
      * design.md §7.5 — FlashMessage's contract is success|error|warning.
@@ -202,11 +188,9 @@ final class UxConventionsTest extends TestCase
         'core/View/templates/admin/members/search.html.twig' => 1,
         'core/View/templates/base.html.twig' => 1,
         'core/View/templates/chefs/section_roster.html.twig' => 1,
-        'core/View/templates/pages/home.html.twig' => 2,
         'core/View/templates/partials/chip_picker.html.twig' => 5,
         'core/View/templates/partials/nav.html.twig' => 3,
         'core/View/templates/partials/notification_dropdown.html.twig' => 1,
-        'modules/groups/views/gallery.html.twig' => 1,
         'modules/groups/views/list.html.twig' => 9,
         'modules/groups/views/members.html.twig' => 9,
         'modules/groups/views/partials/feed_page.html.twig' => 1,
@@ -221,7 +205,7 @@ final class UxConventionsTest extends TestCase
         'modules/member_stats/views/index.html.twig' => 1,
         'modules/sos_staff/views/admin.html.twig' => 1,
         'modules/sos_staff/views/partials/planned_transitions.html.twig' => 1,
-        'modules/test_tools/views/mail_detail.html.twig' => 8,
+        'modules/test_tools/views/mail_detail.html.twig' => 7,
         'modules/test_tools/views/mail_sandbox.html.twig' => 12,
     ];
 
@@ -248,6 +232,9 @@ final class UxConventionsTest extends TestCase
         '/gallery/media/{media_id}/download',
         '/gallery/media/{media_id}/{size}',
         '/gallery/{id}/download',
+        // JSON payload for the create/edit dialog (MassMailController::
+        // show()), not the tracking page — never renders a page.
+        '/mass-mail/{id}',
         '/groups/{id}/feed',
         '/groups/{id}/media-status',
         '/groups/{id}/member-search',
@@ -265,37 +252,8 @@ final class UxConventionsTest extends TestCase
         '/r/{token}/poll',
         '/r/{token}/qr',
         '/support-dashboard/export',
-    ];
-
-    /**
-     * Page routes whose breadcrumb declaration is still missing — the
-     * "19 pages without a trail" of the review, re-counted. To fix, then
-     * remove from this list.
-     *
-     * @var list<string>
-     */
-    private const PAGE_ROUTES_MISSING_BREADCRUMB = [
-        '/config/finance/accounts',
-        '/config/finance/categories',
-        '/config/gallery/locations/new',
-        '/config/gallery/locations/{id}/edit',
-        '/config/inscriptions/demandes/{id}',
-        '/finance/import',
-        '/finance/movements',
-        '/finance/receipts',
-        '/finance/receipts/new',
-        '/finance/receivables',
-        '/gallery/{id}',
-        '/inscriptions/suivi/demande/{id}',
-        '/inscriptions/suivi/emails/confirm/{id}',
-        '/inscriptions/suivi/{id}/{token}',
-        '/mass-mail/unsubscribe/{id}',
-        '/mass-mail/{id}',
-        '/mass-mail/{id}/tracking',
-        '/members/{id}/emails/{recipient_id}',
-        '/r/{token}',
-        '/retro/create',
-        '/retro/{id}/edit',
+        // Dialog-body fragment fetched on click (views/partials/
+        // detail.html.twig does not extend base) — never a full page.
         '/support-dashboard/installations/{id}',
     ];
 
@@ -303,8 +261,7 @@ final class UxConventionsTest extends TestCase
      * design.md §7.3 — a breadcrumb `parents` entry only renders as a
      * live control when it exactly matches a menu label; anything else is
      * inert grey text. Dynamic menu entries (MenuEntryProvider) are legal
-     * targets too. The two test_tools entries are accepted as deliberate
-     * plain-text hierarchy on a superadmin-only tool.
+     * targets too.
      *
      * @var list<string> parent labels accepted besides MenuBuilder's
      */
@@ -312,9 +269,6 @@ final class UxConventionsTest extends TestCase
         // Dynamic entries contributed by modules (MenuEntryProvider).
         'Locations',
         'Mes locations',
-        // Deliberate plain-text hierarchy (test tooling).
-        'Bac à sable e-mail',
-        'Outils de test',
     ];
 
     /** Menu labels a `parents` entry can point at (MenuBuilder::MENUS). */
@@ -556,8 +510,7 @@ final class UxConventionsTest extends TestCase
             }
         }
 
-        $allow = array_fill_keys(self::PAGE_ROUTES_MISSING_BREADCRUMB, 1);
-        self::assertMatchesAllowlist($missing, $allow, 'A GET route that renders a page declares a breadcrumb (or is listed as a non-page endpoint)');
+        self::assertMatchesAllowlist($missing, [], 'A GET route that renders a page declares a breadcrumb (or is listed as a non-page endpoint)');
 
         $allowedParents = array_merge(self::MENU_LABELS, self::EXTRA_ALLOWED_PARENT_LABELS);
         foreach ($declaredParents as $parent => $paths) {

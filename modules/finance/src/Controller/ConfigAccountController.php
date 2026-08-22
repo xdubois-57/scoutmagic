@@ -52,6 +52,9 @@ class ConfigAccountController extends AbstractController
         }
 
         return $this->render('@finance/config/accounts.html.twig', [
+            'breadcrumb_trail' => [
+                ['label' => 'Finances', 'url' => '/config/finance'],
+            ],
             'accounts' => $this->financeService->getAllAccountsForConfig(),
             'sections_by_id' => $sectionsById,
             'account_types' => [Account::TYPE_BANK => 'Compte bancaire', Account::TYPE_CASH => 'Caisse'],

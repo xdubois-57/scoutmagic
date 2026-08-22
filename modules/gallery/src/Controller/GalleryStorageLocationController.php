@@ -292,6 +292,9 @@ class GalleryStorageLocationController extends AbstractController
     {
         return [
             'location' => $location,
+            'breadcrumb_trail' => [
+                ['label' => 'Galerie', 'url' => '/config/gallery'],
+            ],
             'referenced_count' => $location !== null ? $this->storageLocationRepository->countAlbumsUsing($location->id) : 0,
             'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
             'csrf_token' => CsrfGuard::generateToken(),

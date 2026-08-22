@@ -9,9 +9,8 @@
             Capturé le {{ email.capturedAt|date('d/m/Y à H:i') }}
         </p>
     </div>
-    <a href="/test-tools/mail-sandbox" class="btn btn-outline-secondary" style="min-height:44px;">
-        <i class="bi bi-arrow-left"></i> Retour au bac à sable
-    </a>
+    {# The way back to the sandbox list lives in the breadcrumb trail
+       (design.md §7.3) — no « Retour » button here. #}
 </div>
 
 <dl class="row small mb-3">

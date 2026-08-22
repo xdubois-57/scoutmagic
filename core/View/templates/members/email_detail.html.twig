@@ -1,12 +1,8 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ email.subject }} — {{ site_name }}{% endblock %}
 {% block content %}
-    <div class="mb-3">
-        <a href="/members/{{ member.memberYearId }}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Retour
-        </a>
-    </div>
-
+    {# The way back to the member's page lives in the breadcrumb trail
+       (design.md §7.3) — no « Retour » button here. #}
     <div class="card">
         <div class="card-body">
             <h1 class="h4 mb-1">{{ email.subject }}</h1>

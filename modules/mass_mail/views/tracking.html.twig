@@ -8,7 +8,8 @@
 
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <a href="/mass-mail" class="btn btn-sm btn-outline-secondary mb-2"><i class="bi bi-arrow-left"></i> Retour</a>
+            {# The way back to the mailing list lives in the breadcrumb
+               trail (design.md §7.3) — no « Retour » button here. #}
             <h1 class="mb-0 h3">{{ email.subject }} <span class="badge {{ badgeClass }}">{{ statusLabel }}</span></h1>
         </div>
     </div>

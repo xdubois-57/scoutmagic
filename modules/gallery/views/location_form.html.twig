@@ -3,10 +3,9 @@
 {% block title %}{{ location ? 'Modifier l\'emplacement' : 'Nouvel emplacement de stockage' }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
-        <h1 class="h4 mb-0">{{ location ? 'Modifier l\'emplacement de stockage' : 'Nouvel emplacement de stockage' }}</h1>
-        <a href="/config/gallery" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Retour</a>
-    </div>
+    {# The way back to the gallery config lives in the breadcrumb trail
+       (design.md §7.3) — no « Retour » button here. #}
+    <h1 class="h4 mb-3">{{ location ? 'Modifier l\'emplacement de stockage' : 'Nouvel emplacement de stockage' }}</h1>
 
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>

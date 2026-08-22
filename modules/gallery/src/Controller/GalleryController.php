@@ -145,6 +145,10 @@ class GalleryController extends AbstractController
 
         return $this->render('@gallery/album.html.twig', [
             'album' => $album,
+            'breadcrumb_current' => $album->title,
+            'breadcrumb_trail' => [
+                ['label' => 'Galerie', 'url' => '/gallery'],
+            ],
             'media' => $media,
             'has_downloadable_media' => !$unavailable && count(array_filter($mediaRows, fn(Media $m) => $m->processingStatus === Media::STATUS_DONE)) > 0,
             'storage_unavailable' => $unavailable,

@@ -2,7 +2,8 @@
 {% block title %}{{ r.childFirstName }} {{ r.childLastName }} — Inscriptions — {{ site_name }}{% endblock %}
 {% block content %}
     <div class="container py-4" style="max-width: 900px;">
-        <p class="mb-2"><a href="/config/inscriptions?year={{ r.scoutYearId }}">&laquo; Retour à la liste</a></p>
+        {# The way back to the request list lives in the breadcrumb trail
+           (design.md §7.3) — no « Retour » link here. #}
         <h1 class="h3 mb-1">{{ r.childFirstName }} {{ r.childLastName }}</h1>
         <p class="text-body-secondary small mb-4">Demande reçue le {{ r.receivedAt|french_date }} — année scoute {{ scout_year_label }}</p>
 

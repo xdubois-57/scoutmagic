@@ -62,6 +62,33 @@ class NotificationRepository
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
+    /**
+     * The unread notifications of one type, as just their routing facts —
+     * url and creation time, never title/body (both encrypted; a caller
+     * counting mentions per group has no business decrypting anything).
+     * The groups module's homepage summary filters these by the group id
+     * embedded in the url and by each group's own last-read time, so a
+     * mention stops counting once its group has actually been opened.
+     *
+     * @return array<int, array{url: ?string, created_at: string}>
+     */
+    public function findUnreadOfType(int $userAccountId, string $typeId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT url, created_at FROM notifications
+             WHERE user_account_id = ? AND type_id = ? AND read_at IS NULL'
+        );
+        $stmt->execute([$userAccountId, $typeId]);
+
+        return array_map(
+            static fn(array $row) => [
+                'url' => $row['url'] !== null ? (string) $row['url'] : null,
+                'created_at' => (string) $row['created_at'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
     public function countUnread(int $userAccountId): int
     {
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM notifications WHERE user_account_id = ? AND read_at IS NULL');
