@@ -3436,7 +3436,11 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     $rentalManagerService = new \Modules\Rental\Service\RentalManagerService(
         $rentalManagerRepository,
         $memberService,
-        $journalService
+        $journalService,
+        // Reads `rental_manager_minimum_age`: who may be designated a
+        // manager at all. A grant carries the renters' identities, the
+        // money and the contracts, so the picker does not offer children.
+        $settingService
     );
     // The pricing engine is pure and stateless, so one instance serves every
     // caller — the configuration simulator, the public page and the contract
@@ -3464,7 +3468,11 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     $rentalAvailabilityService = new \Modules\Rental\Service\RentalAvailabilityService(
         new \Modules\Rental\Availability\AvailabilityCalculator(),
         new \Modules\Rental\Repository\RentalConstraintsRepository($pdo),
-        $rentalOccupancyProviders
+        $rentalOccupancyProviders,
+        // Booking rules are now written from the asset's own managed space
+        // rather than from an admin-only page, so who changed them is worth
+        // recording.
+        $journalService
     );
 
     $rentalEventRepository = new \Modules\Rental\Repository\RentalBookingEventRepository($pdo);
@@ -3499,8 +3507,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Rental\Controller\RentalConfigController::class,
         new \Modules\Rental\Controller\RentalConfigController(
             $twig, $rentalAssetRepository, $rentalAssetService, $rentalManagerService,
-            $memberService, $scoutYearService, $settingService, $rentalPricingService,
-            $rentalAvailabilityService, $rentalPaymentService,
+            $scoutYearService, $settingService, $rentalPaymentService,
             // Which of the unit's already-configured mailboxes this module
             // listens to (§7.4). Never a host, an account or a password —
             // this only stores ids.
@@ -3510,7 +3517,12 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Rental\Controller\RentalPricingController::class,
         new \Modules\Rental\Controller\RentalPricingController(
-            $twig, $rentalPricingService, $rentalAvailabilityService
+            $twig, $rentalPricingService, $rentalAvailabilityService,
+            // `role_min: identified` on every one of this controller's
+            // routes: the authorization service, not the route guard, is
+            // what keeps one asset's tariff out of another manager's reach.
+            $rentalAuthorizationService, $rentalAssetRepository, $scoutYearService,
+            $rentalPaymentService
         )
     );
     $frontController->registerController(

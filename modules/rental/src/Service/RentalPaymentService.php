@@ -96,8 +96,14 @@ class RentalPaymentService
         if ($settings->enabled && $settings->financeAccountId === null) {
             // Half-configured is worse than off: an asset that says
             // "payments on" but can raise nothing looks like it is working.
+            //
+            // The message names the page and the person, because whoever
+            // reads it usually cannot fix it themselves: the account is
+            // pinned by unit staff, while this switch belongs to the asset's
+            // managers (Controller\RentalConfigController::saveFinanceAccount()).
             throw new RentalException(
-                'Choisissez le compte sur lequel les paiements de ce bien sont attendus.'
+                'Aucun compte n\'est encore associé à ce bien : demandez à un chef d\'unité '
+                . 'de l\'associer depuis « Espace chefs d\'U > Locations ».'
             );
         }
 
@@ -121,6 +127,42 @@ class RentalPaymentService
             'Configuration des paiements enregistrée',
             ['asset_id' => $assetId, 'payments_enabled' => $settings->enabled]
         );
+    }
+
+    /**
+     * Pin the Finance account this asset's money is expected on, **without
+     * touching anything else** — the unit-staff half of the split described
+     * in Controller\RentalConfigController::saveFinanceAccount().
+     *
+     * Reads the stored settings back and replaces one field, rather than
+     * taking a whole PaymentSettings: the two screens that write this row
+     * own disjoint field sets and neither may blank the other's work. That
+     * is the same "every section saves independently" rule the
+     * configuration page has always followed, applied across two pages
+     * instead of within one.
+     *
+     * @throws RentalException
+     */
+    public function saveFinanceAccount(int $assetId, ?int $financeAccountId): void
+    {
+        $current = $this->paymentRepository->loadSettings($assetId);
+
+        $this->saveSettings($assetId, $current->withFinanceAccount($financeAccountId));
+    }
+
+    /**
+     * Save everything about the money **except** which account it lands on —
+     * the manager half of the same split. The stored account is read back
+     * and carried across untouched, so a manager who never sees the picker
+     * can never clear it either.
+     *
+     * @throws RentalException
+     */
+    public function saveManagedSettings(int $assetId, PaymentSettings $settings): void
+    {
+        $current = $this->paymentRepository->loadSettings($assetId);
+
+        $this->saveSettings($assetId, $settings->withFinanceAccount($current->financeAccountId));
     }
 
     // ── Raising the receivables ─────────────────────────────────────────

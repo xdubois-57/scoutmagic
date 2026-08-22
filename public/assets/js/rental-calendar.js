@@ -174,7 +174,7 @@ export function refresh(pageUrl) {
 export function wireCalendar(container) {
     container.addEventListener('click', function (event) {
         const target = /** @type {HTMLElement} */ (event.target);
-        const cell = target && target.closest ? target.closest('[data-date]') : null;
+        const cell = /** @type {HTMLElement|null} */ (target && target.closest ? target.closest('[data-date]') : null);
         if (!cell) {
             return;
         }
@@ -183,15 +183,15 @@ export function wireCalendar(container) {
         // cannot be clicked at all — but a tap could still land on a cell
         // the server marked occupied, and the server is the authority on
         // that either way.
-        const date = cell.getAttribute('data-date');
+        const date = cell.dataset.date;
         if (!date) {
             return;
         }
 
         const next = nextSelection(
             date,
-            container.getAttribute('data-arrival') || '',
-            container.getAttribute('data-departure') || ''
+            container.dataset.arrival || '',
+            container.dataset.departure || ''
         );
 
         refresh(selectionUrl(window.location.href, next));

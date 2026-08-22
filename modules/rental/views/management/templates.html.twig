@@ -165,13 +165,20 @@
                         </div>
 
                         <div class="col-12 col-md-6">
+                            {# Checkboxes, not a single select: a hall is very
+                               often both the unit's business and one section's,
+                               and one choice meant the other group never saw
+                               it. Labels come from the calendar module
+                               (CalendarService::listSelectableCalendars) — a
+                               section calendar has no name of its own.
+
+                               No literal HTML tag in this comment, and kept
+                               outside the fieldset below rather than
+                               between it and its legend: Twig comments are
+                               not HTML comments, so an analyser reading the
+                               rendered-source text would take one for real
+                               markup breaking that direct-child relationship. #}
                             <fieldset>
-                                {# Checkboxes, not a single <select>: a hall is very
-                                   often both the unit's business and one section's,
-                                   and one choice meant the other group never saw
-                                   it. Labels come from the calendar module
-                                   (CalendarService::listSelectableCalendars) — a
-                                   section calendar has no name of its own. #}
                                 <legend class="form-label">Calendriers</legend>
                                 {% if calendars is empty %}
                                     <p class="form-text mt-0">
@@ -300,7 +307,7 @@
                             {% if meter_fees is empty %}
                                 Pour facturer la consommation, créez d'abord un frais de nature
                                 « relevé de compteur » dans
-                                <a href="/admin/locations?asset_id={{ asset.id }}#tarification">la tarification du bien</a>
+                                <a href="/mes-locations/{{ asset.slug }}/reglages#tarification">la tarification du bien</a>
                                 — c'est lui qui porte le prix du kWh ou du m³.
                             {% else %}
                                 Le frais « relevé de compteur » qui porte le prix d'une unité. Sans lui, le

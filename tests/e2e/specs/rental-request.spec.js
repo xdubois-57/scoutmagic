@@ -90,10 +90,15 @@ test.describe('Rentals', () => {
         // management is a per-asset grant (§6.3), and even the superadmin
         // who just created it manages nothing until they are named. That is
         // the point of the grant, so the scenario has to go through it.
-        const managers = page.locator('form[action="/admin/locations/managers"]');
-        await expect(managers).toBeVisible();
-        await managers.locator('input[name="manager_member_ids[]"]').first().check();
-        await managers.getByRole('button', { name: 'Enregistrer les gestionnaires' }).click();
+        //
+        // Through the search box, which is the only place this flow is
+        // observable at all: the server renders a plain <select> and
+        // rental-managers.js hides it and rebuilds the same field from a
+        // fetch — so neither PHPUnit (which posts an array it wrote itself)
+        // nor Vitest (a jsdom form with no server behind it) sees whether
+        // the two halves still agree on the field name.
+        await grantManagerBySearch(page);
+
 
         // --- A stranger, with no account at all. ---
         await page.context().clearCookies();
@@ -209,3 +214,37 @@ test.describe('Rentals', () => {
         await expect(page.locator('body')).not.toContainText(INTERNAL_NOTE);
     });
 });
+
+/**
+ * Name the seeded member (Baden Powell) manager of the currently selected
+ * asset, through the real search box.
+ *
+ * Exercises the whole contract in one go: the debounce, the fetch against
+ * `/admin/locations/gestionnaire-recherche`, the row the script builds, and
+ * the field name that row has to carry for
+ * RentalConfigController::saveManagers() to honour it.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function grantManagerBySearch(page) {
+    const managers = page.locator('form[action="/admin/locations/managers"]');
+    await expect(managers).toBeVisible();
+
+    // The plain <select> is still rendered — it is the no-JavaScript
+    // control — and the script hides it. Seeing it hidden is how we know
+    // the enhancement actually ran rather than silently doing nothing.
+    await expect(page.locator('#rental-manager-select-wrapper')).toBeHidden();
+
+    await page.locator('#rental-manager-search').fill('Powell');
+    const result = page.locator('#rental-manager-results button').first();
+    await expect(result).toBeVisible();
+    await result.click();
+
+    // The row the script built posts the same field the select would have.
+    await expect(
+        managers.locator('input[name="manager_member_ids[]"][value]').first(),
+    ).toBeChecked();
+
+    await managers.getByRole('button', { name: 'Enregistrer les gestionnaires' }).click();
+    await expect(page.getByText('Les gestionnaires ont été enregistrés.')).toBeVisible();
+}

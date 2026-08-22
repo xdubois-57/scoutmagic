@@ -25,13 +25,7 @@
         #}
         <p class="text-body-secondary small">
             Tarif, minimum facturable, acompte, caution et règles de réservation de ce bien
-            se configurent dans
-            {% if can_configure %}
-                <a href="/admin/locations?asset_id={{ asset.id }}#tarification">« Espace chefs d'U &gt; Locations »</a>.
-            {% else %}
-                « Espace chefs d'U &gt; Locations » — demandez à un chef d'unité si vous devez
-                les modifier.
-            {% endif %}
+            se configurent dans <a href="/mes-locations/{{ asset.slug }}/reglages">les réglages du bien</a>.
         </p>
 
         {% if statistics %}

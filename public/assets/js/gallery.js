@@ -48,7 +48,6 @@
         var closeBtn = document.getElementById('gallery-lightbox-close');
         var prevBtn = document.getElementById('gallery-lightbox-prev');
         var nextBtn = document.getElementById('gallery-lightbox-next');
-        var hqBtn = document.getElementById('gallery-lightbox-hq');
         var downloadBtn = /** @type {HTMLAnchorElement} */ (document.getElementById('gallery-lightbox-download'));
 
         var items = [];
@@ -75,20 +74,23 @@
                 imageEl.classList.add('d-none');
                 videoEl.src = item.mediumUrl;
                 videoEl.classList.remove('d-none');
-                hqBtn.classList.add('d-none');
             } else {
                 videoEl.classList.add('d-none');
                 imageEl.src = item.mediumUrl;
                 imageEl.classList.remove('d-none');
-                hqBtn.classList.toggle('d-none', !item.largeUrl);
-                hqBtn.dataset.largeUrl = item.largeUrl || '';
             }
 
-            // This is the "large" rendition, not a pristine original — and the
-            // download attribute is ignored cross-origin anyway (S3/CDN), so
-            // the link opens in a new tab there rather than appearing broken.
-            if (item.largeUrl) {
-                downloadBtn.href = item.largeUrl;
+            // One control, and it saves rather than shows: the route behind
+            // it streams the best rendition this site kept, named the way the
+            // album's zip names it (Controller\GalleryController::
+            // downloadMedia()). Hidden outright when a trigger carries no
+            // download URL — an older page, or a media still processing —
+            // rather than offering a button that would 404.
+            if (item.downloadUrl) {
+                downloadBtn.href = item.downloadUrl;
+                downloadBtn.textContent = item.type === 'video'
+                    ? 'Télécharger la vidéo'
+                    : 'Télécharger en haute qualité';
                 downloadBtn.classList.remove('d-none');
             } else {
                 downloadBtn.classList.add('d-none');
@@ -130,7 +132,7 @@
             items.push({
                 type: btn.dataset.type,
                 mediumUrl: mediumUrl,
-                largeUrl: btn.dataset.largeUrl
+                downloadUrl: btn.dataset.downloadUrl
             });
             btn.addEventListener('click', function () { open(index); });
         });
@@ -140,10 +142,6 @@
         box.addEventListener('click', function (e) { if (e.target === box) close(); });
         prevBtn.addEventListener('click', function () { show(currentIndex - 1); });
         nextBtn.addEventListener('click', function () { show(currentIndex + 1); });
-        hqBtn.addEventListener('click', function () {
-            if (hqBtn.dataset.largeUrl) imageEl.src = hqBtn.dataset.largeUrl;
-        });
-
         document.addEventListener('keydown', function (e) {
             if (box.classList.contains('d-none')) return;
             if (e.key === 'Escape') close();

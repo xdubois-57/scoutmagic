@@ -362,4 +362,145 @@ class MemberServiceTest extends TestCase
         );
         $stmt->execute([$memberYearId, $functionId, $sectionId]);
     }
+
+    // ── findDirectoryForYear(): the batched roster a picker searches ─────
+
+    /**
+     * @param ?string $birthDate `null` is the real, common case of a Desk
+     *        record with no birth date encoded — not a test convenience.
+     */
+    private function createDirectoryMember(
+        string $firstName,
+        string $lastName,
+        ?string $birthDate,
+        ?string $totem = null
+    ): int {
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DIR_" . uniqid() . "')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (
+                member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                totem_encrypted, birth_date_encrypted, is_active
+             ) VALUES (?, ?, ?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([
+            $memberId,
+            $this->scoutYearId,
+            $encryption->encrypt($firstName, 'member_years.first_name'),
+            $encryption->encrypt($lastName, 'member_years.last_name'),
+            $totem !== null ? $encryption->encrypt($totem, 'member_years.totem') : null,
+            $birthDate !== null ? $encryption->encrypt($birthDate, 'member_years.birth_date') : null,
+        ]);
+
+        return $memberId;
+    }
+
+    private static function born(int $yearsAgo): string
+    {
+        return (new \DateTimeImmutable('2026-06-15'))->modify('-' . $yearsAgo . ' years')->format('Y-m-d');
+    }
+
+    private function directory(?int $minimumAge): array
+    {
+        return $this->service->findDirectoryForYear(
+            $this->scoutYearId,
+            $minimumAge,
+            new \DateTimeImmutable('2026-06-15')
+        );
+    }
+
+    public function testTheDirectoryReturnsTheWholeActiveRosterWhenNoAgeIsAsked(): void
+    {
+        $this->createDirectoryMember('Marie', 'Dupont', self::born(40));
+        $this->createDirectoryMember('Lucas', 'Petit', self::born(8));
+
+        $this->assertCount(2, $this->directory(null));
+    }
+
+    public function testAMinimumAgeExcludesAnyoneBelowIt(): void
+    {
+        $this->createDirectoryMember('Marie', 'Dupont', self::born(40));
+        $this->createDirectoryMember('Lucas', 'Petit', self::born(8));
+
+        $entries = $this->directory(16);
+
+        $this->assertCount(1, $entries);
+        $this->assertSame('Dupont', $entries[0]->lastName);
+    }
+
+    public function testTheBoundaryIsInclusive(): void
+    {
+        // Sixteen today is sixteen. An off-by-one here silently removes a
+        // whole cohort from the picker and nothing on screen says why.
+        $this->createDirectoryMember('Juste', 'Seize', self::born(16));
+        $this->createDirectoryMember('Presque', 'Seize', self::born(15));
+
+        $entries = $this->directory(16);
+
+        $this->assertCount(1, $entries);
+        $this->assertSame('Juste', $entries[0]->firstName);
+    }
+
+    public function testAMemberWithNoBirthDateIsKept(): void
+    {
+        // Fail-open, deliberately: an incomplete Desk record must not make
+        // an adult volunteer silently unselectable.
+        $this->createDirectoryMember('Camille', 'Sansdate', null);
+
+        $this->assertCount(1, $this->directory(16));
+    }
+
+    public function testAnUnparseableBirthDateIsKeptRatherThanGuessedAt(): void
+    {
+        $this->createDirectoryMember('Bizarre', 'Date', 'pas-une-date');
+
+        $this->assertCount(1, $this->directory(16));
+    }
+
+    public function testNoEntryCarriesABirthDate(): void
+    {
+        // The filter runs while the service still has the decrypted value
+        // and the value object has no property to put it in — a caller
+        // asking for "sixteen and over" is never handed dates of birth.
+        $this->createDirectoryMember('Marie', 'Dupont', self::born(40));
+
+        $entries = $this->directory(16);
+        $properties = array_keys(get_object_vars($entries[0]));
+
+        $this->assertNotContains('birthDate', $properties);
+        $this->assertStringNotContainsString('birth', strtolower(json_encode($properties) ?: ''));
+    }
+
+    public function testAnInactiveMemberIsAbsent(): void
+    {
+        $memberId = $this->createDirectoryMember('Parti', 'Dulieu', self::born(30));
+        $this->pdo->exec('UPDATE member_years SET is_active = 0 WHERE member_id = ' . $memberId);
+
+        $this->assertSame([], $this->directory(null));
+    }
+
+    public function testTheDisplayNameFollowsTheTotemConvention(): void
+    {
+        $this->createDirectoryMember('Sophie', 'Martin', self::born(25), 'Akéla');
+
+        $entry = $this->directory(16)[0];
+
+        $this->assertSame('Akéla', $entry->displayName);
+        $this->assertSame('Martin Sophie (Akéla)', $entry->label());
+    }
+
+    public function testAnEntryMatchesOnFirstNameLastNameOrTotem(): void
+    {
+        $this->createDirectoryMember('Sophie', 'Martin', self::born(25), 'Akéla');
+        $entry = $this->directory(16)[0];
+
+        $this->assertTrue($entry->matches('sophie'));
+        $this->assertTrue($entry->matches('MART'));
+        $this->assertTrue($entry->matches('akéla'));
+        $this->assertFalse($entry->matches('dupont'));
+        $this->assertFalse($entry->matches(''));
+    }
 }

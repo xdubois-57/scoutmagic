@@ -14,9 +14,17 @@ attend. Il répond aux questions qu'on se pose avant de commencer.
   l'unité. Une page par bien, un calendrier de disponibilité, une
   estimation de prix, un formulaire de demande. Personne n'a besoin d'un
   compte.
-- **L'espace de gestion** (`Espace chefs d'U > Locations`) : les
-  réservations, l'argent, les documents, le séjour. Réservé aux
-  gestionnaires du bien et au Staff d'U.
+- **L'espace de gestion** (`Espace animés > Mes locations`) : les
+  réservations, l'argent, les documents, le séjour — et les réglages du
+  bien lui-même : règles de réservation, tarif, acompte et caution.
+  Réservé aux gestionnaires du bien.
+- **La page du parc** (`Espace chefs d'U > Locations`) : quels biens
+  existent et qui les gère. Rien d'autre.
+
+Il n'y a **qu'une seule autorité** dans ce module : « gestionnaire de ce
+bien ». Le Staff d'U l'est de tous les biens, par sa fonction, sans avoir à
+se désigner nulle part — il règle donc le tarif d'un bien au même endroit
+que n'importe quel gestionnaire, pas sur un écran réservé aux chefs.
 
 Un visiteur n'atteint jamais le second, et le premier n'affiche jamais rien
 qui concerne une personne : le calendrier public dit *loué* ou
@@ -24,7 +32,7 @@ qui concerne une personne : le calendrier public dit *loué* ou
 
 ## 2. Créer un bien
 
-`Configuration > Locations > Ajouter un bien`.
+`Espace chefs d'U > Locations > Ajouter un bien`.
 
 Trois choses à décider tout de suite, parce qu'elles changent tout le
 reste :
@@ -39,16 +47,30 @@ reste :
    main, mais aucun visiteur ne le voit. C'est le réglage par défaut : un
    bien n'apparaît en ligne que quand vous le décidez.
 
-Le reste (capacité, heures d'arrivée et de départ, téléphone d'urgence,
-contraintes de réservation) se règle ensuite et se modifie à tout moment.
+Le reste (capacité, heures d'arrivée et de départ, téléphone d'urgence) se
+règle ensuite et se modifie à tout moment. Les **règles de réservation**, le
+**tarif** et l'**acompte** ne se règlent pas ici : ils appartiennent au bien
+et se modifient depuis son espace de gestion, onglet « Réglages ».
 
 ## 3. Désigner les gestionnaires
 
 **Un gestionnaire n'est pas forcément un chef.** C'est souvent
 l'intendant, un parent, un ancien. Vous les désignez bien par bien : ils ne
-voient que leurs biens, et rien des autres.
+voient que leurs biens, et rien des autres. Sur leurs biens, en revanche,
+ils font **tout** : les demandes, l'argent, les documents, le séjour, et les
+réglages du bien.
+
+Vous les cherchez par leur nom, leur prénom ou leur totem. Seuls les membres
+d'au moins **16 ans** sont proposés — un gestionnaire accède aux coordonnées
+des locataires, à l'argent et aux contrats. Cet âge est réglable
+(`Paramètres > Âge minimum d'un gestionnaire de bien`).
 
 Le Staff d'U voit tous les biens, sans avoir à se désigner nulle part.
+
+Un gestionnaire qui disparaît d'un import Desk est **suspendu, pas
+supprimé** : son accès s'arrête, son attribution reste, et elle se réactive
+d'elle-même s'il réapparaît. Il apparaît barré d'un « Désactivé » dans la
+liste ; le décocher, lui, le retire définitivement.
 
 Vous pouvez aussi marquer certains d'entre eux comme **contact du
 locataire** : ce sont eux dont le nom et le téléphone partent dans l'email
@@ -75,9 +97,14 @@ Modifier votre tarif ne change **aucune** réservation existante.
 **Aucune TVA n'est calculée.** Les prix sont ce que le locataire paie. Une
 mention d'exonération configurable par bien apparaît sur la facture.
 
-Le simulateur de la page de configuration passe par exactement le même
-moteur que la page publique et que le contrat : ce que vous y voyez est ce
-que le visiteur verra.
+Tout cela se règle depuis le bien lui-même : `Mes locations > le bien >
+Réglages`. Le simulateur qui s'y trouve passe par exactement le même moteur
+que la page publique et que le contrat : ce que vous y voyez est ce que le
+visiteur verra.
+
+**Pour fermer les demandes quelques semaines** — travaux, absence — posez un
+blocage de dates sur la période depuis le calendrier du bien : les dates
+cessent d'être proposées au public. Il n'existe pas d'interrupteur séparé.
 
 ## 5. Une demande arrive
 
@@ -112,6 +139,12 @@ Tout se passe sur la fiche de la réservation :
   pas décidé.
 
 ## 7. L'argent
+
+Le **compte** sur lequel les virements sont attendus est associé au bien
+par un chef d'unité, depuis `Espace chefs d'U > Locations`. C'est le seul
+réglage d'argent qui ne soit pas entre vos mains : la liste des comptes
+porte les IBAN de l'unité. Tant qu'aucun compte n'est associé, vous ne
+pouvez pas activer les paiements, et le message vous dit à qui le demander.
 
 Avec le module Finances actif : une créance est créée à la confirmation,
 avec une communication structurée. Acompte et solde ont leurs échéances ;

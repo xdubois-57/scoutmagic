@@ -378,6 +378,102 @@ class MemberService
     }
 
     /**
+     * The active roster of one scout year, as picker entries.
+     *
+     * The batched counterpart to getLinkedMembers()/findProfileByMemberAndYear()
+     * for a screen that has to *search* the whole unit rather than display a
+     * handful of people: two queries and one decryption pass for everybody,
+     * against three queries per member for the profile-shaped alternative.
+     *
+     * **$minimumAge is applied here, and the birth date never leaves.**
+     * MemberDirectoryEntry carries no date of birth at all, so a caller that
+     * needs "sixteen and over" gets exactly that and is never handed the
+     * dates it filtered on. A member whose birth date is not encoded in Desk
+     * is **kept**: an incomplete Desk record must not silently make an adult
+     * volunteer unselectable, and the alternative — dropping them — fails in
+     * the direction nobody can debug from the screen.
+     *
+     * @param ?\DateTimeImmutable $today Injectable only so the age boundary is testable on a fixed date.
+     * @return MemberDirectoryEntry[] Ordered by display name.
+     */
+    public function findDirectoryForYear(
+        int $scoutYearId,
+        ?int $minimumAge = null,
+        ?\DateTimeImmutable $today = null
+    ): array {
+        $today ??= new \DateTimeImmutable('today');
+        $entries = [];
+
+        foreach ($this->memberYearRepo->findActiveRosterForYear($scoutYearId) as $row) {
+            $birthDate = $row['birth_date_encrypted'] !== null
+                ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
+                : null;
+
+            if ($minimumAge !== null && !self::isAtLeast($birthDate, $minimumAge, $today)) {
+                continue;
+            }
+
+            $firstName = $row['first_name_encrypted'] !== null
+                ? $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name')
+                : '';
+            $lastName = $row['last_name_encrypted'] !== null
+                ? $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name')
+                : '';
+            $totem = $row['totem_encrypted'] !== null
+                ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem')
+                : null;
+
+            $displayName = $totem !== null && $totem !== '' ? $totem : $firstName;
+            if ($displayName === '') {
+                continue;
+            }
+
+            $entries[] = new MemberDirectoryEntry(
+                memberId: (int) $row['member_id'],
+                displayName: $displayName,
+                firstName: $firstName,
+                lastName: $lastName,
+                totem: $totem !== '' ? $totem : null,
+                sectionName: isset($row['section_name']) && $row['section_name'] !== ''
+                    ? (string) $row['section_name']
+                    : null,
+                functionLabel: isset($row['function_label']) && $row['function_label'] !== ''
+                    ? (string) $row['function_label']
+                    : null
+            );
+        }
+
+        usort($entries, static fn(MemberDirectoryEntry $a, MemberDirectoryEntry $b) =>
+            strcasecmp($a->label(), $b->label()));
+
+        return $entries;
+    }
+
+    /**
+     * Whether a birth date makes somebody at least $minimumAge years old
+     * today — on the **real** date, never on the branch-derived effective
+     * age of Core\Member\MemberYearService, whose scout-year offset is a
+     * chief's correction to a member's course and would answer "sixteen"
+     * for someone who is fifteen.
+     *
+     * An unparseable or absent date answers true: see findDirectoryForYear().
+     */
+    private static function isAtLeast(?string $birthDate, int $minimumAge, \DateTimeImmutable $today): bool
+    {
+        if ($birthDate === null || trim($birthDate) === '') {
+            return true;
+        }
+
+        try {
+            $born = new \DateTimeImmutable(trim($birthDate));
+        } catch (\Exception) {
+            return true;
+        }
+
+        return $born->diff($today)->y >= $minimumAge;
+    }
+
+    /**
      * Convert a database row (with joined data) into a MemberProfile.
      *
      * @param array<string, mixed> $row

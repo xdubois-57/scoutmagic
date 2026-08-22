@@ -39,14 +39,20 @@
     {#
       On a phone the six buttons plus the tally do not fit on one line, so
       they fold behind this one — which only ever appears once groups.js
-      has marked the page as able to open it again (`groups-js` on <html>,
-      components.css). With no JavaScript this button is never shown and
-      the six stay exactly where they have always been: the same posture
-      as members.html.twig's invite box, where JS swaps in the richer
-      control and its absence leaves the plain one working.
+      has marked the page as able to open it again (the groups-js class on
+      the root html element, components.css). With no JavaScript this
+      button is never shown and the six stay exactly where they have
+      always been: the same posture as members.html.twig's invite box,
+      where JS swaps in the richer control and its absence leaves the
+      plain one working.
 
-      A real <button type="button"> inside the form's own row but outside
+      A real button, type="button", inside the form's own row but outside
       every form: it submits nothing, it only reveals.
+
+      No literal HTML tag in this comment: Twig comments are not HTML
+      comments, so an analyser reading the rendered-source text of this
+      fragment (swapped into a page wholesale, never a document of its
+      own) would take one for a real, second html root element.
     #}
     <button type="button" class="groups-reaction-toggle btn btn-sm align-items-center gap-1"
             aria-expanded="false">

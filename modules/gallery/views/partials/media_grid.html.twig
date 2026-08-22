@@ -11,8 +11,7 @@
   is a second grid whose cells open each photo in a new browser tab: the
   same media, a visibly worse page, and two places to fix anything.
 
-  Requires `rows`, a list of
-  `{media, thumb_url, medium_url, large_url}`. `media` needs only
+  Requires `rows`, a list of `{media, thumb_url, medium_url}`. `media` needs only
   `mediaType` and `processingStatus` — true of both gallery's own
   Repository\Media and Api\DelegatedMedia, which is what lets one grid serve
   both.
@@ -33,7 +32,15 @@
                     data-index="{{ loop.index0 }}"
                     data-type="{{ m.mediaType }}"
                     data-medium-url="{{ row.medium_url }}"
-                    data-large-url="{{ row.large_url }}">
+                    {#
+                      Where the lightbox's single "Télécharger en haute qualité"
+                      points. Always the application's own route, never the
+                      rendition's URL: with S3 storage that one is cross-origin,
+                      where the browser ignores `download` outright and names the
+                      file after the storage key
+                      (Controller\GalleryController::downloadMedia()).
+                    #}
+                    data-download-url="/gallery/media/{{ m.id }}/download">
                 {% if m.processingStatus == 'done' %}
                     <img src="{{ row.thumb_url }}" alt="" class="w-100 h-100" style="object-fit:cover;" loading="lazy">
                     {% if m.mediaType == 'video' %}
