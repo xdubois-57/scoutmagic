@@ -74,8 +74,13 @@ class RentalAssetRepositoryTest extends TestCase
         $stored = $this->pdo->query('SELECT emergency_phone_encrypted FROM rental_assets')->fetchColumn();
 
         $this->assertIsString($stored);
-        $this->assertStringNotContainsString('470', $stored);
-        $this->assertStringNotContainsString('+32', $stored);
+        // Fragments of the number itself, not the bare '470' or '+32': the
+        // stored value is ciphertext, and three characters of it matching by
+        // chance is a coin flip, not a leak. What must never appear is the
+        // number, in any readable piece.
+        $this->assertStringNotContainsString('+32 470 12 34 56', $stored);
+        $this->assertStringNotContainsString('470 12 34', $stored);
+        $this->assertStringNotContainsString('12 34 56', $stored);
         $this->assertSame(
             '+32 470 12 34 56',
             $this->encryption->decrypt($stored, 'rental_assets.emergency_phone')

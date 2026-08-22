@@ -623,8 +623,15 @@ class RentalRbacTest extends TestCase
 
         $body = (string) $this->dispatchPublicAsset('local-saint-georges')->getBody();
 
-        $this->assertStringNotContainsString('470', $body);
-        $this->assertStringNotContainsString('+32', $body);
+        // Distinctive fragments of the number, never the bare '470' or
+        // '+32' this used to look for: the page carries a CSP nonce and a
+        // CSRF token, both random base64, and a run whose token happened to
+        // contain "470" failed a test about an emergency phone. A flake in a
+        // disclosure test is worse than useless — it teaches everybody to
+        // re-run it.
+        $this->assertStringNotContainsString('+32 470 12 34 56', $body);
+        $this->assertStringNotContainsString('470 12 34', $body);
+        $this->assertStringNotContainsString('12 34 56', $body);
     }
 
     public function testTheManageButtonIsHiddenFromAVisitorWhoCannotManage(): void
