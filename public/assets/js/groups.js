@@ -1349,7 +1349,25 @@
         }
     }
 
-    function submitDeleteInPlace(form, removeSelector) {
+    /**
+     * A reply's own delete/report/restore form lives inside its
+     * `.groups-reply` bubble; a post's does not — so this is "which of
+     * the two am I" for all three, in one place rather than resolved
+     * (and passed down) by whichever code matched the form in the first
+     * place.
+     *
+     * @param {HTMLFormElement} form
+     * @returns {string}
+     */
+    function replyOrPostSelector(form) {
+        return form.closest('.groups-reply') ? '.groups-reply' : 'article';
+    }
+
+    /**
+     * @param {HTMLFormElement} form
+     */
+    function submitDeleteInPlace(form) {
+        var removeSelector = replyOrPostSelector(form);
         var container = form.closest(removeSelector);
         // Resolved BEFORE the fetch: once container.remove() has run, the
         // form is detached and can no longer find the thread it was in.
@@ -1430,10 +1448,9 @@
     // that nothing visibly happened.
     /**
      * @param {HTMLFormElement} form
-     * @param {string} itemSelector
      */
-    function submitReportInPlace(form, itemSelector) {
-        var item = form.closest(itemSelector);
+    function submitReportInPlace(form) {
+        var item = form.closest(replyOrPostSelector(form));
         var entry = form.closest('li');
         fetch(form.action, {
             method: 'POST',
@@ -1470,10 +1487,9 @@
     // fetch and no reload.
     /**
      * @param {HTMLFormElement} form
-     * @param {string} itemSelector
      */
-    function submitRestoreInPlace(form, itemSelector) {
-        var item = /** @type {HTMLElement} */ (form.closest(itemSelector));
+    function submitRestoreInPlace(form) {
+        var item = /** @type {HTMLElement} */ (form.closest(replyOrPostSelector(form)));
         var banner = form.closest('.groups-hidden-banner');
         fetch(form.action, {
             method: 'POST',
@@ -1642,26 +1658,26 @@
             return;
         }
 
-        var postDeleteForm = /** @type {HTMLFormElement} */ (target.closest('.groups-post-delete-form'));
-        var replyDeleteForm = /** @type {HTMLFormElement} */ (target.closest('.groups-reply-delete-form'));
-        var deleteForm = postDeleteForm || replyDeleteForm;
+        var deleteForm = /** @type {HTMLFormElement} */ (
+            target.closest('.groups-post-delete-form, .groups-reply-delete-form')
+        );
         if (deleteForm) {
             event.preventDefault();
-            submitDeleteInPlace(deleteForm, postDeleteForm ? 'article' : '.groups-reply');
+            submitDeleteInPlace(deleteForm);
             return;
         }
 
         var reportForm = /** @type {HTMLFormElement} */ (target.closest('.groups-report-form'));
         if (reportForm) {
             event.preventDefault();
-            submitReportInPlace(reportForm, reportForm.closest('.groups-reply') ? '.groups-reply' : 'article');
+            submitReportInPlace(reportForm);
             return;
         }
 
         var restoreForm = /** @type {HTMLFormElement} */ (target.closest('.groups-restore-form'));
         if (restoreForm) {
             event.preventDefault();
-            submitRestoreInPlace(restoreForm, restoreForm.closest('.groups-reply') ? '.groups-reply' : 'article');
+            submitRestoreInPlace(restoreForm);
             return;
         }
 
