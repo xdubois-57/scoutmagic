@@ -3,7 +3,11 @@
 # SessionStart hook — installs PHP and JS dependencies so `vendor/bin/phpunit`,
 # `vendor/bin/phpstan` and `npm test` work in a Claude Code on the web session.
 #
-# Idempotent: re-running it is a fast no-op once vendor/ matches composer.lock.
+# Idempotent: re-running it is a fast no-op once vendor/ matches
+# composer.lock and node_modules/ holds every package package.json declares.
+# Both of those are MEASURED, not assumed from a directory being there — see
+# composer_missing_packages() and npm_missing_packages() below for why that
+# distinction is the whole point.
 #
 set -euo pipefail
 
@@ -20,6 +24,74 @@ export DEBIAN_FRONTEND=noninteractive
 
 log() { echo "[session-start] $*"; }
 warn() { echo "[session-start] WARNING: $*" >&2; }
+
+# --- Freshness probes ------------------------------------------------------
+#
+# Both of these answer "which declared packages are NOT installed", one name
+# per line, and print nothing when everything is there. They exist because
+# the checks they replace asked a much weaker question — "does vendor/ exist"
+# and "does node_modules/ exist" — and a container image whose dependency
+# tree predates a commit satisfies both while being materially incomplete.
+#
+# That is not hypothetical. A container image has shipped with a vendor/
+# 20 packages behind composer.lock (webklex/php-imap and its whole
+# transitive tree, which arrived with the inbound_mail module) and a
+# node_modules/ holding no typescript. The hook said "already present" to
+# both. What that produced was a PHPStan run with 36 class.notFound errors,
+# a failing Tests\Core\System\TypeHintResolutionTest and an unrunnable
+# `npm run typecheck` — three findings that read as defects in this
+# repository and were nothing of the sort. A missing dependency has to
+# announce itself as a missing dependency.
+
+# Every composer.lock package (dev included — phpunit and phpstan live
+# there) that vendor/composer/installed.json does not record at the locked
+# version, or whose directory is absent or empty.
+composer_missing_packages() {
+  php -r '
+    $lock = json_decode((string) @file_get_contents("composer.lock"), true);
+    if (!is_array($lock)) { echo "composer.lock\n"; exit; }
+
+    $installed = [];
+    if (is_file("vendor/composer/installed.json")) {
+        $json = json_decode((string) file_get_contents("vendor/composer/installed.json"), true);
+        foreach ((array) ($json["packages"] ?? []) as $p) { $installed[$p["name"]] = $p["version"]; }
+    }
+
+    foreach (array_merge((array) ($lock["packages"] ?? []), (array) ($lock["packages-dev"] ?? [])) as $p) {
+        $dir = "vendor/" . $p["name"];
+        $ok = ($installed[$p["name"]] ?? null) === $p["version"]
+            && is_dir($dir) && count((array) scandir($dir)) > 2;
+        if (!$ok) { echo $p["name"], "\n"; }
+    }
+  ' 2>/dev/null || true
+}
+
+# Every name package.json declares (dependencies and devDependencies alike)
+# that does not resolve under node_modules/. Names rather than versions: the
+# manifest is the contract this repository states, npm install is what the
+# container caches, and a missing NAME is the failure that actually happens.
+npm_missing_packages() {
+  command -v node >/dev/null 2>&1 || return 0
+  node -e '
+    const fs = require("node:fs");
+    const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    const declared = { ...(manifest.dependencies || {}), ...(manifest.devDependencies || {}) };
+    for (const name of Object.keys(declared)) {
+      if (!fs.existsSync(`node_modules/${name}/package.json`)) { console.log(name); }
+    }
+  ' 2>/dev/null || true
+}
+
+# "a, b, c and 17 more" — enough to recognise the problem in the session log
+# without pasting a hundred package names into it.
+summarise_names() {
+  echo "$1" | php -r '
+    $names = array_values(array_filter(array_map("trim", explode("\n", (string) stream_get_contents(STDIN)))));
+    $shown = array_slice($names, 0, 3);
+    $rest = count($names) - count($shown);
+    echo implode(", ", $shown), $rest > 0 ? " and {$rest} more" : "";
+  '
+}
 
 # --- System packages ---------------------------------------------------
 #
@@ -69,8 +141,22 @@ fi
 # If layers 2 or 3 are being exercised, the real fix is to allowlist
 # codeload.github.com and api.github.com for this environment; then layer 1
 # succeeds and the rest is dead weight.
-if [ ! -f vendor/autoload.php ] || ! php -r 'exit(is_dir("vendor/phpunit/phpunit") ? 0 : 1);'; then
-  log "installing PHP dependencies"
+#
+# The gate below asks composer.lock, never the filesystem's shape: a
+# vendor/ that is merely PRESENT tells you nothing about whether it is
+# COMPLETE (see composer_missing_packages() for the incident that makes the
+# difference concrete). vendor/bin/phpunit and vendor/bin/phpstan are
+# checked too — this script advertises both at the end, and the layer-3
+# fallback below is the one path that can leave them behind.
+COMPOSER_MISSING="$(composer_missing_packages)"
+
+if [ ! -f vendor/autoload.php ] || [ -n "${COMPOSER_MISSING}" ] \
+   || [ ! -x vendor/bin/phpunit ] || [ ! -x vendor/bin/phpstan ]; then
+  if [ -n "${COMPOSER_MISSING}" ]; then
+    log "installing PHP dependencies ($(echo "${COMPOSER_MISSING}" | wc -l | tr -d ' ') missing vs composer.lock: $(summarise_names "${COMPOSER_MISSING}"))"
+  else
+    log "installing PHP dependencies"
+  fi
 
   if composer install --prefer-dist --no-progress 2>/dev/null; then
     log "composer install (dist) ok"
@@ -141,14 +227,58 @@ if [ ! -f vendor/autoload.php ] || ! php -r 'exit(is_dir("vendor/phpunit/phpunit
     [ -f vendor/phpunit/phpunit/phpunit ] && ln -sf ../phpunit/phpunit/phpunit vendor/bin/phpunit && chmod +x vendor/phpunit/phpunit/phpunit
     [ -f vendor/phpstan/phpstan/phpstan ] && ln -sf ../phpstan/phpstan/phpstan vendor/bin/phpstan && chmod +x vendor/phpstan/phpstan/phpstan
   fi
+
+  # Measured again rather than inferred from an exit code: any of the three
+  # layers above can succeed for most packages and quietly leave a few
+  # behind, and a partial vendor/ that nobody names is exactly the state
+  # this whole section exists to stop happening twice.
+  COMPOSER_MISSING="$(composer_missing_packages)"
+  if [ -n "${COMPOSER_MISSING}" ]; then
+    warn "$(echo "${COMPOSER_MISSING}" | wc -l | tr -d ' ') package(s) from composer.lock are still not installed: $(summarise_names "${COMPOSER_MISSING}")"
+    warn "expect PHPStan class.notFound errors and Tests\\Core\\System\\TypeHintResolutionTest failures for code that uses them"
+  else
+    log "PHP dependencies complete (composer.lock fully installed)"
+  fi
+
+  # PHPStan caches its verdicts per file in storage/temp/phpstan, and a
+  # `class.notFound` recorded while a package was absent SURVIVES that
+  # package being installed — the analysed file has not changed, so nothing
+  # invalidates it. Without this, the very run that repairs vendor/ is
+  # followed by an analysis still insisting the class is not there, which
+  # sends whoever reads it looking for a bug in the code. Cleared only on
+  # the path that actually moved a package, so a warm cache is kept the
+  # rest of the time.
+  [ -x vendor/bin/phpstan ] && vendor/bin/phpstan clear-result-cache >/dev/null 2>&1 || true
 else
-  log "PHP dependencies already present"
+  log "PHP dependencies already present (composer.lock fully installed)"
 fi
 
-# --- JS dependencies (tests/js, run by vitest) -----------------------------
-if [ -f package.json ] && [ ! -d node_modules ]; then
-  log "installing JS dependencies"
-  npm install --no-audit --no-fund >/dev/null 2>&1 || log "npm install failed (JS tests unavailable)"
+# --- JS dependencies (tests/js, tests/e2e, npm run typecheck) --------------
+#
+# Same rule as the PHP side: what decides is whether the packages
+# package.json declares are actually there, not whether node_modules/ is.
+# A node_modules/ missing only `typescript` looks entirely normal and makes
+# `npm run typecheck` — a mandatory gate (AGENTS.md § Static analysis) —
+# report a missing binary instead of analysing anything.
+if [ -f package.json ]; then
+  NPM_MISSING="$(npm_missing_packages)"
+
+  if [ ! -d node_modules ] || [ -n "${NPM_MISSING}" ]; then
+    if [ -n "${NPM_MISSING}" ]; then
+      log "installing JS dependencies ($(echo "${NPM_MISSING}" | wc -l | tr -d ' ') missing vs package.json: $(summarise_names "${NPM_MISSING}"))"
+    else
+      log "installing JS dependencies"
+    fi
+
+    npm install --no-audit --no-fund >/dev/null 2>&1 || log "npm install failed (JS tests unavailable)"
+
+    NPM_MISSING="$(npm_missing_packages)"
+    if [ -n "${NPM_MISSING}" ]; then
+      warn "still missing after npm install: $(summarise_names "${NPM_MISSING}") — 'npm run typecheck'/'npm test' may not run"
+    fi
+  else
+    log "JS dependencies already present (package.json fully installed)"
+  fi
 fi
 
 # --- MySQL for `phpunit --group=database` -----------------------------
