@@ -45,7 +45,12 @@ final class MenuEntry
         public readonly int $order = 100,
         public readonly bool $isDynamic = false,
         public readonly ?string $subtitle = null,
-        public readonly string $group = MenuBuilder::GROUP_MODULE
+        public readonly string $group = MenuBuilder::GROUP_MODULE,
+        // The Bootstrap Icons class shown in front of the entry in the
+        // mobile menu, so its label lines up with the per-member entries'
+        // avatars (partials/nav.html.twig). Trailing and optional: an
+        // entry that names none renders the neutral fallback.
+        public readonly ?string $icon = null
     ) {
     }
 }

@@ -38,6 +38,7 @@ use Modules\Groups\Service\MemberIdentityService;
 use Modules\Groups\Service\ReportService;
 use Modules\Groups\Service\ModeratorBindingService;
 use Modules\Groups\Service\SectionGroupSyncService;
+use Modules\Groups\Support\GroupLabel;
 use Modules\Groups\Support\RejectedDraft;
 use Modules\Groups\Support\SearchTerm;
 use Twig\Environment;
@@ -87,7 +88,13 @@ class GroupController extends AbstractController
         private ?GroupReadStateService $readStateService = null,
         private ?PostEventService $eventService = null,
         private ?MemberIdentityService $identityService = null,
-        private ?ReportService $reportService = null
+        private ?ReportService $reportService = null,
+        // Trailing and optional like every other collaborator here. Used
+        // for one thing only: naming the message a pin would replace
+        // (Service\PostService::pinnedLabel()), which a page renders
+        // without perfectly well — the confirmation then simply says
+        // that a message will be unpinned without quoting it.
+        private ?PostService $postService = null
     ) {
     }
 
@@ -117,7 +124,7 @@ class GroupController extends AbstractController
         $this->moderatorBindingService?->run();
 
         return $this->render('@groups/list.html.twig', [
-            'items' => $this->decorate($this->listService->findCurrent($context)),
+            'items' => $this->decorate($this->listService->findCurrent($context), $context),
             'archived_count' => count($this->listService->findArchived($context)),
             'can_create' => $context->role->hasAccess(Role::CHIEF),
             'sections' => $this->sectionService->getAllWithBranches(),
@@ -135,7 +142,7 @@ class GroupController extends AbstractController
         $context = $this->context();
 
         return $this->render('@groups/list.html.twig', [
-            'items' => $this->decorate($this->listService->findArchived($context)),
+            'items' => $this->decorate($this->listService->findArchived($context), $context),
             'archived_count' => 0,
             'can_create' => false,
             'sections' => [],
@@ -166,6 +173,9 @@ class GroupController extends AbstractController
 
         return $this->render('@groups/show.html.twig', [
             'group' => $group,
+            // The name the page shows: the group's own, plus the scout
+            // year when it is tied to the one in effect (Support\GroupLabel).
+            'group_label' => $this->label($group, $context),
             'badges' => $this->badges($group, $context),
             'can_moderate' => $canModerate,
             // A past-year group stays a read-only archive (prompt 3), so
@@ -175,6 +185,11 @@ class GroupController extends AbstractController
                 && $group->isClosed()
                 && ($group->scoutYearId === null || $group->scoutYearId === $context->effectiveScoutYearId),
             'post_permission' => $this->accessService->canPost($group, $context),
+            // What the CARDS need, which is a weaker question than the
+            // composer's: commenting, reacting and answering a poll stay
+            // open to every member of a group where only moderators
+            // publish (Service\GroupAccessService::canParticipate()).
+            'participate_permission' => $this->accessService->canParticipate($group, $context),
             // Who this account may answer a member-scoped poll for —
             // empty when there is nothing to choose between (see
             // partials/poll.html.twig).
@@ -184,6 +199,12 @@ class GroupController extends AbstractController
             // shown the entry, and nobody else may open the page behind
             // it (Controller\ReportController::index()).
             'reported_count' => $canModerate ? count($this->reportService?->reportedInGroup($group->id)['post_ids'] ?? []) : 0,
+            // The message the pin confirmation names as the one about to
+            // lose its pin — a group keeps exactly one. Read from the
+            // page just built rather than queried again, and empty for
+            // anyone who is not a moderator (they are never offered the
+            // control at all).
+            'pinned_post_label' => $canModerate ? ($this->postService?->pinnedLabel($group->id) ?? '') : '',
             'pinned' => $page->pinned,
             'posts' => $page->posts,
             'next_cursor' => $page->nextCursor,
@@ -213,7 +234,7 @@ class GroupController extends AbstractController
             // breadcrumb_bar.html.twig's own docblock explains why a
             // direct link is safe here and not for an ordinary parent.
             'breadcrumb_trail' => [['label' => 'Groupes', 'url' => '/groups']],
-            'breadcrumb_current' => $group->name,
+            'breadcrumb_current' => $this->label($group, $context),
         ]);
     }
 
@@ -253,11 +274,22 @@ class GroupController extends AbstractController
         }
 
         $usable = SearchTerm::isUsable($query);
+        $canModerate = $this->accessService->canModerate($group, $context);
 
         return $this->render('@groups/search.html.twig', [
             'group' => $group,
+            'group_label' => $this->label($group, $context),
             'badges' => $this->badges($group, $context),
             'query' => $query,
+            // Same as show(): a result card carries the same kebab menu,
+            // so it needs the same answer to "what would épingler
+            // replace?" (Service\PostService::pinnedLabel()).
+            'pinned_post_label' => $canModerate ? ($this->postService?->pinnedLabel($group->id) ?? '') : '',
+            // `participate_permission` is deliberately NOT passed, the
+            // same way `post_permission` never was: a search result is a
+            // place to find what was said, not a second place to answer
+            // it (search.html.twig's own comment). The cards then default
+            // to offering neither a comment box nor a vote.
             // Two states left: a term too short to run, and a term that
             // ran. "Nothing typed yet" no longer reaches this page at all
             // — an empty box redirects to the group above, which is what
@@ -267,12 +299,7 @@ class GroupController extends AbstractController
             'min_length' => SearchTerm::MIN_LENGTH,
             'result_limit' => GroupFeedService::RESULT_LIMIT,
             'results' => $usable
-                ? $this->feedService->search(
-                    $group,
-                    $context,
-                    $this->accessService->canModerate($group, $context),
-                    SearchTerm::pattern($query)
-                )
+                ? $this->feedService->search($group, $context, $canModerate, SearchTerm::pattern($query))
                 : [],
             // Same trail as gallery(): "Groupes", then this group's own
             // page, both real links.
@@ -348,6 +375,7 @@ class GroupController extends AbstractController
 
         return $this->render('@groups/gallery.html.twig', [
             'group' => $group,
+            'group_label' => $this->label($group, $context),
             // The media of auto-hidden posts and replies are filtered out
             // here too: hiding a message that no longer shows its photos
             // in the feed but still shows them one click away in the
@@ -512,7 +540,14 @@ class GroupController extends AbstractController
             $description = $description === '' ? null : mb_substr($description, 0, self::MAX_DESCRIPTION_LENGTH);
 
             $scoutYearId = $request->getBody('tie_to_year') !== null ? $context->effectiveScoutYearId : null;
-            $this->groupService->edit($group, $name, $scoutYearId, $description);
+
+            // Who may publish here. A radio pair, so the submitted value
+            // is always one of the two — and anything else is normalised
+            // to the open default rather than refused
+            // (Repository\GroupRepository::setPostingPolicy()).
+            $postingPolicy = (string) $request->getBody('posting_policy', DiscussionGroup::POSTING_MEMBERS);
+
+            $this->groupService->edit($group, $name, $scoutYearId, $description, $postingPolicy);
 
             FlashMessage::set('success', 'Les informations du groupe ont été mises à jour.');
 
@@ -669,10 +704,18 @@ class GroupController extends AbstractController
      * @param GroupListItem[] $items
      * @return array<int, array<string, mixed>>
      */
-    private function decorate(array $items): array
+    private function decorate(array $items, GroupSessionContext $context): array
     {
         return array_map(fn(GroupListItem $item) => [
             'group' => $item->group,
+            // "Louveteaux (2025-2026)" for a group tied to the year in
+            // effect, the bare name otherwise — one implementation,
+            // Support\GroupLabel.
+            'label' => GroupLabel::withYear(
+                $item->group,
+                $context->effectiveScoutYearId,
+                $context->effectiveScoutYearLabel
+            ),
             'is_moderator' => $item->isModerator,
             'is_archived' => $item->isArchived,
             'section_names' => $this->sectionNames($item->sectionIds),
@@ -681,6 +724,15 @@ class GroupController extends AbstractController
             // action there, just noise on something already finished.
             'has_unread' => $item->hasUnread && !$item->isArchived,
         ], $items);
+    }
+
+    /**
+     * The group's name as every page of this module writes it — see
+     * Support\GroupLabel.
+     */
+    private function label(DiscussionGroup $group, GroupSessionContext $context): string
+    {
+        return GroupLabel::withYear($group, $context->effectiveScoutYearId, $context->effectiveScoutYearLabel);
     }
 
     /**

@@ -13,6 +13,7 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "Courrier entrant",
+      "menu_icon": "bi-envelope-open",
       "breadcrumb": {
         "label": "Courrier entrant",
         "parents": [

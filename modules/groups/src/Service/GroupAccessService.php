@@ -59,13 +59,49 @@ class GroupAccessService
     }
 
     /**
+     * May this session START a conversation here — canParticipate() plus
+     * the group's own posting policy.
+     *
+     * The policy is about posts and nothing else: a group set to
+     * "moderators only" still lets every member comment, react and answer
+     * a poll (canParticipate(), which is what those actions check). A
+     * group nobody may answer is not a restricted group, it is a
+     * noticeboard, and "clôturé" already means that.
+     *
+     * Staff d'U needs no grant to publish in such a group: a site admin
+     * is an implicit moderator of every group (GroupSessionContext::
+     * isSiteAdmin(), which canModerate() reads first).
+     */
+    public function canPost(DiscussionGroup $group, GroupSessionContext $context): PostPermission
+    {
+        $participation = $this->canParticipate($group, $context);
+        if (!$participation->allowed) {
+            return $participation;
+        }
+
+        if ($group->postingPolicy === DiscussionGroup::POSTING_MODERATORS && !$this->canModerate($group, $context)) {
+            return PostPermission::deny(
+                PostPermission::REASON_MODERATORS_ONLY,
+                'Dans ce groupe, seuls les modérateurs publient des messages. Vous pouvez commenter, réagir et répondre aux sondages.'
+            );
+        }
+
+        return PostPermission::allow();
+    }
+
+    /**
      * canRead() plus: the group is open, its scout year is the effective
      * one (a past-year group is readable but read-only — that is the whole
      * archive case), and the account has a usable identity to sign a post
      * with. Each refusal carries its own French message so the composer
      * can explain itself.
+     *
+     * This is what every write that ANSWERS something already said checks
+     * — a comment, a reaction, a vote, an edit of one's own message. What
+     * starts a new conversation goes through canPost() above, which adds
+     * the group's posting policy on top.
      */
-    public function canPost(DiscussionGroup $group, GroupSessionContext $context): PostPermission
+    public function canParticipate(DiscussionGroup $group, GroupSessionContext $context): PostPermission
     {
         if (!$this->canRead($group, $context)) {
             return PostPermission::deny(

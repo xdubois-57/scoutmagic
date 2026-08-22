@@ -25,7 +25,9 @@ use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupRecipientResolver;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\ReportService;
+use Modules\Groups\Support\GroupLabel;
 use Modules\Groups\Support\ReportedAuthor;
 use Twig\Environment;
 
@@ -74,7 +76,10 @@ class ReportController extends AbstractController
         // Optional and trailing like the two above: without it the two
         // report/restore actions work exactly as before, only the
         // moderator's list has nothing to render.
-        private ?GroupFeedService $feedService = null
+        private ?GroupFeedService $feedService = null,
+        // Same posture again, for one line of the page: which message a
+        // pin would replace (Service\PostService::pinnedLabel()).
+        private ?PostService $postService = null
     ) {
     }
 
@@ -229,6 +234,11 @@ class ReportController extends AbstractController
 
         return $this->render('@groups/reports.html.twig', [
             'group' => $group,
+            'group_label' => GroupLabel::withYear(
+                $group,
+                $context->effectiveScoutYearId,
+                $context->effectiveScoutYearLabel
+            ),
             'badges' => [
                 'is_invitation' => $group->sectionId === null,
                 'section_names' => [],
@@ -238,6 +248,10 @@ class ReportController extends AbstractController
             'rows' => $this->feedService?->rowsForPostIds($group, $context, $reported['post_ids']) ?? [],
             'reply_counts' => $reported['reply_counts'],
             'threshold' => $this->reportService->threshold(),
+            // Only a moderator reaches this page at all, so the pin
+            // control on these cards is offered — and needs the same
+            // "what would it replace?" the group page passes.
+            'pinned_post_label' => $this->postService?->pinnedLabel($group->id) ?? '',
             'breadcrumb_trail' => [
                 ['label' => 'Groupes', 'url' => '/groups'],
                 ['label' => $group->name, 'url' => '/groups/' . $group->id],

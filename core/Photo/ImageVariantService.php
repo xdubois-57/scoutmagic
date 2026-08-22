@@ -34,8 +34,12 @@ class ImageVariantService
      * The fixed, exhaustive vocabulary — Core\Http\Controller\FileController
      * ::variant() validates the URL's {variant} segment against this
      * before it is ever used to build a filesystem path.
+     *
+     * Public so that code DELETING a photo can clean up its derivatives,
+     * which are siblings of the original rather than `files` rows of
+     * their own and so are reached by name (Core\Photo\AccountPhotoService).
      */
-    private const VARIANTS = ['thumb', 'md'];
+    public const VARIANTS = ['thumb', 'md'];
 
     public function __construct(
         private FileRepository $fileRepository,

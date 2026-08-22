@@ -1,10 +1,21 @@
-{# Shared avatar (initials circle) representing the current user — used
-   wherever their identity is shown (mobile header, mobile offcanvas card,
-   desktop bar). Always wrapped in an <a href="/account"> at the call
-   site: both the avatar and the display name next to it link to "Mon
-   compte", never to the notification centre — the unread-notifications
-   indication lives entirely in partials/notification_dropdown.html.twig
-   instead, a separate element. #}
-<span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold" style="width:{{ size|default(40) }}px;height:{{ size|default(40) }}px;font-size:{{ font_size|default('.9rem') }};" aria-hidden="true">
-    {{ current_user_display_name[:2]|upper }}
-</span>
+{# The current user's avatar — used wherever their identity is shown
+   (mobile header, mobile offcanvas card, desktop bar). Always wrapped in
+   an <a href="/account"> at the call site: both the avatar and the
+   display name next to it link to "Mon compte", never to the
+   notification centre — the unread-notifications indication lives
+   entirely in partials/notification_dropdown.html.twig instead, a
+   separate element.
+
+   The drawing itself is the shared component (person_avatar(),
+   Core\View\PersonAvatar): this person's own photo when they have set
+   one on "Mon compte", their initials otherwise — the same circle the
+   menu draws for a member and a discussion group draws for an author.
+   This partial stays as the place that knows WHICH person and at what
+   size, so the three call sites keep passing nothing but a size.
+
+   `font_size` is still accepted and ignored: the component derives it
+   from the diameter, so the two can never disagree. #}
+{{ person_avatar(
+    current_user_avatar_name|default(current_user_display_name|default('')),
+    { account_id: current_user_account_id|default(0), size: size|default(40) }
+) }}

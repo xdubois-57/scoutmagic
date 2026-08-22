@@ -13,6 +13,7 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "Calendrier",
+      "menu_icon": "bi-calendar3",
       "breadcrumb": { "label": "Calendrier", "parents": ["Notre unité"] }
     },
     {
@@ -59,6 +60,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Calendrier",
+      "menu_icon": "bi-calendar-week",
       "breadcrumb": { "label": "Calendrier", "parents": ["Espace chefs"] }
     },
     {
@@ -96,6 +98,7 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "Calendrier",
+      "menu_icon": "bi-calendar3",
       "breadcrumb": { "label": "Calendrier", "parents": ["Configuration"] }
     },
     {

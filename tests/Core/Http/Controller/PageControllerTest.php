@@ -85,6 +85,12 @@ class PageControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('editable', function (string $key, string $default = ''): string {
             return $default;
         }, ['is_safe' => ['html']]));
+        // The shared person avatar (Core\View\PersonAvatar), registered here
+        // the way Core\View\TwigFactory does with no photo service: same
+        // markup as production for an account that has set no photo.
+        $twig->addFunction(new \Twig\TwigFunction('person_avatar', function (string $name, array $options = []): string {
+            return \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40));
+        }, ['is_safe' => ['html']]));
         $twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
             return '';
         }, ['is_safe' => ['html']]));

@@ -13,6 +13,7 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "Inscriptions",
+      "menu_icon": "bi-person-plus",
       "breadcrumb": {
         "label": "Inscriptions",
         "parents": [
@@ -100,6 +101,7 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "Inscriptions",
+      "menu_icon": "bi-person-plus",
       "breadcrumb": {
         "label": "Inscriptions",
         "parents": [
@@ -277,6 +279,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Départs",
+      "menu_icon": "bi-box-arrow-right",
       "breadcrumb": {
         "label": "Départs",
         "parents": [
@@ -301,6 +304,7 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "Passage",
+      "menu_icon": "bi-arrow-left-right",
       "breadcrumb": {
         "label": "Passage",
         "parents": [
@@ -334,6 +338,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Prévisions",
+      "menu_icon": "bi-graph-up-arrow",
       "breadcrumb": {
         "label": "Prévisions",
         "parents": [

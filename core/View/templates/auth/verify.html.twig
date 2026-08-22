@@ -5,13 +5,32 @@
 {% block content %}
 <div class="page-narrow">
 
+    {#
+      Two very different pages behind one "valid": confirming a link is
+      not logging in (Core\Http\Controller\AuthController::verifyMagicLink()).
+      The session is created in the window that ASKED for the link, so
+      unless this browser is that one, there is nothing to continue to
+      here — and saying "accéder au site" would send the visitor to a page
+      that would simply ask them to log in again.
+    #}
     {% if valid %}
         <div class="card">
             <div class="card-body text-center py-4">
                 <div style="font-size: 3rem; color: #198754;" class="mb-3">✓</div>
                 <h3 class="h5 mb-3">Connexion confirmée</h3>
-                <p>Vous pouvez fermer cette page ou continuer sur ce navigateur.</p>
-                <a href="/" class="btn btn-primary">Accéder au site</a>
+                {% if signed_in_here|default(false) %}
+                    <p>Vous pouvez continuer sur ce navigateur.</p>
+                    <a href="/" class="btn btn-primary">Accéder au site</a>
+                {% else %}
+                    <p>
+                        Retournez à la fenêtre où vous avez demandé le lien : c'est là que vous êtes connecté.
+                        Vous pouvez fermer cette page.
+                    </p>
+                    <p class="text-body-secondary small mb-0">
+                        Ce navigateur-ci n'est pas connecté — un lien reçu par mail peut être ouvert
+                        n'importe où, et seule la fenêtre qui a demandé la connexion l'obtient.
+                    </p>
+                {% endif %}
             </div>
         </div>
     {% else %}

@@ -173,6 +173,59 @@ class TwigFactory
             return $img;
         }, ['is_safe' => ['html']]));
 
+        // Register person_avatar() function — THE way this site draws a
+        // person: a circle holding their photo if one is known, their
+        // initials if not (Core\View\PersonAvatar, which owns the
+        // markup). One component behind the member entries in the mobile
+        // menu, the connected person in the header and in that menu, and
+        // the author of a message in a discussion group.
+        //
+        // Which photo depends on WHICH IDENTITY the avatar stands for,
+        // and the two are never mixed: `member_id` resolves the member's
+        // photo for the effective scout year (Core\Photo\
+        // MemberPhotoService, editable on the member page), `account_id`
+        // resolves the login's own (Core\Photo\AccountPhotoService,
+        // editable on "Mon compte"). Passing a member id and falling
+        // back to the account's photo would put a parent's face on their
+        // child's menu entry, so it does not.
+        //
+        // `editable: true` only OFFERS the click-to-replace overlay —
+        // Controller\UploadController re-authorises every upload on its
+        // own, and a flag in a template is never sufficient.
+        $environment->addFunction(new TwigFunction('person_avatar', function (string $name, array $options = []) use ($environment): string {
+            $memberId = (int) ($options['member_id'] ?? 0);
+            $accountId = (int) ($options['account_id'] ?? 0);
+            $size = (int) ($options['size'] ?? 40);
+            $editable = (bool) ($options['editable'] ?? false);
+            $extraClass = (string) ($options['class'] ?? '');
+
+            $globals = $environment->getGlobals();
+            $scoutYearId = (int) ($globals['effective_scout_year_id'] ?? 0);
+
+            $fileId = null;
+            $editableTarget = null;
+
+            if ($memberId > 0) {
+                /** @var \Core\Photo\MemberPhotoService|null $memberPhotos */
+                $memberPhotos = $globals['_member_photo_service'] ?? null;
+                $fileId = ($memberPhotos !== null && $scoutYearId > 0)
+                    ? $memberPhotos->resolveFileId($memberId, $scoutYearId)
+                    : null;
+                if ($editable && $scoutYearId > 0) {
+                    $editableTarget = ['context' => 'member_photo', 'key' => $memberId . ':' . $scoutYearId];
+                }
+            } elseif ($accountId > 0) {
+                /** @var \Core\Photo\AccountPhotoService|null $accountPhotos */
+                $accountPhotos = $globals['_account_photo_service'] ?? null;
+                $fileId = $accountPhotos?->resolveFileId($accountId);
+                if ($editable) {
+                    $editableTarget = ['context' => 'account_photo', 'key' => (string) $accountId];
+                }
+            }
+
+            return \Core\View\PersonAvatar::render($name, $fileId, $size, $editableTarget, $extraClass);
+        }, ['is_safe' => ['html']]));
+
         // Register section_photo() function — "photo of the staff" (all
         // chiefs of a section, together) shown on the Staffs page. Same
         // per-year-with-fallback resolution and config-mode click-to-

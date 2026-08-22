@@ -102,7 +102,14 @@ class PostController extends AbstractController
             // decide whether they appear. Without them a "Charger plus"
             // page would quietly render posts you cannot reply to.
             'post_permission' => $this->accessService->canPost($group, $context),
+            // The weaker of the two, and the one the cards actually read
+            // — see GroupController::show().
+            'participate_permission' => $this->accessService->canParticipate($group, $context),
             'vote_members' => $this->voteMemberOptions($group, $context),
+            // Which message the pin confirmation says will lose its pin
+            // — resolved only for a moderator, who is the only reader
+            // ever offered the control (Service\PostService::pinnedLabel()).
+            'pinned_post_label' => $canModerate ? $this->postService->pinnedLabel($group->id) : '',
         ]);
     }
 
@@ -243,7 +250,14 @@ class PostController extends AbstractController
             // An <input name="poll_options[]"> row set, so already an
             // array — cast for the case where nothing at all was
             // submitted, or something that is not one was.
-            (array) $request->getBody('poll_options', [])
+            (array) $request->getBody('poll_options', []),
+            // Both read from the composer rather than left to their
+            // defaults: the two controls exist in show.html.twig, and a
+            // request that carries neither still lands on exactly those
+            // defaults (one answer per login, a single choice) inside
+            // normalise().
+            (string) $request->getBody('poll_vote_scope', PollService::SCOPE_ACCOUNT),
+            (string) $request->getBody('poll_allow_multiple', '') !== ''
         );
 
         if (!$this->postService->isPostable($body, count($files), $link !== '', $poll !== null)) {
@@ -334,19 +348,30 @@ class PostController extends AbstractController
         // find-right-after-insert race so implausible no test exercises
         // it; falling back to the redirect is still correct either way.
         if ($this->wantsJson($request) && $created !== null) {
-            $row = $this->feedService->rowForNewPost($group, $created, $context, $this->accessService->canModerate($group, $context));
+            $canModerate = $this->accessService->canModerate($group, $context);
+            $row = $this->feedService->rowForNewPost($group, $created, $context, $canModerate);
 
             return $this->json([
                 'html' => $this->twig->render('@groups/partials/post_card.html.twig', [
                     'row' => $row,
                     'group' => $group,
                     'post_permission' => $permission,
+                    'participate_permission' => $this->accessService->canParticipate($group, $context),
                     'vote_members' => $this->voteMemberOptions($group, $context),
+                    'pinned_post_label' => $canModerate ? $this->postService->pinnedLabel($group->id) : '',
                 ]),
+                // What groups.js scrolls to once the card is in the feed
+                // — the anchor the card itself carries, so the two can
+                // never name different things.
+                'post_id' => $created->id,
             ]);
         }
 
-        return $this->redirect('/groups/' . $group->id);
+        // The no-JavaScript path lands on the same message, by the same
+        // anchor: a plain form post reloads the group, and without the
+        // fragment the member is left at the top of a page whose new
+        // message is somewhere below the composer.
+        return $this->redirect('/groups/' . $group->id . ($created !== null ? '#post-' . $created->id : ''));
     }
 
     /**
@@ -407,8 +432,11 @@ class PostController extends AbstractController
             }
 
             // A closed group (or a past-year one) accepts no write at all,
-            // edits included.
-            if (!$this->accessService->canPost($group, $context)->allowed) {
+            // edits included. canParticipate(), not canPost(): correcting
+            // a message you already published is not starting a
+            // conversation, so a group that later moved to
+            // moderators-only must not strand its author's own typo.
+            if (!$this->accessService->canParticipate($group, $context)->allowed) {
                 return new Response('Ce groupe n\'accepte plus de modification.', 403);
             }
 
@@ -451,10 +479,14 @@ class PostController extends AbstractController
      * POST /groups/{id}/posts/{postId}/vote — one member's answer to the
      * poll on that post.
      *
-     * Gated on canPost(), not merely on canRead(): voting is writing, and
-     * a closed group or a past scout year refuses it for exactly the same
-     * reasons it refuses a reply. That is also why a poll carries no
-     * "closed" flag of its own — schema.sql says so.
+     * Gated on canParticipate(), not merely on canRead(): voting is
+     * writing, and a closed group or a past scout year refuses it for
+     * exactly the same reasons it refuses a reply. That is also why a
+     * poll carries no "closed" flag of its own — schema.sql says so.
+     *
+     * Answering is deliberately NOT canPost(): a group where only
+     * moderators publish still asks its members questions, and a poll
+     * nobody may answer would be a poll for nobody.
      *
      * The option id is re-checked against the post's own poll inside
      * Service\PollService, so a hand-made request cannot vote for an
@@ -465,7 +497,7 @@ class PostController extends AbstractController
     public function vote(Request $request, array $params): Response
     {
         return $this->postAction($params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) use ($request): Response {
-            $permission = $this->accessService->canPost($group, $context);
+            $permission = $this->accessService->canParticipate($group, $context);
             if (!$permission->allowed) {
                 return new Response($permission->message, 403);
             }
@@ -561,11 +593,28 @@ class PostController extends AbstractController
     /**
      * POST /groups/{id}/posts/{postId}/pin — moderator only.
      *
+     * Pinning is exclusive: whatever this group had pinned stops being
+     * pinned here (Service\PostService::pin()). The moderator was told
+     * which post that is, and chose how long this one stays up, before
+     * the request was ever sent — but neither is a condition of it: a
+     * submit with no duration at all (no JavaScript, a hand-made
+     * request) pins for the default week rather than failing.
+     *
      * @param array<string, string> $params
      */
     public function pin(Request $request, array $params): Response
     {
-        return $this->setPinned($params, true);
+        $duration = (string) $request->getBody('duration', PostService::PIN_DURATION_DEFAULT);
+
+        return $this->postAction($params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) use ($duration) {
+            if (!$this->accessService->canModerate($group, $context)) {
+                return new Response('Seul un modérateur du groupe peut épingler un message.', 403);
+            }
+
+            $this->postService->pin($post, $duration);
+
+            return $this->redirect('/groups/' . $group->id);
+        });
     }
 
     /**
@@ -575,20 +624,12 @@ class PostController extends AbstractController
      */
     public function unpin(Request $request, array $params): Response
     {
-        return $this->setPinned($params, false);
-    }
-
-    /**
-     * @param array<string, string> $params
-     */
-    private function setPinned(array $params, bool $isPinned): Response
-    {
-        return $this->postAction($params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) use ($isPinned) {
+        return $this->postAction($params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) {
             if (!$this->accessService->canModerate($group, $context)) {
                 return new Response('Seul un modérateur du groupe peut épingler un message.', 403);
             }
 
-            $this->postService->setPinned($post, $isPinned);
+            $this->postService->unpin($post);
 
             return $this->redirect('/groups/' . $group->id);
         });

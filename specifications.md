@@ -32,6 +32,8 @@ Three methods, all resolving to the same email:
 
 **Magic link** (default, always available): enter email → receive link → click to confirm (can be on another device). Login page polls for confirmation. Token: single-use, 15-minute expiry.
 
+**Confirming a link is not logging in.** The session is created in the window that ASKED for the link, and only there; the browser the link happened to be opened in stays anonymous and is told where its session is. A link arrives by email and an email is read wherever it is convenient — a shared tablet, a work laptop, somebody else's webmail, a corporate scanner following links automatically — and none of those should end up holding a session for the address. Opening the link in the very window that asked for it (request on a phone, open the mail app on the same phone) does sign that window in: it was going to collect that session anyway.
+
 **Password**: enter email + password. Available only if user has configured a password.
 
 **Passkey (WebAuthn)**: one-tap with biometrics or security key. No email field (discoverable credentials). Multiple keys per account.
@@ -56,8 +58,14 @@ Administrative tools.
 Site-wide settings, modules, functions.
 
 ### 3.6 Navigation
-- **Mobile**: hamburger (left), unit name (right). Offcanvas from left. User card, accordion sub-menus, login/logout.
+- **Mobile**: hamburger (left), unit name (right). Offcanvas from left. User card, accordion sub-menus, login/logout. Every sub-page entry starts with an icon, in the same box the per-member entries use for their avatar, so all the labels in a menu line up.
 - **Desktop**: horizontal bar, wrapping sub-menu row below. User at right.
+
+### 3.7 How a person is shown
+
+One shared component draws a person everywhere the site shows one — the member entries in the menu, the connected person in the header and menu, the author of a message in a discussion group, "Mon compte": a circle holding **their photo if one is known, their initials otherwise**.
+
+Two photos, never mixed. A **member's** photo belongs to a scout year and is the one on their member page. A **login's** photo is set from "Mon compte", belongs to the person rather than to a year, and is what appears next to their name and their messages. It is optional (initials otherwise), only its owner can set or remove it — an administrator cannot, from anywhere — it is visible only to identified visitors, and removing it deletes the file.
 
 ## 4. Core pages
 
@@ -234,7 +242,7 @@ The site is installable as a Progressive Web App on supported browsers/devices.
 Centralized notification dispatch and delivery across channels.
 
 ### 13.1 Channels
-- **In-app**: notification centre (bell icon in header, unread count badge)
+- **In-app**: notification centre (bell icon in header, unread count badge). The bell's own panel previews the **five most recent unread** notifications under the count, and says how many more are pending; the full list is one click away.
 - **Push**: browser/mobile push notifications (Web Push API, opt-in via subscription)
 
 ### 13.2 Notification types
@@ -244,8 +252,8 @@ Modules can dispatch typed notifications (e.g., calendar event reminder, news ar
 - Role-based visibility (minimum role required to receive)
 
 ### 13.3 Preferences
-- Per-type channel selection (in-app only, push only, both, none)
-- Quiet hours for push notifications (no push during specified time range)
+- Per-type channel selection (in-app only, push only, both, none). Reached from the top of the notification centre, above the list.
+- Quiet hours for push notifications: filling in a start and an end holds push notifications back between those two hours and delivers them when the range ends (a range crossing midnight works); in-app notifications are never held. Leaving both empty follows the site-wide range.
 - Push subscription management (subscribe/unsubscribe)
 
 ### 13.4 Delivery
@@ -510,7 +518,13 @@ A section group is tied to its scout year, which is what keeps last year's group
 
 ### 20.2 What a group holds
 
-Posts (up to 5000 characters, up to four photos or videos, an optional poll, and at most one link with an automatic title/description/image preview), one level of replies (up to 2000 characters, at most one image — replies are never nested), and six fixed reactions (👍 ❤️ 😂 😮 😢 👏), one per person per item. There is no separate field for a link: the first URL typed anywhere in the message is detected automatically, previewed live while composing, and removed from the stored text once its preview card is attached — the card represents it from then on. An author may edit their own post or reply for 15 minutes; an author or a moderator may delete one at any time. A moderator may pin posts to the top of the feed.
+Posts (up to 5000 characters, up to four photos or videos, an optional poll, and at most one link with an automatic title/description/image preview), one level of replies (up to 2000 characters, at most one image — replies are never nested), and six fixed reactions (👍 ❤️ 😂 😮 😢 👏), one per person per item. There is no separate field for a link: the first URL typed anywhere in the message is detected automatically, previewed live while composing, and removed from the stored text once its preview card is attached — the card represents it from then on. An author may edit their own post or reply for 15 minutes; an author or a moderator may delete one at any time. Publishing brings the new message into view rather than leaving the author looking at the composer.
+
+**Who may publish is the group's own choice**: every member (the default), or its moderators alone — an announcement group, where one voice publishes and everybody answers. The restriction is about starting a conversation and nothing else: commenting, reacting and answering a poll stay open to every member either way. Staff d'U publishes in every group without being granted anything, being an implicit moderator of all of them.
+
+**A group has one pinned message at a time.** Pinning a second takes the pin off the first — the moderator is told which message that is, and chooses how long the new one stays up (a day, a week, a month, or until a moderator takes it down) before it happens. A pin that reaches its deadline lapses on its own, and the message becomes an ordinary one again.
+
+**A group tied to the current scout year carries it in its name** — "Louveteaux (2025-2026)" — wherever it is written: the list, the group's own page, its members and gallery pages, the breadcrumb. A past-year group does not, being already marked as an archive, and a group tied to no year has nothing to add.
 
 Photos and videos live in a gallery album belonging to the group, never listed in the unit's own gallery and readable only by the group's members. "Galerie du groupe" shows them all on one page.
 
@@ -539,7 +553,8 @@ Five types, all optional per member except one: a new post in one of my groups, 
 
 | Action | Who | Rule |
 |---|---|---|
-| Modifier le groupe | Moderator | Rename it. An **invitation** group may also be linked or unlinked to the current scout year (same effect as the checkbox at creation); a **section** group's year always follows its section and is never editable here. |
+| Modifier le groupe | Moderator | Rename it, describe it, and choose who may publish (all members, or moderators only). An **invitation** group may also be linked or unlinked to the current scout year (same effect as the checkbox at creation); a **section** group's year always follows its section and is never editable here. |
+| Épingler un message | Moderator | One pinned message per group, for a chosen length of time — see §20.2. |
 | Modifier les membres | Moderator | Invite a member or a whole section; grant or revoke the moderator flag; remove an invited member. |
 | Quitter le groupe | Any invited member | Deletes their invitation; access is lost immediately and coming back needs a new invitation. A membership that comes from a **linked section cannot be left** — it follows the Desk import. The **last moderator** may not leave until another one is appointed; site admins do not count. Their existing posts and replies stay in the group. |
 | Clôturer | Moderator | Read-only from then on, still fully visible. |
@@ -555,7 +570,7 @@ Four nightly tasks, each with its own admin-configurable duration and none of th
 |---|---|
 | Create section groups | One group per visible, active section per scout year, Staff d'U included. Idempotent, and also run whenever the group list is opened, so a missing group heals itself. Next year's groups appear as soon as that year is imported, ready for chiefs through the staff-year mechanism (§16). |
 | Close inactive groups | A group with no post, reply or reaction for `groups_inactivity_close_months` (12 by default) is closed: read-only, still fully visible to its members. A group that never held anything is counted from its creation. A moderator may also close a group by hand. |
-| Purge posts | A post is deleted `groups_post_retention_months` (24 by default) after its last activity, with its replies, reactions, reports, media and cached link image — the files themselves, not only the rows. A pinned post is never purged, at any age. |
+| Purge posts | A post is deleted `groups_post_retention_months` (24 by default) after its last activity, with its replies, reactions, reports, media and cached link image — the files themselves, not only the rows. A pinned post is never purged, at any age; a pin whose deadline has passed is not one any more (§20.2). |
 | Purge closed groups | A closed group is deleted `groups_closed_purge_months` (12 by default) after its closure, gallery album included. A group of the current or a future scout year is never purged. |
 
 

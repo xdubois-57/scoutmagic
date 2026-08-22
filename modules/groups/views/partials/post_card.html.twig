@@ -64,15 +64,30 @@
             </div>
         {% endif %}
         <div class="d-flex justify-content-between align-items-start gap-2">
-            <div class="min-width-0">
-                <p class="mb-1 small">
-                    {% include '@groups/partials/identity.html.twig' with { identity: row.identity } only %}
-                </p>
-                <p class="text-body-tertiary mb-0" style="font-size:0.75rem;">
-                    {{ row.post.createdAt|french_date }} à {{ row.post.createdAt|date('H:i') }}
-                    {% if row.post.isEdited %}<span class="ms-1">· modifié</span>{% endif %}
-                    {% if row.post.isPinned %}<span class="badge bg-warning-subtle text-warning-emphasis ms-1">Épinglé</span>{% endif %}
-                </p>
+            {#
+              Who wrote this, drawn by the shared component
+              (person_avatar(), Core\View\PersonAvatar): the AUTHOR'S OWN
+              login — their photo from "Mon compte" when they have set
+              one, their initials otherwise. Keyed on the account rather
+              than on the membership beside it, for the same reason the
+              name above it is the account's: a message belongs to the
+              address that wrote it (ARCHITECTURE.md §8.40).
+            #}
+            <div class="d-flex align-items-start gap-2 min-width-0">
+                {{ person_avatar(row.identity.account_name, { account_id: row.post.authorUserAccountId, size: 40 }) }}
+                <div class="min-width-0">
+                    <p class="mb-1 small">
+                        {% include '@groups/partials/identity.html.twig' with { identity: row.identity } only %}
+                    </p>
+                    <p class="text-body-tertiary mb-0" style="font-size:0.75rem;">
+                        {{ row.post.createdAt|french_date }} à {{ row.post.createdAt|date('H:i') }}
+                        {% if row.post.isEdited %}<span class="ms-1">· modifié</span>{% endif %}
+                        {# The deadline is part of what a pin means here — one message at a
+                           time, for as long as the moderator said — so it is shown rather
+                           than left as something only they know. #}
+                        {% if row.post.isPinned %}<span class="badge bg-warning-subtle text-warning-emphasis ms-1">Épinglé{% if row.post.pinnedUntil %} jusqu'au {{ row.post.pinnedUntil|french_date }}{% endif %}</span>{% endif %}
+                    </p>
+                </div>
             </div>
 
             {% if row.can_edit or row.can_delete or row.can_pin or row.can_report|default(false) %}
@@ -110,8 +125,28 @@
                         {% endif %}
                         {% if row.can_pin %}
                             <li>
-                                <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/{{ row.post.isPinned ? 'unpin' : 'pin' }}">
+                                {#
+                                  Épingler is exclusive — the group keeps
+                                  exactly one pinned message — so groups.js
+                                  turns this submit into a dialog that says
+                                  which message loses its pin
+                                  (data-pinned-label) and asks how long this
+                                  one stays up, writing the answer into the
+                                  hidden field below.
+
+                                  With no JavaScript the same form still
+                                  posts, and the server pins for the default
+                                  week: the plain control never becomes a
+                                  dead end, exactly like every other one in
+                                  this module.
+                                #}
+                                <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/{{ row.post.isPinned ? 'unpin' : 'pin' }}"
+                                      {% if not row.post.isPinned %}class="groups-pin-form" data-pinned-label="{{ pinned_post_label|default('') }}"{% endif %}>
                                     {{ csrf_field()|raw }}
+                                    {% if not row.post.isPinned %}
+                                        <input type="hidden" name="duration"
+                                               value="{{ constant('Modules\\Groups\\Service\\PostService::PIN_DURATION_DEFAULT') }}">
+                                    {% endif %}
                                     <button type="submit" class="dropdown-item d-flex align-items-center" style="min-height:44px;">
                                         {{ row.post.isPinned ? 'Désépingler' : 'Épingler' }}
                                     </button>
@@ -156,7 +191,7 @@
             poll: row.poll|default(null),
             group: group,
             post: row.post,
-            can_vote: post_permission.allowed|default(false),
+            can_vote: participate_permission.allowed|default(false),
             vote_members: vote_members|default([])
         } only %}
 
@@ -232,7 +267,14 @@
           last visit: a badge you have to click to act on is a badge that
           gets ignored.
         #}
-        {% set can_reply = post_permission.allowed|default(false) %}
+        {#
+          `participate_permission`, not `post_permission`: publishing a
+          message and answering one are two different permissions since
+          the group gained a posting policy (Service\GroupAccessService::
+          canPost() versus canParticipate()). Everything on a CARD —
+          commenting, reacting, voting — is the second one.
+        #}
+        {% set can_reply = participate_permission.allowed|default(false) %}
         {% set new_replies = row.new_reply_count|default(0) %}
         {% if row.reply_count > 0 or can_reply %}
             <details class="groups-thread mt-2" id="post-thread-{{ row.post.id }}"

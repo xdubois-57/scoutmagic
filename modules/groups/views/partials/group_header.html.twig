@@ -5,7 +5,13 @@
 #}
 <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap mb-3">
     <div>
-        <h1 class="h4 mb-1">{{ group.name }}</h1>
+        {#
+          `group_label` is the group's name with the current scout year
+          appended when it is tied to it — "Louveteaux (2025-2026)", one
+          place, Support\GroupLabel. Falls back to the bare name for any
+          caller that has not resolved it.
+        #}
+        <h1 class="h4 mb-1">{{ group_label|default(group.name) }}</h1>
         <div class="d-flex align-items-center gap-2 flex-wrap">
             {% if badges.is_invitation %}
                 <span class="badge bg-secondary-subtle text-secondary-emphasis">Sur invitation</span>

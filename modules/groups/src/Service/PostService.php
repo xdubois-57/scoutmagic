@@ -153,9 +153,104 @@ class PostService
         $this->postRepository->delete($post->id);
     }
 
-    public function setPinned(Post $post, bool $isPinned): void
+    /**
+     * How long a pin lasts, keyed by what the moderator picks. The value
+     * is what `DateTimeImmutable::modify()` is given; `null` is "until a
+     * moderator takes it down" and stores no deadline at all.
+     *
+     * A week is the default because that is the shape of the question a
+     * pin usually answers ("rendez-vous samedi"), and because a pin
+     * nobody ever takes down is how a group ends up with a banner three
+     * months out of date at the top of every visit.
+     *
+     * @var array<string, string|null>
+     */
+    public const PIN_DURATIONS = [
+        'day' => '+1 day',
+        'week' => '+7 days',
+        'month' => '+1 month',
+        'forever' => null,
+    ];
+
+    public const PIN_DURATION_DEFAULT = 'week';
+
+    /**
+     * Pins one post, and unpins whatever else this group had pinned —
+     * exactly one pinned post at a time (schema.sql). The other post is
+     * dropped BEFORE this one is set, so a reader refreshing between the
+     * two statements sees no pin rather than two.
+     *
+     * @param string $duration a key of PIN_DURATIONS; anything else is
+     *        the default rather than an error, since it can only come
+     *        from a hand-made request (the form offers four values).
+     */
+    public function pin(Post $post, string $duration = self::PIN_DURATION_DEFAULT): void
     {
-        $this->postRepository->setPinned($post->id, $isPinned);
+        $this->postRepository->unpinAllExcept($post->groupId, $post->id);
+        $this->postRepository->setPinned($post->id, true, $this->pinDeadline($duration));
+    }
+
+    public function unpin(Post $post): void
+    {
+        $this->postRepository->setPinned($post->id, false);
+    }
+
+    /**
+     * Drops the pin of every post of this group whose deadline has
+     * passed. Called from the group's own page load: a pin has to lapse
+     * whether or not the site's scheduler ever runs, and this module
+     * already self-heals from page loads elsewhere
+     * (Service\SectionGroupSyncService, Service\ModeratorBindingService).
+     *
+     * @return int how many posts stopped being pinned
+     */
+    public function expireStalePins(int $groupId): int
+    {
+        return $this->postRepository->clearExpiredPins($groupId, Timestamps::now());
+    }
+
+    /**
+     * A short, plain-text handle on whatever this group currently has
+     * pinned — what the confirmation names as the post about to lose its
+     * pin, so "épingler" never silently replaces something.
+     *
+     * Empty when nothing is pinned, and empty for anyone who is not a
+     * moderator: the callers only ask when they have already established
+     * that (a member is never offered the pin control at all). A post
+     * with no text of its own — a photo, a poll — has no excerpt to
+     * quote and comes back as the neutral wording instead.
+     */
+    public function pinnedLabel(int $groupId): string
+    {
+        $pinned = $this->postRepository->findPinned($groupId, true);
+        if ($pinned === []) {
+            return '';
+        }
+
+        $body = trim(preg_replace('/\s+/u', ' ', $pinned[0]->body) ?? '');
+        if ($body === '') {
+            return 'le message épinglé';
+        }
+
+        return mb_strlen($body) > 60 ? mb_substr($body, 0, 60) . '…' : $body;
+    }
+
+    /**
+     * The stored deadline for a duration key, in UTC like every other
+     * timestamp this module writes (Support\Timestamps).
+     */
+    private function pinDeadline(string $duration): ?string
+    {
+        // array_key_exists, never `?? default`: "forever" IS null here,
+        // and a null-coalesce would quietly turn the one choice that
+        // means "no deadline" into the default week.
+        $key = array_key_exists($duration, self::PIN_DURATIONS) ? $duration : self::PIN_DURATION_DEFAULT;
+        $modifier = self::PIN_DURATIONS[$key];
+        if ($modifier === null) {
+            return null;
+        }
+
+        return Timestamps::toUtc(Timestamps::now())->modify($modifier)->format('Y-m-d H:i:s');
     }
 
     /**

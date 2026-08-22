@@ -16,12 +16,12 @@
     if (!dropZone || !fileInput) return;
 
     // Client-side downscale before POSTing — only for the core photo
-    // contexts (member_photo, section_photo, editable_image,
-    // age_branch_logo, unit_logo). The gallery module has its own upload
+    // contexts (member_photo, account_photo, section_photo,
+    // editable_image, age_branch_logo, unit_logo). The gallery module has its own upload
     // path, its own thumbnail chain, and much higher limits (30 MB
     // photos, 2 GB videos) — never touched here, this page isn't even
     // reachable from that module's own upload flow.
-    var DOWNSCALE_CONTEXTS = ['member_photo', 'section_photo', 'editable_image', 'age_branch_logo', 'unit_logo'];
+    var DOWNSCALE_CONTEXTS = ['member_photo', 'account_photo', 'section_photo', 'editable_image', 'age_branch_logo', 'unit_logo'];
     var MAX_DIMENSION = 2400;
     var WEBP_QUALITY = 0.85;
     // A file already under this size AND within MAX_DIMENSION needs no

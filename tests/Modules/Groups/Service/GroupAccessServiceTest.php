@@ -6,6 +6,7 @@ namespace Tests\Modules\Groups\Service;
 
 use Core\Member\SectionMembershipRepository;
 use Core\Security\Role;
+use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
@@ -283,6 +284,89 @@ class GroupAccessServiceTest extends TestCase
         $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
 
         $this->assertTrue($this->access->canPost($this->groupRepo->findById($groupId), $this->context([$creator]))->allowed);
+    }
+
+    // --- posting policy -------------------------------------------------
+
+    /**
+     * The whole point of the policy, and the whole point of it being TWO
+     * questions: an ordinary member of a moderators-only group stops
+     * publishing and keeps everything else.
+     */
+    public function testAMemberOfAModeratorsOnlyGroupMayNotPostButMayStillTakePart(): void
+    {
+        $groupId = $this->sectionGroup();
+        $memberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M20', $this->louveteauxId, $this->currentYearId);
+        $this->groupRepo->setPostingPolicy($groupId, DiscussionGroup::POSTING_MODERATORS);
+        $group = $this->groupRepo->findById($groupId);
+
+        $permission = $this->access->canPost($group, $this->context([$memberId]));
+        $this->assertFalse($permission->allowed);
+        $this->assertSame(PostPermission::REASON_MODERATORS_ONLY, $permission->reason);
+        $this->assertStringContainsString('commenter', $permission->message);
+
+        $this->assertTrue($this->access->canParticipate($group, $this->context([$memberId]))->allowed);
+    }
+
+    public function testAModeratorOfTheGroupStillPostsInAModeratorsOnlyGroup(): void
+    {
+        $groupId = $this->sectionGroup();
+        $moderator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M21', $this->louveteauxId, $this->currentYearId);
+        // Granted to the account context() identifies as — the flag names
+        // a login, never a member.
+        $this->memberRepo->add($groupId, $moderator, true, null, 1);
+        $this->groupRepo->setPostingPolicy($groupId, DiscussionGroup::POSTING_MODERATORS);
+
+        $this->assertTrue($this->access->canPost($this->groupRepo->findById($groupId), $this->context([$moderator]))->allowed);
+    }
+
+    /**
+     * Staff d'U needs no grant anywhere: a site admin is an implicit
+     * moderator of every group, so the policy never locks the unit's own
+     * chiefs out of a group they have to be able to write in.
+     */
+    public function testStaffDUniteAlwaysPublishesInAModeratorsOnlyGroup(): void
+    {
+        $groupId = $this->sectionGroup();
+        $chief = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M22', $this->louveteauxId, $this->currentYearId);
+        $this->groupRepo->setPostingPolicy($groupId, DiscussionGroup::POSTING_MODERATORS);
+
+        $this->assertTrue(
+            $this->access->canPost($this->groupRepo->findById($groupId), $this->context([$chief], 'admin'))->allowed
+        );
+    }
+
+    /**
+     * The policy is the LAST thing checked, so a closed group still says
+     * "clôturé" rather than blaming a restriction that is not the reason
+     * this member cannot write.
+     */
+    public function testAClosedModeratorsOnlyGroupStillExplainsItselfAsClosed(): void
+    {
+        $groupId = $this->sectionGroup();
+        $memberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M23', $this->louveteauxId, $this->currentYearId);
+        $this->groupRepo->setPostingPolicy($groupId, DiscussionGroup::POSTING_MODERATORS);
+        $this->groupRepo->setClosed($groupId, '2026-02-01 10:00:00');
+
+        $permission = $this->access->canPost($this->groupRepo->findById($groupId), $this->context([$memberId]));
+
+        $this->assertSame(PostPermission::REASON_CLOSED, $permission->reason);
+    }
+
+    public function testAGroupPublishesToEveryMemberByDefault(): void
+    {
+        $groupId = $this->sectionGroup();
+
+        $this->assertSame(DiscussionGroup::POSTING_MEMBERS, $this->groupRepo->findById($groupId)->postingPolicy);
+    }
+
+    public function testAnInventedPolicyIsStoredAsTheOpenDefault(): void
+    {
+        $groupId = $this->sectionGroup();
+
+        $this->groupRepo->setPostingPolicy($groupId, 'personne');
+
+        $this->assertSame(DiscussionGroup::POSTING_MEMBERS, $this->groupRepo->findById($groupId)->postingPolicy);
     }
 
     // --- posting identity ----------------------------------------------

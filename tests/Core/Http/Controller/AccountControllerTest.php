@@ -24,6 +24,7 @@ class AccountControllerTest extends TestCase
     private \PDO $pdo;
     private EncryptionService $encryption;
     private int $userId;
+    private \Core\Photo\AccountPhotoService $accountPhotoService;
 
     protected function setUp(): void
     {
@@ -51,7 +52,16 @@ class AccountControllerTest extends TestCase
         $twig = $this->createMock(Environment::class);
         $twig->method('render')->willReturn('<html></html>');
 
-        $this->controller = new AccountController($twig, $this->userRepo, $this->webAuthnRepo, $webAuthnService);
+        $this->accountPhotoService = new \Core\Photo\AccountPhotoService(
+            new \Core\Photo\AccountPhotoRepository($this->pdo)
+        );
+        $this->controller = new AccountController(
+            $twig,
+            $this->userRepo,
+            $this->webAuthnRepo,
+            $webAuthnService,
+            $this->accountPhotoService
+        );
 
         // Create a user and authenticate
         $account = $this->userRepo->create('test@example.com');
@@ -378,6 +388,64 @@ class AccountControllerTest extends TestCase
 
         $this->assertSame(403, $response->getStatusCode());
         $this->assertNotNull($this->webAuthnRepo->findByCredentialId($credId));
+    }
+
+    // --- the account's own photo ----------------------------------------
+
+    public function testDeletePhotoRemovesTheCallersOwnPhoto(): void
+    {
+        $fileId = $this->createFile();
+        $this->accountPhotoService->setPhoto($this->userId, $fileId);
+
+        $response = $this->controller->deletePhoto(
+            new Request('POST', '/account/photo/delete', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
+            []
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($this->accountPhotoService->resolveFileId($this->userId));
+    }
+
+    /**
+     * There is no id in this request to get wrong — the session's own
+     * account is the only thing it can act on — so the guard that matters
+     * is the CSRF token.
+     */
+    public function testDeletePhotoRefusesWithoutAValidCsrfToken(): void
+    {
+        $fileId = $this->createFile();
+        $this->accountPhotoService->setPhoto($this->userId, $fileId);
+
+        $this->controller->deletePhoto(
+            new Request('POST', '/account/photo/delete', [], ['_csrf_token' => 'wrong'], [], []),
+            []
+        );
+
+        $this->assertSame($fileId, $this->accountPhotoService->resolveFileId($this->userId));
+    }
+
+    public function testDeletePhotoSendsAVisitorWithNoSessionToTheLoginPage(): void
+    {
+        AuthSession::logout();
+
+        $response = $this->controller->deletePhoto(
+            new Request('POST', '/account/photo/delete', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
+            []
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/login', $response->getHeaders()['Location'] ?? null);
+    }
+
+    private function createFile(): int
+    {
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min)
+             VALUES ('core/account_photos/x.webp', 'x.webp', 'image/webp', 1, 'identified')"
+        );
+        $stmt->execute();
+
+        return (int) $this->pdo->lastInsertId();
     }
 
     /**

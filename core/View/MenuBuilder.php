@@ -41,7 +41,7 @@ class MenuBuilder
         ['id' => self::MENU_CONFIGURATION, 'label' => 'Configuration',     'icon' => 'bi-sliders',  'role_min' => 'superadmin'],
     ];
 
-    /** @var array<string, array<array{label: string, url: string, roleMin: string, order: int, isDynamic: bool, subtitle: ?string, group: string}>> */
+    /** @var array<string, array<array{label: string, url: string, roleMin: string, order: int, isDynamic: bool, subtitle: ?string, group: string, icon: ?string, avatarMemberId: ?int}>> */
     private array $pages = [];
 
     public function __construct(
@@ -81,9 +81,30 @@ class MenuBuilder
      * part of the dynamic member-list slot for sorting purposes but must
      * never render with the per-member avatar styling, so it passes
      * group: GROUP_DYNAMIC with isDynamic: false.
+     *
+     * @param string|null $icon a Bootstrap Icons class ("bi-calendar3")
+     *        shown in front of the entry, so every sub-page of a menu
+     *        lines its label up with the per-member entries' avatars
+     *        rather than starting further left than they do. Null falls
+     *        back to a neutral one at render time (partials/nav.html.twig).
+     * @param int|null $avatarMemberId the member a per-member entry
+     *        stands for — what lets the mobile menu draw that member's
+     *        own photo instead of two letters of their name
+     *        (person_avatar(), Core\View\PersonAvatar). Only ever set on
+     *        a dynamic entry.
      */
-    public function addPage(string $menuId, string $label, string $url, string $roleMin = 'public', int $order = 100, bool $isDynamic = false, ?string $subtitle = null, string $group = self::GROUP_CORE): void
-    {
+    public function addPage(
+        string $menuId,
+        string $label,
+        string $url,
+        string $roleMin = 'public',
+        int $order = 100,
+        bool $isDynamic = false,
+        ?string $subtitle = null,
+        string $group = self::GROUP_CORE,
+        ?string $icon = null,
+        ?int $avatarMemberId = null
+    ): void {
         $this->pages[$menuId][] = [
             'label' => $label,
             'url' => $url,
@@ -92,13 +113,15 @@ class MenuBuilder
             'isDynamic' => $isDynamic,
             'subtitle' => $subtitle,
             'group' => $group,
+            'icon' => $icon,
+            'avatarMemberId' => $avatarMemberId,
         ];
     }
 
     /**
      * Build the complete menu structure filtered for the current role.
      *
-     * @return array<array{id: string, label: string, icon: string, pages: array<array{label: string, url: string, isDynamic: bool, subtitle: ?string}>}>
+     * @return array<array{id: string, label: string, icon: string, pages: array<array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}>}>
      */
     public function build(): array
     {
@@ -138,7 +161,7 @@ class MenuBuilder
      * entries with the same group and order keep their registration
      * order.
      *
-     * @return array<array{label: string, url: string, isDynamic: bool, subtitle: ?string}>
+     * @return array<array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}>
      */
     private function buildPages(string $menuId): array
     {
@@ -167,6 +190,8 @@ class MenuBuilder
                 'url' => $entry['url'],
                 'isDynamic' => $entry['isDynamic'],
                 'subtitle' => $entry['subtitle'],
+                'icon' => $entry['icon'] ?? null,
+                'avatarMemberId' => $entry['avatarMemberId'] ?? null,
             ];
         }
 

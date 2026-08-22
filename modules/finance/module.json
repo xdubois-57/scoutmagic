@@ -13,6 +13,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "Finances",
+      "menu_icon": "bi-cash-coin",
       "breadcrumb": { "label": "Finances", "parents": ["Espace chefs"] }
     },
     {
@@ -194,6 +195,7 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "Finances",
+      "menu_icon": "bi-cash-coin",
       "breadcrumb": { "label": "Finances", "parents": ["Configuration"] }
     },
     {

@@ -1,6 +1,6 @@
 {# Notification indicator (Core\Notification) — bell + unread badge +
-   dropdown panel showing the count, the most recent unread notification,
-   and a link into the full centre (/notifications). Reused identically in
+   dropdown panel showing the count, the five most recent unread
+   notifications, and a link into the full centre (/notifications). Reused identically in
    all three nav surfaces (mobile header, mobile offcanvas, desktop bar) —
    exactly one definition of this behavior, never copy this markup at a
    call site. The avatar (partials/account_avatar.html.twig) never carries
@@ -11,8 +11,8 @@
    `.notification-badge` is the same class notification-badge.js already
    updates everywhere via querySelectorAll (60s poll + service worker
    postMessage) — every instance of this partial on the page stays in
-   sync with no extra JS. The panel's own content (count, latest
-   notification) is server-rendered on page load and does not live-update
+   sync with no extra JS. The panel's own content (count, the recent
+   ones) is server-rendered on page load and does not live-update
    with the badge — a stale "last notification" a minute behind is
    harmless, the visitor lands on the always-current /notifications page
    through it regardless. #}
@@ -28,17 +28,34 @@
             <div class="px-3 py-2 border-bottom small fw-semibold">
                 {{ unread_notifications_count }} notification{{ unread_notifications_count > 1 ? 's' : '' }} non lue{{ unread_notifications_count > 1 ? 's' : '' }}
             </div>
-            {% if latest_notification %}
+            {#
+              Up to five, newest first (public/index.php's
+              `latest_notifications`), so the list under the count is not
+              visibly shorter than the count itself. Beyond that the panel
+              stops being a preview — the link at the bottom leads to the
+              full centre.
+            #}
+            {% for notification in latest_notifications|default([]) %}
                 {# Same "row is its own tiny POST form" pattern as
                    notifications/index.html.twig — a plain GET <a> can't
                    carry CSRF protection for the mark-read side effect. #}
-                <form method="post" action="/notifications/{{ latest_notification.id }}/read">
+                <form method="post" action="/notifications/{{ notification.id }}/read">
                     {{ csrf_field() }}
                     <button type="submit" class="btn btn-link text-decoration-none text-start text-body w-100 p-3 d-block border-bottom">
-                        <span class="d-block fw-semibold small text-truncate">{{ latest_notification.title }}</span>
-                        <span class="d-block small text-body-secondary text-truncate">{{ latest_notification.body }}</span>
+                        <span class="d-block fw-semibold small text-truncate">{{ notification.title }}</span>
+                        <span class="d-block small text-body-secondary text-truncate">{{ notification.body }}</span>
                     </button>
                 </form>
+            {% endfor %}
+            {#
+              More pending than the panel shows: said plainly rather than
+              left to be inferred from a count that no longer matches the
+              rows under it.
+            #}
+            {% if unread_notifications_count > latest_notifications|default([])|length %}
+                <p class="px-3 py-2 mb-0 small text-body-secondary border-bottom">
+                    et {{ unread_notifications_count - latest_notifications|length }} autre{{ unread_notifications_count - latest_notifications|length > 1 ? 's' : '' }}
+                </p>
             {% endif %}
         {% else %}
             <div class="px-3 py-3 text-center small text-body-secondary border-bottom">Aucune notification</div>

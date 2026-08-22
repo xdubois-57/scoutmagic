@@ -13,6 +13,7 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": "Galerie",
+      "menu_icon": "bi-images",
       "menu_order": 6,
       "breadcrumb": { "label": "Galerie", "parents": ["Espace animés"] }
     },
@@ -24,6 +25,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Galerie",
+      "menu_icon": "bi-image",
       "breadcrumb": { "label": "Galerie", "parents": ["Espace chefs"] }
     },
     {
@@ -155,6 +157,7 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "Galerie",
+      "menu_icon": "bi-images",
       "breadcrumb": { "label": "Galerie", "parents": ["Configuration"] }
     },
     {

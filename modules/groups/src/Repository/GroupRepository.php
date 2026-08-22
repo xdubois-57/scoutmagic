@@ -90,6 +90,24 @@ class GroupRepository
     }
 
     /**
+     * Who may publish here: DiscussionGroup::POSTING_MEMBERS or
+     * POSTING_MODERATORS. Anything else is stored as the open default
+     * rather than rejected — a hand-made request cannot invent a third
+     * policy, and a group that quietly stopped accepting messages would
+     * be a worse answer than one that ignored a nonsense value.
+     */
+    public function setPostingPolicy(int $id, string $policy): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE discussion_groups SET posting_policy = ? WHERE id = ?');
+        $stmt->execute([
+            $policy === DiscussionGroup::POSTING_MODERATORS
+                ? DiscussionGroup::POSTING_MODERATORS
+                : DiscussionGroup::POSTING_MEMBERS,
+            $id,
+        ]);
+    }
+
+    /**
      * Links or unlinks an invitation group to a scout year — never called
      * for a section group (Service\GroupService::edit() is the actual
      * enforcement of that; see its own docblock).
@@ -242,7 +260,13 @@ class GroupRepository
             $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
             (string) $row['created_at'],
             $row['gallery_album_id'] !== null ? (int) $row['gallery_album_id'] : null,
-            ($row['description'] ?? null) !== null ? (string) $row['description'] : null
+            ($row['description'] ?? null) !== null ? (string) $row['description'] : null,
+            // Normalised here so nothing downstream has to defend against
+            // a third value: only the one word that means "moderators
+            // only" is that, everything else is the open default.
+            ((string) ($row['posting_policy'] ?? '')) === DiscussionGroup::POSTING_MODERATORS
+                ? DiscussionGroup::POSTING_MODERATORS
+                : DiscussionGroup::POSTING_MEMBERS
         );
     }
 }

@@ -664,6 +664,15 @@
                         // …which also means the group is no longer empty.
                         refreshFeedEmptyState();
                         restoreReplyDrafts();
+                        // And then bring it into view. On a phone the
+                        // composer fills the screen, so a message
+                        // published from it lands entirely below the
+                        // fold: nothing visibly happens, and the honest
+                        // reading of that is "did it send?". Centred
+                        // rather than scrolled to the top, so the start
+                        // of the message is never left under a sticky
+                        // header.
+                        scrollToPost(result.data.post_id);
                     }
                     resetComposer();
                     clearDraft();
@@ -1271,6 +1280,39 @@
         }
     }
 
+    /**
+     * Brings a just-published message into view, centred.
+     *
+     * The card is inserted at the top of the feed, which on a phone is
+     * below a composer tall enough to fill the screen — so publishing
+     * looked like nothing happening at all. The anchor is the one the
+     * card already carries (`#post-{id}`), the same one a notification's
+     * deep link uses, so the two can never point at different things.
+     *
+     * Silent about everything it cannot do: no id (an older server
+     * response), no such card, or a browser with no scrollIntoView
+     * options support — the message is published either way, and this is
+     * only where the eye lands.
+     *
+     * @param {number|string|undefined} postId
+     */
+    function scrollToPost(postId) {
+        if (!postId) {
+            return;
+        }
+        var card = document.getElementById('post-' + postId);
+        if (!card || typeof card.scrollIntoView !== 'function') {
+            return;
+        }
+
+        // Honouring "less movement" the same way the reaction picker's
+        // own animation does (components.css): the same landing place,
+        // without the travel.
+        var reduced = typeof window.matchMedia === 'function'
+            && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        card.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
+    }
+
     // A message's collapsed conversation (partials/post_card.html.twig's
     // <details>): keeping the "3 commentaires" line honest as comments are
     // added and removed without a reload. The number lives in data-count
@@ -1487,6 +1529,20 @@
         // twice — and answering the second prompt with "Annuler" left the
         // deletion already sent.
         if (event.defaultPrevented) {
+            return;
+        }
+
+        // Pinning: exclusive, and for a chosen length of time — both of
+        // which the moderator has to be told before it happens, so the
+        // submit waits on a dialog instead of going straight out.
+        var pinForm = /** @type {HTMLFormElement} */ (target.closest('.groups-pin-form'));
+        if (pinForm) {
+            event.preventDefault();
+            askPinDuration(pinForm).then(function (chosen) {
+                if (chosen) {
+                    pinForm.submit();
+                }
+            });
             return;
         }
 
@@ -1738,6 +1794,101 @@
                 chosen = true;
                 field.value = button.dataset.memberId || '';
                 picker.value = field.value;
+                modal.hide();
+            }
+
+            function onHidden() {
+                list.removeEventListener('click', onPick);
+                modalEl.removeEventListener('hidden.bs.modal', onHidden);
+                resolve(chosen);
+            }
+
+            list.addEventListener('click', onPick);
+            modalEl.addEventListener('hidden.bs.modal', onHidden);
+            modal.show();
+        });
+    }
+
+    /**
+     * "Épingler ce message ?" — the two things a moderator has to know
+     * before it happens: which message stops being pinned (the group
+     * keeps exactly one), and for how long this one stays up.
+     *
+     * Resolves to true once a duration has been written into the form's
+     * own hidden field, and to false when the dialog was closed — which
+     * cancels the pin rather than applying the default behind the
+     * moderator's back. With no dialog available at all (no Bootstrap,
+     * no modal on the page) it resolves true immediately and the form
+     * posts with the default the server already rendered: the control is
+     * never a dead end.
+     *
+     * @param {HTMLFormElement} form
+     * @returns {Promise<boolean>}
+     */
+    function askPinDuration(form) {
+        var field = /** @type {HTMLInputElement} */ (form.querySelector('input[name="duration"]'));
+        var modalEl = document.getElementById('groups-detail-modal');
+        var modalBody = document.getElementById('groups-detail-modal-body');
+
+        if (!field || !modalEl || !modalBody || typeof bootstrap === 'undefined') {
+            return Promise.resolve(true);
+        }
+
+        var label = document.getElementById('groups-detail-modal-label');
+        if (label) {
+            label.textContent = 'Épingler ce message';
+        }
+
+        modalBody.innerHTML = '';
+
+        // Named, never quoted as markup: the label is another member's
+        // own words, so it goes in as text (textContent) exactly like
+        // every other body this file inserts.
+        var replaced = form.dataset.pinnedLabel || '';
+        if (replaced) {
+            var warning = document.createElement('p');
+            warning.className = 'small text-body-secondary';
+            warning.textContent = 'Un seul message peut être épinglé : « ' + replaced + ' » sera désépinglé.';
+            modalBody.appendChild(warning);
+        }
+
+        var question = document.createElement('p');
+        question.className = 'small text-body-secondary';
+        question.textContent = 'Pendant combien de temps ?';
+        modalBody.appendChild(question);
+
+        var list = document.createElement('div');
+        list.className = 'list-group';
+        [
+            { value: 'day', text: '1 jour' },
+            { value: 'week', text: '1 semaine' },
+            { value: 'month', text: '1 mois' },
+            { value: 'forever', text: "Jusqu'à ce qu'un modérateur le retire" }
+        ].forEach(function (choice) {
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'list-group-item list-group-item-action d-flex align-items-center';
+            button.style.minHeight = '44px';
+            button.dataset.duration = choice.value;
+            button.textContent = choice.text;
+            list.appendChild(button);
+        });
+        modalBody.appendChild(list);
+
+        var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+        return new Promise(function (resolve) {
+            var chosen = false;
+
+            function onPick(event) {
+                var button = /** @type {HTMLElement|null} */ (
+                    /** @type {HTMLElement} */ (event.target).closest('[data-duration]')
+                );
+                if (!button) {
+                    return;
+                }
+                chosen = true;
+                field.value = button.dataset.duration || '';
                 modal.hide();
             }
 

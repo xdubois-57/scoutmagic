@@ -261,7 +261,9 @@ class ReactionController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $permission = $this->accessService->canPost($group, $context);
+        // canParticipate(), not canPost(): a group where only moderators
+        // publish is still a group everybody reacts in.
+        $permission = $this->accessService->canParticipate($group, $context);
         if (!$permission->allowed) {
             return new Response($permission->message, 403);
         }

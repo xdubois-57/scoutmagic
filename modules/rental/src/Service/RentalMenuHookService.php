@@ -68,7 +68,11 @@ class RentalMenuHookService implements MenuEntryProvider
                 'Locations',
                 '/locations',
                 'public',
-                self::INDEX_ORDER
+                self::INDEX_ORDER,
+                false,
+                null,
+                MenuBuilder::GROUP_MODULE,
+                'bi-house-door'
             );
         }
 
@@ -81,7 +85,11 @@ class RentalMenuHookService implements MenuEntryProvider
                 'Mes locations',
                 '/mes-locations',
                 'identified',
-                self::INDEX_ORDER
+                self::INDEX_ORDER,
+                false,
+                null,
+                MenuBuilder::GROUP_MODULE,
+                'bi-key'
             );
         }
 

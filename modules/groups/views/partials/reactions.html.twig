@@ -16,7 +16,14 @@
   itself is a plain, unstyled <button> with no JS at all: nothing here
   breaks if groups.js never loads, it just stops being clickable.
 #}
-<div class="groups-reactions{{ compact ? ' groups-reactions-compact' : '' }} d-flex align-items-center flex-wrap gap-1 mt-2">
+{#
+  No `flex-wrap` utility here: it is `flex-wrap: wrap !important`, which
+  no ordinary rule can turn off — and the open picker on a phone has to
+  hold this row to ONE line (components.css). The wrapping this row does
+  everywhere else is owned by `.groups-reactions` in that same file, the
+  same ownership `display` already moved there for the two blocks below.
+#}
+<div class="groups-reactions{{ compact ? ' groups-reactions-compact' : '' }} d-flex align-items-center gap-1 mt-2">
     {% if summary.entries is not empty %}
         <button type="button" class="groups-reaction-tally btn btn-link p-0 border-0 d-inline-flex align-items-center gap-1 text-decoration-none"
                 data-reactors-url="{{ reactors_url }}" aria-haspopup="dialog">

@@ -40,6 +40,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Envoi de mails",
+      "menu_icon": "bi-send",
       "breadcrumb": { "label": "Envoi de mails", "parents": ["Espace chefs"] }
     },
     {
@@ -131,6 +132,7 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "Envoi de mails",
+      "menu_icon": "bi-send",
       "breadcrumb": { "label": "Envoi de mails", "parents": ["Configuration"] }
     },
     {

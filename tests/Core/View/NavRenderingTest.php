@@ -34,6 +34,12 @@ class NavRenderingTest extends TestCase
         $this->twig->addFunction(new \Twig\TwigFunction('editable', function (): string {
             return '';
         }, ['is_safe' => ['html']]));
+        // The shared person avatar (Core\View\PersonAvatar), registered here
+        // the way Core\View\TwigFactory does with no photo service: same
+        // markup as production for an account that has set no photo.
+        $this->twig->addFunction(new \Twig\TwigFunction('person_avatar', function (string $name, array $options = []): string {
+            return \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40));
+        }, ['is_safe' => ['html']]));
         $this->twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
             return '';
         }, ['is_safe' => ['html']]));
@@ -184,8 +190,11 @@ class NavRenderingTest extends TestCase
         // class from the <li> and relies on the bold blue text alone.
         $html = $this->renderNav(Role::INTENDANT, true, '/chefs/staffs');
 
+        // The entry carries its icon in a fixed 32px box (so its label
+        // lines up with the per-member avatars above it) and then the
+        // active-state classes on the anchor itself.
         $this->assertMatchesRegularExpression(
-            '/<li class="list-group-item list-group-item-action border-0 ps-4 d-flex align-items-center" style="min-height:44px;">\s*<a href="\/chefs\/staffs" class="text-decoration-none d-block fw-semibold text-primary"/',
+            '/<li class="list-group-item list-group-item-action border-0 ps-4 d-flex align-items-center" style="min-height:44px;">\s*(?:\{#.*?#\}\s*)?<a href="\/chefs\/staffs" class="d-flex align-items-center gap-2 text-decoration-none fw-semibold text-primary"/s',
             $html
         );
         $this->assertStringNotContainsString(
@@ -294,8 +303,11 @@ class NavRenderingTest extends TestCase
         $offcanvas = substr($html, $offcanvasStart, $offcanvasEnd - $offcanvasStart);
 
         $this->assertStringContainsString('href="/account"', $offcanvas);
+        // The avatar is the shared component's circle (Core\View\PersonAvatar)
+        // — an <img> when this person has a photo, an initials <span>
+        // otherwise, which is what this harness renders.
         $this->assertMatchesRegularExpression(
-            '/<a href="\/account"[^>]*>\s*<span class="d-inline-flex[^"]*rounded-circle/',
+            '/<a href="\/account"[^>]*>\s*<span class="person-avatar rounded-circle/',
             $offcanvas
         );
     }
@@ -308,24 +320,21 @@ class NavRenderingTest extends TestCase
         $desktop = substr($html, $desktopStart);
 
         $this->assertMatchesRegularExpression(
-            '/<a href="\/account"[^>]*>\s*<span class="d-inline-flex[^"]*rounded-circle/',
+            '/<a href="\/account"[^>]*>\s*<span class="person-avatar rounded-circle/',
             $desktop
         );
     }
 
     public function testNotificationDropdownShowsCountAndLatestAndLink(): void
     {
-        $latest = new \Core\Notification\NotificationRecord(
-            id: 42,
-            userAccountId: 1,
-            memberId: null,
-            typeId: 'core.test',
-            title: 'Nouvelle inscription',
-            body: 'Un membre vient de s\'inscrire.',
-            url: '/members/1',
-            readAt: null,
-            createdAt: '2026-08-09 10:00:00'
-        );
+        // Three unread, three rows: the panel lists up to five (see
+        // partials/notification_dropdown.html.twig), because announcing a
+        // count over a single row reads as the rest having gone missing.
+        $unread = [
+            $this->notification(42, 'Nouvelle inscription'),
+            $this->notification(41, 'Un nouveau message'),
+            $this->notification(40, 'Une réaction'),
+        ];
 
         $builder = new MenuBuilder(Role::ADMIN);
         $menus = $builder->build();
@@ -340,14 +349,57 @@ class NavRenderingTest extends TestCase
             'active_menu_id' => '',
             'active_page_url' => '',
             'unread_notifications_count' => 3,
-            'latest_notification' => $latest,
+            'latest_notifications' => $unread,
         ]);
 
         $this->assertStringContainsString('3 notifications non lues', $html);
         $this->assertStringContainsString('Nouvelle inscription', $html);
+        $this->assertStringContainsString('Un nouveau message', $html);
+        $this->assertStringContainsString('Une réaction', $html);
         $this->assertStringContainsString('action="/notifications/42/read"', $html);
+        $this->assertStringContainsString('action="/notifications/40/read"', $html);
         $this->assertStringContainsString('href="/notifications"', $html);
         $this->assertStringContainsString('Voir toutes les notifications', $html);
+    }
+
+    /**
+     * More unread than the panel shows: said plainly, rather than left to
+     * be inferred from a count that no longer matches the rows under it.
+     */
+    public function testNotificationDropdownSaysHowManyMoreArePending(): void
+    {
+        $html = $this->twig->render('partials/nav.html.twig', [
+            'menus' => (new MenuBuilder(Role::ADMIN))->build(),
+            'current_path' => '/',
+            'is_authenticated' => true,
+            'current_user_display_name' => 'test@example.com',
+            'current_user_role_label' => 'Admin',
+            'site_name' => 'Test Scout',
+            'active_menu_id' => '',
+            'active_page_url' => '',
+            'unread_notifications_count' => 8,
+            'latest_notifications' => array_map(
+                fn(int $id): \Core\Notification\NotificationRecord => $this->notification($id, 'N' . $id),
+                [50, 49, 48, 47, 46]
+            ),
+        ]);
+
+        $this->assertStringContainsString('et 3 autres', $html);
+    }
+
+    private function notification(int $id, string $title): \Core\Notification\NotificationRecord
+    {
+        return new \Core\Notification\NotificationRecord(
+            id: $id,
+            userAccountId: 1,
+            memberId: null,
+            typeId: 'core.test',
+            title: $title,
+            body: 'Un membre vient de s\'inscrire.',
+            url: '/members/1',
+            readAt: null,
+            createdAt: '2026-08-09 10:00:00'
+        );
     }
 
     /**

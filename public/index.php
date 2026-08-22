@@ -38,6 +38,8 @@ use Core\Database\SqlParser;
 use Core\File\FileAccessGuard;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
+use Core\Photo\AccountPhotoRepository;
+use Core\Photo\AccountPhotoService;
 use Core\Photo\ImageVariantProcessor;
 use Core\Photo\ImageVariantService;
 use Core\Photo\LandscapeImageProcessor;
@@ -1066,6 +1068,17 @@ $updateHistoryRepository = new \Core\Maintenance\UpdateHistoryRepository($pdo);
 // Core\Photo\MemberPhotoService.
 $memberPhotoService = new MemberPhotoService(new MemberPhotoRepository($pdo));
 
+// The other half of the same idea, for the other half of this codebase's
+// identity model: the photo of an identified LOGIN, set from "Mon
+// compte". Not scout-year-scoped — a login is a person, not a membership
+// (Core\Photo\AccountPhotoService). Given the file repository and the
+// storage path so replacing a photo deletes the one it replaces.
+$accountPhotoService = new AccountPhotoService(
+    new AccountPhotoRepository($pdo),
+    $fileRepository,
+    $storagePath
+);
+
 // Same "one per year, fall back to the most recent earlier one" component
 // as above, keyed by section instead of member — the Staffs page's group
 // photo of a section's chiefs. See Core\Photo\SectionPhotoService.
@@ -1188,6 +1201,25 @@ $galleryDelegatedAlbumDescribers = [];
 $linkedMemberIds = array_map(fn($m) => $m->memberId, $linkedMembers);
 
 $twig->addGlobal('current_user_display_name', $displayName);
+// Which account the nav's avatar stands for — the login's own photo is
+// keyed on it (partials/account_avatar.html.twig, person_avatar()). 0 for
+// a visitor who is not identified, which resolves to no photo and no
+// initials circle is drawn for them anyway.
+$twig->addGlobal('current_user_account_id', AuthSession::getUserAccountId() ?? 0);
+// What the avatar's INITIALS come from, which is not always what the nav
+// writes next to it: the header shows a member's display name (a totem,
+// "Akéla"), and a temporary member takes it over entirely (§8.42) — while
+// the circle stands for the person logged in. Their own first and last
+// name when the account carries them, and the header's name otherwise,
+// so this never falls back to two letters of an email address unless
+// there is genuinely nothing else.
+$currentAccountForAvatar = AuthSession::isAuthenticated()
+    ? $userAccountRepo->findById((int) AuthSession::getUserAccountId())
+    : null;
+$currentAccountName = $currentAccountForAvatar === null
+    ? ''
+    : trim(($currentAccountForAvatar->firstName ?? '') . ' ' . ($currentAccountForAvatar->lastName ?? ''));
+$twig->addGlobal('current_user_avatar_name', $currentAccountName !== '' ? $currentAccountName : $displayName);
 $twig->addGlobal('current_user_member_count', $memberCount);
 // Server-rendered on page load — public/assets/js/notification-badge.js
 // refreshes it live afterward (60s poll + immediate on an incoming push).
@@ -1195,13 +1227,18 @@ $unreadNotificationsCount = AuthSession::isAuthenticated()
     ? $notificationRepo->countUnread((int) AuthSession::getUserAccountId())
     : 0;
 $twig->addGlobal('unread_notifications_count', $unreadNotificationsCount);
-// Feeds partials/notification_dropdown.html.twig's "last one" preview —
-// only fetched when there's actually something pending, same "cheap
-// enough, nothing to gain from unconditional" precedent as elsewhere in
-// this bootstrap (see e.g. $linkedMembers above).
+// Feeds partials/notification_dropdown.html.twig's preview — the five
+// most recent unread, not one: the panel announces the count right above
+// them, and a panel saying "3 notifications non lues" over a single row
+// reads as two of them having gone missing. Only fetched when there's
+// actually something pending, same "cheap enough, nothing to gain from
+// unconditional" precedent as elsewhere in this bootstrap (see e.g.
+// $linkedMembers above).
 $twig->addGlobal(
-    'latest_notification',
-    $unreadNotificationsCount > 0 ? $notificationRepo->findLatestUnread((int) AuthSession::getUserAccountId()) : null
+    'latest_notifications',
+    $unreadNotificationsCount > 0
+        ? $notificationRepo->findRecentUnread((int) AuthSession::getUserAccountId(), 5)
+        : []
 );
 $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Public');
 $twig->addGlobal('current_path', $request->getPath());
@@ -1216,6 +1253,7 @@ $twig->addGlobal('is_year_overridden', $effectiveScoutYear->isOverridden());
 $twig->addGlobal('year_override_type', $effectiveScoutYear->overrideType);
 $twig->addGlobal('_editable_content_service', $editableContentService);
 $twig->addGlobal('_member_photo_service', $memberPhotoService);
+$twig->addGlobal('_account_photo_service', $accountPhotoService);
 $twig->addGlobal('_section_photo_service', $sectionPhotoService);
 $twig->addGlobal('cookie_consent_given', $cookieConsentService->hasConsented());
 $twig->addGlobal('vapid_public_key', (string) ($secrets['vapid_public_key'] ?? ''));
@@ -1246,41 +1284,41 @@ $menuBuilder = new MenuBuilder(Role::fromString($currentRole));
 $dynamicMenuRegistrar = new DynamicMenuRegistrar();
 
 // Register core pages in menus
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10);
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'public', 20);
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30);
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Membres par section', '/chefs/membres', 'intendant', 11);
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-house');
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'public', 20, false, null, MenuBuilder::GROUP_CORE, 'bi-envelope');
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30, false, null, MenuBuilder::GROUP_CORE, 'bi-diagram-3');
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40, false, null, MenuBuilder::GROUP_CORE, 'bi-shield-check');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-people-fill');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Membres par section', '/chefs/membres', 'intendant', 11, false, null, MenuBuilder::GROUP_CORE, 'bi-list-ul');
 // Configuration générale — shrunk to just the configuration-mode toggle,
 // moved here from the Configuration menu and widened from superadmin to
 // admin (see /config-mode/activate|deactivate's own role_min and
 // Core\View\ConfigurationMode, widened the same way) so every chief
 // d'unité, not only a superadmin, can edit site content. First in this
 // menu (order 10) — the most-used entry for a chief d'unité.
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Configuration générale', '/config/general', 'admin', 10);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 20);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 30);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 40);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 50);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Configuration générale', '/config/general', 'admin', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-pencil-square');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 20, false, null, MenuBuilder::GROUP_CORE, 'bi-cloud-arrow-down');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 30, false, null, MenuBuilder::GROUP_CORE, 'bi-person-lines-fill');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 40, false, null, MenuBuilder::GROUP_CORE, 'bi-calendar-range');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 50, false, null, MenuBuilder::GROUP_CORE, 'bi-journal-text');
 // Configuration avancée first (order 5, ahead of Modules/Badges below) —
 // the most-used entry for a superadmin; the rest of this menu keeps its
 // existing relative order.
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration avancée', '/setup', 'superadmin', 5);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Modules', '/config/modules', 'superadmin', 10);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Badges', '/config/badges', 'superadmin', 12);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 20);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 30);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 47);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration avancée', '/setup', 'superadmin', 5, false, null, MenuBuilder::GROUP_CORE, 'bi-sliders');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Modules', '/config/modules', 'superadmin', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-puzzle');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Badges', '/config/badges', 'superadmin', 12, false, null, MenuBuilder::GROUP_CORE, 'bi-award');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 20, false, null, MenuBuilder::GROUP_CORE, 'bi-diagram-2');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 30, false, null, MenuBuilder::GROUP_CORE, 'bi-gear-wide-connected');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35, false, null, MenuBuilder::GROUP_CORE, 'bi-shield-lock');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40, false, null, MenuBuilder::GROUP_CORE, 'bi-clock-history');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45, false, null, MenuBuilder::GROUP_CORE, 'bi-tools');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46, false, null, MenuBuilder::GROUP_CORE, 'bi-bell');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 47, false, null, MenuBuilder::GROUP_CORE, 'bi-life-preserver');
 // order 10, not a leftover "after the separator" number — GROUP_CORE
 // (addPage()'s default) already sorts this after the dynamic member
 // entries/empty-state placeholder above regardless of the numeric order,
 // and it's currently the only core static page in this menu.
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-bell');
 
 // Create router early so ModuleManager can register routes
 $router = new Router();
@@ -1423,7 +1461,12 @@ if (AuthSession::isAuthenticated()) {
             10 + $index,  // order: members first
             true,          // isDynamic = true (renders with the avatar-circle styling)
             $member->getMainSectionName(),  // subtitle
-            MenuBuilder::GROUP_DYNAMIC
+            MenuBuilder::GROUP_DYNAMIC,
+            null,
+            // The persistent member id, never member_years.id: the avatar
+            // draws this member's photo for the year in effect, and
+            // Core\Photo\MemberPhotoService is keyed on members.id.
+            $member->memberId
         );
     }
 
@@ -1475,6 +1518,7 @@ $router->addRoute('POST', '/account/password', AccountController::class, 'update
 $router->addRoute('GET', '/account/passkey/register-options', AccountController::class, 'passkeyRegisterOptions', 'identified');
 $router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
+$router->addRoute('POST', '/account/photo/delete', AccountController::class, 'deletePhoto', 'identified');
 $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::class, 'subscribe', 'identified');
 $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
 
@@ -1758,7 +1802,7 @@ $activePageUrl = '';
 $bestMatchLength = -1;
 foreach ($menus as $menu) {
     foreach ($menu['pages'] as $page) {
-        $pageUrl = $page['url'] ?? '';
+        $pageUrl = $page['url'];
         if ($pageUrl === '') {
             continue;
         }
@@ -1854,7 +1898,7 @@ $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
 $authController->setHumanCheck($humanCheckService);
 $frontController->registerController(AuthController::class, $authController);
-$frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
+$frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService, $accountPhotoService));
 $frontController->registerController(PushSubscriptionController::class, new PushSubscriptionController($twig, $notificationService, $journalService));
 
 $frontController->registerController(
@@ -1925,7 +1969,7 @@ $offlineManifestService = new \Core\Offline\OfflineManifestService(
 );
 $offlineController = new OfflineController($twig, $offlineManifestService);
 $frontController->registerController(OfflineController::class, $offlineController);
-$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor, $memberService, $ageBranchRepo, $unitLogoService, $imageVariantService);
+$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor, $memberService, $ageBranchRepo, $unitLogoService, $imageVariantService, $accountPhotoService);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));
@@ -2804,7 +2848,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
                 $groupsContextFactory, $sectionService, $feedService, $groupsPostMediaService,
                 $groupsPostRepo, $groupsSectionGroupSync, $groupsModeratorBinding, $groupsMembershipService,
                 $settingService, $groupsReadStateService, $eventService, $groupsIdentityService,
-                $groupsReportService
+                $groupsReportService, $groupsPostService
             )
         );
         // The moderator's reports page renders the same post cards as the
@@ -2818,7 +2862,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             new \Modules\Groups\Controller\ReportController(
                 $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
                 $groupsReportService, $groupsContextFactory, $groupsNotificationService,
-                $groupsRecipientResolver, $feedService
+                $groupsRecipientResolver, $feedService, $groupsPostService
             )
         );
         $frontController->registerController(

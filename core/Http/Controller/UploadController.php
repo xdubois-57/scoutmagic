@@ -17,6 +17,7 @@ use Core\Http\SafeRedirect;
 use Core\Import\AgeBranchRepository;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
+use Core\Photo\AccountPhotoService;
 use Core\Photo\ImageVariantService;
 use Core\Photo\LandscapeImageProcessor;
 use Core\Photo\MemberPhotoService;
@@ -45,7 +46,13 @@ class UploadController extends AbstractController
         private MemberService $memberService,
         private AgeBranchRepository $ageBranchRepository,
         private UnitLogoService $unitLogoService,
-        private ImageVariantService $imageVariantService
+        private ImageVariantService $imageVariantService,
+        // Trailing and optional so every existing construction of this
+        // controller keeps working: without it the account_photo context
+        // stores the file and simply never points an account at it,
+        // which is the honest degradation for a collaborator that is not
+        // wired.
+        private ?AccountPhotoService $accountPhotoService = null
     ) {
     }
 
@@ -184,12 +191,16 @@ class UploadController extends AbstractController
             // happens.
             $subDirectory = match ($context) {
                 'member_photo' => 'core/member_photos',
+                'account_photo' => 'core/account_photos',
                 'section_photo' => 'core/section_photos',
                 'age_branch_logo' => 'core/branch_logos',
                 default => 'core/editable_contents',
             };
+            // account_photo is somebody's own face, shown to identified
+            // visitors and to nobody else — same floor as member_photo,
+            // and for the same reason.
             $roleMin = match ($context) {
-                'member_photo' => 'identified',
+                'member_photo', 'account_photo' => 'identified',
                 default => 'public',
             };
 
@@ -209,7 +220,7 @@ class UploadController extends AbstractController
             // (unit_logo never reaches this point at all — see the
             // short-circuit above) get no derivative.
             $variant = match ($context) {
-                'member_photo' => 'thumb',
+                'member_photo', 'account_photo' => 'thumb',
                 'section_photo', 'editable_image', 'age_branch_logo' => 'md',
                 default => null,
             };
@@ -239,6 +250,25 @@ class UploadController extends AbstractController
                         'info',
                         'Photo d\'un membre modifiée',
                         ['member_id' => $memberId, 'scout_year_id' => $scoutYearId],
+                        $userId
+                    );
+                }
+            }
+
+            // For account_photo context, key is the account id — and it
+            // has already been required to be the caller's OWN
+            // (isUploadAuthorized() below): nobody sets somebody else's
+            // face, configuration mode included.
+            if ($context === 'account_photo' && $key !== '') {
+                $userId = AuthSession::getUserAccountId();
+                if ($userId !== null && (int) $key === $userId) {
+                    $this->accountPhotoService?->setPhoto($userId, $fileId);
+                    $this->journalService?->log(
+                        'core',
+                        'account_photo_updated',
+                        'info',
+                        'Photo de compte modifiée',
+                        [],
                         $userId
                     );
                 }
@@ -320,6 +350,17 @@ class UploadController extends AbstractController
      */
     private function isUploadAuthorized(string $context, string $key): bool
     {
+        // Your own face and nobody else's. Deliberately NOT widened by
+        // configuration mode, unlike every other context here: an
+        // administrator editing the site's content has no business
+        // setting another person's account photo, and there is no page
+        // that offers it either.
+        if ($context === 'account_photo') {
+            $userId = AuthSession::getUserAccountId();
+
+            return $userId !== null && (int) $key === $userId;
+        }
+
         if ($context === 'member_photo') {
             if (ConfigurationMode::isActive()) {
                 return true;

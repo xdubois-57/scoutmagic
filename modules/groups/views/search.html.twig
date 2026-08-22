@@ -1,6 +1,6 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Rechercher — {{ group.name }} — {{ site_name }}{% endblock %}
+{% block title %}Rechercher — {{ group_label|default(group.name) }} — {{ site_name }}{% endblock %}
 
 {% block stylesheets %}
 <link rel="stylesheet" href="/assets/css/components.css">

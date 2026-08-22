@@ -13,6 +13,7 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "Rétrospective",
+      "menu_icon": "bi-sticky",
       "breadcrumb": { "label": "Rétrospective", "parents": ["Espace chefs d'U"] }
     },
     {
@@ -32,6 +33,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "Rétrospectives",
+      "menu_icon": "bi-sticky",
       "breadcrumb": { "label": "Rétrospectives", "parents": ["Espace chefs"] }
     },
     {

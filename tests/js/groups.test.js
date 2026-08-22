@@ -175,6 +175,31 @@ describe('groups.js dynamic post submit and draft cache', () => {
         expect(options.headers).toEqual({ 'X-Requested-With': 'XMLHttpRequest' });
     });
 
+    // On a phone the composer is tall enough to fill the screen, so the
+    // card inserted above the feed lands entirely below the fold and
+    // publishing looks like nothing happening. The server names the post
+    // it just created and the composer scrolls to it.
+    it('brings the published post into view, centred', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<article id="post-42">Bonjour</article>', post_id: 42 })
+        }));
+
+        // jsdom implements no scrolling at all, so the method has to
+        // exist before the card is inserted — the production code checks
+        // for it and stays silent when a browser has none.
+        const scrollIntoView = vi.fn();
+        Element.prototype.scrollIntoView = scrollIntoView;
+
+        textarea().value = 'Bonjour';
+        submit(document.getElementById('groups-post-form'));
+        await vi.waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+
+        expect(scrollIntoView.mock.instances[0].id).toBe('post-42');
+        expect(scrollIntoView.mock.calls[0][0]).toMatchObject({ block: 'center' });
+    });
+
     // Controller\PostController::create()'s own comment has always assumed
     // the composer prevents an empty submit ("the composer already
     // disables its own submit button on an empty draft"). It never did:

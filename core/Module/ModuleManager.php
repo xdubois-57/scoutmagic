@@ -470,7 +470,11 @@ class ModuleManager
                     $menuOrder,
                     false,
                     null,
-                    MenuBuilder::GROUP_MODULE
+                    MenuBuilder::GROUP_MODULE,
+                    // module.json's own `menu_icon` — null when the
+                    // module declares none, which renders the neutral
+                    // fallback rather than nothing (partials/nav.html.twig).
+                    $route['menu_icon'] ?? null
                 );
             }
         }

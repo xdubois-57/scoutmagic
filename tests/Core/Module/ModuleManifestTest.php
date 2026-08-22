@@ -227,6 +227,64 @@ class ModuleManifestTest extends TestCase
         ]);
     }
 
+    // --- menu_icon ------------------------------------------------------
+
+    public function testRouteMenuIconIsNullWhenNotDeclared(): void
+    {
+        $manifest = ModuleManifest::fromFile($this->fixturesDir . '/valid_module/module.json');
+
+        $this->assertNull($manifest->routes[0]['menu_icon']);
+    }
+
+    public function testRouteMenuIconIsKeptWhenDeclared(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_animes', 'role_min' => 'identified', 'menu_icon' => 'bi-calendar3'],
+            ],
+        ]);
+
+        $this->assertSame('bi-calendar3', $manifest->routes[0]['menu_icon']);
+    }
+
+    /**
+     * The value is interpolated into a class attribute, so anything
+     * outside the Bootstrap Icons vocabulary's own shape is refused at
+     * load time rather than escaped at render time.
+     */
+    public function testRouteMenuIconRejectsAnythingThatIsNotABootstrapIconsClass(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("'menu_icon' must be a Bootstrap Icons class");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_animes', 'role_min' => 'identified', 'menu_icon' => '" onload="alert(1)'],
+            ],
+        ]);
+    }
+
+    public function testRouteMenuIconRejectsNonString(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("'menu_icon' must be a string");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_animes', 'role_min' => 'identified', 'menu_icon' => 42],
+            ],
+        ]);
+    }
+
     public function testEnabledByDefaultDefaultsToFalse(): void
     {
         $manifest = ModuleManifest::fromFile($this->fixturesDir . '/valid_module/module.json');
