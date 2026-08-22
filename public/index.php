@@ -1640,6 +1640,7 @@ $router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'a
 
 // Scout year navigation and transition
 $router->addRoute('GET', '/admin/members', MemberSearchController::class, 'index', 'admin', ['label' => 'Membres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
+$router->addRoute('GET', '/admin/members/export', MemberSearchController::class, 'export', 'admin');
 // Temporary member override (ARCHITECTURE.md §8.42). The static "remove"
 // path is registered BEFORE the parameterised "add" one: Router::resolve()
 // is first-match-wins and both patterns are four segments deep, so
@@ -1974,7 +1975,10 @@ $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
-$frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService));
+$frontController->registerController(MemberSearchController::class, new MemberSearchController(
+    $twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService,
+    $memberExportRowBuilder, $memberExportService, $journalService
+));
 $frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
 $frontController->registerController(SupportController::class, new SupportController(

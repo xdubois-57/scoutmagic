@@ -1535,6 +1535,45 @@ pass `validation_regex` (declared for years on mass_mail's
 makes `merge_retention_months` render greyed and non-editable on
 Configuration > Paramètres.
 
+### 8.62 Member-search export, and the audience-reusable export rule
+
+`GET /admin/members/export` (role `admin`, same floor as the search page
+itself): the current search's results (`?q=`) or an explicit checked
+subset of them (`?selected[]=`, plain checkboxes in a GET form — the page
+works without JavaScript, the script only adds the disabled state, the
+live count and a "Tout sélectionner" master box). Selected ids are
+re-validated server-side against the effective scout year
+(`MemberSearchService::findById()`) — a stale or forged id is dropped,
+never exported. The journal entry (`member_search_exported`) records
+counts and scope only, never the query text: a search query is typically
+somebody's name.
+
+The rows come from a second small builder entry point,
+`MemberExportRowBuilder::buildForMemberYears()` — exactly the "a future
+screen with a different selection gets its own small builder, never its
+own columns" extension the class docblock promised. Two deliberate
+differences from `buildForSections()`: no `is_active` filter (the search
+page lists "non inscrit" members, so its export must not silently drop
+them), and a member_year with no function at all gets a synthetic
+sectionless entry (`SectionRosterRepository::findEntriesByMemberYears()`
+returns nothing for it) with empty section/function columns, excluded
+from the movement classifier's input so their movement status honestly
+reads "unknown" instead of being guessed from a zero section id.
+
+**The rule this cements** (mail merge made it matter — §8.61): **every
+export of people this codebase produces, current and future, goes through
+the canonical member export or at least keeps its headers alias-matchable
+by the mail-merge importer** ("Identifiant Desk"/"Tiers" for the member
+identifier, "Email"/"Email(s)"/"Contact" for addresses). An export a unit
+cannot re-import as a mail-merge audience is a dead end they will
+hand-edit; one that round-trips is a workflow. Member-domain exports
+reuse `Core\Member\Export` outright (never redefining columns); a
+module's own-domain export (form responses, finance, rentals) keeps its
+own columns but names its contact/identifier headers within the alias
+set. `AudienceImportService::TIERS_ALIASES`/`EMAIL_ALIASES` is the
+authoritative list — extend it there, in the importer, rather than
+renaming an export's headers and breaking its users' habits.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

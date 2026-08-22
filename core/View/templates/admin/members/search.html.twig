@@ -21,15 +21,43 @@
             Aucun membre trouvé pour « {{ query }} ».
         </p>
     {% else %}
-        <div class="d-flex flex-column gap-2">
-            {% for member in results %}
-                {% include 'admin/members/_result_row.html.twig' with {
-                    member: member,
-                    query: query,
-                    selected: member.memberYearId == selected_member_id
-                } %}
-            {% endfor %}
-        </div>
+        {# The whole result list lives inside the export form: the rows'
+           selected[] checkboxes feed « Exporter la sélection » without any
+           JavaScript, while « Exporter les résultats » re-runs the same
+           search server-side from ?q= alone. Both produce the canonical
+           member export (Core\Member\Export), reusable as-is as a
+           mail-merge audience. #}
+        <form method="get" action="/admin/members/export" id="member-export-form">
+            <input type="hidden" name="q" value="{{ query }}">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <label class="d-flex align-items-center gap-2 m-0 small text-body-secondary" style="min-height:44px;cursor:pointer;">
+                    <input class="form-check-input m-0" type="checkbox" id="member-export-select-all" style="width:1.25rem;height:1.25rem;">
+                    Tout sélectionner
+                </label>
+                <span class="small text-body-secondary ms-1">{{ results|length }} résultat{{ results|length > 1 ? 's' : '' }}</span>
+                <div class="d-flex flex-wrap gap-2 ms-auto">
+                    <a href="/admin/members/export?q={{ query|url_encode }}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-file-earmark-spreadsheet"></i> Exporter les résultats
+                    </a>
+                    {# Not disabled in the markup: without JS the form still
+                       submits (an empty selection falls back server-side to
+                       "all results of ?q="); the script only adds the
+                       disabled state and the live count. #}
+                    <button type="submit" class="btn btn-sm btn-outline-primary" id="member-export-selection-btn">
+                        <i class="bi bi-file-earmark-spreadsheet"></i> Exporter la sélection<span id="member-export-selection-count"></span>
+                    </button>
+                </div>
+            </div>
+            <div class="d-flex flex-column gap-2">
+                {% for member in results %}
+                    {% include 'admin/members/_result_row.html.twig' with {
+                        member: member,
+                        query: query,
+                        selected: member.memberYearId == selected_member_id
+                    } %}
+                {% endfor %}
+            </div>
+        </form>
     {% endif %}
 
     {% if detail %}
@@ -38,6 +66,36 @@
 {% endblock %}
 
 {% block scripts %}
+{% if results is not empty %}
+<script nonce="{{ csp_nonce }}">
+// Export-selection conveniences — the form itself works without any of
+// this (plain selected[] checkboxes in a GET form); this only keeps the
+// submit button honest (disabled with nothing checked, live count) and
+// wires the "Tout sélectionner" master checkbox.
+(() => {
+    const checkboxes = Array.from(document.querySelectorAll('.member-export-checkbox'));
+    const selectAll = document.getElementById('member-export-select-all');
+    const submitBtn = document.getElementById('member-export-selection-btn');
+    const countSpan = document.getElementById('member-export-selection-count');
+    if (!selectAll || !submitBtn) return;
+
+    function refresh() {
+        const checked = checkboxes.filter(cb => cb.checked).length;
+        submitBtn.disabled = checked === 0;
+        countSpan.textContent = checked > 0 ? ' (' + checked + ')' : '';
+        selectAll.checked = checked === checkboxes.length && checked > 0;
+        selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
+    }
+
+    selectAll.addEventListener('change', () => {
+        checkboxes.forEach(cb => { cb.checked = selectAll.checked; });
+        refresh();
+    });
+    checkboxes.forEach(cb => cb.addEventListener('change', refresh));
+    refresh();
+})();
+</script>
+{% endif %}
 {% if detail %}
 <script nonce="{{ csp_nonce }}">
 document.getElementById('member-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

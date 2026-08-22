@@ -113,7 +113,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Import Desk | admin | CSV upload/import for current scout year. Year selection. Function mapping status. |
 | Journal | admin | Searchable event log. |
 | Année scoute | admin | The whole scout-year transition, as a workflow of three phases and fourteen steps (§16.3): preparing next year with the staffs, encoding it into Desk, then updating the site. The order is advice, not a gate; steps are either observed by the site or ticked off by hand, per target year. Steps belonging to a disabled module are absent. Displays effective year, public year, staff year, member/section counts. Public year activation is manual-only and available year-round; a non-blocking warning appears when the current public year is past its end date. When the Inscriptions module is active: the final step is refused server-side while any registration request is still pending/accepted (any target year); the staff-year step shows the same count as a non-blocking warning — see §19.2. |
-| Membres | admin | Member search (name/email/phone) for the effective scout year, with detailed view showing all personal data from Desk (contact info, addresses, functions, age), plus effective age calculation with scout year offset. |
+| Membres | admin | Member search (name/email/phone) for the effective scout year, with detailed view showing all personal data from Desk (contact info, addresses, functions, age), plus effective age calculation with scout year offset. Excel export of all search results or of a checked selection, in the canonical member-export format — reusable as-is as a mail-merge audience (§24). |
 | Bannière (module) | admin | Manage homepage banner messages (role-gated visibility, ordered list) |
 | SOS Staff d'U (module) | admin | On-call duty roster (month grid), default forwarding number, live redirect status, scheduled redirection list |
 | Rétrospectives — Config (module) | admin | Per-board moderation/AI settings restricted to chef d'unité |
@@ -744,3 +744,7 @@ An extra list type in the compose dialog: the recipients of one email come from 
 ### 24.3 Retention
 
 Imported audience data is purged automatically **18 months** after the email was sent (fixed, non-editable setting), or 7 days after import if never attached to an email. The send tracking itself survives; the external-unsubscribe list is never purged.
+
+### 24.4 Audience-reusable exports
+
+Every Excel export of people the site produces — member exports ("Membres par section", the admin member search's results/selection export) and, for their contact column, module exports such as form responses — uses headers the mail-merge importer recognizes ("Identifiant Desk" ≡ "Tiers", "Email(s)"/"Contact" ≡ "Email"), so any of them can be re-imported as a mail-merge audience without editing. This is a standing rule for future exports too, not a per-screen coincidence.
