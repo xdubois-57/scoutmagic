@@ -35,6 +35,28 @@ interface Window {
     // access it defensively through `window`, since a page may not have
     // loaded the bundle at all.
     bootstrap?: typeof bootstrap;
+    // public/assets/js/api.js — the site-wide fetch toolbox, loaded by
+    // base.html.twig on every page (see its header for the envelope).
+    ScoutMagicApi?: {
+        csrfToken: () => string;
+        postJson: (url: string, body?: object, options?: { method?: string }) => Promise<{ ok: boolean, status: number, data: any }>;
+        getJson: (url: string) => Promise<{ ok: boolean, status: number, data: any }>;
+        withDisabled: <T>(control: HTMLButtonElement | HTMLInputElement | null, run: () => Promise<T>) => Promise<T>;
+        escapeHtml: (value: unknown) => string;
+        debounce: (fn: (...args: any[]) => void, delayMs: number) => (...args: any[]) => void;
+        poll: (tick: () => (boolean | void | Promise<boolean | void>), options?: {
+            intervalMs?: number;
+            delaysMs?: number[];
+            maxMs?: number;
+            resumeOnVisible?: boolean;
+            onExpire?: () => void;
+        }) => { stop: () => void };
+    };
+    // public/assets/js/toast.js — the non-blocking replacement for
+    // alert(), loaded by base.html.twig on every page.
+    ScoutMagicToast?: {
+        show: (message: string, options?: { variant?: 'success' | 'error' | 'warning' | 'info', delayMs?: number }) => HTMLElement;
+    };
     ScoutMagicNav?: {
         showDesktopMenu?: (menuId: string) => void;
         syncSwitchAriaChecked?: (input: HTMLInputElement) => void;

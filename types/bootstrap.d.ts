@@ -26,4 +26,7 @@ declare const bootstrap: {
     Offcanvas: {
         getOrCreateInstance(element: Element): BootstrapComponentInstance;
     };
+    Toast: {
+        new (element: Element, options?: { delay?: number }): BootstrapComponentInstance;
+    };
 };

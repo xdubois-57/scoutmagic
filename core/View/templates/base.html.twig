@@ -146,6 +146,14 @@
     {% endblock %}
 
     <script src="/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    {# The two site-wide toolboxes, loaded before every page script so
+       both classic scripts and ES modules can rely on the globals:
+       window.ScoutMagicApi (csrf token, the {ok,status,data} fetch
+       envelope, debounce/poll/escapeHtml) and window.ScoutMagicToast
+       (the non-blocking replacement for alert()). See each file's
+       header for what divergence it exists to end. #}
+    <script src="/assets/js/api.js"></script>
+    <script src="/assets/js/toast.js"></script>
     <script src="/assets/js/nav.js"></script>
     {# partials/breadcrumb_bar.html.twig's parent buttons — opens the
        matching menu section rather than navigating. Loads unconditionally
