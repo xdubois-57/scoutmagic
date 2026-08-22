@@ -147,7 +147,7 @@ Four things to know before using it:
 - It is **ergonomic, not a security boundary.** The real protection is that a module which is never loaded registers no routes at all. Do not use it as access control.
 - It is **strictly validated.** A non-list, a non-string element, a duplicate, or a flag name that is not in `KNOWN_FLAGS` is a load-time `ModuleException` naming both the offending value and the known set. Getting it wrong hides the module on every installation, and the symptom — a module that silently does not exist — is close to undebuggable, which is precisely why a typo must not be silent.
 
-Two modules use it today: `support_dashboard` (`["statistics_receiver"]`) and `test_tools` (`["reference_installation", "local_installation"]`, ARCHITECTURE.md §8.61). This is not a general "hide a module" mechanism — adding a flag means adding it to `InstallationProfile::KNOWN_FLAGS`, and every flag has to be answerable from `base_url` alone.
+Two modules use it today: `support_dashboard` (`["statistics_receiver"]`) and `test_tools` (`["reference_installation", "local_installation"]`, ARCHITECTURE.md §8.63). This is not a general "hide a module" mechanism — adding a flag means adding it to `InstallationProfile::KNOWN_FLAGS`, and every flag has to be answerable from `base_url` alone.
 
 ## Manifest validation rules
 
@@ -487,7 +487,7 @@ Reach for it only when a credential genuinely has to live in `settings`. The est
 
 `"editable": false` (optional, default `true`) keeps a setting out of Configuration > Paramètres' editable-row list entirely. The setting is still registered, still readable with `$settingService->get()`, and still writable — but only through `SettingService::setInternal()`, which bypasses the `editable` guard on purpose; plain `set()` throws.
 
-Use it when the setting has consequences a plain text field cannot explain, and a page of its own that does. `test_tools`' mail-capture switch is the case it exists for (ARCHITECTURE.md §8.61): armed, no e-mail leaves the server at all, so the switch belongs next to the warning that says so and the list of what was captured, not in a list of options. Like `visible_when`, the field is typed strictly — `"editable": "false"` is a load-time error rather than a truthy string.
+Use it when the setting has consequences a plain text field cannot explain, and a page of its own that does. `test_tools`' mail-capture switch is the case it exists for (ARCHITECTURE.md §8.63): armed, no e-mail leaves the server at all, so the switch belongs next to the warning that says so and the list of what was captured, not in a list of options. Like `visible_when`, the field is typed strictly — `"editable": "false"` is a load-time error rather than a truthy string.
 
 ## Cookies
 

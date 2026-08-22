@@ -14,7 +14,7 @@ use Core\Journal\JournalService;
 use Modules\TestTools\Repository\CapturedEmailRepository;
 
 /**
- * The mail sandbox's business layer (ARCHITECTURE.md §8.61): the arm
+ * The mail sandbox's business layer (ARCHITECTURE.md §8.63): the arm
  * switch, the browsable list, and the raw message a detail page shows.
  *
  * Nothing here touches $_POST or $_SESSION — the Controller reads the

@@ -11,7 +11,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * The module exists on the reference installation and on a developer's
- * machine, and nowhere else (ARCHITECTURE.md §8.61). That single fact is
+ * machine, and nowhere else (ARCHITECTURE.md §8.63). That single fact is
  * what makes the subject-in-clear exception of SECURITY.md admissible, so
  * it is pinned here rather than left to the manifest alone.
  */

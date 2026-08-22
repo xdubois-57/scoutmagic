@@ -1,4 +1,4 @@
--- Modules\TestTools — the mail sandbox's own tables (ARCHITECTURE.md §8.61).
+-- Modules\TestTools — the mail sandbox's own tables (ARCHITECTURE.md §8.63).
 --
 -- This module only ever exists on the project's reference installation or
 -- on a developer's machine: `"visible_when": ["reference_installation",

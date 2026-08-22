@@ -19,7 +19,7 @@ use Modules\TestTools\Service\MailSandboxService;
 
 /**
  * The one decision the composition root delegates: is outgoing mail
- * captured on THIS installation, right now? (ARCHITECTURE.md §8.61)
+ * captured on THIS installation, right now? (ARCHITECTURE.md §8.63)
  *
  * MailService is wired long before modules load, so this cannot ask
  * ModuleManager whether the module is enabled — it reads the registry row

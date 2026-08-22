@@ -24,7 +24,7 @@ use Modules\TestTools\Service\MailSandboxService;
  *
  * **Bounded by COUNT, not by age**, and the difference is the whole point:
  * the bound that matters is the one that keeps the opt-in decrypted body
- * search affordable (ARCHITECTURE.md §8.61). A sandbox left armed
+ * search affordable (ARCHITECTURE.md §8.63). A sandbox left armed
  * overnight can collect thousands of messages in an hour; "delete anything
  * older than thirty days" would not have removed one of them.
  *

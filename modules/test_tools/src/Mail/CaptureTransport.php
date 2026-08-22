@@ -14,7 +14,7 @@ use Modules\TestTools\Repository\CapturedEmailRepository;
 use PHPMailer\PHPMailer\PHPMailer;
 
 /**
- * The mail sandbox's transport (ARCHITECTURE.md §8.61): assemble the
+ * The mail sandbox's transport (ARCHITECTURE.md §8.63): assemble the
  * message exactly as it would have been sent, then store it instead of
  * putting it on the wire.
  *

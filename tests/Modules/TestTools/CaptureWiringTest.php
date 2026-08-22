@@ -17,7 +17,7 @@ use Tests\DatabaseTestHelper;
 
 /**
  * The three-way condition the composition root delegates
- * (ARCHITECTURE.md §8.61). All three must hold; each one is enough on its
+ * (ARCHITECTURE.md §8.63). All three must hold; each one is enough on its
  * own to keep mail sending exactly as before.
  */
 #[Group('database')]

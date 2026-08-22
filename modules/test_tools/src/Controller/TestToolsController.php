@@ -15,7 +15,7 @@ use Twig\Environment;
 
 /**
  * `/test-tools` (`role_min: superadmin`) — the toolbox's index
- * (ARCHITECTURE.md §8.61).
+ * (ARCHITECTURE.md §8.63).
  *
  * One tool today (the mail sandbox); the page exists so the second one has
  * somewhere to go, rather than the menu growing an entry per tool.

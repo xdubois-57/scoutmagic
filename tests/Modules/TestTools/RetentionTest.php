@@ -27,7 +27,7 @@ use Tests\DatabaseTestHelper;
 use Twig\Environment;
 
 /**
- * Retention and the danger zone (ARCHITECTURE.md §8.61): the sandbox keeps
+ * Retention and the danger zone (ARCHITECTURE.md §8.63): the sandbox keeps
  * exactly what it says it keeps, deletes rows and files together, and
  * cannot be emptied without the exact word.
  */
