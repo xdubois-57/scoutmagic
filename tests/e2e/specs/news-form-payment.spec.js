@@ -326,8 +326,11 @@ test('a chief publishes an article with a paying form, and a family signs up and
         await expect(familyPage.getByRole('heading', { name: 'Votre réponse a été enregistrée' })).toBeVisible();
 
         await familyPage.goto(articleUrl, { waitUntil: 'domcontentloaded' });
-        await expect(familyPage.getByText("Il n'y a plus de places disponibles.")).toBeVisible();
-        await expect(familyPage.getByLabel(new RegExp(PLACES_LABEL))).toBeDisabled();
+        // The exhausted field no longer renders a disabled-but-required
+        // input (which made the whole form unsubmittable): its label stays
+        // with a "Complet" notice, and no input is rendered at all.
+        await expect(familyPage.getByText("Complet — cette option n'est plus proposée.")).toBeVisible();
+        await expect(familyPage.getByLabel(new RegExp(PLACES_LABEL))).toHaveCount(0);
 
         expect(familyServerErrors, 'the application returned a server error to the visitor').toEqual([]);
     } finally {

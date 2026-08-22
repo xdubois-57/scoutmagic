@@ -102,7 +102,7 @@ class FormController extends AbstractController
             (string) $request->getServer('REMOTE_ADDR', '')
         );
         if ($humanCheckResult !== null && !$humanCheckResult->accepted) {
-            return $this->rerenderFormWithError($article, $form, $fields, $email, $scoutYearId, 'Une erreur est survenue. Veuillez réessayer.');
+            return $this->rerenderFormWithError($request, $article, $form, $fields, $email, $scoutYearId, 'Une erreur est survenue. Veuillez réessayer.');
         }
 
         try {
@@ -113,7 +113,7 @@ class FormController extends AbstractController
                 $memberYearId
             );
         } catch (NewsException $e) {
-            return $this->rerenderFormWithError($article, $form, $fields, $email, $scoutYearId, $e->getMessage());
+            return $this->rerenderFormWithError($request, $article, $form, $fields, $email, $scoutYearId, $e->getMessage());
         }
 
         $this->journalService->log(
@@ -340,12 +340,14 @@ class FormController extends AbstractController
      * Re-renders the submission form with an error message and a fresh
      * Core\Security\HumanCheck challenge — shared by the human-check
      * rejection path and the NewsException catch in submit(). Never a
-     * dead-end error page: the visitor's contact email default and every
-     * form field are still there to fill in again.
+     * dead-end error page: every field is prefilled with the values the
+     * visitor just posted (checkbox arrays included), along with their
+     * contact email and member selection — nothing to retype, same
+     * value-injection contract as response_edit.html.twig.
      *
      * @param FormField[] $fields
      */
-    private function rerenderFormWithError(Article $article, NewsForm $form, array $fields, ?string $email, int $scoutYearId, string $errorMessage): Response
+    private function rerenderFormWithError(Request $request, Article $article, NewsForm $form, array $fields, ?string $email, int $scoutYearId, string $errorMessage): Response
     {
         $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED ? $this->responseService->resolveMemberOptions($email, $scoutYearId) : [];
 
@@ -360,7 +362,9 @@ class FormController extends AbstractController
             'requires_login' => false,
             'requires_member_selector' => $form->responseLimit === NewsForm::RESPONSE_LIMIT_ONE_PER_MEMBER,
             'payment_available' => false,
-            'contact_email_default' => $email ?? '',
+            'contact_email_default' => (string) $request->getBody('contact_email', $email ?? ''),
+            'submitted_answers' => $this->extractAnswers($request, $fields),
+            'member_year_id_selected' => (string) $request->getBody('member_year_id', ''),
             'member_options' => $memberOptions,
             'submit_error' => $errorMessage,
             'csrf_token' => CsrfGuard::generateToken(),

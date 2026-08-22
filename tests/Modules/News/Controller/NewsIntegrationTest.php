@@ -485,6 +485,75 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringContainsString('Il reste 2 places', $body);
     }
 
+    /**
+     * When a required capped field's quota is exhausted, the page must
+     * keep the field's label but replace the greyed-out input with a
+     * "Complet" notice — a disabled input is never submitted by the
+     * browser, so a disabled+required one made the WHOLE form
+     * unsubmittable for everyone (the server saw the required answer as
+     * empty and refused). The remaining fields must still submit fine.
+     */
+    public function testFullRequiredNumberFieldRendersAsCompletAndTheFormStillSubmits(): void
+    {
+        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $placesId = $this->fieldRepository->create($formId, 0, FormField::TYPE_NUMBER, 'Places bus', true, null, null, 2, null, null);
+        $nameId = $this->fieldRepository->create($formId, 1, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $this->responseRepository->create($formId, null, null, 'x@test.com', [$placesId => '2'], null, null);
+
+        $body = $this->newsController->show(new Request('GET', '/news/' . $articleId, [], [], [], []), ['id' => (string) $articleId])->getBody();
+
+        $this->assertStringContainsString('Places bus', $body, 'the label must stay visible');
+        $this->assertStringContainsString("Complet — cette option n'est plus proposée.", $body);
+        $this->assertStringNotContainsString('name="field_' . $placesId . '"', $body, 'no disabled+required input for a full field');
+
+        $submitRequest = new Request('POST', '/news/' . $articleId . '/form/submit', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'contact_email' => 'parent@test.com',
+            'field_' . $nameId => 'Alice',
+        ], [], []);
+
+        $confirmation = $this->formController->submit($submitRequest, ['id' => (string) $articleId]);
+
+        $this->assertSame(200, $confirmation->getStatusCode());
+        $this->assertStringContainsString('Votre réponse a été enregistrée', $confirmation->getBody());
+    }
+
+    /**
+     * A rejected submission re-renders the form — and must hand the
+     * visitor back everything they typed (rerenderFormWithError), not a
+     * blank form: text values (escaped), checked checkboxes, and the
+     * posted contact email.
+     */
+    public function testSubmitErrorRedisplayKeepsThePostedValues(): void
+    {
+        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $nameId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $daysId = $this->fieldRepository->create($formId, 1, FormField::TYPE_CHECKBOX, 'Jours', false, FormField::OPTIONS_SOURCE_MANUAL, "Lundi\nMardi", null, null, null);
+        $emailId = $this->fieldRepository->create($formId, 2, FormField::TYPE_EMAIL, 'Email parent', true, null, null, null, null, null);
+
+        $request = new Request('POST', '/news/' . $articleId . '/form/submit', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'contact_email' => 'famille@test.com',
+            'field_' . $nameId => 'Bob <Marchand>',
+            'field_' . $daysId => ['Lundi'],
+            // Invalid on the server → NewsException → error re-render.
+            'field_' . $emailId => 'pas-un-email',
+        ], [], []);
+
+        $response = $this->formController->submit($request, ['id' => (string) $articleId]);
+        $body = $response->getBody();
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('doit être une adresse email valide', $body);
+        $this->assertStringContainsString('value="Bob &lt;Marchand&gt;"', $body, 'text answer kept, HTML-escaped');
+        $this->assertMatchesRegularExpression('/value="Lundi"\s+checked/', $body, 'checkbox answer kept');
+        $this->assertDoesNotMatchRegularExpression('/value="Mardi"\s+checked/', $body, 'unchecked option stays unchecked');
+        $this->assertStringContainsString('value="pas-un-email"', $body, 'the offending value is shown for correction');
+        $this->assertStringContainsString('name="contact_email" value="famille@test.com"', $body);
+    }
+
     public function testSubmitRejectsClosedFormAndRedisplaysArticle(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);

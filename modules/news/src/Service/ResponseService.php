@@ -227,7 +227,7 @@ class ResponseService
         $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED
             ? $this->resolveMemberOptions($userEmail, $scoutYearId)
             : [];
-        $normalizedAnswers = $this->validateAndNormalizeAnswers($fields, $answers, $memberOptions);
+        $normalizedAnswers = $this->validateAndNormalizeAnswers($fields, $answers, $memberOptions, null);
 
         $this->responseRepository->beginTransaction();
         try {
@@ -309,7 +309,7 @@ class ResponseService
         $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED
             ? $this->resolveMemberOptions($userEmail, $scoutYearId)
             : [];
-        $normalizedAnswers = $this->validateAndNormalizeAnswers($fields, $answers, $memberOptions);
+        $normalizedAnswers = $this->validateAndNormalizeAnswers($fields, $answers, $memberOptions, $response->id);
 
         $this->responseRepository->beginTransaction();
         try {
@@ -338,9 +338,11 @@ class ResponseService
      * @param FormField[] $fields
      * @param array<int, string|string[]> $answers
      * @param array<int, string> $memberOptions
+     * @param ?int $excludeResponseId the response being edited, whose own
+     *        consumption is returned to the capacity pool (see remainingCapacity())
      * @return array<int, string>
      */
-    private function validateAndNormalizeAnswers(array $fields, array $answers, array $memberOptions): array
+    private function validateAndNormalizeAnswers(array $fields, array $answers, array $memberOptions, ?int $excludeResponseId): array
     {
         $normalized = [];
 
@@ -363,7 +365,12 @@ class ResponseService
 
             $value = is_array($raw) ? implode(', ', $raw) : (string) ($raw ?? '');
 
-            if ($field->isRequired && trim($value) === '') {
+            // A required capped field whose capacity is exhausted is
+            // rendered with no input at all ("Complet" — partials/
+            // _field.html.twig), so the browser submits nothing for it.
+            // Enforcing "required" there would make the whole form
+            // unsubmittable for everyone as soon as one quota runs out.
+            if ($field->isRequired && trim($value) === '' && !$this->isCapacityExhausted($field, $excludeResponseId)) {
                 throw new NewsException('Le champ "' . $field->label . '" est obligatoire.');
             }
 
@@ -392,6 +399,11 @@ class ResponseService
         }
 
         return $normalized;
+    }
+
+    private function isCapacityExhausted(FormField $field, ?int $excludeResponseId): bool
+    {
+        return $field->capacityMax !== null && $this->remainingCapacity($field, $excludeResponseId) <= 0;
     }
 
     /**
