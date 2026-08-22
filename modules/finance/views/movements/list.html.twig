@@ -2,6 +2,12 @@
 
 {% block title %}Mouvements — Finances — {{ site_name }}{% endblock %}
 
+{% block stylesheets %}
+<style nonce="{{ csp_nonce }}">
+    .movement-row { cursor: pointer; }
+</style>
+{% endblock %}
+
 {% block content %}
     <h1 class="mb-4">Finances</h1>
 
@@ -61,7 +67,7 @@
         {% for row in rows %}
             {% set movement = row.movement %}
             <div class="border rounded-3 p-3 movement-row {{ movement.categoryId is null ? 'bg-warning-subtle' : '' }}"
-                 style="cursor:pointer;"
+                 role="button" tabindex="0"
                  data-id="{{ movement.id }}"
                  data-date="{{ movement.transactionDate }}"
                  data-label="{{ movement.label }}"
@@ -128,7 +134,7 @@
                         data-counterparty-name="{{ movement.counterpartyName }}"
                         data-counterparty-account="{{ movement.counterpartyAccount }}"
                         data-extra-details="{{ movement.extraDetails }}"
-                        class="movement-row {{ movement.categoryId is null ? 'table-warning' : '' }}" style="cursor: pointer;">
+                        class="movement-row {{ movement.categoryId is null ? 'table-warning' : '' }}">
                         <td>{{ movement.transactionDate }}</td>
                         <td>
                             {{ movement.categoryId and categories_by_id[movement.categoryId] is defined ? categories_by_id[movement.categoryId].name : 'À catégoriser' }}
@@ -304,26 +310,54 @@ function setDetailRow(ddId, value) {
     dt.classList.toggle('d-none', !hasValue);
 }
 
-document.querySelectorAll('tr.movement-row').forEach(row => {
-    row.addEventListener('click', (e) => {
-        if (e.target.closest('.attachment-btn, .suggest-associate-btn')) {
-            return;
-        }
-        currentDetailsMovementId = row.dataset.id;
-        document.getElementById('md-date').textContent = row.dataset.date;
-        document.getElementById('md-label').textContent = row.dataset.label;
-        document.getElementById('md-bank-reference').textContent = row.dataset.bankReference || '—';
-        document.getElementById('md-amount').textContent = formatAmountEur(row.dataset.amount);
-        document.getElementById('md-source').textContent = row.dataset.source === 'import' ? 'Import bancaire' : 'Manuel';
-        setDetailRow('md-counterparty-name', row.dataset.counterpartyName);
-        setDetailRow('md-counterparty-account', row.dataset.counterpartyAccount);
-        setDetailRow('md-extra-details', row.dataset.extraDetails);
-        document.getElementById('md-category').value = row.dataset.categoryId || '';
-        document.getElementById('md-category-auto').classList.toggle('d-none', row.dataset.categorySource !== 'auto');
-        document.getElementById('md-comment').value = row.dataset.comment || '';
-        document.getElementById('md-fiscal-year').value = row.dataset.fiscalYearId;
-        movementDetailsModal ? movementDetailsModal.show() : movementDetailsModalEl.classList.add('show');
-    });
+function openMovementDetails(row) {
+    currentDetailsMovementId = row.dataset.id;
+    document.getElementById('md-date').textContent = row.dataset.date;
+    document.getElementById('md-label').textContent = row.dataset.label;
+    document.getElementById('md-bank-reference').textContent = row.dataset.bankReference || '—';
+    document.getElementById('md-amount').textContent = formatAmountEur(row.dataset.amount);
+    document.getElementById('md-source').textContent = row.dataset.source === 'import' ? 'Import bancaire' : 'Manuel';
+    setDetailRow('md-counterparty-name', row.dataset.counterpartyName);
+    setDetailRow('md-counterparty-account', row.dataset.counterpartyAccount);
+    setDetailRow('md-extra-details', row.dataset.extraDetails);
+    document.getElementById('md-category').value = row.dataset.categoryId || '';
+    document.getElementById('md-category-auto').classList.toggle('d-none', row.dataset.categorySource !== 'auto');
+    document.getElementById('md-comment').value = row.dataset.comment || '';
+    document.getElementById('md-fiscal-year').value = row.dataset.fiscalYearId;
+    movementDetailsModal ? movementDetailsModal.show() : movementDetailsModalEl.classList.add('show');
+}
+
+// A single delegated listener covers BOTH movement views — the desktop
+// <tr class="movement-row"> and the mobile card <div class="movement-row">.
+// A previous binding selected the table rows only (tr elements), leaving
+// the mobile cards inert. Clicks on controls
+// inside a row (attachment/suggestion buttons, links) keep their own
+// behavior.
+function movementRowFromEvent(event) {
+    if (!(event.target instanceof Element) || event.target.closest('a, button')) {
+        return null;
+    }
+    return event.target.closest('.movement-row');
+}
+
+document.addEventListener('click', (e) => {
+    const row = movementRowFromEvent(e);
+    if (row) {
+        openMovementDetails(row);
+    }
+});
+
+// Keyboard activation for the mobile card (role="button" tabindex="0"):
+// Enter/Space open the same details modal as a click.
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') {
+        return;
+    }
+    const row = movementRowFromEvent(e);
+    if (row) {
+        e.preventDefault();
+        openMovementDetails(row);
+    }
 });
 
 document.getElementById('md-save-btn').addEventListener('click', async () => {
