@@ -39,6 +39,34 @@ class MassMailTestHelper
             FOREIGN KEY (section_id) REFERENCES sections(id)
         )');
 
+        $pdo->exec('CREATE TABLE mass_mail_audiences (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_filename TEXT NOT NULL,
+            sheet_name TEXT NOT NULL,
+            columns_json TEXT NOT NULL,
+            row_count INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER,
+            FOREIGN KEY (created_by) REFERENCES user_accounts(id)
+        )');
+
+        $pdo->exec('CREATE TABLE mass_mail_audience_rows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            audience_id INTEGER NOT NULL,
+            row_index INTEGER NOT NULL,
+            member_id INTEGER,
+            email_encrypted BLOB,
+            data_encrypted BLOB NOT NULL,
+            FOREIGN KEY (audience_id) REFERENCES mass_mail_audiences(id),
+            FOREIGN KEY (member_id) REFERENCES members(id)
+        )');
+
+        $pdo->exec('CREATE TABLE mass_mail_suppressed_addresses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_hash TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
         $pdo->exec('CREATE TABLE mass_mail_emails (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             subject TEXT NOT NULL,
@@ -47,6 +75,7 @@ class MassMailTestHelper
             list_type TEXT NOT NULL,
             list_id INTEGER,
             list_section_id INTEGER,
+            audience_id INTEGER,
             status TEXT NOT NULL DEFAULT \'draft\',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -55,6 +84,7 @@ class MassMailTestHelper
             FOREIGN KEY (section_id) REFERENCES sections(id),
             FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id),
             FOREIGN KEY (list_section_id) REFERENCES sections(id),
+            FOREIGN KEY (audience_id) REFERENCES mass_mail_audiences(id),
             FOREIGN KEY (created_by) REFERENCES user_accounts(id)
         )');
 
@@ -69,8 +99,9 @@ class MassMailTestHelper
         $pdo->exec('CREATE TABLE mass_mail_recipients (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email_id INTEGER NOT NULL,
-            member_id INTEGER NOT NULL,
-            scout_year_id INTEGER NOT NULL,
+            member_id INTEGER,
+            scout_year_id INTEGER,
+            audience_row_id INTEGER,
             email_address_encrypted BLOB,
             member_email_id INTEGER,
             unsubscribe_token_hash TEXT,
@@ -82,7 +113,8 @@ class MassMailTestHelper
             FOREIGN KEY (email_id) REFERENCES mass_mail_emails(id),
             FOREIGN KEY (member_id) REFERENCES members(id),
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
-            FOREIGN KEY (member_email_id) REFERENCES member_emails(id)
+            FOREIGN KEY (member_email_id) REFERENCES member_emails(id),
+            FOREIGN KEY (audience_row_id) REFERENCES mass_mail_audience_rows(id)
         )');
 
         $pdo->exec('CREATE TABLE mass_mail_attachments (

@@ -74,6 +74,14 @@ class MassMailAccessService
         if ($listType === Email::LIST_TYPE_DEFAULT_SECTION) {
             return $listSectionId !== null && in_array($listSectionId, $userSectionIds, true);
         }
+        // Mail-merge is open to every chief (unit decision, documented in
+        // ARCHITECTURE.md): the uploaded file — not a section list — names
+        // the recipients, and its audience is locked to whoever imported
+        // it (MassMailService::assertAudienceUsable()). Every import is
+        // journaled.
+        if ($listType === Email::LIST_TYPE_MAIL_MERGE) {
+            return true;
+        }
 
         return false;
     }

@@ -13,6 +13,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\MemberEmailService;
 use Modules\MassMail\Repository\RecipientRepository;
+use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Twig\Environment;
 
 /**
@@ -39,7 +40,8 @@ class UnsubscribeController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private RecipientRepository $recipientRepository,
-        private MemberEmailService $memberEmailService
+        private MemberEmailService $memberEmailService,
+        private SuppressedAddressRepository $suppressedAddressRepository
     ) {
     }
 
@@ -78,11 +80,23 @@ class UnsubscribeController extends AbstractController
         $token = $queryToken !== '' ? $queryToken : (string) $request->getBody('token', '');
 
         $recipient = ($id > 0 && $token !== '') ? $this->recipientRepository->verifyUnsubscribeToken($id, $token) : null;
-        if ($recipient === null || $recipient->memberEmailId === null) {
+        if ($recipient === null) {
             return $this->render('@mass_mail/unsubscribe.html.twig', ['state' => 'invalid']);
         }
 
-        $this->memberEmailService->unsubscribe($recipient->memberEmailId);
+        if ($recipient->memberEmailId !== null) {
+            $this->memberEmailService->unsubscribe($recipient->memberEmailId);
+        } elseif ($recipient->memberId === null && $recipient->emailAddress !== null) {
+            // External mail-merge recipient — no member_emails row to flip,
+            // so the address lands on the module's own suppression list,
+            // honored by every future mail-merge freeze.
+            $this->suppressedAddressRepository->suppress($recipient->emailAddress);
+        } else {
+            // A member recipient frozen without a member_email_id (the
+            // defensive "no usable address" error row) never got a token,
+            // so this is unreachable in practice — fail gracefully anyway.
+            return $this->render('@mass_mail/unsubscribe.html.twig', ['state' => 'invalid']);
+        }
 
         return $this->render('@mass_mail/unsubscribe.html.twig', ['state' => 'done']);
     }
