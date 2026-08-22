@@ -841,7 +841,33 @@ $twig->addGlobal('pwa_theme_color', (string) ($settingService->get('pwa_theme_co
 foreach (['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector'] as $mailSecretKey) {
     $secrets[$mailSecretKey] = (string) ($settingService->get($mailSecretKey) ?: ($secrets[$mailSecretKey] ?? ''));
 }
-$mailService = MailServiceFactory::create($secrets, $dkimManager);
+// Which named flags hold for THIS installation (ARCHITECTURE.md §8.49)?
+// Decided from base_url, never from the Host header, and resolved here
+// through the single resolver every entry point calls so ModuleManager
+// receives an already-built profile rather than learning what a statistics
+// destination or a reference host is.
+$installationProfile = \Core\Module\InstallationProfile::resolve(
+    (string) ($settingService->get('base_url') ?? ''),
+    (string) ($settingService->get('statistics_destination') ?? '')
+);
+
+// The mail sandbox (ARCHITECTURE.md §8.61). Outgoing mail is captured
+// instead of sent only when the installation profile carries
+// reference_installation or local_installation, the test_tools module is
+// enabled, AND its arm switch is on — the factory owns that decision, and
+// returns null (keep sending) for every other installation. Resolved here
+// because MailService is built long before modules load, which is also why
+// a forged module_registry row alone can never capture anything.
+$mailCaptureTransport = \Modules\TestTools\Mail\CaptureTransportFactory::forInstallation(
+    $installationProfile,
+    new ModuleRegistryRepository($pdo),
+    $settingService,
+    $pdo,
+    $encryptionService,
+    dirname(__DIR__) . '/storage'
+);
+
+$mailService = MailServiceFactory::create($secrets, $dkimManager, $mailCaptureTransport);
 
 // Create NotificationService (Web Push, Core\Notification) — VAPID subject
 // must be a mailto: or an https URL, never empty, hence the fallback chain
@@ -1332,15 +1358,6 @@ $offlineWhitelist = new OfflineWhitelist();
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
 $moduleRegistryRepo = new ModuleRegistryRepository($pdo);
-// Which named flags hold for THIS installation (ARCHITECTURE.md §8.49)?
-// Decided from base_url, never from the Host header, and resolved here
-// through the single resolver every entry point calls so ModuleManager
-// receives an already-built profile rather than learning what a statistics
-// destination or a reference host is.
-$installationProfile = \Core\Module\InstallationProfile::resolve(
-    (string) ($settingService->get('base_url') ?? ''),
-    (string) ($settingService->get('statistics_destination') ?? '')
-);
 
 $moduleManager = new ModuleManager(
     $modulesDir,
@@ -2982,6 +2999,28 @@ if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) 
             $schedulerService->schedule('support_dashboard', $supportTaskKey, new DateTimeImmutable(), [], $supportTaskReference);
         }
     }
+}
+
+if (in_array('test_tools', $moduleManager->getEnabledModuleIds(), true)) {
+    // The mail sandbox (ARCHITECTURE.md §8.61). Its transport was already
+    // decided far above, next to MailService — this half only wires the
+    // pages that show what was captured.
+    $testToolsSandboxService = new \Modules\TestTools\Service\MailSandboxService(
+        new \Modules\TestTools\Repository\CapturedEmailRepository($pdo, $encryptionService),
+        $settingService,
+        $encryptedFileStorageService,
+        $journalService
+    );
+
+    $frontController->registerController(
+        \Modules\TestTools\Controller\TestToolsController::class,
+        new \Modules\TestTools\Controller\TestToolsController($twig)
+    );
+
+    $frontController->registerController(
+        \Modules\TestTools\Controller\MailSandboxController::class,
+        new \Modules\TestTools\Controller\MailSandboxController($twig, $testToolsSandboxService)
+    );
 }
 
 if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {

@@ -1,0 +1,53 @@
+{
+  "id": "test_tools",
+  "name": "Outils de test",
+  "description": "Boîte à outils réservée à l'installation de référence et aux installations locales de développement. Premier outil : le bac à sable e-mail, qui capture les messages sortants au lieu de les envoyer.",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "visible_when": ["reference_installation", "local_installation"],
+  "routes": [
+    {
+      "path": "/test-tools",
+      "method": "GET",
+      "controller": "Modules\\TestTools\\Controller\\TestToolsController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Outils de test",
+      "menu_icon": "bi-tools",
+      "breadcrumb": { "label": "Outils de test", "parents": ["Configuration"] }
+    },
+    {
+      "path": "/test-tools/mail-sandbox",
+      "method": "GET",
+      "controller": "Modules\\TestTools\\Controller\\MailSandboxController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "",
+      "breadcrumb": { "label": "Bac à sable e-mail", "parents": ["Configuration", "Outils de test"] }
+    },
+    {
+      "path": "/test-tools/mail-sandbox/capture",
+      "method": "POST",
+      "controller": "Modules\\TestTools\\Controller\\MailSandboxController",
+      "action": "toggleCapture",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    }
+  ],
+  "settings": [
+    {
+      "key": "mail_capture_armed",
+      "default_value": "0",
+      "type": "boolean",
+      "editable": false,
+      "label": "Capture des e-mails sortants",
+      "description": "Lorsque la capture est armée, aucun e-mail ne quitte le serveur : chaque message est assemblé puis rangé dans le bac à sable. Ce réglage se change uniquement depuis la page du bac à sable, jamais ici."
+    }
+  ],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

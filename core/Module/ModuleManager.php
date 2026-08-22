@@ -380,7 +380,10 @@ class ModuleManager
                 $setting['type'],
                 $setting['label'],
                 $setting['description'],
-                $moduleId
+                $moduleId,
+                null,
+                null,
+                $setting['editable']
             );
         }
 
@@ -492,7 +495,10 @@ class ModuleManager
                 $setting['type'],
                 $setting['label'],
                 $setting['description'],
-                $manifest->id
+                $manifest->id,
+                null,
+                null,
+                $setting['editable']
             );
         }
 

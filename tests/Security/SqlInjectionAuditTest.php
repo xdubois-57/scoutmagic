@@ -163,6 +163,10 @@ class SqlInjectionAuditTest extends TestCase
             '{$fromWhere}' => 'buildFilterSql() returns a FROM/WHERE built only from string literals plus `?` '
                 . 'placeholders, with its parameters returned alongside it and bound by execute().',
         ],
+        'modules/test_tools/src/Repository/CapturedEmailRepository.php' => [
+            '{$where}' => 'buildFilter() returns a WHERE built only from string literals plus `?` '
+                . 'placeholders, with its values returned alongside it and bound by execute().',
+        ],
         'modules/mass_mail/src/Repository/EmailRepository.php' => [
             '{$whereSql}' => 'The conditions are literal strings pushed onto $where (each with `?` where a value '
                 . 'goes) and joined with AND; every value travels in $params and is bound.',

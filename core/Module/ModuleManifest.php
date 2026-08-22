@@ -45,7 +45,7 @@ class ModuleManifest
 
     /**
      * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, breadcrumb: ?array{label: string, parents: array<string>}}> $routes
-     * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string}> $settings
+     * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string, editable: bool}> $settings
      * @param array<int, array{name: string, category: string, purpose: string, duration: string}> $cookies
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
      * @param array<string, array{role_min: string}> $storage
@@ -512,7 +512,7 @@ class ModuleManifest
 
     /**
      * @param array<string, mixed>|mixed $setting
-     * @return array{key: string, default_value: string, type: string, label: string, description: string}
+     * @return array{key: string, default_value: string, type: string, label: string, description: string, editable: bool}
      */
     private static function validateSetting(string $moduleId, mixed $setting, int $index): array
     {
@@ -527,12 +527,25 @@ class ModuleManifest
             }
         }
 
+        // Optional `editable` (bool, default true). A false setting is
+        // still registered, still readable and still writable in code — it
+        // simply never renders as an editable row on Configuration >
+        // Paramètres (core/View/templates/config/settings.html.twig), so a
+        // switch with its own dedicated UI and its own consequences is
+        // toggled there and only there. Typed strictly for the same reason
+        // visible_when is: a truthy "false" would quietly publish a switch
+        // that was meant to stay off that page.
+        if (isset($setting['editable']) && !is_bool($setting['editable'])) {
+            throw new ModuleException("Module '{$moduleId}' settings[{$index}] editable must be a boolean");
+        }
+
         return [
             'key' => $setting['key'],
             'default_value' => (string) ($setting['default_value'] ?? ''),
             'type' => $setting['type'],
             'label' => $setting['label'],
             'description' => $setting['description'],
+            'editable' => $setting['editable'] ?? true,
         ];
     }
 

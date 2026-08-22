@@ -748,6 +748,59 @@ class ModuleManifestTest extends TestCase
         $this->assertSame([], $manifest->requires);
     }
 
+    public function testASettingIsEditableByDefault(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'plain',
+            'name' => 'Plain',
+            'version' => '1.0.0',
+            'settings' => [[
+                'key' => 'k',
+                'type' => 'text',
+                'label' => 'Label',
+                'description' => 'Description',
+            ]],
+        ]);
+
+        $this->assertTrue($manifest->settings[0]['editable']);
+    }
+
+    public function testASettingCanDeclareItselfNonEditable(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'plain',
+            'name' => 'Plain',
+            'version' => '1.0.0',
+            'settings' => [[
+                'key' => 'k',
+                'type' => 'boolean',
+                'editable' => false,
+                'label' => 'Label',
+                'description' => 'Description',
+            ]],
+        ]);
+
+        $this->assertFalse($manifest->settings[0]['editable']);
+    }
+
+    public function testANonBooleanSettingEditableIsRejected(): void
+    {
+        $this->expectException(ModuleException::class);
+
+        ModuleManifest::fromArray([
+            'id' => 'plain',
+            'name' => 'Plain',
+            'version' => '1.0.0',
+            'settings' => [[
+                'key' => 'k',
+                'type' => 'boolean',
+                'editable' => 'false',
+                'label' => 'Label',
+                'description' => 'Description',
+            ]],
+        ]);
+    }
+
     public function testVisibleWhenDefaultsToEmpty(): void
     {
         $manifest = ModuleManifest::fromArray([

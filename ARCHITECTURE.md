@@ -1444,6 +1444,34 @@ it tell a real crontab from the request-driven scheduler standing in for one.
 On shared hosting without a crontab the reminders still go out, just hours
 late, and a unit that does not know that reads the delay as a bug.
 
+### 8.61 The test toolbox and the mail sandbox (`Modules\TestTools`)
+
+A toolbox that exists **only** on the project's reference installation and on a developer's machine: `"visible_when": ["reference_installation", "local_installation"]` (§8.49), `enabled_by_default: false`, every route `superadmin` under Configuration. No deploying unit's installation ever loads it, which is the condition that makes everything below admissible — read it as a condition, not as a claim.
+
+Its first tool is the **mail sandbox**: outgoing mail is assembled by the real mailing library, DKIM signature included, and stored in a browsable page instead of leaving the server.
+
+**The seam is `Core\Mail\MailTransportInterface` (§8.7), and nothing else moves.** `MailService::send()` still builds the message — mode, From and envelope Sender, recipient, Reply-To, attachments, custom headers, the DKIM block, the prefixed subject, the multipart body — and hands the configured `PHPMailer` instance to a transport. `Modules\TestTools\Mail\CaptureTransport` is that transport when capture is on. None of `send()`'s ~95 call sites knows any of this exists.
+
+**`preSend()` is the whole library minus the network hop.** It performs recipient validation, MIME assembly, attachment encoding, header construction and the DKIM signature; `getSentMIMEMessage()` then returns the complete RFC 5322 message. `postSend()` — the half that talks SMTP or hands off to `mail()` — is **never** called anywhere in this module, and a test asserts the source says so. The transport also forces SMTP semantics on the instance before assembling: in `mail` mode PHPMailer moves `To` and `Subject` out of `MIMEHeader` into `mailHeader` and switches to `PHP_EOL`, and while the captured result stays complete either way, the SMTP shape (CRLF endings, the full header block in one piece) is both the realistic thing to inspect and what a real mail client expects from a `.eml`.
+
+**A failed assembly is captured too, then rethrown.** The row is written with PHPMailer's own error on it and the exception continues to the caller as the same `MailException` it would have seen. A test tool that silently swallows a broken mail is worse than useless.
+
+**Capture is all-or-nothing.** There is no "capture and also send", no whitelist of addresses that really go out and no per-recipient exception. An operator who has to reason about which half of the mail left the server cannot use the tool to answer "what did this feature actually send?". For the same reason nothing records *which* feature sent a message: no `debug_backtrace()`, no extra parameter on `send()` — the subject and the timestamp are the identification, deliberately.
+
+**Wiring is a three-way condition, and all three must hold** (`Mail\CaptureTransportFactory`):
+
+1. the installation profile carries `reference_installation` **or** `local_installation`;
+2. the `test_tools` module is enabled;
+3. the arm switch is on.
+
+`MailService` is built long before modules load, so the factory reads the `module_registry` row directly rather than asking `ModuleManager` — which is exactly why a forged registry row is only one of three conditions and never sufficient on its own. The decision lives in a factory rather than inline in `public/index.php` precisely so those three conditions are testable; nothing in the composition root is.
+
+**The arm switch is a module setting registered non-editable**, so it never renders as a row on Configuration > Paramètres — a switch that changes the sending behaviour of the whole site does not belong in a list of text fields. It is toggled from the sandbox page and only there (`SettingService::setInternal()`, which bypasses the `editable` guard by design), and **every toggle is journaled at level `security`, in both directions**, with no address in the entry. An operator finding no mail arriving needs the journal to say when it was turned on and by whom.
+
+**Storage.** The raw message and each attachment go through `Core\File\EncryptedFileStorageService` (§8.14) as `superadmin` files, so `FileAccessGuard` and transparent decryption apply unchanged and nothing is ever written to disk in plaintext — `UploadHandler` is deliberately not reused for that reason. Attachment names, MIME types and sizes are read off the `PHPMailer` instance **at capture time** and each attachment is stored as its own encrypted file: the source paths are frequently temporary and will not exist later, and doing it this way means the sandbox never has to parse MIME.
+
+**`captured_emails`**: `captured_at`, `subject`, `recipient` (`BLOB` + `recipient_blind_index`), `from_address`, `reply_to`, `size_bytes`, `has_dkim`, `attachment_count`, `mime_file_id`, `error_message`. `captured_email_attachments` carries one row per attachment plus its `file_id`. The recipient is personal data and is encrypted and decrypted **only** in `Repository\CapturedEmailRepository`; `from_address` and `reply_to` are organisational addresses and stay in clear (design.md §2.6). The subject is in clear too, which is a deliberate exception to SECURITY.md §5 — see there for the condition that makes it admissible.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

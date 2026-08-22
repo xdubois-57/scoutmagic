@@ -1,0 +1,44 @@
+{% extends 'base.html.twig' %}
+{% block title %}Bac à sable e-mail — {{ site_name }}{% endblock %}
+
+{% block content %}
+<h1 class="mb-3">Bac à sable e-mail</h1>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="post" action="/test-tools/mail-sandbox/capture" class="d-flex flex-wrap align-items-center gap-3">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="armed" value="{{ armed ? '0' : '1' }}">
+            <span class="fw-semibold">
+                {% if armed %}
+                    La capture est active : aucun e-mail ne quitte le serveur.
+                {% else %}
+                    La capture est inactive : les e-mails partent normalement.
+                {% endif %}
+            </span>
+            <button type="submit" class="btn {{ armed ? 'btn-outline-secondary' : 'btn-danger' }}"
+                    style="min-height:44px;">
+                {{ armed ? 'Désactiver la capture' : 'Activer la capture' }}
+            </button>
+        </form>
+    </div>
+</div>
+
+{% if emails is empty %}
+    <p class="text-body-secondary">Aucun message capturé pour le moment.</p>
+{% else %}
+    <ul class="list-group">
+        {% for email in emails %}
+            <li class="list-group-item">
+                <span class="d-block fw-semibold">{{ email.subject }}</span>
+                <span class="d-block small text-body-secondary">
+                    {{ email.recipient }} — {{ email.capturedAt|date('d/m/Y H:i') }}
+                    {% if email.hasDkim %} — DKIM{% endif %}
+                    {% if email.attachmentCount > 0 %} — {{ email.attachmentCount }} pièce(s) jointe(s){% endif %}
+                    {% if email.hasFailed %} — échec d'assemblage{% endif %}
+                </span>
+            </li>
+        {% endfor %}
+    </ul>
+{% endif %}
+{% endblock %}
