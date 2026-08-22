@@ -20,7 +20,7 @@ use Twig\Environment;
 /**
  * `/test-tools/mail-sandbox` (`role_min: superadmin`) — the captured
  * messages, and the switch that decides whether mail leaves the server at
- * all (ARCHITECTURE.md §8.61).
+ * all (ARCHITECTURE.md §8.63).
  */
 class MailSandboxController extends AbstractController
 {

@@ -19,7 +19,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
 /**
- * The capture itself (ARCHITECTURE.md §8.61): MailService assembles, the
+ * The capture itself (ARCHITECTURE.md §8.63): MailService assembles, the
  * transport stores, and nothing goes on the wire.
  */
 #[Group('database')]

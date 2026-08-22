@@ -26,7 +26,7 @@ use Tests\DatabaseTestHelper;
 use Twig\Environment;
 
 /**
- * The sandbox interface itself (ARCHITECTURE.md §8.61): list, search,
+ * The sandbox interface itself (ARCHITECTURE.md §8.63): list, search,
  * pagination, the five detail tabs, and the two properties that make the
  * HTML preview safe to look at.
  */

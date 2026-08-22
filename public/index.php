@@ -851,7 +851,7 @@ $installationProfile = \Core\Module\InstallationProfile::resolve(
     (string) ($settingService->get('statistics_destination') ?? '')
 );
 
-// The mail sandbox (ARCHITECTURE.md §8.61). Outgoing mail is captured
+// The mail sandbox (ARCHITECTURE.md §8.63). Outgoing mail is captured
 // instead of sent only when the installation profile carries
 // reference_installation or local_installation, the test_tools module is
 // enabled, AND its arm switch is on — the factory owns that decision, and
@@ -3021,7 +3021,7 @@ if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) 
 }
 
 if (in_array('test_tools', $moduleManager->getEnabledModuleIds(), true)) {
-    // The mail sandbox (ARCHITECTURE.md §8.61). Its transport was already
+    // The mail sandbox (ARCHITECTURE.md §8.63). Its transport was already
     // decided far above, next to MailService — this half only wires the
     // pages that show what was captured.
     $testToolsSandboxService = new \Modules\TestTools\Service\MailSandboxService(
@@ -3050,7 +3050,7 @@ if (in_array('test_tools', $moduleManager->getEnabledModuleIds(), true)) {
     // Tests\Modules\TestTools\ModuleSchedulingTest fails if this list
     // ever drifts from module.json's `scheduled_tasks`.
     foreach ([
-        // Retention (§8.61): past mail_capture_retention messages, the
+        // Retention (§8.63): past mail_capture_retention messages, the
         // oldest go — rows and encrypted files together.
         \Modules\TestTools\Task\PurgeCapturedEmailsHandler::TASK_KEY => \Modules\TestTools\Task\PurgeCapturedEmailsHandler::REFERENCE,
     ] as $testToolsTaskKey => $testToolsTaskReference) {
