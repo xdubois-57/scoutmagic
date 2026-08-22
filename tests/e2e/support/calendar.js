@@ -28,15 +28,44 @@ export async function expectRendersAsACalendar(grid) {
     // The observable consequence of that grid, stated in geometry: two
     // days of the same week sit side by side. A future CSS change that
     // keeps `display: grid` but loses the seven columns still fails here.
-    const first = await week.locator('.daygrid-day').nth(0).boundingBox();
-    const second = await week.locator('.daygrid-day').nth(1).boundingBox();
+    //
+    // A week is seven days — partials/month_day_grid.html.twig emits
+    // exactly that, padding included — so this is an invariant of the
+    // markup and not of any one month.
+    const days = week.locator('.daygrid-day');
+    await expect(days).toHaveCount(7);
 
-    expect(first).not.toBeNull();
-    expect(second).not.toBeNull();
-    expect(second.x).toBeGreaterThan(first.x);
-    expect(Math.abs(second.y - first.y)).toBeLessThan(2);
+    // Both boxes read together, and retried until both answer.
+    //
+    // boundingBox() is a one-shot measurement, and on the rental pages
+    // this grid is LIVE: public/assets/js/rental-calendar.js replaces
+    // #rental-calendar-fragment's innerHTML when a month is paged or an
+    // estimate recomputed, so the cell measured a millisecond ago can be
+    // detached by the time the next line asks for its neighbour, and
+    // boundingBox() then answers null. Measuring the two separately, even
+    // straight after a toBeVisible(), is therefore a race — one that fails
+    // as "expect(second).not.toBeNull()" and reads as a broken calendar
+    // when the calendar is fine. Polling the PAIR is what makes the
+    // comparison below a comparison of two cells that coexisted.
+    /** @type {{first: {x: number, y: number, height: number}, second: {x: number}}} */
+    let box;
+    await expect
+        .poll(async () => {
+            const first = await days.nth(0).boundingBox();
+            const second = await days.nth(1).boundingBox();
+            if (first === null || second === null) {
+                return false;
+            }
+            box = { first, second };
+
+            return true;
+        }, { message: "the week's first two day cells must both be laid out at the same moment" })
+        .toBe(true);
+
+    expect(box.second.x, 'two days of one week must sit side by side').toBeGreaterThan(box.first.x);
+    expect(Math.abs(box.second.y - box.first.y), 'and share a row').toBeLessThan(2);
 
     // A cell tall enough to stack 42 of them down the page is the very
     // symptom being ruled out.
-    expect(first.height).toBeLessThan(200);
+    expect(box.first.height).toBeLessThan(200);
 }

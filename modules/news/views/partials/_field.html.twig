@@ -26,7 +26,14 @@
 
     {% elseif field.fieldType == 'number' %}
         {% set full = remaining_capacity is not null and remaining_capacity <= 0 %}
-        <input type="number" inputmode="numeric" step="1" min="0" {{ remaining_capacity is not null ? 'max="' ~ remaining_capacity ~ '"' : '' }}
+        {# The whole attribute has to be written as markup, never built as a
+           string and interpolated: Twig's autoescaping turns the quotes of
+           an interpolated `max="3"` into character references, which the
+           HTML parser then reads back as the VALUE — the browser ends up
+           with max='"3"', not a number, and silently enforces no cap at
+           all. Caught end to end (tests/e2e/specs/news-form-payment.spec.js)
+           and pinned in Tests\Modules\News\Controller\NewsIntegrationTest. #}
+        <input type="number" inputmode="numeric" step="1" min="0" {% if remaining_capacity is not null %}max="{{ remaining_capacity }}"{% endif %}
                class="form-control news-number-field" id="{{ input_name }}" name="{{ input_name }}"
                value="{{ full ? 0 : value }}" data-price="{{ field.pricePerUnit ?? '' }}" data-label="{{ field.label }}"
                {{ field.isRequired ? 'required' : '' }} {{ (disabled or full) ? 'disabled' : '' }}>
