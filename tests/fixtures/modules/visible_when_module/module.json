@@ -1,0 +1,21 @@
+{
+  "id": "visible_when_module",
+  "name": "Module conditionnel de test",
+  "version": "1.0.0",
+  "visible_when": ["statistics_receiver"],
+  "routes": [
+    {
+      "path": "/visible-when",
+      "method": "GET",
+      "controller": "Modules\\VisibleWhenModule\\Controller\\TestController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "Visible When"
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

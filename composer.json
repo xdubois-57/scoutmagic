@@ -45,6 +45,7 @@
             "Modules\\Retro\\": "modules/retro/src/",
             "Modules\\SosStaff\\": "modules/sos_staff/src/",
             "Modules\\SupportDashboard\\": "modules/support_dashboard/src/",
+            "Modules\\TestTools\\": "modules/test_tools/src/",
             "Modules\\Trombinoscope\\": "modules/trombinoscope/src/"
         }
     },

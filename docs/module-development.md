@@ -119,16 +119,35 @@ The directory name **must** match the `id` field in `module.json`.
 }
 ```
 
-## `receiver_only` — a module only the statistics receiver sees
+## `visible_when` — a module only some installations see
 
-`"receiver_only": true` (top level, boolean, default false) marks a module that only makes sense on the ScoutMagic installation that **receives** usage statistics (ARCHITECTURE.md §8.47/§8.49). `ModuleManager` filters such a manifest out of `discoverModules()` on every other installation, which removes its routes, menu entries, registry listing and scheduled tasks in one stroke.
+`"visible_when"` (top level, list of installation-flag names, default `[]`) gates a module on the *kind* of installation it is running on (ARCHITECTURE.md §8.49). It replaced the older boolean `receiver_only`, which could not express "the reference installation **or** a local one".
 
-Two things to know before using it:
+```json
+{
+  "id": "test_tools",
+  "visible_when": ["reference_installation", "local_installation"]
+}
+```
 
-- It is **ergonomic, not a security boundary.** The real protection is that a module which is never loaded registers no routes at all. Do not use it as an access control.
-- It is **strictly typed.** `"receiver_only": "false"` is a load-time error rather than a truthy string, because getting it wrong hides the module on every installation and the symptom — a module that silently does not exist — is close to undebuggable.
+Absent or `[]` means **always visible** — that is every module's default. When the list is non-empty, `ModuleManager` filters the manifest out of `discoverModules()` on any installation where none of the flags holds, which removes its routes, menu entries, registry listing and scheduled tasks in one stroke.
 
-There is exactly one such module (`support_dashboard`), and there is unlikely to be a second: this is not a general "hide a module" mechanism.
+The known flags — the complete list lives in `Core\Module\InstallationProfile::KNOWN_FLAGS`, and the manifest is validated against it:
+
+| Flag | Holds when |
+| --- | --- |
+| `statistics_receiver` | this installation is the one usage statistics are reported to (`base_url` matches `statistics_destination`). |
+| `reference_installation` | `base_url`'s host is `scoutmagic.be` (a `www.` prefix is equivalent; another subdomain is not). |
+| `local_installation` | the host is `localhost`, `127.0.0.1` or `::1`, or its last DNS label is `test`, `local` or `localhost`. |
+
+Four things to know before using it:
+
+- **The semantics are OR.** The module is visible as soon as *any* listed flag holds — never "all of them". A list of two flags widens visibility, it does not narrow it.
+- **Every flag is decided from the `base_url` setting**, never from the `Host` header, which is attacker-supplied on every request. An empty or unparseable `base_url` yields no flag at all: "unknown" never reads as "match".
+- It is **ergonomic, not a security boundary.** The real protection is that a module which is never loaded registers no routes at all. Do not use it as access control.
+- It is **strictly validated.** A non-list, a non-string element, a duplicate, or a flag name that is not in `KNOWN_FLAGS` is a load-time `ModuleException` naming both the offending value and the known set. Getting it wrong hides the module on every installation, and the symptom — a module that silently does not exist — is close to undebuggable, which is precisely why a typo must not be silent.
+
+Two modules use it today: `support_dashboard` (`["statistics_receiver"]`) and `test_tools` (`["reference_installation", "local_installation"]`, ARCHITECTURE.md §8.61). This is not a general "hide a module" mechanism — adding a flag means adding it to `InstallationProfile::KNOWN_FLAGS`, and every flag has to be answerable from `base_url` alone.
 
 ## Manifest validation rules
 
@@ -144,7 +163,7 @@ There is exactly one such module (`support_dashboard`), and there is unlikely to
   - `menu_order`: optional integer, defaults to `100`. **Read this carefully if you're used to an older version of this rule: `menu_order` no longer competes with core or dynamic entries at all, only with other modules.** `Core\View\MenuBuilder::buildPages()` sorts every menu by entry type first — dynamic entries (e.g. `espace_animes`'s per-member pages) always first, then core static pages, then every module's pages — and only uses `menu_order` to break ties *within* the module group. Setting a very low value (e.g. `5`) no longer places a module page ahead of a dynamic per-member entry or a core page, however low — it only affects that page's position relative to *other module pages* in the same menu. (An earlier version of this rule let a low `menu_order` do exactly that, and two real modules relied on it — `trombinoscope`/`gallery` both declared `menu_order: 5`/`6` in `espace_animes` expecting to sort before per-member pages that used order 10+; under the current rule they simply sort after every dynamic/core entry regardless, and their explicit `menu_order` only orders them against each other.) **This explicit value is still untouched by the module-to-module reordering described below** — only routes left at the plain default are affected by that.
   - Module-to-module ordering (for routes at the default `menu_order`): a superadmin can drag-and-drop reorder modules on the Modules configuration page (`/config/modules`, `module_registry.sort_order`). Each enabled module's position in that order becomes a base offset (`1000 * position`) added to its default-order routes' `menu_order` — so those pages sort by module order relative to each other; this offset, like any other `menu_order` value, only ever matters within the module group (see above), never against core or dynamic entries. See `Core\Module\ModuleManager::loadModule()`.
   - `breadcrumb`: optional. When present, `label` is required (the page's own default breadcrumb label — a Controller can still override it per-request with a `breadcrumb_current` context variable, e.g. for a dynamic member/article title) and `parents` is an optional array of ancestor labels, each naming a *menu* (`Core\View\MenuBuilder`'s `label`, e.g. `"Espace animés"` — core routes derive this string from `Core\View\MenuBuilder::labelFor()` rather than hardcoding it, since `public/index.php` has PHP to call that from; a `module.json` breadcrumb has no such option, being plain JSON, so it keeps its own hardcoded copy of the label text — keep it in sync with `MenuBuilder::MENUS` by hand). A parent is never given its own URL in `module.json` — `partials/breadcrumb_bar.html.twig` matches it against `menus` (the same structure the nav renders from) and links it to that menu's first real page (skipping dynamic per-member entries and any `#` placeholder), or leaves it as plain text when the menu has none, or when the only such page is the one already being viewed (never a self-link, and never an invented URL like `/` or `#`). A route with no `breadcrumb` key is not an error — the breadcrumb bar simply stops at the home icon for that page. Rendered by `partials/breadcrumb_bar.html.twig`, included from `base.html.twig`, visible only when the site runs as an installed PWA (pure CSS `@media (display-mode: standalone)`, see `public/assets/css/app.css` — never a security boundary, same principle as menu visibility, SECURITY §3). Core routes declare the exact same shape as this route's 6th `Core\Http\Router::addRoute()` argument — see the core route table in `public/index.php`.
-- **settings**: optional, each entry must have `key`, `type`, `label`, `description`.
+- **settings**: optional, each entry must have `key`, `type`, `label`, `description`, and may declare `default_value` and `editable` (bool, default `true`).
 - **cookies**: optional, each entry must have `name`, `category`, `purpose`, `duration`.
   - `category`: one of `necessary`, `functional`, `analytics`.
 - **scheduled_tasks**: optional, each entry must have `key`, `handler` (FQCN).
@@ -463,6 +482,12 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 `"type": "secret"` marks a setting whose **value** must never be displayed or exported: it is filtered out of the Paramètres page entirely, and the support package's `configuration-parameters.xlsx` writes `[REDACTED]` in its place while keeping the key and label visible (ARCHITECTURE.md §8.48). Everything else behaves like `text`.
 
 Reach for it only when a credential genuinely has to live in `settings`. The established pattern for a module credential is an encrypted `BLOB` column in the module's own table (`Core\Security\EncryptionService`, decrypted only in the Repository) — `llm_providers.api_key` and the SOS telephony credentials both do this, and neither is ever read by the support package because neither is in `settings`. `secret` is the safety net for the case where that isn't practical, not a reason to stop using encrypted columns.
+
+### `"editable": false` — a setting with its own dedicated UI
+
+`"editable": false` (optional, default `true`) keeps a setting out of Configuration > Paramètres' editable-row list entirely. The setting is still registered, still readable with `$settingService->get()`, and still writable — but only through `SettingService::setInternal()`, which bypasses the `editable` guard on purpose; plain `set()` throws.
+
+Use it when the setting has consequences a plain text field cannot explain, and a page of its own that does. `test_tools`' mail-capture switch is the case it exists for (ARCHITECTURE.md §8.61): armed, no e-mail leaves the server at all, so the switch belongs next to the warning that says so and the list of what was captured, not in a list of options. Like `visible_when`, the field is typed strictly — `"editable": "false"` is a load-time error rather than a truthy string.
 
 ## Cookies
 

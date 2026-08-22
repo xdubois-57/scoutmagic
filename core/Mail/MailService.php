@@ -22,7 +22,14 @@ class MailService
         private ?string $smtpHost = null,
         private ?int $smtpPort = null,
         private ?string $smtpUser = null,
-        private ?string $smtpPassword = null
+        private ?string $smtpPassword = null,
+        // How an already-configured message is actually delivered
+        // (ARCHITECTURE.md §8.7). A real default rather than a nullable
+        // dependency, so there is exactly one delivery path and the ~95
+        // call sites of send() never learn a transport exists. The
+        // composition root swaps it (and only it) to capture mail instead
+        // of sending it.
+        private MailTransportInterface $transport = new PhpMailerTransport()
     ) {
     }
 
@@ -149,7 +156,10 @@ class MailService
             $mail->Body = $bodyHtml;
             $mail->AltBody = $bodyText;
 
-            $mail->send();
+            // The delivery step, and only the delivery step: everything
+            // above stays here so a captured message is byte-for-byte the
+            // message that would have gone out.
+            $this->transport->deliver($mail);
         } catch (\Exception $e) {
             throw new MailException($mail->ErrorInfo ?: $e->getMessage());
         }

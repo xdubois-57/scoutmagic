@@ -2,7 +2,7 @@
 -- (ARCHITECTURE.md §8.49).
 --
 -- This module only ever exists on the installation that RECEIVES usage
--- reports: `"receiver_only": true` in module.json keeps it out of
+-- reports: `"visible_when": ["statistics_receiver"]` in module.json keeps it out of
 -- ModuleManager::discoverModules() everywhere else.
 
 -- One row per reporting installation. Deliberately ONE state per
