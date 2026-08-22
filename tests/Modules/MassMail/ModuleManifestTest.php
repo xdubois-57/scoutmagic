@@ -60,9 +60,30 @@ class ModuleManifestTest extends TestCase
         $this->assertFalse($this->manifest->enabledByDefault);
     }
 
-    public function testSchedulesExactlyOneTaskType(): void
+    public function testSchedulesExactlyTwoTaskTypes(): void
     {
-        $this->assertCount(1, $this->manifest->scheduledTasks);
-        $this->assertSame('send_batch', $this->manifest->scheduledTasks[0]['key']);
+        // send_batch (module spec: never one job per recipient) plus the
+        // daily mail-merge audience retention purge (ARCHITECTURE.md §8.61).
+        $keys = array_map(fn(array $t) => $t['key'], $this->manifest->scheduledTasks);
+        $this->assertSame(['send_batch', 'purge_merge_audiences'], $keys);
+    }
+
+    public function testMergeRetentionSettingIsReadOnly(): void
+    {
+        $setting = array_values(array_filter($this->manifest->settings, fn(array $s) => $s['key'] === 'merge_retention_months'))[0] ?? null;
+        $this->assertNotNull($setting);
+        $this->assertFalse($setting['editable']);
+        $this->assertSame('18', $setting['default_value']);
+    }
+
+    public function testValidationRegexAndEditableFlowThroughTheManifest(): void
+    {
+        // previous_year_active_cutoff declares a validation_regex in
+        // module.json — it must survive parsing (it used to be silently
+        // dropped), and a setting without "editable" defaults to editable.
+        $setting = array_values(array_filter($this->manifest->settings, fn(array $s) => $s['key'] === 'previous_year_active_cutoff'))[0] ?? null;
+        $this->assertNotNull($setting);
+        $this->assertNotNull($setting['validation_regex']);
+        $this->assertTrue($setting['editable']);
     }
 }

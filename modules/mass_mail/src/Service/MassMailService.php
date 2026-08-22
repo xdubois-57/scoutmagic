@@ -19,12 +19,16 @@ use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\HtmlSanitizer;
+use Modules\MassMail\Repository\AudienceRepository;
+use Modules\MassMail\Repository\AudienceRow;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\EmailAttachment;
 use Modules\MassMail\Repository\EmailAttachmentRepository;
 use Modules\MassMail\Repository\EmailRepository;
+use Modules\MassMail\Repository\MemberResolutionRepository;
 use Modules\MassMail\Repository\Recipient;
 use Modules\MassMail\Repository\RecipientRepository;
+use Modules\MassMail\Repository\SuppressedAddressRepository;
 
 /**
  * Owns the whole email lifecycle (module spec's "Workflow des statuts") —
@@ -51,7 +55,11 @@ class MassMailService
         private HtmlSanitizer $htmlSanitizer,
         private ScoutYearService $scoutYearService,
         private ImportJournalRepository $importJournalRepository,
-        private string $storagePath
+        private string $storagePath,
+        private AudienceRepository $audienceRepository,
+        private MemberResolutionRepository $memberResolutionRepository,
+        private SuppressedAddressRepository $suppressedAddressRepository,
+        private MergeRenderer $mergeRenderer
     ) {
     }
 
@@ -112,7 +120,9 @@ class MassMailService
 
     /**
      * @param int[] $scoutYearIds At least one — module addendum: an email may target several scout years at once.
-     * @throws MassMailException on invalid input, an unauthorized sender section/list, or an unimported scout year
+     *                            Ignored (stored empty) for a mail-merge email, whose audience file defines the
+     *                            recipients on its own.
+     * @throws MassMailException on invalid input, an unauthorized sender section/list/audience, or an unimported scout year
      */
     public function createDraft(
         string $subject,
@@ -123,14 +133,22 @@ class MassMailService
         ?int $listSectionId,
         array $scoutYearIds,
         ?int $createdBy,
-        SenderAuthorization $authorization
+        SenderAuthorization $authorization,
+        ?int $audienceId = null
     ): Email {
-        [$subject, $bodyHtml] = $this->validateAndSanitize($subject, $bodyHtml, $listType, $listId, $listSectionId);
+        [$subject, $bodyHtml] = $this->validateAndSanitize($subject, $bodyHtml, $listType, $listId, $listSectionId, $audienceId);
         $this->assertSenderSectionAllowed($sectionId, $authorization);
         $this->assertListSelectionAllowed($listType, $listSectionId, $authorization);
-        $this->assertScoutYearsSelectable($scoutYearIds);
+        if ($listType === Email::LIST_TYPE_MAIL_MERGE) {
+            \assert($audienceId !== null); // validateAndSanitize() enforced it
+            $this->assertAudienceUsable($audienceId, $createdBy, $authorization);
+            $scoutYearIds = [];
+        } else {
+            $audienceId = null;
+            $this->assertScoutYearsSelectable($scoutYearIds);
+        }
 
-        $id = $this->emailRepository->create($subject, $bodyHtml, $sectionId, $listType, $listId, $listSectionId, $scoutYearIds, $createdBy);
+        $id = $this->emailRepository->create($subject, $bodyHtml, $sectionId, $listType, $listId, $listSectionId, $scoutYearIds, $createdBy, $audienceId);
 
         $this->journalService->log(
             'mass_mail', 'email_created', 'info', 'Nouvel email de masse créé (brouillon)',
@@ -150,9 +168,9 @@ class MassMailService
      * current editor's own scope (e.g. a chef d'unité's draft reopened by
      * a plain section chief).
      *
-     * @param int[] $scoutYearIds At least one.
+     * @param int[] $scoutYearIds At least one (ignored for mail-merge, as in createDraft()).
      * @throws MassMailException when the email doesn't exist, isn't a draft, input is invalid, or a changed
-     *                            sender section/list/scout year isn't authorized
+     *                            sender section/list/scout year/audience isn't authorized
      */
     public function updateDraft(
         int $id,
@@ -163,14 +181,16 @@ class MassMailService
         ?int $listId,
         ?int $listSectionId,
         array $scoutYearIds,
-        SenderAuthorization $authorization
+        SenderAuthorization $authorization,
+        ?int $audienceId = null,
+        ?int $actorId = null
     ): Email {
         $email = $this->requireEmail($id);
         if (!$email->isEditable()) {
             throw new MassMailException('Cet email ne peut plus être modifié.');
         }
 
-        [$subject, $bodyHtml] = $this->validateAndSanitize($subject, $bodyHtml, $listType, $listId, $listSectionId);
+        [$subject, $bodyHtml] = $this->validateAndSanitize($subject, $bodyHtml, $listType, $listId, $listSectionId, $audienceId);
 
         if ($sectionId !== $email->sectionId) {
             $this->assertSenderSectionAllowed($sectionId, $authorization);
@@ -178,15 +198,24 @@ class MassMailService
         if ($listType !== $email->listType || $listId !== $email->listId || $listSectionId !== $email->listSectionId) {
             $this->assertListSelectionAllowed($listType, $listSectionId, $authorization);
         }
-        $normalizedNew = $scoutYearIds;
-        sort($normalizedNew);
-        $normalizedOld = $email->scoutYearIds;
-        sort($normalizedOld);
-        if ($normalizedNew !== $normalizedOld) {
-            $this->assertScoutYearsSelectable($scoutYearIds);
+        if ($listType === Email::LIST_TYPE_MAIL_MERGE) {
+            \assert($audienceId !== null); // validateAndSanitize() enforced it
+            if ($audienceId !== $email->audienceId) {
+                $this->assertAudienceUsable($audienceId, $actorId, $authorization);
+            }
+            $scoutYearIds = [];
+        } else {
+            $audienceId = null;
+            $normalizedNew = $scoutYearIds;
+            sort($normalizedNew);
+            $normalizedOld = $email->scoutYearIds;
+            sort($normalizedOld);
+            if ($normalizedNew !== $normalizedOld) {
+                $this->assertScoutYearsSelectable($scoutYearIds);
+            }
         }
 
-        $this->emailRepository->update($id, $subject, $bodyHtml, $sectionId, $listType, $listId, $listSectionId, $scoutYearIds);
+        $this->emailRepository->update($id, $subject, $bodyHtml, $sectionId, $listType, $listId, $listSectionId, $scoutYearIds, $audienceId);
 
         $updated = $this->emailRepository->findById($id);
         \assert($updated !== null);
@@ -245,7 +274,7 @@ class MassMailService
      * @throws MassMailException when the email doesn't exist or isn't in test
      * @throws MailException on send failure — the caller surfaces it as-is
      */
-    public function sendTestEmail(int $id, string $toAddress): void
+    public function sendTestEmail(int $id, string $toAddress, int $mergeOffset = 0): void
     {
         $email = $this->requireEmail($id);
         if ($email->status !== Email::STATUS_TEST) {
@@ -255,18 +284,102 @@ class MassMailService
             throw new MassMailException('Adresse email invalide.');
         }
 
+        $subject = $email->subject;
+        $bodyHtml = $email->bodyHtml;
+        if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
+            // The test goes out with the previewed row's real values —
+            // exactly what that row's recipient would receive.
+            $row = $this->requireMergeRow($email, $mergeOffset);
+            $subject = $this->mergeRenderer->renderText($subject, $row->data);
+            $bodyHtml = $this->mergeRenderer->renderHtml($bodyHtml, $row->data);
+        }
+
         $sender = $this->resolveSenderIdentity($email->sectionId);
 
         $this->mailService->send(
             $toAddress,
-            '[TEST] ' . $email->subject,
-            $email->bodyHtml,
-            strip_tags($email->bodyHtml),
+            '[TEST] ' . $subject,
+            $bodyHtml,
+            strip_tags($bodyHtml),
             null,
             $this->buildAttachmentPayload($id),
             $sender['address'],
             $sender['name']
         );
+    }
+
+    /**
+     * The compose dialog's per-recipient preview (mail-merge test mode):
+     * the Nth audience row's rendered subject/body plus what the chief
+     * should double-check — unknown {{tokens}} and columns this row has
+     * no value for.
+     *
+     * @return array{offset: int, total: int, row_index: int, recipient_label: string, subject: string, body_html: string, unknown_tokens: string[], missing_values: string[]}
+     * @throws MassMailException when the email doesn't exist, isn't a mail-merge, or the offset is out of range
+     */
+    public function getMergePreview(int $emailId, int $offset): array
+    {
+        $email = $this->requireEmail($emailId);
+        if ($email->listType !== Email::LIST_TYPE_MAIL_MERGE) {
+            throw new MassMailException('Cet email n\'est pas un publipostage.');
+        }
+        $audience = $email->audienceId !== null ? $this->audienceRepository->findById($email->audienceId) : null;
+        if ($audience === null) {
+            throw new MassMailException('L\'audience de publipostage a été purgée — réimportez le fichier Excel.');
+        }
+
+        $offset = max(0, min($offset, $audience->rowCount - 1));
+        $row = $this->requireMergeRow($email, $offset);
+
+        return [
+            'offset' => $offset,
+            'total' => $audience->rowCount,
+            'row_index' => $row->rowIndex,
+            'recipient_label' => $this->buildMergeRecipientLabel($row),
+            'subject' => $this->mergeRenderer->renderText($email->subject, $row->data),
+            'body_html' => $this->mergeRenderer->renderHtml($email->bodyHtml, $row->data),
+            'unknown_tokens' => array_values(array_unique(array_merge(
+                $this->mergeRenderer->findUnknownTokens($email->subject, $audience->columns),
+                $this->mergeRenderer->findUnknownTokens($email->bodyHtml, $audience->columns)
+            ))),
+            'missing_values' => array_values(array_unique(array_merge(
+                $this->mergeRenderer->findMissingValues($email->subject, $row->data),
+                $this->mergeRenderer->findMissingValues($email->bodyHtml, $row->data)
+            ))),
+        ];
+    }
+
+    /**
+     * @throws MassMailException
+     */
+    private function requireMergeRow(Email $email, int $offset): AudienceRow
+    {
+        $row = $email->audienceId !== null ? $this->audienceRepository->findRowByOffset($email->audienceId, max(0, $offset)) : null;
+        if ($row === null) {
+            throw new MassMailException('Ligne de publipostage introuvable — réimportez le fichier Excel.');
+        }
+        return $row;
+    }
+
+    /**
+     * Who the previewed row goes to, without resolving (and lazily
+     * creating) member_email rows during a read-only preview: a member
+     * row shows the member's display name, an external row its own
+     * address(es).
+     */
+    private function buildMergeRecipientLabel(AudienceRow $row): string
+    {
+        if ($row->memberId === null) {
+            return $row->email ?? '';
+        }
+
+        $resolved = $this->memberResolutionRepository->resolveMergeMembers([$row->memberId]);
+        $profileYear = $resolved[$row->memberId]['scout_year_id'] ?? null;
+        $profile = $profileYear !== null ? $this->memberService->findProfileByMemberAndYear($row->memberId, $profileYear) : null;
+
+        return $profile !== null
+            ? $profile->getDisplayName() . ' (toutes ses adresses connues)'
+            : 'Membre (toutes ses adresses connues)';
     }
 
     /**
@@ -292,6 +405,31 @@ class MassMailService
             throw new MassMailException('Seul un email en mode test peut être envoyé.');
         }
 
+        if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
+            [$validCount, $invalidCount] = $this->freezeMergeRecipients($email);
+        } else {
+            [$validCount, $invalidCount] = $this->freezeListRecipients($email);
+        }
+
+        $this->emailRepository->updateStatus($id, Email::STATUS_SENDING);
+        $this->ensureBatchTaskScheduled(true);
+
+        $this->journalService->log(
+            'mass_mail', 'email_sending_started', 'info', 'Envoi d\'un email de masse démarré',
+            ['email_id' => $id, 'recipient_count' => $validCount, 'invalid_address_count' => $invalidCount], $actorId
+        );
+
+        return $this->requireEmail($id);
+    }
+
+    /**
+     * The classic list freeze — every member the list resolves to right
+     * now, expanded into all their currently-valid addresses.
+     *
+     * @return array{0: int, 1: int} [valid recipient rows, invalid-address rows]
+     */
+    private function freezeListRecipients(Email $email): array
+    {
         $members = $this->mailingListService->resolveMembersForYears(
             $email->listType, $email->listId, $email->listSectionId, $this->orderYearsMostRecentFirst($email->scoutYearIds)
         );
@@ -305,29 +443,108 @@ class MassMailService
             $addresses = $this->memberEmailService->resolveValidAddressesForMassMail($member['member_id'], $deskEmail);
 
             if ($addresses === []) {
-                $this->recipientRepository->create($id, $member['member_id'], $member['scout_year_id'], null, Recipient::STATUS_ERROR, 'Adresse invalide');
+                $this->recipientRepository->create($email->id, $member['member_id'], $member['scout_year_id'], null, Recipient::STATUS_ERROR, 'Adresse invalide');
                 $invalidCount++;
                 continue;
             }
 
             foreach ($addresses as $memberEmail) {
                 $this->recipientRepository->create(
-                    $id, $member['member_id'], $member['scout_year_id'], $memberEmail->email,
+                    $email->id, $member['member_id'], $member['scout_year_id'], $memberEmail->email,
                     Recipient::STATUS_PENDING, null, $memberEmail->id
                 );
                 $validCount++;
             }
         }
 
-        $this->emailRepository->updateStatus($id, Email::STATUS_SENDING);
-        $this->ensureBatchTaskScheduled(true);
+        return [$validCount, $invalidCount];
+    }
 
-        $this->journalService->log(
-            'mass_mail', 'email_sending_started', 'info', 'Envoi d\'un email de masse démarré',
-            ['email_id' => $id, 'recipient_count' => $validCount, 'invalid_address_count' => $invalidCount], $actorId
+    /**
+     * The mail-merge freeze — one email PER AUDIENCE ROW (module spec),
+     * never re-resolved from member tables. A row with a Tiers expands to
+     * every currently-valid address of that member (same
+     * MemberEmailService resolution as any list send, so an unsubscribed
+     * member address is honored here too); a row without one sends to its
+     * own "Email" column value(s), each first checked against the
+     * external suppression list (Repository\SuppressedAddressRepository).
+     * Every recipient row keeps its audience_row_id so Task\
+     * SendBatchHandler can render this row's own variables.
+     *
+     * @return array{0: int, 1: int} [valid recipient rows, error rows]
+     */
+    private function freezeMergeRecipients(Email $email): array
+    {
+        if ($email->audienceId === null) {
+            throw new MassMailException('Cet email de publipostage n\'a plus d\'audience — réimportez le fichier Excel.');
+        }
+        $rows = $this->audienceRepository->findRowsByAudience($email->audienceId);
+        if ($rows === []) {
+            throw new MassMailException('L\'audience de publipostage est vide ou a été purgée — réimportez le fichier Excel.');
+        }
+
+        $mergeMembers = $this->memberResolutionRepository->resolveMergeMembers(
+            array_values(array_filter(array_map(fn(AudienceRow $r) => $r->memberId, $rows)))
         );
 
-        return $this->requireEmail($id);
+        $validCount = 0;
+        $invalidCount = 0;
+        foreach ($rows as $row) {
+            if ($row->memberId !== null) {
+                $profile = $mergeMembers[$row->memberId] ?? null;
+                $deskEmail = $profile !== null && $profile['email'] !== null && filter_var($profile['email'], FILTER_VALIDATE_EMAIL) !== false
+                    ? $profile['email']
+                    : null;
+                $addresses = $this->memberEmailService->resolveValidAddressesForMassMail($row->memberId, $deskEmail);
+
+                if ($addresses === []) {
+                    $this->recipientRepository->create(
+                        $email->id, $row->memberId, $profile['scout_year_id'] ?? null, null,
+                        Recipient::STATUS_ERROR, 'Adresse invalide', null, $row->id
+                    );
+                    $invalidCount++;
+                    continue;
+                }
+
+                foreach ($addresses as $memberEmail) {
+                    $this->recipientRepository->create(
+                        $email->id, $row->memberId, $profile['scout_year_id'] ?? null, $memberEmail->email,
+                        Recipient::STATUS_PENDING, null, $memberEmail->id, $row->id
+                    );
+                    $validCount++;
+                }
+                continue;
+            }
+
+            foreach ($this->splitRowAddresses($row) as $address) {
+                if ($this->suppressedAddressRepository->isSuppressed($address)) {
+                    $this->recipientRepository->create(
+                        $email->id, null, null, $address,
+                        Recipient::STATUS_ERROR, 'Adresse désinscrite des emails groupés', null, $row->id
+                    );
+                    $invalidCount++;
+                    continue;
+                }
+                $this->recipientRepository->create(
+                    $email->id, null, null, $address,
+                    Recipient::STATUS_PENDING, null, null, $row->id
+                );
+                $validCount++;
+            }
+        }
+
+        return [$validCount, $invalidCount];
+    }
+
+    /**
+     * @return string[]
+     */
+    private function splitRowAddresses(AudienceRow $row): array
+    {
+        if ($row->email === null) {
+            return [];
+        }
+        return array_values(array_filter(array_map('trim', explode(';', $row->email)), fn(string $a) => $a !== ''));
     }
 
     /**
@@ -395,6 +612,17 @@ class MassMailService
 
         $recipients = [];
         foreach ($this->recipientRepository->findByEmailId($id) as $recipient) {
+            // An external mail-merge recipient (no member) is shown by
+            // their address — the only identity they have here.
+            if ($recipient->memberId === null || $recipient->scoutYearId === null) {
+                $recipients[] = [
+                    'recipient' => $recipient,
+                    'display_name' => $recipient->emailAddress ?? 'Destinataire externe',
+                    'section_name' => null,
+                ];
+                continue;
+            }
+
             // Each recipient's own resolved year, not the email's set as a
             // whole — a member pulled in via the "previous year" list only
             // has a valid profile for that year, not necessarily the
@@ -483,7 +711,7 @@ class MassMailService
      * @return array{0: string, 1: string} [subject, sanitized body]
      * @throws MassMailException
      */
-    private function validateAndSanitize(string $subject, string $bodyHtml, string $listType, ?int $listId, ?int $listSectionId): array
+    private function validateAndSanitize(string $subject, string $bodyHtml, string $listType, ?int $listId, ?int $listSectionId, ?int $audienceId = null): array
     {
         $subject = trim($subject);
         if ($subject === '') {
@@ -492,6 +720,7 @@ class MassMailService
         if (!in_array($listType, [
             Email::LIST_TYPE_DEFAULT_SECTION, Email::LIST_TYPE_DEFAULT_ACTIVE_MEMBERS,
             Email::LIST_TYPE_DEFAULT_CHIEFS, Email::LIST_TYPE_CUSTOM, Email::LIST_TYPE_EXTERNAL,
+            Email::LIST_TYPE_MAIL_MERGE,
         ], true)) {
             throw new MassMailException('Type de liste invalide.');
         }
@@ -501,8 +730,48 @@ class MassMailService
         if ($listType === Email::LIST_TYPE_CUSTOM && $listId === null) {
             throw new MassMailException('Liste personnalisée manquante.');
         }
+        if ($listType === Email::LIST_TYPE_MAIL_MERGE && $audienceId === null) {
+            throw new MassMailException('Importez d\'abord un fichier Excel pour le publipostage.');
+        }
 
         return [$subject, $this->htmlSanitizer->sanitize($bodyHtml)];
+    }
+
+    /**
+     * The compose dialog's audience summary (columns for the variable
+     * dropdown, row count, first row as sample values) — same access rule
+     * as attaching the audience to an email.
+     *
+     * @return array{audience: \Modules\MassMail\Repository\Audience, sample: array<string, string>}
+     * @throws MassMailException when the audience doesn't exist or belongs to someone else
+     */
+    public function getAudienceSummary(int $audienceId, ?int $actorId, SenderAuthorization $authorization): array
+    {
+        $this->assertAudienceUsable($audienceId, $actorId, $authorization);
+        $audience = $this->audienceRepository->findById($audienceId);
+        \assert($audience !== null);
+
+        $firstRow = $this->audienceRepository->findRowByOffset($audienceId, 0);
+
+        return ['audience' => $audience, 'sample' => $firstRow !== null ? $firstRow->data : []];
+    }
+
+    /**
+     * A mail-merge audience holds imported personal data — it may only be
+     * attached to an email (and previewed) by the account that imported
+     * it, or by a chef d'unité (or above).
+     *
+     * @throws MassMailException
+     */
+    private function assertAudienceUsable(int $audienceId, ?int $actorId, SenderAuthorization $authorization): void
+    {
+        $audience = $this->audienceRepository->findById($audienceId);
+        if ($audience === null) {
+            throw new MassMailException('Audience de publipostage introuvable — réimportez le fichier Excel.');
+        }
+        if (!$authorization->isChefDUniteOrAbove && ($actorId === null || $audience->createdBy !== $actorId)) {
+            throw new MassMailException('Cette audience de publipostage a été importée par quelqu\'un d\'autre — réimportez votre propre fichier.');
+        }
     }
 
     /**

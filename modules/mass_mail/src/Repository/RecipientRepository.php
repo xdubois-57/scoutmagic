@@ -30,14 +30,17 @@ class RecipientRepository
      * Whether $emailAddress is valid decides the caller's $status/
      * $errorMessage before calling this — this method only ever persists
      * what it's told (no validation here, see Service\MassMailService::
-     * startSending()). $memberEmailId is null only for the defensive
-     * "no usable address at all" error row.
+     * startSending()). $memberEmailId is null for the defensive "no
+     * usable address at all" error row and for every external mail-merge
+     * recipient; $memberId/$scoutYearId are null only for the latter
+     * (see the Recipient entity), $audienceRowId only ever set for a
+     * mail-merge freeze.
      */
-    public function create(int $emailId, int $memberId, int $scoutYearId, ?string $emailAddress, string $status, ?string $errorMessage, ?int $memberEmailId = null): int
+    public function create(int $emailId, ?int $memberId, ?int $scoutYearId, ?string $emailAddress, string $status, ?string $errorMessage, ?int $memberEmailId = null, ?int $audienceRowId = null): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO mass_mail_recipients (email_id, member_id, scout_year_id, email_address_encrypted, member_email_id, status, error_message)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO mass_mail_recipients (email_id, member_id, scout_year_id, email_address_encrypted, member_email_id, audience_row_id, status, error_message)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $emailId,
@@ -45,6 +48,7 @@ class RecipientRepository
             $scoutYearId,
             $emailAddress !== null ? $this->encryption->encrypt($emailAddress, 'mass_mail_recipients.email_address') : null,
             $memberEmailId,
+            $audienceRowId,
             $status,
             $errorMessage,
         ]);
@@ -268,10 +272,11 @@ class RecipientRepository
         return new Recipient(
             id: (int) $row['id'],
             emailId: (int) $row['email_id'],
-            memberId: (int) $row['member_id'],
-            scoutYearId: (int) $row['scout_year_id'],
+            memberId: $row['member_id'] !== null ? (int) $row['member_id'] : null,
+            scoutYearId: $row['scout_year_id'] !== null ? (int) $row['scout_year_id'] : null,
             emailAddress: $row['email_address_encrypted'] !== null ? $this->encryption->decrypt($row['email_address_encrypted'], 'mass_mail_recipients.email_address') : null,
             memberEmailId: $row['member_email_id'] !== null ? (int) $row['member_email_id'] : null,
+            audienceRowId: $row['audience_row_id'] !== null ? (int) $row['audience_row_id'] : null,
             status: (string) $row['status'],
             errorMessage: $row['error_message'] !== null ? (string) $row['error_message'] : null,
             sentAt: $row['sent_at'] !== null ? (string) $row['sent_at'] : null,

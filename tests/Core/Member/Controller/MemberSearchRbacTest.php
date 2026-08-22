@@ -67,6 +67,9 @@ class MemberSearchRbacTest extends TestCase
     {
         $router = new Router();
         $router->addRoute('GET', '/admin/members', MembersStubController::class, 'index', 'admin');
+        // Same floor as the page itself — public/index.php declares both
+        // with role_min 'admin'.
+        $router->addRoute('GET', '/admin/members/export', MembersStubController::class, 'index', 'admin');
         $fc = new FrontController($router, $this->twig, $this->config);
         $fc->registerController(MembersStubController::class, new MembersStubController($this->twig));
 
@@ -103,6 +106,18 @@ class MemberSearchRbacTest extends TestCase
         $this->startTestSession();
         AuthSession::login(1, 'c@test.com', 'chief');
         $response = $this->buildFrontController()->handle(new Request('GET', '/admin/members', [], [], [], []));
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testExportAllowedForAdminAndDeniedOneLevelBelow(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'a@test.com', 'admin');
+        $response = $this->buildFrontController()->handle(new Request('GET', '/admin/members/export', [], [], [], []));
+        $this->assertSame(200, $response->getStatusCode());
+
+        AuthSession::login(1, 'c@test.com', 'chief');
+        $response = $this->buildFrontController()->handle(new Request('GET', '/admin/members/export', [], [], [], []));
         $this->assertSame(403, $response->getStatusCode());
     }
 

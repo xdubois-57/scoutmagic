@@ -81,7 +81,8 @@ class CsrfTest extends TestCase
             $this->createMock(ImportJournalRepository::class),
             $this->createMock(SettingService::class),
             $this->createMock(UploadHandler::class),
-            new FileRepository($this->pdo)
+            new FileRepository($this->pdo),
+            $this->createMock(\Modules\MassMail\Service\AudienceImportService::class)
         );
 
         // CSRF is checked before buildAuthorization() is ever evaluated, so
@@ -94,6 +95,45 @@ class CsrfTest extends TestCase
         // No draft was created.
         $count = (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_emails')->fetchColumn();
         $this->assertSame(0, $count);
+    }
+
+    public function testImportAudienceRejectsInvalidCsrfTokenBeforeParsingAnything(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $connection = Connection::withPdo($this->pdo);
+        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $listService = new MailingListService(
+            new MailingListRepository($this->pdo),
+            new MemberResolutionRepository($this->pdo, $encryption),
+            $sectionService,
+            new FunctionRepository($this->pdo)
+        );
+
+        $importService = $this->createMock(\Modules\MassMail\Service\AudienceImportService::class);
+        $importService->expects($this->never())->method('import');
+
+        $controller = new MassMailController(
+            $this->createMock(Environment::class),
+            $this->createMock(\Modules\MassMail\Service\MassMailService::class),
+            $listService,
+            $this->createMock(MassMailAccessService::class),
+            $this->createMock(MemberService::class),
+            $sectionService,
+            new ScoutYearService($this->pdo),
+            $this->createMock(ImportJournalRepository::class),
+            $this->createMock(SettingService::class),
+            $this->createMock(UploadHandler::class),
+            new FileRepository($this->pdo),
+            $importService
+        );
+
+        $response = $controller->importAudience(
+            new Request('POST', '/mass-mail/audiences', [], ['_csrf_token' => 'invalid'], [], []),
+            []
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_audiences')->fetchColumn());
     }
 
     public function testConfigControllerCreateListRejectsInvalidCsrfToken(): void

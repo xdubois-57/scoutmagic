@@ -25,6 +25,8 @@ use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Core\View\SectionPickerHelper;
 use Modules\MassMail\Repository\Email;
+use Modules\MassMail\Service\AudienceImportException;
+use Modules\MassMail\Service\AudienceImportService;
 use Modules\MassMail\Service\MailingListService;
 use Modules\MassMail\Service\MassMailAccessService;
 use Modules\MassMail\Service\MassMailException;
@@ -36,6 +38,7 @@ class MassMailController extends AbstractController
 {
     private const ATTACHMENT_ALLOWED_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     private const ATTACHMENT_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+    private const AUDIENCE_MAX_SIZE_BYTES = 5 * 1024 * 1024;
     private const SETTING_PREVIOUS_YEAR_CUTOFF = 'previous_year_active_cutoff';
     private const DEFAULT_PREVIOUS_YEAR_CUTOFF = '07-31';
 
@@ -50,7 +53,8 @@ class MassMailController extends AbstractController
         private ImportJournalRepository $importJournalRepository,
         private SettingService $settingService,
         private UploadHandler $uploadHandler,
-        private FileRepository $fileRepository
+        private FileRepository $fileRepository,
+        private AudienceImportService $audienceImportService
     ) {
     }
 
@@ -164,7 +168,8 @@ class MassMailController extends AbstractController
                 isset($data['list_section_id']) && $data['list_section_id'] !== '' ? (int) $data['list_section_id'] : null,
                 $this->toIntArray($data['scout_year_ids'] ?? []),
                 AuthSession::getUserAccountId(),
-                $this->buildAuthorization()
+                $this->buildAuthorization(),
+                isset($data['audience_id']) && $data['audience_id'] !== '' ? (int) $data['audience_id'] : null
             );
         } catch (MassMailException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
@@ -195,13 +200,108 @@ class MassMailController extends AbstractController
                 isset($data['list_id']) && $data['list_id'] !== '' ? (int) $data['list_id'] : null,
                 isset($data['list_section_id']) && $data['list_section_id'] !== '' ? (int) $data['list_section_id'] : null,
                 $this->toIntArray($data['scout_year_ids'] ?? []),
-                $this->buildAuthorization()
+                $this->buildAuthorization(),
+                isset($data['audience_id']) && $data['audience_id'] !== '' ? (int) $data['audience_id'] : null,
+                AuthSession::getUserAccountId()
             );
         } catch (MassMailException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
 
         return $this->json(['success' => true, 'email' => $this->serializeEmail($email)]);
+    }
+
+    /**
+     * POST /mass-mail/audiences — upload + parse a mail-merge Excel file
+     * (multipart). All-or-nothing: a refused file stores NOTHING and the
+     * response lists every offending line at once. The uploaded .xlsx
+     * itself is parsed straight from the PHP upload tmp file and never
+     * stored (same rule as the Desk CSV import) — the encrypted audience
+     * rows are all that remains.
+     *
+     * @param array<string, string> $params
+     */
+    public function importAudience(Request $request, array $params): Response
+    {
+        $csrf = (string) $request->getBody('_csrf_token', '');
+        if (!CsrfGuard::validateToken($csrf)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        }
+
+        $uploadedFile = $request->getFile('file');
+        if ($uploadedFile === null || ($uploadedFile['error'] ?? \UPLOAD_ERR_NO_FILE) !== \UPLOAD_ERR_OK) {
+            return $this->json(['success' => false, 'errors' => ['Aucun fichier reçu.']], 400);
+        }
+        $originalName = (string) ($uploadedFile['name'] ?? '');
+        if (!str_ends_with(mb_strtolower($originalName), '.xlsx')) {
+            return $this->json(['success' => false, 'errors' => ['Seuls les fichiers Excel .xlsx sont acceptés.']], 422);
+        }
+        if ((int) ($uploadedFile['size'] ?? 0) > self::AUDIENCE_MAX_SIZE_BYTES) {
+            return $this->json(['success' => false, 'errors' => ['Le fichier dépasse la taille maximale de 5 Mo.']], 422);
+        }
+
+        try {
+            $result = $this->audienceImportService->import(
+                (string) $uploadedFile['tmp_name'],
+                $originalName,
+                AuthSession::getUserAccountId()
+            );
+        } catch (AudienceImportException $e) {
+            return $this->json(['success' => false, 'errors' => $e->errors], 422);
+        } finally {
+            @unlink((string) $uploadedFile['tmp_name']);
+        }
+
+        return $this->json([
+            'success' => true,
+            'audience' => $this->serializeAudience($result->audience),
+            'warnings' => $result->warnings,
+        ]);
+    }
+
+    /**
+     * GET /mass-mail/audiences/{id} — the compose dialog's audience
+     * summary (columns for the variable dropdown, row count, first-row
+     * sample values). Same access rule as attaching the audience: its
+     * importer, or a chef d'unité (or above).
+     *
+     * @param array<string, string> $params
+     */
+    public function showAudience(Request $request, array $params): Response
+    {
+        try {
+            $summary = $this->massMailService->getAudienceSummary(
+                (int) $params['id'],
+                AuthSession::getUserAccountId(),
+                $this->buildAuthorization()
+            );
+        } catch (MassMailException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 404);
+        }
+
+        return $this->json([
+            'success' => true,
+            'audience' => $this->serializeAudience($summary['audience']),
+            'sample' => $summary['sample'],
+        ]);
+    }
+
+    /**
+     * GET /mass-mail/{id}/merge-preview?offset=N — the per-recipient test
+     * preview: the Nth audience row's rendered subject/body plus the
+     * unknown-token / missing-value warnings.
+     *
+     * @param array<string, string> $params
+     */
+    public function mergePreview(Request $request, array $params): Response
+    {
+        try {
+            $preview = $this->massMailService->getMergePreview((int) $params['id'], (int) $request->getQuery('offset', 0));
+        } catch (MassMailException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return $this->json(['success' => true, 'preview' => $preview]);
     }
 
     /**
@@ -248,7 +348,11 @@ class MassMailController extends AbstractController
         }
 
         try {
-            $this->massMailService->sendTestEmail((int) $params['id'], (string) ($data['to'] ?? ''));
+            $this->massMailService->sendTestEmail(
+                (int) $params['id'],
+                (string) ($data['to'] ?? ''),
+                max(0, (int) ($data['merge_offset'] ?? 0))
+            );
         } catch (MassMailException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         } catch (MailException $e) {
@@ -419,9 +523,25 @@ class MassMailController extends AbstractController
             'list_type' => $email->listType,
             'list_id' => $email->listId,
             'list_section_id' => $email->listSectionId,
+            'audience_id' => $email->audienceId,
             'scout_year_ids' => $email->scoutYearIds,
             'status' => $email->status,
             'sent_at' => $email->sentAt,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeAudience(\Modules\MassMail\Repository\Audience $audience): array
+    {
+        return [
+            'id' => $audience->id,
+            'filename' => $audience->sourceFilename,
+            'sheet_name' => $audience->sheetName,
+            'columns' => $audience->columns,
+            'row_count' => $audience->rowCount,
+            'created_at' => $audience->createdAt,
         ];
     }
 

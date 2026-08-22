@@ -258,4 +258,92 @@ class SendBatchHandlerTest extends TestCase
 
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM notifications')->fetchColumn());
     }
+
+    // --- Mail merge: per-recipient rendering at send time (ARCHITECTURE.md §8.61) ---
+
+    /**
+     * @param array<string, string> $data
+     * @return array{0: int, 1: int} [merge email id, recipient id]
+     */
+    private function createMergeEmailWithRecipient(?array $data): array
+    {
+        $sectionId = (int) $this->pdo->query('SELECT id FROM sections LIMIT 1')->fetchColumn();
+        $audienceRepository = new \Modules\MassMail\Repository\AudienceRepository($this->pdo, $this->encryption);
+        $audienceId = $audienceRepository->createAudience('f.xlsx', 'Feuille1', ['Prenom', 'Montant'], 1, null);
+
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO mass_mail_emails (subject, body_html, section_id, list_type, audience_id, status)
+             VALUES ('Infos {{Prenom}}', '<p>Cher {{Prenom}}, montant : {{Montant}} €</p>', ?, 'mail_merge', ?, '" . Email::STATUS_SENDING . "')"
+        );
+        $stmt->execute([$sectionId, $audienceId]);
+        $emailId = (int) $this->pdo->lastInsertId();
+
+        $rowId = $data !== null ? $audienceRepository->createRow($audienceId, 2, null, 'ext@test.be', $data) : null;
+        $recipientId = $this->recipientRepository->create(
+            $emailId, null, null, 'ext@test.be', Recipient::STATUS_PENDING, null, null, $rowId
+        );
+
+        return [$emailId, $recipientId];
+    }
+
+    public function testMergeRecipientGetsTheirOwnRenderedSubjectAndBody(): void
+    {
+        $this->pdo->exec('DELETE FROM mass_mail_recipients');
+        $this->pdo->exec('DELETE FROM mass_mail_emails');
+        [$emailId] = $this->createMergeEmailWithRecipient(['Prenom' => 'Louis', 'Montant' => '145']);
+
+        $capturedSubject = null;
+        $capturedBody = null;
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->once())->method('send')
+            ->willReturnCallback(function (...$args) use (&$capturedSubject, &$capturedBody): void {
+                $capturedSubject = $args[1];
+                $capturedBody = $args[2];
+            });
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContext($mailService));
+
+        $this->assertSame('Infos Louis', $capturedSubject);
+        $this->assertStringContainsString('Cher Louis, montant : 145 €', $capturedBody);
+        // The unsubscribe footer still applies to an external recipient.
+        $this->assertStringContainsString('/mass-mail/unsubscribe/', $capturedBody);
+
+        $counts = $this->recipientRepository->countGroupedByStatus($emailId);
+        $this->assertSame(1, $counts['sent']);
+    }
+
+    public function testMergeValuesAreHtmlEscapedInTheRenderedBody(): void
+    {
+        $this->pdo->exec('DELETE FROM mass_mail_recipients');
+        $this->pdo->exec('DELETE FROM mass_mail_emails');
+        $this->createMergeEmailWithRecipient(['Prenom' => '<script>alert(1)</script>', 'Montant' => '1']);
+
+        $capturedBody = null;
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('send')->willReturnCallback(function (...$args) use (&$capturedBody): void {
+            $capturedBody = $args[2];
+        });
+
+        (new SendBatchHandler())->handle([], $this->buildContext($mailService));
+
+        $this->assertStringNotContainsString('<script>', (string) $capturedBody);
+        $this->assertStringContainsString('&lt;script&gt;', (string) $capturedBody);
+    }
+
+    public function testMergeRecipientWhoseAudienceRowWasPurgedFailsExplicitly(): void
+    {
+        $this->pdo->exec('DELETE FROM mass_mail_recipients');
+        $this->pdo->exec('DELETE FROM mass_mail_emails');
+        [$emailId] = $this->createMergeEmailWithRecipient(null); // no audience row at all
+
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->never())->method('send');
+
+        (new SendBatchHandler())->handle([], $this->buildContext($mailService));
+
+        $recipients = $this->recipientRepository->findByEmailId($emailId);
+        $this->assertSame(Recipient::STATUS_ERROR, $recipients[0]->status);
+        $this->assertSame('Données de publipostage purgées', $recipients[0]->errorMessage);
+    }
 }

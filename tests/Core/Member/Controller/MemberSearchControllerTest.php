@@ -82,7 +82,19 @@ class MemberSearchControllerTest extends TestCase
         $twig->addFilter(new TwigFilter('display_name', fn($m) => $m instanceof \Core\Member\MemberProfile ? $m->getDisplayName() : (string) $m));
 
         $departureService = new DepartureService(new DepartureRepository($this->pdo, $this->enc), new JournalService(new JournalRepository($this->pdo)));
-        $this->controller = new MemberSearchController($twig, $searchService, $memberService, $resolver, new MemberYearService(), $departureService);
+        $sectionService = new \Core\Member\SectionService($connection, $this->enc, new \Core\Badge\MemberBadgeRepository($this->pdo));
+        $exportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder(
+            new \Core\Member\SectionRosterRepository($this->pdo),
+            $sectionService,
+            $scoutYearService,
+            $this->enc,
+            new \Core\Member\MemberEmailRepository($this->pdo, $this->enc),
+            new \Core\Member\Movement\MemberMovementClassifierService(new \Core\Member\Movement\MemberMovementRepository($this->pdo), $scoutYearService)
+        );
+        $this->controller = new MemberSearchController(
+            $twig, $searchService, $memberService, $resolver, new MemberYearService(), $departureService,
+            $exportRowBuilder, new \Core\Member\Export\MemberExportService(), new JournalService(new JournalRepository($this->pdo))
+        );
 
         if (session_status() !== PHP_SESSION_ACTIVE) {
             ini_set('session.use_cookies', '0');
@@ -261,5 +273,75 @@ class MemberSearchControllerTest extends TestCase
         $this->seedMember();
         $response = $this->controller->index($this->get(['member' => '99999']), []);
         $this->assertSame(404, $response->getStatusCode());
+    }
+
+    // --- GET /admin/members/export (all results, or the checked selection) ---
+
+    /**
+     * @param array<string, mixed> $query
+     * @return array<int, array<int, mixed>> the exported sheet as rows (header row included)
+     */
+    private function exportToRows(array $query): array
+    {
+        $response = $this->controller->export(new Request('GET', '/admin/members/export', $query, [], [], []), []);
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('spreadsheetml', (string) $response->getHeaders()['Content-Type']);
+
+        $path = tempnam(sys_get_temp_dir(), 'export_') . '.xlsx';
+        file_put_contents($path, $response->getBody());
+        try {
+            $spreadsheet = (new \PhpOffice\PhpSpreadsheet\Reader\Xlsx())->load($path);
+            return $spreadsheet->getSheet(0)->toArray(null, true, true, false);
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    public function testExportOfSearchResultsProducesTheCanonicalXlsx(): void
+    {
+        $this->seedMember();
+
+        $rows = $this->exportToRows(['q' => 'dupont']);
+
+        $this->assertCount(2, $rows); // header + one member
+        // Canonical columns, mail-merge-reusable headers included.
+        $this->assertContains('Identifiant Desk', $rows[0]);
+        $this->assertContains('Email(s)', $rows[0]);
+        $this->assertContains('jean', $rows[1]);
+
+        // The journal records counts only — never the query text, which is
+        // typically somebody's name.
+        $log = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'member_search_exported'")->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($log);
+        $this->assertStringNotContainsString('dupont', (string) $log['context']);
+    }
+
+    public function testExportOfASelectionOnlyExportsValidatedIds(): void
+    {
+        $id = $this->seedMember();
+
+        // A forged/stale id alongside the real one is silently dropped.
+        $rows = $this->exportToRows(['q' => 'dupont', 'selected' => [(string) $id, '99999']]);
+
+        $this->assertCount(2, $rows); // header + the one validated member
+    }
+
+    public function testExportWithNothingToExportReturns400(): void
+    {
+        $this->seedMember();
+        $response = $this->controller->export(new Request('GET', '/admin/members/export', ['q' => 'zzznothing'], [], [], []), []);
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function testSearchPageOffersTheExportControls(): void
+    {
+        $this->seedMember();
+
+        $body = $this->controller->index($this->get(['q' => 'dupont']), [])->getBody();
+
+        $this->assertStringContainsString('/admin/members/export?q=dupont', $body);
+        $this->assertStringContainsString('Exporter la sélection', $body);
+        $this->assertStringContainsString('name="selected[]"', $body);
+        $this->assertStringContainsString('Tout sélectionner', $body);
     }
 }

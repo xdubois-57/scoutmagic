@@ -375,7 +375,10 @@ class ModuleManager
                 $setting['type'],
                 $setting['label'],
                 $setting['description'],
-                $moduleId
+                $moduleId,
+                $setting['validation_regex'],
+                null,
+                $setting['editable']
             );
         }
 
@@ -487,7 +490,10 @@ class ModuleManager
                 $setting['type'],
                 $setting['label'],
                 $setting['description'],
-                $manifest->id
+                $manifest->id,
+                $setting['validation_regex'],
+                null,
+                $setting['editable']
             );
         }
 

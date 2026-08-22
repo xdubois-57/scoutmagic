@@ -1640,6 +1640,7 @@ $router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'a
 
 // Scout year navigation and transition
 $router->addRoute('GET', '/admin/members', MemberSearchController::class, 'index', 'admin', ['label' => 'Membres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
+$router->addRoute('GET', '/admin/members/export', MemberSearchController::class, 'export', 'admin');
 // Temporary member override (ARCHITECTURE.md §8.42). The static "remove"
 // path is registered BEFORE the parameterised "add" one: Router::resolve()
 // is first-match-wins and both patterns are four segments deep, so
@@ -1974,7 +1975,10 @@ $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
-$frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService));
+$frontController->registerController(MemberSearchController::class, new MemberSearchController(
+    $twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService,
+    $memberExportRowBuilder, $memberExportService, $journalService
+));
 $frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
 $frontController->registerController(SupportController::class, new SupportController(
@@ -2420,6 +2424,12 @@ if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
     $massMailRecipientRepo = new \Modules\MassMail\Repository\RecipientRepository($pdo, $encryptionService);
     $massMailAttachmentRepo = new \Modules\MassMail\Repository\EmailAttachmentRepository($pdo);
     $massMailFunctionRepo = new \Core\Import\FunctionRepository($pdo);
+    $massMailAudienceRepo = new \Modules\MassMail\Repository\AudienceRepository($pdo, $encryptionService);
+    $massMailSuppressedRepo = new \Modules\MassMail\Repository\SuppressedAddressRepository($pdo);
+    $massMailMergeRenderer = new \Modules\MassMail\Service\MergeRenderer();
+    $massMailAudienceImportService = new \Modules\MassMail\Service\AudienceImportService(
+        $massMailAudienceRepo, $massMailResolutionRepo, $journalService
+    );
 
     $massMailListService = new \Modules\MassMail\Service\MailingListService(
         $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo
@@ -2428,16 +2438,25 @@ if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
     $massMailService = new \Modules\MassMail\Service\MassMailService(
         $massMailEmailRepo, $massMailRecipientRepo, $massMailAttachmentRepo, $fileRepository,
         $massMailListService, $memberService, $memberEmailService, $sectionService, $mailService, $schedulerService, $journalService,
-        new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath
+        new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath,
+        $massMailAudienceRepo, $massMailResolutionRepo, $massMailSuppressedRepo, $massMailMergeRenderer
     );
 
     $frontController->registerController(
         \Modules\MassMail\Controller\MassMailController::class,
         new \Modules\MassMail\Controller\MassMailController(
             $twig, $massMailService, $massMailListService, $massMailAccessService, $memberService, $sectionService,
-            $scoutYearService, $importJournalRepo, $settingService, $uploadHandler, $fileRepository
+            $scoutYearService, $importJournalRepo, $settingService, $uploadHandler, $fileRepository,
+            $massMailAudienceImportService
         )
     );
+
+    // Bootstrap the daily mail-merge audience retention purge (Task\
+    // PurgeMergeAudiencesHandler self-reschedules afterwards — same
+    // pattern as registration's purge_registration_requests below).
+    if ($schedulerService->find('mass_mail', 'purge_merge_audiences', 'daily') === null) {
+        $schedulerService->schedule('mass_mail', 'purge_merge_audiences', new DateTimeImmutable(), [], 'daily');
+    }
     $frontController->registerController(
         \Modules\MassMail\Controller\ConfigController::class,
         new \Modules\MassMail\Controller\ConfigController($twig, $massMailListService, $settingService)
@@ -2458,7 +2477,7 @@ if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
     // session, token-authenticated (see the controller's own docblock).
     $frontController->registerController(
         \Modules\MassMail\Controller\UnsubscribeController::class,
-        new \Modules\MassMail\Controller\UnsubscribeController($twig, $massMailRecipientRepo, $memberEmailService)
+        new \Modules\MassMail\Controller\UnsubscribeController($twig, $massMailRecipientRepo, $memberEmailService, $massMailSuppressedRepo)
     );
 
     // MemberController is re-registered once, with every optional
@@ -3270,16 +3289,30 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         $massMailListService = new \Modules\MassMail\Service\MailingListService(
             $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $registrationExternalMailingListService
         );
+        // Fresh instances rather than reusing the $massMailAudienceRepo/…
+        // variables from the mass_mail block above — they're identical
+        // stateless constructions, and reusing them here would only widen
+        // the "might not be defined" pattern this cross-module
+        // re-registration already carries (phpstan-baseline.neon).
         $massMailService = new \Modules\MassMail\Service\MassMailService(
             $massMailEmailRepo, $massMailRecipientRepo, $massMailAttachmentRepo, $fileRepository,
             $massMailListService, $memberService, $memberEmailService, $sectionService, $mailService, $schedulerService, $journalService,
-            new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath
+            new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath,
+            new \Modules\MassMail\Repository\AudienceRepository($pdo, $encryptionService),
+            new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService),
+            new \Modules\MassMail\Repository\SuppressedAddressRepository($pdo),
+            new \Modules\MassMail\Service\MergeRenderer()
         );
         $frontController->registerController(
             \Modules\MassMail\Controller\MassMailController::class,
             new \Modules\MassMail\Controller\MassMailController(
                 $twig, $massMailService, $massMailListService, $massMailAccessService, $memberService, $sectionService,
-                $scoutYearService, $importJournalRepo, $settingService, $uploadHandler, $fileRepository
+                $scoutYearService, $importJournalRepo, $settingService, $uploadHandler, $fileRepository,
+                new \Modules\MassMail\Service\AudienceImportService(
+                    new \Modules\MassMail\Repository\AudienceRepository($pdo, $encryptionService),
+                    new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService),
+                    $journalService
+                )
             )
         );
         $frontController->registerController(
