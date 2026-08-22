@@ -17,6 +17,7 @@ use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\UserAccountRepository;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupMember;
 use Modules\Groups\Repository\GroupMemberRepository;
@@ -24,6 +25,8 @@ use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupMembershipService;
+use Modules\Groups\Service\GroupNotificationService;
+use Modules\Groups\Service\GroupRecipientResolver;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\MemberIdentityService;
 use Modules\Groups\Service\LeaveOutcome;
@@ -52,7 +55,14 @@ class GroupMemberController extends AbstractController
         private GroupSessionContextFactory $contextFactory,
         private SectionService $sectionService,
         private ?GroupMembershipService $membershipService = null,
-        private ?MemberIdentityService $identityService = null
+        private ?MemberIdentityService $identityService = null,
+        // Both optional and trailing, like every other collaborator here:
+        // without them the page still lists members, it just cannot offer
+        // the moderator grant, which names a login and therefore needs to
+        // resolve one (Service\GroupAccessService::canModerate()).
+        private ?GroupRecipientResolver $recipientResolver = null,
+        private ?UserAccountRepository $userAccountRepository = null,
+        private ?GroupNotificationService $notificationService = null
     ) {
     }
 
@@ -86,7 +96,20 @@ class GroupMemberController extends AbstractController
             $explicit[] = [
                 'member_id' => $row->memberId,
                 'identity' => $identities[$row->memberId] ?? null,
-                'is_moderator' => $row->isModerator,
+                'is_moderator' => $row->isModerator && $row->moderatorUserAccountId !== null,
+                // Which logins could be sitting behind this membership,
+                // and which one — if any — currently holds the moderator
+                // flag. Only ever built for a moderator: it is the one
+                // control on this page whose subject is an address rather
+                // than a person's name (see logins()).
+                'logins' => $canModerate ? $this->logins($row->memberId, $row->moderatorUserAccountId) : [],
+                'moderator_account_id' => $row->moderatorUserAccountId,
+                // A flag granted before it named a login. It moderates
+                // nothing until somebody re-grants it, and saying so is
+                // better than a row that reads "Modérateur" and behaves
+                // like it is not (Service\ModeratorBindingService binds
+                // the unambiguous ones by itself).
+                'moderation_unbound' => $row->isModerator && $row->moderatorUserAccountId === null,
                 'is_self' => in_array($row->memberId, $context->linkedMemberIds, true),
             ];
         }
@@ -162,6 +185,12 @@ class GroupMemberController extends AbstractController
             $memberId = (int) $request->getBody('member_id', 0);
             if ($memberId > 0) {
                 $this->groupService->inviteMember($group, $memberId, $context->linkedMemberIds[0] ?? 0);
+
+                // Never on its own: an invitation notifies only when the
+                // moderator ticked the box (see members.html.twig).
+                if ($request->getBody('notify') !== null) {
+                    $this->notificationService?->memberInvited($group, $memberId, $context->userAccountId);
+                }
             }
 
             return $this->redirect('/groups/' . $group->id . '/members');
@@ -194,12 +223,28 @@ class GroupMemberController extends AbstractController
     {
         return $this->moderatorAction($params, function (DiscussionGroup $group, GroupSessionContext $context) use ($request) {
             $memberId = (int) $request->getBody('member_id', 0);
+            $grant = (string) $request->getBody('is_moderator', '0') === '1';
+            $accountId = (int) $request->getBody('user_account_id', 0);
+
+            // A grant names one login, and that login is re-checked here
+            // against the member it is being granted for: the form is a
+            // request, not the authority. An account that cannot log in
+            // as this member is refused rather than stored, so a
+            // hand-made POST cannot hand the flag to an unrelated
+            // address.
+            if ($grant && !in_array($accountId, $this->recipientResolver?->accountIdsForMember($memberId) ?? [], true)) {
+                FlashMessage::set('error', 'Cette adresse ne peut pas se connecter en tant que ce membre.');
+
+                return $this->redirect('/groups/' . $group->id . '/members');
+            }
+
             if ($memberId > 0) {
                 $this->groupService->setModerator(
                     $group,
                     $memberId,
-                    (string) $request->getBody('is_moderator', '0') === '1',
-                    $context->linkedMemberIds[0] ?? 0
+                    $grant,
+                    $context->linkedMemberIds[0] ?? 0,
+                    $grant ? $accountId : null
                 );
             }
 
@@ -483,6 +528,47 @@ class GroupMemberController extends AbstractController
         }
 
         return $totem !== null ? $fullName . ' (' . $totem . ')' : $fullName;
+    }
+
+    /**
+     * Every login that can reach $memberId, each with the address it
+     * signs in with and whether it currently holds this group's moderator
+     * flag.
+     *
+     * **This is the one place in this module that shows an email
+     * address**, and it is deliberate: the control it feeds grants
+     * moderation to ONE login, a member can be reachable by several (a
+     * parent's own address plus a confirmed secondary one), and two
+     * addresses of the same human carry the same name — so the name alone
+     * cannot say which one is being empowered. It is rendered only for a
+     * moderator of the group, only on this page, and only inside that
+     * control (SECURITY.md § Groups).
+     *
+     * @return array<int, array{id: int, label: string, email: string, is_moderator: bool}>
+     */
+    private function logins(int $memberId, ?int $moderatorAccountId): array
+    {
+        if ($this->recipientResolver === null || $this->userAccountRepository === null) {
+            return [];
+        }
+
+        $logins = [];
+        foreach ($this->recipientResolver->accountIdsForMember($memberId) as $accountId) {
+            $account = $this->userAccountRepository->findById($accountId);
+            if ($account === null) {
+                continue;
+            }
+
+            $name = trim(($account->firstName ?? '') . ' ' . ($account->lastName ?? ''));
+            $logins[] = [
+                'id' => $account->id,
+                'label' => $name !== '' ? $name : $account->email,
+                'email' => $account->email,
+                'is_moderator' => $moderatorAccountId === $account->id,
+            ];
+        }
+
+        return $logins;
     }
 
     /**

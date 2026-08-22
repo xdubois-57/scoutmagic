@@ -30,7 +30,6 @@ use Modules\Groups\Repository\LinkFetchLogRepository;
 use Modules\Groups\Repository\PostLinkRepository;
 use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\PostRepository;
-use Modules\Groups\Service\AuthorOptionsService;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupActivityService;
 use Modules\Groups\Service\GroupFeedService;
@@ -86,7 +85,16 @@ class PostControllerTest extends TestCase
         );
 
         $this->moderatorMemberId = GroupsTestHelper::createMember($this->pdo, 'MOD');
-        $this->groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $this->moderatorMemberId);
+        // The moderator acts as OTHER_ACCOUNT in this file, and the flag
+        // names the login it belongs to (schema.sql) — so that is who it
+        // is granted to.
+        $this->groupId = $this->groupService->createSectionGroup(
+            'Louveteaux',
+            $this->sectionId,
+            $this->currentYearId,
+            $this->moderatorMemberId,
+            self::OTHER_ACCOUNT
+        );
         $this->memberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MEMBER', $this->sectionId, $this->currentYearId);
         $this->otherMemberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'OTHER', $this->sectionId, $this->currentYearId);
         // Nameable for the same reason the shared fixture's member is —
@@ -217,7 +225,6 @@ class PostControllerTest extends TestCase
             $postMediaService,
             $postLinkService,
             $stack['replyService'],
-            new AuthorOptionsService($access, $memberService),
             $stack['reportService'],
             null,
             new \Modules\Groups\Service\SeenByService($readStateService, GroupsTestHelper::identityService($this->pdo)),
@@ -226,7 +233,8 @@ class PostControllerTest extends TestCase
                 $memberService
             ),
             $eventService,
-            $pollService
+            $pollService,
+            GroupsTestHelper::identityService($this->pdo)
         );
     }
 
@@ -885,7 +893,7 @@ class PostControllerTest extends TestCase
         $postId = $this->seedPost();
         $_POST = [];
 
-        $this->assertSame(403, $this->controller([$this->moderatorMemberId])->pin($this->request(), $this->params($postId))->getStatusCode());
+        $this->assertSame(403, $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)->pin($this->request(), $this->params($postId))->getStatusCode());
         $this->assertFalse($this->postRepo->findById($postId)->isPinned);
     }
 
@@ -894,11 +902,11 @@ class PostControllerTest extends TestCase
         $postId = $this->seedPost();
 
         $this->withCsrf([]);
-        $this->controller([$this->moderatorMemberId])->pin($this->request(), $this->params($postId));
+        $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)->pin($this->request(), $this->params($postId));
         $this->assertTrue($this->postRepo->findById($postId)->isPinned);
 
         $this->withCsrf([]);
-        $this->controller([$this->moderatorMemberId])->unpin($this->request(), $this->params($postId));
+        $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)->unpin($this->request(), $this->params($postId));
         $this->assertFalse($this->postRepo->findById($postId)->isPinned);
     }
 
@@ -1013,7 +1021,7 @@ class PostControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $html = json_decode($response->getBody(), true)['html'];
-        $this->assertStringContainsString('1 vote', $html);
+        $this->assertStringContainsString('1 personne a répondu', $html);
     }
 
     public function testAPlainFormVoteRedirectsToTheAnchoredPost(): void
@@ -1076,7 +1084,12 @@ class PostControllerTest extends TestCase
         $postId = $this->seedPostWithPoll();
         $otherPostId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Autre', '2026-01-02 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
         (new \Modules\Groups\Service\PollService(new \Modules\Groups\Repository\PollRepository($this->pdo)))
-            ->attachTo($otherPostId, ['question' => 'Autre ?', 'options' => ['Oui', 'Non']]);
+            ->attachTo($otherPostId, [
+                'question' => 'Autre ?',
+                'options' => ['Oui', 'Non'],
+                'vote_scope' => \Modules\Groups\Service\PollService::SCOPE_ACCOUNT,
+                'allow_multiple' => false,
+            ]);
         $foreign = $this->pollOptionsOf($otherPostId)[0]['id'];
         $this->withCsrf(['option_id' => (string) $foreign]);
 

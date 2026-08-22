@@ -101,9 +101,19 @@ class GroupAccessService
     }
 
     /**
-     * A moderator is an explicitly-flagged member, or a site admin. The
-     * flag lives on discussion_group_members and nowhere else — there is
-     * no second table and no role string.
+     * A moderator is a LOGIN that was granted the flag in this group, or a
+     * site admin. The flag lives on discussion_group_members and nowhere
+     * else — there is no second table and no role string — but it names
+     * the user_accounts row it was granted to, and only that account
+     * moderates through it.
+     *
+     * That last part is the whole rule: two addresses can reach the same
+     * member (a parent's own, plus a secondary one they confirmed), and
+     * granting the flag to one of them must not hand it to the other. So
+     * the row is looked up by member — membership is a fact about a
+     * member — and then the grant is checked against the account
+     * currently identified. A row whose grant names nobody (NULL, granted
+     * before this rule) moderates nothing.
      */
     public function canModerate(DiscussionGroup $group, GroupSessionContext $context): bool
     {
@@ -111,9 +121,18 @@ class GroupAccessService
             return true;
         }
 
-        $row = $this->explicitRowFor($group, $context);
+        if ($context->userAccountId === null) {
+            return false;
+        }
 
-        return $row !== null && $row->isModerator;
+        foreach ($context->linkedMemberIds as $memberId) {
+            $row = $this->memberRepository->find($group->id, $memberId);
+            if ($row !== null && $row->isModerator && $row->moderatorUserAccountId === $context->userAccountId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

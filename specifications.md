@@ -502,25 +502,38 @@ Private group conversations for the unit: one group per section, created automat
 Two sources, both resolved at every page load rather than copied anywhere:
 
 - **A linked section.** Everyone with a membership period in that section, for the group's scout year. A Desk import that moves a member between sections therefore takes effect immediately, in both directions.
-- **An explicit invitation.** A chief invites a member (or a whole section) individually. The same row carries the moderator flag.
+- **An explicit invitation.** A chief invites a member (or a whole section) individually, and chooses whether to notify them — by default an invitation notifies nobody. The same row carries the moderator flag.
 
 A section group is tied to its scout year, which is what keeps last year's group readable by exactly the people who were in it. An invitation group is tied to a year only if the chief wanted it. A site admin is an implicit moderator of every group; a chief who is not a member of a group does not see it.
 
+**A group is read as a member and acted in as a login.** Everything somebody does here belongs to the email address they are identified with: messages and comments are signed by it (there is nothing to choose when publishing), and **the moderator role is granted to one address, not to a member** — two addresses can reach the same member, and naming one moderator never makes the other one too. A member with no account cannot be a moderator: moderating is something one logs in to do.
+
 ### 20.2 What a group holds
 
-Posts (up to 5000 characters, up to four photos or videos, and at most one link with an automatic title/description/image preview), one level of replies (up to 2000 characters, at most one image — replies are never nested), and six fixed reactions (👍 ❤️ 😂 😮 😢 👏), one per person per item. There is no separate field for a link: the first URL typed anywhere in the message is detected automatically, previewed live while composing, and removed from the stored text once its preview card is attached — the card represents it from then on. An author may edit their own post or reply for 15 minutes; an author or a moderator may delete one at any time. A moderator may pin posts to the top of the feed.
+Posts (up to 5000 characters, up to four photos or videos, an optional poll, and at most one link with an automatic title/description/image preview), one level of replies (up to 2000 characters, at most one image — replies are never nested), and six fixed reactions (👍 ❤️ 😂 😮 😢 👏), one per person per item. There is no separate field for a link: the first URL typed anywhere in the message is detected automatically, previewed live while composing, and removed from the stored text once its preview card is attached — the card represents it from then on. An author may edit their own post or reply for 15 minutes; an author or a moderator may delete one at any time. A moderator may pin posts to the top of the feed.
 
 Photos and videos live in a gallery album belonging to the group, never listed in the unit's own gallery and readable only by the group's members. "Galerie du groupe" shows them all on one page.
 
 ### 20.3 Reporting and moderation
 
-Any member may report a post or a reply, once. Past a configurable threshold (2 by default), the item is hidden from everyone except the group's moderators, who then restore it or delete it. **A moderator may never restore an item they wrote themselves** — another moderator, or a site administrator, has to; deleting their own content stays allowed. When the reported item was written by one of the group's own moderators, the report additionally reaches every site administrator, so the group's own moderation is never the only judge of a complaint about itself. The item's author is never told their content was reported. **Hiding is the maximum automatic consequence — nothing is ever deleted without a human deciding.** A restored item is never auto-hidden again, however many further reports arrive. The reporter is told nothing about the outcome, and who reported an item is never revealed to anyone.
+Any member may report a post or a reply, once, from the "…" menu on the item. Past a configurable threshold (2 by default), the item is hidden from everyone except the group's moderators. **Moderators have a page of their own** ("Signalements", reachable from the group's header as soon as there is something on it) listing every reported message — a reported comment appears through the conversation it belongs to — where they hide it by hand before any threshold, ignore the report (which also protects the item from a later automatic hiding), restore a hidden one, or delete it. **A moderator may never restore an item they wrote themselves** — another moderator, or a site administrator, has to; deleting their own content stays allowed. When the reported item was written by one of the group's own moderators, the report additionally reaches every site administrator, so the group's own moderation is never the only judge of a complaint about itself. The item's author is never told their content was reported. **Hiding is the maximum automatic consequence — nothing is ever deleted without a human deciding.** A restored item is never auto-hidden again, however many further reports arrive. The reporter is told nothing about the outcome, and who reported an item is never revealed to anyone.
 
 When the AI connector module is active, a post or reply is checked before publication for personal attacks or disrespectful language, and its author is offered a rewording. The check fails open: no provider, a timeout or an error all mean the message is published unchecked. A refused message is never stored anywhere — it is handed back to its own author and nowhere else.
 
+### 20.3bis Polls
+
+A message may carry a poll: a question and from 2 to 10 answers. The composer always keeps one empty answer box waiting at the end — typing in the last one adds another, clearing one takes the spares back — so a poll grows as it is written and never shows a form full of blanks.
+
+Two choices belong to the poll itself, made when it is written:
+
+- **Who counts as one voter**: the connected person (the default — one answer per email address), or the member. Per member is what a parent of several children needs; when their account is linked to more than one member of the group, a small dialog asks whose answer is being given at the moment of voting.
+- **How many answers each voter may give**: one (the default, changeable at any time) or several, where tapping an answer again takes it back.
+
+Results show how many people (or members) answered, never who answered what.
+
 ### 20.4 Notifications
 
-Four types, all optional per member except one: a new post in one of my groups, a reply to my post, a reaction to my post or reply (debounced, so a burst of reactions is one notification), and — for moderators only — a report needing attention, whose in-app channel cannot be switched off. No email is ever sent for any of them.
+Five types, all optional per member except one: a new post in one of my groups, a reply to my post, a reaction to my post or reply (debounced, so a burst of reactions is one notification), an invitation to a group (sent only when the person inviting asks for it), and — for moderators only — a report needing attention, whose in-app channel cannot be switched off. No email is ever sent for any of them.
 
 ### 20.4bis Managing a group
 

@@ -80,18 +80,23 @@ class GroupRecipientResolver
      * canModerate() accepts, so "who may act on a report" and "who is told
      * about one" can never drift apart.
      *
+     * A grant names ONE login (schema.sql), so the notification goes to
+     * that account and not to every account that happens to reach the same
+     * member: the other address cannot act on the report, and telling it
+     * about one would be telling somebody a report exists for nothing. A
+     * row whose grant names nobody moderates nothing and is skipped here
+     * for exactly the same reason.
+     *
      * @return array<int, array{userAccountId: int, memberId: ?int}>
      */
     public function moderatorsFor(DiscussionGroup $group): array
     {
-        $recipients = [];
+        $resolved = [];
         foreach ($this->memberRepository->findByGroup($group->id) as $member) {
-            if ($member->isModerator) {
-                $recipients[] = $member->memberId;
+            if ($member->isModerator && $member->moderatorUserAccountId !== null) {
+                $resolved[] = ['userAccountId' => $member->moderatorUserAccountId, 'memberId' => $member->memberId];
             }
         }
-
-        $resolved = $this->toRecipients($recipients);
 
         // Site admins moderate every group without holding a row in any of
         // them, so they are added by account id directly — there is no
@@ -127,18 +132,27 @@ class GroupRecipientResolver
     }
 
     /**
-     * Whether $memberId holds the moderator flag in this group.
+     * Whether $userAccountId holds the moderator flag in this group.
      *
-     * Explicit rows only, deliberately: this answers "is the person a
-     * report is about one of the people who would judge it", and a site
-     * admin is not part of that conflict — they are the escalation
-     * target, not the thing being escalated away from.
+     * The ACCOUNT, not the member: a grant names one login, so "is the
+     * person a report is about one of the people who would judge it" is a
+     * question about the login that wrote the content — the other address
+     * reaching the same member judges nothing and is nobody's conflict of
+     * interest.
+     *
+     * Explicit rows only, deliberately: a site admin is not part of that
+     * conflict — they are the escalation target, not the thing being
+     * escalated away from.
      */
-    public function isExplicitModerator(DiscussionGroup $group, int $memberId): bool
+    public function isExplicitModeratorAccount(DiscussionGroup $group, int $userAccountId): bool
     {
-        $row = $this->memberRepository->find($group->id, $memberId);
+        foreach ($this->memberRepository->findByGroup($group->id) as $member) {
+            if ($member->isModerator && $member->moderatorUserAccountId === $userAccountId) {
+                return true;
+            }
+        }
 
-        return $row !== null && $row->isModerator;
+        return false;
     }
 
     /**
@@ -198,14 +212,32 @@ class GroupRecipientResolver
      */
     public function accountIdForMember(int $memberId): ?int
     {
+        return $this->accountIdsForMember($memberId)[0] ?? null;
+    }
+
+    /**
+     * EVERY account that can log in as this member: their Desk address
+     * first, then any confirmed secondary one — the same two sources, in
+     * the same order, that login itself resolves (SECURITY.md §2).
+     *
+     * accountIdForMember() above answers "where does their mail go" and
+     * takes the first; this answers "who could be sitting behind this
+     * membership", which is the question the moderator grant asks, since
+     * the flag names one login and a member can be reachable by several.
+     *
+     * @return int[] account ids, Desk address first
+     */
+    public function accountIdsForMember(int $memberId): array
+    {
+        $ids = [];
         foreach ($this->blindIndexesForMember($memberId) as $blindIndex) {
             $account = $this->userAccountRepository->findByBlindIndex($blindIndex);
-            if ($account !== null) {
-                return $account->id;
+            if ($account !== null && !in_array($account->id, $ids, true)) {
+                $ids[] = $account->id;
             }
         }
 
-        return null;
+        return $ids;
     }
 
     /**

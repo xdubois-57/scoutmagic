@@ -18,17 +18,47 @@
    redirects to /groups/{id}#post-{postId} after re-checking membership. #}
 <article id="post-{{ row.post.id }}" class="card mb-2{% if row.is_hidden|default(false) %} groups-post-hidden{% endif %}">
     <div class="card-body py-3">
-        {% if row.is_hidden|default(false) %}
-            <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 py-2 px-3 mb-2 small groups-hidden-banner">
+        {#
+          Two states, one banner, and both are a moderator's alone
+          (Service\GroupFeedService sets `report_count` to 0 for everyone
+          else, and an auto-hidden post never reaches this template at
+          all for them):
+
+          - hidden — what reports did on their own, undone with Rétablir;
+          - reported but still visible — what nothing has done yet, which
+            is the state that used to have nowhere to act. Masquer is the
+            judgement a count cannot make, Ignorer says the report was
+            wrong and protects the item from a later automatic masking.
+        #}
+        {% if row.is_hidden|default(false) or row.report_count|default(0) > 0 %}
+            <div class="alert {{ row.is_hidden|default(false) ? 'alert-warning' : 'alert-secondary' }} d-flex flex-wrap align-items-center gap-2 py-2 px-3 mb-2 small groups-hidden-banner">
                 <span class="flex-grow-1">
-                    <i class="bi bi-eye-slash me-1"></i>
-                    Message masqué après {{ row.report_count }} signalement{{ row.report_count > 1 ? 's' : '' }}.
-                    Vous seul, en tant que modérateur, le voyez.
+                    {% if row.is_hidden|default(false) %}
+                        <i class="bi bi-eye-slash me-1"></i>
+                        Message masqué après {{ row.report_count }} signalement{{ row.report_count > 1 ? 's' : '' }}.
+                        Vous seul, en tant que modérateur, le voyez.
+                    {% else %}
+                        <i class="bi bi-flag me-1"></i>
+                        {{ row.report_count }} signalement{{ row.report_count > 1 ? 's' : '' }} sur ce message.
+                        Il reste visible par tout le monde.
+                    {% endif %}
                 </span>
+                {% if not row.is_hidden|default(false) %}
+                    <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/hide" class="m-0"
+                          data-confirm="Masquer ce message ? Seuls les modérateurs du groupe le verront encore.">
+                        {{ csrf_field()|raw }}
+                        {% if on_reports_page|default(false) %}
+                            <input type="hidden" name="return_to" value="reports">
+                        {% endif %}
+                        <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
+                            Masquer
+                        </button>
+                    </form>
+                {% endif %}
                 <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/restore" class="m-0 groups-restore-form">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
-                        Rétablir
+                        {{ row.is_hidden|default(false) ? 'Rétablir' : 'Ignorer le signalement' }}
                     </button>
                 </form>
             </div>
@@ -126,7 +156,8 @@
             poll: row.poll|default(null),
             group: group,
             post: row.post,
-            can_vote: post_permission.allowed|default(false)
+            can_vote: post_permission.allowed|default(false),
+            vote_members: vote_members|default([])
         } only %}
 
         {#
@@ -236,7 +267,8 @@
                         replies: row.replies,
                         group: group,
                         post: row.post,
-                        replies_prev_before_id: row.replies_prev_before_id
+                        replies_prev_before_id: row.replies_prev_before_id,
+                        on_reports_page: on_reports_page|default(false)
                     } only %}
                 </div>
 
@@ -253,15 +285,6 @@
                       enctype="multipart/form-data" class="groups-reply-form mt-2"
                       data-group-id="{{ group.id }}" data-post-id="{{ row.post.id }}">
                     {{ csrf_field()|raw }}
-                    {% if author_options|default([]) is not empty %}
-                        <label class="visually-hidden" for="reply-author-{{ row.post.id }}">Répondre en tant que</label>
-                        <select class="form-select form-select-sm mb-2" id="reply-author-{{ row.post.id }}"
-                                name="author_member_id" style="min-height:44px;">
-                            {% for option in author_options %}
-                                <option value="{{ option.id }}">{{ option.name }}</option>
-                            {% endfor %}
-                        </select>
-                    {% endif %}
                     <div class="d-flex align-items-center gap-2">
                         <label class="visually-hidden" for="reply-body-input-{{ row.post.id }}">Répondre</label>
                         {# Refilled only for the very post whose reply was refused, and only

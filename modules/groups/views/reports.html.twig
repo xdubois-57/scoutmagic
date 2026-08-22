@@ -1,0 +1,51 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Signalements — {{ group.name }} — {{ site_name }}{% endblock %}
+
+{% block stylesheets %}
+<link rel="stylesheet" href="/assets/css/components.css">
+{% endblock %}
+
+{% block content %}
+    {#
+      The header without `can_moderate`: this is a moderator's worklist,
+      not the group's own page, so it offers no close/reopen and no edit
+      form — the same rule members.html.twig and search.html.twig follow.
+    #}
+    {% include '@groups/partials/group_header.html.twig' %}
+
+    <p class="text-body-secondary small">
+        Ce que des membres ont signalé dans ce groupe. Un contenu est masqué automatiquement à partir de
+        {{ threshold }} signalement{{ threshold > 1 ? 's' : '' }} ; en dessous, c'est à vous d'en juger.
+        Masquer le retire à tout le monde sauf aux modérateurs, ignorer le laisse en place et le protège
+        d'un masquage ultérieur, supprimer est définitif.
+    </p>
+
+    {% if rows is empty %}
+        <p class="text-body-secondary text-center py-5 mb-0">Aucun contenu signalé dans ce groupe.</p>
+    {% else %}
+        {#
+          The feed's own card, unchanged, threads included — a reported
+          comment is judged inside the message it answers, and every
+          action a moderator needs is already on that card. `post_permission`
+          is deliberately not passed: this is a page for judging what was
+          said, not for answering it (post_card.html.twig defaults it to
+          "not allowed").
+        #}
+        {% for row in rows %}
+            {% include '@groups/partials/post_card.html.twig' with { row: row, group: group, on_reports_page: true } %}
+            <p class="text-end mb-3">
+                <a class="small" href="/groups/{{ group.id }}#post-{{ row.post.id }}">Voir dans la conversation</a>
+            </p>
+        {% endfor %}
+    {% endif %}
+
+    {% include '@groups/partials/detail_modal.html.twig' %}
+
+    {% include '@gallery/partials/lightbox.html.twig' %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/gallery.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="/assets/js/groups.js" defer nonce="{{ csp_nonce }}"></script>
+{% endblock %}

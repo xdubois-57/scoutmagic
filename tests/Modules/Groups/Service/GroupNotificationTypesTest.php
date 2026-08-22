@@ -70,7 +70,7 @@ class GroupNotificationTypesTest extends TestCase
     {
         $types = $this->groupsTypes();
 
-        $this->assertCount(5, $types);
+        $this->assertCount(6, $types);
         foreach ($types as $type) {
             $this->assertSame('Groupes', $type->group);
         }
@@ -81,6 +81,7 @@ class GroupNotificationTypesTest extends TestCase
                 'Réponse à votre message',
                 'Réaction à votre message',
                 'Vous êtes cité dans un groupe',
+                'Invitation à un groupe',
                 'Contenu signalé dans un groupe',
             ],
             array_map(static fn(NotificationType $t): string => $t->label, array_values($types))
@@ -100,6 +101,7 @@ class GroupNotificationTypesTest extends TestCase
             GroupNotificationService::TYPE_REACTION_RECEIVED,
             GroupNotificationService::TYPE_MENTIONED,
             GroupNotificationService::TYPE_ITEM_REPORTED,
+            GroupNotificationService::TYPE_INVITED,
         ] as $typeId) {
             $this->assertNotNull($this->service->findType($typeId), "{$typeId} must be declared in module.json");
         }

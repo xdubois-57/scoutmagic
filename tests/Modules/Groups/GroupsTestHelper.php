@@ -42,6 +42,7 @@ class GroupsTestHelper
             group_id INTEGER NOT NULL,
             member_id INTEGER NOT NULL,
             is_moderator INTEGER NOT NULL DEFAULT 0,
+            moderator_user_account_id INTEGER NULL,
             invited_by_member_id INTEGER NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(group_id, member_id),
@@ -181,6 +182,8 @@ class GroupsTestHelper
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             post_id INTEGER NOT NULL,
             question TEXT NOT NULL,
+            vote_scope TEXT NOT NULL DEFAULT "account",
+            allow_multiple INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             UNIQUE(post_id),
             FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
@@ -194,13 +197,15 @@ class GroupsTestHelper
             FOREIGN KEY (poll_id) REFERENCES discussion_group_polls(id) ON DELETE CASCADE
         )');
 
-        $pdo->exec('CREATE TABLE discussion_group_poll_votes (
+        $pdo->exec('CREATE TABLE discussion_group_poll_ballots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             poll_id INTEGER NOT NULL,
             option_id INTEGER NOT NULL,
-            member_id INTEGER NOT NULL,
+            voter_key TEXT NOT NULL,
+            user_account_id INTEGER NULL,
+            voter_member_id INTEGER NULL,
             created_at TEXT NOT NULL,
-            UNIQUE(poll_id, member_id),
+            UNIQUE(option_id, voter_key),
             FOREIGN KEY (poll_id) REFERENCES discussion_group_polls(id) ON DELETE CASCADE,
             FOREIGN KEY (option_id) REFERENCES discussion_group_poll_options(id) ON DELETE CASCADE
         )');

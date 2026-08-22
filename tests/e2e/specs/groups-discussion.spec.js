@@ -106,6 +106,19 @@ const POST_BODY = '[id^="post-body-"]';
  *
  * @param {import('@playwright/test').Page} page
  */
+/**
+ * Opens the "Créer un groupe" disclosure on /groups. The form is collapsed
+ * by default (views/list.html.twig): a native <details>, so this is the
+ * same click a chief makes and it needs no JavaScript to work.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function openCreateGroupForm(page) {
+    const summary = page.locator('summary', { hasText: 'Créer un groupe' });
+    await summary.click();
+    await expect(page.getByLabel('Nom du groupe')).toBeVisible();
+}
+
 async function waitForGroupsJsReady(page) {
     await page.waitForFunction(() => document.documentElement.classList.contains('groups-js'));
 }
@@ -126,6 +139,9 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     // group needs no section, and its creator becomes its first member and
     // its moderator (Modules\Groups\Service\GroupService).
     await page.goto('/groups', { waitUntil: 'domcontentloaded' });
+    // The form is folded away by default — /groups is a list of the
+    // groups you are in, not a form for one that does not exist yet.
+    await openCreateGroupForm(page);
     await page.getByLabel('Nom du groupe').fill(GROUP_NAME);
     await page.getByRole('button', { name: 'Créer' }).click();
     await waitForGroupsJsReady(page);
@@ -202,10 +218,17 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     // DOM; leaving them empty is what makes an ordinary message. Filled
     // in, they must travel with the composer's hand-built request exactly
     // as the message does.
-    await composer.locator('summary', { hasText: 'Ajouter un sondage' }).click();
+    await composer.locator('summary', { hasText: 'Sondage' }).click();
     await composer.getByLabel('Question', { exact: true }).fill(POLL_QUESTION);
     await composer.getByLabel('Choix 1', { exact: true }).fill('Oui, je viens');
     await composer.getByLabel('Choix 2', { exact: true }).fill('Non, je ne peux pas');
+    // Typing in the last box adds a fresh empty one after it, so the
+    // control always has exactly one waiting at the end (groups.js). The
+    // third box exists in the server's own markup; a fourth appearing is
+    // the script's rule at work.
+    await expect(composer.locator('[name="poll_options[]"]')).toHaveCount(3);
+    await composer.getByLabel('Choix 3', { exact: true }).fill('Peut-être');
+    await expect(composer.locator('[name="poll_options[]"]')).toHaveCount(4);
     await composer.getByRole('button', { name: 'Publier' }).click();
 
     await expect(feed.getByRole('article')).toHaveCount(3);
@@ -218,13 +241,13 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     const pollPost = feed.getByRole('article').first();
     const poll = pollPost.locator('.groups-poll');
     await expect(poll).toContainText(POLL_QUESTION);
-    await expect(poll).toContainText('0 vote');
+    await expect(poll).toContainText('0 personne a répondu');
 
     await poll.getByRole('button', { name: /Oui, je viens/ }).click();
     // The whole poll block is swapped for the server's freshly tallied
     // one, so the count is the server's answer and not an optimistic
     // client-side guess.
-    await expect(pollPost.locator('.groups-poll')).toContainText('1 vote');
+    await expect(pollPost.locator('.groups-poll')).toContainText('1 personne a répondu');
     await expect(pollPost.locator('.groups-poll')).toContainText('100 %');
 
     // --- 4. A comment, through the collapsed conversation.
@@ -324,7 +347,7 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await expect(reloadedTextPost.locator(POST_BODY)).toContainText(MESSAGE);
     await expect(feed.getByRole('link', { name: /example\.invalid/ })).toHaveAttribute('href', LINK_URL);
     await expect(feed.locator('.groups-poll')).toContainText(POLL_QUESTION);
-    await expect(feed.locator('.groups-poll')).toContainText('1 vote');
+    await expect(feed.locator('.groups-poll')).toContainText('1 personne a répondu');
     await expect(reloadedTextPost.locator('.groups-reaction-tally').first()).toContainText('1');
 
     // The conversation comes back folded, and counted — and carries no
@@ -397,6 +420,7 @@ test('a comment from somebody else is announced as new, and can be reported with
     // --- The section's group, and one announcement in it.
     await loginAsAdmin(page);
     await page.goto('/groups', { waitUntil: 'domcontentloaded' });
+    await openCreateGroupForm(page);
     await page.getByLabel('Nom du groupe').fill(SECTION_GROUP_NAME);
     await page.getByLabel('Section').selectOption({ label: SECTION_NAME });
     await page.getByRole('button', { name: 'Créer' }).click();
@@ -526,6 +550,7 @@ test('on a phone the reaction picker folds away — and comes back when the scri
     await page.setViewportSize(PHONE);
 
     await page.goto('/groups', { waitUntil: 'domcontentloaded' });
+    await openCreateGroupForm(page);
     await page.getByLabel('Nom du groupe').fill(`Téléphone ${Date.now()}`);
     await page.getByRole('button', { name: 'Créer' }).click();
     await waitForGroupsJsReady(page);
@@ -627,6 +652,7 @@ test('a comment can be a photo and nothing else, and the photo is visible before
 
     await loginAsAdmin(page);
     await page.goto('/groups', { waitUntil: 'domcontentloaded' });
+    await openCreateGroupForm(page);
     await page.getByLabel('Nom du groupe').fill(`Photo ${Date.now()}`);
     await page.getByRole('button', { name: 'Créer' }).click();
     await waitForGroupsJsReady(page);

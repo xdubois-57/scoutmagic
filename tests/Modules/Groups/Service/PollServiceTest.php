@@ -13,8 +13,8 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Groups\GroupsTestHelper;
 
 /**
- * A poll attached to a post: what counts as one, one answer per member,
- * and the tally a card renders.
+ * A poll attached to a post: what counts as one, WHO counts as one voter,
+ * how many answers each of them may give, and the tally a card renders.
  *
  * @group database
  */
@@ -44,12 +44,39 @@ class PollServiceTest extends TestCase
     {
         $poll = $this->service->normalise('  Qui vient ?  ', ['Samedi', ' Dimanche ']);
 
-        $this->assertSame(['question' => 'Qui vient ?', 'options' => ['Samedi', 'Dimanche']], $poll);
+        $this->assertSame([
+            'question' => 'Qui vient ?',
+            'options' => ['Samedi', 'Dimanche'],
+            // The defaults, and they are the point: one answer per
+            // identified login, one choice each.
+            'vote_scope' => PollService::SCOPE_ACCOUNT,
+            'allow_multiple' => false,
+        ], $poll);
+    }
+
+    public function testAPollCanBeAskedPerMemberAndWithSeveralAnswers(): void
+    {
+        $poll = $this->service->normalise('Qui vient ?', ['Samedi', 'Dimanche'], PollService::SCOPE_MEMBER, true);
+
+        $this->assertSame(PollService::SCOPE_MEMBER, $poll['vote_scope']);
+        $this->assertTrue($poll['allow_multiple']);
     }
 
     /**
-     * The composer offers a fixed number of boxes, so leaving the last
-     * ones empty is the ordinary way to make a two-option poll.
+     * A hand-made request cannot invent a third scope: anything but the
+     * one word meaning "per member" is the default.
+     */
+    public function testAnUnknownScopeFallsBackToOneAnswerPerLogin(): void
+    {
+        $poll = $this->service->normalise('Qui vient ?', ['Samedi', 'Dimanche'], 'whatever');
+
+        $this->assertSame(PollService::SCOPE_ACCOUNT, $poll['vote_scope']);
+    }
+
+    /**
+     * The composer always keeps an empty box waiting at the end, so
+     * submitting with it untouched is the ordinary way to make a poll
+     * with exactly the options that were typed.
      */
     public function testBlankOptionBoxesAreDroppedRatherThanStored(): void
     {
@@ -85,38 +112,137 @@ class PollServiceTest extends TestCase
 
     // ---- voting ----
 
-    private function seedPoll(): array
+    /**
+     * @return array<int, array{id: int, label: string}>
+     */
+    private function seedPoll(string $scope = PollService::SCOPE_ACCOUNT, bool $multiple = false): array
     {
-        $this->service->attachTo($this->postId, ['question' => 'Qui vient ?', 'options' => ['Samedi', 'Dimanche']]);
+        $this->service->attachTo($this->postId, [
+            'question' => 'Qui vient ?',
+            'options' => ['Samedi', 'Dimanche'],
+            'vote_scope' => $scope,
+            'allow_multiple' => $multiple,
+        ]);
         $poll = $this->repository->findByPostId($this->postId);
 
         return $this->repository->optionsForPolls([$poll['id']])[$poll['id']];
     }
 
-    public function testAMemberVotesAndTheTallyFollows(): void
+    public function testALoginVotesAndTheTallyFollows(): void
     {
         $options = $this->seedPoll();
 
-        $this->assertTrue($this->service->vote($this->postId, $options[0]['id'], 3));
+        $this->assertTrue($this->service->vote($this->postId, $options[0]['id'], 9, 0, [3]));
 
-        $poll = $this->service->forPosts([$this->postId], [3])[$this->postId];
+        $poll = $this->service->forPosts([$this->postId], 9, [3])[$this->postId];
         $this->assertSame(1, $poll['total']);
         $this->assertSame(1, $poll['options'][0]['votes']);
         $this->assertTrue($poll['options'][0]['is_own']);
     }
 
     /**
-     * One answer per member, and changing it replaces rather than adds —
-     * the UNIQUE (poll, member) index is what makes that an UPDATE.
+     * The scope is the poll's, not the request's: an account-scoped poll
+     * records the login whatever member id the form carried, so two
+     * members of one account cannot answer it twice.
+     */
+    public function testAnAccountScopedPollCountsTheLoginOnceHoweverManyMembersItHas(): void
+    {
+        $options = $this->seedPoll();
+
+        $this->service->vote($this->postId, $options[0]['id'], 9, 3, [3, 4]);
+        $this->service->vote($this->postId, $options[1]['id'], 9, 4, [3, 4]);
+
+        $poll = $this->service->forPosts([$this->postId], 9, [3, 4])[$this->postId];
+        $this->assertSame(1, $poll['total']);
+        $this->assertSame(0, $poll['options'][0]['votes']);
+        $this->assertSame(1, $poll['options'][1]['votes']);
+    }
+
+    /**
+     * A member-scoped poll is what a parent of two needs: the same login
+     * answers once per child, and each answer stands on its own.
+     */
+    public function testAMemberScopedPollTakesOneAnswerPerMember(): void
+    {
+        $options = $this->seedPoll(PollService::SCOPE_MEMBER);
+
+        $this->service->vote($this->postId, $options[0]['id'], 9, 3, [3, 4]);
+        $this->service->vote($this->postId, $options[1]['id'], 9, 4, [3, 4]);
+
+        $poll = $this->service->forPosts([$this->postId], 9, [3, 4])[$this->postId];
+        $this->assertSame(2, $poll['total']);
+        $this->assertSame([3 => [$options[0]['id']], 4 => [$options[1]['id']]], $poll['own_by_member']);
+    }
+
+    /**
+     * Answering for somebody this caller is not linked to falls back to
+     * their own first member rather than being recorded as that person —
+     * the form is a request, never an authority.
+     */
+    public function testAnsweringForAMemberThatIsNotYoursRecordsYourOwn(): void
+    {
+        $options = $this->seedPoll(PollService::SCOPE_MEMBER);
+
+        $this->service->vote($this->postId, $options[0]['id'], 9, 99, [3]);
+
+        $poll = $this->service->forPosts([$this->postId], 9, [3])[$this->postId];
+        $this->assertSame([3 => [$options[0]['id']]], $poll['own_by_member']);
+    }
+
+    /**
+     * Several answers when the poll allows them, and a second tap on one
+     * you already hold takes it back — the only way to unpick one.
+     */
+    public function testAMultipleAnswerPollHoldsSeveralChoicesAndCanUnpickOne(): void
+    {
+        $options = $this->seedPoll(PollService::SCOPE_ACCOUNT, true);
+
+        $this->service->vote($this->postId, $options[0]['id'], 9, 0, [3]);
+        $this->service->vote($this->postId, $options[1]['id'], 9, 0, [3]);
+
+        $poll = $this->service->forPosts([$this->postId], 9, [3])[$this->postId];
+        // One voter, two answers — which is why the total counts people
+        // and not ballots.
+        $this->assertSame(1, $poll['total']);
+        $this->assertSame(1, $poll['options'][0]['votes']);
+        $this->assertSame(1, $poll['options'][1]['votes']);
+
+        $this->service->vote($this->postId, $options[0]['id'], 9, 0, [3]);
+
+        $poll = $this->service->forPosts([$this->postId], 9, [3])[$this->postId];
+        $this->assertSame(0, $poll['options'][0]['votes']);
+        $this->assertSame(1, $poll['options'][1]['votes']);
+    }
+
+    /**
+     * A single-answer poll has no such move: tapping your own answer
+     * again leaves it exactly where it was, rather than quietly leaving
+     * you having answered nothing.
+     */
+    public function testTappingYourOwnAnswerAgainInASingleAnswerPollChangesNothing(): void
+    {
+        $options = $this->seedPoll();
+        $this->service->vote($this->postId, $options[0]['id'], 9, 0, [3]);
+
+        $this->service->vote($this->postId, $options[0]['id'], 9, 0, [3]);
+
+        $poll = $this->service->forPosts([$this->postId], 9, [3])[$this->postId];
+        $this->assertSame(1, $poll['total']);
+        $this->assertSame(1, $poll['options'][0]['votes']);
+    }
+
+    /**
+     * One answer per voter in a single-answer poll, and changing it
+     * replaces rather than adds.
      */
     public function testChangingYourMindReplacesYourVoteRatherThanAddingOne(): void
     {
         $options = $this->seedPoll();
-        $this->service->vote($this->postId, $options[0]['id'], 3);
+        $this->service->vote($this->postId, $options[0]['id'], 9, 0, [3]);
 
-        $this->service->vote($this->postId, $options[1]['id'], 3);
+        $this->service->vote($this->postId, $options[1]['id'], 9, 0, [3]);
 
-        $poll = $this->service->forPosts([$this->postId], [3])[$this->postId];
+        $poll = $this->service->forPosts([$this->postId], 9, [3])[$this->postId];
         $this->assertSame(1, $poll['total']);
         $this->assertSame(0, $poll['options'][0]['votes']);
         $this->assertSame(1, $poll['options'][1]['votes']);
@@ -131,28 +257,38 @@ class PollServiceTest extends TestCase
     {
         $this->seedPoll();
         $otherPostId = GroupsTestHelper::createPostAt($this->pdo, 1, 'Autre', '2026-01-02 10:00:00');
-        $this->service->attachTo($otherPostId, ['question' => 'Autre ?', 'options' => ['Oui', 'Non']]);
+        $this->service->attachTo($otherPostId, [
+            'question' => 'Autre ?',
+            'options' => ['Oui', 'Non'],
+            'vote_scope' => PollService::SCOPE_ACCOUNT,
+            'allow_multiple' => false,
+        ]);
         $otherPoll = $this->repository->findByPostId($otherPostId);
         $foreignOption = $this->repository->optionsForPolls([$otherPoll['id']])[$otherPoll['id']][0]['id'];
 
-        $this->assertFalse($this->service->vote($this->postId, $foreignOption, 3));
-        $this->assertSame(0, $this->service->forPosts([$this->postId], [3])[$this->postId]['total']);
+        $this->assertFalse($this->service->vote($this->postId, $foreignOption, 9, 0, [3]));
+        $this->assertSame(0, $this->service->forPosts([$this->postId], 9, [3])[$this->postId]['total']);
     }
 
     public function testVotingOnAPostWithNoPollIsRefused(): void
     {
         $bare = GroupsTestHelper::createPostAt($this->pdo, 1, 'Pas de sondage', '2026-01-02 10:00:00');
 
-        $this->assertFalse($this->service->vote($bare, 1, 3));
+        $this->assertFalse($this->service->vote($bare, 1, 9, 0, [3]));
     }
 
     // ---- what a card renders ----
 
     public function testOptionsKeepTheOrderTheAuthorTypedThem(): void
     {
-        $this->service->attachTo($this->postId, ['question' => 'Quand ?', 'options' => ['Samedi', 'Dimanche', 'Les deux']]);
+        $this->service->attachTo($this->postId, [
+            'question' => 'Quand ?',
+            'options' => ['Samedi', 'Dimanche', 'Les deux'],
+            'vote_scope' => PollService::SCOPE_ACCOUNT,
+            'allow_multiple' => false,
+        ]);
 
-        $labels = array_column($this->service->forPosts([$this->postId], [])[$this->postId]['options'], 'label');
+        $labels = array_column($this->service->forPosts([$this->postId], 9, [])[$this->postId]['options'], 'label');
 
         $this->assertSame(['Samedi', 'Dimanche', 'Les deux'], $labels);
     }
@@ -160,11 +296,11 @@ class PollServiceTest extends TestCase
     public function testPercentagesAreComputedOnceHereRatherThanInTheTemplate(): void
     {
         $options = $this->seedPoll();
-        $this->service->vote($this->postId, $options[0]['id'], 3);
-        $this->service->vote($this->postId, $options[0]['id'], 4);
-        $this->service->vote($this->postId, $options[1]['id'], 5);
+        $this->service->vote($this->postId, $options[0]['id'], 3, 0, []);
+        $this->service->vote($this->postId, $options[0]['id'], 4, 0, []);
+        $this->service->vote($this->postId, $options[1]['id'], 5, 0, []);
 
-        $poll = $this->service->forPosts([$this->postId], [])[$this->postId];
+        $poll = $this->service->forPosts([$this->postId], null, [])[$this->postId];
 
         $this->assertSame(3, $poll['total']);
         $this->assertSame(67, $poll['options'][0]['percent']);
@@ -175,7 +311,7 @@ class PollServiceTest extends TestCase
     {
         $this->seedPoll();
 
-        $poll = $this->service->forPosts([$this->postId], [])[$this->postId];
+        $poll = $this->service->forPosts([$this->postId], 9, [])[$this->postId];
 
         $this->assertSame(0, $poll['total']);
         $this->assertSame(0, $poll['options'][0]['percent']);
@@ -183,21 +319,22 @@ class PollServiceTest extends TestCase
 
     public function testAPostWithoutAPollIsSimplyAbsentFromTheResult(): void
     {
-        $this->assertSame([], $this->service->forPosts([$this->postId], [3]));
+        $this->assertSame([], $this->service->forPosts([$this->postId], 9, [3]));
     }
 
     /**
-     * An account linked to two members of the same group has ONE answer
-     * to show — the same identity rule every other per-member read in
-     * this module follows.
+     * An account whose members answered a MEMBER-scoped poll sees every
+     * one of those answers highlighted — and an account-scoped poll never
+     * lights up because one of its members answered a different question.
      */
-    public function testAnAccountLinkedToSeveralMembersSeesTheAnswerEitherOfThemGave(): void
+    public function testOwnAnswersAreReadThroughThePollsOwnScope(): void
     {
-        $options = $this->seedPoll();
-        $this->service->vote($this->postId, $options[1]['id'], 4);
+        $options = $this->seedPoll(PollService::SCOPE_MEMBER);
+        $this->service->vote($this->postId, $options[1]['id'], 9, 4, [3, 4]);
 
-        $poll = $this->service->forPosts([$this->postId], [3, 4])[$this->postId];
+        $poll = $this->service->forPosts([$this->postId], 9, [3, 4])[$this->postId];
 
-        $this->assertSame($options[1]['id'], $poll['own_option_id']);
+        $this->assertSame([$options[1]['id']], $poll['own_option_ids']);
+        $this->assertTrue($poll['options'][1]['is_own']);
     }
 }

@@ -49,7 +49,7 @@ class GroupMembershipServiceTest extends TestCase
 
     public function testAnInvitedMemberLeavesAndTheirRowIsGone(): void
     {
-        $this->memberRepo->add($this->groupId, 3, true);
+        $this->memberRepo->add($this->groupId, 3, true, null, 300);
         $this->memberRepo->add($this->groupId, 4, false);
 
         $this->assertSame(LeaveOutcome::LEFT, $this->service()->leave($this->group(), 4, 70));
@@ -71,7 +71,7 @@ class GroupMembershipServiceTest extends TestCase
 
     public function testTheLastModeratorMayNotLeave(): void
     {
-        $this->memberRepo->add($this->groupId, 3, true);
+        $this->memberRepo->add($this->groupId, 3, true, null, 300);
         $this->memberRepo->add($this->groupId, 4, false);
 
         $outcome = $this->service()->leave($this->group(), 3, 70);
@@ -83,8 +83,8 @@ class GroupMembershipServiceTest extends TestCase
 
     public function testASecondModeratorMakesLeavingSucceed(): void
     {
-        $this->memberRepo->add($this->groupId, 3, true);
-        $this->memberRepo->add($this->groupId, 4, true);
+        $this->memberRepo->add($this->groupId, 3, true, null, 300);
+        $this->memberRepo->add($this->groupId, 4, true, null, 400);
 
         $this->assertSame(LeaveOutcome::LEFT, $this->service()->leave($this->group(), 3, 70));
         $this->assertNull($this->memberRepo->find($this->groupId, 3));
@@ -97,7 +97,7 @@ class GroupMembershipServiceTest extends TestCase
      */
     public function testSiteAdminsDoNotCountTowardsTheLastModeratorCheck(): void
     {
-        $this->memberRepo->add($this->groupId, 3, true);
+        $this->memberRepo->add($this->groupId, 3, true, null, 300);
 
         // countModerators() sees explicit rows only, whoever else may be
         // an admin elsewhere on the site.
@@ -112,7 +112,7 @@ class GroupMembershipServiceTest extends TestCase
      */
     public function testLeavingLeavesTheirPostsAndRepliesUntouched(): void
     {
-        $this->memberRepo->add($this->groupId, 3, true);
+        $this->memberRepo->add($this->groupId, 3, true, null, 300);
         $this->memberRepo->add($this->groupId, 4, false);
         $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'mon message', '2026-01-01 10:00:00', 7, 4);
         GroupsTestHelper::createReplyAt($this->pdo, $postId, 'ma réponse', '2026-01-01 10:05:00', 7, 4);
@@ -125,7 +125,7 @@ class GroupMembershipServiceTest extends TestCase
 
     public function testLeavingIsJournalledWithIdsOnly(): void
     {
-        $this->memberRepo->add($this->groupId, 3, true);
+        $this->memberRepo->add($this->groupId, 3, true, null, 300);
         $this->memberRepo->add($this->groupId, 4, false);
 
         $this->service()->leave($this->group(), 4, 70);
@@ -138,7 +138,7 @@ class GroupMembershipServiceTest extends TestCase
 
     public function testARefusedLeaveIsNotJournalled(): void
     {
-        $this->memberRepo->add($this->groupId, 3, true);
+        $this->memberRepo->add($this->groupId, 3, true, null, 300);
 
         $this->service()->leave($this->group(), 3, 70);
 

@@ -44,7 +44,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.15.0', $this->manifest->version);
+        $this->assertSame('1.16.0', $this->manifest->version);
     }
 
     /**
@@ -249,6 +249,7 @@ class ModuleManifestTest extends TestCase
                 'groups.reply_received',
                 'groups.reaction_received',
                 'groups.mentioned',
+                'groups.invited',
                 'groups.item_reported',
             ],
             array_keys($byId)

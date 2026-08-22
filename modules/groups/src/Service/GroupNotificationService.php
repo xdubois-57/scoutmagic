@@ -49,6 +49,7 @@ class GroupNotificationService
     public const TYPE_REACTION_RECEIVED = 'groups.reaction_received';
     public const TYPE_MENTIONED = 'groups.mentioned';
     public const TYPE_ITEM_REPORTED = 'groups.item_reported';
+    public const TYPE_INVITED = 'groups.invited';
 
     /**
      * Bounds the excerpt carried in a title/body. Deliberately short: this
@@ -245,7 +246,7 @@ class GroupNotificationService
         ?int $reporterAccountId,
         ?ReportedAuthor $author = null
     ): void {
-        $escalated = $author !== null && $this->recipientResolver->isExplicitModerator($group, $author->memberId);
+        $escalated = $author !== null && $this->recipientResolver->isExplicitModeratorAccount($group, $author->userAccountId);
 
         $this->send(
             self::TYPE_ITEM_REPORTED,
@@ -261,6 +262,45 @@ class GroupNotificationService
                 'url' => $this->urlFor($group->id, $postId),
             ],
             $reporterAccountId
+        );
+    }
+
+    /**
+     * "You have been invited" — sent only when the moderator doing the
+     * inviting asked for it (Controller\GroupMemberController).
+     *
+     * An invitation notifies nobody by itself: filling a group in one
+     * sitting would otherwise buzz twenty phones about a group they will
+     * find on their own. The checkbox is per invitation, and unticked is
+     * the default.
+     *
+     * Every login that reaches the invited member is told, not just the
+     * one their mail happens to resolve to first: this is an invitation
+     * to a place, and any of their addresses can walk into it.
+     */
+    public function memberInvited(DiscussionGroup $group, int $memberId, ?int $actorUserAccountId): void
+    {
+        $this->send(
+            self::TYPE_INVITED,
+            function () use ($memberId, $actorUserAccountId): array {
+                $recipients = [];
+                foreach ($this->recipientResolver->accountIdsForMember($memberId) as $accountId) {
+                    if ($accountId !== $actorUserAccountId) {
+                        $recipients[] = ['userAccountId' => $accountId, 'memberId' => $memberId];
+                    }
+                }
+
+                return $recipients;
+            },
+            [
+                'title' => 'Invitation — ' . $group->name,
+                // No excerpt to give and nothing about the group's
+                // contents: an invitation says where, never what is being
+                // said there.
+                'body' => 'Vous avez été invité·e à rejoindre ce groupe de discussion.',
+                'url' => '/groups/' . $group->id,
+            ],
+            $actorUserAccountId
         );
     }
 

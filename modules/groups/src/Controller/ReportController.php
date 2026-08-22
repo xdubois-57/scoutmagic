@@ -20,6 +20,7 @@ use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Service\GroupAccessService;
+use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupRecipientResolver;
@@ -69,7 +70,11 @@ class ReportController extends AbstractController
         private ReportService $reportService,
         private GroupSessionContextFactory $contextFactory,
         private ?GroupNotificationService $notificationService = null,
-        private ?GroupRecipientResolver $recipientResolver = null
+        private ?GroupRecipientResolver $recipientResolver = null,
+        // Optional and trailing like the two above: without it the two
+        // report/restore actions work exactly as before, only the
+        // moderator's list has nothing to render.
+        private ?GroupFeedService $feedService = null
     ) {
     }
 
@@ -189,6 +194,137 @@ class ReportController extends AbstractController
 
             return true;
         });
+    }
+
+    /**
+     * GET /groups/{id}/reports — a moderator's own list of what is
+     * waiting for them.
+     *
+     * The gap this closes: reports notified the moderators and then
+     * hid an item once enough of them arrived, and in between there was
+     * nowhere to go and nothing to act on — a moderator who wanted to
+     * judge a single report had to find the message by scrolling. This is
+     * that place, and it is a list of CONVERSATIONS rather than of
+     * fragments: a reported comment is judged inside the message it
+     * answers, where the actions already live.
+     *
+     * @param array<string, string> $params
+     */
+    public function index(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+
+        // A member of the group may read it, so 403 rather than 404 —
+        // exactly the reasoning restoreAction() applies (this class's own
+        // docblock): they already know the group exists.
+        if (!$this->accessService->canModerate($group, $context)) {
+            return new Response('Seul un modérateur du groupe peut consulter les signalements.', 403);
+        }
+
+        $reported = $this->reportService->reportedInGroup($group->id);
+
+        return $this->render('@groups/reports.html.twig', [
+            'group' => $group,
+            'badges' => [
+                'is_invitation' => $group->sectionId === null,
+                'section_names' => [],
+                'is_archived' => false,
+                'is_moderator' => true,
+            ],
+            'rows' => $this->feedService?->rowsForPostIds($group, $context, $reported['post_ids']) ?? [],
+            'reply_counts' => $reported['reply_counts'],
+            'threshold' => $this->reportService->threshold(),
+            'breadcrumb_trail' => [
+                ['label' => 'Groupes', 'url' => '/groups'],
+                ['label' => $group->name, 'url' => '/groups/' . $group->id],
+            ],
+        ]);
+    }
+
+    /**
+     * POST /groups/{id}/posts/{postId}/hide — moderator only.
+     *
+     * The judgement a count cannot make: one report is sometimes already
+     * enough, and waiting for a threshold to agree is not moderation.
+     * Nothing is deleted — restore() undoes exactly this.
+     *
+     * @param array<string, string> $params
+     */
+    public function hidePost(Request $request, array $params): Response
+    {
+        return $this->hideAction($request, $params, 'postId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context): bool {
+            $post = $this->postRepository->findById($itemId);
+            if ($post === null || $post->groupId !== $group->id) {
+                return false;
+            }
+
+            $this->reportService->hidePost($group->id, $post->id, $context->userAccountId);
+
+            return true;
+        });
+    }
+
+    /**
+     * POST /groups/{id}/replies/{replyId}/hide — moderator only.
+     *
+     * @param array<string, string> $params
+     */
+    public function hideReply(Request $request, array $params): Response
+    {
+        return $this->hideAction($request, $params, 'replyId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context): bool {
+            $reply = $this->replyRepository->findById($itemId);
+            if ($reply === null) {
+                return false;
+            }
+
+            $post = $this->postRepository->findById($reply->postId);
+            if ($post === null || $post->groupId !== $group->id) {
+                return false;
+            }
+
+            $this->reportService->hideReply($group->id, $reply->id, $context->userAccountId);
+
+            return true;
+        });
+    }
+
+    /**
+     * The same shape as restoreAction(), minus the self-restore refusal:
+     * hiding your own content is not a conflict of interest, it is
+     * agreeing with the report.
+     *
+     * @param array<string, string> $params
+     * @param callable(DiscussionGroup, int, GroupSessionContext): bool $hide
+     */
+    private function hideAction(Request $request, array $params, string $idKey, callable $hide): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Jeton CSRF invalide.', 403);
+        }
+
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+
+        if (!$this->accessService->canModerate($group, $context)) {
+            return new Response('Seul un modérateur du groupe peut masquer un contenu.', 403);
+        }
+
+        if (!$hide($group, (int) ($params[$idKey] ?? 0), $context)) {
+            return new Response('Not Found', 404);
+        }
+
+        FlashMessage::set('success', 'Le contenu a été masqué : seuls les modérateurs du groupe le voient encore.');
+
+        return $this->redirect($request->getBody('return_to') === 'reports'
+            ? '/groups/' . $group->id . '/reports'
+            : '/groups/' . $group->id);
     }
 
     /**
@@ -333,7 +469,7 @@ class ReportController extends AbstractController
         GroupSessionContext $context,
         ReportedAuthor $author
     ): void {
-        if ($this->recipientResolver?->isExplicitModerator($group, $author->memberId) === true) {
+        if ($this->recipientResolver?->isExplicitModeratorAccount($group, $author->userAccountId) === true) {
             $this->reportService->journalEscalation($kind, $group->id, $itemId, $context->userAccountId);
         }
 

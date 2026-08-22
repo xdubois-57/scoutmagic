@@ -80,7 +80,7 @@ class ReplyPresenter
                 // author, and only until they have used it. It says
                 // nothing about anyone else's reports or their outcome.
                 'can_report' => !isset($reports['reported'][$reply->id])
-                    && !in_array($reply->authorMemberId, $context->linkedMemberIds, true),
+                    && $reply->authorUserAccountId !== $context->userAccountId,
                 // The hidden state and the count are moderator-only, so a
                 // member never learns a reply exists but is hidden.
                 'is_hidden' => $canModerate && $reply->isHidden(),

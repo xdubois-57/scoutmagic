@@ -69,7 +69,16 @@ class GroupAccessServiceTest extends TestCase
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CREATOR');
 
-        return $this->groupService->createSectionGroup('Louveteaux 2025-2026', $this->louveteauxId, $this->currentYearId, $creator);
+        // Granted to the account the context() above identifies as: the
+        // flag names a login, so a fixture that names none moderates
+        // nothing (Service\GroupAccessService::canModerate()).
+        return $this->groupService->createSectionGroup(
+            'Louveteaux 2025-2026',
+            $this->louveteauxId,
+            $this->currentYearId,
+            $creator,
+            1
+        );
     }
 
     // --- canRead -------------------------------------------------------
@@ -149,12 +158,38 @@ class GroupAccessServiceTest extends TestCase
 
     // --- canModerate ---------------------------------------------------
 
-    public function testTheCreatorIsAModerator(): void
+    public function testTheCreatorIsAModeratorThroughTheLoginTheyCreatedItWith(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'C4');
-        $groupId = $this->groupService->createSectionGroup('G', $this->louveteauxId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('G', $this->louveteauxId, $this->currentYearId, $creator, 1);
 
         $this->assertTrue($this->access->canModerate($this->groupRepo->findById($groupId), $this->context([$creator])));
+    }
+
+    /**
+     * The rule this whole column exists for: two addresses can reach the
+     * same member, and only the one the flag was granted to moderates.
+     */
+    public function testAnotherLoginOfTheSameMemberDoesNotModerate(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C4B');
+        $groupId = $this->groupService->createSectionGroup('G', $this->louveteauxId, $this->currentYearId, $creator, 1);
+
+        $otherLogin = new GroupSessionContext(2, Role::fromString('identified'), [$creator], $this->currentYearId, true);
+
+        $this->assertFalse($this->access->canModerate($this->groupRepo->findById($groupId), $otherLogin));
+    }
+
+    /**
+     * A flag granted before it named a login moderates nothing — the
+     * state Service\ModeratorBindingService exists to resolve.
+     */
+    public function testAFlagThatNamesNoLoginModeratesNothing(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C4C');
+        $groupId = $this->groupService->createSectionGroup('G', $this->louveteauxId, $this->currentYearId, $creator);
+
+        $this->assertFalse($this->access->canModerate($this->groupRepo->findById($groupId), $this->context([$creator])));
     }
 
     public function testAnOrdinaryMemberIsNotAModerator(): void
@@ -179,7 +214,7 @@ class GroupAccessServiceTest extends TestCase
         $groupId = $this->sectionGroup();
         $derived = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M5', $this->louveteauxId, $this->currentYearId);
 
-        $this->groupService->setModerator($this->groupRepo->findById($groupId), $derived, true, 1);
+        $this->groupService->setModerator($this->groupRepo->findById($groupId), $derived, true, 1, 1);
 
         $this->assertTrue($this->access->canModerate($this->groupRepo->findById($groupId), $this->context([$derived])));
     }

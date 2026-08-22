@@ -58,6 +58,19 @@
                 </form>
             {% endif %}
         {% endif %}
+        {#
+          A moderator's way to what has been signalé — shown only to them,
+          and only once there is something to look at: an empty list is a
+          button that says "nothing happened", which is noise on every
+          other group's header.
+        #}
+        {% if can_moderate|default(false) and reported_count|default(0) > 0 %}
+            <a class="btn btn-outline-warning d-flex align-items-center" style="min-height:44px;"
+               href="/groups/{{ group.id }}/reports">
+                <i class="bi bi-flag me-1"></i> Signalements
+                <span class="badge bg-warning-subtle text-warning-emphasis ms-2">{{ reported_count }}</span>
+            </a>
+        {% endif %}
         <a class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;" href="/groups/{{ group.id }}/gallery">
             <i class="bi bi-images me-1"></i> Galerie
         </a>

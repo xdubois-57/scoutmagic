@@ -33,11 +33,16 @@ class GroupService
      * section linked as a derived-membership source. The creating chief
      * becomes a moderator — the only way a group starts with one.
      */
-    public function createSectionGroup(string $name, int $sectionId, int $scoutYearId, int $createdByMemberId): int
-    {
+    public function createSectionGroup(
+        string $name,
+        int $sectionId,
+        int $scoutYearId,
+        int $createdByMemberId,
+        ?int $createdByUserAccountId = null
+    ): int {
         $groupId = $this->groupRepository->create($name, $scoutYearId, $sectionId, $createdByMemberId);
         $this->sectionRepository->add($groupId, $sectionId);
-        $this->memberRepository->add($groupId, $createdByMemberId, true, null);
+        $this->memberRepository->add($groupId, $createdByMemberId, true, null, $createdByUserAccountId);
 
         return $groupId;
     }
@@ -47,10 +52,17 @@ class GroupService
      * the chief wants one (schema.sql documents why that column is
      * nullable). Its creator is its first member and its moderator.
      */
-    public function createInvitationGroup(string $name, ?int $scoutYearId, int $createdByMemberId): int
-    {
+    public function createInvitationGroup(
+        string $name,
+        ?int $scoutYearId,
+        int $createdByMemberId,
+        ?int $createdByUserAccountId = null
+    ): int {
         $groupId = $this->groupRepository->create($name, $scoutYearId, null, $createdByMemberId);
-        $this->memberRepository->add($groupId, $createdByMemberId, true, null);
+        // The creator is the group's first moderator, and the flag names
+        // the login they created it with — not their membership, which
+        // another address could also reach.
+        $this->memberRepository->add($groupId, $createdByMemberId, true, null, $createdByUserAccountId);
 
         return $groupId;
     }
@@ -95,9 +107,26 @@ class GroupService
         $this->sectionRepository->add($group->id, $sectionId);
     }
 
-    public function setModerator(DiscussionGroup $group, int $memberId, bool $isModerator, int $grantedByMemberId): void
-    {
-        $this->memberRepository->setModerator($group->id, $memberId, $isModerator, $grantedByMemberId);
+    /**
+     * $moderatorUserAccountId is which LOGIN the flag is for — required
+     * to grant, ignored to revoke (Repository\GroupMemberRepository
+     * clears both). The Controller has already checked that the account
+     * can actually log in as this member.
+     */
+    public function setModerator(
+        DiscussionGroup $group,
+        int $memberId,
+        bool $isModerator,
+        int $grantedByMemberId,
+        ?int $moderatorUserAccountId = null
+    ): void {
+        $this->memberRepository->setModerator(
+            $group->id,
+            $memberId,
+            $isModerator,
+            $grantedByMemberId,
+            $moderatorUserAccountId
+        );
     }
 
     /**

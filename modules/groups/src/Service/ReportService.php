@@ -170,6 +170,62 @@ class ReportService
     }
 
     /**
+     * Everything a moderator has to look at in ONE group: the posts that
+     * were reported, and the posts whose comments were.
+     *
+     * A conversation rather than a list of fragments — a reported comment
+     * is judged inside the message it answers, and acting on it (hiding
+     * it, clearing it, deleting it) already happens on its own card
+     * there. Ordered by the id of the post so the list is stable, with
+     * the report counts alongside for the page to show.
+     *
+     * @return array{post_ids: int[], post_counts: array<int, int>, reply_counts: array<int, int>}
+     */
+    public function reportedInGroup(int $groupId): array
+    {
+        $postCounts = $this->postReports->countsInGroup($groupId);
+        $replyCounts = $this->replyReports->countsInGroup($groupId);
+
+        $postIds = array_keys($postCounts);
+        foreach ($this->replyRepository->postIdsForReplyIds(array_keys($replyCounts)) as $postId) {
+            if (!in_array($postId, $postIds, true)) {
+                $postIds[] = $postId;
+            }
+        }
+
+        rsort($postIds);
+
+        return ['post_ids' => $postIds, 'post_counts' => $postCounts, 'reply_counts' => $replyCounts];
+    }
+
+    /**
+     * A moderator hides an item by hand, before any threshold.
+     *
+     * The threshold is what the site does on its own; this is what a
+     * human does when one report is already enough — the judgement a
+     * count cannot make. Nothing is deleted: hiding is still the maximum
+     * consequence short of a deliberate deletion, and restore() undoes
+     * exactly this.
+     */
+    public function hidePost(int $groupId, int $postId, ?int $actorAccountId): void
+    {
+        $this->postRepository->setHiddenAt($postId, Timestamps::now());
+        $this->journal('group_post_hidden', 'Message de groupe masqué par un modérateur', [
+            'group_id' => $groupId,
+            'post_id' => $postId,
+        ], $actorAccountId);
+    }
+
+    public function hideReply(int $groupId, int $replyId, ?int $actorAccountId): void
+    {
+        $this->replyRepository->setHiddenAt($replyId, Timestamps::now());
+        $this->journal('group_reply_hidden', 'Réponse de groupe masquée par un modérateur', [
+            'group_id' => $groupId,
+            'reply_id' => $replyId,
+        ], $actorAccountId);
+    }
+
+    /**
      * The configured threshold, floored at 1: a 0 or negative setting
      * would hide every item on its first report — almost certainly a
      * typo rather than an intent, and the kind of misconfiguration that

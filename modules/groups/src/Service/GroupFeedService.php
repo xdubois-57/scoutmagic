@@ -139,7 +139,7 @@ class GroupFeedService
         $newReplyCounts = $lastReadAt === null || $postIds === []
             ? []
             : $this->replyRepository->countNewerForPosts($postIds, $lastReadAt, $context->linkedMemberIds, $canModerate);
-        $polls = $this->pollService?->forPosts($postIds, $context->linkedMemberIds) ?? [];
+        $polls = $this->pollService?->forPosts($postIds, $context->userAccountId, $context->linkedMemberIds) ?? [];
         $events = $this->eventService?->summariesFor(
             array_map(fn(Post $p) => $p->calendarEventId, $posts),
             $context->role
@@ -217,6 +217,33 @@ class GroupFeedService
     }
 
     /**
+     * The same cards as the feed, for an explicit list of post ids — what
+     * a moderator's reports page renders (Controller\ReportController::
+     * index()).
+     *
+     * Goes through the very same resolveFor()/decorate() pair as the feed
+     * and the search, so a card on that page can never say something
+     * different from the same card in the conversation. Always built with
+     * $canModerate true: the only caller is a moderator's own page, and a
+     * reported item that has already been hidden is precisely what they
+     * came to look at.
+     *
+     * @param int[] $postIds
+     * @return array<int, array<string, mixed>>
+     */
+    public function rowsForPostIds(DiscussionGroup $group, GroupSessionContext $context, array $postIds): array
+    {
+        if ($postIds === []) {
+            return [];
+        }
+
+        $posts = $this->postRepository->findByIdsInGroup($group->id, $postIds, true);
+        $decorated = $this->resolveFor($group, $posts, $context, true);
+
+        return array_map(fn(Post $p) => $this->decorate($p, $decorated, $context, true), $posts);
+    }
+
+    /**
      * One row, in exactly the shape decorate() builds for a page — the
      * post PostController::create() just made has no replies, no reports
      * and no reactions yet, so those three batched lookups are trivially
@@ -250,7 +277,7 @@ class GroupFeedService
             // A poll created alongside this very post: fetched, not
             // assumed empty, because Controller\PostController::create()
             // attaches it before rendering the fragment groups.js inserts.
-            'polls' => $this->pollService?->forPosts([$post->id], $context->linkedMemberIds) ?? [],
+            'polls' => $this->pollService?->forPosts([$post->id], $context->userAccountId, $context->linkedMemberIds) ?? [],
         ];
 
         return $this->decorate($post, $page, $context, $canModerate);
@@ -314,7 +341,7 @@ class GroupFeedService
             // again. This flag says only "you reported this" — never
             // whether anyone else did, nor what came of it.
             'can_report' => !isset($page['reports']['reported'][$post->id])
-                && !in_array($post->authorMemberId, $context->linkedMemberIds, true),
+                && $post->authorUserAccountId !== $context->userAccountId,
             // Moderators only: everything about the hidden state stays
             // behind canModerate, so a member never learns an item exists
             // but is hidden.
@@ -324,7 +351,8 @@ class GroupFeedService
             // that is the one asking "did my message reach anyone?" —
             // Controller\PostController::seenBy() enforces the same rule
             // server-side, this only decides whether the line is drawn.
-            'can_see_seen_by' => in_array($post->authorMemberId, $context->linkedMemberIds, true),
+            'can_see_seen_by' => $context->userAccountId !== null
+                && $post->authorUserAccountId === $context->userAccountId,
             'seen_count' => $page['seen_counts'][$post->id] ?? 0,
             // How many comments arrived since this reader's last visit —
             // what decides both the thread's badge and whether it opens

@@ -24,7 +24,6 @@ use Modules\Groups\Repository\GroupSectionRepository;
 use Modules\Groups\Repository\PostLinkRepository;
 use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\PostRepository;
-use Modules\Groups\Service\AuthorOptionsService;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupActivityService;
 use Modules\Groups\Service\GroupFeedService;
@@ -205,7 +204,6 @@ class GroupControllerTest extends TestCase
             $sectionService,
             $feedService,
             $postMediaService,
-            new AuthorOptionsService($access, $this->memberService),
             $postRepo,
             // A REAL SectionService here, not the mock above: the sync's
             // whole job is reading which sections exist, and a mock
@@ -219,6 +217,12 @@ class GroupControllerTest extends TestCase
                 $this->groupRepo,
                 new GroupSectionRepository($this->pdo)
             ),
+            // No moderator-binding self-heal here: it needs a recipient
+            // resolver (member → accounts) these tests have no use for,
+            // and the controller treats it as optional exactly so — its
+            // own behaviour is covered by
+            // Tests\Modules\Groups\Service\ModeratorBindingServiceTest.
+            null,
             new \Modules\Groups\Service\GroupMembershipService(
                 $this->groupRepo,
                 new GroupMemberRepository($this->pdo),
@@ -324,7 +328,7 @@ class GroupControllerTest extends TestCase
     public function testAModeratorStillReachesAHiddenPostThroughTheDeepLink(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'D6-MOD');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Le message', '2026-01-01 10:00:00');
         (new PostRepository($this->pdo))->setHiddenAt($postId, '2026-02-01 00:00:00');
 
@@ -517,7 +521,7 @@ class GroupControllerTest extends TestCase
     public function testIndexListsOnlyTheCallersGroups(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'C1');
-        $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $this->groupService->createSectionGroup('Éclaireurs', GroupsTestHelper::createSection($this->pdo, 'ECL', 'Éclaireurs'), $this->currentYearId, $creator);
 
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M1', $this->sectionId, $this->currentYearId);
@@ -531,7 +535,7 @@ class GroupControllerTest extends TestCase
     public function testShowReturns404ForANonMemberRatherThan403(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'C2');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $outsider = GroupsTestHelper::createMember($this->pdo, 'OUT');
 
         $response = $this->controller([$outsider])->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId]);
@@ -543,7 +547,7 @@ class GroupControllerTest extends TestCase
     public function testShowMarksTheGroupReadForTheMemberWhoOpenedIt(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'C3R');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M2R', $this->sectionId, $this->currentYearId);
 
         $response = $this->controller([$member])->show(
@@ -567,7 +571,7 @@ class GroupControllerTest extends TestCase
     public function testShowMarksNothingForAGroupTheReaderIsNotAMemberOf(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'C3N');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTR');
 
         $this->controller([$outsider])->show(
@@ -582,7 +586,7 @@ class GroupControllerTest extends TestCase
     public function testShowRendersForAMember(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'C3');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M2', $this->sectionId, $this->currentYearId);
 
         $response = $this->controller([$member])->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId]);
@@ -599,7 +603,7 @@ class GroupControllerTest extends TestCase
     public function testShowBreadcrumbNamesTheGroupAndLinksBackToTheGroupList(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CBC1');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MBC1', $this->sectionId, $this->currentYearId);
 
         $body = $this->controller([$member], 'identified', true, null, ['label' => 'Groupe', 'parents' => ['Espace animés']])
@@ -613,7 +617,7 @@ class GroupControllerTest extends TestCase
     public function testShowOffersTheEditFormToAModeratorWithTheGroupsCurrentName(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MODEDIT');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
 
         $body = $this->controller([$moderator])
             ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
@@ -635,7 +639,7 @@ class GroupControllerTest extends TestCase
     public function testShowDisplaysTheGroupsDescriptionToAnOrdinaryMember(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CDESC');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $this->groupRepo->setDescription($groupId, 'Coordination du camp');
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MDESC', $this->sectionId, $this->currentYearId);
 
@@ -653,7 +657,7 @@ class GroupControllerTest extends TestCase
     public function testAGroupsDescriptionIsEscapedNotRendered(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MODESC');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
         $this->groupRepo->setDescription($groupId, '<script>alert(1)</script>');
 
         $body = $this->controller([$moderator])
@@ -667,7 +671,7 @@ class GroupControllerTest extends TestCase
     public function testShowDoesNotOfferTheEditFormToAnOrdinaryMember(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CEDIT');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MEDIT', $this->sectionId, $this->currentYearId);
 
         $body = $this->controller([$member])
@@ -680,7 +684,7 @@ class GroupControllerTest extends TestCase
     public function testShowOffersTheTieToYearCheckboxForAnInvitationGroup(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MODEDIT2');
-        $groupId = $this->groupService->createInvitationGroup('Projet', null, $moderator);
+        $groupId = $this->groupService->createInvitationGroup('Projet', null, $moderator, 1);
 
         $body = $this->controller([$moderator])
             ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
@@ -707,7 +711,7 @@ class GroupControllerTest extends TestCase
     public function testSearchFindsAPostByItsOwnBody(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MSEARCH');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
         GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Rendez-vous au local samedi', '2026-01-10 10:00:00');
         GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Bonne année à tous', '2026-01-11 10:00:00');
 
@@ -725,7 +729,7 @@ class GroupControllerTest extends TestCase
     public function testSearchFindsAPostThroughAMatchingReply(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MSEARCH2');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Programme du week-end', '2026-01-10 10:00:00');
         GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Je ramène les tentes', '2026-01-10 11:00:00');
 
@@ -742,7 +746,7 @@ class GroupControllerTest extends TestCase
     public function testAPostMatchingBothInItsBodyAndInAReplyAppearsOnce(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MSEARCH3');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Le camp approche', '2026-01-10 10:00:00');
         GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Vivement le camp', '2026-01-10 11:00:00');
 
@@ -759,7 +763,7 @@ class GroupControllerTest extends TestCase
     public function testSearchReturns404ForANonMember(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CSEARCH');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $stranger = GroupsTestHelper::createMember($this->pdo, 'XSEARCH');
 
         $response = $this->controller([$stranger])->search(
@@ -778,7 +782,7 @@ class GroupControllerTest extends TestCase
     public function testAnAutoHiddenPostIsNotReturnedToAnOrdinaryMember(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CHID');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MHID', $this->sectionId, $this->currentYearId);
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Message signalé au local', '2026-01-10 10:00:00');
         (new PostRepository($this->pdo))->setHiddenAt($postId, '2026-01-10 12:00:00');
@@ -794,7 +798,7 @@ class GroupControllerTest extends TestCase
     public function testAHiddenReplyDoesNotSurfaceItsPost(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CHID2');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MHID2', $this->sectionId, $this->currentYearId);
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Programme du week-end', '2026-01-10 10:00:00');
         $replyId = GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Insulte tentaculaire', '2026-01-10 11:00:00');
@@ -814,8 +818,8 @@ class GroupControllerTest extends TestCase
     public function testSearchNeverReachesAnotherGroupsMessages(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MSCOPE');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
-        $otherId = $this->groupService->createInvitationGroup('Projet', null, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
+        $otherId = $this->groupService->createInvitationGroup('Projet', null, $moderator, 1);
         GroupsTestHelper::createPostAt($this->pdo, $otherId, 'Secret de l\'autre groupe', '2026-01-10 10:00:00');
 
         $this->assertStringNotContainsString(
@@ -832,7 +836,7 @@ class GroupControllerTest extends TestCase
     public function testALoneWildcardMatchesNothingRatherThanEverything(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MWILD');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
         GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Rendez-vous au local', '2026-01-10 10:00:00');
 
         $body = $this->searchBody([$moderator], $groupId, '%%%');
@@ -844,7 +848,7 @@ class GroupControllerTest extends TestCase
     public function testATermShorterThanTheMinimumIsRefusedRatherThanRun(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MSHORT');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
         GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Rendez-vous au local', '2026-01-10 10:00:00');
 
         $body = $this->searchBody([$moderator], $groupId, 'lo');
@@ -853,15 +857,24 @@ class GroupControllerTest extends TestCase
         $this->assertStringNotContainsString('Rendez-vous au local', $body);
     }
 
-    public function testArrivingWithNothingTypedInvitesASearchRatherThanReportingNoResult(): void
+    /**
+     * Emptying the box is how a reader asks for everything back, so it
+     * lands on the group itself — the whole feed — rather than on a
+     * results page with nothing on it, which reads exactly like a group
+     * that lost its messages.
+     */
+    public function testEmptyingTheSearchBoxGoesBackToTheWholeGroup(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MEMPTY');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
 
-        $body = $this->searchBody([$moderator], $groupId, '');
+        $response = $this->controller([$moderator])->search(
+            new Request('GET', '/groups/' . $groupId . '/search', ['q' => '  '], [], [], []),
+            ['id' => (string) $groupId]
+        );
 
-        $this->assertStringNotContainsString('Aucun message', $body);
-        $this->assertStringContainsString('Recherchez un mot', $body);
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/groups/' . $groupId, $response->getHeaders()['Location']);
     }
 
     /**
@@ -872,7 +885,7 @@ class GroupControllerTest extends TestCase
     public function testTheSearchTermIsEscapedWhereItIsEchoedBack(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MXSS');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
 
         $body = $this->searchBody([$moderator], $groupId, '<script>alert(1)</script>');
 
@@ -888,7 +901,7 @@ class GroupControllerTest extends TestCase
     public function testResultsCarryNoReplyComposerButLinkBackToTheConversation(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MNOCOMP');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Rendez-vous au local', '2026-01-10 10:00:00');
 
         $body = $this->searchBody([$moderator], $groupId, 'local');
@@ -900,7 +913,7 @@ class GroupControllerTest extends TestCase
     public function testTheGroupPageOffersTheSearchBox(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MBOX');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
 
         $body = $this->controller([$moderator])
             ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
@@ -912,13 +925,13 @@ class GroupControllerTest extends TestCase
     public function testTheComposerOffersThePollBoxes(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MPOLL');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
 
         $body = $this->controller([$moderator])
             ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
             ->getBody();
 
-        $this->assertStringContainsString('Ajouter un sondage', $body);
+        $this->assertStringContainsString('Sondage', $body);
         $this->assertStringContainsString('name="poll_question"', $body);
         // More than the minimum, so a three- or four-choice poll needs no
         // second trip through the form.
@@ -942,7 +955,7 @@ class GroupControllerTest extends TestCase
     public function testTheComposerOffersTheCalendarPickerWhenTheCalendarHasSomethingToOffer(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MEVT');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
         $event = new \Modules\Calendar\Api\EventSummary(9, 'Réunion de section', 'Louveteaux', '2026-03-14', '2026-03-14');
 
         $body = $this->controller([$moderator], 'identified', true, null, null, $this->eventLookup($event))
@@ -961,7 +974,7 @@ class GroupControllerTest extends TestCase
     public function testTheComposerHidesThePickerWhenTheCalendarIsDisabled(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MEVT2');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
 
         $body = $this->controller([$moderator])
             ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
@@ -973,7 +986,7 @@ class GroupControllerTest extends TestCase
     public function testTheComposerHidesThePickerWhenTheCalendarHasNoEventInTheWindow(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MEVT3');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
 
         $body = $this->controller([$moderator], 'identified', true, null, null, $this->eventLookup(null))
             ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
@@ -994,7 +1007,7 @@ class GroupControllerTest extends TestCase
     public function testShowExplainsWhyPostingIsRefusedOnAClosedGroup(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'C4');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $this->groupRepo->setClosed($groupId, '2026-02-01 00:00:00');
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M4', $this->sectionId, $this->currentYearId);
 
@@ -1061,7 +1074,7 @@ class GroupControllerTest extends TestCase
         $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2024-2025', false);
         $creator = GroupsTestHelper::createMember($this->pdo, 'C5');
         $this->groupService->createSectionGroup('Louveteaux 24-25', $this->sectionId, $pastYearId, $creator);
-        $this->groupService->createSectionGroup('Louveteaux 25-26', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupService->createSectionGroup('Louveteaux 25-26', $this->sectionId, $this->currentYearId, $creator, 1);
 
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M5', $this->sectionId, $pastYearId);
         $body = $this->controller([$member])->archives(new Request('GET', '/groups/archives', [], [], [], []), [])->getBody();
@@ -1075,7 +1088,7 @@ class GroupControllerTest extends TestCase
     public function testGalleryReturns404ForANonMemberRatherThan403(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CG1');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTG1');
 
         $response = $this->controller([$outsider])
@@ -1087,7 +1100,7 @@ class GroupControllerTest extends TestCase
     public function testGalleryRendersEveryMediaForAMember(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CG2');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $this->groupRepo->setGalleryAlbumId($groupId, 42);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MG2', $this->sectionId, $this->currentYearId);
 
@@ -1108,7 +1121,7 @@ class GroupControllerTest extends TestCase
     public function testGalleryBreadcrumbLinksBackToTheGroupListAndTheGroupItself(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CBC2');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MBC2', $this->sectionId, $this->currentYearId);
 
         $manager = $this->createMock(DelegatedAlbumManager::class);
@@ -1131,7 +1144,7 @@ class GroupControllerTest extends TestCase
     public function testShowRendersPendingAndFailedMediaWithoutBreakingThePage(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CG3');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $this->groupRepo->setGalleryAlbumId($groupId, 42);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MG3', $this->sectionId, $this->currentYearId);
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Photos en cours', '2026-01-01 10:00:00', 1, $creator);
@@ -1161,7 +1174,7 @@ class GroupControllerTest extends TestCase
     public function testShowWiresTheGalleryLightboxOntoFinishedMediaOnly(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CLB');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $this->groupRepo->setGalleryAlbumId($groupId, 42);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MLB', $this->sectionId, $this->currentYearId);
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Photos', '2026-01-01 10:00:00', 1, $creator);
@@ -1193,7 +1206,7 @@ class GroupControllerTest extends TestCase
     public function testMediaStatusReturns404ForANonMemberRatherThan403(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CGM1');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTGM1');
 
         $response = $this->controller([$outsider])
@@ -1205,7 +1218,7 @@ class GroupControllerTest extends TestCase
     public function testMediaStatusReportsPendingMediaWithNoHtml(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CGM2');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $this->groupRepo->setGalleryAlbumId($groupId, 42);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MGM2', $this->sectionId, $this->currentYearId);
 
@@ -1227,7 +1240,7 @@ class GroupControllerTest extends TestCase
     public function testMediaStatusRendersTheThumbnailFragmentOnceDone(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CGM3');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $this->groupRepo->setGalleryAlbumId($groupId, 42);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MGM3', $this->sectionId, $this->currentYearId);
 
@@ -1252,7 +1265,7 @@ class GroupControllerTest extends TestCase
     public function testMediaStatusSilentlyOmitsAnIdNotInTheGroupsAlbum(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CGM4');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $this->groupRepo->setGalleryAlbumId($groupId, 42);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MGM4', $this->sectionId, $this->currentYearId);
 

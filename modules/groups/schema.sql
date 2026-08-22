@@ -108,12 +108,32 @@ CREATE TABLE discussion_group_members (
     group_id INT UNSIGNED NOT NULL,
     member_id INT UNSIGNED NOT NULL,
     is_moderator BOOLEAN NOT NULL DEFAULT FALSE,
+    -- WHICH LOGIN the moderator flag belongs to. Membership is a fact
+    -- about a member (they are in this group, invited or through their
+    -- section); moderating is a power held by a person, and in this
+    -- codebase a person is an email address with a user_accounts row
+    -- (SECURITY.md §2). Several addresses can reach the same member — a
+    -- parent's own address plus a confirmed secondary one — and giving
+    -- them all the moderator flag because one of them was granted it is
+    -- exactly the inheritance the secondary-address work removed from
+    -- login. So is_moderator alone never moderates anything:
+    -- Service\GroupAccessService::canModerate() requires this column to
+    -- match the account currently identified.
+    --
+    -- NULL means "granted before this column existed, to nobody in
+    -- particular". Such a row moderates nothing; a site admin (implicit
+    -- moderator everywhere) re-grants it to a real account, and
+    -- Service\ModeratorBindingService binds the unambiguous ones — a
+    -- member with exactly one account — on its own.
+    moderator_user_account_id INT UNSIGNED NULL,
     invited_by_member_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_dgm_group_member (group_id, member_id),
     INDEX idx_dgm_member (member_id),
+    INDEX idx_dgm_moderator_account (moderator_user_account_id),
     CONSTRAINT fk_dgm_group FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE,
     CONSTRAINT fk_dgm_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgm_moderator_account FOREIGN KEY (moderator_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL,
     CONSTRAINT fk_dgm_invited_by FOREIGN KEY (invited_by_member_id) REFERENCES members(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -523,6 +543,18 @@ CREATE TABLE discussion_group_polls (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     post_id INT UNSIGNED NOT NULL,
     question VARCHAR(300) NOT NULL,
+    -- WHO counts as one voter. 'account' (the default) is one answer per
+    -- identified login, the same identity that writes the messages —
+    -- "qui vient au week-end ?" asked of the people reading the group.
+    -- 'member' is one answer per member, which is what a parent of three
+    -- needs for "quel enfant vient ?": the same login then answers once
+    -- per child and picks whose answer it is casting at vote time.
+    vote_scope ENUM('account', 'member') NOT NULL DEFAULT 'account',
+    -- One answer, or several. Single is the default because it is what a
+    -- poll usually means; several is what "quels jours es-tu là ?" needs.
+    -- Enforced in Service\PollService, which deletes a voter's other
+    -- answers before recording a single-choice one.
+    allow_multiple BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DATETIME NOT NULL,
     UNIQUE INDEX idx_dgpo_post (post_id),
     CONSTRAINT fk_dgpo_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
@@ -541,23 +573,42 @@ CREATE TABLE discussion_group_poll_options (
     CONSTRAINT fk_dgpop_poll FOREIGN KEY (poll_id) REFERENCES discussion_group_polls(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- One vote per member per poll, and changeable: the UNIQUE below is what
--- makes "change my mind" an UPDATE rather than a second row, and what
--- makes two tabs voting at once safe (Repository\PollRepository::vote()
--- uses the same INSERT-then-UPDATE shape as a reaction).
+-- One row per answer given: (poll, option, voter). A voter is an
+-- ACCOUNT or a MEMBER depending on the poll's own vote_scope, and
+-- voter_key is which one, written as 'a:{account id}' or 'm:{member id}'
+-- — one NOT NULL column rather than two nullable ones, because MySQL
+-- lets a UNIQUE index hold any number of rows whose columns are NULL,
+-- and the whole point of the index below is that it cannot.
 --
--- Keyed on member_id like every other per-member row in this module, so a
--- parent linked to two children in one group votes once as the member
--- they post as, not twice.
-CREATE TABLE discussion_group_poll_votes (
+-- Several rows per voter is what makes a multiple-answer poll possible
+-- (discussion_group_polls.allow_multiple); a single-answer poll is
+-- exactly the same table with Service\PollService deleting the voter's
+-- other answers first. Changing your mind is therefore a delete plus an
+-- insert rather than an UPDATE, in one transaction.
+--
+-- This replaces an earlier discussion_group_poll_votes table whose
+-- UNIQUE (poll_id, member_id) made "one answer per member" a property of
+-- the schema itself — unremovable, since Core\Database\SchemaComparator
+-- never drops an index. An install that carries that table keeps it,
+-- unread and unwritten: it holds nothing but the votes of the iteration
+-- that introduced polls.
+--
+-- user_account_id and voter_member_id are kept alongside voter_key so a
+-- reader (and the FK cascades below) can still start from a person: the
+-- key is what the index enforces, these two are what the rows mean. Both
+-- are nullable because only one of them applies at a time.
+CREATE TABLE discussion_group_poll_ballots (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     poll_id INT UNSIGNED NOT NULL,
     option_id INT UNSIGNED NOT NULL,
-    member_id INT UNSIGNED NOT NULL,
+    voter_key VARCHAR(40) NOT NULL,
+    user_account_id INT UNSIGNED NULL,
+    voter_member_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL,
-    UNIQUE INDEX idx_dgpv_poll_member (poll_id, member_id),
-    INDEX idx_dgpv_option (option_id),
-    CONSTRAINT fk_dgpv_poll FOREIGN KEY (poll_id) REFERENCES discussion_group_polls(id) ON DELETE CASCADE,
-    CONSTRAINT fk_dgpv_option FOREIGN KEY (option_id) REFERENCES discussion_group_poll_options(id) ON DELETE CASCADE,
-    CONSTRAINT fk_dgpv_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+    UNIQUE INDEX idx_dgpb_option_voter (option_id, voter_key),
+    INDEX idx_dgpb_poll_voter (poll_id, voter_key),
+    CONSTRAINT fk_dgpb_poll FOREIGN KEY (poll_id) REFERENCES discussion_group_polls(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgpb_option FOREIGN KEY (option_id) REFERENCES discussion_group_poll_options(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgpb_account FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgpb_member FOREIGN KEY (voter_member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

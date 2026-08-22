@@ -513,7 +513,7 @@ class GroupNotificationServiceTest extends TestCase
         $moderators ??= [['userAccountId' => 70, 'memberId' => 7]];
 
         $resolver = $this->createStub(GroupRecipientResolver::class);
-        $resolver->method('isExplicitModerator')->willReturn($moderatorAuthor);
+        $resolver->method('isExplicitModeratorAccount')->willReturn($moderatorAuthor);
         $resolver->method('moderatorsFor')->willReturn($moderators);
         $resolver->method('moderatorsAndSiteAdminsFor')->willReturn($moderators);
         $resolver->method('excluding')->willReturnCallback(

@@ -2690,6 +2690,15 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $roleResolver,
         $scoutYearService
     );
+    // A moderator row granted before the flag named a login binds itself
+    // to the one account behind that member, when there is exactly one
+    // (Service\ModeratorBindingService). Runs from the group list's own
+    // page load and from the nightly ensure task — the same self-healing
+    // spot as the section-group sync beside it.
+    $groupsModeratorBinding = new \Modules\Groups\Service\ModeratorBindingService(
+        $groupsMemberRepo,
+        $groupsRecipientResolver
+    );
     $groupsNotificationService = new \Modules\Groups\Service\GroupNotificationService(
         $groupsRecipientResolver,
         new \Modules\Groups\Service\ReactionNoticeThrottle(
@@ -2713,7 +2722,6 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     $groupsReplyPresenter = new \Modules\Groups\Service\ReplyPresenter(
         $groupsAuthorResolver, $groupsReplyService, $groupsReactionService, $groupsReportService
     );
-    $groupsAuthorOptionsService = new \Modules\Groups\Service\AuthorOptionsService($groupsAccessService, $memberService, $groupsIdentityService);
 
     $groupsPollService = new \Modules\Groups\Service\PollService(
         new \Modules\Groups\Repository\PollRepository($pdo)
@@ -2771,8 +2779,9 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsReplyRepo, $groupsReplyPresenter, $groupsReplyService, $groupsReactionService,
         $groupsReportService, $groupsReadStateService, $groupsPollService, $groupsListService,
         $groupsAccessService, $groupsService, $groupsContextFactory, $sectionService,
-        $groupsAuthorOptionsService, $groupsSectionGroupSync, $groupsMembershipService,
-        $settingService, $groupsNotificationService, $groupsSeenByService, $groupsMentionService
+        $groupsSectionGroupSync, $groupsModeratorBinding, $groupsMembershipService,
+        $settingService, $groupsNotificationService, $groupsSeenByService, $groupsMentionService,
+        $groupsIdentityService, $groupsRecipientResolver
     ): void {
         $feedService = new \Modules\Groups\Service\GroupFeedService(
             $groupsPostRepo,
@@ -2793,8 +2802,23 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             new \Modules\Groups\Controller\GroupController(
                 $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
                 $groupsContextFactory, $sectionService, $feedService, $groupsPostMediaService,
-                $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
-                $settingService, $groupsReadStateService, $eventService
+                $groupsPostRepo, $groupsSectionGroupSync, $groupsModeratorBinding, $groupsMembershipService,
+                $settingService, $groupsReadStateService, $eventService, $groupsIdentityService,
+                $groupsReportService
+            )
+        );
+        // The moderator's reports page renders the same post cards as the
+        // feed, so it needs the same feed service — which is why it is
+        // registered here rather than above: the one built inside this
+        // closure is the only one that knows about the calendar module
+        // (§7.5), and a card rendered without it silently loses its
+        // event line.
+        $frontController->registerController(
+            \Modules\Groups\Controller\ReportController::class,
+            new \Modules\Groups\Controller\ReportController(
+                $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
+                $groupsReportService, $groupsContextFactory, $groupsNotificationService,
+                $groupsRecipientResolver, $feedService
             )
         );
         $frontController->registerController(
@@ -2802,9 +2826,9 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             new \Modules\Groups\Controller\PostController(
                 $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $feedService,
                 $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
-                $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
+                $groupsReplyService, $groupsReportService,
                 $groupsNotificationService, $groupsSeenByService, $groupsMentionService, $eventService,
-                $groupsPollService
+                $groupsPollService, $groupsIdentityService
             )
         );
     };
@@ -2845,19 +2869,12 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         )
     );
     $frontController->registerController(
-        \Modules\Groups\Controller\ReportController::class,
-        new \Modules\Groups\Controller\ReportController(
-            $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-            $groupsReportService, $groupsContextFactory, $groupsNotificationService,
-            $groupsRecipientResolver
-        )
-    );
-    $frontController->registerController(
         \Modules\Groups\Controller\GroupMemberController::class,
         new \Modules\Groups\Controller\GroupMemberController(
             $twig, $groupsGroupRepo, $groupsMemberRepo, $groupsSectionRepo, $groupsAccessService,
             $groupsService, $groupsContextFactory, $sectionService,
-            $groupsMembershipService, $groupsIdentityService
+            $groupsMembershipService, $groupsIdentityService,
+            $groupsRecipientResolver, $userAccountRepo, $groupsNotificationService
         )
     );
 }

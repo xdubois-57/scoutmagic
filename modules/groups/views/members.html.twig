@@ -61,17 +61,47 @@
                                 {% if row.is_moderator %}
                                     <span class="badge bg-primary-subtle text-primary-emphasis">Modérateur</span>
                                 {% endif %}
+                                {% if row.moderation_unbound|default(false) %}
+                                    <span class="badge bg-warning-subtle text-warning-emphasis">Modération à réattribuer</span>
+                                {% endif %}
                             </div>
                             {% if can_moderate %}
-                                <div class="d-flex gap-2">
-                                    <form method="post" action="/groups/{{ group.id }}/moderator">
-                                        {{ csrf_field()|raw }}
-                                        <input type="hidden" name="member_id" value="{{ row.member_id }}">
-                                        <input type="hidden" name="is_moderator" value="{{ row.is_moderator ? '0' : '1' }}">
-                                        <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
-                                            {{ row.is_moderator ? 'Retirer la modération' : 'Nommer modérateur' }}
-                                        </button>
-                                    </form>
+                                <div class="d-flex gap-2 align-items-start flex-wrap">
+                                    {#
+                                      One control per LOGIN, never one per member:
+                                      the flag is a power one identified address
+                                      holds, and a member can be reachable by
+                                      several (Service\GroupAccessService::
+                                      canModerate()). The address is spelled out
+                                      because two addresses of the same human
+                                      carry the same name — it is the only thing
+                                      that says which one is being empowered, and
+                                      it is shown to a moderator of this group and
+                                      nowhere else.
+                                    #}
+                                    {% if row.logins is empty %}
+                                        <span class="small text-body-secondary" style="max-width:22rem;">
+                                            Aucun compte ne peut se connecter en tant que ce membre : la modération se
+                                            confie à une adresse email, pas à une fiche.
+                                        </span>
+                                    {% else %}
+                                        <div class="d-flex flex-column gap-1">
+                                            {% for login in row.logins %}
+                                                <form method="post" action="/groups/{{ group.id }}/moderator"
+                                                      class="d-flex align-items-center gap-2">
+                                                    {{ csrf_field()|raw }}
+                                                    <input type="hidden" name="member_id" value="{{ row.member_id }}">
+                                                    <input type="hidden" name="user_account_id" value="{{ login.id }}">
+                                                    <input type="hidden" name="is_moderator" value="{{ login.is_moderator ? '0' : '1' }}">
+                                                    <button type="submit" class="btn btn-sm {{ login.is_moderator ? 'btn-outline-primary' : 'btn-outline-secondary' }} d-flex align-items-center"
+                                                            style="min-height:44px;">
+                                                        {{ login.is_moderator ? 'Retirer la modération' : 'Nommer modérateur' }}
+                                                    </button>
+                                                    <span class="small text-body-secondary text-break">{{ login.email }}</span>
+                                                </form>
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
                                     <form method="post" action="/groups/{{ group.id }}/remove-member"
                                           data-confirm="Retirer ce membre du groupe ?">
                                         {{ csrf_field()|raw }}
@@ -128,6 +158,24 @@
                     </div>
                     <div class="col-12 col-md-4 d-flex align-items-end">
                         <button type="submit" class="btn btn-primary w-100" style="min-height:44px;">Inviter</button>
+                    </div>
+                    {#
+                      Off by default, deliberately: a moderator filling a
+                      group in one sitting invites twenty people, and
+                      twenty phones buzzing for a group they will discover
+                      on their own is worse than no notification at all.
+                      Ticking it is how you say "this one, tell them now".
+                      The whole row is the tap target (44px), like every
+                      other checkbox in this codebase.
+                    #}
+                    <div class="col-12">
+                        <div class="form-check d-flex align-items-center gap-2 mb-0" style="min-height:44px;">
+                            <input class="form-check-input mt-0" type="checkbox" value="1" id="invite-notify" name="notify">
+                            <label class="form-check-label small text-body-secondary d-flex align-items-center"
+                                   for="invite-notify" style="min-height:44px;">
+                                Prévenir cette personne qu'elle a été invitée
+                            </label>
+                        </div>
                     </div>
                 </form>
             {% endif %}

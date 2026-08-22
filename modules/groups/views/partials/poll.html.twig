@@ -11,16 +11,60 @@
   block with the server's freshly rendered response, exactly as it does
   for a reaction. `can_vote` is the group's own canPost() answer — a
   closed group or a past scout year shows the results and no buttons.
+
+  Two things the poll's own settings change here (schema.sql):
+
+  - `vote_scope: member` means one answer per MEMBER rather than per
+    login, so an account linked to several members of this group picks
+    whose answer it is casting. The picker below is a plain <select> that
+    works on its own; groups.js hides it and asks the same question in a
+    small dialog at the moment of voting, which is where it belongs.
+  - `allow_multiple` means a voter may hold several options at once, and
+    tapping one they already hold takes it back — so the buttons are
+    "pressed or not" rather than "one of these".
 #}
 {% if poll %}
-    <div class="groups-poll border rounded p-2 mt-2" data-post-id="{{ post.id }}">
+    {% set is_member_scope = poll.vote_scope == 'member' %}
+    {% set members = vote_members|default([]) %}
+    {# The picker's own default, resolved once rather than as
+       `members|first.id` inside the loop — that reads an attribute off a
+       string when the list is empty, which is a template error rather
+       than an empty value. #}
+    {% set default_voter_id = members is not empty ? members|first.id : '' %}
+    <div class="groups-poll border rounded p-2 mt-2" data-post-id="{{ post.id }}"
+         data-multiple="{{ poll.allow_multiple ? '1' : '0' }}">
         <p class="fw-semibold mb-2 small">{{ poll.question }}</p>
+
+        {% if can_vote and is_member_scope and members is not empty %}
+            <div class="mb-2 groups-poll-voter">
+                <label class="form-label small mb-1" for="poll-voter-{{ post.id }}">Vous répondez pour</label>
+                <select class="form-select form-select-sm" id="poll-voter-{{ post.id }}" style="min-height:44px;">
+                    {% for member in members %}
+                        <option value="{{ member.id }}">{{ member.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        {% endif %}
+
         {% for option in poll.options %}
             <div class="mb-1">
                 {% if can_vote %}
                     <form method="post" action="/groups/{{ group.id }}/posts/{{ post.id }}/vote" class="groups-poll-form m-0">
                         {{ csrf_field()|raw }}
                         <input type="hidden" name="option_id" value="{{ option.id }}">
+                        {#
+                          Filled from the picker above — by the browser
+                          when groups.js is running, by the <select>'s own
+                          value when it is not (the script copies it into
+                          every form on change). Ignored outright by an
+                          account-scoped poll, and re-checked against the
+                          caller's own members either way
+                          (Service\PollService::vote()).
+                        #}
+                        {% if is_member_scope %}
+                            <input type="hidden" name="voter_member_id" value="{{ default_voter_id }}"
+                                   class="groups-poll-voter-input">
+                        {% endif %}
                         <button type="submit"
                                 class="btn btn-sm w-100 text-start d-flex align-items-center justify-content-between {{ option.is_own ? 'btn-primary' : 'btn-outline-secondary' }}"
                                 style="min-height:44px;"
@@ -45,8 +89,15 @@
                 </div>
             </div>
         {% endfor %}
-        <p class="text-body-tertiary mb-0 mt-2" style="font-size:0.75rem;">
-            {{ poll.total }} vote{{ poll.total > 1 ? 's' : '' }}{% if can_vote %} · un seul choix, modifiable{% endif %}
-        </p>
+
+        {#
+          "3 membres ont répondu" rather than "3 votes": a
+          multiple-answer poll holds more answers than people, and the
+          number a reader acts on is how many of them answered.
+          Whitespace-controlled so the sentence is one line in the
+          output, not three (a test reads it, and so does a screen
+          reader).
+        #}
+        <p class="text-body-tertiary mb-0 mt-2" style="font-size:0.75rem;">{{ poll.total }} {{ is_member_scope ? 'membre' : 'personne' }}{{ poll.total > 1 ? 's' : '' }} {{ poll.total > 1 ? 'ont' : 'a' }} répondu{% if can_vote %} · {{ poll.allow_multiple ? 'plusieurs choix possibles' : 'un seul choix, modifiable' }}{% endif %}</p>
     </div>
 {% endif %}

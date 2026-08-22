@@ -298,6 +298,7 @@ class ReportControllerTest extends GroupsControllerTestCase
     public function testAModeratorRestoringTheirOwnContentViaAjaxGetsTheRefusalAsJson(): void
     {
         $this->postRepo->setHiddenAt($this->postId, '2026-02-01 00:00:00');
+        $this->grantModerationTo(self::AUTHOR_ACCOUNT);
         $this->withCsrf([]);
 
         $response = $this->controller([$this->moderatorMemberId], self::AUTHOR_ACCOUNT)
@@ -377,6 +378,7 @@ class ReportControllerTest extends GroupsControllerTestCase
     public function testAModeratorMayNotRestoreAPostTheyWroteThemselves(): void
     {
         $this->postRepo->setHiddenAt($this->postId, '2026-02-01 00:00:00');
+        $this->grantModerationTo(self::AUTHOR_ACCOUNT);
         $this->withCsrf([]);
 
         // The post's author account IS this caller's, and they moderate.
@@ -407,6 +409,7 @@ class ReportControllerTest extends GroupsControllerTestCase
     public function testAModeratorMayNotRestoreAReplyTheyWroteThemselves(): void
     {
         $this->replyRepo->setHiddenAt($this->replyId, '2026-02-01 00:00:00');
+        $this->grantModerationTo(self::AUTHOR_ACCOUNT);
         $this->withCsrf([]);
 
         $response = $this->controller([$this->moderatorMemberId], self::AUTHOR_ACCOUNT)
@@ -454,7 +457,8 @@ class ReportControllerTest extends GroupsControllerTestCase
         $this->postRepo->setHiddenAt($foreign, '2026-02-01 00:00:00');
         $this->withCsrf([]);
 
-        $response = $this->controller([$this->moderatorMemberId])->restorePost($this->request(), $this->params($foreign));
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->restorePost($this->request(), $this->params($foreign));
 
         $this->assertSame(404, $response->getStatusCode());
         $this->assertTrue($this->postRepo->findById($foreign)->isHidden());
@@ -504,7 +508,171 @@ class ReportControllerTest extends GroupsControllerTestCase
                 new SettingService(new SettingRepository($this->pdo)),
                 new JournalService(new JournalRepository($this->pdo))
             ),
-            new GroupSessionContextFactory($memberService, $accountRepo, $this->scoutYearResolverMock())
+            new GroupSessionContextFactory($memberService, $accountRepo, $this->scoutYearResolverMock()),
+            null,
+            null,
+            $this->feedService()
+        );
+    }
+
+    // ---- the moderator's own list, and hiding by hand ----------------
+
+    /**
+     * The gap this closes: reports notified the moderators and then hid
+     * an item once enough of them arrived, and in between there was
+     * nowhere to go and nothing to act on.
+     */
+    public function testTheReportsPageListsWhatWasReported(): void
+    {
+        $this->withCsrf([]);
+        $this->controller([$this->memberId])->reportPost($this->request(), $this->params($this->postId));
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->index(new Request('GET', '/groups/' . $this->groupId . '/reports', [], [], [], []), $this->params());
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Le message', $response->getBody());
+        $this->assertStringContainsString('signalement', $response->getBody());
+    }
+
+    /**
+     * A reported COMMENT reaches the same list through the message it
+     * answers: a comment is judged inside its conversation.
+     */
+    public function testAReportedCommentBringsItsPostToTheList(): void
+    {
+        $this->withCsrf([]);
+        $this->controller([$this->memberId])->reportReply($this->request(), $this->params(null, $this->replyId));
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->index(new Request('GET', '/groups/' . $this->groupId . '/reports', [], [], [], []), $this->params());
+
+        $this->assertStringContainsString('Le message', $response->getBody());
+    }
+
+    /**
+     * A member of the group may read it, so 403 — not 404: it reveals
+     * nothing they did not already know (the same reasoning restore()
+     * applies).
+     */
+    public function testTheReportsPageIsRefusedToAnOrdinaryMember(): void
+    {
+        $response = $this->controller([$this->memberId])
+            ->index(new Request('GET', '/groups/' . $this->groupId . '/reports', [], [], [], []), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testTheReportsPageIs404ForANonMember(): void
+    {
+        $stranger = GroupsTestHelper::createMember($this->pdo, 'STRANGE');
+
+        $response = $this->controller([$stranger], self::OTHER_ACCOUNT)
+            ->index(new Request('GET', '/groups/' . $this->groupId . '/reports', [], [], [], []), $this->params());
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * The judgement a count cannot make: one report is sometimes already
+     * enough, and waiting for a threshold to agree is not moderation.
+     */
+    public function testAModeratorHidesAPostByHandBeforeAnyThreshold(): void
+    {
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->hidePost($this->request(), $this->params($this->postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertTrue($this->postRepo->findById($this->postId)->isHidden());
+    }
+
+    public function testHidingIsRefusedToAnOrdinaryMember(): void
+    {
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->memberId])->hidePost($this->request(), $this->params($this->postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertFalse($this->postRepo->findById($this->postId)->isHidden());
+    }
+
+    public function testHidingRejectsAMissingCsrfToken(): void
+    {
+        $_POST = [];
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->hidePost($this->request(), $this->params($this->postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertFalse($this->postRepo->findById($this->postId)->isHidden());
+    }
+
+    /**
+     * A moderator hiding their own content is not the conflict of
+     * interest restoring is: it is agreeing with the report.
+     */
+    public function testAModeratorMayHideTheirOwnContent(): void
+    {
+        $this->grantModerationTo(self::AUTHOR_ACCOUNT);
+        $this->withCsrf([]);
+
+        $this->controller([$this->moderatorMemberId], self::AUTHOR_ACCOUNT)
+            ->hidePost($this->request(), $this->params($this->postId));
+
+        $this->assertTrue($this->postRepo->findById($this->postId)->isHidden());
+    }
+
+    public function testHidingAPostFromAnotherGroupIs404(): void
+    {
+        $otherGroupId = $this->groupService->createSectionGroup(
+            'Autre',
+            GroupsTestHelper::createSection($this->pdo, 'ECL', 'Éclaireurs'),
+            $this->currentYearId,
+            $this->moderatorMemberId
+        );
+        $foreign = GroupsTestHelper::createPostAt($this->pdo, $otherGroupId, 'Ailleurs', '2026-01-01 10:00:00');
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->hidePost($this->request(), $this->params($foreign));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertFalse($this->postRepo->findById($foreign)->isHidden());
+    }
+
+    /**
+     * The same feed service the group page renders with — the reports
+     * page shows the very same cards, and building it here is what proves
+     * they are the same ones rather than a second rendering path.
+     */
+    private function feedService(): \Modules\Groups\Service\GroupFeedService
+    {
+        $postMediaService = new \Modules\Groups\Service\PostMediaService(
+            $this->createMock(\Modules\Gallery\Api\DelegatedAlbumManager::class),
+            new \Modules\Groups\Repository\PostMediaRepository($this->pdo),
+            $this->groupRepo,
+            $this->replyRepo
+        );
+        $activityService = new \Modules\Groups\Service\GroupActivityService($this->groupRepo, $this->postRepo);
+        $authorResolver = new \Modules\Groups\Service\PostAuthorResolver(GroupsTestHelper::identityService($this->pdo));
+        $stack = GroupsTestHelper::replyStack($this->pdo, $activityService, $postMediaService, $authorResolver);
+
+        return new \Modules\Groups\Service\GroupFeedService(
+            $this->postRepo,
+            $authorResolver,
+            new \Modules\Groups\Service\PostService(
+                $this->postRepo,
+                $activityService,
+                GroupsTestHelper::rateLimitService($this->pdo)
+            ),
+            $postMediaService,
+            new \Modules\Groups\Repository\PostLinkRepository($this->pdo),
+            $stack['replyRepository'],
+            $stack['replyPresenter'],
+            $stack['reactionService'],
+            $stack['reportService']
         );
     }
 
@@ -532,6 +700,17 @@ class ReportControllerTest extends GroupsControllerTestCase
     /**
      * @return array<string, string>
      */
+    /**
+     * Moves this group's moderator flag to another login — the flag names
+     * ONE account (schema.sql), so a scenario where the moderator is also
+     * the author has to say which address holds it.
+     */
+    private function grantModerationTo(int $accountId): void
+    {
+        (new \Modules\Groups\Repository\GroupMemberRepository($this->pdo))
+            ->setModerator($this->groupId, $this->moderatorMemberId, true, null, $accountId);
+    }
+
     private function params(?int $postId = null, ?int $replyId = null): array
     {
         $params = ['id' => (string) $this->groupId];

@@ -514,7 +514,8 @@ class ReactionControllerTest extends GroupsControllerTestCase
         $this->controller([$this->memberId])->react($this->request(), $this->params($this->postId));
         $this->postRepo->setHiddenAt($this->postId, '2026-01-01 12:00:00');
 
-        $response = $this->controller([$this->moderatorMemberId])->postReactors($this->reactorsRequest(), $this->params($this->postId));
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->postReactors($this->reactorsRequest(), $this->params($this->postId));
 
         $this->assertSame(200, $response->getStatusCode());
         $body = json_decode($response->getBody(), true);

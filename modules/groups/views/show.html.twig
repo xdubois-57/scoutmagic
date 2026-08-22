@@ -58,46 +58,6 @@
                           data-mention-url="/groups/{{ group.id }}/mention-search"
                           maxlength="{{ max_body_length }}" placeholder="Votre message…">{% if rejected_draft|default(null) and not rejected_draft.post_id %}{{ rejected_draft.body }}{% endif %}</textarea>
 
-                {% if author_options is not empty %}
-                    <label class="form-label small mb-1" for="post-author">Publier en tant que</label>
-                    <select class="form-select mb-2" id="post-author" name="author_member_id" style="min-height:44px;">
-                        {% for option in author_options %}
-                            <option value="{{ option.id }}">{{ option.name }}</option>
-                        {% endfor %}
-                    </select>
-                {% endif %}
-
-                {#
-                  A poll, folded away behind a plain <details> so the
-                  composer stays a text box for the ordinary message. No
-                  JavaScript at all: the boxes are always in the DOM, and
-                  leaving them empty is what makes a post without a poll —
-                  Service\PollService::normalise() drops the blank rows
-                  and refuses anything with fewer than two real options,
-                  so a half-filled poll is simply not a poll.
-                #}
-                <details class="mb-2">
-                    <summary class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center"
-                             style="min-height:44px;list-style:none;cursor:pointer;">
-                        <i class="bi bi-bar-chart me-1"></i> Ajouter un sondage
-                    </summary>
-                    <div class="border rounded p-2 mt-2">
-                        <label class="form-label small mb-1" for="poll-question">Question</label>
-                        <input type="text" class="form-control mb-2" id="poll-question" name="poll_question"
-                               style="min-height:44px;" maxlength="{{ constant('Modules\\Groups\\Service\\PollService::MAX_QUESTION_LENGTH') }}"
-                               placeholder="Ex. : Qui vient au week-end ?">
-                        {% for i in 1..poll_option_slots %}
-                            <label class="visually-hidden" for="poll-option-{{ i }}">Choix {{ i }}</label>
-                            <input type="text" class="form-control mb-1" id="poll-option-{{ i }}" name="poll_options[]"
-                                   style="min-height:44px;" maxlength="{{ constant('Modules\\Groups\\Service\\PollService::MAX_OPTION_LENGTH') }}"
-                                   placeholder="Choix {{ i }}{{ i > 2 ? ' (facultatif)' : '' }}">
-                        {% endfor %}
-                        <p class="small text-body-secondary mb-0 mt-1">
-                            Au moins {{ constant('Modules\\Groups\\Service\\PollService::MIN_OPTIONS') }} choix. Chaque membre vote une fois et peut changer d'avis.
-                        </p>
-                    </div>
-                </details>
-
                 {#
                   Only rendered when the calendar module is enabled AND
                   has something in the window to offer — an empty picker
@@ -121,15 +81,101 @@
                 <div id="groups-media-previews" class="d-flex flex-wrap gap-2 mb-2"></div>
                 <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple aria-label="Fichiers média à publier">
 
-                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-                    <div class="d-flex gap-2">
-                        <label class="btn btn-outline-secondary d-flex align-items-center mb-0" style="min-height:44px;">
-                            <i class="bi bi-image me-1"></i> Photos{{ video_upload_allowed ? '/vidéos' : '' }}
-                            <input type="file" id="groups-media-input" class="visually-hidden"
-                                   accept="{{ video_upload_allowed ? 'image/*,video/*' : 'image/*' }}" multiple>
-                        </label>
-                    </div>
-                    <span class="small text-body-secondary" id="groups-media-count">0 / {{ max_media_per_post }} médias</span>
+                {#
+                  Photos and poll side by side: they are the two things
+                  you attach to a message, and stacking them put the poll
+                  a scroll away from the button that opens it.
+
+                  The poll is a native <details> so it opens, closes and
+                  announces itself with no JavaScript — its summary is
+                  styled as the button next to Photos, and app.css gives
+                  the open panel the whole row (`.groups-poll-details[open]`)
+                  so the fields are full width rather than squeezed into a
+                  button-sized column. groups.js only adds the empty box
+                  that always follows the last one; the boxes themselves
+                  are real inputs in the DOM, and leaving them empty is
+                  what makes a post without a poll —
+                  Service\PollService::normalise() drops the blank rows
+                  and refuses anything with fewer than two real options.
+                #}
+                <div class="d-flex align-items-center flex-wrap gap-2">
+                    <label class="btn btn-outline-secondary d-flex align-items-center mb-0" style="min-height:44px;">
+                        <i class="bi bi-image me-1"></i> Photos{{ video_upload_allowed ? '/vidéos' : '' }}
+                        <input type="file" id="groups-media-input" class="visually-hidden"
+                               accept="{{ video_upload_allowed ? 'image/*,video/*' : 'image/*' }}" multiple>
+                    </label>
+
+                    <details class="groups-poll-details" id="groups-poll-details"
+                             data-max-options="{{ constant('Modules\\Groups\\Service\\PollService::MAX_OPTIONS') }}">
+                        <summary class="btn btn-outline-secondary d-flex align-items-center mb-0"
+                                 style="min-height:44px;list-style:none;cursor:pointer;">
+                            <i class="bi bi-bar-chart me-1"></i> Sondage
+                        </summary>
+                        <div class="border rounded p-2 mt-2">
+                            <label class="form-label small mb-1" for="poll-question">Question</label>
+                            <input type="text" class="form-control mb-2" id="poll-question" name="poll_question"
+                                   style="min-height:44px;" maxlength="{{ constant('Modules\\Groups\\Service\\PollService::MAX_QUESTION_LENGTH') }}"
+                                   placeholder="Ex. : Qui vient au week-end ?">
+
+                            <div id="groups-poll-options">
+                                {#
+                                  Two boxes to fill in, then one empty one
+                                  waiting — the shape the whole control
+                                  keeps as it grows: groups.js appends a
+                                  fresh empty box whenever the last one is
+                                  typed into, and removes the extra empties
+                                  when one is cleared, so there is always
+                                  exactly one waiting at the end and never
+                                  a form full of blanks. With no JavaScript
+                                  these three are simply what you get.
+                                #}
+                                {% for i in 1..3 %}
+                                    <div class="d-flex align-items-center gap-2 mb-1 groups-poll-option">
+                                        <label class="visually-hidden" for="poll-option-{{ i }}">Choix {{ i }}</label>
+                                        <input type="text" class="form-control" id="poll-option-{{ i }}" name="poll_options[]"
+                                               style="min-height:44px;" maxlength="{{ constant('Modules\\Groups\\Service\\PollService::MAX_OPTION_LENGTH') }}"
+                                               placeholder="Choix {{ i }}{{ i > 2 ? ' (facultatif)' : '' }}">
+                                        <button type="button" class="btn btn-outline-secondary d-flex align-items-center groups-poll-option-remove"
+                                                style="min-height:44px;" aria-label="Retirer le choix {{ i }}">
+                                            <i class="bi bi-x-lg" aria-hidden="true"></i>
+                                        </button>
+                                    </div>
+                                {% endfor %}
+                            </div>
+
+                            <div class="row g-2 mt-1">
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small mb-1" for="poll-vote-scope">Qui vote</label>
+                                    <select class="form-select" id="poll-vote-scope" name="poll_vote_scope" style="min-height:44px;">
+                                        <option value="{{ constant('Modules\\Groups\\Service\\PollService::SCOPE_ACCOUNT') }}" selected>
+                                            Une réponse par personne connectée
+                                        </option>
+                                        <option value="{{ constant('Modules\\Groups\\Service\\PollService::SCOPE_MEMBER') }}">
+                                            Une réponse par membre (un parent répond pour chaque enfant)
+                                        </option>
+                                    </select>
+                                </div>
+                                <div class="col-12 col-md-6 d-flex align-items-end">
+                                    <div class="form-check d-flex align-items-center gap-2 mb-0" style="min-height:44px;">
+                                        <input class="form-check-input mt-0" type="checkbox" value="1"
+                                               id="poll-allow-multiple" name="poll_allow_multiple">
+                                        <label class="form-check-label small text-body-secondary d-flex align-items-center"
+                                               for="poll-allow-multiple" style="min-height:44px;">
+                                            Plusieurs choix possibles
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <p class="small text-body-secondary mb-0 mt-2">
+                                Au moins {{ constant('Modules\\Groups\\Service\\PollService::MIN_OPTIONS') }} choix,
+                                {{ constant('Modules\\Groups\\Service\\PollService::MAX_OPTIONS') }} au maximum.
+                                Chacun peut changer d'avis tant que le groupe est ouvert.
+                            </p>
+                        </div>
+                    </details>
+
+                    <span class="small text-body-secondary ms-auto" id="groups-media-count">0 / {{ max_media_per_post }} médias</span>
                 </div>
                 <p class="small text-danger mt-1 mb-0 d-none" id="groups-media-limit-warning">
                     Maximum {{ max_media_per_post }} médias par message — les fichiers en trop n'ont pas été ajoutés.
