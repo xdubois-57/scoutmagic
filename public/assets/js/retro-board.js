@@ -398,7 +398,7 @@
 
     // --- Test seam (no behavioural effect) ---------------------------------
     // Everything above lives inside this IIFE and is therefore module-private
-    // — unlike public/assets/js/password-complexity.js or public/sw.js,
+    // — unlike public/sw.js,
     // whose own globalThis lines are true no-ops. This adds ONE namespaced
     // global so tests/js/retro-board.test.js can reach the HTML-assembly
     // functions directly and exercise the real implementation, rather than

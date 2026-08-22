@@ -93,9 +93,9 @@ class MemberStatsServiceTest extends TestCase
         $stats = $this->service([])->getStatistics(1, self::REFERENCE_YEAR);
 
         $this->assertSame('6–7', $stats['branches'][0]['age_range']);
-        $this->assertSame('#378ADD', $stats['branches'][0]['color']);
+        $this->assertSame('#1B3F8B', $stats['branches'][0]['color']);
         $this->assertSame('#639922', $stats['branches'][1]['color']);
-        $this->assertSame('#1D9E75', $stats['branches'][2]['color']);
+        $this->assertSame('#378ADD', $stats['branches'][2]['color']);
         $this->assertSame('16–17', $stats['branches'][3]['age_range']);
         $this->assertSame('#D85A30', $stats['branches'][3]['color']);
     }
@@ -132,7 +132,7 @@ class MemberStatsServiceTest extends TestCase
 
         $this->assertSame('#FF00FF', $stats['branches'][1]['color']);
         // Untouched branches (no matching sections) still fall back to the hardcoded default.
-        $this->assertSame('#378ADD', $stats['branches'][0]['color']);
+        $this->assertSame('#1B3F8B', $stats['branches'][0]['color']);
     }
 
     public function testBirthYearLabelsPerRow(): void

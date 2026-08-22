@@ -10,10 +10,16 @@ namespace Core\Security;
 
 /**
  * The single password complexity ruleset — enforced server-side here on
- * both the password-reset page and the account page's change-password
- * box, and mirrored client-side by the same rule set in
+ * every form that sets a password: the account page's change-password box,
+ * the password-reset page, and the first-run setup page, which used to
+ * accept eight characters of anything on the one screen that creates the
+ * super-admin account.
+ *
+ * Mirrored client-side by the same rule set in
  * partials/password_complexity_checklist.html.twig +
- * assets/js/password-complexity.js, so the two never drift apart.
+ * assets/js/password-field.js, so somebody finds out while they are typing
+ * rather than after a round trip. That mirror is a convenience; this class
+ * is what decides.
  */
 class PasswordPolicy
 {

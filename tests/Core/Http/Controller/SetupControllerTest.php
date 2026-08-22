@@ -773,7 +773,7 @@ class SetupControllerTest extends TestCase
                 'mail_from_name' => 'Unité',
                 'dkim_selector' => 's2026',
                 'admin_email' => 'admin@unite-test.example',
-                'admin_password' => 'motdepasse123',
+                'admin_password' => 'Motdepasse-2027!',
             ]);
             if ($submitted !== '') {
                 $body['statistics_enabled'] = $submitted;
@@ -1053,7 +1053,7 @@ class SetupControllerTest extends TestCase
             'dkim_selector' => 'mail',
             'dmarc_report_email' => 'dmarc@example.com',
             'admin_email' => 'admin@example.com',
-            'admin_password' => 'securepassword123',
+            'admin_password' => 'Motdepasse-2027!',
         ], [], []);
 
         $response = $controller->save($request, []);
@@ -1083,7 +1083,7 @@ class SetupControllerTest extends TestCase
         $this->assertNotFalse($admin);
         $this->assertSame(1, (int) $admin['is_super_admin']);
         $this->assertNotNull($admin['password_hash']);
-        $this->assertTrue(password_verify('securepassword123', $admin['password_hash']));
+        $this->assertTrue(password_verify('Motdepasse-2027!', $admin['password_hash']));
 
         // Cleanup
         $this->dropAllTables($pdo);
@@ -1141,7 +1141,7 @@ class SetupControllerTest extends TestCase
             'dkim_selector' => 'mail',
             'dmarc_report_email' => 'dmarc@example.com',
             'admin_email' => 'admin@example.com',
-            'admin_password' => 'securepassword123',
+            'admin_password' => 'Motdepasse-2027!',
         ], [], []);
 
         $response = $controller->save($request, []);
@@ -1390,6 +1390,61 @@ class SetupControllerTest extends TestCase
         $this->assertSame("v=DKIM1; k=rsa; p={$publicKey}", $decoded['dkim']['expected']);
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    private function validateFirstRun(string $password, string $confirmation = ''): array
+    {
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $method = new \ReflectionMethod(SetupController::class, 'validateFormData');
+        $method->setAccessible(true);
+
+        $data = $this->validFormData();
+        $data['admin_password'] = $password;
+        $data['admin_password_confirm'] = $confirmation;
+
+        return $method->invoke($controller, $data, true);
+    }
+
+    public function testTheSuperAdminsPasswordObeysTheSitesOwnPolicy(): void
+    {
+        // This form used to accept eight characters of ANYTHING, on the one
+        // screen that creates the account with the most authority on the
+        // whole install — while the account page and the password-reset page
+        // both enforced Core\Security\PasswordPolicy.
+        $this->assertArrayHasKey('admin_password', $this->validateFirstRun('password'));
+        $this->assertArrayHasKey('admin_password', $this->validateFirstRun('motdepasse123'));
+        $this->assertArrayHasKey('admin_password', $this->validateFirstRun('MOTDEPASSE123!'));
+        $this->assertArrayHasKey('admin_password', $this->validateFirstRun('Motdepasse!!!'));
+    }
+
+    public function testACompliantSuperAdminPasswordIsAccepted(): void
+    {
+        $this->assertArrayNotHasKey('admin_password', $this->validateFirstRun('Motdepasse-2027!'));
+    }
+
+    public function testTheConfirmationIsCheckedOnTheServerToo(): void
+    {
+        // A confirmation only the browser enforces is a typo waiting to lock
+        // somebody out of their own fresh install.
+        $errors = $this->validateFirstRun('Motdepasse-2027!', 'Motdepasse-2027?');
+
+        $this->assertArrayHasKey('admin_password', $errors);
+        $this->assertStringContainsString('correspondent', $errors['admin_password']);
+    }
+
+    public function testAMatchingConfirmationPassesAndTheErrorNamesTheRuleThatFailed(): void
+    {
+        $this->assertArrayNotHasKey(
+            'admin_password',
+            $this->validateFirstRun('Motdepasse-2027!', 'Motdepasse-2027!')
+        );
+
+        // Told which rule, not just "invalid": somebody choosing a password
+        // needs to know what to change.
+        $this->assertStringContainsString('majuscule', $this->validateFirstRun('motdepasse-2027!')['admin_password']);
+    }
+
     public function testValidateFormDataAllowsEmptyDmarcReportEmail(): void
     {
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
@@ -1430,7 +1485,7 @@ class SetupControllerTest extends TestCase
             'mail_mode' => 'local', 'smtp_host' => '', 'smtp_port' => '587', 'smtp_user' => '', 'smtp_password' => '',
             'mail_from_address' => 'unit@example.com', 'mail_from_name' => 'Test Unit',
             'dkim_selector' => 's2026', 'dmarc_report_email' => 'dmarc@example.com',
-            'admin_email' => 'admin@example.com', 'admin_password' => 'password123',
+            'admin_email' => 'admin@example.com', 'admin_password' => 'Motdepasse-2027!',
         ];
     }
 

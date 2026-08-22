@@ -26,6 +26,7 @@ use Core\Photo\UnitLogoService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
+use Core\Security\PasswordPolicy;
 use Core\Security\SecretManager;
 use Core\Security\SessionStore;
 use Core\Statistics\InstallationDateService;
@@ -113,6 +114,7 @@ class SetupController extends AbstractController
                 'dmarc_report_email' => $setting('dmarc_report_email'),
                 'admin_email' => $secrets['admin_email'] ?? '',
                 'admin_password' => '',
+                'admin_password_confirm' => '',
             ];
         } else {
             $currentValues = ['base_url' => $this->resolveDefaultBaseUrl($request)];
@@ -924,6 +926,7 @@ class SetupController extends AbstractController
             'dmarc_report_email' => trim((string) $request->getBody('dmarc_report_email', '')),
             'admin_email' => trim((string) $request->getBody('admin_email', '')),
             'admin_password' => (string) $request->getBody('admin_password', ''),
+            'admin_password_confirm' => (string) $request->getBody('admin_password_confirm', ''),
             // Usage statistics switch, first install only (Core\Statistics,
             // ARCHITECTURE.md §8.47). An unchecked checkbox sends nothing at
             // all, so "absent" has to mean "off" — the default-on state lives
@@ -1020,8 +1023,11 @@ class SetupController extends AbstractController
             }
             if ($data['admin_password'] === '') {
                 $errors['admin_password'] = 'Le mot de passe administrateur est requis.';
-            } elseif (strlen($data['admin_password']) < 8) {
-                $errors['admin_password'] = 'Le mot de passe doit contenir au moins 8 caractères.';
+            } else {
+                $violation = self::passwordPolicyError($data['admin_password'], (string) ($data['admin_password_confirm'] ?? ''));
+                if ($violation !== null) {
+                    $errors['admin_password'] = $violation;
+                }
             }
         } else {
             // Optional on config update — validate only if provided
@@ -1029,8 +1035,11 @@ class SetupController extends AbstractController
                 $errors['admin_email'] = 'L\'email administrateur n\'est pas valide.';
             }
             // Password is only required when changing admin email to a new address without existing account
-            if ($data['admin_password'] !== '' && strlen($data['admin_password']) < 8) {
-                $errors['admin_password'] = 'Le mot de passe doit contenir au moins 8 caractères.';
+            if ($data['admin_password'] !== '') {
+                $violation = self::passwordPolicyError($data['admin_password'], (string) ($data['admin_password_confirm'] ?? ''));
+                if ($violation !== null) {
+                    $errors['admin_password'] = $violation;
+                }
             }
             if ($data['admin_password'] !== '' && $data['admin_email'] === '') {
                 $errors['admin_email'] = 'L\'email administrateur est requis.';
@@ -1038,6 +1047,39 @@ class SetupController extends AbstractController
         }
 
         return $errors;
+    }
+
+    /**
+     * The site's own password rules, applied to the super-admin's.
+     *
+     * This form used to accept eight characters of anything, on the one
+     * screen that creates the account with the most authority on the whole
+     * install — while the account page and the password-reset page both
+     * enforced Core\Security\PasswordPolicy. Asking the policy rather than
+     * re-stating it is what keeps the three from drifting again.
+     *
+     * @return string|null A French message, or null when the password is fine.
+     */
+    private static function passwordPolicyError(string $password, string $confirmation): ?string
+    {
+        $violations = PasswordPolicy::violations($password);
+        if ($violations !== []) {
+            $labels = array_map(
+                static fn(string $rule) => mb_strtolower(PasswordPolicy::RULES[$rule] ?? $rule),
+                $violations
+            );
+
+            return 'Le mot de passe ne respecte pas les règles : ' . implode(', ', $labels) . '.';
+        }
+
+        // Checked here as well as in the browser: a confirmation field only
+        // the page enforces is a typo waiting to lock somebody out of their
+        // own fresh install.
+        if ($confirmation !== '' && $confirmation !== $password) {
+            return 'Les deux mots de passe ne correspondent pas.';
+        }
+
+        return null;
     }
 
     private function createAdminAccount(Connection $connection, string $encryptionKey, string $blindIndexKey, string $email, string $password): void

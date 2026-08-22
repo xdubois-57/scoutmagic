@@ -509,9 +509,7 @@ self.addEventListener('notificationclick', function (event) {
 // base.html.twig — navigator.serviceWorker.register('/sw.js?...'), no
 // `type: 'module'`), so every top-level `function` declaration above is
 // already a property of the worker's global scope. These lines change
-// nothing at runtime, in exactly the way
-// public/assets/js/password-complexity.js's own globalThis line does.
-// They exist so tests/js/sw.test.js can `import` this exact file (an ES
+// nothing at runtime. They exist so tests/js/sw.test.js can `import` this exact file (an ES
 // module under Vitest, where top-level declarations are module-scoped
 // rather than global) and call the real implementations directly instead
 // of reimplementing their logic in a test-only copy.

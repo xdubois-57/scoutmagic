@@ -150,9 +150,13 @@ class MemberYearServiceTest extends TestCase
 
     public function testColorForBranchSortOrderMatchesTheFourAnimesBranches(): void
     {
-        $this->assertSame('#378ADD', MemberYearService::colorForBranchSortOrder(10));
+        // Three of the five branch colours are blues of different depths, so
+        // getting one wrong makes two branches indistinguishable on every
+        // chart, picker and calendar at once. Darkest to lightest they run
+        // Baladins → Éclaireurs → Staff d'U (#7EC8E3, SectionService).
+        $this->assertSame('#1B3F8B', MemberYearService::colorForBranchSortOrder(10));
         $this->assertSame('#639922', MemberYearService::colorForBranchSortOrder(20));
-        $this->assertSame('#1D9E75', MemberYearService::colorForBranchSortOrder(30));
+        $this->assertSame('#378ADD', MemberYearService::colorForBranchSortOrder(30));
         $this->assertSame('#D85A30', MemberYearService::colorForBranchSortOrder(40));
     }
 

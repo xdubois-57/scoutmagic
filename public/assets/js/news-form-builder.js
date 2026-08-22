@@ -1091,7 +1091,7 @@
     }
 
     // --- Test seam (no behavioural effect) ---------------------------------
-    // Unlike public/assets/js/password-complexity.js and public/sw.js, whose
+    // Unlike public/sw.js, whose
     // own globalThis lines are true no-ops (their declarations are top-level
     // in a classic script, so already global), everything above lives inside
     // this IIFE and is therefore genuinely module-private. This block adds

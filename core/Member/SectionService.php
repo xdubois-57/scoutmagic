@@ -21,6 +21,12 @@ class SectionService
      *  unmapped-index fallback (gray). */
     private const STAFFDU_COLOR = '#7EC8E3';
 
+    /*
+     * The lightest of the three blues. Baladins (#1B3F8B) is the darkest and
+     * Éclaireurs (#378ADD) sits between them — see
+     * MemberYearService::BRANCHES, which is where the other four live.
+     */
+
     public function __construct(
         private Connection $connection,
         private EncryptionService $encryption,

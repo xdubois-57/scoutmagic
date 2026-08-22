@@ -32,9 +32,14 @@ class MemberYearService
      * @var array<int, array{key: string, name: string, age_min: int, age_max: int, color: string}>
      */
     public const BRANCHES = [
-        ['key' => 'baladin',   'name' => 'Baladins',   'age_min' => 6,  'age_max' => 7,  'color' => '#378ADD'],
+        // The federation's own branch colours, not decorative choices: three
+        // of the five are blues of DIFFERENT depths, and getting one of them
+        // wrong makes two branches read as the same thing on every chart,
+        // picker and calendar on the site. Darkest to lightest, they run
+        // Baladins → Éclaireurs → Staff d'U (SectionService::STAFFDU_COLOR).
+        ['key' => 'baladin',   'name' => 'Baladins',   'age_min' => 6,  'age_max' => 7,  'color' => '#1B3F8B'],
         ['key' => 'louveteau', 'name' => 'Louveteaux', 'age_min' => 8,  'age_max' => 11, 'color' => '#639922'],
-        ['key' => 'eclaireur', 'name' => 'Éclaireurs', 'age_min' => 12, 'age_max' => 15, 'color' => '#1D9E75'],
+        ['key' => 'eclaireur', 'name' => 'Éclaireurs', 'age_min' => 12, 'age_max' => 15, 'color' => '#378ADD'],
         ['key' => 'pionnier',  'name' => 'Pionniers',  'age_min' => 16, 'age_max' => 17, 'color' => '#D85A30'],
     ];
 

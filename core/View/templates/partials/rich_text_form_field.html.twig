@@ -25,12 +25,18 @@
       value: template.body,
       label: 'Texte du gabarit',
       help: 'Ce texte est le point de départ de chaque contrat.',
-      placeholders: keywords,          {# optional, see below #}
-      rows_height: '22rem'             {# optional #}
+      placeholders: keywords,          -- optional, see below
+      rows_height: '22rem'             -- optional
   } %}
 
-  The calling PAGE must once, anywhere on it:
-    <script type="module" src="/assets/js/rich-text-form-field.js"></script>
+  The notes after `--` above are prose, not Twig. Twig comments do not nest,
+  so a nested closing marker inside this block would END it, and everything
+  below would render as markup.
+
+  The calling PAGE must once, anywhere on it, load
+  assets/js/rich-text-form-field.js as a MODULE — the file uses `export`,
+  and a classic script tag rejects it with a SyntaxError before a line of it
+  runs.
 
   `placeholders` (optional) is a list of
   `{keyword, placeholder, description}` — the closed set of substitutions

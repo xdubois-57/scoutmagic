@@ -327,12 +327,27 @@
                 {% if errors.admin_email is defined %}<div class="invalid-feedback">{{ errors.admin_email }}</div>{% endif %}
             </div>
 
-            <div class="mb-3">
-                <label for="admin_password" class="form-label">Mot de passe administrateur</label>
-                <input type="password" class="form-control{% if errors.admin_password is defined %} is-invalid{% endif %}" id="admin_password" name="admin_password" minlength="8" {% if not is_initialized %}required{% endif %}>
-                <div class="form-text">{% if is_initialized %}Laissez vide pour conserver le mot de passe actuel. Minimum 8 caractères si modifié.{% else %}Ce mot de passe permet de se connecter sans attendre un import Desk. Minimum 8 caractères.{% endif %}</div>
-                {% if errors.admin_password is defined %}<div class="invalid-feedback">{{ errors.admin_password }}</div>{% endif %}
-            </div>
+            {#
+              The same field the account page and the password-reset page use
+              (partials/password_field.html.twig), with the same live rules
+              and the same confirmation. This page used to have neither, and
+              accepted eight characters where the rest of the site requires
+              twelve — on the form that creates the SUPER-ADMIN account, of
+              all of them.
+            #}
+            {% include 'partials/password_field.html.twig' with {
+                field_id: 'admin_password',
+                field_name: 'admin_password',
+                label: 'Mot de passe administrateur',
+                confirm_name: 'admin_password_confirm',
+                required: not is_initialized,
+                help: is_initialized
+                    ? 'Laissez vide pour conserver le mot de passe actuel.'
+                    : 'Ce mot de passe permet de se connecter sans attendre un import Desk.',
+            } %}
+            {% if errors.admin_password is defined %}
+                <div class="text-danger small mb-3">{{ errors.admin_password }}</div>
+            {% endif %}
         </div>
     </div>
 
@@ -403,6 +418,9 @@
 {% endblock %}
 
 {% block scripts %}
+{# The admin password's live rules and its confirmation check — see
+   partials/password_field.html.twig. Nothing on this page wires them. #}
+<script type="module" src="/assets/js/password-field.js"></script>
 <script src="/assets/js/setup.js"></script>
 {% if is_initialized and unit_logo_is_custom %}
 <script src="/assets/js/unit-logo.js" defer></script>
