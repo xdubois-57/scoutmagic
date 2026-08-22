@@ -71,11 +71,16 @@ abstract class GroupsControllerTestCase extends TestCase
         );
 
         $this->moderatorMemberId = GroupsTestHelper::createMember($this->pdo, 'MOD');
+        // The moderator flag names the login it belongs to (schema.sql),
+        // so the fixture grants it to the account the tests sign in as
+        // when they act as "the moderator" — OTHER_ACCOUNT, never the
+        // post author's own.
         $this->groupId = $this->groupService->createSectionGroup(
             'Louveteaux',
             $this->sectionId,
             $this->currentYearId,
-            $this->moderatorMemberId
+            $this->moderatorMemberId,
+            self::OTHER_ACCOUNT
         );
         $this->memberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MEMBER', $this->sectionId, $this->currentYearId);
         // Nameable, because every name this module renders now resolves

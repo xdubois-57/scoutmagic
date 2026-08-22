@@ -433,17 +433,15 @@ class ReplyController extends AbstractController
     }
 
     /**
-     * Which member the reply is signed as: only ever one this account is
-     * actually a member of this group through, exactly like a post's own
-     * author resolution.
+     * The membership stored beside a reply — resolved, never asked for,
+     * exactly like a post's own (Controller\PostController::create()). A
+     * comment belongs to the LOGIN that wrote it and is signed with that
+     * account's name; this only feeds the machinery keyed on a member
+     * (the rate limit, the read state).
      */
     private function authorMemberId(DiscussionGroup $group, GroupSessionContext $context, Request $request): ?int
     {
-        $allowed = $this->accessService->memberIdsAllowedToPostAs($group, $context);
-        $requested = (int) $request->getBody('author_member_id', 0);
-        $memberId = in_array($requested, $allowed, true) ? $requested : ($allowed[0] ?? 0);
-
-        return $memberId === 0 ? null : $memberId;
+        return $this->accessService->memberIdsAllowedToPostAs($group, $context)[0] ?? null;
     }
 
     /**

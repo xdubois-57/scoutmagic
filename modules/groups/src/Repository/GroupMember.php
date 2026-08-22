@@ -12,6 +12,12 @@ namespace Modules\Groups\Repository;
  * One row of discussion_group_members — an explicitly invited member, or
  * a derived member whose row exists purely to carry $isModerator.
  * $memberId is the persistent Core member identity (members.id).
+ *
+ * $moderatorUserAccountId is WHICH LOGIN the flag belongs to: membership
+ * is a fact about a member, moderating is a power held by one identified
+ * address (schema.sql). $isModerator alone never grants anything —
+ * Service\GroupAccessService::canModerate() compares this id against the
+ * account currently identified.
  */
 class GroupMember
 {
@@ -20,6 +26,7 @@ class GroupMember
         public readonly int $groupId,
         public readonly int $memberId,
         public readonly bool $isModerator,
+        public readonly ?int $moderatorUserAccountId,
         public readonly ?int $invitedByMemberId,
         public readonly string $createdAt
     ) {

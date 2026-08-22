@@ -1094,3 +1094,110 @@ describe('groups.js comment draft cache', () => {
         expect(inputs[1].value).toBe('');
     });
 });
+
+// The poll's option boxes: always exactly one empty one waiting at the
+// end, never more than the server's own maximum, and never fewer than the
+// two a poll needs. Deterministic logic over a small DOM — the kind
+// AGENTS.md § Tests asks for a Vitest spec on, and the kind an E2E run
+// would only ever check one path of.
+describe('groups.js poll option boxes', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        global.DataTransfer = FakeDataTransfer;
+        global.URL.createObjectURL = vi.fn(() => 'blob:fake');
+        document.body.innerHTML = `
+            <form id="groups-post-form" data-max-media="2">
+                <textarea id="post-body"></textarea>
+                <div id="groups-media-previews"></div>
+                <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple>
+                <span id="groups-media-count"></span>
+                <p id="groups-media-limit-warning" class="d-none"></p>
+                <input type="file" id="groups-media-input" multiple>
+                <details id="groups-poll-details" data-max-options="4">
+                    <input type="text" name="poll_question">
+                    <div id="groups-poll-options">
+                        <div class="groups-poll-option">
+                            <input type="text" name="poll_options[]">
+                            <button type="button" class="groups-poll-option-remove"></button>
+                        </div>
+                        <div class="groups-poll-option">
+                            <input type="text" name="poll_options[]">
+                            <button type="button" class="groups-poll-option-remove"></button>
+                        </div>
+                        <div class="groups-poll-option">
+                            <input type="text" name="poll_options[]">
+                            <button type="button" class="groups-poll-option-remove"></button>
+                        </div>
+                    </div>
+                </details>
+            </form>
+        `;
+        Object.defineProperty(document.getElementById('groups-media-hidden'), 'files', {
+            writable: true,
+            configurable: true,
+            value: [],
+        });
+    });
+
+    function boxes() {
+        return Array.from(document.querySelectorAll('[name="poll_options[]"]'));
+    }
+
+    function type(index, value) {
+        const input = boxes()[index];
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    it('adds an empty box as soon as the last one is typed into', async () => {
+        await loadGroups();
+        expect(boxes()).toHaveLength(3);
+
+        type(2, 'Peut-être');
+
+        expect(boxes()).toHaveLength(4);
+        expect(boxes()[3].value).toBe('');
+    });
+
+    it('never grows past the maximum the server accepts', async () => {
+        await loadGroups();
+
+        type(0, 'A');
+        type(1, 'B');
+        type(2, 'C');
+        type(3, 'D');
+
+        // data-max-options is 4 in this fixture, so no fifth box appears
+        // however much is typed into the fourth.
+        expect(boxes()).toHaveLength(4);
+    });
+
+    it('leaves exactly one empty box when a filled one is cleared', async () => {
+        await loadGroups();
+        type(2, 'Peut-être');
+        expect(boxes()).toHaveLength(4);
+
+        type(2, '');
+
+        expect(boxes()).toHaveLength(3);
+        expect(boxes()[2].value).toBe('');
+    });
+
+    it('removes a row on demand but never below two answers plus the spare', async () => {
+        await loadGroups();
+        type(2, 'Peut-être');
+        expect(boxes()).toHaveLength(4);
+
+        // The filled row, not the spare: removing the empty one at the
+        // end just brings it back, since the rule is "one waiting".
+        document.querySelectorAll('.groups-poll-option-remove')[2].click();
+        expect(boxes()).toHaveLength(3);
+        expect(boxes().map((box) => box.value)).toEqual(['', '', '']);
+
+        // At the floor, every remove button is disabled rather than
+        // offering a click that would leave a poll with one answer.
+        document.querySelectorAll('.groups-poll-option-remove').forEach((button) => {
+            expect(button.disabled).toBe(true);
+        });
+    });
+});

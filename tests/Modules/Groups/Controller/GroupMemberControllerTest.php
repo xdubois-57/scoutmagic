@@ -64,7 +64,15 @@ class GroupMemberControllerTest extends TestCase
         $this->groupService = new GroupService($this->groupRepo, $this->sectionRepo, $this->memberRepo);
 
         $this->moderatorId = GroupsTestHelper::createMember($this->pdo, 'MOD');
-        $this->groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $this->moderatorId);
+        // Account 1 is the login every test here signs in as, and the
+        // moderator flag names the login it belongs to (schema.sql).
+        $this->groupId = $this->groupService->createSectionGroup(
+            'Louveteaux',
+            $this->sectionId,
+            $this->currentYearId,
+            $this->moderatorId,
+            1
+        );
         $this->plainMemberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'PLAIN', $this->sectionId, $this->currentYearId);
         $this->outsiderId = GroupsTestHelper::createMember($this->pdo, 'OUT');
 
@@ -75,6 +83,10 @@ class GroupMemberControllerTest extends TestCase
 
     protected function tearDown(): void
     {
+        // A refused action here sets a flash, and $_SESSION outlives the
+        // test class inside one PHPUnit process — leaving it behind made
+        // another file's "no flash was set" assertion fail.
+        unset($_SESSION['_flash_message']);
         AuthSession::logout();
         $_POST = [];
     }
@@ -95,7 +107,8 @@ class GroupMemberControllerTest extends TestCase
         array $linkedMemberIds,
         string $role = 'identified',
         ?array $routeBreadcrumb = null,
-        array $candidateProfiles = []
+        array $candidateProfiles = [],
+        ?\Modules\Groups\Service\GroupNotificationService $notifications = null
     ): GroupMemberController {
         AuthSession::login(1, 'parent@test.be', $role);
 
@@ -151,8 +164,27 @@ class GroupMemberControllerTest extends TestCase
             new GroupSessionContextFactory($memberService, $accountRepo, $resolver),
             $sectionService,
             null,
-            GroupsTestHelper::identityService($this->pdo)
+            GroupsTestHelper::identityService($this->pdo),
+            // A stubbed resolver: the moderator grant re-checks that the
+            // account it names can really log in as that member, and the
+            // real resolver would reach for blind indexes these fixtures
+            // do not set up.
+            $this->recipientResolverStub(),
+            $accountRepo,
+            $notifications
         );
+    }
+
+    /**
+     * Answers "account 1 is the login behind every member here" — enough
+     * for the moderator grant's own re-check, and nothing more.
+     */
+    private function recipientResolverStub(): \Modules\Groups\Service\GroupRecipientResolver
+    {
+        $resolver = $this->createStub(\Modules\Groups\Service\GroupRecipientResolver::class);
+        $resolver->method('accountIdsForMember')->willReturn([1]);
+
+        return $resolver;
     }
 
     private function profile(int $memberId): MemberProfile
@@ -424,15 +456,78 @@ class GroupMemberControllerTest extends TestCase
         $this->assertNotContains($newSection, $this->sectionRepo->findSectionIds($this->groupId));
     }
 
-    public function testSetModeratorGrantsAndRevokes(): void
+    /**
+     * A grant names the login it is for, and revoking clears both — so
+     * re-granting later is always a fresh, deliberate choice of who.
+     */
+    /**
+     * An invitation notifies nobody by itself: filling a group in one
+     * sitting would otherwise buzz twenty phones about a group they will
+     * find on their own.
+     */
+    public function testInvitingDoesNotNotifyUnlessTheModeratorAsksFor(): void
     {
-        $this->withCsrf(['member_id' => (string) $this->plainMemberId, 'is_moderator' => '1']);
-        $this->controller([$this->moderatorId])->setModerator($this->postRequest(), $this->params());
-        $this->assertTrue($this->memberRepo->find($this->groupId, $this->plainMemberId)->isModerator);
+        $notifications = $this->createMock(\Modules\Groups\Service\GroupNotificationService::class);
+        $notifications->expects($this->never())->method('memberInvited');
 
-        $this->withCsrf(['member_id' => (string) $this->plainMemberId, 'is_moderator' => '0']);
+        $this->withCsrf(['member_id' => (string) $this->plainMemberId]);
+        $this->controller([$this->moderatorId], notifications: $notifications)
+            ->inviteMember($this->postRequest(), $this->params());
+
+        $this->assertNotNull($this->memberRepo->find($this->groupId, $this->plainMemberId));
+    }
+
+    public function testTickingTheBoxNotifiesTheInvitedPerson(): void
+    {
+        $notifications = $this->createMock(\Modules\Groups\Service\GroupNotificationService::class);
+        $notifications->expects($this->once())->method('memberInvited');
+
+        $this->withCsrf(['member_id' => (string) $this->plainMemberId, 'notify' => '1']);
+        $this->controller([$this->moderatorId], notifications: $notifications)
+            ->inviteMember($this->postRequest(), $this->params());
+
+        $this->assertNotNull($this->memberRepo->find($this->groupId, $this->plainMemberId));
+    }
+
+    public function testSetModeratorGrantsToOneLoginAndRevokes(): void
+    {
+        $this->withCsrf([
+            'member_id' => (string) $this->plainMemberId,
+            'user_account_id' => '1',
+            'is_moderator' => '1',
+        ]);
         $this->controller([$this->moderatorId])->setModerator($this->postRequest(), $this->params());
-        $this->assertFalse($this->memberRepo->find($this->groupId, $this->plainMemberId)->isModerator);
+        $row = $this->memberRepo->find($this->groupId, $this->plainMemberId);
+        $this->assertTrue($row->isModerator);
+        $this->assertSame(1, $row->moderatorUserAccountId);
+
+        $this->withCsrf([
+            'member_id' => (string) $this->plainMemberId,
+            'user_account_id' => '1',
+            'is_moderator' => '0',
+        ]);
+        $this->controller([$this->moderatorId])->setModerator($this->postRequest(), $this->params());
+        $row = $this->memberRepo->find($this->groupId, $this->plainMemberId);
+        $this->assertFalse($row->isModerator);
+        $this->assertNull($row->moderatorUserAccountId);
+    }
+
+    /**
+     * The form is a request, not the authority: an account that cannot
+     * log in as that member is refused rather than stored, so a
+     * hand-made POST cannot hand the flag to an unrelated address.
+     */
+    public function testSetModeratorRefusesALoginThatCannotReachThatMember(): void
+    {
+        $this->withCsrf([
+            'member_id' => (string) $this->plainMemberId,
+            'user_account_id' => '999',
+            'is_moderator' => '1',
+        ]);
+
+        $this->controller([$this->moderatorId])->setModerator($this->postRequest(), $this->params());
+
+        $this->assertNull($this->memberRepo->find($this->groupId, $this->plainMemberId));
     }
 
     public function testSetModeratorIsRefusedToAnOrdinaryMember(): void

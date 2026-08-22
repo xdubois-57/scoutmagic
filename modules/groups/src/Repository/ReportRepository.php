@@ -25,18 +25,33 @@ class ReportRepository
     private function __construct(
         private \PDO $pdo,
         private string $table,
-        private string $itemColumn
+        private string $itemColumn,
+        private string $groupJoin,
+        private string $groupCondition
     ) {
     }
 
     public static function forPosts(\PDO $pdo): self
     {
-        return new self($pdo, 'discussion_group_post_reports', 'post_id');
+        return new self(
+            $pdo,
+            'discussion_group_post_reports',
+            'post_id',
+            'JOIN discussion_group_posts i ON i.id = r.post_id',
+            'i.group_id = ?'
+        );
     }
 
     public static function forReplies(\PDO $pdo): self
     {
-        return new self($pdo, 'discussion_group_reply_reports', 'reply_id');
+        return new self(
+            $pdo,
+            'discussion_group_reply_reports',
+            'reply_id',
+            'JOIN discussion_group_replies i ON i.id = r.reply_id
+             JOIN discussion_group_posts p ON p.id = i.post_id',
+            'p.group_id = ?'
+        );
     }
 
     /**
@@ -128,6 +143,36 @@ class ReportRepository
         }
 
         return $reported;
+    }
+
+    /**
+     * Everything reported in ONE group, with how many times — what a
+     * moderator's own list of things to look at is built from.
+     *
+     * The join and its condition come from the named constructors above,
+     * as string literals like the table name itself: the group id is the
+     * only thing that varies per call, and it is bound (SECURITY.md §1).
+     *
+     * @return array<int, int> item id => report count, most reported first
+     */
+    public function countsInGroup(int $groupId): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT r.{$this->itemColumn} AS item_id, COUNT(*) AS total
+             FROM {$this->table} r
+             {$this->groupJoin}
+             WHERE {$this->groupCondition}
+             GROUP BY r.{$this->itemColumn}
+             ORDER BY total DESC, item_id DESC"
+        );
+        $stmt->execute([$groupId]);
+
+        $counts = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $counts[(int) $row['item_id']] = (int) $row['total'];
+        }
+
+        return $counts;
     }
 
     /**

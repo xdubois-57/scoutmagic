@@ -542,6 +542,23 @@
     border-radius: 0.5rem;
 }
 
+/* Modules\Groups\views\show.html.twig — the composer's poll panel sits in
+   the same row as the Photos button: the two things you attach to a
+   message, side by side. Closed, the <details> is exactly as wide as the
+   button its <summary> draws; open, it takes the whole row so the
+   question and its choices are full-width fields rather than a
+   button-wide column. Pure CSS, because the disclosure is the browser's
+   own and has to keep working with no JavaScript at all. */
+.groups-poll-details > summary {
+    list-style: none;
+}
+.groups-poll-details > summary::-webkit-details-marker {
+    display: none;
+}
+.groups-poll-details[open] {
+    flex: 1 0 100%;
+}
+
 /* Modules\Groups\views\partials\post_card.html.twig — a message's
    conversation, folded away behind the browser's own <details>/<summary>
    disclosure so a feed reads as a list of messages rather than as every

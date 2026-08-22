@@ -283,6 +283,30 @@ class ReplyRepository
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 
+    /**
+     * The posts these replies belong to — how a reported COMMENT reaches
+     * a moderator's list, which is a list of conversations: the comment
+     * is read (and acted on) inside the message it answers, never on its
+     * own.
+     *
+     * @param int[] $replyIds
+     * @return int[] post ids, deduplicated
+     */
+    public function postIdsForReplyIds(array $replyIds): array
+    {
+        if ($replyIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($replyIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT DISTINCT post_id FROM discussion_group_replies WHERE id IN ({$placeholders})"
+        );
+        $stmt->execute(array_map('intval', $replyIds));
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
     public function setHiddenAt(int $id, ?string $hiddenAt): void
     {
         $stmt = $this->pdo->prepare('UPDATE discussion_group_replies SET hidden_at = ? WHERE id = ?');

@@ -14,16 +14,42 @@
 #}
 <div class="groups-reply d-flex gap-2 mt-2">
     <div class="flex-grow-1 min-width-0">
-        {% if row.is_hidden|default(false) %}
-            <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 py-1 px-2 mb-1 small groups-hidden-banner">
+        {#
+          The same two states, and the same three moves, as a post's own
+          banner (partials/post_card.html.twig): hidden, undone with
+          Rétablir; or reported and still visible, where Masquer is the
+          judgement a count cannot make and Ignorer says the report was
+          wrong. Moderator-only either way — `report_count` is 0 for
+          everyone else, and a hidden reply never comes back from the
+          query for them at all.
+        #}
+        {% if row.is_hidden|default(false) or row.report_count|default(0) > 0 %}
+            <div class="alert {{ row.is_hidden|default(false) ? 'alert-warning' : 'alert-secondary' }} d-flex flex-wrap align-items-center gap-2 py-1 px-2 mb-1 small groups-hidden-banner">
                 <span class="flex-grow-1">
-                    <i class="bi bi-eye-slash me-1"></i>
-                    Réponse masquée après {{ row.report_count }} signalement{{ row.report_count > 1 ? 's' : '' }}.
+                    {% if row.is_hidden|default(false) %}
+                        <i class="bi bi-eye-slash me-1"></i>
+                        Réponse masquée après {{ row.report_count }} signalement{{ row.report_count > 1 ? 's' : '' }}.
+                    {% else %}
+                        <i class="bi bi-flag me-1"></i>
+                        {{ row.report_count }} signalement{{ row.report_count > 1 ? 's' : '' }} sur cette réponse.
+                    {% endif %}
                 </span>
+                {% if not row.is_hidden|default(false) %}
+                    <form method="post" action="/groups/{{ group.id }}/replies/{{ row.reply.id }}/hide" class="m-0"
+                          data-confirm="Masquer cette réponse ? Seuls les modérateurs du groupe la verront encore.">
+                        {{ csrf_field()|raw }}
+                        {% if on_reports_page|default(false) %}
+                            <input type="hidden" name="return_to" value="reports">
+                        {% endif %}
+                        <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
+                            Masquer
+                        </button>
+                    </form>
+                {% endif %}
                 <form method="post" action="/groups/{{ group.id }}/replies/{{ row.reply.id }}/restore" class="m-0 groups-restore-form">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
-                        Rétablir
+                        {{ row.is_hidden|default(false) ? 'Rétablir' : 'Ignorer le signalement' }}
                     </button>
                 </form>
             </div>

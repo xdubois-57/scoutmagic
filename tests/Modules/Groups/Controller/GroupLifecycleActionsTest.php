@@ -39,7 +39,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $_POST = [];
 
-        $response = $this->groupController([$this->moderatorMemberId])->close($this->request(), $this->params());
+        $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->close($this->request(), $this->params());
 
         $this->assertSame(403, $response->getStatusCode());
         $this->assertFalse($this->group()->isClosed());
@@ -49,7 +49,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $this->withCsrf([]);
 
-        $response = $this->groupController([$this->moderatorMemberId])->close($this->request(), $this->params());
+        $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->close($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertTrue($this->group()->isClosed());
@@ -82,7 +82,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $this->closeGroup();
         $_POST = [];
 
-        $response = $this->groupController([$this->moderatorMemberId])->reopen($this->request(), $this->params());
+        $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->reopen($this->request(), $this->params());
 
         $this->assertSame(403, $response->getStatusCode());
         $this->assertTrue($this->group()->isClosed());
@@ -93,7 +93,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $this->closeGroup();
         $this->withCsrf([]);
 
-        $response = $this->groupController([$this->moderatorMemberId])->reopen($this->request(), $this->params());
+        $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->reopen($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertFalse($this->group()->isClosed());
@@ -135,11 +135,11 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
         $groupRepo = new GroupRepository($this->pdo);
         $groupId = $groupRepo->create('Ancien', $pastYearId, null, $this->moderatorMemberId);
-        $this->memberRepo->add($groupId, $this->moderatorMemberId, true);
+        $this->memberRepo->add($groupId, $this->moderatorMemberId, true, null, self::OTHER_ACCOUNT);
         $groupRepo->setClosed($groupId, '2025-01-01 00:00:00');
         $this->withCsrf([]);
 
-        $response = $this->groupController([$this->moderatorMemberId])
+        $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)
             ->reopen($this->request(), ['id' => (string) $groupId]);
 
         // A refusal, not an error page: the caller is a moderator of a
@@ -158,7 +158,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $this->closeGroup();
         $this->withCsrf([]);
 
-        $this->groupController([$this->moderatorMemberId])->reopen($this->request(), $this->params());
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->reopen($this->request(), $this->params());
 
         $this->assertGreaterThan(
             (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-5 minutes')->format('Y-m-d H:i:s'),
@@ -172,7 +172,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $_POST = ['name' => 'Renommé'];
 
-        $response = $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+        $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
 
         $this->assertSame(403, $response->getStatusCode());
         $this->assertSame('Louveteaux', $this->group()->name);
@@ -182,7 +182,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $this->withCsrf(['name' => 'Nouveau nom']);
 
-        $response = $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+        $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('Nouveau nom', $this->group()->name);
@@ -212,7 +212,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $this->withCsrf(['name' => '   ']);
 
-        $response = $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+        $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('Louveteaux', $this->group()->name);
@@ -222,7 +222,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $this->withCsrf(['name' => str_repeat('a', 200)]);
 
-        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
 
         $this->assertSame(150, mb_strlen($this->group()->name));
     }
@@ -235,7 +235,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $before = $this->group()->scoutYearId;
         $this->withCsrf(['name' => 'Louveteaux', 'tie_to_year' => '1']);
 
-        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
 
         $this->assertSame($before, $this->group()->scoutYearId);
     }
@@ -244,10 +244,10 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $groupRepo = new GroupRepository($this->pdo);
         $groupId = $groupRepo->create('Projet', null, null, $this->moderatorMemberId);
-        $this->memberRepo->add($groupId, $this->moderatorMemberId, true);
+        $this->memberRepo->add($groupId, $this->moderatorMemberId, true, null, self::OTHER_ACCOUNT);
         $this->withCsrf(['name' => 'Projet', 'tie_to_year' => '1']);
 
-        $this->groupController([$this->moderatorMemberId])->edit($this->request(), ['id' => (string) $groupId]);
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), ['id' => (string) $groupId]);
 
         $this->assertSame($this->currentYearId, $groupRepo->findById($groupId)->scoutYearId);
     }
@@ -256,12 +256,12 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $groupRepo = new GroupRepository($this->pdo);
         $groupId = $groupRepo->create('Projet', $this->currentYearId, null, $this->moderatorMemberId);
-        $this->memberRepo->add($groupId, $this->moderatorMemberId, true);
+        $this->memberRepo->add($groupId, $this->moderatorMemberId, true, null, self::OTHER_ACCOUNT);
         // No tie_to_year field at all — the checkbox was unchecked, and an
         // unchecked HTML checkbox submits nothing.
         $this->withCsrf(['name' => 'Projet']);
 
-        $this->groupController([$this->moderatorMemberId])->edit($this->request(), ['id' => (string) $groupId]);
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), ['id' => (string) $groupId]);
 
         $this->assertNull($groupRepo->findById($groupId)->scoutYearId);
     }
@@ -272,7 +272,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $this->withCsrf(['name' => 'Louveteaux', 'description' => "  Coordination du camp d'été 2026  "]);
 
-        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
 
         $this->assertSame("Coordination du camp d'été 2026", $this->group()->description);
     }
@@ -285,10 +285,10 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     public function testSubmittingAnEmptyDescriptionClearsIt(): void
     {
         $this->withCsrf(['name' => 'Louveteaux', 'description' => 'Provisoire']);
-        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
 
         $this->withCsrf(['name' => 'Louveteaux', 'description' => '   ']);
-        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
 
         $this->assertNull($this->group()->description);
     }
@@ -297,7 +297,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $this->withCsrf(['name' => 'Louveteaux', 'description' => str_repeat('a', 400)]);
 
-        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
 
         $this->assertSame(300, mb_strlen((string) $this->group()->description));
     }
@@ -309,10 +309,10 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     public function testAnEmptyNameLeavesTheDescriptionUntouched(): void
     {
         $this->withCsrf(['name' => 'Louveteaux', 'description' => 'Le camp']);
-        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
 
         $this->withCsrf(['name' => '   ', 'description' => 'Autre chose']);
-        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
 
         $this->assertSame('Le camp', $this->group()->description);
     }
@@ -391,7 +391,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     public function testASecondModeratorMakesLeavingSucceed(): void
     {
         $second = GroupsTestHelper::createMember($this->pdo, 'MOD2');
-        $this->memberRepo->add($this->groupId, $second, true);
+        $this->memberRepo->add($this->groupId, $second, true, null, self::AUTHOR_ACCOUNT);
         $this->withCsrf([]);
 
         $this->memberController([$this->moderatorMemberId], self::OTHER_ACCOUNT)
@@ -425,8 +425,8 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $accountRepo = $this->accountRepoMock($accountId);
 
         // Only the collaborators close()/reopen() actually reach are real
-        // here — the feed, media and author-options services are never
-        // touched by either action, so building them would be noise.
+        // here — the feed and media services are never touched by either
+        // action, so building them would be noise.
         return new \Modules\Groups\Controller\GroupController(
             $this->twig($role),
             new GroupRepository($this->pdo),
@@ -437,8 +437,8 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
             $this->createStub(\Core\Member\SectionService::class),
             $this->createStub(\Modules\Groups\Service\GroupFeedService::class),
             $this->createStub(\Modules\Groups\Service\PostMediaService::class),
-            $this->createStub(\Modules\Groups\Service\AuthorOptionsService::class),
             $this->postRepo,
+            null,
             null,
             $this->membershipService()
         );

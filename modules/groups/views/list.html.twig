@@ -17,9 +17,19 @@
     </ul>
 
     {% if can_create %}
-        <div class="card mb-3">
-            <div class="card-body">
-                <h2 class="h6 mb-3">Créer un groupe</h2>
+        {#
+          Folded away by default: this page is a list of the groups you
+          are in, and for a chief it was opening on a form for a group
+          that does not exist yet. A native <details>, like every other
+          disclosure in this module — it opens, closes and announces its
+          own state with no JavaScript at all.
+        #}
+        <details class="card mb-3 groups-create">
+            <summary class="card-body py-3 d-flex align-items-center gap-2" style="min-height:44px;cursor:pointer;">
+                <i class="bi bi-plus-circle" aria-hidden="true"></i>
+                <span class="h6 mb-0">Créer un groupe</span>
+            </summary>
+            <div class="card-body pt-0">
                 <form method="post" action="/groups" class="row g-2">
                     {{ csrf_field()|raw }}
                     <div class="col-12 col-md-5">
@@ -50,7 +60,7 @@
                     </div>
                 </form>
             </div>
-        </div>
+        </details>
     {% endif %}
 
     {% if items is empty %}

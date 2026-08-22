@@ -20,13 +20,13 @@ use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\Post;
 use Modules\Groups\Repository\PostRepository;
-use Modules\Groups\Service\AuthorOptionsService;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\GroupsException;
+use Modules\Groups\Service\MemberIdentityService;
 use Modules\Groups\Service\MentionService;
 use Modules\Groups\Service\PostLinkService;
 use Modules\Groups\Service\PollService;
@@ -62,13 +62,16 @@ class PostController extends AbstractController
         private PostMediaService $postMediaService,
         private PostLinkService $postLinkService,
         private ReplyService $replyService,
-        private AuthorOptionsService $authorOptionsService,
         private ReportService $reportService,
         private ?GroupNotificationService $notificationService = null,
         private ?SeenByService $seenByService = null,
         private ?MentionService $mentionService = null,
         private ?PostEventService $eventService = null,
-        private ?PollService $pollService = null
+        private ?PollService $pollService = null,
+        // Optional and trailing, like every other collaborator here: with
+        // no identity service the member-scoped poll picker still works,
+        // it just names its options by member id.
+        private ?MemberIdentityService $identityService = null
     ) {
     }
 
@@ -93,13 +96,13 @@ class PostController extends AbstractController
             'group' => $group,
             'posts' => $page->posts,
             'next_cursor' => $page->nextCursor,
-            // The post cards this renders carry a reply composer, exactly
-            // like the ones on the group page — so this page has to supply
-            // the same two values that decide whether it appears and who it
-            // may sign as. Without them a "Charger plus" page would quietly
-            // render posts you cannot reply to.
+            // The post cards this renders carry a reply composer and the
+            // polls' own controls, exactly like the ones on the group
+            // page — so this page has to supply the same values that
+            // decide whether they appear. Without them a "Charger plus"
+            // page would quietly render posts you cannot reply to.
             'post_permission' => $this->accessService->canPost($group, $context),
-            'author_options' => $this->authorOptionsService->forGroup($group, $context),
+            'vote_members' => $this->voteMemberOptions($group, $context),
         ]);
     }
 
@@ -161,7 +164,12 @@ class PostController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        if (!in_array($post->authorMemberId, $context->linkedMemberIds, true)) {
+        // The author is the LOGIN that wrote it (a post belongs to the
+        // identified address, never to the membership it was signed
+        // with), so "did my message reach anyone" is that login's
+        // question and nobody else's — another address reaching the same
+        // member did not write it.
+        if ($context->userAccountId === null || $post->authorUserAccountId !== $context->userAccountId) {
             return new Response('Not Found', 404);
         }
 
@@ -251,12 +259,15 @@ class PostController extends AbstractController
             return $this->redirect('/groups/' . $group->id);
         }
 
-        // Which member the post is signed as: only ever one this account
-        // is actually a member of this group through. A parent linked to
-        // three children cannot post as the one who is not in the group.
+        // A post belongs to the LOGIN that wrote it, and it is signed
+        // with that account's name — so there is nothing to choose and no
+        // "publier en tant que" any more. The membership stored beside it
+        // is still needed by the machinery keyed on one (the rate limit,
+        // the read state, "vu par"), and is resolved here rather than
+        // asked for: whichever of this account's members belongs to this
+        // group.
         $allowed = $this->accessService->memberIdsAllowedToPostAs($group, $context);
-        $requested = (int) $request->getBody('author_member_id', 0);
-        $authorMemberId = in_array($requested, $allowed, true) ? $requested : ($allowed[0] ?? 0);
+        $authorMemberId = $allowed[0] ?? 0;
         if ($authorMemberId === 0 || $context->userAccountId === null) {
             return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
         }
@@ -330,7 +341,7 @@ class PostController extends AbstractController
                     'row' => $row,
                     'group' => $group,
                     'post_permission' => $permission,
-                    'author_options' => $this->authorOptionsService->forGroup($group, $context),
+                    'vote_members' => $this->voteMemberOptions($group, $context),
                 ]),
             ]);
         }
@@ -459,16 +470,25 @@ class PostController extends AbstractController
                 return new Response($permission->message, 403);
             }
 
-            // The member the vote is recorded under is the one this
-            // account posts as in this group — one answer per member, so
-            // a parent linked to two children in the same group votes
-            // once, not twice.
-            $memberId = $this->accessService->memberIdsAllowedToPostAs($group, $context)[0] ?? null;
-            if ($memberId === null || $this->pollService === null) {
-                return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+            // WHO the answer is recorded as belongs to the poll, not to
+            // this request: an account-scoped poll records the login, a
+            // member-scoped one records one of this account's members —
+            // and Service\PollService re-checks that it is one of theirs
+            // whatever the form said (voter_member_id below is a
+            // request, never an authority).
+            $allowed = $this->accessService->memberIdsAllowedToPostAs($group, $context);
+            if ($this->pollService === null) {
+                return new Response('Ce message ne porte pas de sondage.', 400);
             }
 
-            if (!$this->pollService->vote($post->id, (int) $request->getBody('option_id', 0), $memberId)) {
+            $recorded = $this->pollService->vote(
+                $post->id,
+                (int) $request->getBody('option_id', 0),
+                $context->userAccountId,
+                (int) $request->getBody('voter_member_id', 0),
+                $allowed
+            );
+            if (!$recorded) {
                 return new Response('Ce choix n\'existe pas.', 400);
             }
 
@@ -476,7 +496,7 @@ class PostController extends AbstractController
             // POST still gets the redirect it always would, so voting
             // works with no JavaScript at all.
             if ($this->wantsJson($request)) {
-                $poll = $this->pollService->forPosts([$post->id], $context->linkedMemberIds)[$post->id] ?? null;
+                $poll = $this->pollService->forPosts([$post->id], $context->userAccountId, $allowed)[$post->id] ?? null;
 
                 return $this->json([
                     'html' => $this->twig->render('@groups/partials/poll.html.twig', [
@@ -484,6 +504,7 @@ class PostController extends AbstractController
                         'group' => $group,
                         'post' => $post,
                         'can_vote' => true,
+                        'vote_members' => $this->voteMemberOptions($group, $context),
                     ]),
                 ]);
             }
@@ -690,6 +711,37 @@ class PostController extends AbstractController
         }
 
         return $group;
+    }
+
+    /**
+     * The members this account may answer a member-scoped poll for, named
+     * the way this module names anybody — the account first, narrowed to
+     * the one membership each option stands for ("Marie Dupont (Akéla)").
+     *
+     * Empty when there is only one: there is nothing to pick between, and
+     * a dialog asking a question with one answer is a click for nothing.
+     *
+     * @return array<int, array{id: int, name: string}>
+     */
+    private function voteMemberOptions(DiscussionGroup $group, GroupSessionContext $context): array
+    {
+        $memberIds = $this->accessService->memberIdsAllowedToPostAs($group, $context);
+        if (count($memberIds) < 2) {
+            return [];
+        }
+
+        $labels = $this->identityService?->accountLabelForMembers(
+            $memberIds,
+            $group->scoutYearId ?? $context->effectiveScoutYearId
+        ) ?? [];
+
+        return array_map(
+            static fn(int $memberId): array => [
+                'id' => $memberId,
+                'name' => ($labels[$memberId] ?? '') !== '' ? $labels[$memberId] : ('Membre #' . $memberId),
+            ],
+            $memberIds
+        );
     }
 
     private function context(): GroupSessionContext

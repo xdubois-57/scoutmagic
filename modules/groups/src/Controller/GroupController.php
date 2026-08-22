@@ -21,7 +21,6 @@ use Core\Security\Role;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\PostRepository;
-use Modules\Groups\Service\AuthorOptionsService;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupListItem;
 use Modules\Groups\Service\GroupFeedService;
@@ -35,6 +34,9 @@ use Modules\Groups\Service\ReopenOutcome;
 use Modules\Groups\Service\PostEventService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
+use Modules\Groups\Service\MemberIdentityService;
+use Modules\Groups\Service\ReportService;
+use Modules\Groups\Service\ModeratorBindingService;
 use Modules\Groups\Service\SectionGroupSyncService;
 use Modules\Groups\Support\RejectedDraft;
 use Modules\Groups\Support\SearchTerm;
@@ -67,9 +69,6 @@ class GroupController extends AbstractController
      */
     public const MAX_DESCRIPTION_LENGTH = 300;
 
-    /** How many poll-option boxes the composer offers — see show(). */
-    private const POLL_OPTION_SLOTS = 4;
-
     public function __construct(
         protected Environment $twig,
         private GroupRepository $groupRepository,
@@ -80,13 +79,15 @@ class GroupController extends AbstractController
         private SectionService $sectionService,
         private GroupFeedService $feedService,
         private PostMediaService $postMediaService,
-        private AuthorOptionsService $authorOptionsService,
         private PostRepository $postRepository,
         private ?SectionGroupSyncService $sectionGroupSyncService = null,
+        private ?ModeratorBindingService $moderatorBindingService = null,
         private ?GroupMembershipService $membershipService = null,
         private ?SettingService $settingService = null,
         private ?GroupReadStateService $readStateService = null,
-        private ?PostEventService $eventService = null
+        private ?PostEventService $eventService = null,
+        private ?MemberIdentityService $identityService = null,
+        private ?ReportService $reportService = null
     ) {
     }
 
@@ -107,6 +108,13 @@ class GroupController extends AbstractController
         // explains why there is none). Idempotent, so on every run after
         // the first it is one SELECT per section and no write at all.
         $this->sectionGroupSyncService?->sync($context->effectiveScoutYearId);
+
+        // Same self-healing spot, same shape: a moderator row granted
+        // before the flag named a login binds itself to the one account
+        // behind that member, if there is exactly one
+        // (Service\ModeratorBindingService). Two queries and no write
+        // once every row is bound.
+        $this->moderatorBindingService?->run();
 
         return $this->render('@groups/list.html.twig', [
             'items' => $this->decorate($this->listService->findCurrent($context)),
@@ -167,12 +175,20 @@ class GroupController extends AbstractController
                 && $group->isClosed()
                 && ($group->scoutYearId === null || $group->scoutYearId === $context->effectiveScoutYearId),
             'post_permission' => $this->accessService->canPost($group, $context),
+            // Who this account may answer a member-scoped poll for —
+            // empty when there is nothing to choose between (see
+            // partials/poll.html.twig).
+            'vote_members' => $this->voteMemberOptions($group, $context),
+            // The moderator's own entry to what has been reported, with
+            // its count. Resolved only for a moderator: nobody else is
+            // shown the entry, and nobody else may open the page behind
+            // it (Controller\ReportController::index()).
+            'reported_count' => $canModerate ? count($this->reportService?->reportedInGroup($group->id)['post_ids'] ?? []) : 0,
             'pinned' => $page->pinned,
             'posts' => $page->posts,
             'next_cursor' => $page->nextCursor,
             // Only shown when the account is linked to several members of
             // this group — with one, there is nothing to choose.
-            'author_options' => $this->authorOptionsService->forGroup($group, $context),
             'max_body_length' => PostService::MAX_BODY_LENGTH,
             'max_media_per_post' => PostMediaService::MAX_MEDIA_PER_POST,
             'video_upload_allowed' => $this->postMediaService->videoUploadAllowed(),
@@ -186,7 +202,6 @@ class GroupController extends AbstractController
             // enough to stay a form rather than a wall; the two beyond
             // the minimum are labelled optional, and blank ones are
             // dropped server-side (Service\PollService::normalise()).
-            'poll_option_slots' => self::POLL_OPTION_SLOTS,
             // A message the AI moderation just refused, handed back to
             // its author so the composer is not emptied. Read-and-clear:
             // it survives exactly this one render, and lives nowhere but
@@ -227,18 +242,28 @@ class GroupController extends AbstractController
         }
 
         $query = SearchTerm::normalise((string) $request->getQuery('q', ''));
+
+        // An empty box means "show me everything again", which is the
+        // group's own page — not this one with nothing on it. Clearing
+        // the field and submitting used to land here with no term, and a
+        // results page with no results reads exactly like a group that
+        // lost its messages.
+        if ($query === '') {
+            return $this->redirect('/groups/' . $group->id);
+        }
+
         $usable = SearchTerm::isUsable($query);
 
         return $this->render('@groups/search.html.twig', [
             'group' => $group,
             'badges' => $this->badges($group, $context),
             'query' => $query,
-            // Three states, not two: nothing typed yet, a term too short
-            // to run, and a term that ran. The template says something
-            // different for each rather than showing "aucun résultat" to
-            // somebody who has not searched for anything.
-            'has_searched' => $query !== '',
-            'too_short' => $query !== '' && !$usable,
+            // Two states left: a term too short to run, and a term that
+            // ran. "Nothing typed yet" no longer reaches this page at all
+            // — an empty box redirects to the group above, which is what
+            // "back to everything" actually means.
+            'has_searched' => true,
+            'too_short' => !$usable,
             'min_length' => SearchTerm::MIN_LENGTH,
             'result_limit' => GroupFeedService::RESULT_LIMIT,
             'results' => $usable
@@ -436,12 +461,23 @@ class GroupController extends AbstractController
         }
 
         if ($sectionId > 0) {
-            $groupId = $this->groupService->createSectionGroup($name, $sectionId, $context->effectiveScoutYearId, $creatorMemberId);
+            $groupId = $this->groupService->createSectionGroup(
+                $name,
+                $sectionId,
+                $context->effectiveScoutYearId,
+                $creatorMemberId,
+                $context->userAccountId
+            );
         } else {
             // "Sur invitation" — tied to the effective year only when the
             // chief asks for it (schema.sql documents the nullable column).
             $scoutYearId = $request->getBody('tie_to_year') !== null ? $context->effectiveScoutYearId : null;
-            $groupId = $this->groupService->createInvitationGroup($name, $scoutYearId, $creatorMemberId);
+            $groupId = $this->groupService->createInvitationGroup(
+                $name,
+                $scoutYearId,
+                $creatorMemberId,
+                $context->userAccountId
+            );
         }
 
         return $this->redirect('/groups/' . $groupId);
@@ -584,6 +620,39 @@ class GroupController extends AbstractController
         $configured = is_numeric($raw) ? (int) $raw : self::DEFAULT_DRAFT_TTL_MINUTES;
 
         return max(1, $configured);
+    }
+
+    /**
+     * The members this account may answer a member-scoped poll for, named
+     * account-first and narrowed to one membership each ("Marie Dupont
+     * (Akéla)"). Empty when there is only one — nothing to pick between.
+     *
+     * The same list Controller\PostController builds for the fragment it
+     * re-renders after a vote; both go through
+     * Service\GroupAccessService::memberIdsAllowedToPostAs(), so the
+     * page and the fragment can never offer a different set.
+     *
+     * @return array<int, array{id: int, name: string}>
+     */
+    private function voteMemberOptions(DiscussionGroup $group, GroupSessionContext $context): array
+    {
+        $memberIds = $this->accessService->memberIdsAllowedToPostAs($group, $context);
+        if (count($memberIds) < 2) {
+            return [];
+        }
+
+        $labels = $this->identityService?->accountLabelForMembers(
+            $memberIds,
+            $group->scoutYearId ?? $context->effectiveScoutYearId
+        ) ?? [];
+
+        return array_map(
+            static fn(int $memberId): array => [
+                'id' => $memberId,
+                'name' => ($labels[$memberId] ?? '') !== '' ? $labels[$memberId] : ('Membre #' . $memberId),
+            ],
+            $memberIds
+        );
     }
 
     private function context(): GroupSessionContext

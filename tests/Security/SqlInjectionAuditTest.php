@@ -185,6 +185,11 @@ class SqlInjectionAuditTest extends TestCase
         'modules/groups/src/Repository/ReportRepository.php' => [
             '{$this->table}' => 'Sealed constructor: only forPosts()/forReplies() build this, each with literals.',
             '{$this->itemColumn}' => 'Same sealed constructor.',
+            '{$this->groupJoin}' => 'Same sealed constructor: the JOIN reaching from a report to the group it '
+                . 'belongs to differs between the post and the reply flavour, and both are string literals '
+                . 'written in forPosts()/forReplies(). The group id itself is bound.',
+            '{$this->groupCondition}' => 'Same sealed constructor, same two literals — the WHERE naming the '
+                . 'joined table whose group_id is compared, with the id bound.',
         ],
     ];
 

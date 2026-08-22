@@ -16,4 +16,15 @@
             aria-label="Lancer la recherche">
         <i class="bi bi-search"></i>
     </button>
+    {#
+      The way back to the whole group, spelled out rather than left to
+      "empty the box and submit" — which is what a reader tries first, and
+      what used to land them on an empty results page. Only shown once a
+      term has actually been run: on the group's own page there is nothing
+      to come back from. A plain link, so it works with no JavaScript.
+    #}
+    {% if query|default('') is not empty %}
+        <a href="/groups/{{ group.id }}" class="btn btn-outline-secondary d-flex align-items-center"
+           style="min-height:44px;">Tout afficher</a>
+    {% endif %}
 </form>

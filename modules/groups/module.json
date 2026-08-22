@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.15.0",
+  "version": "1.16.0",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -376,6 +376,39 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/reports",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\ReportController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Signalements",
+        "parents": [
+          "Espace animés"
+        ]
+      }
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/hide",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReportController",
+      "action": "hidePost",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/replies/{replyId}/hide",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReportController",
+      "action": "hideReply",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/posts/{postId}/report",
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\ReportController",
@@ -535,6 +568,18 @@
       "id": "groups.mentioned",
       "label": "Vous êtes cité dans un groupe",
       "description": "Quand quelqu'un écrit votre nom précédé d'un @ dans un message ou une réponse d'un de vos groupes. Utile si vous avez désactivé la notification de chaque nouveau message : celle-ci ne vous prévient que lorsqu'on s'adresse à vous.",
+      "group": "Groupes",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "groups.invited",
+      "label": "Invitation à un groupe",
+      "description": "Quand un modérateur vous invite dans un groupe de discussion et choisit de vous prévenir. Une invitation ne notifie jamais d'elle-même : c'est la personne qui invite qui décide, invitation par invitation.",
       "group": "Groupes",
       "role_min": "identified",
       "channels": {

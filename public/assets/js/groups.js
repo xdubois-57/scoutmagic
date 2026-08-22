@@ -447,6 +447,134 @@
         form.addEventListener('input', refreshSubmitState);
         refreshSubmitState();
 
+        // --- The poll's own boxes: always exactly one empty one at the
+        // end, and never more than the server's own maximum.
+        //
+        // The rule is the whole control: typing in the last box adds a
+        // fresh empty one after it, clearing a box removes the spare
+        // empties so only one is left waiting, and removing a row never
+        // takes the count below the two a poll needs. With no JavaScript
+        // the three boxes the server rendered are simply what you get,
+        // and Service\PollService::normalise() drops the blank ones
+        // either way — this makes a long poll pleasant to type, it is not
+        // where the rules live.
+        var pollDetails = /** @type {HTMLElement|null} */ (form.querySelector('#groups-poll-details'));
+        var pollOptions = form.querySelector('#groups-poll-options');
+
+        /** @returns {HTMLInputElement[]} */
+        function pollInputs() {
+            return /** @type {HTMLInputElement[]} */ (
+                Array.prototype.slice.call(form.querySelectorAll('[name="poll_options[]"]'))
+            );
+        }
+
+        function pollMaxOptions() {
+            var declared = pollDetails ? parseInt(pollDetails.dataset.maxOptions || '', 10) : NaN;
+
+            return isNaN(declared) ? 10 : declared;
+        }
+
+        /** @param {number} index */
+        function buildPollRow(index) {
+            var row = document.createElement('div');
+            row.className = 'd-flex align-items-center gap-2 mb-1 groups-poll-option';
+            var label = document.createElement('label');
+            label.className = 'visually-hidden';
+            label.setAttribute('for', 'poll-option-' + index);
+            label.textContent = 'Choix ' + index;
+            var input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'form-control';
+            input.id = 'poll-option-' + index;
+            input.name = 'poll_options[]';
+            input.style.minHeight = '44px';
+            input.placeholder = 'Choix ' + index + ' (facultatif)';
+            var first = pollInputs()[0];
+            if (first && first.maxLength > 0) {
+                input.maxLength = first.maxLength;
+            }
+            var remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'btn btn-outline-secondary d-flex align-items-center groups-poll-option-remove';
+            remove.style.minHeight = '44px';
+            remove.setAttribute('aria-label', 'Retirer le choix ' + index);
+            remove.innerHTML = '<i class="bi bi-x-lg" aria-hidden="true"></i>';
+            row.appendChild(label);
+            row.appendChild(input);
+            row.appendChild(remove);
+
+            return row;
+        }
+
+        function syncPollOptions() {
+            if (!pollOptions) {
+                return;
+            }
+
+            var inputs = pollInputs();
+            var max = pollMaxOptions();
+
+            // Trailing empties, collapsed to one. Never touches a box
+            // somebody is typing in: only the ones AFTER the last filled
+            // one, and only past the first of them.
+            var lastFilled = -1;
+            inputs.forEach(function (input, index) {
+                if (input.value.trim() !== '') {
+                    lastFilled = index;
+                }
+            });
+
+            // Never below the shape the server renders: two answer boxes
+            // plus the one waiting at the end. A poll needs two answers,
+            // and taking the spare away from an empty form would make the
+            // control smaller the moment somebody cleared it.
+            for (var i = inputs.length - 1; i > lastFilled + 1; i--) {
+                if (inputs[i] !== document.activeElement && inputs.length > 3) {
+                    var row = inputs[i].closest('.groups-poll-option');
+                    if (row) {
+                        row.remove();
+                    }
+                    inputs = pollInputs();
+                }
+            }
+
+            // ...and one waiting at the end, unless the poll is already
+            // as long as the server will accept.
+            var current = pollInputs();
+            var lastValue = current.length > 0 ? current[current.length - 1].value.trim() : '';
+            if (lastValue !== '' && current.length < max) {
+                pollOptions.appendChild(buildPollRow(current.length + 1));
+            }
+
+            // The remove buttons only make sense while there is something
+            // to remove down to: three boxes — two answers and the spare —
+            // is the floor.
+            var rows = form.querySelectorAll('.groups-poll-option');
+            rows.forEach(function (row) {
+                var button = row.querySelector('.groups-poll-option-remove');
+                if (button) {
+                    /** @type {HTMLButtonElement} */ (button).disabled = rows.length <= 3;
+                }
+            });
+        }
+
+        if (pollOptions) {
+            pollOptions.addEventListener('input', syncPollOptions);
+            pollOptions.addEventListener('click', function (event) {
+                var button = /** @type {HTMLElement} */ (event.target).closest('.groups-poll-option-remove');
+                if (!button) {
+                    return;
+                }
+                var row = button.closest('.groups-poll-option');
+                if (row && form.querySelectorAll('.groups-poll-option').length > 3) {
+                    row.remove();
+                }
+                syncPollOptions();
+                refreshSubmitState();
+            });
+            syncPollOptions();
+        }
+
         // --- Dynamic submit: greys out the composer while the post
         // publishes in the background (module spec: "no reload to
         // publish a post"), instead of the plain form POST + redirect
@@ -480,6 +608,12 @@
 
         function resetComposer() {
             form.reset();
+            // The poll's extra boxes are DOM this script added, so
+            // form.reset() empties them without removing them: a second
+            // poll would open on however many rows the first one grew to.
+            // Back to the three the server renders, then the usual sync.
+            var extraRows = Array.prototype.slice.call(form.querySelectorAll('.groups-poll-option')).slice(3);
+            extraRows.forEach(function (row) { row.remove(); });
             // form.reset() restores every CONTROL's default value, and a
             // <details> is not one: without this the poll section stayed
             // open after publishing, showing a set of freshly emptied
@@ -490,6 +624,7 @@
             resetMedia();
             resetLinkPreview();
             clearComposerError();
+            syncPollOptions();
         }
 
         form.addEventListener('submit', function (event) {
@@ -1481,7 +1616,16 @@
         var pollForm = /** @type {HTMLFormElement} */ (target.closest('.groups-poll-form'));
         if (pollForm) {
             event.preventDefault();
-            swapFragmentOnSubmit(pollForm, '.groups-poll');
+            // A member-scoped poll asks WHOSE answer this is before
+            // recording it — the small dialog below, in place of the
+            // <select> the page renders for a visitor with no JavaScript
+            // (partials/poll.html.twig). One member to choose from means
+            // there is nothing to ask.
+            askPollVoter(pollForm).then(function (proceed) {
+                if (proceed) {
+                    swapFragmentOnSubmit(pollForm, '.groups-poll');
+                }
+            });
             return;
         }
 
@@ -1532,6 +1676,83 @@
     // Every trigger is a plain <button> with no bootstrap data-*
     // attributes of its own, so nothing breaks if groups.js never loads:
     // the line just stops being clickable and stays a plain summary.
+    /**
+     * "Vous répondez pour…" — asked at the moment of voting in a
+     * member-scoped poll, and only when this account really has several
+     * members in the group.
+     *
+     * Resolves to true once the choice is written into the form's own
+     * hidden field (or immediately, when there is nothing to ask), and to
+     * false when the person closed the dialog — which cancels the vote
+     * rather than recording it for whoever happened to be first.
+     *
+     * The <select> it reads its options from is the no-JavaScript
+     * fallback the server rendered; this hides it and asks the same
+     * question in a dialog, so the two can never offer different people.
+     *
+     * @param {HTMLFormElement} form
+     * @returns {Promise<boolean>}
+     */
+    function askPollVoter(form) {
+        var poll = /** @type {HTMLElement} */ (form.closest('.groups-poll'));
+        var picker = poll ? /** @type {HTMLSelectElement} */ (poll.querySelector('.groups-poll-voter select')) : null;
+        var field = /** @type {HTMLInputElement} */ (form.querySelector('.groups-poll-voter-input'));
+        var modalEl = document.getElementById('groups-detail-modal');
+        var modalBody = document.getElementById('groups-detail-modal-body');
+
+        if (!picker || !field || !modalEl || !modalBody || typeof bootstrap === 'undefined') {
+            return Promise.resolve(true);
+        }
+
+        var label = document.getElementById('groups-detail-modal-label');
+        if (label) {
+            label.textContent = 'Vous répondez pour';
+        }
+
+        modalBody.innerHTML = '';
+        var list = document.createElement('div');
+        list.className = 'list-group';
+        Array.prototype.forEach.call(picker.options, function (option) {
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'list-group-item list-group-item-action d-flex align-items-center';
+            button.style.minHeight = '44px';
+            button.dataset.memberId = option.value;
+            button.textContent = option.textContent || '';
+            list.appendChild(button);
+        });
+        modalBody.appendChild(list);
+
+        var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+        return new Promise(function (resolve) {
+            var chosen = false;
+
+            function onPick(event) {
+                var button = /** @type {HTMLElement|null} */ (
+                    /** @type {HTMLElement} */ (event.target).closest('[data-member-id]')
+                );
+                if (!button) {
+                    return;
+                }
+                chosen = true;
+                field.value = button.dataset.memberId || '';
+                picker.value = field.value;
+                modal.hide();
+            }
+
+            function onHidden() {
+                list.removeEventListener('click', onPick);
+                modalEl.removeEventListener('hidden.bs.modal', onHidden);
+                resolve(chosen);
+            }
+
+            list.addEventListener('click', onPick);
+            modalEl.addEventListener('hidden.bs.modal', onHidden);
+            modal.show();
+        });
+    }
+
     async function openDetailDialog(url, title, errorText) {
         var modalEl = document.getElementById('groups-detail-modal');
         var modalBody = document.getElementById('groups-detail-modal-body');
@@ -1568,6 +1789,35 @@
             modalBody.textContent = errorText;
         }
     }
+
+    // The member picker a member-scoped poll renders is the no-JavaScript
+    // fallback: with this script running, the same question is asked in a
+    // dialog at the moment of voting (askPollVoter()), so the inline
+    // <select> would be a second control asking it twice. Hidden rather
+    // than removed — it is where the dialog reads its options from, and
+    // where the chosen value is written back.
+    (function hideInlinePollVoters() {
+        document.querySelectorAll('.groups-poll-voter').forEach(function (block) {
+            block.classList.add('d-none');
+        });
+
+        // The fragment the server returns after a vote carries its own
+        // picker, so the same rule has to hold for it. One delegated
+        // observer rather than a call at every swap site: the feed, the
+        // search page and "Charger plus" all insert cards this way.
+        var observer = new MutationObserver(function (mutations) {
+            mutations.forEach(function (mutation) {
+                mutation.addedNodes.forEach(function (node) {
+                    if (node instanceof HTMLElement) {
+                        node.querySelectorAll('.groups-poll-voter').forEach(function (block) {
+                            block.classList.add('d-none');
+                        });
+                    }
+                });
+            });
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    })();
 
     // Shared by "Charger plus" (the feed) and "Voir plus de réponses" (a
     // post's replies) — both append the next keyset page in place and

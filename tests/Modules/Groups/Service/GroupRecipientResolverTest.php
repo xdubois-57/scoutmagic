@@ -201,7 +201,10 @@ class GroupRecipientResolverTest extends TestCase
     {
         $this->memberInSection('PLAIN', 'plain@test.be');
         $moderator = $this->memberInSection('MOD', 'mod@test.be');
-        $this->groupMemberRepo->add($this->groupId, $moderator, true);
+        // The flag names the login it was granted to — that account, and
+        // not "every address that reaches this member", is who moderates
+        // and therefore who is told about a report.
+        $this->groupMemberRepo->add($this->groupId, $moderator, true, null, $this->accountIdFor('mod@test.be'));
 
         $this->assertSame(
             [$this->accountIdFor('mod@test.be')],
@@ -226,7 +229,10 @@ class GroupRecipientResolverTest extends TestCase
     public function testASiteAdminIsAModeratorRecipientWithoutAnyGroupRow(): void
     {
         $moderator = $this->memberInSection('MOD', 'mod@test.be');
-        $this->groupMemberRepo->add($this->groupId, $moderator, true);
+        // The flag names the login it was granted to — that account, and
+        // not "every address that reaches this member", is who moderates
+        // and therefore who is told about a report.
+        $this->groupMemberRepo->add($this->groupId, $moderator, true, null, $this->accountIdFor('mod@test.be'));
         $adminAccountId = $this->createAccount('admin@test.be');
 
         $roleResolver = $this->createStub(RoleResolver::class);
@@ -245,7 +251,10 @@ class GroupRecipientResolverTest extends TestCase
     public function testAnAdminWhoIsAlsoAnExplicitModeratorIsListedOnce(): void
     {
         $moderator = $this->memberInSection('MOD', 'mod@test.be');
-        $this->groupMemberRepo->add($this->groupId, $moderator, true);
+        // The flag names the login it was granted to — that account, and
+        // not "every address that reaches this member", is who moderates
+        // and therefore who is told about a report.
+        $this->groupMemberRepo->add($this->groupId, $moderator, true, null, $this->accountIdFor('mod@test.be'));
 
         $roleResolver = $this->createStub(RoleResolver::class);
         $roleResolver->method('resolve')->willReturn('admin');
@@ -261,7 +270,10 @@ class GroupRecipientResolverTest extends TestCase
     public function testWithoutARoleResolverOnlyExplicitModeratorsAreResolved(): void
     {
         $moderator = $this->memberInSection('MOD', 'mod@test.be');
-        $this->groupMemberRepo->add($this->groupId, $moderator, true);
+        // The flag names the login it was granted to — that account, and
+        // not "every address that reaches this member", is who moderates
+        // and therefore who is told about a report.
+        $this->groupMemberRepo->add($this->groupId, $moderator, true, null, $this->accountIdFor('mod@test.be'));
         $this->createAccount('admin@test.be');
 
         $this->assertSame(
