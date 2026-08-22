@@ -1456,7 +1456,145 @@ it tell a real crontab from the request-driven scheduler standing in for one.
 On shared hosting without a crontab the reminders still go out, just hours
 late, and a unit that does not know that reads the delay as a bug.
 
-### 8.61 The test toolbox and the mail sandbox (`Modules\TestTools`)
+### 8.61 Mail merge from an Excel audience (`modules/mass_mail`)
+
+A sixth `list_type`, `'mail_merge'` (mass_mail module.json 1.5.0 → 1.6.0):
+the compose dialog's list picker gains a "Publipostage — fichier Excel"
+entry whose recipients come from a chief-uploaded `.xlsx` file instead of
+any member-table resolution. The unit of sending flips: **one email per
+file ROW**, not one per address — each row carries its own substitution
+values (`Cher {{Prenom}}, tu devras payer {{Montant}} €`), inserted from a
+"Variable" toolbar dropdown listing the file's columns (with the first
+row's values as sample hints), usable in the subject and the body alike.
+
+**Import (`Service\AudienceImportService`, `POST /mass-mail/audiences`)** —
+first sheet only, first row = headers. Delivery resolution per row: a
+non-empty "Tiers" value must match `members.desk_id` (the email then goes
+to every currently-valid address of that member, via the exact
+`MemberEmailService::resolveValidAddressesForMassMail()` path list sends
+use, so member-level unsubscribes are honored identically); otherwise the
+row's "Email" column value (several addresses allowed, `;`-separated) must
+validate; neither → refused. Validation is **all-or-nothing by
+specification**: any bad line refuses the entire file, and
+`AudienceImportException` carries every offending line at once (line
+number, column, value, reason) rather than the first one — the chief fixes
+the file once. Duplicate Tiers/addresses across rows are legitimate ("one
+row = one email") but reported as non-blocking warnings. Header
+recognition is alias-based, case/accent-insensitive — `Tiers` ≡
+`Identifiant Desk`, `Email` ≡ `Email(s)` ≡ `Contact` ≡ `Adresse email` ≡
+`Courriel` — precisely so the site's own exports (`Core\Member\Export`,
+news form responses) re-import as audiences unchanged; every other column
+is simply a merge variable. Hard cap `MAX_ROWS` (5000). The uploaded
+`.xlsx` is parsed straight from the PHP upload tmp file and deleted
+immediately (same rule as the Desk CSV import): what remains is
+`mass_mail_audiences` (headers in clear — names, never values) plus one
+`mass_mail_audience_rows` per line, whose address and full `{header:
+value}` JSON map are **encrypted BLOBs** decrypted only in
+`Repository\AudienceRepository`. No blind index — nothing ever searches
+these tables by value.
+
+**Who may use it** — every chief, not just a chef d'unité (deliberate unit
+decision, `MassMailAccessService::canUseList()`): the file, not a section
+list, names the recipients, which does mean a section chief can now write
+to arbitrary addresses. Balancing that: an audience may only be attached
+to an email (or summarized/previewed via `GET /mass-mail/audiences/{id}`)
+by the account that imported it or a chef d'unité
+(`MassMailService::assertAudienceUsable()`), and every import is
+journaled (`audience_imported` — counts only, no personal data). The
+sender-section lock for non-chef-d'unité accounts is unchanged.
+
+**Lifecycle** — draft/test/sending/sent is untouched. A mail-merge email
+stores `audience_id` (FK `ON DELETE SET NULL`) and an **empty**
+`mass_mail_email_scout_years` set — the year checkboxes disappear from the
+dialog, since the file defines the audience. At freeze
+(`startSending()` → `freezeMergeRecipients()`), each row becomes
+recipient rows tagged with `audience_row_id`: member rows expand to all
+valid addresses (recipient `scout_year_id` = the member's most recent
+`member_years` year, via `MemberResolutionRepository::
+resolveMergeMembers()`, deliberately not filtered on `is_active` — the
+file is the authority); external rows get `member_id`/`scout_year_id`/
+`member_email_id` all NULL (`mass_mail_recipients.member_id` and
+`scout_year_id` became nullable for exactly this). Rendering happens
+per-recipient in `Task\SendBatchHandler`, at actual send time, via
+`Service\MergeRenderer`: `{{tokens}}` matched case-insensitively against
+headers, every substituted body value **always HTML-escaped** (file cells
+are arbitrary input landing inside the sanitized body), subject rendered
+as plain text, unknown tokens left visible rather than silently swallowed.
+Test mode gains a per-recipient preview (`GET
+/mass-mail/{id}/merge-preview?offset=N`, `getMergePreview()`) that pages
+through rows with real substituted values and surfaces unknown tokens and
+per-row missing values; the test send carries the previewed row's values.
+
+**External unsubscribes (`mass_mail_suppressed_addresses`)** — an external
+recipient has no `member_emails` row to flip, so their one-click
+unsubscribe (same per-recipient token, `UnsubscribeController`) stores a
+SHA-256 hash of the lowercased address instead, checked at every future
+mail-merge freeze (suppressed → recipient row frozen straight to 'error',
+visible in tracking). The hash table is never purged: an unsubscribe must
+outlive any retention window.
+
+**Retention (`Task\PurgeMergeAudiencesHandler`)** — imported audience data
+is RGPD-relevant personal data with a fixed clock: deleted 18 months after
+the last referencing email was sent (`merge_retention_months`, a
+**read-only** setting — see below), or 7 days after import for an orphan
+audience no email ever referenced; never while any draft/test/sending
+email still references it. Deletion nulls `mass_mail_emails.audience_id`
+and `mass_mail_recipients.audience_row_id` (issued explicitly in
+`AudienceRepository::deleteById()`, since the SQLite test database doesn't
+run MySQL's referential actions), so the sent email and its tracking
+history survive — a "Renvoyer" after the purge fails explicitly ("Données
+de publipostage purgées") rather than sending raw `{{tokens}}`. Daily
+self-rescheduling handler, bootstrapped from `public/index.php` (same
+pattern as registration's retention purge).
+
+**Manifest plumbing this required** — `module.json` settings entries now
+pass `validation_regex` (declared for years on mass_mail's
+`previous_year_active_cutoff` but silently dropped by
+`ModuleManifest::validateSetting()` until now) and a new optional
+`"editable": false` through to `SettingService::register()`, which is what
+makes `merge_retention_months` render greyed and non-editable on
+Configuration > Paramètres.
+
+### 8.62 Member-search export, and the audience-reusable export rule
+
+`GET /admin/members/export` (role `admin`, same floor as the search page
+itself): the current search's results (`?q=`) or an explicit checked
+subset of them (`?selected[]=`, plain checkboxes in a GET form — the page
+works without JavaScript, the script only adds the disabled state, the
+live count and a "Tout sélectionner" master box). Selected ids are
+re-validated server-side against the effective scout year
+(`MemberSearchService::findById()`) — a stale or forged id is dropped,
+never exported. The journal entry (`member_search_exported`) records
+counts and scope only, never the query text: a search query is typically
+somebody's name.
+
+The rows come from a second small builder entry point,
+`MemberExportRowBuilder::buildForMemberYears()` — exactly the "a future
+screen with a different selection gets its own small builder, never its
+own columns" extension the class docblock promised. Two deliberate
+differences from `buildForSections()`: no `is_active` filter (the search
+page lists "non inscrit" members, so its export must not silently drop
+them), and a member_year with no function at all gets a synthetic
+sectionless entry (`SectionRosterRepository::findEntriesByMemberYears()`
+returns nothing for it) with empty section/function columns, excluded
+from the movement classifier's input so their movement status honestly
+reads "unknown" instead of being guessed from a zero section id.
+
+**The rule this cements** (mail merge made it matter — §8.61): **every
+export of people this codebase produces, current and future, goes through
+the canonical member export or at least keeps its headers alias-matchable
+by the mail-merge importer** ("Identifiant Desk"/"Tiers" for the member
+identifier, "Email"/"Email(s)"/"Contact" for addresses). An export a unit
+cannot re-import as a mail-merge audience is a dead end they will
+hand-edit; one that round-trips is a workflow. Member-domain exports
+reuse `Core\Member\Export` outright (never redefining columns); a
+module's own-domain export (form responses, finance, rentals) keeps its
+own columns but names its contact/identifier headers within the alias
+set. `AudienceImportService::TIERS_ALIASES`/`EMAIL_ALIASES` is the
+authoritative list — extend it there, in the importer, rather than
+renaming an export's headers and breaking its users' habits.
+
+### 8.63 The test toolbox and the mail sandbox (`Modules\TestTools`)
 
 A toolbox that exists **only** on the project's reference installation and on a developer's machine: `"visible_when": ["reference_installation", "local_installation"]` (§8.49), `enabled_by_default: false`, every route `superadmin` under Configuration. No deploying unit's installation ever loads it, which is the condition that makes everything below admissible — read it as a condition, not as a claim.
 

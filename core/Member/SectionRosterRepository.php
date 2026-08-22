@@ -74,6 +74,64 @@ final class SectionRosterRepository
     }
 
     /**
+     * The member-search export's selection: one winning entry per
+     * member_year (main function preferred, then lowest member_functions
+     * id — same tie-break as findRosterEntries(), which resolves per
+     * (section, member_year) instead). Deliberately NOT filtered on
+     * my.is_active: the admin search page lists inactive members too
+     * ("non inscrit" badge) and its export must not silently drop them.
+     * A member_year with no function at all yields no entry here — the
+     * caller (Export\MemberExportRowBuilder::buildForMemberYears())
+     * synthesizes a sectionless one.
+     *
+     * @param int[] $memberYearIds
+     * @return SectionRosterEntry[]
+     */
+    public function findEntriesByMemberYears(array $memberYearIds): array
+    {
+        $memberYearIds = array_values(array_unique(array_map('intval', $memberYearIds)));
+        if ($memberYearIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberYearIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT mf.section_id, s.age_branch_id, mf.member_year_id, my.member_id,
+                    f.role AS function_role, f.label AS function_label,
+                    mf.is_main_function, mf.id AS mf_id
+             FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN sections s ON mf.section_id = s.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE mf.member_year_id IN ($placeholders)
+             ORDER BY mf.member_year_id, mf.is_main_function DESC, mf.id ASC"
+        );
+        $stmt->execute($memberYearIds);
+
+        $entries = [];
+        $seen = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $memberYearId = (int) $row['member_year_id'];
+            if (isset($seen[$memberYearId])) {
+                continue;
+            }
+            $seen[$memberYearId] = true;
+
+            $entries[] = new SectionRosterEntry(
+                sectionId: (int) $row['section_id'],
+                ageBranchId: (int) $row['age_branch_id'],
+                memberYearId: $memberYearId,
+                memberId: (int) $row['member_id'],
+                bucket: SectionRosterEntry::bucketForRole((string) $row['function_role']),
+                functionLabel: (string) $row['function_label'],
+                isMainFunction: (bool) $row['is_main_function']
+            );
+        }
+
+        return $entries;
+    }
+
+    /**
      * Base (undecrypted) member_years + members.desk_id rows for a batch of
      * member_year ids — one query. Decryption stays the caller's
      * (Service-layer) job, same split as every other Core\Member class.

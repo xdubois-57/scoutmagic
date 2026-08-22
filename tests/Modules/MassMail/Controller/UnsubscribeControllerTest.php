@@ -8,6 +8,7 @@ use Core\Http\Request;
 use Core\Member\MemberEmailService;
 use Modules\MassMail\Controller\UnsubscribeController;
 use Modules\MassMail\Repository\RecipientRepository;
+use Modules\MassMail\Repository\SuppressedAddressRepository;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 
@@ -23,24 +24,27 @@ class UnsubscribeControllerTest extends TestCase
 {
     private RecipientRepository&\PHPUnit\Framework\MockObject\MockObject $recipientRepository;
     private MemberEmailService&\PHPUnit\Framework\MockObject\MockObject $memberEmailService;
+    private SuppressedAddressRepository&\PHPUnit\Framework\MockObject\MockObject $suppressedAddressRepository;
     private UnsubscribeController $controller;
 
     protected function setUp(): void
     {
         $this->recipientRepository = $this->createMock(RecipientRepository::class);
         $this->memberEmailService = $this->createMock(MemberEmailService::class);
+        $this->suppressedAddressRepository = $this->createMock(SuppressedAddressRepository::class);
         $this->controller = new UnsubscribeController(
             $this->createMock(Environment::class),
             $this->recipientRepository,
-            $this->memberEmailService
+            $this->memberEmailService,
+            $this->suppressedAddressRepository
         );
     }
 
-    private function makeRecipient(?int $memberEmailId): \Modules\MassMail\Repository\Recipient
+    private function makeRecipient(?int $memberEmailId, ?int $memberId = 1): \Modules\MassMail\Repository\Recipient
     {
         return new \Modules\MassMail\Repository\Recipient(
-            id: 10, emailId: 1, memberId: 1, scoutYearId: 1, emailAddress: 'someone@example.com',
-            memberEmailId: $memberEmailId, status: 'sent', errorMessage: null, sentAt: '2026-01-01 00:00:00',
+            id: 10, emailId: 1, memberId: $memberId, scoutYearId: $memberId !== null ? 1 : null, emailAddress: 'someone@example.com',
+            memberEmailId: $memberEmailId, audienceRowId: null, status: 'sent', errorMessage: null, sentAt: '2026-01-01 00:00:00',
             attempts: 1, createdAt: '2026-01-01 00:00:00'
         );
     }
@@ -151,15 +155,49 @@ class UnsubscribeControllerTest extends TestCase
 
     public function testUnsubscribePostWithNoMemberEmailIdNeverCallsUnsubscribe(): void
     {
-        // Defensive: a recipient row created for the "no usable address at
-        // all" error branch has no member_email_id and never reaches
-        // 'pending'/'sent' in practice, but the controller must not crash
-        // or act on it if it somehow does.
+        // Defensive: a MEMBER recipient row created for the "no usable
+        // address at all" error branch has no member_email_id and never
+        // reaches 'pending'/'sent' in practice, but the controller must
+        // not crash, act on it, or suppress the address if it somehow does.
         $this->recipientRepository->method('verifyUnsubscribeToken')->willReturn($this->makeRecipient(null));
         $this->memberEmailService->expects($this->never())->method('unsubscribe');
+        $this->suppressedAddressRepository->expects($this->never())->method('suppress');
 
         $response = $this->controller->unsubscribe(
             new Request('POST', '/mass-mail/unsubscribe/10', ['token' => 'goodtoken'], [], [], []),
+            ['id' => '10']
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    // --- external mail-merge recipients (no member at all) ---
+
+    public function testUnsubscribePostForAnExternalRecipientSuppressesTheAddress(): void
+    {
+        // A mail-merge row addressed by its "Email" column: no member, no
+        // member_emails row to flip — the address lands on the module's
+        // own suppression list instead.
+        $this->recipientRepository->method('verifyUnsubscribeToken')->with(10, 'goodtoken')
+            ->willReturn($this->makeRecipient(null, null));
+        $this->memberEmailService->expects($this->never())->method('unsubscribe');
+        $this->suppressedAddressRepository->expects($this->once())->method('suppress')->with('someone@example.com');
+
+        $response = $this->controller->unsubscribe(
+            new Request('POST', '/mass-mail/unsubscribe/10', ['token' => 'goodtoken'], [], [], []),
+            ['id' => '10']
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testShowForAnExternalRecipientNeverSuppresses(): void
+    {
+        $this->recipientRepository->method('verifyUnsubscribeToken')->willReturn($this->makeRecipient(null, null));
+        $this->suppressedAddressRepository->expects($this->never())->method('suppress');
+
+        $response = $this->controller->show(
+            new Request('GET', '/mass-mail/unsubscribe/10', ['token' => 'goodtoken'], [], [], []),
             ['id' => '10']
         );
 

@@ -50,7 +50,54 @@ final class MemberExportRowBuilder
      */
     public function buildForSections(array $sectionIds, int $scoutYearId): array
     {
-        $entries = $this->rosterRepository->findRosterEntries($sectionIds, $scoutYearId);
+        return $this->buildRows($this->rosterRepository->findRosterEntries($sectionIds, $scoutYearId), $scoutYearId);
+    }
+
+    /**
+     * The admin member-search export's selection: an explicit set of
+     * member_year ids (all search results, or the checked ones). Unlike
+     * buildForSections() this must not drop a member without any function
+     * or an inactive one — the search page shows them, so its export
+     * includes them, with empty section/function columns (a synthetic
+     * sectionless entry, excluded from the movement classifier's input
+     * so their movement status honestly reads "unknown").
+     *
+     * @param int[] $memberYearIds
+     * @return MemberExportRow[]
+     */
+    public function buildForMemberYears(array $memberYearIds, int $scoutYearId): array
+    {
+        $memberYearIds = array_values(array_unique(array_map('intval', $memberYearIds)));
+        $entries = $this->rosterRepository->findEntriesByMemberYears($memberYearIds);
+
+        $covered = [];
+        foreach ($entries as $entry) {
+            $covered[$entry->memberYearId] = true;
+        }
+        $uncoveredIds = array_values(array_filter($memberYearIds, fn(int $id) => !isset($covered[$id])));
+        if ($uncoveredIds !== []) {
+            foreach ($this->rosterRepository->findMemberYearRows($uncoveredIds) as $memberYearId => $row) {
+                $entries[] = new SectionRosterEntry(
+                    sectionId: 0,
+                    ageBranchId: 0,
+                    memberYearId: (int) $memberYearId,
+                    memberId: (int) $row['member_id'],
+                    bucket: SectionRosterEntry::BUCKET_ANIME,
+                    functionLabel: '',
+                    isMainFunction: false
+                );
+            }
+        }
+
+        return $this->buildRows($entries, $scoutYearId);
+    }
+
+    /**
+     * @param SectionRosterEntry[] $entries
+     * @return MemberExportRow[]
+     */
+    private function buildRows(array $entries, int $scoutYearId): array
+    {
         if ($entries === []) {
             return [];
         }
@@ -66,17 +113,20 @@ final class MemberExportRowBuilder
         $functionLabelsByMemberYear = $this->rosterRepository->findAllFunctionLabels($memberYearIds);
         $validEmailsByMember = $this->memberEmailRepository->findValidByMemberIds($memberIds);
 
+        // Synthetic sectionless entries (buildForMemberYears()) carry
+        // sectionId 0 — never fed to the classifier, whose input is a real
+        // (section, branch) placement; they fall back to UNKNOWN below.
         $currentRoster = array_map(fn(SectionRosterEntry $e) => [
             'member_id' => $e->memberId,
             'section_id' => $e->sectionId,
             'age_branch_id' => $e->ageBranchId,
-        ], $entries);
+        ], array_values(array_filter($entries, fn(SectionRosterEntry $e) => $e->sectionId > 0)));
         $movementByMemberId = $this->movementClassifier->classifyBatch($scoutYearId, $currentRoster);
 
-        $sectionIdsNeeded = array_values(array_unique(array_merge(
+        $sectionIdsNeeded = array_values(array_filter(array_unique(array_merge(
             array_map(fn(SectionRosterEntry $e) => $e->sectionId, $entries),
             array_filter(array_map(fn(MemberMovementResult $r) => $r->previousSectionId, $movementByMemberId))
-        )));
+        ))));
         $sectionsById = $this->sectionService->findByIds($sectionIdsNeeded);
 
         $rows = [];

@@ -100,7 +100,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Finances (module) | intendant | Bank statement import, receivables, receipts, movements |
 | Statistiques (module) | chief | Member statistics |
 | Calendrier (module) | chief | Chiefs' calendar view (month grid, event edit) |
-| Envoi de mails (module) | chief | Mass email to selected members/sections across one or more scout years; when the Inscriptions module is also active, an extra predefined, non-editable "Inscriptions {année cible}" list is available (see §18.3) |
+| Envoi de mails (module) | chief | Mass email to selected members/sections across one or more scout years; a mail-merge mode sending one personalized email per row of an uploaded Excel file (see §24); when the Inscriptions module is also active, an extra predefined, non-editable "Inscriptions {année cible}" list is available (see §18.3) |
 | Rétrospectives (module) | intendant | Create/manage post-activity retrospective boards |
 | Galerie (module) | chief | Manage photo/video albums |
 | Départs (module registration) | chief | Mark which of this year's animés won't be back next scout year, per section — see §18.1 |
@@ -113,7 +113,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Import Desk | admin | CSV upload/import for current scout year. Year selection. Function mapping status. |
 | Journal | admin | Searchable event log. |
 | Année scoute | admin | The whole scout-year transition, as a workflow of three phases and fourteen steps (§16.3): preparing next year with the staffs, encoding it into Desk, then updating the site. The order is advice, not a gate; steps are either observed by the site or ticked off by hand, per target year. Steps belonging to a disabled module are absent. Displays effective year, public year, staff year, member/section counts. Public year activation is manual-only and available year-round; a non-blocking warning appears when the current public year is past its end date. When the Inscriptions module is active: the final step is refused server-side while any registration request is still pending/accepted (any target year); the staff-year step shows the same count as a non-blocking warning — see §19.2. |
-| Membres | admin | Member search (name/email/phone) for the effective scout year, with detailed view showing all personal data from Desk (contact info, addresses, functions, age), plus effective age calculation with scout year offset. |
+| Membres | admin | Member search (name/email/phone) for the effective scout year, with detailed view showing all personal data from Desk (contact info, addresses, functions, age), plus effective age calculation with scout year offset. Excel export of all search results or of a checked selection, in the canonical member-export format — reusable as-is as a mail-merge audience (§24). |
 | Bannière (module) | admin | Manage homepage banner messages (role-gated visibility, ordered list) |
 | SOS Staff d'U (module) | admin | On-call duty roster (month grid), default forwarding number, live redirect status, scheduled redirection list |
 | Rétrospectives — Config (module) | admin | Per-board moderation/AI settings restricted to chef d'unité |
@@ -722,3 +722,30 @@ PDF, images and office documents only — no archives, nothing executable — wi
 ### 23.5 What a consuming module gets
 
 Messages for one of its own business objects, and nothing else. There is no "all messages", no mailbox listing and no search — so a manager who may open a booking does not thereby gain a window onto the unit's correspondence.
+
+## 24. Mail merge — publipostage from an Excel file (module mass_mail)
+
+An extra list type in the compose dialog: the recipients of one email come from a chief-uploaded Excel file instead of a mailing list, and **each row of the file is one email** — unlike every other list, where one email is sent per address.
+
+### 24.1 The file
+
+- `.xlsx` only, **first sheet only**, first row = column headers.
+- Per row, delivery is resolved in this order: a non-empty **"Tiers"** value designates the member with that Desk identifier — the email goes to every address known for that member; otherwise a non-empty **"Email"** value is the destination (several addresses allowed, separated by `;`); a row with neither, an unknown Tiers, or an invalid address **refuses the whole file**, with an error report naming every offending line at once. Nothing is partially imported.
+- Header recognition is alias-based (case/accent-insensitive): "Tiers" ≡ "Identifiant Desk"; "Email" ≡ "Email(s)" ≡ "Contact" ≡ "Adresse email" ≡ "Courriel". The site's own Excel exports (member exports, form responses) are therefore reusable as audiences without editing.
+- Every column is a **merge variable**, insertable into the subject and the body from the editor ("Cher {{Prenom}}, tu devras payer {{Montant}} €"). Values are always substituted as text (HTML-escaped in the body). A duplicated Tiers or address across rows is allowed (one row = one email) but reported as a warning at import.
+- The uploaded file itself is deleted immediately after parsing; the imported rows are stored encrypted.
+
+### 24.2 Who, and the rest of the flow
+
+- Available to **every chief** (deliberate: the file, not a section list, names the recipients). An imported audience can only be used by the account that imported it, or a chef d'unité; every import is journaled.
+- Scout-year selection does not apply — the file defines the audience.
+- The normal draft → test → send workflow is unchanged. Test mode adds a **per-recipient preview** paging through the file's rows with the real substituted values (plus warnings for unknown variables and empty values); the test email carries the previewed row's values. The tracking page works as usual; an external recipient (no member) is shown by their address.
+- External recipients get the same one-click unsubscribe as members; an unsubscribed external address is remembered (as an irreversible hash) and excluded from every future mail merge.
+
+### 24.3 Retention
+
+Imported audience data is purged automatically **18 months** after the email was sent (fixed, non-editable setting), or 7 days after import if never attached to an email. The send tracking itself survives; the external-unsubscribe list is never purged.
+
+### 24.4 Audience-reusable exports
+
+Every Excel export of people the site produces — member exports ("Membres par section", the admin member search's results/selection export) and, for their contact column, module exports such as form responses — uses headers the mail-merge importer recognizes ("Identifiant Desk" ≡ "Tiers", "Email(s)"/"Contact" ≡ "Email"), so any of them can be re-imported as a mail-merge audience without editing. This is a standing rule for future exports too, not a per-screen coincidence.

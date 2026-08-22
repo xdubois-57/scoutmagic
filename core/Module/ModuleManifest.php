@@ -45,7 +45,7 @@ class ModuleManifest
 
     /**
      * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, breadcrumb: ?array{label: string, parents: array<string>}}> $routes
-     * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string, editable: bool}> $settings
+     * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string, validation_regex: ?string, editable: bool}> $settings
      * @param array<int, array{name: string, category: string, purpose: string, duration: string}> $cookies
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
      * @param array<string, array{role_min: string}> $storage
@@ -512,7 +512,7 @@ class ModuleManifest
 
     /**
      * @param array<string, mixed>|mixed $setting
-     * @return array{key: string, default_value: string, type: string, label: string, description: string, editable: bool}
+     * @return array{key: string, default_value: string, type: string, label: string, description: string, validation_regex: ?string, editable: bool}
      */
     private static function validateSetting(string $moduleId, mixed $setting, int $index): array
     {
@@ -545,6 +545,13 @@ class ModuleManifest
             'type' => $setting['type'],
             'label' => $setting['label'],
             'description' => $setting['description'],
+            'validation_regex' => isset($setting['validation_regex']) && is_string($setting['validation_regex']) && $setting['validation_regex'] !== ''
+                ? $setting['validation_regex'] : null,
+            // "editable": false declares a setting the Paramètres page does
+            // not render at all (core/View/templates/config/settings.html.twig
+            // gates the whole row on it) and SettingService::set() refuses —
+            // e.g. mass_mail's merge_retention_months, or test_tools' mail
+            // capture switch, which is toggled only from its own page.
             'editable' => $setting['editable'] ?? true,
         ];
     }

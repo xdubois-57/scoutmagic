@@ -60,10 +60,11 @@
                             {% if email.listType == 'default_active_members' %}Membres actifs
                             {% elseif email.listType == 'default_chiefs' %}Chefs uniquement
                             {% elseif email.listType == 'default_section' %}Section - {{ sections_by_id[email.listSectionId] ?? '?' }}
+                            {% elseif email.listType == 'mail_merge' %}Publipostage
                             {% else %}{{ custom_lists_by_id[email.listId] ?? 'Liste personnalisée' }}
                             {% endif %}
                         </td>
-                        <td>{{ email.scoutYearIds|map(yid => scout_years_by_id[yid] ?? '?')|join(', ') }}</td>
+                        <td>{{ email.listType == 'mail_merge' ? '—' : email.scoutYearIds|map(yid => scout_years_by_id[yid] ?? '?')|join(', ') }}</td>
                         <td>
                             {% set badgeClass = email.status == 'draft' ? 'text-bg-secondary' : (email.status == 'test' ? 'text-bg-warning' : (email.status == 'sending' ? 'text-bg-info' : 'text-bg-success')) %}
                             <span class="badge {{ badgeClass }}">
@@ -133,6 +134,13 @@ const mmModal = window.bootstrap ? new window.bootstrap.Modal(mmModalEl) : null;
 let mmCurrentId = null;
 let mmCurrentStatus = null;
 let mmSelectedYearIds = [];
+// Mail-merge state: the imported audience ({id, filename, sheet_name,
+// columns, row_count} + sample values), the previewed row offset, and
+// where a picked variable should be inserted (subject vs body).
+let mmAudience = null;
+let mmAudienceSample = {};
+let mmMergeOffset = 0;
+let mmInsertTarget = 'body';
 
 // Except for a chef d'unité (or above), the sender section is locked to
 // the account's own (highest-role) section — not a free choice.
@@ -169,6 +177,9 @@ function isListAllowed(listType, listSectionId) {
     if (MM_DATA.unrestricted) return true;
     if (listType === 'default_chiefs') return true;
     if (listType === 'default_section') return MM_DATA.userSectionIds.includes(listSectionId);
+    // Mail-merge is open to every chief — the uploaded file names the
+    // recipients, not a section list (server-side rule mirrored here).
+    if (listType === 'mail_merge') return true;
     return false; // "Membres actifs" and every custom list
 }
 
@@ -186,6 +197,9 @@ function populateListSelect() {
         html += '<option value="custom:' + l.id + '" data-type="custom" data-list-id="' + l.id + '" '
             + 'title="' + escapeHtml(l.description) + '" ' + disabled + '>' + escapeHtml(l.name) + '</option>';
     });
+    html += '<option value="mail_merge:" data-type="mail_merge" '
+        + 'title="Un fichier Excel importé définit les destinataires : un email par ligne, avec des variables par colonne.">'
+        + 'Publipostage — fichier Excel</option>';
     select.innerHTML = html;
 }
 
@@ -252,6 +266,176 @@ document.querySelectorAll('#mm-body-toolbar [data-command]').forEach(btn => {
     });
 });
 
+function currentListType() {
+    const option = document.getElementById('mm-list').selectedOptions[0];
+    return option ? option.dataset.type : null;
+}
+
+// Shows/hides the mail-merge zone vs the scout-year block depending on
+// the selected list type — a mail-merge email's recipients come from the
+// file, never from a scout year.
+function updateListTypeUi() {
+    const isMerge = currentListType() === 'mail_merge';
+    document.getElementById('mm-merge-zone').classList.toggle('d-none', !isMerge);
+    document.getElementById('mm-merge-list-note').classList.toggle('d-none', !isMerge);
+    document.getElementById('mm-scout-year-zone').classList.toggle('d-none', isMerge);
+    updateVariableDropdown();
+}
+
+function renderMergeAudience() {
+    const uploadState = document.getElementById('mm-merge-upload-state');
+    const infoState = document.getElementById('mm-merge-info-state');
+    if (!mmAudience) {
+        uploadState.classList.remove('d-none');
+        infoState.classList.add('d-none');
+        updateVariableDropdown();
+        return;
+    }
+
+    uploadState.classList.add('d-none');
+    infoState.classList.remove('d-none');
+    document.getElementById('mm-merge-filename').textContent = mmAudience.filename;
+    document.getElementById('mm-merge-meta').textContent =
+        mmAudience.row_count + ' ligne' + (mmAudience.row_count > 1 ? 's' : '') + ' · feuille « ' + mmAudience.sheet_name + ' »';
+    document.getElementById('mm-merge-columns').innerHTML =
+        '<span class="form-text small mt-0 me-1">Colonnes :</span>'
+        + mmAudience.columns.map(c => '<span class="badge text-bg-light border">' + escapeHtml(c) + '</span>').join(' ');
+    document.getElementById('mm-merge-replace-btn').classList.toggle('d-none', mmCurrentStatus !== null && mmCurrentStatus !== 'draft');
+    updateVariableDropdown();
+}
+
+function showMergeWarnings(warnings) {
+    const box = document.getElementById('mm-merge-warnings');
+    if (!warnings || !warnings.length) {
+        box.classList.add('d-none');
+        return;
+    }
+    box.innerHTML = warnings.map(w => '<div>' + escapeHtml(w) + '</div>').join('');
+    box.classList.remove('d-none');
+}
+
+// The "{ } Variable" toolbar dropdown — one entry per audience column,
+// with the first row's value as a sample hint. Visible only while a
+// mail-merge draft with an imported audience is being edited.
+function updateVariableDropdown() {
+    const dropdown = document.getElementById('mm-variable-dropdown');
+    const editable = mmCurrentStatus === null || mmCurrentStatus === 'draft';
+    const visible = currentListType() === 'mail_merge' && !!mmAudience && editable;
+    dropdown.classList.toggle('d-none', !visible);
+    if (!visible) return;
+
+    document.getElementById('mm-variable-menu').innerHTML = mmAudience.columns.map(c => {
+        const sample = (mmAudienceSample[c] ?? '') !== '' ? mmAudienceSample[c] : '—';
+        return '<li><button type="button" class="dropdown-item d-flex justify-content-between gap-3 mm-variable-item" data-column="' + escapeHtml(c) + '">'
+            + '<span>' + escapeHtml(c) + '</span>'
+            + '<span class="text-body-secondary small text-truncate" style="max-width: 10rem;">« ' + escapeHtml(sample) + ' »</span>'
+            + '</button></li>';
+    }).join('');
+
+    document.querySelectorAll('.mm-variable-item').forEach(item => {
+        item.addEventListener('click', () => insertVariable(item.dataset.column));
+    });
+}
+
+// Inserted where the chief last had their cursor — the subject input or
+// the rich-text body (default).
+function insertVariable(column) {
+    const token = '{{' + column + '}}';
+    if (mmInsertTarget === 'subject') {
+        const input = document.getElementById('mm-subject');
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? input.value.length;
+        input.value = input.value.slice(0, start) + token + input.value.slice(end);
+        input.focus();
+        input.setSelectionRange(start + token.length, start + token.length);
+        return;
+    }
+    const body = document.getElementById('mm-body-content');
+    body.focus();
+    document.execCommand('insertText', false, token);
+}
+
+document.getElementById('mm-subject').addEventListener('focus', () => { mmInsertTarget = 'subject'; });
+document.getElementById('mm-body-content').addEventListener('focus', () => { mmInsertTarget = 'body'; });
+
+document.getElementById('mm-list').addEventListener('change', updateListTypeUi);
+
+document.getElementById('mm-merge-import-btn').addEventListener('click', async () => {
+    const input = document.getElementById('mm-merge-file');
+    if (!input.files.length) {
+        showError('Choisissez d\'abord un fichier Excel (.xlsx).');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', input.files[0]);
+    formData.append('_csrf_token', csrf());
+
+    const res = await fetch('/mass-mail/audiences', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!data.success) {
+        showErrorList('Le fichier n\'a pas été accepté :', data.errors || [data.error || 'Erreur.']);
+        return;
+    }
+    document.getElementById('mm-error').classList.add('d-none');
+    input.value = '';
+    mmAudience = data.audience;
+    mmAudienceSample = {};
+    fetchAudienceSample(mmAudience.id);
+    renderMergeAudience();
+    showMergeWarnings(data.warnings);
+});
+
+async function fetchAudienceSample(audienceId) {
+    const res = await fetch('/mass-mail/audiences/' + audienceId);
+    const data = await res.json();
+    if (data.success) {
+        mmAudience = data.audience;
+        mmAudienceSample = data.sample || {};
+        renderMergeAudience();
+    }
+}
+
+document.getElementById('mm-merge-replace-btn').addEventListener('click', () => {
+    // Back to the upload state — the current audience stays attached
+    // until a new import actually succeeds.
+    document.getElementById('mm-merge-upload-state').classList.remove('d-none');
+    document.getElementById('mm-merge-info-state').classList.add('d-none');
+});
+
+async function loadMergePreview(offset) {
+    const res = await fetch('/mass-mail/' + mmCurrentId + '/merge-preview?offset=' + offset);
+    const data = await res.json();
+    if (!data.success) {
+        showError(data.error || 'Erreur.');
+        return;
+    }
+    const p = data.preview;
+    mmMergeOffset = p.offset;
+    document.getElementById('mm-merge-preview-position').textContent = 'Ligne ' + (p.offset + 1) + ' / ' + p.total;
+    document.getElementById('mm-merge-preview-recipient').textContent = 'Destinataire : ' + p.recipient_label + ' (ligne ' + p.row_index + ' du fichier)';
+    document.getElementById('mm-merge-preview-subject').textContent = p.subject;
+    // Server-rendered: the body was sanitized at save time and every
+    // substituted value is HTML-escaped server-side.
+    document.getElementById('mm-merge-preview-body').innerHTML = p.body_html;
+    document.getElementById('mm-merge-prev-btn').disabled = p.offset <= 0;
+    document.getElementById('mm-merge-next-btn').disabled = p.offset >= p.total - 1;
+
+    const warnings = [];
+    if (p.unknown_tokens.length) {
+        warnings.push('Variable(s) inconnue(s) dans le message : ' + p.unknown_tokens.map(t => '{{' + t + '}}').join(', ') + ' — vérifiez l\'orthographe des colonnes.');
+    }
+    if (p.missing_values.length) {
+        warnings.push('Cette ligne n\'a pas de valeur pour : ' + p.missing_values.join(', ') + ' (remplacée par du vide).');
+    }
+    const box = document.getElementById('mm-merge-preview-warnings');
+    box.classList.toggle('d-none', !warnings.length);
+    box.innerHTML = warnings.map(w => '<div>' + escapeHtml(w) + '</div>').join('');
+}
+
+document.getElementById('mm-merge-prev-btn').addEventListener('click', () => loadMergePreview(Math.max(0, mmMergeOffset - 1)));
+document.getElementById('mm-merge-next-btn').addEventListener('click', () => loadMergePreview(mmMergeOffset + 1));
+
 function setFieldsEditable(editable) {
     // The sender section select stays permanently disabled for a
     // restricted (non chef d'unité) account — populateSectionSelect()
@@ -274,6 +458,9 @@ function setFieldsEditable(editable) {
         }
     });
     document.getElementById('mm-body-toolbar').classList.toggle('d-none', !editable);
+    document.getElementById('mm-merge-file').disabled = !editable;
+    document.getElementById('mm-merge-import-btn').disabled = !editable;
+    document.getElementById('mm-merge-replace-btn').classList.toggle('d-none', !editable);
 }
 
 function renderAttachments(attachments) {
@@ -319,6 +506,16 @@ function applyStatusUi(status) {
     document.getElementById('mm-start-sending-btn').classList.toggle('d-none', !isTest);
     document.getElementById('mm-test-send-zone').classList.toggle('d-none', !isTest);
     document.getElementById('mm-progress-zone').classList.toggle('d-none', !isSendingOrSent);
+
+    // Mail-merge: per-recipient preview in test mode, and the test send
+    // note explaining which row's values the test carries.
+    const isMerge = currentListType() === 'mail_merge';
+    document.getElementById('mm-merge-preview-zone').classList.toggle('d-none', !isTest || !isMerge);
+    document.getElementById('mm-test-send-merge-note').classList.toggle('d-none', !isTest || !isMerge);
+    if (isTest && isMerge && mmCurrentId !== null) {
+        loadMergePreview(0);
+    }
+    updateListTypeUi();
     document.getElementById('mm-attachment-upload-zone').classList.toggle('d-none', !isDraft || mmCurrentId === null);
     document.getElementById('mm-attachment-hint').classList.toggle('d-none', mmCurrentId !== null || !isDraft);
 
@@ -342,11 +539,16 @@ function renderProgress(counts) {
 
 function resetModal() {
     mmCurrentId = null;
+    mmAudience = null;
+    mmAudienceSample = {};
+    mmMergeOffset = 0;
     document.getElementById('mm-modal-title').textContent = 'Nouvel email';
     document.getElementById('mm-error').classList.add('d-none');
     document.getElementById('mm-subject').value = '';
     document.getElementById('mm-body-content').innerHTML = '';
     document.getElementById('mm-test-send-email').value = MM_DATA.currentUserEmail;
+    showMergeWarnings([]);
+    renderMergeAudience();
     populateSectionSelect(null);
     populateListSelect();
     // A restricted account's first list option isn't necessarily an
@@ -369,14 +571,23 @@ async function openEmail(id) {
         return;
     }
     mmCurrentId = data.email.id;
+    mmAudience = null;
+    mmAudienceSample = {};
+    mmMergeOffset = 0;
     document.getElementById('mm-modal-title').textContent = data.email.subject;
     document.getElementById('mm-error').classList.add('d-none');
+    showMergeWarnings([]);
     populateSectionSelect(data.email.section_id);
     populateListSelect();
     populateScoutYearCheckboxes();
     document.getElementById('mm-section').value = data.email.section_id;
     document.getElementById('mm-list').value = data.email.list_type + ':' + (data.email.list_type === 'custom' ? data.email.list_id : (data.email.list_section_id ?? ''));
     selectScoutYears(data.email.scout_year_ids);
+    renderMergeAudience();
+    if (data.email.list_type === 'mail_merge' && data.email.audience_id) {
+        mmAudience = { id: data.email.audience_id, filename: '…', sheet_name: '', columns: [], row_count: 0 };
+        await fetchAudienceSample(data.email.audience_id);
+    }
     document.getElementById('mm-subject').value = data.email.subject;
     document.getElementById('mm-body-content').innerHTML = data.email.body_html;
     document.getElementById('mm-test-send-email').value = MM_DATA.currentUserEmail;
@@ -401,6 +612,16 @@ function showError(message) {
     box.classList.remove('d-none');
 }
 
+// A refused mail-merge import reports every offending line at once —
+// rendered as a titled list rather than one flattened sentence.
+function showErrorList(title, messages) {
+    const box = document.getElementById('mm-error');
+    box.innerHTML = '<div class="fw-semibold">' + escapeHtml(title) + '</div>'
+        + '<ul class="mb-0 mt-1">' + messages.map(m => '<li>' + escapeHtml(m) + '</li>').join('') + '</ul>'
+        + '<div class="small mt-1">Corrigez le fichier puis réimportez-le — aucune ligne n\'a été conservée.</div>';
+    box.classList.remove('d-none');
+}
+
 function currentListSelection() {
     const option = document.getElementById('mm-list').selectedOptions[0];
     if (!option) return { list_type: null, list_id: null, list_section_id: null };
@@ -413,6 +634,7 @@ function currentListSelection() {
 
 document.getElementById('mm-save-btn').addEventListener('click', async () => {
     const listSelection = currentListSelection();
+    const isMerge = listSelection.list_type === 'mail_merge';
     const payload = {
         subject: document.getElementById('mm-subject').value,
         body_html: document.getElementById('mm-body-content').innerHTML,
@@ -420,11 +642,16 @@ document.getElementById('mm-save-btn').addEventListener('click', async () => {
         list_type: listSelection.list_type,
         list_id: listSelection.list_id,
         list_section_id: listSelection.list_section_id,
-        scout_year_ids: mmSelectedYearIds,
+        audience_id: isMerge && mmAudience ? mmAudience.id : null,
+        scout_year_ids: isMerge ? [] : mmSelectedYearIds,
         _csrf_token: csrf()
     };
 
-    if (mmSelectedYearIds.length === 0) {
+    if (isMerge && !mmAudience) {
+        showError('Importez d\'abord un fichier Excel pour le publipostage.');
+        return;
+    }
+    if (!isMerge && mmSelectedYearIds.length === 0) {
         showError('Au moins une année scoute doit être sélectionnée.');
         return;
     }
@@ -467,7 +694,7 @@ document.getElementById('mm-test-send-btn').addEventListener('click', async () =
     const res = await fetch('/mass-mail/' + mmCurrentId + '/test-send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: document.getElementById('mm-test-send-email').value, _csrf_token: csrf() })
+        body: JSON.stringify({ to: document.getElementById('mm-test-send-email').value, merge_offset: mmMergeOffset, _csrf_token: csrf() })
     });
     const data = await res.json();
     if (!data.success) {

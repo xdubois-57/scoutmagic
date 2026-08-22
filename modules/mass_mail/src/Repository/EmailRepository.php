@@ -46,14 +46,15 @@ class EmailRepository
         ?int $listId,
         ?int $listSectionId,
         array $scoutYearIds,
-        ?int $createdBy
+        ?int $createdBy,
+        ?int $audienceId = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO mass_mail_emails
-                (subject, body_html, section_id, list_type, list_id, list_section_id, status, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                (subject, body_html, section_id, list_type, list_id, list_section_id, audience_id, status, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$subject, $bodyHtml, $sectionId, $listType, $listId, $listSectionId, Email::STATUS_DRAFT, $createdBy]);
+        $stmt->execute([$subject, $bodyHtml, $sectionId, $listType, $listId, $listSectionId, $audienceId, Email::STATUS_DRAFT, $createdBy]);
         $id = (int) $this->pdo->lastInsertId();
 
         $this->replaceScoutYears($id, $scoutYearIds);
@@ -72,15 +73,16 @@ class EmailRepository
         string $listType,
         ?int $listId,
         ?int $listSectionId,
-        array $scoutYearIds
+        array $scoutYearIds,
+        ?int $audienceId = null
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE mass_mail_emails
-             SET subject = ?, body_html = ?, section_id = ?, list_type = ?, list_id = ?, list_section_id = ?,
+             SET subject = ?, body_html = ?, section_id = ?, list_type = ?, list_id = ?, list_section_id = ?, audience_id = ?,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?'
         );
-        $stmt->execute([$subject, $bodyHtml, $sectionId, $listType, $listId, $listSectionId, $id]);
+        $stmt->execute([$subject, $bodyHtml, $sectionId, $listType, $listId, $listSectionId, $audienceId, $id]);
 
         $this->replaceScoutYears($id, $scoutYearIds);
     }
@@ -243,6 +245,7 @@ class EmailRepository
             listType: (string) $row['list_type'],
             listId: $row['list_id'] !== null ? (int) $row['list_id'] : null,
             listSectionId: $row['list_section_id'] !== null ? (int) $row['list_section_id'] : null,
+            audienceId: $row['audience_id'] !== null ? (int) $row['audience_id'] : null,
             scoutYearIds: $scoutYearIds ?? $this->getScoutYearIds((int) $row['id']),
             status: (string) $row['status'],
             createdAt: (string) $row['created_at'],

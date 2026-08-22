@@ -381,7 +381,7 @@ class ModuleManager
                 $setting['label'],
                 $setting['description'],
                 $moduleId,
-                null,
+                $setting['validation_regex'],
                 null,
                 $setting['editable']
             );
@@ -496,7 +496,7 @@ class ModuleManager
                 $setting['label'],
                 $setting['description'],
                 $manifest->id,
-                null,
+                $setting['validation_regex'],
                 null,
                 $setting['editable']
             );
