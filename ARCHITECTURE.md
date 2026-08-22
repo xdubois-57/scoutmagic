@@ -114,7 +114,7 @@ Three methods, all resolving to the same email address:
 
 Magic link is always available as a fallback. Password and passkey methods can be enabled/disabled site-wide via settings.
 
-Magic link tokens: cryptographically random, single-use, 15-minute expiry, stored hashed in database. The login page polls (or uses SSE) for confirmation — the link can be clicked on a different device.
+Magic link tokens: cryptographically random, single-use, 15-minute expiry, stored hashed in database. The login page polls (or uses SSE) for confirmation — the link can be clicked on a different device. **Clicking the link confirms it; it does not create a session there.** `GET /auth/verify` marks the link used and says so, and the session is established by `GET /auth/poll/{id}`, which only the session that requested the link may call (`Core\Security\PendingMagicLink`) — so a mailbox opened on a shared tablet, a work laptop or a corporate link scanner confirms the address without ever becoming identified. The single exception is the session that asked for the link opening it itself (the ordinary same-phone flow): it is signed in on the spot, which grants nothing its own poll was not about to grant. Pinned by `Tests\Integration\MagicLinkWindowIdentityTest`.
 
 ### Login security
 

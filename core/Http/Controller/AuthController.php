@@ -147,6 +147,31 @@ class AuthController extends AbstractController
     /**
      * GET /auth/verify — user clicked the magic link in their email.
      *
+     * **Confirming a link is not logging in.** The session is created in
+     * the window that ASKED for the link (pollMagicLink() below), and
+     * only there: this request confirms the address, marks the link used,
+     * and says so. The browser the link happened to open in is left
+     * exactly as anonymous as it was.
+     *
+     * That is a real boundary, not a nicety. A magic link travels by
+     * email, and an email is opened wherever the mail happens to be read
+     * — a shared family tablet, a work laptop, a webmail on somebody
+     * else's machine, a corporate scanner that follows links before the
+     * human ever sees them. Every one of those used to end up holding a
+     * live session for the address, indefinitely and silently, while the
+     * person who actually asked to log in saw their own window log in
+     * too. Now the only thing that ever becomes identified is the window
+     * that started the flow.
+     *
+     * The ONE case where this request still creates a session is when
+     * this very session is the one that asked for the link
+     * (`PendingMagicLink::matches()`) — the ordinary "request it on my
+     * phone, open the mail app on my phone" flow, where the tab doing the
+     * polling may have been discarded by the OS in the meantime. Nothing
+     * is widened by it: that session was going to collect the session
+     * anyway through its own poll, and it has now additionally proven
+     * possession of the emailed token.
+     *
      * @param array<string, string> $params
      */
     public function verifyMagicLink(Request $request, array $params): Response
@@ -158,6 +183,10 @@ class AuthController extends AbstractController
             return $this->render('auth/verify.html.twig', ['valid' => false]);
         }
 
+        // Read BEFORE verifying: verifying marks the link used, and this
+        // answer is about the session, not about the link.
+        $isRequestingSession = PendingMagicLink::matches($id);
+
         $verified = $this->authService->verifyMagicLink($id, $token);
 
         if ($verified === null) {
@@ -168,14 +197,20 @@ class AuthController extends AbstractController
             return $this->render('auth/verify.html.twig', ['valid' => false, 'not_a_member' => true]);
         }
 
-        // Create session on this device (Device B)
-        $role = $this->resolveRole($verified->email, $verified->userAccountId);
-        AuthSession::login($verified->userAccountId, $verified->email, $role);
-        $this->storeLinkedMembers($verified->email);
+        if ($isRequestingSession) {
+            $role = $this->resolveRole($verified->email, $verified->userAccountId);
+            AuthSession::login($verified->userAccountId, $verified->email, $role);
+            $this->storeLinkedMembers($verified->email);
+            PendingMagicLink::forget();
+        }
 
         return $this->render('auth/verify.html.twig', [
             'valid' => true,
             'email' => $verified->email,
+            // Drives what the page tells the visitor to do next: carry on
+            // here, or go back to the window where they asked — which is
+            // the one that is about to be identified.
+            'signed_in_here' => $isRequestingSession,
         ]);
     }
 

@@ -32,6 +32,8 @@ Three methods, all resolving to the same email:
 
 **Magic link** (default, always available): enter email → receive link → click to confirm (can be on another device). Login page polls for confirmation. Token: single-use, 15-minute expiry.
 
+**Confirming a link is not logging in.** The session is created in the window that ASKED for the link, and only there; the browser the link happened to be opened in stays anonymous and is told where its session is. A link arrives by email and an email is read wherever it is convenient — a shared tablet, a work laptop, somebody else's webmail, a corporate scanner following links automatically — and none of those should end up holding a session for the address. Opening the link in the very window that asked for it (request on a phone, open the mail app on the same phone) does sign that window in: it was going to collect that session anyway.
+
 **Password**: enter email + password. Available only if user has configured a password.
 
 **Passkey (WebAuthn)**: one-tap with biometrics or security key. No email field (discoverable credentials). Multiple keys per account.
@@ -234,7 +236,7 @@ The site is installable as a Progressive Web App on supported browsers/devices.
 Centralized notification dispatch and delivery across channels.
 
 ### 13.1 Channels
-- **In-app**: notification centre (bell icon in header, unread count badge)
+- **In-app**: notification centre (bell icon in header, unread count badge). The bell's own panel previews the **five most recent unread** notifications under the count, and says how many more are pending; the full list is one click away.
 - **Push**: browser/mobile push notifications (Web Push API, opt-in via subscription)
 
 ### 13.2 Notification types
@@ -244,8 +246,8 @@ Modules can dispatch typed notifications (e.g., calendar event reminder, news ar
 - Role-based visibility (minimum role required to receive)
 
 ### 13.3 Preferences
-- Per-type channel selection (in-app only, push only, both, none)
-- Quiet hours for push notifications (no push during specified time range)
+- Per-type channel selection (in-app only, push only, both, none). Reached from the top of the notification centre, above the list.
+- Quiet hours for push notifications: filling in a start and an end holds push notifications back between those two hours and delivers them when the range ends (a range crossing midnight works); in-app notifications are never held. Leaving both empty follows the site-wide range.
 - Push subscription management (subscribe/unsubscribe)
 
 ### 13.4 Delivery

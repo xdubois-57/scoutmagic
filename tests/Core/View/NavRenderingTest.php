@@ -315,17 +315,14 @@ class NavRenderingTest extends TestCase
 
     public function testNotificationDropdownShowsCountAndLatestAndLink(): void
     {
-        $latest = new \Core\Notification\NotificationRecord(
-            id: 42,
-            userAccountId: 1,
-            memberId: null,
-            typeId: 'core.test',
-            title: 'Nouvelle inscription',
-            body: 'Un membre vient de s\'inscrire.',
-            url: '/members/1',
-            readAt: null,
-            createdAt: '2026-08-09 10:00:00'
-        );
+        // Three unread, three rows: the panel lists up to five (see
+        // partials/notification_dropdown.html.twig), because announcing a
+        // count over a single row reads as the rest having gone missing.
+        $unread = [
+            $this->notification(42, 'Nouvelle inscription'),
+            $this->notification(41, 'Un nouveau message'),
+            $this->notification(40, 'Une réaction'),
+        ];
 
         $builder = new MenuBuilder(Role::ADMIN);
         $menus = $builder->build();
@@ -340,14 +337,57 @@ class NavRenderingTest extends TestCase
             'active_menu_id' => '',
             'active_page_url' => '',
             'unread_notifications_count' => 3,
-            'latest_notification' => $latest,
+            'latest_notifications' => $unread,
         ]);
 
         $this->assertStringContainsString('3 notifications non lues', $html);
         $this->assertStringContainsString('Nouvelle inscription', $html);
+        $this->assertStringContainsString('Un nouveau message', $html);
+        $this->assertStringContainsString('Une réaction', $html);
         $this->assertStringContainsString('action="/notifications/42/read"', $html);
+        $this->assertStringContainsString('action="/notifications/40/read"', $html);
         $this->assertStringContainsString('href="/notifications"', $html);
         $this->assertStringContainsString('Voir toutes les notifications', $html);
+    }
+
+    /**
+     * More unread than the panel shows: said plainly, rather than left to
+     * be inferred from a count that no longer matches the rows under it.
+     */
+    public function testNotificationDropdownSaysHowManyMoreArePending(): void
+    {
+        $html = $this->twig->render('partials/nav.html.twig', [
+            'menus' => (new MenuBuilder(Role::ADMIN))->build(),
+            'current_path' => '/',
+            'is_authenticated' => true,
+            'current_user_display_name' => 'test@example.com',
+            'current_user_role_label' => 'Admin',
+            'site_name' => 'Test Scout',
+            'active_menu_id' => '',
+            'active_page_url' => '',
+            'unread_notifications_count' => 8,
+            'latest_notifications' => array_map(
+                fn(int $id): \Core\Notification\NotificationRecord => $this->notification($id, 'N' . $id),
+                [50, 49, 48, 47, 46]
+            ),
+        ]);
+
+        $this->assertStringContainsString('et 3 autres', $html);
+    }
+
+    private function notification(int $id, string $title): \Core\Notification\NotificationRecord
+    {
+        return new \Core\Notification\NotificationRecord(
+            id: $id,
+            userAccountId: 1,
+            memberId: null,
+            typeId: 'core.test',
+            title: $title,
+            body: 'Un membre vient de s\'inscrire.',
+            url: '/members/1',
+            readAt: null,
+            createdAt: '2026-08-09 10:00:00'
+        );
     }
 
     /**

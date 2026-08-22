@@ -80,15 +80,30 @@ class NotificationRepository
      * and showing an already-read notification in a "pending" indicator
      * would misrepresent what's actually waiting for attention.
      */
-    public function findLatestUnread(int $userAccountId): ?NotificationRecord
+    /**
+     * The most recent unread notifications, newest first — what the
+     * bell's own dropdown shows.
+     *
+     * Several rather than one: the panel already announces the count
+     * ("3 notifications non lues") and used to list a single row under
+     * it, which reads as the other two having gone missing. Bounded
+     * because a dropdown is a preview and /notifications is the list.
+     *
+     * @return NotificationRecord[]
+     */
+    public function findRecentUnread(int $userAccountId, int $limit = 5): array
     {
+        // Interpolated, never bound: an int this class computes, and
+        // MySQL refuses a bound parameter in LIMIT with emulation off —
+        // the same rule the module repositories follow.
+        $limit = max(1, min(50, $limit));
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM notifications WHERE user_account_id = ? AND read_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 1'
+            'SELECT * FROM notifications WHERE user_account_id = ? AND read_at IS NULL
+             ORDER BY created_at DESC, id DESC LIMIT ' . $limit
         );
         $stmt->execute([$userAccountId]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-        return $row !== false ? $this->hydrate($row) : null;
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     public function markRead(int $id): void

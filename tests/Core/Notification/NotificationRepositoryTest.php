@@ -138,40 +138,56 @@ class NotificationRepositoryTest extends TestCase
         $this->assertSame(1, $this->repository->countUnread($this->userId));
     }
 
-    public function testFindLatestUnreadReturnsNullWhenNoneExist(): void
+    public function testFindRecentUnreadReturnsNothingWhenNoneExist(): void
     {
-        $this->assertNull($this->repository->findLatestUnread($this->userId));
+        $this->assertSame([], $this->repository->findRecentUnread($this->userId));
     }
 
-    public function testFindLatestUnreadSkipsAlreadyReadNotifications(): void
+    public function testFindRecentUnreadSkipsAlreadyReadNotifications(): void
     {
         // The most recent notification overall is already read (the
         // member followed a direct link to it without visiting the
-        // centre) — the nav indicator's "last one" must still surface the
-        // older, still-unread one, not the read newest one.
+        // centre) — the nav indicator must still surface the older,
+        // still-unread one, not the read newest one.
         $olderUnread = $this->repository->create($this->userId, null, 'core.system', 'Older unread', 'Corps', '/a');
         $newerRead = $this->repository->create($this->userId, null, 'core.system', 'Newer read', 'Corps', '/b');
         $this->repository->markRead($newerRead);
 
-        $latest = $this->repository->findLatestUnread($this->userId);
+        $recent = $this->repository->findRecentUnread($this->userId);
 
-        $this->assertNotNull($latest);
-        $this->assertSame($olderUnread, $latest->id);
-        $this->assertSame('Older unread', $latest->title);
+        $this->assertCount(1, $recent);
+        $this->assertSame($olderUnread, $recent[0]->id);
+        $this->assertSame('Older unread', $recent[0]->title);
     }
 
-    public function testFindLatestUnreadReturnsTheNewestWhenSeveralAreUnread(): void
+    /**
+     * The bug this replaced a single-row lookup for: the panel announced
+     * "2 notifications non lues" and listed one, which reads as the other
+     * having gone missing.
+     */
+    public function testFindRecentUnreadReturnsSeveralNewestFirst(): void
     {
-        $this->repository->create($this->userId, null, 'core.system', 'First', 'Corps', null);
+        $first = $this->repository->create($this->userId, null, 'core.system', 'First', 'Corps', null);
         $second = $this->repository->create($this->userId, null, 'core.system', 'Second', 'Corps', null);
 
-        $latest = $this->repository->findLatestUnread($this->userId);
+        $recent = $this->repository->findRecentUnread($this->userId);
 
-        $this->assertNotNull($latest);
-        $this->assertSame($second, $latest->id);
+        $this->assertSame([$second, $first], array_map(fn($n) => $n->id, $recent));
     }
 
-    public function testFindLatestUnreadOnlyReturnsRequestedUsersNotification(): void
+    public function testFindRecentUnreadIsBoundedByItsLimit(): void
+    {
+        for ($i = 0; $i < 8; $i++) {
+            $this->repository->create($this->userId, null, 'core.system', 'N' . $i, 'Corps', null);
+        }
+
+        $this->assertCount(5, $this->repository->findRecentUnread($this->userId, 5));
+        // A nonsense limit is clamped rather than passed through to a
+        // LIMIT clause it is interpolated into.
+        $this->assertCount(1, $this->repository->findRecentUnread($this->userId, 0));
+    }
+
+    public function testFindRecentUnreadOnlyReturnsTheRequestedUsersNotifications(): void
     {
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
         $stmt->execute(['enc3', 'idx3']);
@@ -179,7 +195,7 @@ class NotificationRepositoryTest extends TestCase
 
         $this->repository->create($otherUserId, null, 'core.system', 'Theirs', 'Corps', null);
 
-        $this->assertNull($this->repository->findLatestUnread($this->userId));
+        $this->assertSame([], $this->repository->findRecentUnread($this->userId));
     }
 
     public function testDeleteReadOlderThanOnlyDeletesReadRowsPastTheCutoff(): void

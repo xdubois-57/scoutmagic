@@ -12,6 +12,18 @@
         {% endif %}
     </div>
 
+    {#
+      Above the list, not at the foot of it: the preferences are what
+      somebody comes to this page to change after reading one
+      notification too many, and hunting for the link past a screenful of
+      them is exactly the moment they give up.
+    #}
+    <p class="mb-4">
+        <a href="/notifications/preferences" class="text-decoration-none">
+            <i class="bi bi-sliders me-1" aria-hidden="true"></i> Préférences de notification
+        </a>
+    </p>
+
     {% if day_groups|length == 0 %}
         <p class="text-body-secondary">Aucune notification pour le moment.</p>
     {% endif %}
@@ -34,9 +46,5 @@
             {% endfor %}
         </div>
     {% endfor %}
-
-    <p class="mt-4">
-        <a href="/notifications/preferences" class="text-decoration-none">Préférences de notification</a>
-    </p>
 </div>
 {% endblock %}

@@ -1195,13 +1195,18 @@ $unreadNotificationsCount = AuthSession::isAuthenticated()
     ? $notificationRepo->countUnread((int) AuthSession::getUserAccountId())
     : 0;
 $twig->addGlobal('unread_notifications_count', $unreadNotificationsCount);
-// Feeds partials/notification_dropdown.html.twig's "last one" preview —
-// only fetched when there's actually something pending, same "cheap
-// enough, nothing to gain from unconditional" precedent as elsewhere in
-// this bootstrap (see e.g. $linkedMembers above).
+// Feeds partials/notification_dropdown.html.twig's preview — the five
+// most recent unread, not one: the panel announces the count right above
+// them, and a panel saying "3 notifications non lues" over a single row
+// reads as two of them having gone missing. Only fetched when there's
+// actually something pending, same "cheap enough, nothing to gain from
+// unconditional" precedent as elsewhere in this bootstrap (see e.g.
+// $linkedMembers above).
 $twig->addGlobal(
-    'latest_notification',
-    $unreadNotificationsCount > 0 ? $notificationRepo->findLatestUnread((int) AuthSession::getUserAccountId()) : null
+    'latest_notifications',
+    $unreadNotificationsCount > 0
+        ? $notificationRepo->findRecentUnread((int) AuthSession::getUserAccountId(), 5)
+        : []
 );
 $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Public');
 $twig->addGlobal('current_path', $request->getPath());

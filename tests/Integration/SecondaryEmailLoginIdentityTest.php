@@ -224,10 +224,12 @@ class SecondaryEmailLoginIdentityTest extends TestCase
         $magicLinkId = $this->requestLink(self::SECONDARY_EMAIL);
         $deviceA = $_SESSION;
 
-        // Device B (the mailbox) confirms the link in its own session.
+        // Device B (the mailbox) confirms the link in its own session —
+        // and is NOT identified by doing so: only the window that asked
+        // for the link is (Tests\Integration\MagicLinkWindowIdentityTest).
         $_SESSION = [];
         $this->controller->verifyMagicLink($this->verifyRequestFor($magicLinkId), []);
-        $this->assertSame(self::SECONDARY_EMAIL, AuthSession::getEmail());
+        $this->assertFalse(AuthSession::isAuthenticated());
 
         // Back on device A, which was never authenticated.
         $_SESSION = $deviceA;

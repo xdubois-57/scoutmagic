@@ -32,7 +32,16 @@
                                 <tr>
                                     <td>
                                         <div class="fw-semibold">{{ item.type.label }}</div>
-                                        <div class="text-body-secondary small">{{ item.type.description }}</div>
+                                        {#
+                                          On a wide screen the explanation sits under its own
+                                          label, where there is room for it. On a phone the
+                                          "Type" column is whatever is left of 360px after
+                                          three 90px switch columns — about a word per line —
+                                          so the same sentence is rendered once more below,
+                                          across the whole row (the `d-md-none` row further
+                                          down). Two renderings, one source string.
+                                        #}
+                                        <div class="text-body-secondary small d-none d-md-block">{{ item.type.description }}</div>
                                     </td>
                                     {% for channel in ['in_app', 'push', 'email'] %}
                                         <td class="text-center">
@@ -48,6 +57,17 @@
                                             </div>
                                         </td>
                                     {% endfor %}
+                                </tr>
+                                {#
+                                  Mobile only: the explanation on a line of its own, under
+                                  the type and its switches. `border-0 pt-0` so it reads as
+                                  a continuation of the row above rather than as an entry
+                                  of its own.
+                                #}
+                                <tr class="d-md-none">
+                                    <td colspan="4" class="border-0 pt-0 text-body-secondary small">
+                                        {{ item.type.description }}
+                                    </td>
                                 </tr>
                             {% endfor %}
                         </tbody>
@@ -78,8 +98,17 @@
                     </div>
                 </div>
             </div>
+            {#
+              Said in the direction somebody actually reads it: what
+              happens when the two boxes are FILLED IN. The old wording
+              only explained the empty case, which is the state you are
+              already in and the one you came here to leave.
+            #}
             <p class="text-body-secondary small mt-2 mb-0">
-                Laisse les deux heures vides pour suivre le réglage général du site.
+                Renseigne un début et une fin : entre ces deux heures, aucune notification push ne
+                s'affiche sur ton appareil — elle attend et arrive à la fin de la plage. Une plage qui
+                passe minuit (22:00 → 07:00) fonctionne. Les notifications sur le site restent visibles
+                à tout moment. Sans ces deux valeurs, c'est la plage générale du site qui s'applique.
             </p>
             <p class="text-success small mt-2 mb-0 d-none" id="account-settings-saved-notice">Enregistré.</p>
         </div>
