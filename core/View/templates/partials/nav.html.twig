@@ -55,7 +55,7 @@
             {% for menu in menus %}
             <div class="accordion-item">
                 <h2 class="accordion-header">
-                    <button class="accordion-button {% if not menu.id == active_menu_id %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#mob-{{ menu.id }}" aria-expanded="{{ menu.id == active_menu_id ? 'true' : 'false' }}">
+                    <button class="accordion-button {% if menu.id != active_menu_id %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#mob-{{ menu.id }}" aria-expanded="{{ menu.id == active_menu_id ? 'true' : 'false' }}">
                         <i class="bi {{ menu.icon }} me-2"></i> {{ menu.label }}
                     </button>
                 </h2>

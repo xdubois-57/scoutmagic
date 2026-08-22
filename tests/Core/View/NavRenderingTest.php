@@ -416,4 +416,37 @@ class NavRenderingTest extends TestCase
         $this->assertStringContainsString('href="/notifications"', $html);
         $this->assertStringContainsString('Voir toutes les notifications', $html);
     }
+
+    /**
+     * The mobile accordion's "where am I" signal: every menu except the
+     * active one renders its header with the `collapsed` class (grey,
+     * chevron down), only the active menu's header renders expanded.
+     *
+     * Pinned by a test because the original expression — `{% if not
+     * menu.id == active_menu_id %}` — parsed as `(not menu.id) ==
+     * active_menu_id` (Twig gives `not` a tighter precedence than `==`),
+     * so as soon as ANY menu was active no header got `collapsed` at all:
+     * all five sections looked permanently expanded, on every page, and
+     * nothing about the bug was visible in a template review.
+     */
+    public function testOnlyTheActiveMenuHeaderRendersExpanded(): void
+    {
+        $html = $this->renderNav(Role::SUPERADMIN, true, '/setup');
+
+        preg_match_all(
+            '/accordion-button([^"]*)" type="button" data-bs-toggle="collapse" data-bs-target="#mob-([a-z_]+)"/',
+            $html,
+            $matches,
+            PREG_SET_ORDER
+        );
+        $this->assertNotEmpty($matches);
+
+        foreach ($matches as $match) {
+            if ($match[2] === 'configuration') {
+                $this->assertStringNotContainsString('collapsed', $match[1], 'active menu must render expanded');
+            } else {
+                $this->assertStringContainsString('collapsed', $match[1], $match[2] . ' must render collapsed');
+            }
+        }
+    }
 }

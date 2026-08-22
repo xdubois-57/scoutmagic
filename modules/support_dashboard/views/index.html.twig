@@ -207,14 +207,21 @@
             </div>
             <form method="get" action="/support-dashboard" class="d-flex align-items-center gap-2">
                 <label for="history-period" class="form-label mb-0 small">Période</label>
-                <select class="form-select form-select-sm w-auto" id="history-period" name="history"
-                        onchange="this.form.submit()">
+                {# Submission on change is wired in support-dashboard.js —
+                   an inline onchange= would be silently blocked by the CSP
+                   (script-src carries no 'unsafe-inline', and a nonce never
+                   covers an on* attribute), which is exactly how this
+                   selector shipped dead once. The button stays visible for
+                   everyone rather than <noscript>-only: with JS active it
+                   is redundant but harmless, without it it is the only way
+                   to apply the choice. #}
+                <select class="form-select form-select-sm w-auto" id="history-period" name="history">
                     {% for months in history_choices %}
                         <option value="{{ months }}" {{ history.period.value == months ~ '' ? 'selected' : '' }}>{{ months }} mois</option>
                     {% endfor %}
                     <option value="all" {{ history.period.value == 'all' ? 'selected' : '' }}>Tout l'historique</option>
                 </select>
-                <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Afficher</button></noscript>
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Afficher</button>
             </form>
         </div>
 

@@ -165,7 +165,7 @@
                 <span class="small fw-semibold">Lien de participation :</span>
                 <span class="small text-body-secondary text-break flex-grow-1">{{ public_url }}</span>
                 <form method="post" action="/retro/{{ board.id }}/regenerate-link" class="m-0"
-                      onsubmit="return confirm('Générer un nouveau lien rend immédiatement l\'ancien inaccessible pour tout le monde, y compris ceux qui l\'ont déjà reçu ou scanné. Les mots et votes déjà publiés sont conservés. Continuer ?');">
+                      data-confirm="Générer un nouveau lien rend immédiatement l'ancien inaccessible pour tout le monde, y compris ceux qui l'ont déjà reçu ou scanné. Les mots et votes déjà publiés sont conservés. Continuer ?">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-outline-secondary btn-sm text-nowrap">
                         <i class="bi bi-arrow-repeat"></i> Régénérer le lien
@@ -176,7 +176,7 @@
             <div class="mt-2 d-flex gap-2">
                 {% if board.status == 'open' %}
                     <form method="post" action="/retro/{{ board.id }}/close"
-                          onsubmit="return confirm('Clôturer cette rétrospective ? Plus aucun mot ni vote ne sera accepté après.');">
+                          data-confirm="Clôturer cette rétrospective ? Plus aucun mot ni vote ne sera accepté après.">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-danger btn-sm">
                             <i class="bi bi-lock"></i> Clôturer maintenant
@@ -184,7 +184,7 @@
                     </form>
                 {% elseif board.status == 'closed' %}
                     <form method="post" action="/retro/{{ board.id }}/reopen"
-                          onsubmit="return confirm('Réouvrir cette rétrospective ? Les participants pourront à nouveau ajouter des mots et voter.');">
+                          data-confirm="Réouvrir cette rétrospective ? Les participants pourront à nouveau ajouter des mots et voter.">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-success btn-sm">
                             <i class="bi bi-unlock"></i> Réouvrir

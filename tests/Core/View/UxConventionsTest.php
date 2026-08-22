@@ -39,13 +39,7 @@ final class UxConventionsTest extends TestCase
      *
      * @var array<string, int> template path (repo-relative) => count
      */
-    private const INLINE_HANDLER_ALLOWLIST = [
-        'modules/inbound_mail/views/config/index.html.twig' => 1,
-        'modules/rental/views/management/_communications.html.twig' => 1,
-        'modules/retro/views/_board_card.html.twig' => 1,
-        'modules/retro/views/config.html.twig' => 3,
-        'modules/support_dashboard/views/index.html.twig' => 1,
-    ];
+    private const INLINE_HANDLER_ALLOWLIST = [];
 
     /**
      * design.md §7.5 — `data-confirm` works ONLY on the `<form>` element:

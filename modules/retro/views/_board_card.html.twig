@@ -31,7 +31,7 @@
             {% if can_close %}
                 {% if board.status == 'closed' %}
                     <form method="post" action="/retro/{{ board.id }}/reopen"
-                          onsubmit="return confirm('Réouvrir cette rétrospective ? Les participants pourront à nouveau ajouter des mots et voter.');">
+                          data-confirm="Réouvrir cette rétrospective ? Les participants pourront à nouveau ajouter des mots et voter.">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-success btn-sm">
                             <i class="bi bi-unlock"></i> Réouvrir
