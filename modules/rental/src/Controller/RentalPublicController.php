@@ -211,6 +211,15 @@ class RentalPublicController extends AbstractController
         return [
             'asset' => $asset,
             'billing_unit' => $pricing->billingUnit,
+            // With no rate configured at all, the estimate block offers
+            // "tarif sur demande" instead of an empty table adding up to
+            // 0,00 € — a figure the unit would have to walk back, shown as
+            // if it were a price.
+            'has_tariff' => $pricing->hasAnyRate(),
+            // Whether « Estimer » was actually pressed (the form carries a
+            // hidden marker). Without it, submitting with no dates re-rendered
+            // an identical page — for the visitor, a button that does nothing.
+            'estimate_requested' => (string) $request->getQuery('estimate', '') === '1',
             'categories' => $pricing->categories,
             'weeks' => $this->gridBuilder->build(
                 $year,

@@ -18,6 +18,7 @@ use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentKeywords;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
+use Modules\Rental\Document\StandardTemplates;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalBookingEventRepository;
@@ -90,6 +91,29 @@ class RentalDocumentService
     }
 
     /**
+     * The template that will actually be used: the asset's own wording, or —
+     * while nobody has written any — the standard Belgian body ScoutMagic
+     * ships (`Document\StandardTemplates`).
+     *
+     * This is what makes the shipped bodies a real DEFAULT rather than a
+     * button: a unit that never opens the template editor still generates a
+     * complete contract, and the editor opens pre-filled with the text that
+     * generation would use, never an empty surface asking a volunteer to
+     * write a rental contract from nothing. Saving any edit takes over from
+     * the standard; the template page offers a "réinitialiser" action to
+     * come back to it.
+     */
+    public function templateOrStandard(RentalAsset $asset, DocumentType $type): string
+    {
+        $stored = $this->template($asset, $type);
+        if (trim($stored) !== '') {
+            return $stored;
+        }
+
+        return (string) (StandardTemplates::forType($type) ?? '');
+    }
+
+    /**
      * Saves the asset's template.
      *
      * The rich text is sanitized on the way in by `EditableContentService`
@@ -148,7 +172,11 @@ class RentalDocumentService
             return $existing;
         }
 
-        return $this->template($asset, $type);
+        // Through the standard fallback: an asset whose managers never
+        // touched the template editor still hands each booking a complete
+        // contract to start from, rather than an empty page and a
+        // generation error.
+        return $this->templateOrStandard($asset, $type);
     }
 
     /**
@@ -456,6 +484,7 @@ class RentalDocumentService
             'heure_depart' => $asset->departureTime,
             'nuits' => (string) self::nightsBetween($booking->arrivalDate, $booking->departureDate),
             'participants' => $booking->estimatedPersons !== null ? (string) $booking->estimatedPersons : null,
+            'capacite' => $asset->capacity !== null ? (string) $asset->capacity : null,
             'quantite' => (string) max(1, $booking->units),
             'prix_total' => $total !== null ? self::euros($total) : null,
             'acompte' => $deposit !== null ? self::euros($deposit) : null,

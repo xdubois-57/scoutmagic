@@ -51,6 +51,7 @@ final class DocumentKeywords
         'heure_depart' => 'L\'heure de départ prévue pour ce bien',
         'nuits' => 'Le nombre de nuits',
         'participants' => 'Le nombre de participants annoncé',
+        'capacite' => 'La capacité maximale d\'accueil du bien, ou « — »',
         'quantite' => 'La quantité louée, pour un bien en stock',
         'prix_total' => 'Le total à payer, par exemple 467,50 €',
         'acompte' => "Le montant de l'acompte, ou « — » si le bien n'en demande pas",

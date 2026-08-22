@@ -37,7 +37,10 @@
                 <p class="text-body-secondary mb-0">{{ asset.assetType }}</p>
             </div>
             {% if can_manage %}
-                <a href="/mes-locations" class="btn btn-outline-primary">Gérer ce bien</a>
+                {# Straight to THIS asset's managed space — landing on the
+                   list and having to find the asset again was a detour the
+                   button's own label promised not to take. #}
+                <a href="/mes-locations/{{ asset.slug }}" class="btn btn-outline-primary">Gérer ce bien</a>
             {% endif %}
         </div>
 

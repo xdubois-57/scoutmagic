@@ -431,7 +431,16 @@ class RentalRbacTest extends TestCase
         $this->createAsset('Local', 'local');
         AuthSession::login(1, 'nobody@test.be', 'identified');
 
-        $this->assertSame(403, $this->dispatchMyRentals()->getStatusCode());
+        $response = $this->dispatchMyRentals();
+
+        $this->assertSame(403, $response->getStatusCode());
+        // Refused, but told what this space is and how one becomes able to
+        // open it — a bare "Forbidden" explained nothing. The page names no
+        // asset: it is reached precisely by people the module must tell
+        // nothing to.
+        $body = (string) $response->getBody();
+        $this->assertStringContainsString('gestionnaire', $body);
+        $this->assertStringNotContainsString('Local', $body);
     }
 
     public function testAnAnonymousVisitorIsRefusedMyRentals(): void
@@ -657,6 +666,107 @@ class RentalRbacTest extends TestCase
 
         $this->assertStringContainsString('Dès', $body);
         $this->assertStringNotContainsString('Total estimé', $body);
+    }
+
+    public function testAnUnpricedAssetSaysTarifSurDemandeInsteadOfZero(): void
+    {
+        // A public asset nobody priced used to answer an empty table adding
+        // up to « Dès 0,00 € » — a zero shown as if it were a price. It now
+        // says what is true and keeps the request form reachable.
+        $this->createAsset('Local', 'local');
+
+        $arrival = (new \DateTimeImmutable('today'))->modify('+30 days');
+
+        $body = (string) $this->dispatch(
+            '/locations/{slug}',
+            '/locations/local',
+            RentalPublicController::class,
+            'show',
+            'public',
+            [
+                'arrival' => $arrival->format('Y-m-d'),
+                'departure' => $arrival->modify('+3 days')->format('Y-m-d'),
+                'persons' => '20',
+                'month' => $arrival->format('Y-m'),
+            ]
+        )->getBody();
+
+        $this->assertStringContainsString('Tarif sur demande', $body);
+        $this->assertStringNotContainsString('0,00', $body);
+        $this->assertStringContainsString('Introduire une demande', $body);
+    }
+
+    public function testPressingEstimateWithNoDatesExplainsWhatIsMissing(): void
+    {
+        // The form carries a hidden `estimate` marker; without it, pressing
+        // the button with empty dates re-rendered an identical page — for
+        // the visitor, a button that does nothing.
+        $assetId = $this->createAsset('Local', 'local');
+        $this->pricingServiceFor()->saveAssetPricing($assetId, 'per_night', 8000, null, null);
+
+        $body = (string) $this->dispatch(
+            '/locations/{slug}',
+            '/locations/local',
+            RentalPublicController::class,
+            'show',
+            'public',
+            ['estimate' => '1']
+        )->getBody();
+
+        // The warning's own wording — distinct from the standing invitation
+        // ("Touchez votre jour d'arrivée…"), which would make this test pass
+        // on the page as it was.
+        $this->assertStringContainsString('Indiquez une date', $body);
+    }
+
+    public function testAPartialSelectionCoachesTheSecondTap(): void
+    {
+        // Arrival chosen, no departure yet: the page teaches the second tap
+        // instead of repeating the generic invitation.
+        $assetId = $this->createAsset('Local', 'local');
+        $this->pricingServiceFor()->saveAssetPricing($assetId, 'per_night', 8000, null, null);
+
+        $arrival = (new \DateTimeImmutable('today'))->modify('+30 days');
+
+        $body = (string) $this->dispatch(
+            '/locations/{slug}',
+            '/locations/local',
+            RentalPublicController::class,
+            'show',
+            'public',
+            ['arrival' => $arrival->format('Y-m-d'), 'month' => $arrival->format('Y-m')]
+        )->getBody();
+
+        $this->assertStringContainsString('jour de départ', $body);
+        $this->assertStringContainsString($arrival->format('d/m/Y'), $body);
+    }
+
+    public function testTheEstimateExplainsTheUnitPriceInWords(): void
+    {
+        // "5,50 € par personne et par nuit", never the engine's bare
+        // quantity ("75") — the arithmetic must be readable by the person
+        // paying it.
+        $assetId = $this->createAsset('Local', 'local');
+        $this->pricingServiceFor()->saveAssetPricing($assetId, 'per_person_night', 550, null, null);
+
+        $arrival = (new \DateTimeImmutable('today'))->modify('+30 days');
+
+        $body = (string) $this->dispatch(
+            '/locations/{slug}',
+            '/locations/local',
+            RentalPublicController::class,
+            'show',
+            'public',
+            [
+                'arrival' => $arrival->format('Y-m-d'),
+                'departure' => $arrival->modify('+3 days')->format('Y-m-d'),
+                'persons' => '20',
+                'month' => $arrival->format('Y-m'),
+            ]
+        )->getBody();
+
+        $this->assertStringContainsString('5,50', $body);
+        $this->assertStringContainsString('par personne et par nuit', $body);
     }
 
     public function testARangeViolatingAConstraintIsReportedWithoutClaimingUnavailability(): void
@@ -909,5 +1019,9 @@ class RentalRbacTest extends TestCase
         $body = (string) $this->dispatchPublicAsset('local')->getBody();
 
         $this->assertStringContainsString('Gérer ce bien', $body);
+        // Straight to THIS asset's managed space, not to the list — landing
+        // on /mes-locations and hunting for the asset again was a detour the
+        // button's own label promised not to take.
+        $this->assertStringContainsString('href="/mes-locations/local"', $body);
     }
 }

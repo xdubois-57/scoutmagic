@@ -40,7 +40,9 @@ reste :
 1. **Nuits ou jours pleins.** Un local se loue à la nuit : le jour du
    départ redevient libre pour l'arrivée suivante. Une remorque se loue en
    jours pleins : le jour du retour est encore occupé. Ce réglage décide à
-   la fois le calendrier, le prix et la disponibilité.
+   la fois le calendrier, le prix et la disponibilité. Il se choisit dès la
+   création (« Mode de location » — une suggestion suit le type de bien) et
+   reste modifiable ensuite dans les réglages du bien.
 2. **La quantité.** Un local, c'est un. Huit tentes, c'est huit — et le
    public verra combien il en reste.
 3. **Public ou non.** Un bien non public existe, se gère, se réserve à la
@@ -102,6 +104,11 @@ Réglages`. Le simulateur qui s'y trouve passe par exactement le même moteur
 que la page publique et que le contrat : ce que vous y voyez est ce que le
 visiteur verra.
 
+**Tant qu'aucun tarif n'est défini** — ni tarif par défaut, ni case de
+grille — la page publique affiche « Tarif sur demande » à la place d'une
+estimation, et la vue d'ensemble du bien comme la page du Staff d'U vous le
+signalent. Le champ « Tarif par défaut » suffit pour commencer.
+
 **Pour fermer les demandes quelques semaines** — travaux, absence — posez un
 blocage de dates sur la période depuis le calendrier du bien : les dates
 cessent d'être proposées au public. Il n'existe pas d'interrupteur séparé.
@@ -159,6 +166,14 @@ Sans le module Finances, le module fonctionne : il ne parle simplement pas
 d'argent.
 
 ## 8. Contrat et facture
+
+**Un modèle standard est fourni.** Tant que vous n'écrivez rien, le contrat
+et la facture sont générés depuis le modèle standard de ScoutMagic pour la
+location d'un bien scout en Belgique (inspiré des modèles Atouts Camps) —
+un point de départ à relire et à adapter, jamais un avis juridique.
+L'éditeur s'ouvre pré-rempli avec ce texte ; dès que vous l'enregistrez
+modifié, c'est votre version qui compte, et un bouton « Réinitialiser au
+modèle standard » permet d'y revenir.
 
 Trois niveaux, chacun figé quand le suivant naît :
 

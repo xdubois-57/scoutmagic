@@ -69,6 +69,25 @@ enum BillingUnit: string
     }
 
     /**
+     * The French phrase completing a displayed unit price — "5,50 €
+     * <em>par personne et par nuit</em>" — for the public estimate and the
+     * renter's tracking page. The label() above starts a sentence
+     * ("Forfait par séjour"); this one continues one, which is why it is
+     * its own method rather than `label()|lower`.
+     */
+    public function pricePhrase(): string
+    {
+        return match ($this) {
+            self::FLAT_STAY => 'pour le séjour',
+            self::PER_NIGHT => 'par nuit',
+            self::PER_DAY => 'par jour',
+            self::PER_PERSON_NIGHT => 'par personne et par nuit',
+            self::PER_PERSON_DAY => 'par personne et par jour',
+            self::PER_ROOM_DAY => 'par pièce et par jour',
+        };
+    }
+
+    /**
      * Whether availability is counted in nights (half-open interval: the
      * departure day is free again) rather than in full days (closed
      * interval: the departure day is still taken).

@@ -11,8 +11,20 @@
   whole page. The <form> is a real GET form and still works untouched with
   JavaScript absent, which is the fallback.
 
+  Three rules this block enforces (§6.7):
+  - pressing « Estimer » ALWAYS answers something — the hidden `estimate`
+    marker is how the server can tell "the button was pressed with no dates"
+    from "the visitor just arrived", and the first deserves an explanation
+    where the second deserves an invitation;
+  - an asset with no configured rate never shows "0,00 €" as if it were a
+    price: it says "tarif sur demande" and keeps the way to the request form
+    open;
+  - a price line explains its own arithmetic in words ("5,50 € par personne
+    et par nuit"), never as a bare machine quantity ("75").
+
   Requires `asset`, `calendar_month`, `selection`, `form_persons`,
-  `form_units`, `form_category`, `categories` and `estimate`.
+  `form_units`, `form_category`, `categories`, `has_tariff`,
+  `estimate_requested` and `estimate`.
 #}
 {# ── Selection summary and estimate ────────────────────────────── #}
 <div class="card mb-4">
@@ -21,6 +33,7 @@
 
         <form method="get" class="row g-2 align-items-end mb-3">
             <input type="hidden" name="month" value="{{ calendar_month }}">
+            <input type="hidden" name="estimate" value="1">
             <div class="col-6 col-md-3">
                 <label class="form-label" for="arrival">Arrivée</label>
                 <input type="date" class="form-control" id="arrival" name="arrival"
@@ -64,22 +77,61 @@
             {% for error in estimate.errors %}
                 <div class="alert alert-warning py-2 small">{{ error }}</div>
             {% endfor %}
+        {% endif %}
 
+        {% set request_url = '/locations/' ~ asset.slug ~ '/demande'
+            ~ (selection ? '?arrival=' ~ selection[0] ~ (selection[1] ? '&departure=' ~ selection[1] : '') : '')
+            ~ (selection and form_persons ? '&persons=' ~ form_persons : '')
+            ~ (selection and form_units > 1 ? '&units=' ~ form_units : '')
+            ~ (selection and form_category ? '&category=' ~ form_category : '') %}
+
+        {% if not has_tariff %}
+            {#
+              No rate configured at all. An empty table adding up to
+              « Dès 0,00 € » read as a price of zero; this says what is
+              actually true and keeps the visitor moving (§6.7).
+            #}
+            <div class="alert alert-info py-2">
+                <strong>Tarif sur demande.</strong> L'unité n'a pas encore publié de tarif en ligne
+                pour ce bien : introduisez votre demande, elle vous répondra avec une proposition
+                de prix.
+            </div>
+            <a class="btn btn-primary" href="{{ request_url }}">Introduire une demande</a>
+        {% elseif estimate %}
             {% set quote = estimate.quote %}
             <table class="table table-sm">
                 <caption class="visually-hidden">Détail du prix estimé</caption>
                 <thead>
                     <tr>
-                        <th scope="col">Ligne</th>
-                        <th scope="col" class="text-end">Quantité</th>
+                        <th scope="col">Détail</th>
                         <th scope="col" class="text-end">Montant</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for line in quote.lines %}
                         <tr{{ line.isInformational ? ' class="text-body-secondary fst-italic"' : '' }}>
-                            <td>{{ line.label }}</td>
-                            <td class="text-end">{{ line.isInformational ? '—' : line.quantity }}</td>
+                            <td>
+                                {{ line.label }}
+                                {#
+                                  The arithmetic in words, not the engine's
+                                  quantity: "75" for 25 people × 3 nights
+                                  explains nothing to a visitor.
+                                #}
+                                {% if line.isInformational and line.unitPriceCents is not null %}
+                                    <span class="small d-block">
+                                        Facturé après le séjour selon relevé —
+                                        {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} €{{ line.meta.meter_unit is defined and line.meta.meter_unit ? ' / ' ~ line.meta.meter_unit : '' }}
+                                    </span>
+                                {% elseif line.rule == 'base' and line.unitPriceCents is not null %}
+                                    <span class="small text-body-secondary d-block">
+                                        {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} € {{ quote.billingUnit.pricePhrase }}
+                                    </span>
+                                {% elseif line.rule == 'fee_per_person' and line.unitPriceCents is not null %}
+                                    <span class="small text-body-secondary d-block">
+                                        {{ line.quantity }} pers. × {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} €
+                                    </span>
+                                {% endif %}
+                            </td>
                             <td class="text-end">
                                 {{ line.isInformational
                                     ? 'Selon relevé'
@@ -90,7 +142,7 @@
                 </tbody>
                 <tfoot>
                     <tr class="fw-semibold">
-                        <th scope="row" colspan="2" class="text-end">
+                        <th scope="row" class="text-end">
                             {# "dès X €" whenever something needed is still
                                missing — never a firm figure we would have
                                to walk back (§6.7). #}
@@ -116,15 +168,31 @@
               for their name, and the dates they chose travel with
               them so they do not retype what they just picked.
             #}
-            <a class="btn btn-primary"
-               href="/locations/{{ asset.slug }}/demande?arrival={{ selection[0] }}&departure={{ selection[1] }}{{ form_persons ? '&persons=' ~ form_persons : '' }}{{ form_units > 1 ? '&units=' ~ form_units : '' }}{{ form_category ? '&category=' ~ form_category : '' }}">
-                Introduire une demande
-            </a>
+            <a class="btn btn-primary" href="{{ request_url }}">Introduire une demande</a>
         {% else %}
-            <p class="text-body-secondary fst-italic mb-2">
-                Choisissez une date d'arrivée et une date de départ dans le calendrier
-                pour obtenir une estimation.
-            </p>
+            {% if selection and selection[1] is null %}
+                {#
+                  Mid-selection: say what the next tap is instead of
+                  repeating the generic invitation — the two-tap gesture is
+                  not obvious, and this is the moment to teach it.
+                #}
+                <p class="text-body-secondary mb-2">
+                    Arrivée le <strong>{{ selection[0]|date('d/m/Y') }}</strong> — touchez maintenant
+                    votre jour de départ dans le calendrier, ou indiquez-le ci-dessus.
+                </p>
+            {% elseif estimate_requested %}
+                {# « Estimer » was pressed with no usable dates. Answering
+                   nothing here is what made the button look broken. #}
+                <div class="alert alert-warning py-2 small">
+                    Indiquez une date d'arrivée et une date de départ — dans le calendrier ou dans
+                    les champs ci-dessus — pour obtenir une estimation.
+                </div>
+            {% else %}
+                <p class="text-body-secondary fst-italic mb-2">
+                    Touchez votre jour d'arrivée puis votre jour de départ dans le calendrier
+                    pour obtenir une estimation.
+                </p>
+            {% endif %}
 
             {#
               Offered here too, not only after an estimate: somebody
@@ -132,8 +200,7 @@
               price it first, and a page whose only way forward is a
               form they did not ask for is a dead end.
             #}
-            <a class="btn btn-outline-primary"
-               href="/locations/{{ asset.slug }}/demande">Introduire une demande</a>
+            <a class="btn btn-outline-primary" href="{{ request_url }}">Introduire une demande</a>
         {% endif %}
     </div>
 </div>

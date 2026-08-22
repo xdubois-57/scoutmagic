@@ -362,6 +362,105 @@ class RentalConfigControllerTest extends TestCase
         $this->assertSame([], $this->managerRepository->findAllByAsset($assetId, false));
     }
 
+    public function testCreationHonoursTheChosenBillingUnit(): void
+    {
+        // Asked at creation because it decides the calendar, the price and
+        // the availability model together (§6.8) — a default nobody chose
+        // was the first wrong thing every new asset carried.
+        $this->postCreate(['name' => 'Remorque de camp', 'asset_type' => 'Local', 'billing_unit' => 'per_day']);
+
+        $this->assertSame('per_day', $this->billingUnitOf('Remorque de camp'));
+    }
+
+    public function testAForgedBillingUnitFallsBackToTheSchemaDefault(): void
+    {
+        // An unknown value must not fail the whole creation — the unit is a
+        // starting point, correctable from the asset's own settings.
+        $this->postCreate(['name' => 'Local bis', 'asset_type' => 'Local', 'billing_unit' => 'per_hour']);
+
+        $this->assertSame('flat_stay', $this->billingUnitOf('Local bis'));
+    }
+
+    public function testAPublicAssetWithNoRateIsFlaggedOnTheParkPage(): void
+    {
+        // The setup gap a visitor meets first: public, but priced by nobody.
+        // Every estimate answers "Tarif sur demande" until the tariff is
+        // filled in, and this page is where a chief has to learn it.
+        $this->createAsset();
+
+        $body = (string) $this->controllerWithPricing()
+            ->index(new Request('GET', '/admin/locations', [], [], [], []), [])
+            ->getBody();
+
+        $this->assertStringContainsString('Tarif manquant', $body);
+        $this->assertStringContainsString('encore aucun tarif', $body);
+    }
+
+    public function testAPricedAssetIsNotFlagged(): void
+    {
+        $assetId = $this->createAsset();
+        (new \Modules\Rental\Service\RentalPricingService(
+            new \Modules\Rental\Repository\RentalPricingRepository($this->pdo),
+            new \Modules\Rental\Pricing\RentalPricingEngine(),
+            new JournalService(new JournalRepository($this->pdo))
+        ))->saveAssetPricing($assetId, 'per_night', 8000, null, null);
+
+        $body = (string) $this->controllerWithPricing()
+            ->index(new Request('GET', '/admin/locations', [], [], [], []), [])
+            ->getBody();
+
+        $this->assertStringNotContainsString('Tarif manquant', $body);
+        $this->assertStringNotContainsString('encore aucun tarif', $body);
+    }
+
+    /**
+     * @param array<string, string> $body
+     */
+    private function postCreate(array $body): void
+    {
+        $body['_csrf_token'] = CsrfGuard::generateToken();
+        $body['quantity'] ??= '1';
+        $_POST = $body;
+
+        $this->controller->create(new Request('POST', '/admin/locations/create', [], $body, [], []), []);
+    }
+
+    private function billingUnitOf(string $name): string
+    {
+        $stmt = $this->pdo->prepare('SELECT billing_unit FROM rental_assets WHERE name = ?');
+        $stmt->execute([$name]);
+
+        return (string) $stmt->fetchColumn();
+    }
+
+    /**
+     * The controller as `public/index.php` wires it — pricing service
+     * included, which the setUp() instance omits because most tests here
+     * have no use for it.
+     */
+    private function controllerWithPricing(): RentalConfigController
+    {
+        return new RentalConfigController(
+            $this->twig,
+            $this->assetRepository,
+            new RentalAssetService(
+                $this->assetRepository,
+                new RentalSlugGenerator($this->assetRepository),
+                new JournalService(new JournalRepository($this->pdo))
+            ),
+            $this->managerService,
+            new ScoutYearService($this->pdo),
+            $this->settingService,
+            null,
+            null,
+            new \Modules\Rental\Service\RentalPricingService(
+                new \Modules\Rental\Repository\RentalPricingRepository($this->pdo),
+                new \Modules\Rental\Pricing\RentalPricingEngine(),
+                new JournalService(new JournalRepository($this->pdo))
+            )
+        );
+    }
+
     public function testAnOrdinaryGrantStillWorks(): void
     {
         $assetId = $this->createAsset();

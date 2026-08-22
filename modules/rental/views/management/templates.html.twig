@@ -32,7 +32,8 @@
         <div class="alert alert-info">
             Ces gabarits servent de point de départ. À la première génération, chaque réservation en
             prend <strong>sa propre copie</strong> : modifier un gabarit ensuite ne touche aucune
-            réservation existante.
+            réservation existante. Tant que vous n'écrivez rien, c'est le <strong>modèle
+            standard</strong> fourni par ScoutMagic qui est utilisé.
         </div>
 
         {% include '@rental/management/_keywords.html.twig' %}
@@ -53,37 +54,46 @@
 
                     {% set standard = standard_templates[template.type.value]|default(null) %}
                     {% if standard %}
-                        <div class="alert {{ template.body|trim == '' ? 'alert-info' : 'alert-light border' }}">
-                            {% if template.body|trim == '' %}
-                                <p class="mb-2">
-                                    Ce gabarit est vide. ScoutMagic propose un modèle prêt à l'emploi
-                                    pour la location d'un local scout en Belgique&nbsp;: un point de
+                        {% if template.is_standard %}
+                            {#
+                              The default in force: the editor below is
+                              pre-filled with the standard body and that is
+                              also what generation uses until an edit is
+                              saved (RentalDocumentService::templateOrStandard).
+                            #}
+                            <div class="alert alert-info">
+                                <p class="mb-0">
+                                    Ce gabarit est actuellement le <strong>modèle standard</strong>
+                                    fourni par ScoutMagic pour la location d'un bien scout en
+                                    Belgique (inspiré des modèles Atouts Camps)&nbsp;: un point de
                                     départ à relire et à adapter à vos conditions, pas un avis
-                                    juridique.
+                                    juridique. Tant que vous ne le modifiez pas, c'est ce texte qui
+                                    sert à générer le document.
                                 </p>
-                            {% else %}
+                            </div>
+                        {% else %}
+                            <div class="alert alert-light border">
                                 <p class="mb-2 small">
-                                    Repartir du modèle standard belge remplacera entièrement le texte
-                                    ci-dessous.
+                                    Ce gabarit a été personnalisé. Vous pouvez le réinitialiser au
+                                    modèle standard fourni par ScoutMagic — le texte ci-dessous sera
+                                    alors entièrement remplacé.
                                 </p>
-                            {% endif %}
-                            <details>
-                                <summary class="small">Voir le modèle avant de l'insérer</summary>
-                                <div class="border rounded-3 p-3 mt-2 bg-body">{{ standard|raw }}</div>
-                            </details>
-                            <form method="post" action="/mes-locations/gabarit" class="mt-2"
-                                  {% if template.body|trim != '' %}
-                                      data-confirm="Remplacer le texte actuel par le modèle standard ? Le texte que vous avez écrit sera perdu."
-                                  {% endif %}>
-                                {{ csrf_field()|raw }}
-                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                <input type="hidden" name="document_type" value="{{ template.type.value }}">
-                                <input type="hidden" name="body" value="{{ standard }}">
-                                <button type="submit" class="btn btn-sm btn-outline-primary">
-                                    {{ template.body|trim == '' ? 'Partir du modèle standard' : 'Repartir du modèle standard' }}
-                                </button>
-                            </form>
-                        </div>
+                                <details>
+                                    <summary class="small">Voir le modèle standard avant de réinitialiser</summary>
+                                    <div class="border rounded-3 p-3 mt-2 bg-body">{{ standard|raw }}</div>
+                                </details>
+                                <form method="post" action="/mes-locations/gabarit" class="mt-2"
+                                      data-confirm="Réinitialiser au modèle standard ? Le texte que vous avez écrit sera perdu.">
+                                    {{ csrf_field()|raw }}
+                                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                    <input type="hidden" name="document_type" value="{{ template.type.value }}">
+                                    <input type="hidden" name="body" value="{{ standard }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                        Réinitialiser au modèle standard
+                                    </button>
+                                </form>
+                            </div>
+                        {% endif %}
                     {% endif %}
 
                     <form method="post" action="/mes-locations/gabarit">

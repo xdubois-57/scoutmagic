@@ -41,11 +41,22 @@ class StandardTemplatesTest extends TestCase
         // them in a reword is worth catching.
         $contract = StandardTemplates::contract();
 
-        foreach (['{{ prix_total }}', '{{ caution }}', '{{ communication }}'] as $money) {
+        foreach (['{{ prix_total }}', '{{ caution }}', '{{ communication }}', '{{ capacite }}'] as $money) {
             $this->assertStringContainsString($money, $contract);
         }
 
-        foreach (['État des lieux', 'Assurance', 'Annulation', 'Garantie'] as $clause) {
+        // The clause list follows the Atouts Camps model contract for a
+        // Belgian camp location: charges at cost on contradictory meter
+        // readings, and disputes before the courts of where the asset is.
+        foreach ([
+            'État des lieux',
+            'Assurance',
+            'Annulation',
+            'Garantie',
+            'Charges et consommations',
+            'Litiges',
+            'capacité maximale',
+        ] as $clause) {
             $this->assertStringContainsString($clause, $contract);
         }
     }
