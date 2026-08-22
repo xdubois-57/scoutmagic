@@ -12,9 +12,11 @@ use Core\Http\Request;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Module\InstallationProfile;
 use Core\Module\ModuleException;
 use Core\Module\ModuleInfo;
 use Core\Module\ModuleManager;
+use Core\Module\ModuleManifest;
 use Core\Module\ModuleRegistryRepository;
 use Core\Offline\OfflineWhitelist;
 use Core\Security\Role;
@@ -591,9 +593,9 @@ class ModuleManagerTest extends TestCase
     }
 
     /**
-     * @return ModuleManager
+     * @param array<int, string> $flags
      */
-    private function managerWithReceiverFlag(bool $isReceiver): ModuleManager
+    private function managerWithProfile(array $flags): ModuleManager
     {
         return new ModuleManager(
             $this->fixturesDir,
@@ -606,7 +608,7 @@ class ModuleManagerTest extends TestCase
             $this->router,
             null,
             $this->offlineWhitelist,
-            $isReceiver
+            new InstallationProfile($flags)
         );
     }
 
@@ -619,24 +621,65 @@ class ModuleManagerTest extends TestCase
         return array_map(static fn(ModuleInfo $module): string => $module->manifest->id, $modules);
     }
 
-    public function testAReceiverOnlyModuleIsInvisibleOnAnOrdinaryInstallation(): void
+    public function testAGatedModuleIsInvisibleWhenNoneOfItsFlagsHolds(): void
     {
-        $ids = self::moduleIdsOf($this->managerWithReceiverFlag(false)->discoverModules());
+        $ids = self::moduleIdsOf($this->managerWithProfile([])->discoverModules());
 
-        $this->assertNotContains('receiver_only_module', $ids);
+        $this->assertNotContains('visible_when_module', $ids);
         $this->assertContains('valid_module', $ids);
     }
 
-    public function testAReceiverOnlyModuleIsVisibleOnTheReceiver(): void
+    public function testAGatedModuleIsInvisibleWhenOnlyAnUnlistedFlagHolds(): void
     {
-        $ids = self::moduleIdsOf($this->managerWithReceiverFlag(true)->discoverModules());
+        $ids = self::moduleIdsOf($this->managerWithProfile([
+            InstallationProfile::FLAG_LOCAL_INSTALLATION,
+        ])->discoverModules());
 
-        $this->assertContains('receiver_only_module', $ids);
+        $this->assertNotContains('visible_when_module', $ids);
     }
 
-    public function testAReceiverOnlyModuleRegistersNoRouteOnAnOrdinaryInstallation(): void
+    public function testAGatedModuleIsVisibleWhenItsFlagHolds(): void
     {
-        $this->registryRepo->upsert('receiver_only_module', true, '1.0.0', null);
+        $ids = self::moduleIdsOf($this->managerWithProfile([
+            InstallationProfile::FLAG_STATISTICS_RECEIVER,
+        ])->discoverModules());
+
+        $this->assertContains('visible_when_module', $ids);
+    }
+
+    /**
+     * OR semantics: one flag out of several listed ones is enough.
+     */
+    public function testAModuleListingSeveralFlagsIsVisibleWhenOneHolds(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'toolbox',
+            'name' => 'Toolbox',
+            'version' => '1.0.0',
+            'visible_when' => ['reference_installation', 'local_installation'],
+        ]);
+        $profile = new InstallationProfile([InstallationProfile::FLAG_LOCAL_INSTALLATION]);
+
+        $this->assertTrue($profile->hasAny($manifest->visibleWhen));
+    }
+
+    /**
+     * The unset() in discoverModules() is load-bearing: without it a hidden
+     * module reappears through the "in registry but missing from disk"
+     * branch, which is exactly what the filter exists to prevent.
+     */
+    public function testAGatedModuleIsAbsentEvenWithARegistryRow(): void
+    {
+        $this->registryRepo->upsert('visible_when_module', true, '1.0.0', null);
+
+        $ids = self::moduleIdsOf($this->managerWithProfile([])->discoverModules());
+
+        $this->assertNotContains('visible_when_module', $ids);
+    }
+
+    public function testAGatedModuleRegistersNoRouteWhenNoFlagHolds(): void
+    {
+        $this->registryRepo->upsert('visible_when_module', true, '1.0.0', null);
 
         $router = new Router();
         $manager = new ModuleManager(
@@ -650,17 +693,17 @@ class ModuleManagerTest extends TestCase
             $router,
             null,
             $this->offlineWhitelist,
-            false
+            new InstallationProfile([])
         );
         $manager->loadEnabledModules();
 
-        $this->assertNull($router->resolve(new Request('GET', '/receiver-only', [], [], [], [])));
-        $this->assertNotContains('receiver_only_module', $manager->getEnabledModuleIds());
+        $this->assertNull($router->resolve(new Request('GET', '/visible-when', [], [], [], [])));
+        $this->assertNotContains('visible_when_module', $manager->getEnabledModuleIds());
     }
 
-    public function testAReceiverOnlyModuleRegistersItsRouteOnTheReceiver(): void
+    public function testAGatedModuleRegistersItsRouteWhenItsFlagHolds(): void
     {
-        $this->registryRepo->upsert('receiver_only_module', true, '1.0.0', null);
+        $this->registryRepo->upsert('visible_when_module', true, '1.0.0', null);
 
         $router = new Router();
         $manager = new ModuleManager(
@@ -674,11 +717,11 @@ class ModuleManagerTest extends TestCase
             $router,
             null,
             $this->offlineWhitelist,
-            true
+            new InstallationProfile([InstallationProfile::FLAG_STATISTICS_RECEIVER])
         );
         $manager->loadEnabledModules();
 
-        $this->assertNotNull($router->resolve(new Request('GET', '/receiver-only', [], [], [], [])));
-        $this->assertContains('receiver_only_module', $manager->getEnabledModuleIds());
+        $this->assertNotNull($router->resolve(new Request('GET', '/visible-when', [], [], [], [])));
+        $this->assertContains('visible_when_module', $manager->getEnabledModuleIds());
     }
 }

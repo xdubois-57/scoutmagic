@@ -603,12 +603,12 @@ function e2e_activate_all_modules(
     $modulesDir = $repoRoot . '/modules';
 
     // The same question public/index.php asks on every request, through
-    // the same matcher, rather than a hand-set boolean: what the
+    // the same resolver, rather than a hand-built profile: what the
     // application will decide on the first request is what decides the set
     // of modules discovered here. $baseUrl is passed in rather than read
     // from the settings table because index.php only copies it there out
     // of secrets.enc on that first request — later than this.
-    $isStatisticsReceiver = Core\Statistics\DestinationMatcher::isReceiver(
+    $installationProfile = Core\Module\InstallationProfile::resolve(
         $baseUrl,
         (string) ($settingService->get('statistics_destination') ?? '')
     );
@@ -624,7 +624,7 @@ function e2e_activate_all_modules(
         new Core\Http\Router(),
         null,
         new Core\Offline\OfflineWhitelist(),
-        $isStatisticsReceiver
+        $installationProfile
     );
 
     // discoverModules() returns a LIST (sorted by the admin's own module

@@ -119,16 +119,35 @@ The directory name **must** match the `id` field in `module.json`.
 }
 ```
 
-## `receiver_only` — a module only the statistics receiver sees
+## `visible_when` — a module only some installations see
 
-`"receiver_only": true` (top level, boolean, default false) marks a module that only makes sense on the ScoutMagic installation that **receives** usage statistics (ARCHITECTURE.md §8.47/§8.49). `ModuleManager` filters such a manifest out of `discoverModules()` on every other installation, which removes its routes, menu entries, registry listing and scheduled tasks in one stroke.
+`"visible_when"` (top level, list of installation-flag names, default `[]`) gates a module on the *kind* of installation it is running on (ARCHITECTURE.md §8.49). It replaced the older boolean `receiver_only`, which could not express "the reference installation **or** a local one".
 
-Two things to know before using it:
+```json
+{
+  "id": "some_module",
+  "visible_when": ["reference_installation", "local_installation"]
+}
+```
 
-- It is **ergonomic, not a security boundary.** The real protection is that a module which is never loaded registers no routes at all. Do not use it as an access control.
-- It is **strictly typed.** `"receiver_only": "false"` is a load-time error rather than a truthy string, because getting it wrong hides the module on every installation and the symptom — a module that silently does not exist — is close to undebuggable.
+Absent or `[]` means **always visible** — that is every module's default. When the list is non-empty, `ModuleManager` filters the manifest out of `discoverModules()` on any installation where none of the flags holds, which removes its routes, menu entries, registry listing and scheduled tasks in one stroke.
 
-There is exactly one such module (`support_dashboard`), and there is unlikely to be a second: this is not a general "hide a module" mechanism.
+The known flags — the complete list lives in `Core\Module\InstallationProfile::KNOWN_FLAGS`, and the manifest is validated against it:
+
+| Flag | Holds when |
+| --- | --- |
+| `statistics_receiver` | this installation is the one usage statistics are reported to (`base_url` matches `statistics_destination`). |
+| `reference_installation` | `base_url`'s host is `scoutmagic.be` (a `www.` prefix is equivalent; another subdomain is not). |
+| `local_installation` | the host is `localhost`, `127.0.0.1` or `::1`, or its last DNS label is `test`, `local` or `localhost`. |
+
+Four things to know before using it:
+
+- **The semantics are OR.** The module is visible as soon as *any* listed flag holds — never "all of them". A list of two flags widens visibility, it does not narrow it.
+- **Every flag is decided from the `base_url` setting**, never from the `Host` header, which is attacker-supplied on every request. An empty or unparseable `base_url` yields no flag at all: "unknown" never reads as "match".
+- It is **ergonomic, not a security boundary.** The real protection is that a module which is never loaded registers no routes at all. Do not use it as access control.
+- It is **strictly validated.** A non-list, a non-string element, a duplicate, or a flag name that is not in `KNOWN_FLAGS` is a load-time `ModuleException` naming both the offending value and the known set. Getting it wrong hides the module on every installation, and the symptom — a module that silently does not exist — is close to undebuggable, which is precisely why a typo must not be silent.
+
+One module uses it today: `support_dashboard` (`["statistics_receiver"]`). This is not a general "hide a module" mechanism — adding a flag means adding it to `InstallationProfile::KNOWN_FLAGS`, and every flag has to be answerable from `base_url` alone.
 
 ## Manifest validation rules
 

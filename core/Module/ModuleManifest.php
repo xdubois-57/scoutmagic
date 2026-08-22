@@ -52,6 +52,7 @@ class ModuleManifest
      * @param array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}}> $notifications
      * @param array<int, array{path: string, label: string, match: string, role_min: string}> $offline
      * @param array<int, string> $requires
+     * @param array<int, string> $visibleWhen
      */
     public function __construct(
         public readonly string $id,
@@ -73,13 +74,22 @@ class ModuleManifest
         // $dir, '0.0.0', [], [], [], [], [])), so inserting a parameter
         // anywhere earlier would silently shift those arguments.
         public readonly array $requires = [],
-        // Whether this module only makes sense on the installation that
-        // RECEIVES usage statistics (ARCHITECTURE.md §8.49). A receiver-only
-        // module is filtered out of discoverModules() everywhere else, so it
-        // never appears in the module registry page, a menu, a route table
-        // or the scheduler. Same "last parameter with a default" rule as
-        // $requires above, and for the same reason.
-        public readonly bool $receiverOnly = false
+        // Installation flags (Core\Module\InstallationProfile) gating this
+        // module's visibility (ARCHITECTURE.md §8.49). Empty means "always
+        // visible", which is every module's default.
+        //
+        // **Semantics are OR**: the module is visible as soon as ANY listed
+        // flag holds for this installation, never only when all of them do.
+        // A module listing ["reference_installation", "local_installation"]
+        // is visible on the reference installation AND on a developer's
+        // machine — that is the whole point of a list.
+        //
+        // A module whose flags do not hold is filtered out of
+        // discoverModules(), so it never appears in the module registry
+        // page, a menu, a route table or the scheduler. Same "last
+        // parameter with a default" rule as $requires above, and for the
+        // same reason.
+        public readonly array $visibleWhen = []
     ) {
     }
 
@@ -241,16 +251,36 @@ class ModuleManifest
         $enabledByDefault = (bool) ($data['enabled_by_default'] ?? false);
         $description = (string) ($data['description'] ?? '');
 
-        // Typed strictly rather than cast: a manifest saying
-        // "receiver_only": "false" (a string, which is truthy) would
-        // otherwise hide a module on every installation, and the symptom —
-        // a module that silently does not exist — is close to undebuggable.
-        if (isset($data['receiver_only']) && !is_bool($data['receiver_only'])) {
-            throw new ModuleException("Module '{$id}' receiver_only must be a boolean");
+        // Validate visible_when (Core\Module\InstallationProfile flags).
+        //
+        // Strict on purpose, and this is the whole reason the field replaced
+        // a plain boolean: the failure mode of getting it wrong is a module
+        // that silently does not exist anywhere, which ARCHITECTURE.md §8.49
+        // itself calls close to undebuggable. So a non-list, a non-string
+        // element and an unknown flag name are all load-time errors, and the
+        // message names both the offending value and the known set rather
+        // than leaving the author to guess the spelling.
+        $visibleWhen = [];
+        if (isset($data['visible_when'])) {
+            if (!is_array($data['visible_when']) || !array_is_list($data['visible_when'])) {
+                throw new ModuleException("Module '{$id}' visible_when must be a list of flag names");
+            }
+            foreach ($data['visible_when'] as $i => $flag) {
+                if (!is_string($flag)) {
+                    throw new ModuleException("Module '{$id}' visible_when[{$i}] must be a string");
+                }
+                if (!in_array($flag, InstallationProfile::KNOWN_FLAGS, true)) {
+                    $known = implode(', ', InstallationProfile::KNOWN_FLAGS);
+                    throw new ModuleException("Module '{$id}' visible_when[{$i}] is not a known installation flag: '{$flag}' (known: {$known})");
+                }
+                if (in_array($flag, $visibleWhen, true)) {
+                    throw new ModuleException("Module '{$id}' visible_when[{$i}] duplicates flag '{$flag}'");
+                }
+                $visibleWhen[] = $flag;
+            }
         }
-        $receiverOnly = (bool) ($data['receiver_only'] ?? false);
 
-        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline, $requires, $receiverOnly);
+        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline, $requires, $visibleWhen);
     }
 
     /**

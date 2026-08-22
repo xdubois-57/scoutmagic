@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Core\Module;
 
+use Core\Module\InstallationProfile;
 use Core\Module\ModuleException;
 use Core\Module\ModuleManifest;
 use PHPUnit\Framework\TestCase;
@@ -747,7 +748,7 @@ class ModuleManifestTest extends TestCase
         $this->assertSame([], $manifest->requires);
     }
 
-    public function testReceiverOnlyDefaultsToFalse(): void
+    public function testVisibleWhenDefaultsToEmpty(): void
     {
         $manifest = ModuleManifest::fromArray([
             'id' => 'plain',
@@ -755,35 +756,124 @@ class ModuleManifestTest extends TestCase
             'version' => '1.0.0',
         ]);
 
-        $this->assertFalse($manifest->receiverOnly);
+        $this->assertSame([], $manifest->visibleWhen);
     }
 
-    public function testReceiverOnlyIsReadFromTheManifest(): void
+    public function testVisibleWhenAcceptsASingleFlag(): void
     {
         $manifest = ModuleManifest::fromArray([
             'id' => 'receiver',
             'name' => 'Receiver',
             'version' => '1.0.0',
-            'receiver_only' => true,
+            'visible_when' => ['statistics_receiver'],
         ]);
 
-        $this->assertTrue($manifest->receiverOnly);
+        $this->assertSame(['statistics_receiver'], $manifest->visibleWhen);
+    }
+
+    public function testVisibleWhenAcceptsSeveralFlags(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'toolbox',
+            'name' => 'Toolbox',
+            'version' => '1.0.0',
+            'visible_when' => ['reference_installation', 'local_installation'],
+        ]);
+
+        $this->assertSame(['reference_installation', 'local_installation'], $manifest->visibleWhen);
+    }
+
+    public function testAnEmptyVisibleWhenMeansAlwaysVisible(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'plain',
+            'name' => 'Plain',
+            'version' => '1.0.0',
+            'visible_when' => [],
+        ]);
+
+        $this->assertSame([], $manifest->visibleWhen);
     }
 
     /**
-     * A string "false" is truthy in PHP, so a lenient cast would hide the
-     * module on every installation — a symptom that is close to
-     * undebuggable. Rejected at load time instead.
+     * The whole reason visible_when replaced a plain boolean: a typo used
+     * to produce a module that silently existed nowhere.
      */
-    public function testANonBooleanReceiverOnlyIsRejected(): void
+    public function testAnUnknownVisibleWhenFlagIsRejected(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('reference_instalation');
+
+        ModuleManifest::fromArray([
+            'id' => 'toolbox',
+            'name' => 'Toolbox',
+            'version' => '1.0.0',
+            'visible_when' => ['reference_instalation'],
+        ]);
+    }
+
+    public function testAnUnknownVisibleWhenFlagNamesTheKnownSet(): void
+    {
+        try {
+            ModuleManifest::fromArray([
+                'id' => 'toolbox',
+                'name' => 'Toolbox',
+                'version' => '1.0.0',
+                'visible_when' => ['nope'],
+            ]);
+            $this->fail('Expected ModuleException');
+        } catch (ModuleException $e) {
+            foreach (InstallationProfile::KNOWN_FLAGS as $flag) {
+                $this->assertStringContainsString($flag, $e->getMessage());
+            }
+        }
+    }
+
+    public function testANonListVisibleWhenIsRejected(): void
     {
         $this->expectException(ModuleException::class);
 
         ModuleManifest::fromArray([
-            'id' => 'receiver',
-            'name' => 'Receiver',
+            'id' => 'toolbox',
+            'name' => 'Toolbox',
             'version' => '1.0.0',
-            'receiver_only' => 'false',
+            'visible_when' => ['flag' => 'statistics_receiver'],
+        ]);
+    }
+
+    public function testAScalarVisibleWhenIsRejected(): void
+    {
+        $this->expectException(ModuleException::class);
+
+        ModuleManifest::fromArray([
+            'id' => 'toolbox',
+            'name' => 'Toolbox',
+            'version' => '1.0.0',
+            'visible_when' => 'statistics_receiver',
+        ]);
+    }
+
+    public function testANonStringVisibleWhenElementIsRejected(): void
+    {
+        $this->expectException(ModuleException::class);
+
+        ModuleManifest::fromArray([
+            'id' => 'toolbox',
+            'name' => 'Toolbox',
+            'version' => '1.0.0',
+            'visible_when' => [true],
+        ]);
+    }
+
+    public function testADuplicatedVisibleWhenFlagIsRejected(): void
+    {
+        $this->expectException(ModuleException::class);
+
+        ModuleManifest::fromArray([
+            'id' => 'toolbox',
+            'name' => 'Toolbox',
+            'version' => '1.0.0',
+            'visible_when' => ['local_installation', 'local_installation'],
         ]);
     }
 }

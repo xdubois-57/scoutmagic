@@ -4,7 +4,7 @@
   "description": "Réception et consultation des rapports d'utilisation envoyés par les installations ScoutMagic.",
   "version": "1.1.0",
   "enabled_by_default": false,
-  "receiver_only": true,
+  "visible_when": ["statistics_receiver"],
   "routes": [
     {
       "path": "/api/statistics",

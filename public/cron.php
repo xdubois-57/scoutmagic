@@ -144,9 +144,10 @@ $moduleManager = new ModuleManager(
     new Router(),
     null,
     new \Core\Offline\OfflineWhitelist(),
-    // Same receiver resolution as public/index.php — a receiver-only
-    // module's scheduled tasks must be resolvable under a real crontab too.
-    \Core\Statistics\DestinationMatcher::isReceiver(
+    // Same profile resolution as public/index.php, through the same
+    // resolver — a module gated by visible_when must have its scheduled
+    // tasks resolvable under a real crontab too.
+    \Core\Module\InstallationProfile::resolve(
         (string) ($settingService->get('base_url') ?? ''),
         (string) ($settingService->get('statistics_destination') ?? '')
     )

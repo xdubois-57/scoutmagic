@@ -1332,11 +1332,12 @@ $offlineWhitelist = new OfflineWhitelist();
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
 $moduleRegistryRepo = new ModuleRegistryRepository($pdo);
-// Is THIS installation the statistics receiver (ARCHITECTURE.md §8.49)?
-// Decided from base_url vs. statistics_destination, never from the Host
-// header, and resolved here so ModuleManager receives a plain boolean
-// rather than learning what a statistics destination is.
-$isStatisticsReceiver = \Core\Statistics\DestinationMatcher::isReceiver(
+// Which named flags hold for THIS installation (ARCHITECTURE.md §8.49)?
+// Decided from base_url, never from the Host header, and resolved here
+// through the single resolver every entry point calls so ModuleManager
+// receives an already-built profile rather than learning what a statistics
+// destination or a reference host is.
+$installationProfile = \Core\Module\InstallationProfile::resolve(
     (string) ($settingService->get('base_url') ?? ''),
     (string) ($settingService->get('statistics_destination') ?? '')
 );
@@ -1352,7 +1353,7 @@ $moduleManager = new ModuleManager(
     $router,
     $notificationService,
     $offlineWhitelist,
-    $isStatisticsReceiver
+    $installationProfile
 );
 
 // Usage statistics (Core\Statistics, ARCHITECTURE.md §8.47). Built here
