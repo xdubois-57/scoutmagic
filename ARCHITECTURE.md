@@ -1559,6 +1559,28 @@ pass `validation_regex` (declared for years on mass_mail's
 makes `merge_retention_months` render greyed and non-editable on
 Configuration > Paramètres.
 
+**End-to-end coverage (`tests/e2e/specs/mass-mail-merge.spec.js`)** — the
+whole journey on real files: a bad `.xlsx` refused with its line-by-line
+report, a good one (static fixtures under `tests/e2e/fixtures/`, generated
+with PhpSpreadsheet, Tiers value matching the harness's seeded
+`E2E-MEMBER`) imported, variables inserted through the toolbar dropdown
+AND typed by hand, the per-recipient preview paged through both rows, and
+the real batch send — via `runScheduler()`, the instance's own
+`public/cron.php` — asserted in the maildrop as two DIFFERENT personalized
+messages. Writing it caught two real bugs the PHP tests structurally could
+not: the inline compose script's `'{{' + column + '}}'` was evaluated by
+Twig (which renders that script), so the Variable button inserted garbage
+— the braces are now split `'{'+'{'` (list.html.twig); and
+`public/cron.php` built its `NotificationService` AFTER
+`loadEnabledModules()`, so no module notification type was ever registered
+under a real crontab and the first batch recipient holding a login account
+killed the whole send task mid-batch ("Undeclared notification type"),
+stranding every later recipient as 'pending' — the service is now built
+first and handed to ModuleManager. `scripts/e2e-support.php run-scheduler`
+also gained the same `sendmail_path` maildrop redirection the web server
+gets, without which no scheduler-driven task could send mail in the
+harness at all.
+
 ### 8.62 Member-search export, and the audience-reusable export rule
 
 `GET /admin/members/export` (role `admin`, same floor as the search page

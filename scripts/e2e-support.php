@@ -1252,7 +1252,16 @@ function e2e_merge_coverage(string $repoRoot, string $coverageDir, string $outpu
  */
 function e2e_run_scheduler(string $instanceDir): int
 {
-    $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($instanceDir . '/public/cron.php') . ' 2>&1';
+    // The same maildrop redirection scripts/e2e.sh gives the web server
+    // (its `-d sendmail_path=...` on `php -S`): a task handler that sends
+    // mail — the mass-mail batch send above all — must land in the run's
+    // mailbox too, not shell out to a /usr/sbin/sendmail this container
+    // doesn't have. The inner quotes survive escapeshellarg on purpose:
+    // sendmail_path is run through sh, and the repo path may hold spaces.
+    $sendmailPath = 'sendmail_path=php \'' . dirname(__DIR__) . '/scripts/e2e-maildrop.php\'';
+    $command = escapeshellarg(PHP_BINARY)
+        . ' -d ' . escapeshellarg($sendmailPath)
+        . ' ' . escapeshellarg($instanceDir . '/public/cron.php') . ' 2>&1';
     $output = [];
     $exitCode = 0;
     exec($command, $output, $exitCode);

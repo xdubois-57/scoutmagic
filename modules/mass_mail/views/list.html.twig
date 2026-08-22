@@ -340,7 +340,11 @@ function updateVariableDropdown() {
 // Inserted where the chief last had their cursor — the subject input or
 // the rich-text body (default).
 function insertVariable(column) {
-    const token = '{{' + column + '}}';
+    // The braces are split ('{'+'{') so Twig, which renders this inline
+    // script, never sees a literal {{ … }} to evaluate — with them joined
+    // it silently swallowed the token and inserted garbage text (caught
+    // by tests/e2e/specs/mass-mail-merge.spec.js).
+    const token = '{' + '{' + column + '}' + '}';
     if (mmInsertTarget === 'subject') {
         const input = document.getElementById('mm-subject');
         const start = input.selectionStart ?? input.value.length;
@@ -423,7 +427,8 @@ async function loadMergePreview(offset) {
 
     const warnings = [];
     if (p.unknown_tokens.length) {
-        warnings.push('Variable(s) inconnue(s) dans le message : ' + p.unknown_tokens.map(t => '{{' + t + '}}').join(', ') + ' — vérifiez l\'orthographe des colonnes.');
+        // Braces split for the same Twig-evaluation reason as insertVariable().
+        warnings.push('Variable(s) inconnue(s) dans le message : ' + p.unknown_tokens.map(t => '{' + '{' + t + '}' + '}').join(', ') + ' — vérifiez l\'orthographe des colonnes.');
     }
     if (p.missing_values.length) {
         warnings.push('Cette ligne n\'a pas de valeur pour : ' + p.missing_values.join(', ') + ' (remplacée par du vide).');
