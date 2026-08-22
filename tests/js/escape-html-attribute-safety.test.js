@@ -20,7 +20,11 @@ const here = dirname(fileURLToPath(import.meta.url));
  */
 function loadEscapeHtml(relativePath) {
     const source = readFileSync(resolve(here, '../../', relativePath), 'utf8');
-    const match = source.match(/function escapeHtml\s*\([^)]*\)\s*\{[\s\S]*?\n\}/);
+    // The closing brace may be indented (the definition now lives inside
+    // finance-receipts.js's IIFE) — \s* accepts that; the lazy body match
+    // still stops at the first line holding nothing but a brace, which is
+    // the function's own end since escapeHtml has no nested blocks.
+    const match = source.match(/function escapeHtml\s*\([^)]*\)\s*\{[\s\S]*?\n\s*\}/);
     if (match === null) {
         throw new Error(`No escapeHtml() found in ${relativePath}`);
     }
@@ -28,8 +32,15 @@ function loadEscapeHtml(relativePath) {
     return new Function(`${match[0]}\nreturn escapeHtml;`)();
 }
 
+// The receipts page's inline script moved into public/assets/js/
+// finance-receipts.js (its escapeHtml went with it) — this list follows
+// the definition, wherever it lives, because the point is to exercise the
+// shipped source. The suite failing to LOAD counts as nobody noticing the
+// move: loadEscapeHtml() throws before a single `it` runs, which is
+// exactly what happened when the receipts template stopped carrying the
+// function.
 const templates = {
-    'finance receipts list': 'modules/finance/views/receipts/list.html.twig',
+    'finance receipts list': 'public/assets/js/finance-receipts.js',
     'mass_mail list': 'modules/mass_mail/views/list.html.twig',
 };
 

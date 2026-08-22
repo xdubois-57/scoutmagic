@@ -1,0 +1,48 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  A row of key-figure tiles — the "summary before the detail" block at the
+  top of a dashboard-shaped page (design.md §7.6).
+
+  Five dashboards used to draw these five different ways (border-rounded,
+  card-shadow, centered value-first, .h4-in-card, small-then-h4); the data
+  shape below is member_stats' own, which forecast.html.twig had already
+  copied — this partial just makes the copy official and single.
+
+  Usage:
+  {% include 'partials/stat_tiles.html.twig' with {
+      tiles: [
+          { label: 'Animés', value: 42, icon: 'bi-people-fill', tone: 'primary' },
+          { label: 'Variation', value: '+3', icon: 'bi-arrow-left-right', tone: 'success',
+            sublabel: 'vs. 2025', link_label: 'Gérer', link_url: '/x' },
+      ],
+      columns: 4,        -- optional, md+ column count (default 4, mobile always 2)
+  } only %}
+
+  `tone` colours the icon only (text-{tone}), never the figure: the number
+  stays ink-coloured everywhere so a row of tiles reads as one table, not
+  a traffic light. All fields but `label` and `value` are optional.
+#}
+<div class="row row-cols-2 row-cols-md-{{ columns|default(4) }} g-3 mb-4 stat-tiles">
+    {% for tile in tiles %}
+        <div class="col">
+            <div class="card h-100">
+                <div class="card-body py-3">
+                    <div class="small text-body-secondary d-flex align-items-center gap-1 mb-1">
+                        {% if tile.icon|default('') %}<i class="bi {{ tile.icon }} text-{{ tile.tone|default('primary') }}" aria-hidden="true"></i>{% endif %}
+                        {{ tile.label }}
+                    </div>
+                    <div class="fs-3 fw-semibold lh-1">{{ tile.value }}</div>
+                    {% if tile.sublabel|default('') %}
+                        <div class="small text-body-secondary mt-1">{{ tile.sublabel }}</div>
+                    {% endif %}
+                    {% if tile.link_label|default('') and tile.link_url|default('') %}
+                        <a href="{{ tile.link_url }}" class="small mt-1 d-inline-block">{{ tile.link_label }}</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+</div>

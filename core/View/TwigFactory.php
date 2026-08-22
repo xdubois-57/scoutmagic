@@ -388,6 +388,49 @@ class TwigFactory
             return 'le ' . $environment->getFilter('french_date')->getCallable()($then);
         }));
 
+        // Short French date/time formats. Two filters instead of 30-odd
+        // hand-written |date('d/m/Y…') calls that had drifted into five
+        // variants ('d/m/Y', 'd/m/Y H:i', 'd/m/Y à H:i', 'd/m/Y à H\hi'):
+        // one canonical rendering each, so two adjacent pages stop
+        // disagreeing about what a timestamp looks like. french_date
+        // above stays the long form ("12 juillet 2026") for prose.
+        $environment->addFilter(new TwigFilter('date_fr', function ($date) {
+            if ($date === null || $date === '') {
+                return '';
+            }
+            $dateTime = $date instanceof \DateTimeInterface ? $date : new \DateTimeImmutable((string) $date);
+
+            return $dateTime->format('d/m/Y');
+        }));
+        $environment->addFilter(new TwigFilter('datetime_fr', function ($date) {
+            if ($date === null || $date === '') {
+                return '';
+            }
+            $dateTime = $date instanceof \DateTimeInterface ? $date : new \DateTimeImmutable((string) $date);
+
+            return $dateTime->format('d/m/Y à H:i');
+        }));
+
+        // Belgian-French money rendering — "1 234,56 €". One filter
+        // instead of ~75 hand-written number_format(2, ',', ' ') ~ ' €'
+        // chains; |money_cents is the same thing for integer cents (the
+        // rental module stores cents and used to divide inline at every
+        // call site). Null renders empty — an absent amount is not 0,00 €.
+        $environment->addFilter(new TwigFilter('money', function ($amount) {
+            if ($amount === null || $amount === '') {
+                return '';
+            }
+
+            return number_format((float) $amount, 2, ',', ' ') . ' €';
+        }));
+        $environment->addFilter(new TwigFilter('money_cents', function ($cents) {
+            if ($cents === null || $cents === '') {
+                return '';
+            }
+
+            return number_format(((int) $cents) / 100, 2, ',', ' ') . ' €';
+        }));
+
         // Register markdown filter — renders release/commit notes (see
         // Core\View\MarkdownRenderer) as safe HTML instead of raw Markdown
         // syntax.
