@@ -89,6 +89,8 @@ final class CaptureTransport implements MailTransportInterface
                 sizeBytes: 0,
                 hasDkim: false,
                 mimeFileId: null,
+                bodyHtmlFileId: null,
+                bodyTextFileId: null,
                 errorMessage: $mail->ErrorInfo !== '' ? $mail->ErrorInfo : $e->getMessage(),
                 attachments: $attachments
             );
@@ -97,6 +99,13 @@ final class CaptureTransport implements MailTransportInterface
         }
 
         $message = $mail->getSentMIMEMessage();
+
+        // The two body parts, taken from the library rather than carved
+        // back out of the message it just assembled. Same reasoning as the
+        // attachments above: PHPMailer already knows what it built, so the
+        // sandbox never has to walk MIME boundaries to show a preview.
+        $bodyHtmlFileId = $this->storeBodyPart($mail->Body, 'text/html', 'corps.html');
+        $bodyTextFileId = $this->storeBodyPart($mail->AltBody, 'text/plain', 'corps.txt');
 
         $mimeFileId = $this->fileStorage->store(
             content: $message,
@@ -120,8 +129,31 @@ final class CaptureTransport implements MailTransportInterface
             // THIS message carries one.
             hasDkim: stripos($message, 'DKIM-Signature:') !== false,
             mimeFileId: $mimeFileId,
+            bodyHtmlFileId: $bodyHtmlFileId,
+            bodyTextFileId: $bodyTextFileId,
             errorMessage: null,
             attachments: $attachments
+        );
+    }
+
+    /**
+     * An empty part is stored as nothing rather than as an empty file: the
+     * detail page distinguishes "this message had no plain-text half" from
+     * "its plain-text half was empty", and a null id is how it does.
+     */
+    private function storeBodyPart(string $content, string $mimeType, string $name): ?int
+    {
+        if (trim($content) === '') {
+            return null;
+        }
+
+        return $this->fileStorage->store(
+            content: $content,
+            mimeType: $mimeType,
+            originalName: $name,
+            subDirectory: self::STORAGE_SUBDIRECTORY,
+            roleMin: self::FILE_ROLE_MIN,
+            moduleId: self::MODULE_ID
         );
     }
 

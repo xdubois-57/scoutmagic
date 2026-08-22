@@ -4,41 +4,175 @@
 {% block content %}
 <h1 class="mb-3">Bac à sable e-mail</h1>
 
+{# ------------------------------------------------------------------ #}
+{# State block: the switch, what it currently does, and — only when     #}
+{# armed — the consequence an operator has to know before they lock     #}
+{# themselves out.                                                      #}
+{# ------------------------------------------------------------------ #}
 <div class="card mb-4">
     <div class="card-body">
-        <form method="post" action="/test-tools/mail-sandbox/capture" class="d-flex flex-wrap align-items-center gap-3">
-            {{ csrf_field()|raw }}
-            <input type="hidden" name="armed" value="{{ armed ? '0' : '1' }}">
-            <span class="fw-semibold">
-                {% if armed %}
-                    La capture est active : aucun e-mail ne quitte le serveur.
-                {% else %}
-                    La capture est inactive : les e-mails partent normalement.
-                {% endif %}
-            </span>
-            <button type="submit" class="btn {{ armed ? 'btn-outline-secondary' : 'btn-danger' }}"
-                    style="min-height:44px;">
-                {{ armed ? 'Désactiver la capture' : 'Activer la capture' }}
-            </button>
-        </form>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <p class="mb-1 fw-semibold">
+                    {% if armed %}
+                        <i class="bi bi-shield-fill-exclamation text-danger"></i>
+                        Capture active — aucun e-mail ne quitte le serveur.
+                    {% else %}
+                        <i class="bi bi-send text-success"></i>
+                        Capture inactive — les e-mails partent normalement.
+                    {% endif %}
+                </p>
+                <p class="mb-0 small text-body-secondary">
+                    Quand la capture est active, chaque message est assemblé par la vraie
+                    librairie d'envoi, signature DKIM comprise, puis rangé ici au lieu d'être
+                    remis au serveur de messagerie.
+                </p>
+            </div>
+            <form method="post" action="/test-tools/mail-sandbox/capture" class="mb-0">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="armed" value="{{ armed ? '0' : '1' }}">
+                <button type="submit"
+                        class="btn {{ armed ? 'btn-outline-secondary' : 'btn-danger' }}"
+                        style="min-height:44px;">
+                    {{ armed ? 'Désactiver la capture' : 'Activer la capture' }}
+                </button>
+            </form>
+        </div>
+
+        {% if armed %}
+            <div class="alert alert-warning mt-3 mb-0" role="alert">
+                <p class="fw-semibold mb-1">Les liens magiques arrivent désormais sur cette page.</p>
+                <p class="mb-0 small">
+                    Tant que la capture est active, un e-mail de connexion ne sera pas remis à son
+                    destinataire : il attendra ici. Connectez-vous avec un mot de passe ou une
+                    passkey — pas avec un lien magique — sinon vous risquez de ne plus pouvoir
+                    revenir désactiver la capture.
+                </p>
+            </div>
+        {% endif %}
     </div>
 </div>
 
+{# ------------------------------------------------------------------ #}
+{# Search                                                              #}
+{# ------------------------------------------------------------------ #}
+<form method="get" action="/test-tools/mail-sandbox" class="row g-2 align-items-end mb-3">
+    <div class="col-12 col-lg-4">
+        <label for="sandboxSubject" class="form-label small mb-1">Objet</label>
+        <input type="search" class="form-control" id="sandboxSubject" name="subject"
+               value="{{ filters.subject }}" placeholder="Un mot de l'objet"
+               style="min-height:44px;">
+    </div>
+    <div class="col-12 col-lg-4">
+        <label for="sandboxRecipient" class="form-label small mb-1">Destinataire (adresse exacte)</label>
+        <input type="email" class="form-control" id="sandboxRecipient" name="recipient"
+               value="{{ filters.recipient }}" placeholder="prenom@exemple.be"
+               style="min-height:44px;">
+    </div>
+    <div class="col-12 col-lg-4 d-flex flex-wrap align-items-center gap-3">
+        <button type="submit" class="btn btn-primary" style="min-height:44px;">Rechercher</button>
+        {% if filters.isFiltered %}
+            <a href="/test-tools/mail-sandbox" class="btn btn-link px-0" style="min-height:44px;">Effacer</a>
+        {% endif %}
+    </div>
+    <div class="col-12">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" value="1" id="sandboxBodies" name="bodies"
+                   {{ filters.searchBodies ? 'checked' : '' }}>
+            <label class="form-check-label small" for="sandboxBodies">
+                Chercher aussi dans le corps des messages — lecture déchiffrée, limitée aux
+                {{ body_search_bound }} messages les plus récents. Le champ « Objet » sert alors
+                de terme recherché, et le filtre sur l'objet ne s'applique plus.
+            </label>
+        </div>
+    </div>
+</form>
+
+{# ------------------------------------------------------------------ #}
+{# List                                                                #}
+{# ------------------------------------------------------------------ #}
 {% if emails is empty %}
-    <p class="text-body-secondary">Aucun message capturé pour le moment.</p>
+    <div class="text-center py-5">
+        {% if total > 0 %}
+            {# Past the last page — the set is not empty, this slice of it is. #}
+            <p class="text-body-secondary mb-3">Cette page ne contient aucun message.</p>
+            <a href="/test-tools/mail-sandbox?{{ filters.queryWithoutPage }}" class="btn btn-outline-secondary"
+               style="min-height:44px;">
+                Revenir à la première page
+            </a>
+        {% elseif filters.isFiltered %}
+            <p class="text-body-secondary mb-3">Aucun message ne correspond à cette recherche.</p>
+            <a href="/test-tools/mail-sandbox" class="btn btn-outline-secondary" style="min-height:44px;">
+                Voir tous les messages
+            </a>
+        {% elseif armed %}
+            <p class="text-body-secondary mb-3">
+                La capture est active mais rien n'est encore passé. Déclenchez un envoi —
+                une demande de lien magique, un e-mail de test — et il apparaîtra ici.
+            </p>
+        {% else %}
+            <p class="text-body-secondary mb-3">
+                Rien n'a encore été capturé. Activez la capture ci-dessus, puis déclenchez un
+                envoi depuis le site : le message viendra ici au lieu de partir.
+            </p>
+        {% endif %}
+    </div>
 {% else %}
-    <ul class="list-group">
+    <p class="small text-body-secondary">
+        {{ total }} message{{ total > 1 ? 's' : '' }}{{ filters.isFiltered ? ' correspondant à la recherche' : '' }}.
+    </p>
+
+    <div class="list-group mb-3">
         {% for email in emails %}
-            <li class="list-group-item">
-                <span class="d-block fw-semibold">{{ email.subject }}</span>
-                <span class="d-block small text-body-secondary">
-                    {{ email.recipient }} — {{ email.capturedAt|date('d/m/Y H:i') }}
-                    {% if email.hasDkim %} — DKIM{% endif %}
-                    {% if email.attachmentCount > 0 %} — {{ email.attachmentCount }} pièce(s) jointe(s){% endif %}
-                    {% if email.hasFailed %} — échec d'assemblage{% endif %}
-                </span>
-            </li>
+            <a href="/test-tools/mail-sandbox/{{ email.id }}"
+               class="list-group-item list-group-item-action py-3">
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                    <span class="fw-semibold">{{ email.subject }}</span>
+                    <span class="text-nowrap small text-body-secondary">
+                        {{ email.capturedAt|date('d/m/Y H:i') }}
+                    </span>
+                </div>
+                <div class="small text-body-secondary">{{ email.recipient }}</div>
+                <div class="d-flex flex-wrap gap-2 mt-2">
+                    <span class="badge text-bg-light">{{ (email.sizeBytes / 1024)|round(1) }} Ko</span>
+                    {% if email.attachmentCount > 0 %}
+                        <span class="badge text-bg-light">
+                            <i class="bi bi-paperclip"></i> {{ email.attachmentCount }}
+                        </span>
+                    {% endif %}
+                    {% if email.hasDkim %}
+                        <span class="badge text-bg-success">DKIM</span>
+                    {% else %}
+                        <span class="badge text-bg-secondary">Sans DKIM</span>
+                    {% endif %}
+                    {% if email.hasFailed %}
+                        <span class="badge text-bg-danger">Échec d'assemblage</span>
+                    {% endif %}
+                </div>
+            </a>
         {% endfor %}
-    </ul>
+    </div>
+
+    {% if page_count > 1 %}
+        <nav aria-label="Pagination des messages capturés">
+            <ul class="pagination">
+                {% set query = filters.queryWithoutPage %}
+                <li class="page-item {{ filters.page <= 1 ? 'disabled' : '' }}">
+                    <a class="page-link" style="min-height:44px;"
+                       href="?{{ query }}{{ query ? '&' : '' }}page={{ filters.page - 1 }}">Précédent</a>
+                </li>
+                <li class="page-item disabled">
+                    <span class="page-link" style="min-height:44px;">
+                        Page {{ filters.page }} sur {{ page_count }}
+                    </span>
+                </li>
+                <li class="page-item {{ filters.page >= page_count ? 'disabled' : '' }}">
+                    <a class="page-link" style="min-height:44px;"
+                       href="?{{ query }}{{ query ? '&' : '' }}page={{ filters.page + 1 }}">Suivant</a>
+                </li>
+            </ul>
+        </nav>
+    {% endif %}
 {% endif %}
+
 {% endblock %}

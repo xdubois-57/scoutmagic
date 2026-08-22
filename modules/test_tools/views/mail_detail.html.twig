@@ -1,0 +1,162 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ email.subject }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">{{ email.subject }}</h1>
+        <p class="small text-body-secondary mb-0">
+            Capturé le {{ email.capturedAt|date('d/m/Y à H:i') }}
+        </p>
+    </div>
+    <a href="/test-tools/mail-sandbox" class="btn btn-outline-secondary" style="min-height:44px;">
+        <i class="bi bi-arrow-left"></i> Retour au bac à sable
+    </a>
+</div>
+
+<dl class="row small mb-3">
+    <dt class="col-4 col-lg-2">Destinataire</dt>
+    <dd class="col-8 col-lg-10">{{ email.recipient }}</dd>
+
+    <dt class="col-4 col-lg-2">Expéditeur</dt>
+    <dd class="col-8 col-lg-10">{{ email.fromAddress }}</dd>
+
+    {% if email.replyTo %}
+        <dt class="col-4 col-lg-2">Répondre à</dt>
+        <dd class="col-8 col-lg-10">{{ email.replyTo }}</dd>
+    {% endif %}
+
+    <dt class="col-4 col-lg-2">Taille</dt>
+    <dd class="col-8 col-lg-10">{{ (email.sizeBytes / 1024)|round(1) }} Ko</dd>
+
+    <dt class="col-4 col-lg-2">Signature</dt>
+    <dd class="col-8 col-lg-10">
+        {% if email.hasDkim %}
+            <span class="badge text-bg-success">DKIM</span>
+        {% else %}
+            <span class="badge text-bg-secondary">Sans DKIM</span>
+        {% endif %}
+    </dd>
+</dl>
+
+{% if email.hasFailed %}
+    <div class="alert alert-danger" role="alert">
+        <p class="fw-semibold mb-1">L'assemblage de ce message a échoué.</p>
+        <p class="mb-0 small">{{ email.errorMessage }}</p>
+    </div>
+{% endif %}
+
+{% if email.mimeFileId %}
+    <a href="{{ file_url(email.mimeFileId) }}" class="btn btn-outline-primary mb-3"
+       style="min-height:44px;">
+        <i class="bi bi-download"></i> Télécharger le .eml
+    </a>
+{% endif %}
+
+<ul class="nav nav-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="tab-html" data-bs-toggle="tab" data-bs-target="#pane-html"
+                type="button" role="tab" aria-controls="pane-html" aria-selected="true"
+                style="min-height:44px;">Aperçu HTML</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-text" data-bs-toggle="tab" data-bs-target="#pane-text"
+                type="button" role="tab" aria-controls="pane-text" aria-selected="false"
+                style="min-height:44px;">Texte brut</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-headers" data-bs-toggle="tab" data-bs-target="#pane-headers"
+                type="button" role="tab" aria-controls="pane-headers" aria-selected="false"
+                style="min-height:44px;">En-têtes</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-source" data-bs-toggle="tab" data-bs-target="#pane-source"
+                type="button" role="tab" aria-controls="pane-source" aria-selected="false"
+                style="min-height:44px;">Source MIME</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-attachments" data-bs-toggle="tab" data-bs-target="#pane-attachments"
+                type="button" role="tab" aria-controls="pane-attachments" aria-selected="false"
+                style="min-height:44px;">Pièces jointes ({{ email.attachmentCount }})</button>
+    </li>
+</ul>
+
+<div class="tab-content border border-top-0 rounded-bottom p-3">
+    {# --------------------------------------------------------------- #}
+    {# The captured HTML is NEVER written into this page. It goes into  #}
+    {# a sandboxed iframe's srcdoc — no allow-same-origin, so the frame #}
+    {# gets an opaque origin and can reach neither this document nor    #}
+    {# its cookies; and no allow-scripts, so nothing in it runs at all. #}
+    {# Twig's auto-escaping handles the attribute itself.               #}
+    {# --------------------------------------------------------------- #}
+    <div class="tab-pane fade show active" id="pane-html" role="tabpanel" aria-labelledby="tab-html">
+        {% if html_body %}
+            <p class="small text-body-secondary">
+                Rendu dans un cadre isolé : aucun script ne s'exécute et les images distantes
+                ne sont pas chargées.
+            </p>
+            <iframe srcdoc="{{ html_body }}" sandbox
+                    title="Aperçu du message"
+                    class="w-100 border rounded"
+                    style="height:60vh;"></iframe>
+        {% else %}
+            <p class="text-body-secondary mb-0">Ce message ne comporte pas de partie HTML.</p>
+        {% endif %}
+    </div>
+
+    <div class="tab-pane fade" id="pane-text" role="tabpanel" aria-labelledby="tab-text">
+        {% if text_body %}
+            <pre class="mb-0 small overflow-x-auto" style="white-space:pre-wrap;">{{ text_body }}</pre>
+        {% else %}
+            <p class="text-body-secondary mb-0">Ce message ne comporte pas de partie texte.</p>
+        {% endif %}
+    </div>
+
+    <div class="tab-pane fade" id="pane-headers" role="tabpanel" aria-labelledby="tab-headers">
+        {% if headers %}
+            <div class="overflow-x-auto">
+                <pre class="mb-0 small">{{ headers }}</pre>
+            </div>
+        {% else %}
+            <p class="text-body-secondary mb-0">Les en-têtes ne sont plus disponibles pour ce message.</p>
+        {% endif %}
+    </div>
+
+    <div class="tab-pane fade" id="pane-source" role="tabpanel" aria-labelledby="tab-source">
+        {% if raw_message %}
+            <div class="overflow-x-auto">
+                <pre class="mb-0 small">{{ raw_message }}</pre>
+            </div>
+        {% else %}
+            <p class="text-body-secondary mb-0">Le message brut n'est plus disponible.</p>
+        {% endif %}
+    </div>
+
+    <div class="tab-pane fade" id="pane-attachments" role="tabpanel" aria-labelledby="tab-attachments">
+        {% if email.attachments is empty %}
+            <p class="text-body-secondary mb-0">Ce message ne porte aucune pièce jointe.</p>
+        {% else %}
+            <ul class="list-group list-group-flush">
+                {% for attachment in email.attachments %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center gap-2 px-0">
+                        <span>
+                            <span class="d-block">{{ attachment.file_name }}</span>
+                            <span class="d-block small text-body-secondary">
+                                {{ attachment.mime_type }} — {{ (attachment.size_bytes / 1024)|round(1) }} Ko
+                            </span>
+                        </span>
+                        {% if attachment.file_id %}
+                            <a href="{{ file_url(attachment.file_id) }}" class="btn btn-sm btn-outline-secondary"
+                               style="min-height:44px;">
+                                <i class="bi bi-download"></i> Télécharger
+                            </a>
+                        {% else %}
+                            <span class="badge text-bg-warning">Contenu non conservé</span>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

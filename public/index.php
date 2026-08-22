@@ -3021,6 +3021,7 @@ if (in_array('test_tools', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\TestTools\Controller\MailSandboxController::class,
         new \Modules\TestTools\Controller\MailSandboxController($twig, $testToolsSandboxService)
     );
+
 }
 
 if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {

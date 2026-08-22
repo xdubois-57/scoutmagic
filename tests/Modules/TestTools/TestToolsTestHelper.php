@@ -41,6 +41,8 @@ class TestToolsTestHelper
             has_dkim INTEGER NOT NULL DEFAULT 0,
             attachment_count INTEGER NOT NULL DEFAULT 0,
             mime_file_id INTEGER NULL,
+            body_html_file_id INTEGER NULL,
+            body_text_file_id INTEGER NULL,
             error_message TEXT NULL
         )');
 

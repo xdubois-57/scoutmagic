@@ -32,6 +32,8 @@ final class CapturedEmail
         public readonly bool $hasDkim,
         public readonly int $attachmentCount,
         public readonly ?int $mimeFileId,
+        public readonly ?int $bodyHtmlFileId,
+        public readonly ?int $bodyTextFileId,
         public readonly ?string $errorMessage,
         public readonly array $attachments = []
     ) {

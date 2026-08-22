@@ -43,6 +43,8 @@ class CapturedEmailRepository
         int $sizeBytes,
         bool $hasDkim,
         ?int $mimeFileId,
+        ?int $bodyHtmlFileId,
+        ?int $bodyTextFileId,
         ?string $errorMessage,
         array $attachments
     ): int {
@@ -51,8 +53,9 @@ class CapturedEmailRepository
         $stmt = $this->pdo->prepare(
             'INSERT INTO captured_emails
                 (captured_at, subject, recipient, recipient_blind_index, from_address, reply_to,
-                 size_bytes, has_dkim, attachment_count, mime_file_id, error_message)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 size_bytes, has_dkim, attachment_count, mime_file_id,
+                 body_html_file_id, body_text_file_id, error_message)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $capturedAt->format('Y-m-d H:i:s'),
@@ -65,6 +68,8 @@ class CapturedEmailRepository
             $hasDkim ? 1 : 0,
             count($attachments),
             $mimeFileId,
+            $bodyHtmlFileId,
+            $bodyTextFileId,
             $errorMessage,
         ]);
 
@@ -106,17 +111,20 @@ class CapturedEmailRepository
      *
      * The subject is a plain LIKE (it is stored in clear); the recipient is
      * matched on its blind index, which is the only way an encrypted column
-     * can be searched for an exact value.
+     * can be searched for an exact value. $ids narrows to an already-known
+     * set — the bounded body scan's result (MailSandboxService).
      *
+     * @param array<int, int>|null $ids
      * @return array<int, CapturedEmail>
      */
     public function findPage(
         int $limit,
         int $offset,
         ?string $subjectFragment = null,
-        ?string $recipient = null
+        ?string $recipient = null,
+        ?array $ids = null
     ): array {
-        [$where, $bindings] = $this->buildFilter($subjectFragment, $recipient);
+        [$where, $bindings] = $this->buildFilter($subjectFragment, $recipient, $ids);
 
         $stmt = $this->pdo->prepare(
             "SELECT * FROM captured_emails{$where} ORDER BY captured_at DESC, id DESC LIMIT ? OFFSET ?"
@@ -143,9 +151,12 @@ class CapturedEmailRepository
         );
     }
 
-    public function countAll(?string $subjectFragment = null, ?string $recipient = null): int
+    /**
+     * @param array<int, int>|null $ids
+     */
+    public function countAll(?string $subjectFragment = null, ?string $recipient = null, ?array $ids = null): int
     {
-        [$where, $bindings] = $this->buildFilter($subjectFragment, $recipient);
+        [$where, $bindings] = $this->buildFilter($subjectFragment, $recipient, $ids);
 
         $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM captured_emails{$where}");
         $stmt->execute($bindings);
@@ -187,11 +198,17 @@ class CapturedEmailRepository
     {
         $fileIds = [];
 
-        $stmt = $this->pdo->prepare('SELECT mime_file_id FROM captured_emails WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'SELECT mime_file_id, body_html_file_id, body_text_file_id FROM captured_emails WHERE id = ?'
+        );
         $stmt->execute([$capturedEmailId]);
-        $mimeFileId = $stmt->fetchColumn();
-        if ($mimeFileId !== false && $mimeFileId !== null) {
-            $fileIds[] = (int) $mimeFileId;
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (is_array($row)) {
+            foreach (['mime_file_id', 'body_html_file_id', 'body_text_file_id'] as $column) {
+                if ($row[$column] !== null) {
+                    $fileIds[] = (int) $row[$column];
+                }
+            }
         }
 
         $stmt = $this->pdo->prepare(
@@ -224,6 +241,23 @@ class CapturedEmailRepository
     }
 
     /**
+     * The newest $limit ids — the bounded candidate set for the decrypted
+     * body scan (MailSandboxService::searchBodies()).
+     *
+     * @return array<int, int>
+     */
+    public function findRecentIds(int $limit): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id FROM captured_emails ORDER BY captured_at DESC, id DESC LIMIT ?'
+        );
+        $stmt->bindValue(1, $limit, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_map(static fn(mixed $id): int => (int) $id, $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
      * @return array<int, int> every captured message's id, oldest first
      */
     public function findAllIds(): array
@@ -247,12 +281,25 @@ class CapturedEmailRepository
      * Tests\Security\SqlInjectionAuditTest reviews `{$where}` on that
      * basis.
      *
+     * @param array<int, int>|null $ids
      * @return array{0: string, 1: array<int, string>}
      */
-    private function buildFilter(?string $subjectFragment, ?string $recipient): array
+    private function buildFilter(?string $subjectFragment, ?string $recipient, ?array $ids = null): array
     {
         $conditions = [];
         $bindings = [];
+
+        if ($ids !== null) {
+            if ($ids === []) {
+                // An empty result set, expressed as a condition nothing
+                // satisfies rather than as a caller-side special case.
+                return [' WHERE 1 = 0', []];
+            }
+            $conditions[] = 'id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+            foreach ($ids as $id) {
+                $bindings[] = (string) $id;
+            }
+        }
 
         if ($subjectFragment !== null && trim($subjectFragment) !== '') {
             $conditions[] = 'subject LIKE ?';
@@ -322,6 +369,8 @@ class CapturedEmailRepository
             hasDkim: (bool) $row['has_dkim'],
             attachmentCount: (int) $row['attachment_count'],
             mimeFileId: $row['mime_file_id'] !== null ? (int) $row['mime_file_id'] : null,
+            bodyHtmlFileId: $row['body_html_file_id'] !== null ? (int) $row['body_html_file_id'] : null,
+            bodyTextFileId: $row['body_text_file_id'] !== null ? (int) $row['body_text_file_id'] : null,
             errorMessage: $row['error_message'] !== null ? (string) $row['error_message'] : null,
             attachments: $attachments
         );

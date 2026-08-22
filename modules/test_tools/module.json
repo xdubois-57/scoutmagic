@@ -2,9 +2,12 @@
   "id": "test_tools",
   "name": "Outils de test",
   "description": "Boîte à outils réservée à l'installation de référence et aux installations locales de développement. Premier outil : le bac à sable e-mail, qui capture les messages sortants au lieu de les envoyer.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled_by_default": false,
-  "visible_when": ["reference_installation", "local_installation"],
+  "visible_when": [
+    "reference_installation",
+    "local_installation"
+  ],
   "routes": [
     {
       "path": "/test-tools",
@@ -15,7 +18,12 @@
       "role_min": "superadmin",
       "label": "Outils de test",
       "menu_icon": "bi-tools",
-      "breadcrumb": { "label": "Outils de test", "parents": ["Configuration"] }
+      "breadcrumb": {
+        "label": "Outils de test",
+        "parents": [
+          "Configuration"
+        ]
+      }
     },
     {
       "path": "/test-tools/mail-sandbox",
@@ -25,7 +33,13 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": { "label": "Bac à sable e-mail", "parents": ["Configuration", "Outils de test"] }
+      "breadcrumb": {
+        "label": "Bac à sable e-mail",
+        "parents": [
+          "Configuration",
+          "Outils de test"
+        ]
+      }
     },
     {
       "path": "/test-tools/mail-sandbox/capture",
@@ -35,6 +49,23 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""
+    },
+    {
+      "path": "/test-tools/mail-sandbox/{id}",
+      "method": "GET",
+      "controller": "Modules\\TestTools\\Controller\\MailSandboxController",
+      "action": "detail",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Message capturé",
+        "parents": [
+          "Configuration",
+          "Outils de test",
+          "Bac à sable e-mail"
+        ]
+      }
     }
   ],
   "settings": [

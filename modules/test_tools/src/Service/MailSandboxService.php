@@ -81,16 +81,25 @@ class MailSandboxService
     }
 
     /**
+     * @param array<int, int>|null $ids restrict to these ids (a body search's result)
      * @return array<int, CapturedEmail>
      */
-    public function page(int $limit, int $offset, ?string $subject = null, ?string $recipient = null): array
-    {
-        return $this->repository->findPage($limit, $offset, $subject, $recipient);
+    public function page(
+        int $limit,
+        int $offset,
+        ?string $subject = null,
+        ?string $recipient = null,
+        ?array $ids = null
+    ): array {
+        return $this->repository->findPage($limit, $offset, $subject, $recipient, $ids);
     }
 
-    public function count(?string $subject = null, ?string $recipient = null): int
+    /**
+     * @param array<int, int>|null $ids
+     */
+    public function count(?string $subject = null, ?string $recipient = null, ?array $ids = null): int
     {
-        return $this->repository->countAll($subject, $recipient);
+        return $this->repository->countAll($subject, $recipient, $ids);
     }
 
     public function find(int $id): ?CapturedEmail
@@ -104,12 +113,98 @@ class MailSandboxService
      */
     public function rawMessage(CapturedEmail $email): ?string
     {
-        if ($email->mimeFileId === null) {
+        return $this->retrieve($email->mimeFileId);
+    }
+
+    /**
+     * The message's own HTML half, or null when it had none.
+     *
+     * Stored at capture time straight off the PHPMailer instance, so
+     * nothing here parses MIME. The caller renders it inside a sandboxed
+     * iframe and never inline — see the detail template.
+     */
+    public function htmlBody(CapturedEmail $email): ?string
+    {
+        return $this->retrieve($email->bodyHtmlFileId);
+    }
+
+    /** The message's plain-text half, or null when it had none. */
+    public function textBody(CapturedEmail $email): ?string
+    {
+        return $this->retrieve($email->bodyTextFileId);
+    }
+
+    /**
+     * The message's header block: everything up to the first empty line of
+     * the raw message.
+     *
+     * A split on the header/body separator RFC 5322 defines, not a parser —
+     * no folding is unfolded, no field is interpreted, nothing is looked
+     * up. The tab shows the headers exactly as the library wrote them.
+     */
+    public function headers(CapturedEmail $email): ?string
+    {
+        $message = $this->rawMessage($email);
+        if ($message === null) {
+            return null;
+        }
+
+        foreach (["\r\n\r\n", "\n\n"] as $separator) {
+            $position = strpos($message, $separator);
+            if ($position !== false) {
+                return substr($message, 0, $position);
+            }
+        }
+
+        // A message with no body at all is all headers.
+        return $message;
+    }
+
+    /**
+     * The ids of the retained messages whose plain-text body contains
+     * $needle, scanned newest first and **bounded**.
+     *
+     * Every body is encrypted at rest, so there is no index to search and
+     * no LIKE to push down: each candidate has to be read and decrypted.
+     * The bound is what keeps that affordable, and it is stated in the
+     * interface rather than hidden — a search that quietly stopped looking
+     * would be worse than one that says where it stopped.
+     *
+     * @return array<int, int>
+     */
+    public function searchBodies(string $needle, int $bound): array
+    {
+        $needle = trim($needle);
+        if ($needle === '') {
+            return [];
+        }
+
+        $matches = [];
+        foreach ($this->repository->findRecentIds($bound) as $id) {
+            $email = $this->repository->findById($id);
+            if ($email === null) {
+                continue;
+            }
+
+            foreach ([$this->textBody($email), $this->htmlBody($email)] as $body) {
+                if ($body !== null && mb_stripos($body, $needle) !== false) {
+                    $matches[] = $id;
+                    continue 2;
+                }
+            }
+        }
+
+        return $matches;
+    }
+
+    private function retrieve(?int $fileId): ?string
+    {
+        if ($fileId === null) {
             return null;
         }
 
         try {
-            return $this->fileStorage->retrieve($email->mimeFileId);
+            return $this->fileStorage->retrieve($fileId);
         } catch (\RuntimeException) {
             // The row outlived its file (a manual deletion, a restored
             // backup). The sandbox says so rather than erroring out.
@@ -129,4 +224,5 @@ class MailSandboxService
 
         $this->repository->delete($id);
     }
+
 }

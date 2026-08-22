@@ -133,6 +133,8 @@ The fatal-error fallback page (`Core\Http\ErrorHandler`, §22) re-emits the same
 
 Cross-origin `target="_blank"` links carry `rel="noopener"` (the sanitizer forces it on user content; templates set it directly).
 
+**The mail sandbox's HTML preview needs no new directive, and that was verified rather than assumed.** `modules/test_tools`' detail page (ARCHITECTURE.md §8.61) renders a captured message's HTML half into an `<iframe srcdoc="…" sandbox>` with **no `allow-same-origin` and no `allow-scripts`**, so the frame gets an opaque origin and cannot reach the page, its DOM or its cookies, and nothing inside it executes. A `srcdoc` frame issues no navigation request, so no `frame-src`/`child-src` value is consulted; it instead **inherits the embedding document's CSP**, which is checked in a real headless Chromium against the exact policy `Core\Http\Response::buildCsp()` emits: the frame renders, its script is blocked, and — because the inherited `img-src 'self' data: blob:` applies inside it — a remote tracking pixel in a captured message is blocked too. Two independent controls, neither relied on alone. The captured HTML is never written into the page itself under any circumstance; Twig's auto-escaping handles the `srcdoc` attribute.
+
 ## 10. Cookie consent
 
 - Cookies categorized: strictly necessary (no consent), functional (consent required), analytics (consent required).

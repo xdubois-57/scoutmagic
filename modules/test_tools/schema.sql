@@ -33,6 +33,12 @@ CREATE TABLE captured_emails (
     -- files.id of the raw RFC 5322 message. NULL only when assembly failed
     -- before PHPMailer could produce one — see error_message.
     mime_file_id INT UNSIGNED NULL,
+    -- The two body parts, read off the PHPMailer instance at capture time
+    -- and stored as their own encrypted files. Same reasoning as the
+    -- attachments: the library already knows what it assembled, so the
+    -- sandbox never has to walk MIME boundaries to show a preview.
+    body_html_file_id INT UNSIGNED NULL,
+    body_text_file_id INT UNSIGNED NULL,
     -- PHPMailer's own error when assembly failed. The row is written
     -- anyway and the exception is rethrown: a test tool that silently
     -- swallows a broken mail is worse than useless.

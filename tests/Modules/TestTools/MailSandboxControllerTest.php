@@ -249,6 +249,8 @@ class MailSandboxControllerTest extends TestCase
             false,
             null,
             null,
+            null,
+            null,
             []
         );
         $this->repository->create(
@@ -259,6 +261,8 @@ class MailSandboxControllerTest extends TestCase
             null,
             120,
             true,
+            null,
+            null,
             null,
             null,
             []

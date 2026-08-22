@@ -13,6 +13,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Modules\TestTools\Service\MailSandboxFilters;
 use Modules\TestTools\Service\MailSandboxService;
 use Twig\Environment;
 
@@ -23,8 +24,6 @@ use Twig\Environment;
  */
 class MailSandboxController extends AbstractController
 {
-    private const PAGE_SIZE = 25;
-
     public function __construct(
         protected Environment $twig,
         private MailSandboxService $sandboxService
@@ -36,17 +35,61 @@ class MailSandboxController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        $page = max(1, (int) $request->getQuery('page', 1));
-        $offset = ($page - 1) * self::PAGE_SIZE;
-        $total = $this->sandboxService->count();
+        $filters = MailSandboxFilters::fromQuery($request->getQueryAll());
+
+        // The body scan is opt-in and bounded: it decrypts each candidate
+        // to read it, so it narrows the id set the ordinary query then
+        // pages over rather than becoming a second listing path.
+        $ids = $filters->scansBodies()
+            ? $this->sandboxService->searchBodies($filters->subject, MailSandboxFilters::BODY_SEARCH_BOUND)
+            : null;
+
+        $total = $this->sandboxService->count(
+            $filters->scansBodies() ? null : $filters->subjectFilter(),
+            $filters->recipientFilter(),
+            $ids
+        );
 
         return $this->render('@test_tools/mail_sandbox.html.twig', [
             'armed' => $this->sandboxService->armed(),
-            'emails' => $this->sandboxService->page(self::PAGE_SIZE, $offset),
+            'filters' => $filters,
+            'emails' => $this->sandboxService->page(
+                MailSandboxFilters::PAGE_SIZE,
+                $filters->offset(),
+                $filters->scansBodies() ? null : $filters->subjectFilter(),
+                $filters->recipientFilter(),
+                $ids
+            ),
             'total' => $total,
-            'page' => $page,
-            'page_size' => self::PAGE_SIZE,
-            'page_count' => (int) ceil($total / self::PAGE_SIZE),
+            'page_size' => MailSandboxFilters::PAGE_SIZE,
+            'page_count' => max(1, (int) ceil($total / MailSandboxFilters::PAGE_SIZE)),
+            'body_search_bound' => MailSandboxFilters::BODY_SEARCH_BOUND,
+        ]);
+    }
+
+    /**
+     * `GET /test-tools/mail-sandbox/{id}` — one captured message, in five
+     * tabs.
+     *
+     * The HTML half is handed to the template as a plain string and
+     * rendered into a sandboxed iframe's `srcdoc`; it is never written into
+     * the page itself. Twig's auto-escaping handles the attribute.
+     *
+     * @param array<string, string> $params
+     */
+    public function detail(Request $request, array $params): Response
+    {
+        $email = $this->sandboxService->find((int) ($params['id'] ?? 0));
+        if ($email === null) {
+            return new Response('', 404);
+        }
+
+        return $this->render('@test_tools/mail_detail.html.twig', [
+            'email' => $email,
+            'html_body' => $this->sandboxService->htmlBody($email),
+            'text_body' => $this->sandboxService->textBody($email),
+            'headers' => $this->sandboxService->headers($email),
+            'raw_message' => $this->sandboxService->rawMessage($email),
         ]);
     }
 

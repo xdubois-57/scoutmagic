@@ -76,7 +76,7 @@ class CaptureTransportTest extends TestCase
         );
     }
 
-    public function testCaptureWritesExactlyOneRowAndOneEncryptedFile(): void
+    public function testCaptureWritesExactlyOneRowAndTheThreeMessageFiles(): void
     {
         $this->service()->send(
             to: 'destinataire@example.be',
@@ -86,7 +86,10 @@ class CaptureTransportTest extends TestCase
         );
 
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM captured_emails')->fetchColumn());
-        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        // The raw message, plus its HTML half and its plain-text half —
+        // both read off the PHPMailer instance so the detail page never
+        // has to walk MIME boundaries.
+        $this->assertSame(3, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
 
         $email = $this->repository->findPage(10, 0)[0];
         $this->assertSame('[25SV] Bonjour', $email->subject);
@@ -95,6 +98,10 @@ class CaptureTransportTest extends TestCase
         $this->assertNull($email->errorMessage);
         $this->assertGreaterThan(0, $email->sizeBytes);
         $this->assertNotNull($email->mimeFileId);
+        $this->assertNotNull($email->bodyHtmlFileId);
+        $this->assertNotNull($email->bodyTextFileId);
+        $this->assertSame('<p>Bonjour</p>', $this->fileStorage->retrieve($email->bodyHtmlFileId));
+        $this->assertSame('Bonjour', $this->fileStorage->retrieve($email->bodyTextFileId));
     }
 
     public function testNothingReachesTheRealTransport(): void
@@ -191,8 +198,8 @@ class CaptureTransportTest extends TestCase
         $this->assertSame('premier.txt', $email->attachments[0]['file_name']);
         $this->assertSame('second.txt', $email->attachments[1]['file_name']);
 
-        // The raw message plus one file per attachment.
-        $this->assertSame(3, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        // The raw message and its two body parts, plus one file per attachment.
+        $this->assertSame(5, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
 
         $this->assertNotNull($email->attachments[0]['file_id']);
         $this->assertSame('contenu du premier', $this->fileStorage->retrieve($email->attachments[0]['file_id']));
