@@ -44,7 +44,6 @@
                 media: m,
                 thumb_url: '/gallery/media/' ~ m.id ~ '/thumb',
                 medium_url: '/gallery/media/' ~ m.id ~ '/medium',
-                large_url: '/gallery/media/' ~ m.id ~ (m.mediaType == 'video' ? '/original' : '/large'),
             }]) %}
         {% endfor %}
 

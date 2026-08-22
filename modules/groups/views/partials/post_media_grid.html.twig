@@ -38,6 +38,11 @@
                {% if m.processingStatus == 'done' %}
                    data-medium-url="/gallery/media/{{ m.id }}/medium"
                    data-large-url="/gallery/media/{{ m.id }}/{{ m.mediaType == 'video' ? 'original' : 'large' }}"
+                   {# The lightbox's own download button — the gallery's route,
+                      which names the file the way the album's zip does
+                      (Modules\Gallery\Service\MediaFileName) and re-checks
+                      this group's access on its own. #}
+                   data-download-url="/gallery/media/{{ m.id }}/download"
                {% endif %}>
                 {% include '@groups/partials/media_thumb.html.twig' with { media: m } %}
             </a>

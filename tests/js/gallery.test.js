@@ -17,7 +17,7 @@ function renderLightbox(triggers) {
         <div class="row" id="gallery-media-grid">
             ${triggers.map((t, i) => `
                 <button type="button" class="gallery-lightbox-trigger" data-index="${i}"
-                        data-type="${t.type}" data-medium-url="${t.mediumUrl}" data-large-url="${t.largeUrl}">
+                        data-type="${t.type}" data-medium-url="${t.mediumUrl}" data-download-url="${t.downloadUrl ?? ''}">
                     <img src="${t.mediumUrl}" alt="">
                 </button>
             `).join('')}
@@ -28,8 +28,7 @@ function renderLightbox(triggers) {
             <button id="gallery-lightbox-next"></button>
             <img id="gallery-lightbox-image" class="d-none" src="" alt="">
             <video id="gallery-lightbox-video" class="d-none"></video>
-            <button id="gallery-lightbox-hq" class="d-none"></button>
-            <a href="#" id="gallery-lightbox-download" class="d-none" download></a>
+            <a href="#" id="gallery-lightbox-download" class="d-none" download>Télécharger en haute qualité</a>
         </div>
     `;
 }
@@ -47,7 +46,7 @@ describe('gallery.js lightbox', () => {
     });
 
     it('opens on a processed thumbnail and shows its medium rendition', async () => {
-        renderLightbox([{ type: 'photo', mediumUrl: '/gallery/media/1/medium', largeUrl: '/gallery/media/1/large' }]);
+        renderLightbox([{ type: 'photo', mediumUrl: '/gallery/media/1/medium', downloadUrl: '/gallery/media/1/download' }]);
         await loadGallery();
 
         document.querySelector('.gallery-lightbox-trigger').click();
@@ -61,8 +60,8 @@ describe('gallery.js lightbox', () => {
     // overlay anyway — a fullscreen black screen with nothing in it.
     it('does not open on a thumbnail that has no rendition yet', async () => {
         renderLightbox([
-            { type: 'photo', mediumUrl: '', largeUrl: '' },
-            { type: 'photo', mediumUrl: '/gallery/media/2/medium', largeUrl: '/gallery/media/2/large' },
+            { type: 'photo', mediumUrl: '' },
+            { type: 'photo', mediumUrl: '/gallery/media/2/medium', downloadUrl: '/gallery/media/2/download' },
         ]);
         await loadGallery();
 
@@ -72,7 +71,7 @@ describe('gallery.js lightbox', () => {
     });
 
     it('marks an unopenable thumbnail as disabled for assistive tech', async () => {
-        renderLightbox([{ type: 'photo', mediumUrl: '', largeUrl: '' }]);
+        renderLightbox([{ type: 'photo', mediumUrl: '' }]);
         await loadGallery();
 
         expect(document.querySelector('.gallery-lightbox-trigger').getAttribute('aria-disabled')).toBe('true');
@@ -80,8 +79,8 @@ describe('gallery.js lightbox', () => {
 
     it('never opens when no thumbnail has a rendition at all', async () => {
         renderLightbox([
-            { type: 'photo', mediumUrl: '', largeUrl: '' },
-            { type: 'photo', mediumUrl: '', largeUrl: '' },
+            { type: 'photo', mediumUrl: '' },
+            { type: 'photo', mediumUrl: '' },
         ]);
         await loadGallery();
 
@@ -94,9 +93,9 @@ describe('gallery.js lightbox', () => {
     // trigger-index/item-index mix-up shows the wrong media.
     it('keeps trigger and item indexes aligned when an earlier thumbnail is skipped', async () => {
         renderLightbox([
-            { type: 'photo', mediumUrl: '', largeUrl: '' },
-            { type: 'photo', mediumUrl: '/gallery/media/7/medium', largeUrl: '/gallery/media/7/large' },
-            { type: 'photo', mediumUrl: '/gallery/media/8/medium', largeUrl: '/gallery/media/8/large' },
+            { type: 'photo', mediumUrl: '' },
+            { type: 'photo', mediumUrl: '/gallery/media/7/medium', downloadUrl: '/gallery/media/7/download' },
+            { type: 'photo', mediumUrl: '/gallery/media/8/medium', downloadUrl: '/gallery/media/8/download' },
         ]);
         await loadGallery();
 
@@ -105,18 +104,46 @@ describe('gallery.js lightbox', () => {
         expect(document.getElementById('gallery-lightbox-image').getAttribute('src')).toBe('/gallery/media/8/medium');
     });
 
-    it('plays a video rendition in the video element and hides the high-quality button', async () => {
-        renderLightbox([{ type: 'video', mediumUrl: '/gallery/media/3/medium', largeUrl: '/gallery/media/3/large' }]);
+    it('plays a video rendition in the video element, and offers to save the video itself', async () => {
+        renderLightbox([{ type: 'video', mediumUrl: '/gallery/media/3/medium', downloadUrl: '/gallery/media/3/download' }]);
         await loadGallery();
 
         document.querySelector('.gallery-lightbox-trigger').click();
 
         expect(document.getElementById('gallery-lightbox-video').classList.contains('d-none')).toBe(false);
-        expect(document.getElementById('gallery-lightbox-hq').classList.contains('d-none')).toBe(true);
+        const download = document.getElementById('gallery-lightbox-download');
+        expect(download.classList.contains('d-none')).toBe(false);
+        expect(download.textContent).toBe('Télécharger la vidéo');
+    });
+
+    // One control now, and it SAVES rather than showing: the two buttons it
+    // replaced filled the bottom of a phone screen between them, and neither
+    // could actually save a correctly-named file with S3 storage (the
+    // rendition URL is cross-origin there, where `download` is ignored).
+    it('points the single download control at the application route for this media', async () => {
+        renderLightbox([{ type: 'photo', mediumUrl: '/gallery/media/9/medium', downloadUrl: '/gallery/media/9/download' }]);
+        await loadGallery();
+
+        document.querySelector('.gallery-lightbox-trigger').click();
+
+        const download = document.getElementById('gallery-lightbox-download');
+        expect(download.classList.contains('d-none')).toBe(false);
+        expect(download.getAttribute('href')).toBe('/gallery/media/9/download');
+        expect(download.hasAttribute('download')).toBe(true);
+        expect(download.textContent).toBe('Télécharger en haute qualité');
+    });
+
+    it('offers no download at all for a media that carries no download URL', async () => {
+        renderLightbox([{ type: 'photo', mediumUrl: '/gallery/media/9/medium' }]);
+        await loadGallery();
+
+        document.querySelector('.gallery-lightbox-trigger').click();
+
+        expect(document.getElementById('gallery-lightbox-download').classList.contains('d-none')).toBe(true);
     });
 
     it('closes on Escape', async () => {
-        renderLightbox([{ type: 'photo', mediumUrl: '/gallery/media/1/medium', largeUrl: '/gallery/media/1/large' }]);
+        renderLightbox([{ type: 'photo', mediumUrl: '/gallery/media/1/medium', downloadUrl: '/gallery/media/1/download' }]);
         await loadGallery();
         document.querySelector('.gallery-lightbox-trigger').click();
 

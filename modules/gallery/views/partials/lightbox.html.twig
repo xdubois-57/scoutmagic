@@ -18,12 +18,24 @@
         <video id="gallery-lightbox-video" class="d-none" controls style="max-width:100%;max-height:90vh;pointer-events:auto;"></video>
     </div>
 
-    <div class="position-absolute bottom-0 start-50 translate-middle-x mb-3 d-flex gap-2">
-        <button type="button" class="btn btn-sm btn-outline-light d-none" id="gallery-lightbox-hq">Voir en haute qualité</button>
-        {# The href is the "large" rendition, not a pristine original, and the
-           download attribute is ignored cross-origin (S3/CDN) — hence the
-           neutral label and the new tab, so the button never looks broken. #}
+    {#
+      ONE control, not two. "Voir en haute qualité" and "Télécharger cette
+      image" sat side by side here, and on a phone the pair filled the
+      bottom of the screen — while together they said less than they
+      looked: the first swapped the on-screen rendition for a larger one
+      (invisible on a small screen), and the second could only offer the
+      rendition's own URL, which the browser ignores `download` on when
+      storage is S3 and names after an internal storage key when it does
+      not.
+
+      What is left does the thing somebody actually came for: it saves the
+      best rendition this site keeps, through the application's own route,
+      under the same name the album's zip gives that photo
+      (Modules\Gallery\Controller\GalleryController::downloadMedia()).
+      Its label and href are set per item by assets/js/gallery.js.
+    #}
+    <div class="position-absolute bottom-0 start-50 translate-middle-x mb-3">
         <a href="#" class="btn btn-sm btn-outline-light d-none" id="gallery-lightbox-download"
-           download target="_blank" rel="noopener">Télécharger cette image</a>
+           download>Télécharger en haute qualité</a>
     </div>
 </div>
