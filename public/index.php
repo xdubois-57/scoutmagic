@@ -3022,6 +3022,23 @@ if (in_array('test_tools', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\TestTools\Controller\MailSandboxController($twig, $testToolsSandboxService)
     );
 
+    // The retention task's FIRST occurrence has to be seeded here.
+    // Declaring a handler in module.json only teaches SchedulerRunner how
+    // to run the task; it never queues one, and a self-rescheduling task
+    // that is never queued reschedules itself never — exactly the mistake
+    // ARCHITECTURE.md §8.49 records for support_dashboard, where two of
+    // three tasks had consequently never run once on any receiver.
+    // Tests\Modules\TestTools\ModuleSchedulingTest fails if this list
+    // ever drifts from module.json's `scheduled_tasks`.
+    foreach ([
+        // Retention (§8.61): past mail_capture_retention messages, the
+        // oldest go — rows and encrypted files together.
+        \Modules\TestTools\Task\PurgeCapturedEmailsHandler::TASK_KEY => \Modules\TestTools\Task\PurgeCapturedEmailsHandler::REFERENCE,
+    ] as $testToolsTaskKey => $testToolsTaskReference) {
+        if ($schedulerService->find('test_tools', $testToolsTaskKey, $testToolsTaskReference) === null) {
+            $schedulerService->schedule('test_tools', $testToolsTaskKey, new DateTimeImmutable(), [], $testToolsTaskReference);
+        }
+    }
 }
 
 if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {

@@ -27,6 +27,18 @@ class MailSandboxService
     /** The arm switch. Registered non-editable, toggled only from here. */
     public const SETTING_ARMED = 'mail_capture_armed';
 
+    /** How many captured messages are kept — see purge() below. */
+    public const SETTING_RETENTION = 'mail_capture_retention';
+
+    public const DEFAULT_RETENTION = 500;
+
+    /**
+     * The word an operator has to type to empty the sandbox by hand.
+     * French, because it is UI text the operator reads and retypes; the
+     * comparison is server-side and exact (§8.18's danger-zone pattern).
+     */
+    public const CONFIRMATION_WORD = 'EFFACER';
+
     public function __construct(
         private CapturedEmailRepository $repository,
         private SettingService $settingService,
@@ -215,6 +227,11 @@ class MailSandboxService
     /**
      * Deletes a captured message: its metadata rows AND every encrypted
      * file they reference, never one without the other.
+     *
+     * The files go first: a run interrupted between the two leaves a row
+     * pointing at a file that is gone (a detail page that says so, and
+     * which the next purge removes anyway), never a file no row references
+     * and nothing will ever delete again.
      */
     public function delete(int $id): void
     {
@@ -225,4 +242,63 @@ class MailSandboxService
         $this->repository->delete($id);
     }
 
+    /**
+     * How many captured messages this installation keeps.
+     *
+     * A non-numeric or non-positive setting falls back to the default
+     * rather than disabling retention: "0" typed into the field must not
+     * silently mean "keep everything for ever".
+     */
+    public function retentionLimit(): int
+    {
+        $configured = (int) ($this->settingService->get(self::SETTING_RETENTION, self::MODULE_ID) ?? 0);
+
+        return $configured > 0 ? $configured : self::DEFAULT_RETENTION;
+    }
+
+    /**
+     * Drops everything past the retention limit, **oldest first**, up to
+     * $maxPerRun messages. Returns how many were deleted.
+     *
+     * Bounded by count rather than by age on purpose (see
+     * Modules\TestTools\Task\PurgeCapturedEmailsHandler).
+     */
+    public function purge(int $maxPerRun): int
+    {
+        $deleted = 0;
+        foreach ($this->repository->findIdsBeyond($this->retentionLimit(), $maxPerRun) as $id) {
+            $this->delete($id);
+            $deleted++;
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * Empties the sandbox: every captured message, and every encrypted
+     * file any of them references. Returns how many were deleted.
+     *
+     * Journaled at `security`, like the arm switch — this is the operator
+     * destroying the evidence they were collecting, and the journal is the
+     * only place that will still say it happened.
+     */
+    public function empty(?int $userId = null): int
+    {
+        $deleted = 0;
+        foreach ($this->repository->findAllIds() as $id) {
+            $this->delete($id);
+            $deleted++;
+        }
+
+        $this->journalService->log(
+            self::MODULE_ID,
+            'mail_capture_emptied',
+            'security',
+            'Bac à sable e-mail vidé : ' . $deleted . ' message(s) supprimé(s).',
+            ['count' => $deleted],
+            $userId
+        );
+
+        return $deleted;
+    }
 }

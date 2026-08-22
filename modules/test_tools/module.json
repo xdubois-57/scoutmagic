@@ -51,6 +51,15 @@
       "label": ""
     },
     {
+      "path": "/test-tools/mail-sandbox/empty",
+      "method": "POST",
+      "controller": "Modules\\TestTools\\Controller\\MailSandboxController",
+      "action": "empty",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
       "path": "/test-tools/mail-sandbox/{id}",
       "method": "GET",
       "controller": "Modules\\TestTools\\Controller\\MailSandboxController",
@@ -76,9 +85,21 @@
       "editable": false,
       "label": "Capture des e-mails sortants",
       "description": "Lorsque la capture est armée, aucun e-mail ne quitte le serveur : chaque message est assemblé puis rangé dans le bac à sable. Ce réglage se change uniquement depuis la page du bac à sable, jamais ici."
+    },
+    {
+      "key": "mail_capture_retention",
+      "default_value": "500",
+      "type": "number",
+      "label": "Messages capturés conservés",
+      "description": "Nombre maximum de messages gardés dans le bac à sable. Au-delà, les plus anciens sont supprimés chaque jour, avec leurs fichiers chiffrés. La limite existe pour que la recherche déchiffrée dans le corps des messages reste rapide."
     }
   ],
   "cookies": [],
-  "scheduled_tasks": [],
+  "scheduled_tasks": [
+    {
+      "key": "purge_captured_emails",
+      "handler": "Modules\\TestTools\\Task\\PurgeCapturedEmailsHandler"
+    }
+  ],
   "storage": {}
 }

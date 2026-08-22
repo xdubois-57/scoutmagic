@@ -175,4 +175,58 @@
     {% endif %}
 {% endif %}
 
+{# ------------------------------------------------------------------ #}
+{# Danger zone — same shape as Configuration > Maintenance's own       #}
+{# (ARCHITECTURE.md §8.18): the word is typed, and it is the SERVER    #}
+{# that compares it. The script below only gates the button's disabled #}
+{# state, so a caller that skips it changes nothing.                   #}
+{# ------------------------------------------------------------------ #}
+{% if total > 0 %}
+    <div class="card border-danger mt-4">
+        <div class="card-body">
+            <h2 class="h6 text-danger mb-2">
+                <i class="bi bi-exclamation-triangle"></i> Vider le bac à sable
+            </h2>
+            <p class="small text-body-secondary">
+                Supprime définitivement les {{ total }} message{{ total > 1 ? 's' : '' }} conservé{{ total > 1 ? 's' : '' }},
+                ainsi que leurs pièces jointes et leurs fichiers chiffrés. Sans restauration manuelle,
+                cette action est irréversible.
+            </p>
+            <form method="post" action="/test-tools/mail-sandbox/empty" id="sandbox-empty-form"
+                  class="row g-2 align-items-end">
+                {{ csrf_field()|raw }}
+                <div class="col-12 col-lg-4">
+                    <label class="form-label small" for="sandbox-empty-keyword">
+                        Tapez <strong>{{ confirmation_word }}</strong> pour confirmer
+                    </label>
+                    <input type="text" class="form-control" id="sandbox-empty-keyword" name="confirmation"
+                           autocomplete="off" style="min-height:44px;">
+                </div>
+                <div class="col-12 col-lg-4">
+                    <button type="submit" class="btn btn-outline-danger" id="sandbox-empty-submit"
+                            style="min-height:44px;" disabled>
+                        Tout supprimer
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+    (function () {
+        var keyword = document.getElementById('sandbox-empty-keyword');
+        var submit = document.getElementById('sandbox-empty-submit');
+        if (!keyword || !submit) {
+            return;
+        }
+        // Convenience only: the server compares the word again and refuses
+        // the request outright when it does not match.
+        keyword.addEventListener('input', function () {
+            submit.disabled = keyword.value !== {{ confirmation_word|json_encode|raw }};
+        });
+    })();
+</script>
 {% endblock %}

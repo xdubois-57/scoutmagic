@@ -64,6 +64,7 @@ class MailSandboxController extends AbstractController
             'page_size' => MailSandboxFilters::PAGE_SIZE,
             'page_count' => max(1, (int) ceil($total / MailSandboxFilters::PAGE_SIZE)),
             'body_search_bound' => MailSandboxFilters::BODY_SEARCH_BOUND,
+            'confirmation_word' => MailSandboxService::CONFIRMATION_WORD,
         ]);
     }
 
@@ -91,6 +92,33 @@ class MailSandboxController extends AbstractController
             'headers' => $this->sandboxService->headers($email),
             'raw_message' => $this->sandboxService->rawMessage($email),
         ]);
+    }
+
+    /**
+     * `POST /test-tools/mail-sandbox/empty` — the danger zone: delete every
+     * captured message and every encrypted file behind them.
+     *
+     * The operator has to type the confirmation word, and it is compared
+     * **here**, server-side, exactly like every other destructive action in
+     * this codebase (ARCHITECTURE.md §8.18). A JavaScript check may only
+     * gate the button's disabled state — a confirmation a caller can skip
+     * is not a control at all.
+     *
+     * @param array<string, string> $params
+     */
+    public function empty(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
+            return new Response('Jeton de sécurité invalide.', 400);
+        }
+
+        if ((string) $request->getBody('confirmation', '') !== MailSandboxService::CONFIRMATION_WORD) {
+            return new Response('Mot de confirmation incorrect.', 400);
+        }
+
+        $this->sandboxService->empty(AuthSession::getUserAccountId());
+
+        return $this->redirect('/test-tools/mail-sandbox');
     }
 
     /**
