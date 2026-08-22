@@ -60,11 +60,29 @@
                     <h3 class="h5 mb-3">Vérifiez vos emails</h3>
                     <p>Un lien de connexion a été envoyé à <strong id="sent-email"></strong>.<br>
                        Cliquez dessus pour vous connecter — même depuis un autre appareil.</p>
-                    <div class="my-3">
-                        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-                        <span class="text-muted small ms-2">En attente de confirmation…</span>
+                    {# Live region: the pending → expired switch is announced to screen readers. #}
+                    <div class="my-3" role="status" aria-live="polite">
+                        <div id="waiting-pending">
+                            <div class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></div>
+                            <span class="text-muted small ms-2">En attente de confirmation…</span>
+                        </div>
+                        <div id="waiting-expired" class="text-warning small d-none">
+                            Ce lien a expiré — demandez-en un nouveau.
+                        </div>
                     </div>
-                    <button type="button" class="btn btn-outline-secondary btn-sm mt-2" id="back-btn">Utiliser une autre adresse</button>
+                    {# Identical copy for every address — never reveals whether an account exists (anti-enumeration). #}
+                    <div class="border-top pt-3 mt-3 text-start small">
+                        <p class="fw-semibold mb-2">Vous n'avez rien reçu ?</p>
+                        <ul class="text-body-secondary ps-3 mb-3">
+                            <li>Vérifiez votre dossier de courriers indésirables (spam).</li>
+                            <li>Si votre adresse n'est pas encore enregistrée dans l'unité, contactez un(e) responsable.</li>
+                        </ul>
+                        <div class="d-grid gap-2">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="resend-magic-link">Renvoyer le lien</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="back-btn">Utiliser une autre adresse</button>
+                        </div>
+                        <div id="resend-error" class="text-danger small mt-2 d-none"></div>
+                    </div>
                 </div>
             </div>
         </div>

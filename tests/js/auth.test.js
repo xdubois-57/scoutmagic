@@ -39,6 +39,10 @@ function buildCoreDom() {
         el('<div id="tab-password" class="d-none"></div>'),
         el('<div id="state-email"></div>'),
         el('<div id="state-waiting" class="d-none"></div>'),
+        el('<div id="waiting-pending"><span>En attente de confirmation…</span></div>'),
+        el('<div id="waiting-expired" class="d-none">Ce lien a expiré — demandez-en un nouveau.</div>'),
+        el('<button id="resend-magic-link">Renvoyer le lien</button>'),
+        el('<div id="resend-error" class="d-none"></div>'),
         el('<div id="state-confirmed" class="d-none"></div>'),
         el('<button id="send-magic-link">Envoyer le lien de connexion</button>'),
         el('<button id="back-btn"></button>'),
@@ -402,6 +406,48 @@ describe('auth.js: magic-link polling', () => {
         expect(fetch.mock.calls.length).toBe(countAtGiveUp); // no further polling
     });
 
+    it('at the 15-minute expiry, replaces the spinner/waiting text with the "link expired" message', async () => {
+        // The bug this guards: the timeout used to stop polling WITHOUT
+        // changing the screen, so a parent whose address is not registered
+        // in the unit (the endpoint answers success for everyone —
+        // anti-enumeration) watched the spinner spin forever.
+        await startPolling();
+        global.fetch.mockResolvedValue({ json: () => Promise.resolve({ confirmed: false }) });
+
+        await vi.advanceTimersByTimeAsync(15 * 60 * 1000 - 1);
+        expect(document.getElementById('waiting-pending').classList.contains('d-none')).toBe(false);
+        expect(document.getElementById('waiting-expired').classList.contains('d-none')).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(document.getElementById('waiting-pending').classList.contains('d-none')).toBe(true);
+        expect(document.getElementById('waiting-expired').classList.contains('d-none')).toBe(false);
+        // Still on the waiting card — the resend button is the way out.
+        expect(document.getElementById('state-waiting').classList.contains('d-none')).toBe(false);
+    });
+
+    it('an abandoned attempt\'s expiry timer never expires a later attempt', async () => {
+        await startPolling(); // first attempt, poll_id 42
+        global.fetch.mockImplementation((url) => Promise.resolve({
+            json: () => Promise.resolve(url === '/login/magic-link'
+                ? { success: true, poll_id: 43 }
+                : { confirmed: false }),
+        }));
+
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+        document.getElementById('back-btn').dispatchEvent(new Event('click')); // abandon
+        document.getElementById('send-magic-link').dispatchEvent(new Event('click')); // second attempt
+        await vi.advanceTimersByTimeAsync(0);
+
+        // 15 minutes after the FIRST send — the stale timer must not fire.
+        await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+        expect(document.getElementById('waiting-expired').classList.contains('d-none')).toBe(true);
+        expect(fetch).toHaveBeenCalledWith('/auth/poll/43'); // still polling
+
+        // 15 minutes after the SECOND send — now it expires.
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+        expect(document.getElementById('waiting-expired').classList.contains('d-none')).toBe(false);
+    });
+
     it('a stale in-flight poll response arriving after stopPolling() must not act on it', async () => {
         // pollingInterval is checked at the callback's OWN completion, not
         // just before the fetch — this guards a response that resolves
@@ -419,6 +465,99 @@ describe('auth.js: magic-link polling', () => {
 
         expect(document.getElementById('state-confirmed').classList.contains('d-none')).toBe(true);
         expect(document.getElementById('state-email').classList.contains('d-none')).toBe(false);
+    });
+});
+
+describe('auth.js: "Renvoyer le lien" (waiting screen)', () => {
+    async function waitingScreen() {
+        buildCoreDom();
+        global.fetch = vi.fn()
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, poll_id: 42 }) });
+        /** @type {HTMLInputElement} */ (document.getElementById('email')).value = 'a@b.test';
+        vi.useFakeTimers();
+        await boot();
+        document.getElementById('send-magic-link').dispatchEvent(new Event('click'));
+        await vi.advanceTimersByTimeAsync(0);
+    }
+
+    it('re-POSTs the same email through the same endpoint (same throttling, same uniform response)', async () => {
+        await waitingScreen();
+        global.fetch.mockImplementation((url) => Promise.resolve({
+            json: () => Promise.resolve(url === '/login/magic-link'
+                ? { success: true, poll_id: 43 }
+                : { confirmed: false }),
+        }));
+
+        document.getElementById('resend-magic-link').dispatchEvent(new Event('click'));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(fetch).toHaveBeenCalledWith('/login/magic-link', expect.objectContaining({
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'email=a%40b.test&_csrf_token=tok&rgpd_consent=1',
+        }));
+        // Polling restarts against the NEW poll id.
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(fetch).toHaveBeenCalledWith('/auth/poll/43');
+    });
+
+    it('after expiry, resending restores the spinner state and resumes polling', async () => {
+        await waitingScreen();
+        global.fetch.mockImplementation((url) => Promise.resolve({
+            json: () => Promise.resolve(url === '/login/magic-link'
+                ? { success: true, poll_id: 43 }
+                : { confirmed: false }),
+        }));
+
+        await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+        expect(document.getElementById('waiting-expired').classList.contains('d-none')).toBe(false);
+
+        document.getElementById('resend-magic-link').dispatchEvent(new Event('click'));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(document.getElementById('waiting-pending').classList.contains('d-none')).toBe(false);
+        expect(document.getElementById('waiting-expired').classList.contains('d-none')).toBe(true);
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(fetch).toHaveBeenCalledWith('/auth/poll/43');
+    });
+
+    it('disables the button and changes its label while in flight, restoring both afterwards', async () => {
+        await waitingScreen();
+        let resolveSend;
+        global.fetch.mockImplementation(() => new Promise((resolve) => { resolveSend = resolve; }));
+        const btn = /** @type {HTMLButtonElement} */ (document.getElementById('resend-magic-link'));
+
+        btn.dispatchEvent(new Event('click'));
+        expect(btn.disabled).toBe(true);
+        expect(btn.textContent).toBe('Envoi en cours…');
+
+        resolveSend({ json: () => Promise.resolve({ success: true, poll_id: 43 }) });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(btn.disabled).toBe(false);
+        expect(btn.textContent).toBe('Renvoyer le lien');
+    });
+
+    it('shows the server error (e.g. throttling) under the button and keeps the waiting card', async () => {
+        await waitingScreen();
+        global.fetch.mockResolvedValue({ json: () => Promise.resolve({ success: false, error: 'Trop de demandes. Réessayez plus tard.' }) });
+
+        document.getElementById('resend-magic-link').dispatchEvent(new Event('click'));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(document.getElementById('resend-error').textContent).toBe('Trop de demandes. Réessayez plus tard.');
+        expect(document.getElementById('resend-error').classList.contains('d-none')).toBe(false);
+        expect(document.getElementById('state-waiting').classList.contains('d-none')).toBe(false);
+    });
+
+    it('shows a network-error message when the resend request itself fails', async () => {
+        await waitingScreen();
+        global.fetch.mockRejectedValue(new Error('offline'));
+
+        document.getElementById('resend-magic-link').dispatchEvent(new Event('click'));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(document.getElementById('resend-error').textContent).toBe('Erreur réseau. Veuillez réessayer.');
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('resend-magic-link')).disabled).toBe(false);
     });
 });
 
