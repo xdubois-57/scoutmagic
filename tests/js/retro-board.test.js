@@ -30,6 +30,11 @@ async function boot(attrs = {}) {
     vi.resetModules();
     document.body.innerHTML = '';
     buildContainer(attrs);
+    // The real toolboxes, never stubs — retro-board.js escapes through
+    // window.ScoutMagicApi.escapeHtml and posts/toasts through the shared
+    // globals (base.html.twig guarantees this load order in production).
+    await import('../../public/assets/js/api.js');
+    await import('../../public/assets/js/toast.js');
     await import('../../public/assets/js/retro-board.js');
     return globalThis.ScoutMagicRetroBoardInternals;
 }
@@ -39,10 +44,10 @@ beforeEach(() => {
     global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({}) }));
 });
 
-describe('retro-board.js: escapeHtml()', () => {
-    it('escapes the five HTML-significant characters', async () => {
+describe('retro-board.js: escapeHtml() — the shared ScoutMagicApi.escapeHtml', () => {
+    it('escapes the five HTML-significant characters, quotes included (attribute-safe)', async () => {
         const rb = await boot();
-        expect(rb.escapeHtml('<b>&"\'</b>')).toBe('&lt;b&gt;&amp;"\'&lt;/b&gt;');
+        expect(rb.escapeHtml('<b>&"\'</b>')).toBe('&lt;b&gt;&amp;&quot;&#39;&lt;/b&gt;');
     });
 
     it('renders null and undefined as an empty string, not the literal word', async () => {
@@ -248,6 +253,8 @@ describe('retro-board.js: updateBudgetDisplay()', () => {
         const budgetEl = document.createElement('span');
         budgetEl.id = 'retro-budget-remaining';
         document.body.appendChild(budgetEl);
+        await import('../../public/assets/js/api.js');
+        await import('../../public/assets/js/toast.js');
         await import('../../public/assets/js/retro-board.js');
         const rb = globalThis.ScoutMagicRetroBoardInternals;
 

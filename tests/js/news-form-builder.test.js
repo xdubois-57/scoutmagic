@@ -14,6 +14,10 @@
 // written as an allowlist specification rather than as a tour of the
 // implementation.
 import { beforeEach, describe, expect, it } from 'vitest';
+// The real site-wide toolboxes, loaded by base.html.twig before every page
+// script — same order here (static side-effect imports run in order).
+import '../../public/assets/js/api.js';
+import '../../public/assets/js/toast.js';
 import '../../public/assets/js/news-form-builder.js';
 
 const nfb = globalThis.ScoutMagicNewsFormBuilderInternals;

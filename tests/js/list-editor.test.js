@@ -1,9 +1,10 @@
 // Isolated JavaScript unit test — jsdom-simulated DOM only. No PHP server,
-// no MySQL, no network: fetch and window.confirm/alert are mocked.
+// no MySQL, no network: fetch and window.confirm are mocked.
 // Exercises the REAL implementation in public/assets/js/list-editor.js
-// (imported below, never reimplemented here). No test seam needed — every
-// function's effect is reachable through a real click/dragend event and
-// observable in the DOM or the mocked fetch calls.
+// (imported below, never reimplemented here), on top of the real
+// api.js/toast.js toolboxes. No test seam needed — every function's effect
+// is reachable through a real click/dragend event and observable in the
+// DOM (error feedback is a toast now) or the mocked fetch calls.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 function el(html) {
@@ -13,7 +14,13 @@ function el(html) {
 }
 
 function jsonResponse(data) {
-    return Promise.resolve({ json: () => Promise.resolve(data) });
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(data) });
+}
+
+/** The text of the last toast currently shown, or null when there is none. */
+function lastToastText() {
+    const bodies = document.querySelectorAll('.toast-body');
+    return bodies.length ? bodies[bodies.length - 1].textContent : null;
 }
 
 // updateMoveButtons() is only ever called from INSIDE the move-up/
@@ -54,6 +61,10 @@ async function boot() {
     meta.content = 'tok';
     document.head.innerHTML = '';
     document.head.appendChild(meta);
+    // The real site-wide toolboxes, loaded by base.html.twig before every
+    // page script — same order here.
+    await import('../../public/assets/js/api.js');
+    await import('../../public/assets/js/toast.js');
     await import('../../public/assets/js/list-editor.js');
 }
 
@@ -61,7 +72,6 @@ beforeEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = '';
     global.fetch = vi.fn(() => jsonResponse({ success: true }));
-    window.alert = vi.fn();
     window.confirm = vi.fn(() => true);
 });
 
@@ -131,7 +141,7 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Verrou déjà pris.' }));
         await boot();
         document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith('Verrou déjà pris.'));
+        await vi.waitFor(() => expect(lastToastText()).toBe('Verrou déjà pris.'));
     });
 });
 
@@ -210,7 +220,7 @@ describe('list-editor.js: active toggle', () => {
         const toggle = document.querySelector('.list-editor-active-toggle');
 
         toggle.dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith('Verrouillé.'));
+        await vi.waitFor(() => expect(lastToastText()).toBe('Verrouillé.'));
         expect(toggle.disabled).toBe(false);
         expect(toggle.dataset.active).toBe('1'); // unchanged
     });
@@ -258,7 +268,7 @@ describe('list-editor.js: delete', () => {
         Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
         await boot();
         document.querySelector('.list-editor-delete-btn').dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith('Élément référencé ailleurs.'));
+        await vi.waitFor(() => expect(lastToastText()).toBe('Élément référencé ailleurs.'));
         expect(window.location.reload).not.toHaveBeenCalled();
     });
 
@@ -295,7 +305,7 @@ describe('list-editor.js: add', () => {
         Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
         await boot();
         document.querySelector('.list-editor-add-btn').dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith('Quota atteint.'));
+        await vi.waitFor(() => expect(lastToastText()).toBe('Quota atteint.'));
         expect(window.location.reload).not.toHaveBeenCalled();
     });
 

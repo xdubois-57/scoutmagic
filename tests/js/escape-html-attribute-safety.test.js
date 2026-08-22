@@ -32,15 +32,16 @@ function loadEscapeHtml(relativePath) {
     return new Function(`${match[0]}\nreturn escapeHtml;`)();
 }
 
-// The receipts page's inline script moved into public/assets/js/
-// finance-receipts.js (its escapeHtml went with it) — this list follows
-// the definition, wherever it lives, because the point is to exercise the
-// shipped source. The suite failing to LOAD counts as nobody noticing the
-// move: loadEscapeHtml() throws before a single `it` runs, which is
-// exactly what happened when the receipts template stopped carrying the
-// function.
+// The receipts page's escaper moved twice: template inline <script> →
+// public/assets/js/finance-receipts.js → the shared toolbox in
+// public/assets/js/api.js (finance-receipts.js now aliases
+// window.ScoutMagicApi.escapeHtml). This list follows the definition,
+// wherever it lives, because the point is to exercise the shipped source.
+// The suite failing to LOAD counts as nobody noticing the move:
+// loadEscapeHtml() throws before a single `it` runs, which is exactly
+// what happened when the receipts template stopped carrying the function.
 const templates = {
-    'finance receipts list': 'public/assets/js/finance-receipts.js',
+    'ScoutMagicApi toolbox (used by finance receipts list)': 'public/assets/js/api.js',
     'mass_mail list': 'modules/mass_mail/views/list.html.twig',
 };
 

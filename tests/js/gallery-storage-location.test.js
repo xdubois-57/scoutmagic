@@ -8,6 +8,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 async function loadScript() {
     vi.resetModules();
+    // The real site-wide toolboxes, loaded by base.html.twig before every
+    // page script — same order here.
+    await import('../../public/assets/js/api.js');
+    await import('../../public/assets/js/toast.js');
     await import('../../public/assets/js/gallery-storage-location.js');
 }
 
@@ -51,7 +55,7 @@ describe('gallery-storage-location.js test-connection', () => {
     // authentication.
     it('sends the location id so the server can reuse the stored secret', async () => {
         renderLocationForm('12');
-        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: true }) }));
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
         await loadScript();
 
         document.getElementById('s3-test-connection').click();
@@ -66,7 +70,7 @@ describe('gallery-storage-location.js test-connection', () => {
 
     it('sends location id 0 on the creation form, where there is nothing stored yet', async () => {
         renderLocationForm('');
-        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: true }) }));
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
         await loadScript();
 
         document.getElementById('s3-test-connection').click();
@@ -77,7 +81,7 @@ describe('gallery-storage-location.js test-connection', () => {
 
     it('sends a freshly typed secret as-is', async () => {
         renderLocationForm('12');
-        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: true }) }));
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
         await loadScript();
         document.getElementById('s3-secret-key').value = 'nouvelle-cle';
 
@@ -101,6 +105,7 @@ describe('gallery-storage-location.js error rendering', () => {
     it('does not let a quote in a provider error break out of the title attribute', async () => {
         renderLocationsTable();
         global.fetch = vi.fn(() => Promise.resolve({
+            ok: true, status: 200,
             json: () => Promise.resolve({ success: true, ok: false, error: '" onmouseover="alert(1)' }),
         }));
         await loadScript();
@@ -121,6 +126,7 @@ describe('gallery-storage-location.js error rendering', () => {
     it('renders an angle-bracket error as text, never as markup', async () => {
         renderLocationsTable();
         global.fetch = vi.fn(() => Promise.resolve({
+            ok: true, status: 200,
             json: () => Promise.resolve({ success: false, error: '<img src=x onerror=alert(1)>' }),
         }));
         await loadScript();
@@ -135,7 +141,7 @@ describe('gallery-storage-location.js error rendering', () => {
 
     it('shows the success badge when the location answers ok', async () => {
         renderLocationsTable();
-        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: true, ok: true }) }));
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true, ok: true }) }));
         await loadScript();
 
         document.querySelector('.gallery-location-test').click();
@@ -147,7 +153,7 @@ describe('gallery-storage-location.js error rendering', () => {
 
     it('renders a missing error message as an empty title rather than "undefined"', async () => {
         renderLocationsTable();
-        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: true, ok: false }) }));
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true, ok: false }) }));
         await loadScript();
 
         document.querySelector('.gallery-location-status');

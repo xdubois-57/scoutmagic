@@ -38,6 +38,11 @@ describe('settings.js', () => {
     });
 
     async function boot() {
+        // The real fetch toolbox — settings.js escapes through
+        // window.ScoutMagicApi.escapeHtml and posts through
+        // window.ScoutMagicApi.postJson (base.html.twig guarantees this
+        // load order in production).
+        await import('../../public/assets/js/api.js');
         await import('../../public/assets/js/settings.js');
         document.dispatchEvent(new Event('DOMContentLoaded'));
     }
@@ -89,7 +94,7 @@ describe('settings.js', () => {
     });
 
     describe('save contract with the server', () => {
-        it('POSTs the CSRF token in the JSON BODY as _csrf_token, not as a header', async () => {
+        it('POSTs the CSRF token in the JSON BODY as _csrf_token AND in the X-CSRF-Token header (the toolbox covers both validation styles)', async () => {
             const meta = document.createElement('meta');
             meta.name = 'csrf-token'; meta.content = 'tok-123';
             document.head.appendChild(meta);
@@ -104,7 +109,7 @@ describe('settings.js', () => {
             expect(url).toBe('/config/settings/update');
             expect(opts.method).toBe('POST');
             expect(JSON.parse(opts.body)).toEqual({ module_id: 'news', key: 'title', value: 'new', _csrf_token: 'tok-123' });
-            expect(opts.headers['X-CSRF-Token']).toBeUndefined();
+            expect(opts.headers['X-CSRF-Token']).toBe('tok-123');
             meta.remove();
         });
 

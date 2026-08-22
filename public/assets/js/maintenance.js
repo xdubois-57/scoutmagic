@@ -10,28 +10,18 @@
     var select = /** @type {HTMLSelectElement} */ (document.getElementById('auto-backup-frequency'));
     if (!select) return;
 
-    var saved = document.getElementById('auto-backup-frequency-saved');
-    var csrfInput = /** @type {HTMLInputElement} */ (document.querySelector('input[name="_csrf_token"]'));
-
     select.addEventListener('change', function () {
-        fetch('/config/maintenance/backup/auto-frequency', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ frequency: select.value, _csrf_token: csrfInput ? csrfInput.value : '' })
-        })
-            .then(function (res) { return res.json(); })
-            .then(function (data) {
-                if (data.success && saved) {
-                    saved.classList.remove('d-none');
-                    setTimeout(function () { saved.classList.add('d-none'); }, 1500);
+        window.ScoutMagicApi.postJson('/config/maintenance/backup/auto-frequency', { frequency: select.value })
+            .then(function (res) {
+                if (res.data && res.data.success) {
+                    window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                 }
             });
     });
 })();
 
 // Configuration > Maintenance — "Sauvegarde complète" form: submits, then
-// polls GET /api/maintenance/backup-status/{id} (same setInterval/
-// clearInterval pattern as public/assets/js/auth.js's magic-link polling)
+// polls GET /api/maintenance/backup-status/{id} via ScoutMagicApi.poll
 // until the background generation finishes or fails.
 (function () {
     var form = document.getElementById('full-backup-form');
@@ -40,20 +30,17 @@
     var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('full-backup-submit'));
     var progressEl = document.getElementById('full-backup-progress');
     var errorEl = document.getElementById('full-backup-error');
-    var pollTimer = null;
-
-    function csrf() {
-        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
-        return meta ? meta.content : '';
-    }
+    /** @type {{stop: () => void}|null} */
+    var pollHandle = null;
 
     function stopPolling() {
-        if (pollTimer) {
-            clearInterval(pollTimer);
-            pollTimer = null;
+        if (pollHandle) {
+            pollHandle.stop();
+            pollHandle = null;
         }
     }
 
+    /** @param {string} message */
     function showError(message) {
         stopPolling();
         submitBtn.disabled = false;
@@ -62,24 +49,27 @@
         errorEl.classList.remove('d-none');
     }
 
+    /** @param {string|number} backupId */
     function pollStatus(backupId) {
-        pollTimer = setInterval(function () {
-            fetch('/api/maintenance/backup-status/' + backupId)
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
-                    if (data.status === 'completed') {
-                        stopPolling();
-                        window.location.reload();
-                    } else if (data.status === 'failed') {
-                        showError(data.error_message || 'La génération de la sauvegarde a échoué.');
-                    }
-                    // pending / in_progress: keep polling.
-                })
-                .catch(function () {
+        pollHandle = window.ScoutMagicApi.poll(function () {
+            return window.ScoutMagicApi.getJson('/api/maintenance/backup-status/' + backupId).then(function (res) {
+                if (!res.data) {
                     // Transient network hiccup — keep polling, the next
                     // tick will likely succeed.
-                });
-        }, 3000);
+                    return undefined;
+                }
+                if (res.data.status === 'completed') {
+                    window.location.reload();
+                    return false;
+                }
+                if (res.data.status === 'failed') {
+                    showError(res.data.error_message || 'La génération de la sauvegarde a échoué.');
+                    return false;
+                }
+                // pending / in_progress: keep polling.
+                return undefined;
+            });
+        }, { intervalMs: 3000 });
     }
 
     form.addEventListener('submit', function (e) {
@@ -93,48 +83,47 @@
         submitBtn.disabled = true;
         progressEl.classList.remove('d-none');
 
-        fetch('/config/maintenance/backup/full', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ scope: scope.value, password: password, _csrf_token: csrf() })
-        })
-            .then(function (res) { return res.json(); })
-            .then(function (data) {
-                if (!data.success) {
-                    showError(data.error || 'Erreur lors du lancement de la sauvegarde.');
+        window.ScoutMagicApi.postJson('/config/maintenance/backup/full', { scope: scope.value, password: password })
+            .then(function (res) {
+                if (!res.data) {
+                    showError('Erreur réseau.');
                     return;
                 }
-                pollStatus(data.backup_id);
-            })
-            .catch(function () {
-                showError('Erreur réseau.');
+                if (!res.data.success) {
+                    showError(res.data.error || 'Erreur lors du lancement de la sauvegarde.');
+                    return;
+                }
+                pollStatus(res.data.backup_id);
             });
     });
 })();
 
 // "Mise à jour" section — install form(s): submit, then poll
-// GET /api/maintenance/update-status/{id} (same pattern as the full-backup
-// polling above) until installation completes, fails, or is rolled back.
-// Wires every matching form found (the always-rendered "Une nouvelle
-// version est disponible" form when the webhook's last cached check found
-// one, and/or the "Vérifier maintenant" dialog's own form below) since
+// GET /api/maintenance/update-status/{id} (same ScoutMagicApi.poll shape as
+// the full-backup polling above) until installation completes, fails, or is
+// rolled back. Wires every matching form found (the always-rendered "Une
+// nouvelle version est disponible" form when the webhook's last cached check
+// found one, and/or the "Vérifier maintenant" dialog's own form below) since
 // both POST to the same endpoint and need identical polling.
 (function () {
+    /** @param {HTMLElement|null} form */
     function wireInstallForm(form) {
         if (!form) return;
 
-        var submitBtn = form.querySelector('button[type="submit"]');
+        var submitBtn = /** @type {HTMLButtonElement} */ (form.querySelector('button[type="submit"]'));
         var progressEl = form.querySelector('[id$="-progress"]') || document.getElementById('update-install-progress');
         var errorEl = form.querySelector('[id$="-error"]') || document.getElementById('update-install-error');
-        var pollTimer = null;
+        /** @type {{stop: () => void}|null} */
+        var pollHandle = null;
 
         function stopPolling() {
-            if (pollTimer) {
-                clearInterval(pollTimer);
-                pollTimer = null;
+            if (pollHandle) {
+                pollHandle.stop();
+                pollHandle = null;
             }
         }
 
+        /** @param {string} message */
         function showError(message) {
             stopPolling();
             if (submitBtn) submitBtn.disabled = false;
@@ -145,23 +134,26 @@
             }
         }
 
+        /** @param {string|number} historyId */
         function pollStatus(historyId) {
-            pollTimer = setInterval(function () {
-                fetch('/api/maintenance/update-status/' + historyId)
-                    .then(function (res) { return res.json(); })
-                    .then(function (data) {
-                        if (data.status === 'completed') {
-                            stopPolling();
-                            window.location.reload();
-                        } else if (data.status === 'failed' || data.status === 'rolled_back') {
-                            showError(data.error_message || 'L\'installation de la mise à jour a échoué.');
-                        }
-                        // pending / backing_up / downloading / installing / migrating: keep polling.
-                    })
-                    .catch(function () {
+            pollHandle = window.ScoutMagicApi.poll(function () {
+                return window.ScoutMagicApi.getJson('/api/maintenance/update-status/' + historyId).then(function (res) {
+                    if (!res.data) {
                         // Transient network hiccup — keep polling.
-                    });
-            }, 3000);
+                        return undefined;
+                    }
+                    if (res.data.status === 'completed') {
+                        window.location.reload();
+                        return false;
+                    }
+                    if (res.data.status === 'failed' || res.data.status === 'rolled_back') {
+                        showError(res.data.error_message || 'L\'installation de la mise à jour a échoué.');
+                        return false;
+                    }
+                    // pending / backing_up / downloading / installing / migrating: keep polling.
+                    return undefined;
+                });
+            }, { intervalMs: 3000 });
         }
 
         form.addEventListener('submit', function (e) {
@@ -170,23 +162,17 @@
             if (submitBtn) submitBtn.disabled = true;
             if (progressEl) progressEl.classList.remove('d-none');
 
-            var csrfInput = form.querySelector('input[name="_csrf_token"]');
-
-            fetch('/config/maintenance/update/install', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ _csrf_token: csrfInput ? csrfInput.value : '' })
-            })
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
-                    if (!data.success) {
-                        showError(data.error || 'Erreur lors du lancement de la mise à jour.');
+            window.ScoutMagicApi.postJson('/config/maintenance/update/install', {})
+                .then(function (res) {
+                    if (!res.data) {
+                        showError('Erreur réseau.');
                         return;
                     }
-                    pollStatus(data.history_id);
-                })
-                .catch(function () {
-                    showError('Erreur réseau.');
+                    if (!res.data.success) {
+                        showError(res.data.error || 'Erreur lors du lancement de la mise à jour.');
+                        return;
+                    }
+                    pollStatus(res.data.history_id);
                 });
         });
     }
@@ -211,11 +197,6 @@
     var notesEl = document.getElementById('update-check-now-notes');
     var dismissBtn = document.getElementById('update-check-now-dismiss');
 
-    function csrf() {
-        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
-        return meta ? meta.content : '';
-    }
-
     if (dismissBtn) {
         dismissBtn.addEventListener('click', function () {
             dialog.classList.add('d-none');
@@ -228,16 +209,17 @@
         dialog.classList.add('d-none');
         progressEl.classList.remove('d-none');
 
-        fetch('/config/maintenance/update/check-now', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ _csrf_token: csrf() })
-        })
-            .then(function (res) { return res.json(); })
-            .then(function (data) {
+        window.ScoutMagicApi.postJson('/config/maintenance/update/check-now', {})
+            .then(function (res) {
                 btn.disabled = false;
                 progressEl.classList.add('d-none');
 
+                if (!res.data) {
+                    errorEl.textContent = 'Erreur réseau.';
+                    errorEl.classList.remove('d-none');
+                    return;
+                }
+                var data = res.data;
                 if (!data.success) {
                     errorEl.textContent = data.error || 'Erreur lors de la vérification.';
                     errorEl.classList.remove('d-none');
@@ -247,7 +229,7 @@
                 if (!data.update_available) {
                     errorEl.classList.add('d-none');
                     dialog.classList.add('d-none');
-                    window.alert('Le site est déjà à jour.');
+                    window.ScoutMagicToast.show('Le site est déjà à jour.', { variant: 'success' });
                     return;
                 }
 
@@ -257,12 +239,6 @@
                 // never built from data.notes client-side.
                 notesEl.innerHTML = data.notes_html || '';
                 dialog.classList.remove('d-none');
-            })
-            .catch(function () {
-                btn.disabled = false;
-                progressEl.classList.add('d-none');
-                errorEl.textContent = 'Erreur réseau.';
-                errorEl.classList.remove('d-none');
             });
     });
 })();
@@ -275,11 +251,6 @@
 (function () {
     var enabledCheckbox = /** @type {HTMLInputElement} */ (document.getElementById('auto-update-enabled'));
     if (!enabledCheckbox) return;
-
-    function csrf() {
-        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
-        return meta ? meta.content : '';
-    }
 
     var detailsEl = document.getElementById('auto-update-details');
     enabledCheckbox.addEventListener('change', function () {
@@ -313,38 +284,31 @@
     }
 
     var saveBtn = document.getElementById('auto-update-save');
-    var savedEl = document.getElementById('auto-update-saved');
     var errorEl = document.getElementById('auto-update-error');
     if (saveBtn) {
         saveBtn.addEventListener('click', function () {
             var levelRadio = /** @type {HTMLInputElement} */ (document.querySelector('input[name="auto-update-level"]:checked'));
             errorEl.classList.add('d-none');
 
-            fetch('/config/maintenance/auto-update/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    enabled: enabledCheckbox.checked,
-                    level: levelRadio ? levelRadio.value : 'patch',
-                    day: /** @type {HTMLSelectElement} */ (document.getElementById('auto-update-day')).value,
-                    time: /** @type {HTMLInputElement} */ (document.getElementById('auto-update-time')).value,
-                    branch: /** @type {HTMLInputElement} */ (document.getElementById('auto-update-branch')).value,
-                    _csrf_token: csrf()
-                })
+            window.ScoutMagicApi.postJson('/config/maintenance/auto-update/save', {
+                enabled: enabledCheckbox.checked,
+                level: levelRadio ? levelRadio.value : 'patch',
+                day: /** @type {HTMLSelectElement} */ (document.getElementById('auto-update-day')).value,
+                time: /** @type {HTMLInputElement} */ (document.getElementById('auto-update-time')).value,
+                branch: /** @type {HTMLInputElement} */ (document.getElementById('auto-update-branch')).value
             })
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
-                    if (!data.success) {
-                        errorEl.textContent = data.error || 'Erreur lors de l\'enregistrement.';
+                .then(function (res) {
+                    if (!res.data) {
+                        errorEl.textContent = 'Erreur réseau.';
                         errorEl.classList.remove('d-none');
                         return;
                     }
-                    savedEl.classList.remove('d-none');
-                    setTimeout(function () { savedEl.classList.add('d-none'); }, 1500);
-                })
-                .catch(function () {
-                    errorEl.textContent = 'Erreur réseau.';
-                    errorEl.classList.remove('d-none');
+                    if (!res.data.success) {
+                        errorEl.textContent = res.data.error || 'Erreur lors de l\'enregistrement.';
+                        errorEl.classList.remove('d-none');
+                        return;
+                    }
+                    window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                 });
         });
     }
@@ -353,19 +317,18 @@
     if (webhookBtn) {
         webhookBtn.addEventListener('click', function () {
             webhookBtn.disabled = true;
-            fetch('/api/maintenance/webhook-secret', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ _csrf_token: csrf() })
-            })
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
+            window.ScoutMagicApi.postJson('/api/maintenance/webhook-secret', {})
+                .then(function (res) {
                     webhookBtn.disabled = false;
-                    if (!data.success) {
-                        window.alert(data.error || 'Erreur lors de la génération du secret.');
+                    if (!res.data) {
+                        window.ScoutMagicToast.show('Erreur réseau.', { variant: 'error' });
                         return;
                     }
-                    document.getElementById('webhook-secret-value').textContent = data.secret;
+                    if (!res.data.success) {
+                        window.ScoutMagicToast.show(res.data.error || 'Erreur lors de la génération du secret.', { variant: 'error' });
+                        return;
+                    }
+                    document.getElementById('webhook-secret-value').textContent = res.data.secret;
                     document.getElementById('webhook-secret-display').classList.remove('d-none');
                     document.getElementById('webhook-setup-instructions').classList.add('d-none');
 
@@ -382,10 +345,6 @@
                         icon.classList.remove('bi-key');
                         icon.classList.add('bi-arrow-repeat');
                     }
-                })
-                .catch(function () {
-                    webhookBtn.disabled = false;
-                    window.alert('Erreur réseau.');
                 });
         });
     }
@@ -413,44 +372,41 @@
         return update;
     }
 
-    // Generic poll helper for GET /api/maintenance/reset-status/{id}.
-    // onDone/onFailed receive the error message (may be null); onNotFound
-    // is only meaningfully different for full reset (see below), where a
-    // 404 means "the operation wiped its own tracking row — that's success".
+    // Generic ScoutMagicApi.poll wrapper for
+    // GET /api/maintenance/reset-status/{id}. onDone/onFailed receive the
+    // error message (may be null); onNotFound is only meaningfully different
+    // for full reset (see below), where a 404 means "the operation wiped its
+    // own tracking row — that's success".
     /**
      * @param {string|number} actionId
      * @param {() => void} onDone
      * @param {(message: string|null) => void} onFailed
      * @param {() => void} onNotFound
-     * @returns {ReturnType<typeof setInterval>}
+     * @returns {void}
      */
     function pollResetStatus(actionId, onDone, onFailed, onNotFound) {
-        var timer = setInterval(function () {
-            fetch('/api/maintenance/reset-status/' + actionId)
-                .then(function (res) {
-                    if (res.status === 404) {
-                        clearInterval(timer);
-                        onNotFound();
-                        return null;
-                    }
-                    return res.json();
-                })
-                .then(function (data) {
-                    if (!data) return;
-                    if (data.status === 'done') {
-                        clearInterval(timer);
-                        onDone();
-                    } else if (data.status === 'failed' || data.status === 'canceled') {
-                        clearInterval(timer);
-                        onFailed(data.error_message);
-                    }
-                    // pending / processing: keep polling.
-                })
-                .catch(function () {
+        window.ScoutMagicApi.poll(function () {
+            return window.ScoutMagicApi.getJson('/api/maintenance/reset-status/' + actionId).then(function (res) {
+                if (res.status === 404) {
+                    onNotFound();
+                    return false;
+                }
+                if (!res.data) {
                     // Transient network hiccup — keep polling.
-                });
-        }, 3000);
-        return timer;
+                    return undefined;
+                }
+                if (res.data.status === 'done') {
+                    onDone();
+                    return false;
+                }
+                if (res.data.status === 'failed' || res.data.status === 'canceled') {
+                    onFailed(res.data.error_message);
+                    return false;
+                }
+                // pending / processing: keep polling.
+                return undefined;
+            });
+        }, { intervalMs: 3000 });
     }
 
     // --- Paramètres par défaut ---
@@ -462,30 +418,29 @@
             var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('reset-settings-submit'));
             var progressEl = document.getElementById('reset-settings-progress');
             var errorEl = document.getElementById('reset-settings-error');
-            var csrfInput = /** @type {HTMLInputElement} */ (resetSettingsForm.querySelector('input[name="_csrf_token"]'));
             errorEl.classList.add('d-none');
             submitBtn.disabled = true;
             progressEl.classList.remove('d-none');
 
-            fetch('/config/maintenance/reset/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    confirm_keyword: /** @type {HTMLInputElement} */ (document.getElementById('reset-settings-keyword')).value,
-                    _csrf_token: csrfInput ? csrfInput.value : ''
-                })
+            window.ScoutMagicApi.postJson('/config/maintenance/reset/settings', {
+                confirm_keyword: /** @type {HTMLInputElement} */ (document.getElementById('reset-settings-keyword')).value
             })
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
-                    if (!data.success) {
+                .then(function (res) {
+                    if (!res.data) {
                         progressEl.classList.add('d-none');
-                        errorEl.textContent = data.error || 'Erreur lors du lancement de la réinitialisation.';
+                        errorEl.textContent = 'Erreur réseau.';
+                        errorEl.classList.remove('d-none');
+                        return;
+                    }
+                    if (!res.data.success) {
+                        progressEl.classList.add('d-none');
+                        errorEl.textContent = res.data.error || 'Erreur lors du lancement de la réinitialisation.';
                         errorEl.classList.remove('d-none');
                         if (resetSettingsUpdate) resetSettingsUpdate();
                         return;
                     }
                     pollResetStatus(
-                        data.action_id,
+                        res.data.action_id,
                         function () { window.location.reload(); },
                         function (message) {
                             progressEl.classList.add('d-none');
@@ -494,11 +449,6 @@
                         },
                         function () { window.location.reload(); }
                     );
-                })
-                .catch(function () {
-                    progressEl.classList.add('d-none');
-                    errorEl.textContent = 'Erreur réseau.';
-                    errorEl.classList.remove('d-none');
                 });
         });
     }
@@ -521,25 +471,24 @@
             var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('full-reset-submit'));
             var progressEl = document.getElementById('full-reset-progress');
             var errorEl = document.getElementById('full-reset-error');
-            var csrfInput = /** @type {HTMLInputElement} */ (fullResetForm.querySelector('input[name="_csrf_token"]'));
             errorEl.classList.add('d-none');
             submitBtn.disabled = true;
             progressEl.classList.remove('d-none');
 
-            fetch('/config/maintenance/reset/full', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    confirm_keyword: /** @type {HTMLInputElement} */ (document.getElementById('full-reset-keyword')).value,
-                    confirm_checkbox: true,
-                    _csrf_token: csrfInput ? csrfInput.value : ''
-                })
+            window.ScoutMagicApi.postJson('/config/maintenance/reset/full', {
+                confirm_keyword: /** @type {HTMLInputElement} */ (document.getElementById('full-reset-keyword')).value,
+                confirm_checkbox: true
             })
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
-                    if (!data.success) {
+                .then(function (res) {
+                    if (!res.data) {
                         progressEl.classList.add('d-none');
-                        errorEl.textContent = data.error || 'Erreur lors du lancement de la réinitialisation.';
+                        errorEl.textContent = 'Erreur réseau.';
+                        errorEl.classList.remove('d-none');
+                        return;
+                    }
+                    if (!res.data.success) {
+                        progressEl.classList.add('d-none');
+                        errorEl.textContent = res.data.error || 'Erreur lors du lancement de la réinitialisation.';
                         errorEl.classList.remove('d-none');
                         if (fullResetUpdate) fullResetUpdate();
                         return;
@@ -548,7 +497,7 @@
                     // along with everything else — that IS success for a
                     // full reset, not an error, so onNotFound also redirects.
                     pollResetStatus(
-                        data.action_id,
+                        res.data.action_id,
                         function () { window.location.href = '/'; },
                         function (message) {
                             progressEl.classList.add('d-none');
@@ -557,11 +506,6 @@
                         },
                         function () { window.location.href = '/'; }
                     );
-                })
-                .catch(function () {
-                    progressEl.classList.add('d-none');
-                    errorEl.textContent = 'Erreur réseau.';
-                    errorEl.classList.remove('d-none');
                 });
         });
     }
@@ -607,9 +551,8 @@
                 var chunkProgressEl = document.getElementById('restore-backup-progress');
                 if (chunkErrorEl) chunkErrorEl.classList.add('d-none');
                 if (chunkProgressEl) chunkProgressEl.classList.remove('d-none');
-                var csrfField = /** @type {HTMLInputElement} */ (restoreForm.querySelector('input[name="_csrf_token"]'));
                 chunker.uploadInChunks(chunkFile, '/config/maintenance/restore-upload-chunk', {
-                    csrfToken: csrfField ? csrfField.value : ''
+                    csrfToken: window.ScoutMagicApi.csrfToken()
                 }).then(function (result) {
                     uploadIdInput.value = result.uploadId;
                     fileInput.value = '';

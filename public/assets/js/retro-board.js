@@ -5,8 +5,8 @@
 
 // Retro module public board (retro/board.html.twig): polling, comment
 // submission with AI-shorten, vote controls, hide/unhide, QR toggle, copy
-// link. Pure JS, no external library — same IIFE/var/fetch style as
-// gallery.js.
+// link. Pure JS, no external library — same IIFE/var style as gallery.js,
+// with all requests going through the shared window.ScoutMagicApi toolbox.
 (function () {
     var container = document.getElementById('retro-board');
     if (!container) return;
@@ -22,32 +22,17 @@
     var remainingBudget = container.dataset.remainingBudget !== '' ? parseInt(container.dataset.remainingBudget, 10) : null;
     var budgetEl = document.getElementById('retro-budget-remaining');
 
-    function csrf() {
-        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
-        return meta ? meta.content : '';
-    }
-
+    // The local postJson() copy this file carried resolved to
+    // {httpStatus, data} with `data` never null ({} on a body that failed
+    // to parse). Requests now ride window.ScoutMagicApi.postJson's
+    // {ok, status, data} envelope — this maps a response back to the
+    // always-an-object body every call site below branches on.
     /**
-     * @param {string} url
-     * @param {Object} body
-     * @returns {Promise<Object>}
+     * @param {{ok: boolean, status: number, data: any}} res
+     * @returns {Object}
      */
-    function postJson(url, body) {
-        return fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(Object.assign({}, body, { _csrf_token: csrf() }))
-        }).then(function (res) {
-            return res.json().catch(function () { return {}; }).then(function (data) {
-                return { httpStatus: res.status, data: data };
-            });
-        });
-    }
-
-    function escapeHtml(str) {
-        var div = document.createElement('div');
-        div.textContent = str === null || str === undefined ? '' : String(str);
-        return div.innerHTML;
+    function envelopeData(res) {
+        return res.data || {};
     }
 
     function updateBudgetDisplay(value) {
@@ -104,7 +89,7 @@
 
         return '<div class="border rounded p-2 retro-comment" data-comment-id="' + comment.id + '" data-hidden="' + (comment.hidden ? '1' : '0') + '">'
             + hiddenBadge
-            + '<p class="' + bodyClass + '" data-comment-body>' + escapeHtml(comment.body) + '</p>'
+            + '<p class="' + bodyClass + '" data-comment-body>' + window.ScoutMagicApi.escapeHtml(comment.body) + '</p>'
             + '<div class="d-flex justify-content-between align-items-center gap-2">'
             + '<div class="d-flex align-items-center gap-1">' + voteButtons + '<span class="small text-body-secondary" data-comment-votes>' + votesLabel + '</span></div>'
             + hideButton
@@ -130,29 +115,27 @@
     }
 
     // ------------------------------------------------------------------
-    // Polling
+    // Polling — the recurring loop is ScoutMagicApi.poll (which brings the
+    // no-overlap and refresh-on-tab-visible behaviours the hand-rolled
+    // setInterval used to implement itself). refreshBoard() is also called
+    // directly after a successful mutation, so it keeps its own in-flight
+    // guard for those out-of-loop calls.
     // ------------------------------------------------------------------
-    var pollTimer = null;
     var pollInFlight = false;
 
-    function poll() {
-        if (pollInFlight) return;
+    function refreshBoard() {
+        if (pollInFlight) return undefined;
         pollInFlight = true;
-        fetch('/r/' + token + '/poll')
-            .then(function (res) { return res.json(); })
-            .then(function (data) {
-                pollInFlight = false;
-                if (data.error) return;
-                renderColumns(data.comments || []);
-            })
-            .catch(function () { pollInFlight = false; });
+        return window.ScoutMagicApi.getJson('/r/' + token + '/poll').then(function (res) {
+            pollInFlight = false;
+            var data = res.data;
+            if (!data || data.error) return;
+            renderColumns(data.comments || []);
+        });
     }
 
     if (status === 'open') {
-        pollTimer = setInterval(poll, pollInterval);
-        document.addEventListener('visibilitychange', function () {
-            if (document.visibilityState === 'visible') poll();
-        });
+        window.ScoutMagicApi.poll(refreshBoard, { intervalMs: pollInterval });
     }
 
     // ------------------------------------------------------------------
@@ -203,10 +186,10 @@
             if (!moderationEl) return;
 
             var html = '<div class="alert alert-warning small mb-0">'
-                + '<p class="mb-2">' + escapeHtml(reason || 'Ce message peut être perçu comme irrespectueux.') + '</p>';
+                + '<p class="mb-2">' + window.ScoutMagicApi.escapeHtml(reason || 'Ce message peut être perçu comme irrespectueux.') + '</p>';
 
             if (suggestion) {
-                html += '<p class="mb-2 fst-italic">Suggestion : « ' + escapeHtml(suggestion) + ' »</p>'
+                html += '<p class="mb-2 fst-italic">Suggestion : « ' + window.ScoutMagicApi.escapeHtml(suggestion) + ' »</p>'
                     + '<button type="button" class="btn btn-sm btn-outline-primary me-2" data-moderation-accept>'
                     + '<i class="bi bi-magic"></i> Utiliser la suggestion</button>';
             } else if (moderationMode === 'enforced') {
@@ -248,13 +231,14 @@
         if (shortenBtn) {
             shortenBtn.addEventListener('click', function () {
                 shortenBtn.disabled = true;
-                postJson('/r/' + token + '/shorten', { body: input.value }).then(function (result) {
+                window.ScoutMagicApi.postJson('/r/' + token + '/shorten', { body: input.value }).then(function (result) {
                     shortenBtn.disabled = false;
-                    if (result.data.success) {
-                        input.value = result.data.body;
+                    var data = envelopeData(result);
+                    if (data.success) {
+                        input.value = data.body;
                         updateCounter();
                     } else {
-                        showError(result.data.error || 'Échec du raccourcissement.');
+                        showError(data.error || 'Échec du raccourcissement.');
                     }
                 });
             });
@@ -272,19 +256,20 @@
             }
 
             submitBtn.disabled = true;
-            postJson('/r/' + token + '/comments', { column: column, body: body, accepted_warning: !!acceptedWarning }).then(function (result) {
+            window.ScoutMagicApi.postJson('/r/' + token + '/comments', { column: column, body: body, accepted_warning: !!acceptedWarning }).then(function (result) {
                 submitBtn.disabled = false;
-                if (result.data.success) {
+                var data = envelopeData(result);
+                if (data.success) {
                     input.value = '';
                     updateCounter();
                     showError('');
                     hideModeration();
-                    poll();
-                } else if (result.data.type === 'offensive') {
+                    refreshBoard();
+                } else if (data.type === 'offensive') {
                     showError('');
-                    showModeration(result.data.error, result.data.suggestion, result.data.moderation_mode);
+                    showModeration(data.error, data.suggestion, data.moderation_mode);
                 } else {
-                    showError(result.data.error || 'Échec de l’envoi.');
+                    showError(data.error || 'Échec de l’envoi.');
                 }
             });
         }
@@ -310,17 +295,18 @@
         if (likeBtn) {
             var id1 = likeBtn.dataset.commentId;
             likeBtn.disabled = true;
-            postJson('/r/' + token + '/comments/' + id1 + '/vote', {}).then(function (result) {
+            window.ScoutMagicApi.postJson('/r/' + token + '/comments/' + id1 + '/vote', {}).then(function (result) {
                 likeBtn.disabled = false;
-                if (result.data.success) {
-                    likeBtn.classList.toggle('btn-danger', result.data.liked);
-                    likeBtn.classList.toggle('btn-outline-danger', !result.data.liked);
+                var data = envelopeData(result);
+                if (data.success) {
+                    likeBtn.classList.toggle('btn-danger', data.liked);
+                    likeBtn.classList.toggle('btn-outline-danger', !data.liked);
                     var heartEl = likeBtn.querySelector('i');
-                    if (heartEl) heartEl.className = result.data.liked ? 'bi bi-heart-fill' : 'bi bi-heart';
+                    if (heartEl) heartEl.className = data.liked ? 'bi bi-heart-fill' : 'bi bi-heart';
                     var votesEl = likeBtn.closest('.retro-comment').querySelector('[data-comment-votes]');
-                    if (votesEl && result.data.votes !== null && result.data.votes !== undefined) votesEl.textContent = result.data.votes;
-                } else if (result.data.error) {
-                    alert(result.data.error);
+                    if (votesEl && data.votes !== null && data.votes !== undefined) votesEl.textContent = data.votes;
+                } else if (data.error) {
+                    window.ScoutMagicToast.show(data.error, { variant: 'error' });
                 }
             });
             return;
@@ -331,14 +317,15 @@
             var id2 = btn.dataset.commentId;
             var action = addBtn ? 'add' : 'remove';
             btn.disabled = true;
-            postJson('/r/' + token + '/comments/' + id2 + '/vote/' + action, {}).then(function (result) {
+            window.ScoutMagicApi.postJson('/r/' + token + '/comments/' + id2 + '/vote/' + action, {}).then(function (result) {
                 btn.disabled = false;
-                if (result.data.success) {
-                    updateBudgetDisplay(result.data.remaining);
+                var data = envelopeData(result);
+                if (data.success) {
+                    updateBudgetDisplay(data.remaining);
                     var votesEl2 = btn.closest('.retro-comment').querySelector('[data-comment-votes]');
-                    if (votesEl2 && result.data.votes !== null && result.data.votes !== undefined) votesEl2.textContent = result.data.votes;
-                } else if (result.data.error) {
-                    alert(result.data.error);
+                    if (votesEl2 && data.votes !== null && data.votes !== undefined) votesEl2.textContent = data.votes;
+                } else if (data.error) {
+                    window.ScoutMagicToast.show(data.error, { variant: 'error' });
                 }
             });
             return;
@@ -349,12 +336,13 @@
             var id3 = btn2.dataset.commentId;
             var url = '/r/' + token + '/comments/' + id3 + '/' + (hideBtn ? 'hide' : 'unhide');
             btn2.disabled = true;
-            postJson(url, {}).then(function (result) {
+            window.ScoutMagicApi.postJson(url, {}).then(function (result) {
                 btn2.disabled = false;
-                if (result.data.success) {
-                    poll();
-                } else if (result.data.error) {
-                    alert(result.data.error);
+                var data = envelopeData(result);
+                if (data.success) {
+                    refreshBoard();
+                } else if (data.error) {
+                    window.ScoutMagicToast.show(data.error, { variant: 'error' });
                 }
             });
         }
@@ -378,6 +366,9 @@
             var restoreLabel = copyBtn.innerHTML;
             var restore = function () { copyBtn.innerHTML = restoreLabel; };
 
+            // The "Copié" feedback deliberately stays inline (the button's
+            // own label flips), not a toast: it is positioned exactly where
+            // the user just clicked.
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(url).then(function () {
                     copyBtn.innerHTML = '<i class="bi bi-check-lg"></i> Copié';
@@ -411,8 +402,11 @@
     // have no setter, so a test that needs a different combination
     // re-imports this module (vi.resetModules()) against a freshly built
     // container instead of mutating these through the seam.
+    // escapeHtml is the shared window.ScoutMagicApi.escapeHtml now — still
+    // exposed here so the existing specs keep exercising the exact function
+    // this file interpolates with.
     globalThis.ScoutMagicRetroBoardInternals = {
-        escapeHtml: escapeHtml,
+        escapeHtml: window.ScoutMagicApi.escapeHtml,
         commentHtml: commentHtml,
         buildVoteButtonsHtml: buildVoteButtonsHtml,
         buildHideButtonHtml: buildHideButtonHtml,

@@ -14,9 +14,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('notification-badge.js wiring', () => {
     let swListener;
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.resetModules();
-        vi.clearAllTimers();   // IIFE setInterval leaks across imports — see note
+        vi.clearAllTimers();   // the IIFE's poll timers leak across imports — see note
         vi.useFakeTimers();
         document.body.innerHTML = '<span class="notification-badge d-none"></span>';
         global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ count: 3 }) }));
@@ -27,6 +27,11 @@ describe('notification-badge.js wiring', () => {
             configurable: true,
             value: { addEventListener: (t, cb) => { if (t === 'message') swListener = cb; } },
         });
+
+        // The real fetch toolbox — notification-badge.js polls through
+        // window.ScoutMagicApi (base.html.twig guarantees this load order
+        // in production).
+        await import('../../public/assets/js/api.js');
     });
 
     it('hits the unread-count endpoint on load and renders the count', async () => {
@@ -59,6 +64,18 @@ describe('notification-badge.js wiring', () => {
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
         await vi.advanceTimersByTimeAsync(60000);
         expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('refreshes immediately when the tab becomes visible again (ScoutMagicApi.poll resumeOnVisible)', async () => {
+        await import('../../public/assets/js/notification-badge.js');
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+        // Not an exact-count assertion: earlier imports in this file left
+        // their own (timer-cleared but still listening) polls behind, and
+        // a visibilitychange wakes every one of them.
+        const callsBefore = fetch.mock.calls.length;
+        document.dispatchEvent(new Event('visibilitychange'));
+        await vi.waitFor(() => expect(fetch.mock.calls.length).toBeGreaterThan(callsBefore));
+        expect(fetch).toHaveBeenLastCalledWith('/api/notifications/unread-count', { headers: { Accept: 'application/json' } });
     });
 
     it('renders immediately from a push message without re-fetching', async () => {

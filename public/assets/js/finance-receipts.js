@@ -22,7 +22,6 @@
     var grid = document.getElementById('receipts-grid');
     if (!grid) return;
 
-    const csrf = () => /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'))?.content;
     const currentAccountId = parseInt(/** @type {HTMLElement} */ (grid).dataset.accountId || '0', 10);
     let currentAttachmentId = null;
     let currentAttachmentDate = '';
@@ -31,15 +30,11 @@
     const movementsModalEl = document.getElementById('movements-modal');
     const movementsModal = window.bootstrap ? new window.bootstrap.Modal(movementsModalEl) : null;
 
-    function escapeHtml(value) {
-        // Quotes are escaped too (textContent->innerHTML does not) because the
-        // result is interpolated into alt=/title=/data-* attributes below — a
-        // filename or LLM-extracted date containing a quote would otherwise break
-        // out of the attribute (audit M16).
-        const div = document.createElement('div');
-        div.textContent = value == null ? '' : String(value);
-        return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    }
+    // The attribute-safe escaper (quotes escaped too, because the result is
+    // interpolated into alt=/title=/data-* attributes below — audit M16) is
+    // the shared site-wide one now; tests/js/escape-html-attribute-safety
+    // .test.js exercises its definition in public/assets/js/api.js.
+    const escapeHtml = window.ScoutMagicApi.escapeHtml;
 
     function formatAmount(amount) {
         return Number(amount).toLocaleString('fr-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -131,11 +126,10 @@
         currentPage = page;
         const q = /** @type {HTMLInputElement} */ (document.getElementById('receipts-search')).value;
         const pending = /** @type {HTMLInputElement} */ (document.getElementById('receipts-pending-only')).checked ? '1' : '0';
-        const res = await fetch('/finance/receipts/search?account_id=' + currentAccountId
+        const res = await window.ScoutMagicApi.getJson('/finance/receipts/search?account_id=' + currentAccountId
             + '&q=' + encodeURIComponent(q) + '&pending=' + pending + '&page=' + page);
-        const data = await res.json();
-        if (data.success) {
-            renderReceipts(data);
+        if (res.data && res.data.success) {
+            renderReceipts(res.data);
         }
     }
 
@@ -185,16 +179,11 @@
                 if (!confirm('Supprimer ce reçu ?')) {
                     return;
                 }
-                const res = await fetch('/finance/receipts/' + /** @type {HTMLElement} */ (btn).dataset.id, {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ _csrf_token: csrf() })
-                });
-                const data = await res.json();
-                if (data.success) {
+                const res = await window.ScoutMagicApi.postJson('/finance/receipts/' + /** @type {HTMLElement} */ (btn).dataset.id, {}, { method: 'DELETE' });
+                if (res.data && res.data.success) {
                     fetchReceipts(currentPage);
                 } else {
-                    alert(data.error);
+                    window.ScoutMagicToast.show((res.data && res.data.error) || 'Une erreur est survenue.', { variant: 'error' });
                 }
             });
         });
@@ -218,11 +207,11 @@
         if (query === '' && currentAttachmentDate) {
             url += '&near_date=' + encodeURIComponent(currentAttachmentDate);
         }
-        const res = await fetch(url);
-        const data = await res.json();
+        const res = await window.ScoutMagicApi.getJson(url);
+        const data = res.data;
         const results = document.getElementById('associate-results');
         results.innerHTML = '';
-        if (!data.success || data.movements.length === 0) {
+        if (!data || !data.success || data.movements.length === 0) {
             results.innerHTML = '<p class="text-body-secondary fst-italic mb-0">Aucun résultat.</p>';
             return;
         }
@@ -237,17 +226,12 @@
     }
 
     async function associateWithMovement(movementId) {
-        const res = await fetch('/finance/receipts/' + currentAttachmentId + '/associate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transaction_ids: [movementId], _csrf_token: csrf() })
-        });
-        const data = await res.json();
-        if (data.success) {
+        const res = await window.ScoutMagicApi.postJson('/finance/receipts/' + currentAttachmentId + '/associate', { transaction_ids: [movementId] });
+        if (res.data && res.data.success) {
             associateModal ? associateModal.hide() : null;
             fetchReceipts(currentPage);
         } else {
-            alert(data.error);
+            window.ScoutMagicToast.show((res.data && res.data.error) || 'Une erreur est survenue.', { variant: 'error' });
         }
     }
 
@@ -255,11 +239,11 @@
 
     async function loadMovements(attachmentId) {
         currentMovementsAttachmentId = attachmentId;
-        const res = await fetch('/finance/receipts/' + attachmentId + '/movements');
-        const data = await res.json();
+        const res = await window.ScoutMagicApi.getJson('/finance/receipts/' + attachmentId + '/movements');
+        const data = res.data;
         const list = document.getElementById('movements-list');
         list.innerHTML = '';
-        if (!data.success || data.movements.length === 0) {
+        if (!data || !data.success || data.movements.length === 0) {
             list.innerHTML = '<p class="text-body-secondary fst-italic mb-0">Aucun mouvement lié.</p>';
         } else {
             data.movements.forEach(m => {
@@ -272,10 +256,8 @@
             });
             list.querySelectorAll('.unlink-movement-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
-                    await fetch('/finance/receipts/' + currentMovementsAttachmentId + '/dissociate', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ transaction_id: parseInt(/** @type {HTMLElement} */ (btn).dataset.transactionId, 10), _csrf_token: csrf() })
+                    await window.ScoutMagicApi.postJson('/finance/receipts/' + currentMovementsAttachmentId + '/dissociate', {
+                        transaction_id: parseInt(/** @type {HTMLElement} */ (btn).dataset.transactionId, 10)
                     });
                     loadMovements(currentMovementsAttachmentId);
                     fetchReceipts(currentPage);

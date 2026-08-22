@@ -23,11 +23,16 @@ function appendAll(...nodes) { nodes.forEach((n) => document.body.appendChild(n)
 
 async function boot() {
     vi.resetModules();
+    // The real toolboxes, never stubs — maintenance.js reaches
+    // window.ScoutMagicApi/window.ScoutMagicToast at event time, and
+    // base.html.twig guarantees this load order in production.
+    await import('../../public/assets/js/api.js');
+    await import('../../public/assets/js/toast.js');
     await import('../../public/assets/js/maintenance.js');
 }
 
-function jsonResponse(data) {
-    return Promise.resolve({ json: () => Promise.resolve(data) });
+function jsonResponse(data, status = 200) {
+    return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(data) });
 }
 
 beforeEach(() => {
@@ -56,7 +61,7 @@ describe('maintenance.js: auto-backup-frequency select', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
-    it('POSTs the new frequency and the form-level CSRF token on change', async () => {
+    it('POSTs the new frequency with the site-wide CSRF token on change', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
         await boot();
@@ -67,31 +72,30 @@ describe('maintenance.js: auto-backup-frequency select', () => {
 
         expect(fetch).toHaveBeenCalledWith('/config/maintenance/backup/auto-frequency', expect.objectContaining({
             method: 'POST',
-            body: JSON.stringify({ frequency: 'weekly', _csrf_token: 'form-tok' }),
+            body: JSON.stringify({ frequency: 'weekly', _csrf_token: 'tok' }),
         }));
     });
 
-    it('reveals the "saved" indicator on success, then hides it again after 1.5s', async () => {
+    it('shows an "Enregistré." success toast on a successful save', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
         await boot();
-        vi.useFakeTimers();
 
         document.getElementById('auto-backup-frequency').dispatchEvent(new Event('change'));
-        await vi.waitFor(() => expect(document.getElementById('auto-backup-frequency-saved').classList.contains('d-none')).toBe(false));
-
-        await vi.advanceTimersByTimeAsync(1500);
-        expect(document.getElementById('auto-backup-frequency-saved').classList.contains('d-none')).toBe(true);
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
+        expect(document.querySelector('.toast-body').textContent).toBe('Enregistré.');
+        expect(document.querySelector('.toast').className).toContain('text-bg-success');
     });
 
-    it('does not reveal the "saved" indicator when the save fails', async () => {
+    it('shows no toast when the save fails', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: false }));
         await boot();
 
         document.getElementById('auto-backup-frequency').dispatchEvent(new Event('change'));
         await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-        expect(document.getElementById('auto-backup-frequency-saved').classList.contains('d-none')).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 0)); // let the response chain settle
+        expect(document.querySelector('.toast-body')).toBeNull();
     });
 });
 
@@ -175,7 +179,7 @@ describe('maintenance.js: full-backup-form + its poller', () => {
         await submit();
         await vi.advanceTimersByTimeAsync(3000);
 
-        expect(fetch).toHaveBeenNthCalledWith(2, '/api/maintenance/backup-status/42');
+        expect(fetch).toHaveBeenNthCalledWith(2, '/api/maintenance/backup-status/42', expect.anything());
         expect(window.location.reload).toHaveBeenCalled();
     });
 
@@ -250,13 +254,13 @@ describe('maintenance.js: wireInstallForm() — wired for both update forms', ()
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith('/config/maintenance/update/install', expect.anything()));
     });
 
-    it('POSTs the CSRF token found inside the submitted form itself, not a page-level one', async () => {
+    it('POSTs the site-wide CSRF token from the meta tag (the toolbox reads no form-level token)', async () => {
         buildDom('update-install-form');
         global.fetch = vi.fn(() => jsonResponse({}));
         await boot();
         document.getElementById('update-install-form').dispatchEvent(new Event('submit', { cancelable: true }));
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith('/config/maintenance/update/install', expect.objectContaining({
-            body: JSON.stringify({ _csrf_token: 'form-tok' }),
+            body: JSON.stringify({ _csrf_token: 'tok' }),
         })));
     });
 
@@ -281,7 +285,7 @@ describe('maintenance.js: wireInstallForm() — wired for both update forms', ()
         document.getElementById('update-install-form').dispatchEvent(new Event('submit', { cancelable: true }));
         await vi.advanceTimersByTimeAsync(3000);
 
-        expect(fetch).toHaveBeenNthCalledWith(2, '/api/maintenance/update-status/7');
+        expect(fetch).toHaveBeenNthCalledWith(2, '/api/maintenance/update-status/7', expect.anything());
         expect(window.location.reload).toHaveBeenCalled();
     });
 
@@ -353,13 +357,13 @@ describe('maintenance.js: "Vérifier maintenant" (update-check-now)', () => {
         expect(document.getElementById('update-check-now-progress').classList.contains('d-none')).toBe(false);
     });
 
-    it('alerts "already up to date" and never opens the dialog when no update is available', async () => {
+    it('toasts "already up to date" and never opens the dialog when no update is available', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: true, update_available: false }));
-        window.alert = vi.fn();
         await boot();
         click();
-        await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith('Le site est déjà à jour.'));
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
+        expect(document.querySelector('.toast-body').textContent).toBe('Le site est déjà à jour.');
         expect(document.getElementById('update-check-now-dialog').classList.contains('d-none')).toBe(true);
         expect(/** @type {HTMLButtonElement} */ (document.getElementById('update-check-now')).disabled).toBe(false);
     });
@@ -532,15 +536,14 @@ describe('maintenance.js: auto-update settings', () => {
         })));
     });
 
-    it('shows the "saved" indicator on success, then hides it after 1.5s', async () => {
+    it('shows an "Enregistré." success toast on a successful save', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
-        vi.useFakeTimers();
         await boot();
         document.getElementById('auto-update-save').dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(document.getElementById('auto-update-saved').classList.contains('d-none')).toBe(false));
-        await vi.advanceTimersByTimeAsync(1500);
-        expect(document.getElementById('auto-update-saved').classList.contains('d-none')).toBe(true);
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
+        expect(document.querySelector('.toast-body').textContent).toBe('Enregistré.');
+        expect(document.querySelector('.toast').className).toContain('text-bg-success');
     });
 
     it('shows the server error on a failed save', async () => {
@@ -576,24 +579,25 @@ describe('maintenance.js: auto-update settings', () => {
         expect(document.querySelector('#webhook-generate-secret i').classList.contains('bi-arrow-repeat')).toBe(true);
     });
 
-    it('re-enables the button and alerts on a failed secret generation', async () => {
+    it('re-enables the button and toasts the server error on a failed secret generation', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Session expirée.' }));
-        window.alert = vi.fn();
         await boot();
         document.getElementById('webhook-generate-secret').dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith('Session expirée.'));
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
+        expect(document.querySelector('.toast-body').textContent).toBe('Session expirée.');
+        expect(document.querySelector('.toast').className).toContain('text-bg-danger');
         expect(/** @type {HTMLButtonElement} */ (document.getElementById('webhook-generate-secret')).disabled).toBe(false);
         expect(document.getElementById('webhook-secret-display').classList.contains('d-none')).toBe(true);
     });
 
-    it('re-enables the button and alerts a generic message on a network failure', async () => {
+    it('re-enables the button and toasts a generic message on a network failure', async () => {
         buildDom();
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
-        window.alert = vi.fn();
         await boot();
         document.getElementById('webhook-generate-secret').dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith('Erreur réseau.'));
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
+        expect(document.querySelector('.toast-body').textContent).toBe('Erreur réseau.');
         expect(/** @type {HTMLButtonElement} */ (document.getElementById('webhook-generate-secret')).disabled).toBe(false);
     });
 });
@@ -748,7 +752,7 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             await submitReady();
             global.fetch = vi.fn()
                 .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, action_id: 1 }) })
-                .mockResolvedValueOnce({ status: 404 });
+                .mockResolvedValueOnce({ ok: false, status: 404, json: () => Promise.resolve({}) });
             Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
             vi.useFakeTimers();
             await boot();
@@ -819,7 +823,7 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             Object.defineProperty(window, 'location', { configurable: true, value: { href: '' } });
             global.fetch = vi.fn()
                 .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, action_id: 1 }) })
-                .mockResolvedValueOnce({ status: 404 });
+                .mockResolvedValueOnce({ ok: false, status: 404, json: () => Promise.resolve({}) });
             vi.useFakeTimers();
             await boot();
             checkbox.checked = true; checkbox.dispatchEvent(new Event('change'));
@@ -915,7 +919,9 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             expect(evt.defaultPrevented).toBe(true);
             expect(window.ScoutMagicChunkedUpload.uploadInChunks).toHaveBeenCalledWith(
                 expect.anything(), '/config/maintenance/restore-upload-chunk',
-                expect.objectContaining({ csrfToken: 'form-tok' }),
+                // The chunker's token now comes from ScoutMagicApi.csrfToken()
+                // (the page-level meta tag), not the form's hidden input.
+                expect.objectContaining({ csrfToken: 'tok' }),
             );
             expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(false);
 
@@ -1000,7 +1006,7 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             await boot();
             expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(false);
             await vi.advanceTimersByTimeAsync(3000);
-            expect(fetch).toHaveBeenCalledWith('/api/maintenance/reset-status/99');
+            expect(fetch).toHaveBeenCalledWith('/api/maintenance/reset-status/99', expect.anything());
             expect(window.location.href).toBe('/config/maintenance');
         });
 

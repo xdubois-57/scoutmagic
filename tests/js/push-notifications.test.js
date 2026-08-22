@@ -38,7 +38,12 @@ describe('push-notifications.js — aria-checked stays in sync on programmatic .
             configurable: true,
             value: { ready: Promise.resolve({ pushManager: { getSubscription, subscribe } }) },
         });
-        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: true }) }));
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
+
+        // The real fetch toolbox — push-notifications.js posts through
+        // window.ScoutMagicApi (base.html.twig guarantees this load order
+        // in production).
+        await import('../../public/assets/js/api.js');
     });
 
     it('reflects "no subscription" on load with aria-checked kept in sync (no native change event fires here)', async () => {
@@ -64,7 +69,7 @@ describe('push-notifications.js — aria-checked stays in sync on programmatic .
     });
 
     it('reverts to unchecked with aria-checked in sync when the server rejects the subscription', async () => {
-        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: false }) }));
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: false }) }));
         await import('../../public/assets/js/push-notifications.js');
         const toggle = document.getElementById('push-toggle');
         await vi.waitFor(() => expect(getSubscription).toHaveBeenCalled());

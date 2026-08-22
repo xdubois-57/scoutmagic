@@ -18,9 +18,10 @@ function jsonResponse(data) {
 }
 
 async function settle() {
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    // A macrotask hop drains the whole microtask queue first — the
+    // ScoutMagicApi envelope adds promise layers a fixed number of
+    // Promise.resolve() awaits kept undercounting. Requires real timers.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function buildDom() {
@@ -39,6 +40,12 @@ function buildDom() {
 async function boot() {
     buildDom();
     vi.resetModules();
+    // The real toolboxes — finance-receipts.js aliases
+    // window.ScoutMagicApi.escapeHtml at import time and fetches/toasts
+    // through the shared globals (base.html.twig guarantees this load
+    // order in production).
+    await import('../../public/assets/js/api.js');
+    await import('../../public/assets/js/toast.js');
     await import('../../public/assets/js/finance-receipts.js');
 }
 
@@ -100,7 +107,7 @@ describe('finance-receipts.js: live search', () => {
 
         vi.advanceTimersByTime(300);
         expect(fetch).toHaveBeenCalledTimes(1);
-        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=tic&pending=0&page=1');
+        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=tic&pending=0&page=1', expect.anything());
     });
 
     it('renders the cards from JSON, with quotes in the filename escaped out of the attributes', async () => {
@@ -116,7 +123,7 @@ describe('finance-receipts.js: live search', () => {
         document.getElementById('receipts-pending-only').dispatchEvent(new Event('change'));
         await settle();
 
-        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=1&page=1');
+        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=1&page=1', expect.anything());
 
         const card = document.querySelector('#receipts-grid [data-receipt-id="31"]');
         expect(card).not.toBeNull();
@@ -152,7 +159,7 @@ describe('finance-receipts.js: live search', () => {
         fetch.mockReturnValue(jsonResponse({ success: true, receipts: [], page: 2, total_pages: 3 }));
         links[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         await settle();
-        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=0&page=2');
+        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=0&page=2', expect.anything());
     });
 
     it('reset clears the query and the pending filter, then refetches page 1', async () => {
@@ -166,7 +173,7 @@ describe('finance-receipts.js: live search', () => {
 
         expect(document.getElementById('receipts-search').value).toBe('');
         expect(document.getElementById('receipts-pending-only').checked).toBe(false);
-        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=0&page=1');
+        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=0&page=1', expect.anything());
     });
 });
 
@@ -189,7 +196,7 @@ describe('finance-receipts.js: association dialog', () => {
         document.querySelector('.associate-btn').click();
         await settle();
 
-        expect(fetch).toHaveBeenCalledWith('/finance/movements/search?q=&account_id=7&near_date=2026-07-01');
+        expect(fetch).toHaveBeenCalledWith('/finance/movements/search?q=&account_id=7&near_date=2026-07-01', expect.anything());
         expect(document.getElementById('associate-results').textContent).toContain('Aucun résultat.');
     });
 
@@ -212,7 +219,7 @@ describe('finance-receipts.js: association dialog', () => {
         vi.useRealTimers();
         await settle();
 
-        expect(fetch).toHaveBeenCalledWith('/finance/movements/search?q=Courses&account_id=7');
+        expect(fetch).toHaveBeenCalledWith('/finance/movements/search?q=Courses&account_id=7', expect.anything());
         const choice = document.querySelector('#associate-results button');
         expect(choice.textContent).toBe('01/07/2026 — Courses camp — -45.90 €');
 
@@ -275,7 +282,7 @@ describe('finance-receipts.js: linked movements dialog', () => {
         document.querySelector('.movements-btn').click();
         await settle();
 
-        expect(fetch).toHaveBeenCalledWith('/finance/receipts/31/movements');
+        expect(fetch).toHaveBeenCalledWith('/finance/receipts/31/movements', expect.anything());
         const row = document.querySelector('#movements-list .unlink-movement-btn');
         expect(row).not.toBeNull();
 

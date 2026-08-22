@@ -14,18 +14,12 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        var csrf = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
-        var res = await fetch('/config/settings/logo-delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ _csrf_token: csrf ? csrf.content : '' })
-        });
-        var data = await res.json();
+        var res = await window.ScoutMagicApi.postJson('/config/settings/logo-delete', {});
 
-        if (data.success) {
+        if (res.data && res.data.success) {
             window.location.reload();
         } else {
-            alert(data.error || 'Une erreur est survenue.');
+            window.ScoutMagicToast.show((res.data && res.data.error) || 'Une erreur est survenue.', { variant: 'error' });
         }
     });
 });

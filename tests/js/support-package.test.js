@@ -35,6 +35,10 @@ function buildDom() {
 
 async function boot() {
     vi.resetModules();
+    // The real fetch toolbox — support-package.js reaches
+    // window.ScoutMagicApi at click/poll time (base.html.twig guarantees
+    // this load order in production).
+    await import('../../public/assets/js/api.js');
     await import('../../public/assets/js/support-package.js');
 }
 
