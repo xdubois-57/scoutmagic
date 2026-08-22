@@ -43,16 +43,19 @@
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
-// Roles and visible text everywhere they identify the element. The field
-// EDITOR panel inside the builder is the documented exception: its
-// controls are built in JavaScript with labels that carry no `for`, so
-// they have no accessible name to query by (a real accessibility defect,
-// but not one a test change should fix silently). Those few controls are
-// reached through the panel of the field being edited and the one hook
-// news-form-builder.js binds to itself (.news-field-label-input), plus
-// the `step` attribute that tells the capacity box from the price box.
-// Everything a visitor touches — the public form, the confirmation, the
-// responses table — has real labels and is queried by role.
+// Roles and visible text throughout, the field builder's own edit panel
+// included. That panel used to be the exception — its controls were built
+// in JavaScript with <label> elements carrying no `for`, so they named
+// nothing and had to be reached by structure. They are properly associated
+// now (news-form-builder.js), which is why every one of them below is
+// addressed by the name a chief actually reads, and why this scenario is
+// also the regression test for that: a label that stops naming its control
+// fails here, in a real accessibility tree rather than a simulated one.
+//
+// The one structural handle left is the panel each field opens
+// (`[data-key]`), which is the identity news-form-builder.js gives a field
+// in its own state array — a contract of that script, and the only way to
+// say "the second field's panel" rather than "some panel".
 import { expect, test } from '@playwright/test';
 
 import { loginAsAdmin } from '../support/admin-login.js';
@@ -86,7 +89,9 @@ const PIXEL_PNG = Buffer.from(
  * The builder's row for one field, and the panel that opens under it when
  * the row is clicked. Both are keyed on `data-key`, the identity
  * news-form-builder.js gives each field in its own state array — a
- * contract of that script, not incidental markup.
+ * contract of that script, not incidental markup. Scoping to it is what
+ * makes "the capacity box of THIS field" unambiguous; everything inside is
+ * then addressed by its accessible name.
  *
  * @param {import('@playwright/test').Page} page
  * @param {number} index position in the field list (0 is the pinned text block)
@@ -146,7 +151,12 @@ test('a chief publishes an article with a paying form, and a family signs up and
     // control below is the real editor's — nothing is posted by hand.
     // ---------------------------------------------------------------
     await page.goto('/news/manage', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('link', { name: 'Nouvel article' }).first().click();
+    // Scoped to the page's content, and .first() within it: the management
+    // list offers the same link twice (its header, and an empty-state call
+    // to action). Page-wide .first() is what put a hidden navigation link
+    // in front of a click elsewhere in this suite — see
+    // support/admin-login.js's logoutControl().
+    await page.locator('main').getByRole('link', { name: 'Nouvel article' }).first().click();
     await expect(page.getByRole('heading', { level: 1, name: 'Nouvel article' })).toBeVisible();
 
     await page.getByLabel("Titre de l'article").fill(ARTICLE_TITLE);
@@ -165,8 +175,11 @@ test('a chief publishes an article with a paying form, and a family signs up and
     await page.getByRole('radio', { name: 'Public', exact: true }).check();
 
     // A brand-new article opens on its pinned "bloc de texte", already
-    // expanded, and that block IS the article's body.
-    const bodyEditor = fieldRow(page, 0).locator('[contenteditable="true"]');
+    // expanded, and that block IS the article's body. Reached by the name
+    // its caption gives it: the editor is a contenteditable, which no
+    // <label for> can point at, so news-form-builder.js names it with
+    // role="textbox" + aria-labelledby instead.
+    const bodyEditor = fieldRow(page, 0).getByRole('textbox', { name: 'Contenu' });
     await expect(bodyEditor).toBeVisible();
     await bodyEditor.fill('Rendez-vous le 12 septembre devant le local, avec le pique-nique du midi.');
 
@@ -175,14 +188,10 @@ test('a chief publishes an article with a paying form, and a family signs up and
     await page.getByRole('button', { name: 'Nombre' }).click();
 
     const placesPanel = fieldRow(page, 1);
-    await placesPanel.locator('.news-field-label-input').fill(PLACES_LABEL);
-    // No accessible name on either checkbox (see this file's LOCATORS
-    // note): the first is "Obligatoire", the second "Limiter la capacité",
-    // in the order the panel builds them.
-    await placesPanel.locator('input[type="checkbox"]').nth(1).check();
-    await placesPanel.locator('input[type="number"][step="1"]').fill(CAPACITY);
-    // step="0.50" is the price box's own; the capacity box above is step="1".
-    await placesPanel.locator('input[type="number"][step="0.50"]').fill(PRICE_PER_PLACE);
+    await placesPanel.getByLabel('Libellé du champ').fill(PLACES_LABEL);
+    await placesPanel.getByLabel('Limiter la capacité').check();
+    await placesPanel.getByLabel('Capacité maximale').fill(CAPACITY);
+    await placesPanel.getByLabel('Prix unitaire (€)').fill(PRICE_PER_PLACE);
 
     // --- And a free-text one, so the confirmation email has something it
     // must NOT echo back to an anonymous address. ---
@@ -190,8 +199,8 @@ test('a chief publishes an article with a paying form, and a family signs up and
     await page.getByRole('button', { name: 'Texte court' }).click();
 
     const remarksPanel = fieldRow(page, 2);
-    await remarksPanel.locator('.news-field-label-input').fill(REMARKS_LABEL);
-    await remarksPanel.locator('input[type="checkbox"]').first().uncheck();
+    await remarksPanel.getByLabel('Libellé du champ').fill(REMARKS_LABEL);
+    await remarksPanel.getByLabel('Obligatoire').uncheck();
 
     // The payment box appears only once a field really carries a price —
     // not merely because the Finances module is installed.

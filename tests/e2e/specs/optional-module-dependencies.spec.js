@@ -39,9 +39,11 @@
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
-// Roles and visible text throughout. The Modules page's refusal arrives
-// as a window.alert() (its own inline script), so it is read from the
-// dialog rather than from the DOM — there is nothing else to read.
+// Roles and visible text throughout, the news field builder's own edit
+// panel included — its controls carry real, associated labels (see
+// specs/news-form-payment.spec.js's own note). The Modules page's refusal
+// arrives as a window.alert() (its own inline script), so it is read from
+// the dialog rather than from the DOM — there is nothing else to read.
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
@@ -56,11 +58,10 @@ const FINANCE = 'Finances';
  * Add one field of the given type to the news form builder and return the
  * panel that opens under it.
  *
- * The builder's own edit panel has no accessible names to query by (see
- * specs/news-form-payment.spec.js's LOCATORS note for why that is a real
- * defect and not something a test should paper over), so the panel is
- * addressed through `data-key`, the identity news-form-builder.js gives
- * each field in its own state array.
+ * Addressed through `data-key` — the identity news-form-builder.js gives
+ * each field in its own state array — so that the assertions below say
+ * "this field's price box" rather than "a price box somewhere". What is
+ * inside the panel is then found by its accessible name.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} typeLabel the field type as the picker labels it
@@ -150,11 +151,8 @@ test('a hard dependency is refused both ways, and an optional one degrades and c
     await page.goto('/news/create', { waitUntil: 'domcontentloaded' });
     const withFinance = await addField(page, 'Nombre', 1);
 
-    // step="0.50" is the price box's; the capacity box beside it is
-    // step="1" (see specs/news-form-payment.spec.js).
-    const priceBox = withFinance.locator('input[type="number"][step="0.50"]');
+    const priceBox = withFinance.getByLabel('Prix unitaire (€)');
     await expect(priceBox).toBeVisible();
-    await expect(page.getByText('Prix unitaire (€)')).toBeVisible();
 
     await priceBox.fill('7.50');
 
@@ -177,13 +175,13 @@ test('a hard dependency is refused both ways, and an optional one degrades and c
     await expect(page.getByRole('heading', { level: 1, name: 'Nouvel article' })).toBeVisible();
 
     const withoutFinance = await addField(page, 'Nombre', 1);
-    // Present, though hidden until "Limiter la capacité" is ticked — the
-    // capacity cap is news' own feature and must survive Finances going
-    // away, which is the difference this half of the scenario is drawing.
-    await expect(page.getByText('Limiter la capacité')).toBeVisible();
-    await expect(withoutFinance.locator('input[type="number"][step="1"]')).toHaveCount(1);
-    await expect(withoutFinance.locator('input[type="number"][step="0.50"]')).toHaveCount(0);
-    await expect(page.getByText('Prix unitaire (€)')).toHaveCount(0);
+    // The capacity cap is news' own feature and must survive Finances
+    // going away — that difference is the whole point of this half. Its
+    // box is present though hidden until the checkbox is ticked, so the
+    // checkbox is what "still there" is asserted on.
+    await expect(withoutFinance.getByLabel('Limiter la capacité')).toBeVisible();
+    await expect(withoutFinance.getByLabel('Capacité maximale')).toHaveCount(1);
+    await expect(withoutFinance.getByLabel('Prix unitaire (€)')).toHaveCount(0);
     await expect(page.locator('#news-payment-settings')).toHaveCount(0);
 
     // ---------------------------------------------------------------
@@ -195,7 +193,7 @@ test('a hard dependency is refused both ways, and an optional one degrades and c
 
     await page.goto('/news/create', { waitUntil: 'domcontentloaded' });
     const restored = await addField(page, 'Nombre', 1);
-    await expect(restored.locator('input[type="number"][step="0.50"]')).toBeVisible();
+    await expect(restored.getByLabel('Prix unitaire (€)')).toBeVisible();
 
     // ---------------------------------------------------------------
     // Every module this instance ships is on again, which the specs that

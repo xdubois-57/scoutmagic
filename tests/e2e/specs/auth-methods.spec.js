@@ -56,6 +56,7 @@
 import { expect, test } from '@playwright/test';
 
 import { linkFromMail, readMailbox, waitForMail } from '../support/maildrop.js';
+import { logoutControl } from '../support/admin-login.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 
 /**
@@ -74,10 +75,10 @@ const UNKNOWN_EMAIL = 'personne-inconnue@example.invalid';
  * @param {import('@playwright/test').Page} page
  */
 async function logout(page) {
-    // Rendered twice — once in the mobile drawer, once on the desktop bar
-    // — and either one posts the same form to the same route.
-    await page.getByRole('button', { name: 'Se déconnecter' }).first().click();
+    await logoutControl(page).click();
     await page.waitForURL('**/', { waitUntil: 'domcontentloaded' });
+    // Every copy of it, not just the visible one: an anonymous visitor is
+    // offered none at all.
     await expect(page.getByRole('button', { name: 'Se déconnecter' })).toHaveCount(0);
 }
 
@@ -172,7 +173,7 @@ test('a magic link signs in the device that asked for it, and says nothing about
     // ---------------------------------------------------------------
     await expect(page.getByRole('heading', { name: 'Connecté' })).toBeVisible({ timeout: 20_000 });
     await page.waitForURL('**/', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('button', { name: 'Se déconnecter' }).first()).toBeVisible();
+    await expect(logoutControl(page)).toBeVisible();
 
     expect(serverErrors, 'the application returned a server error').toEqual([]);
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
@@ -281,7 +282,7 @@ test('a passkey registered from the account page then signs in on its own, and i
     await passkeyTab.getByRole('button', { name: 'Utiliser ma clé' }).click();
 
     await page.waitForURL('**/', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('button', { name: 'Se déconnecter' }).first()).toBeVisible();
+    await expect(logoutControl(page)).toBeVisible();
     // A session that carries the admin role, not merely a session:
     // Core\View\MenuBuilder offers this menu to `admin` and to nobody
     // else, so the passkey login resolved the same role the password one
@@ -364,7 +365,7 @@ test('a password login refuses what it must, then works — and signing out real
     await submit.click();
 
     await page.waitForURL('**/', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('button', { name: 'Se déconnecter' }).first()).toBeVisible();
+    await expect(logoutControl(page)).toBeVisible();
     await expect(page.getByRole('button', { name: "Espace chefs d'U" })).toHaveCount(0);
 
     await page.goto('/account', { waitUntil: 'domcontentloaded' });

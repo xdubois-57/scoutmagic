@@ -175,11 +175,18 @@
     ];
 
     /**
+     * `labelledBy` is the id of the element whose text names this editor.
+     * A contenteditable is not a form control, so no <label for> can point
+     * at it — aria-labelledby is what gives it a name, and pointing at the
+     * visible caption rather than repeating the wording in an aria-label
+     * keeps one source of truth for it.
+     *
      * @param {string} initialHtml
      * @param {((html: string) => void)|null} [onChange]
+     * @param {string|null} [labelledBy]
      * @returns {{wrapper: HTMLDivElement, editable: HTMLDivElement}}
      */
-    function createRichTextEditor(initialHtml, onChange) {
+    function createRichTextEditor(initialHtml, onChange, labelledBy) {
         var wrapper = document.createElement('div');
 
         var toolbar = document.createElement('div');
@@ -189,6 +196,14 @@
         editable.contentEditable = 'true';
         editable.className = 'form-control';
         editable.style.minHeight = '100px';
+        // role: Chromium already maps a contenteditable to `textbox`, but
+        // not every assistive technology does — and the name below is only
+        // announced on something that has a role to announce it for.
+        editable.setAttribute('role', 'textbox');
+        editable.setAttribute('aria-multiline', 'true');
+        if (labelledBy) {
+            editable.setAttribute('aria-labelledby', labelledBy);
+        }
         editable.innerHTML = sanitizeHtml(initialHtml);
         editable.addEventListener('input', function () {
             if (onChange) onChange(sanitizeHtml(editable.innerHTML));
@@ -664,10 +679,15 @@
         // texte must have the same formatting menu as the article itself,
         // reuse the same code") — one independent instance per field,
         // since a form can have several "text" blocks at once.
-        function buildRichTextEditor(container, field) {
+        /**
+         * @param {HTMLElement} container
+         * @param {{confirmation_text: ?string}} field
+         * @param {string} labelledBy id of the caption that names the editor
+         */
+        function buildRichTextEditor(container, field, labelledBy) {
             var rte = createRichTextEditor(field.confirmation_text || '', function (html) {
                 field.confirmation_text = html;
-            });
+            }, labelledBy);
             container.appendChild(rte.wrapper);
         }
 
@@ -865,14 +885,101 @@
             return div;
         }
 
+        /**
+         * A DOM id for one control of one field's edit panel.
+         *
+         * Every control below needs one, because a <label> only names a
+         * control it is actually associated with — a label element sitting
+         * next to an input names nothing at all, to a screen reader as much
+         * as to any other reader of the accessibility tree. The panel's
+         * controls used to be built that way and were therefore unreachable
+         * by name; tests/e2e/specs/news-form-payment.spec.js drives them by
+         * their accessible names now, which is what keeps this honest.
+         *
+         * Keyed on field._key rather than on a global counter: it is the
+         * identity this script already gives each field in fieldState, so
+         * two panels (or a panel re-rendered mid-edit) can never mint the
+         * same id.
+         *
+         * @param {{_key: number}} field
+         * @param {string} control
+         * @returns {string}
+         */
+        function fieldControlId(field, control) {
+            return 'news-field-' + field._key + '-' + control;
+        }
+
+        /**
+         * One edit-panel row carrying a real <label for> the caller's
+         * control, appended next.
+         *
+         * `hidden` puts the label in the accessibility tree only
+         * (.visually-hidden, the same class the rest of this codebase uses
+         * for exactly this) — for the controls whose purpose the
+         * surrounding text or placeholder already makes obvious to a
+         * sighted user, where adding a visible caption would change the
+         * interface rather than fix it.
+         *
+         * @param {HTMLElement} panel
+         * @param {string} text
+         * @param {string} controlId
+         * @param {{hidden?: boolean}} [options]
+         * @returns {HTMLDivElement}
+         */
+        function addLabelledFieldEditRow(panel, text, controlId, options) {
+            var row = addFieldEditRow(panel, '');
+            var label = document.createElement('label');
+            label.className = (options && options.hidden) ? 'visually-hidden' : 'form-label small';
+            label.htmlFor = controlId;
+            label.textContent = text;
+            row.appendChild(label);
+
+            return row;
+        }
+
+        /**
+         * A checkbox with its own label, associated — the form-check markup
+         * used to be assembled as an innerHTML string whose <label> carried
+         * no `for`, which named nothing.
+         *
+         * @param {string} controlId
+         * @param {string} text
+         * @param {boolean} checked
+         * @returns {{wrapper: HTMLDivElement, input: HTMLInputElement}}
+         */
+        function buildLabelledCheckbox(controlId, text, checked) {
+            var wrapper = document.createElement('div');
+            wrapper.className = 'form-check';
+
+            var input = document.createElement('input');
+            input.className = 'form-check-input';
+            input.type = 'checkbox';
+            input.id = controlId;
+            input.checked = checked;
+
+            var label = document.createElement('label');
+            label.className = 'form-check-label';
+            label.htmlFor = controlId;
+            label.textContent = text;
+
+            wrapper.appendChild(input);
+            wrapper.appendChild(label);
+
+            return { wrapper: wrapper, input: input };
+        }
+
         // Each of the following builds one self-contained, field-type-specific
         // section of the edit panel — extracted out of buildFieldEditPanel()
         // itself (rather than left as inline `if` blocks there) purely to keep
         // its own cognitive complexity down. Same DOM/behavior either way.
         function buildLabelAndRequiredRow(panel, field) {
-            var labelRow = addFieldEditRow(panel, '<label class="form-label small">Libellé du champ</label>');
+            var labelId = fieldControlId(field, 'label');
+            var labelRow = addLabelledFieldEditRow(panel, 'Libellé du champ', labelId);
             var labelInput = document.createElement('input');
             labelInput.type = 'text';
+            labelInput.id = labelId;
+            // The class stays: it is this script's own hook for focusing the
+            // input right after a field is added (see addField()).
             labelInput.className = 'form-control news-field-label-input';
             labelInput.value = field.label || '';
             labelInput.addEventListener('input', function () {
@@ -883,42 +990,56 @@
             labelRow.appendChild(labelInput);
 
             var reqRow = addFieldEditRow(panel, '');
-            var reqCheck = document.createElement('div');
-            reqCheck.className = 'form-check';
-            reqCheck.innerHTML = '<input class="form-check-input" type="checkbox"' + (field.is_required ? ' checked' : '') + '><label class="form-check-label">Obligatoire</label>';
-            reqCheck.querySelector('input').addEventListener('change', function (e) {
-                field.is_required = /** @type {HTMLInputElement} */ (e.target).checked;
+            var required = buildLabelledCheckbox(fieldControlId(field, 'required'), 'Obligatoire', !!field.is_required);
+            required.input.addEventListener('change', function () {
+                field.is_required = required.input.checked;
             });
-            reqRow.appendChild(reqCheck);
+            reqRow.appendChild(required.wrapper);
         }
 
         function buildNumberCapacityRow(panel, field) {
+            var capacityId = fieldControlId(field, 'capacity');
             var capRow = addFieldEditRow(panel, '');
-            var capCheck = document.createElement('div');
-            capCheck.className = 'form-check mb-1';
-            capCheck.innerHTML = '<input class="form-check-input" type="checkbox"' + (field.capacity_max !== null ? ' checked' : '') + '><label class="form-check-label">Limiter la capacité</label>';
+            var limit = buildLabelledCheckbox(
+                fieldControlId(field, 'capacity-toggle'),
+                'Limiter la capacité',
+                field.capacity_max !== null
+            );
+            limit.wrapper.className = 'form-check mb-1';
+
             var capInput = document.createElement('input');
             capInput.type = 'number';
+            capInput.id = capacityId;
             capInput.min = '1';
             capInput.step = '1';
             capInput.className = 'form-control form-control-sm mt-1' + (field.capacity_max === null ? ' d-none' : '');
             capInput.value = field.capacity_max || '';
-            capCheck.querySelector('input').addEventListener('change', function (e) {
-                var checkedTarget = /** @type {HTMLInputElement} */ (e.target);
-                capInput.classList.toggle('d-none', !checkedTarget.checked);
-                field.capacity_max = checkedTarget.checked ? (parseInt(capInput.value, 10) || 0) : null;
+            limit.input.addEventListener('change', function () {
+                capInput.classList.toggle('d-none', !limit.input.checked);
+                field.capacity_max = limit.input.checked ? (parseInt(capInput.value, 10) || 0) : null;
             });
             capInput.addEventListener('input', function () {
                 field.capacity_max = parseInt(capInput.value, 10) || 0;
             });
-            capRow.appendChild(capCheck);
+            capRow.appendChild(limit.wrapper);
+            // Hidden label, inside this same row and right before the box it
+            // names: the checkbox above already tells a sighted reader what
+            // the number is for, so a second visible caption would only
+            // repeat it — but the box still has to have a name of its own.
+            var capLabel = document.createElement('label');
+            capLabel.className = 'visually-hidden';
+            capLabel.htmlFor = capacityId;
+            capLabel.textContent = 'Capacité maximale';
+            capRow.appendChild(capLabel);
             capRow.appendChild(capInput);
             addFieldEditRow(panel, '<span class="form-text">Le nombre maximum est le cumul de toutes les réponses. Exemple : si la limite est 50 et que 48 ont déjà été réservés, le prochain répondant verra « Il reste 2 places ».</span>');
 
             if (/** @type {any} */ (window).NEWS_EDITOR_DATA.financeAvailable) {
-                var priceRow = addFieldEditRow(panel, '<label class="form-label small">Prix unitaire (€)</label>');
+                var priceId = fieldControlId(field, 'price');
+                var priceRow = addLabelledFieldEditRow(panel, 'Prix unitaire (€)', priceId);
                 var priceInput = document.createElement('input');
                 priceInput.type = 'number';
+                priceInput.id = priceId;
                 priceInput.step = '0.50';
                 priceInput.min = '0';
                 priceInput.className = 'form-control';
@@ -933,9 +1054,19 @@
         }
 
         function buildOptionsSourceRow(panel, field) {
-            var sourceRow = addFieldEditRow(panel, '<label class="form-label small d-block">Source des options</label>');
+            // A caption, not a <label>: what it names is a group of buttons,
+            // and a <label> may only be associated with a form control. The
+            // group carries role="group" + aria-labelledby instead, which is
+            // how a set of controls gets one shared name.
+            var sourceCaptionId = fieldControlId(field, 'options-source');
+            var sourceRow = addFieldEditRow(
+                panel,
+                '<span class="form-label small d-block" id="' + sourceCaptionId + '">Source des options</span>'
+            );
             var sourceGroup = document.createElement('div');
             sourceGroup.className = 'btn-group';
+            sourceGroup.setAttribute('role', 'group');
+            sourceGroup.setAttribute('aria-labelledby', sourceCaptionId);
             var manualBtn = document.createElement('button');
             manualBtn.type = 'button';
             manualBtn.className = 'btn btn-sm ' + (field.options_source !== 'members' ? 'btn-primary' : 'btn-outline-primary');
@@ -952,9 +1083,13 @@
             sourceGroup.appendChild(membersBtn);
             sourceRow.appendChild(sourceGroup);
 
-            var manualRow = addFieldEditRow(panel, '');
+            // Hidden label: the placeholder already tells a sighted reader
+            // what goes in the box, and a placeholder is not a name.
+            var manualId = fieldControlId(field, 'options');
+            var manualRow = addLabelledFieldEditRow(panel, 'Options, une par ligne', manualId, { hidden: true });
             manualRow.classList.toggle('d-none', field.options_source === 'members');
             var manualTextarea = document.createElement('textarea');
+            manualTextarea.id = manualId;
             manualTextarea.className = 'form-control';
             manualTextarea.rows = 4;
             manualTextarea.placeholder = 'Une option par ligne';
@@ -1004,8 +1139,10 @@
             }
 
             if (field.field_type === 'confirmation') {
-                var textRow = addFieldEditRow(panel, '<label class="form-label small">Texte affiché avant l\'envoi</label>');
+                var confirmationId = fieldControlId(field, 'confirmation');
+                var textRow = addLabelledFieldEditRow(panel, "Texte affiché avant l'envoi", confirmationId);
                 var textarea = document.createElement('textarea');
+                textarea.id = confirmationId;
                 textarea.className = 'form-control';
                 textarea.rows = 5;
                 textarea.value = field.confirmation_text || '';
@@ -1016,8 +1153,15 @@
             }
 
             if (field.field_type === 'text') {
-                addFieldEditRow(panel, '<label class="form-label small d-block">Contenu</label>');
-                buildRichTextEditor(panel, field);
+                // A caption rather than a <label>, for the same reason as
+                // "Source des options" above: what it names is a
+                // contenteditable, which no <label for> can reach.
+                var contentCaptionId = fieldControlId(field, 'content');
+                addFieldEditRow(
+                    panel,
+                    '<span class="form-label small d-block" id="' + contentCaptionId + '">Contenu</span>'
+                );
+                buildRichTextEditor(panel, field, contentCaptionId);
             }
 
             return panel;
