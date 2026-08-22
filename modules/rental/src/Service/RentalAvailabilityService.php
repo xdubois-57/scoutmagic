@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Service;
 
+use Core\Journal\JournalService;
 use Core\View\MonthGrid\DayState;
 use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Availability\BookingConstraints;
@@ -48,7 +49,14 @@ class RentalAvailabilityService
     public function __construct(
         private AvailabilityCalculator $calculator,
         private RentalConstraintsRepository $constraintsRepository,
-        private array $occupancyProviders = []
+        private array $occupancyProviders = [],
+        /**
+         * Optional and trailing so the many constructions that only ever
+         * *read* availability — the public page, the calendar, the ICS
+         * feeds, the task handlers, the test suite — keep working with
+         * three arguments. Only the one call site that writes needs it.
+         */
+        private ?JournalService $journal = null
     ) {
     }
 
@@ -260,6 +268,7 @@ class RentalAvailabilityService
 
     /**
      * @param int[] $allowedArrivalWeekdays ISO weekdays (1 = Monday … 7 = Sunday).
+     * @param ?int $userId Who is writing — journalled, since these rules are no longer chief-only.
      * @throws RentalException
      */
     public function saveConstraints(
@@ -270,7 +279,8 @@ class RentalAvailabilityService
         int $maxHorizonDays,
         array $allowedArrivalWeekdays,
         ?int $maxPersons,
-        int $bufferNights
+        int $bufferNights,
+        ?int $userId = null
     ): void {
         foreach ([$minNights, $maxNights, $minNoticeDays, $maxHorizonDays, $bufferNights] as $value) {
             if ($value < 0) {
@@ -311,6 +321,20 @@ class RentalAvailabilityService
                 maxPersons: $maxPersons,
                 bufferNights: $bufferNights
             )
+        );
+
+        // Journalled now that these rules are written from the asset's own
+        // managed space rather than from an admin-only page: what a visitor
+        // may ask for decides what the unit can be held to, and the person
+        // who changed it is no longer necessarily a chief. Ids and numbers
+        // only — nothing here is personal data (SECURITY.md §11).
+        $this->journal?->log(
+            'rental',
+            'rental_constraints_updated',
+            'info',
+            'Règles de réservation modifiées',
+            ['asset_id' => $assetId, 'min_nights' => $minNights, 'max_nights' => $maxNights],
+            $userId
         );
     }
 }

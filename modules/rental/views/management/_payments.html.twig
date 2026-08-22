@@ -12,8 +12,14 @@
   one. The SECURITY DEPOSIT is a separate receivable with its own
   communication, and never counts as rental revenue.
 
-  Requires `selected_asset`, `payment_settings`, `finance_available` and
-  `finance_accounts`.
+  The Finance ACCOUNT is deliberately not a field here: it is pinned by the
+  unit staff on « Espace chefs d'U > Locations », because the account list
+  carries every account's IBAN and a manager may be a parent or a former
+  leader. This block therefore reports which account is in force and links to
+  the person who can change it, rather than offering a picker.
+
+  Requires `asset`, `payment_settings`, `finance_available`,
+  `payment_account_name` and `can_pin_account`.
 #}
 <div class="card mb-4" id="paiements">
     <div class="card-body">
@@ -35,9 +41,8 @@
                 revenu de location.
             </p>
 
-            <form method="post" action="/admin/locations/payments">
+            <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/paiements">
                 {{ csrf_field()|raw }}
-                <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
 
                 <div class="form-check mb-3">
                     <input class="form-check-input" type="checkbox" id="payments-enabled" name="payments_enabled"
@@ -48,19 +53,19 @@
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label" for="finance-account">Compte</label>
-                    <select class="form-select" id="finance-account" name="finance_account_id">
-                        <option value="">—</option>
-                        {% for account in finance_accounts %}
-                            <option value="{{ account.id }}"
-                                    {{ payment_settings.financeAccountId == account.id ? 'selected' : '' }}>
-                                {{ account.name }}{% if account.iban %} ({{ account.iban }}){% endif %}
-                            </option>
-                        {% endfor %}
-                    </select>
+                    <span class="form-label d-block mb-1">Compte</span>
+                    {% if payment_account_name %}
+                        <p class="mb-1">{{ payment_account_name }}</p>
+                    {% else %}
+                        <p class="mb-1 fst-italic text-body-secondary">Aucun compte associé.</p>
+                    {% endif %}
                     <div class="form-text">
-                        Le compte sur lequel les virements sont attendus. Sans IBAN sur ce compte,
-                        aucun QR code SEPA ne peut être proposé au locataire.
+                        Le compte sur lequel les virements sont attendus s'associe depuis
+                        {% if can_pin_account %}
+                            <a href="/admin/locations?asset_id={{ asset.id }}#compte">« Espace chefs d'U &gt; Locations »</a>.
+                        {% else %}
+                            « Espace chefs d'U &gt; Locations » — demandez à un chef d'unité de l'associer.
+                        {% endif %}
                     </div>
                 </div>
 

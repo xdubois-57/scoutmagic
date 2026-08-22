@@ -33,6 +33,32 @@ final class PaymentSettings
     }
 
     /**
+     * The same configuration, pointed at another account (or at none).
+     *
+     * Exists because two screens write this row and own disjoint halves of
+     * it: unit staff pin the account, the asset's managers set the deposit,
+     * the balance and the security deposit. Each reads the other's half back
+     * and carries it across through this method, so neither can blank work
+     * it never displayed — see Service\RentalPaymentService::
+     * saveFinanceAccount() and ::saveManagedSettings().
+     */
+    public function withFinanceAccount(?int $financeAccountId): self
+    {
+        return new self(
+            enabled: $this->enabled,
+            financeAccountId: $financeAccountId,
+            depositMode: $this->depositMode,
+            depositAmountCents: $this->depositAmountCents,
+            depositPercentage: $this->depositPercentage,
+            depositDueDays: $this->depositDueDays,
+            balanceDueDays: $this->balanceDueDays,
+            securityDepositEnabled: $this->securityDepositEnabled,
+            securityDepositAmountCents: $this->securityDepositAmountCents,
+            securityDepositDueDays: $this->securityDepositDueDays
+        );
+    }
+
+    /**
      * Whether a receivable can actually be raised: switched on **and**
      * pointed at an account.
      *

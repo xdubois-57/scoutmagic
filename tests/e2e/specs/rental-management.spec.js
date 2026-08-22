@@ -80,13 +80,22 @@ test.describe('Rentals — running an asset', () => {
 
         // The manager grant, which creating the hall does NOT confer —
         // not even on the superadmin who created it (§6.3).
-        const managers = page.locator('form[action="/admin/locations/managers"]');
-        await managers.locator('input[name="manager_member_ids[]"]').first().check();
-        await managers.getByRole('button', { name: 'Enregistrer les gestionnaires' }).click();
+        await grantManagerBySearch(page);
+
+        // ── The asset's own settings, in the managed space ──────────────
+        // The tariff and the booking rules used to sit on the admin page
+        // above, at `role_min: admin` — which made a chief d'unité the only
+        // person able to price a hall somebody else runs. They belong with
+        // the bookings now, reachable by the asset's managers.
+        await page.goto('/mes-locations');
+        await page.getByRole('link', { name: ASSET_NAME }).first().click();
+        await page.locator('main').getByRole('link', { name: 'Réglages' }).first().click();
+
+        await expect(page.getByRole('heading', { name: 'Tarification' })).toBeVisible();
 
         // A French decimal comma, the way a chief types it. It has to
         // survive the round trip through integer cents.
-        const pricing = page.locator('form[action="/admin/locations/pricing"]').first();
+        const pricing = page.locator('form[action$="/reglages/tarif"]').first();
         await pricing.locator('select[name="billing_unit"]').selectOption('per_night');
         await pricing.locator('input[name="default_unit_price"]').fill('125,50');
         await pricing.getByRole('button', { name: 'Enregistrer la tarification' }).click();
@@ -94,7 +103,7 @@ test.describe('Rentals — running an asset', () => {
         await expect(page.locator('input[name="default_unit_price"]').first()).toHaveValue('125,50');
 
         // ── And its own booking rules ───────────────────────────────────
-        const constraints = page.locator('form[action="/admin/locations/constraints"]');
+        const constraints = page.locator('form[action$="/reglages/regles"]');
         await constraints.locator('input[name="min_nights"]').fill('2');
         await constraints.locator('input[name="min_notice_days"]').fill('7');
         await constraints.getByRole('button', { name: 'Enregistrer les règles' }).click();
@@ -104,19 +113,17 @@ test.describe('Rentals — running an asset', () => {
         // its neighbour. A single shared form would fail exactly here.
         await expect(page.locator('input[name="default_unit_price"]').first()).toHaveValue('125,50');
 
-        // ── The managed space, and its calendar ─────────────────────────
-        await page.goto('/mes-locations');
-        await page.getByRole('link', { name: ASSET_NAME }).first().click();
-        // Scoped to the page's own content: the Calendrier MODULE puts a
-        // link of the same name in the navigation drawer and in the
-        // footer, and page-wide .first() picks the drawer's — which is
-        // hidden on a desktop viewport, so the click waits for an element
-        // that will never become visible. It only surfaced under
-        // E2E_COVERAGE=1, where every request is slow enough for the
-        // stylesheet that hides the drawer to have applied before the
-        // click; without it the same locator sometimes caught the drawer
-        // link while it was still unstyled and visible, and navigated to
-        // /calendar instead of to this asset's calendar.
+        // ── The calendar ────────────────────────────────────────────────
+        // Scoped to the page's own content, per the fix main made to this
+        // click: the Calendrier MODULE puts a link of the same name in the
+        // navigation drawer and in the footer, and page-wide .first()
+        // picks the drawer's — which is hidden on a desktop viewport, so
+        // the click waits for an element that will never become visible.
+        // It only surfaced under E2E_COVERAGE=1, where every request is
+        // slow enough for the stylesheet that hides the drawer to have
+        // applied before the click; without it the same locator sometimes
+        // caught the drawer link while it was still unstyled and visible,
+        // and navigated to /calendar instead of to this asset's calendar.
         await page.locator('main').getByRole('link', { name: 'Calendrier' }).first().click();
 
         await expect(page.getByRole('heading', { name: `Calendrier — ${ASSET_NAME}` })).toBeVisible();
@@ -229,3 +236,37 @@ test.describe('Rentals — running an asset', () => {
         await expect(page.locator('#rental-calendar')).not.toContainText('Lambert');
     });
 });
+
+/**
+ * Name the seeded member (Baden Powell) manager of the currently selected
+ * asset, through the real search box.
+ *
+ * Exercises the whole contract in one go: the debounce, the fetch against
+ * `/admin/locations/gestionnaire-recherche`, the row the script builds, and
+ * the field name that row has to carry for
+ * RentalConfigController::saveManagers() to honour it.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function grantManagerBySearch(page) {
+    const managers = page.locator('form[action="/admin/locations/managers"]');
+    await expect(managers).toBeVisible();
+
+    // The plain <select> is still rendered — it is the no-JavaScript
+    // control — and the script hides it. Seeing it hidden is how we know
+    // the enhancement actually ran rather than silently doing nothing.
+    await expect(page.locator('#rental-manager-select-wrapper')).toBeHidden();
+
+    await page.locator('#rental-manager-search').fill('Powell');
+    const result = page.locator('#rental-manager-results button').first();
+    await expect(result).toBeVisible();
+    await result.click();
+
+    // The row the script built posts the same field the select would have.
+    await expect(
+        managers.locator('input[name="manager_member_ids[]"][value]').first(),
+    ).toBeChecked();
+
+    await managers.getByRole('button', { name: 'Enregistrer les gestionnaires' }).click();
+    await expect(page.getByText('Les gestionnaires ont été enregistrés.')).toBeVisible();
+}

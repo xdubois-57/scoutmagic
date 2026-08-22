@@ -616,6 +616,10 @@ The **public space** (`/locations`) is for people outside the unit: an index, on
 
 **A manager is not a chief.** Asset management is granted per asset to named members, chief or not, and the Staff d'U sees every asset by virtue of their function. That grant is checked server-side on every surface — a hidden button, an absent menu entry and a breadcrumb are never protection.
 
+**There is one authority, and the split between the two spaces is about what is being administered, not about who is trusted.** « Espace chefs d'U > Locations » answers "which assets exist and who runs each one": creating an asset, its general description, its managers, archiving it. Everything that is a property of one asset — its booking rules, its tariff, its deposit, its balance, its security deposit — is set in that asset's own managed space, by the people who run it; the Staff d'U reaches it there like any other manager. The one exception is the accounting **account** an asset's money is expected on, which stays with the Staff d'U: the account list carries the unit's IBANs, and a manager may be a parent or a former leader.
+
+**Designating a manager is a search, not a checklist**: a search-as-you-type box over the unit's members, showing a name, a section and a function — never an email address. Only members of a configurable minimum age (16 by default) are offered: a manager reaches renters' identities, the money and the contracts. The age is the real date of birth, and a member whose birth date is not encoded in Desk stays selectable rather than disappearing without explanation. A member the last Desk import dropped keeps their grant, shown as suspended: it can be removed deliberately, but never by a save that did not display it, and re-saving never silently reactivates it.
+
 ### 22.2 What the public sees, and what it never sees
 
 The calendar shows a day as free, occupied or unavailable, and **nothing else**. Not who is in the hall, not what they are paying, not why it is blocked. A manual block and a letting are deliberately indistinguishable: why the unit cannot let its own hall is nobody else's business.

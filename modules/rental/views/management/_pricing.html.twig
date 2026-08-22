@@ -5,7 +5,7 @@
   Each block is its own <form> posting to its own action (§6.4): saving the
   fees can never blank the grid, and vice versa.
 
-  Requires `selected_asset`, `pricing` (a Pricing\PricingSettings),
+  Requires `asset`, `pricing` (a Pricing\PricingSettings),
   `billing_units`, `fee_natures`, and optionally `simulation`.
 
   The simulator at the bottom is a GET form: its result is computed
@@ -25,9 +25,8 @@
         </p>
 
         {# ── Block 1 + 3: billing unit, default rate, billable minimum ── #}
-        <form method="post" action="/admin/locations/pricing" class="mb-4">
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/tarif" class="mb-4">
             {{ csrf_field()|raw }}
-            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
 
             <div class="row g-3 mb-2">
                 <div class="col-12 col-md-6">
@@ -118,10 +117,9 @@
                                 {{ period.startDate }} → {{ period.endDate }}{{ period.recursYearly ? ' · chaque année' : '' }}
                             </span>
                         </span>
-                        <form method="post" action="/admin/locations/pricing/period-delete"
+                        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/periode-supprimer"
                               data-confirm="Supprimer cette période ? Ses tarifs seront supprimés avec elle.">
                             {{ csrf_field()|raw }}
-                            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
                             <input type="hidden" name="period_id" value="{{ period.id }}">
                             <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer</button>
                         </form>
@@ -129,9 +127,8 @@
                 {% endfor %}
             </ul>
         {% endif %}
-        <form method="post" action="/admin/locations/pricing/period" class="row g-2 align-items-end mb-4">
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/periode" class="row g-2 align-items-end mb-4">
             {{ csrf_field()|raw }}
-            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
             <div class="col-12 col-md-4">
                 <label class="form-label" for="period-label">Nom</label>
                 <input type="text" class="form-control" id="period-label" name="label" required>
@@ -168,10 +165,9 @@
                                 <span class="badge bg-secondary">Proposée par défaut</span>
                             {% endif %}
                         </span>
-                        <form method="post" action="/admin/locations/pricing/category-delete"
+                        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/categorie-supprimer"
                               data-confirm="Supprimer cette catégorie ? Ses tarifs seront supprimés avec elle.">
                             {{ csrf_field()|raw }}
-                            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
                             <input type="hidden" name="category_id" value="{{ category.id }}">
                             <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer</button>
                         </form>
@@ -179,9 +175,8 @@
                 {% endfor %}
             </ul>
         {% endif %}
-        <form method="post" action="/admin/locations/pricing/category" class="row g-2 align-items-end mb-4">
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/categorie" class="row g-2 align-items-end mb-4">
             {{ csrf_field()|raw }}
-            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
             <div class="col-12 col-md-6">
                 <label class="form-label" for="category-label">Nom</label>
                 <input type="text" class="form-control" id="category-label" name="label" required>
@@ -202,9 +197,8 @@
         <p class="form-text mt-0">
             Deux axes, et deux seulement. Une case laissée vide utilise le tarif par défaut ci-dessus.
         </p>
-        <form method="post" action="/admin/locations/pricing/grid" class="mb-4">
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/grille" class="mb-4">
             {{ csrf_field()|raw }}
-            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
             <div class="table-responsive">
                 <table class="table table-sm align-middle">
                     <thead>
@@ -266,9 +260,8 @@
                                 {{ (fee.amountCents / 100)|number_format(2, ',', ' ') }} €{{ fee.meterUnit ? ' / ' ~ fee.meterUnit : '' }}
                             </span>
                         </span>
-                        <form method="post" action="/admin/locations/pricing/fee-delete">
+                        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/frais-supprimer">
                             {{ csrf_field()|raw }}
-                            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
                             <input type="hidden" name="fee_id" value="{{ fee.id }}">
                             <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer</button>
                         </form>
@@ -276,9 +269,8 @@
                 {% endfor %}
             </ul>
         {% endif %}
-        <form method="post" action="/admin/locations/pricing/fee" class="row g-2 align-items-end mb-4">
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/frais" class="row g-2 align-items-end mb-4">
             {{ csrf_field()|raw }}
-            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
             <div class="col-12 col-md-4">
                 <label class="form-label" for="fee-label">Libellé</label>
                 <input type="text" class="form-control" id="fee-label" name="label" required>
@@ -313,8 +305,7 @@
             Le calcul ci-dessous utilise exactement le même moteur que la page publique et le contrat.
             C'est le principal garde-fou contre une configuration tarifaire fausse.
         </p>
-        <form method="get" action="/admin/locations" class="row g-2 align-items-end mb-3">
-            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
+        <form method="get" action="/mes-locations/{{ asset.slug }}/reglages" class="row g-2 align-items-end mb-3">
             <div class="col-6 col-md-3">
                 <label class="form-label" for="sim-arrival">Arrivée</label>
                 <input type="date" class="form-control" id="sim-arrival" name="sim_arrival"

@@ -849,4 +849,88 @@ class RentalPaymentServiceTest extends TestCase
         $this->assertSame('2027-02-15', $status['deposit_due_date']);
         $this->assertSame('2027-03-03', $status['balance_due_date']);
     }
+
+    // ── The two-screen split of one settings row ────────────────────────
+
+    public function testPinningTheAccountLeavesAManagersDepositRulesAlone(): void
+    {
+        // Unit staff own the Finance account; the asset's managers own the
+        // deposit, the balance and the security deposit. Each screen reads
+        // the other's half back, so neither can blank work it never showed.
+        $this->service->saveManagedSettings($this->assetId, new PaymentSettings(
+            enabled: false,
+            depositMode: DepositMode::PERCENTAGE,
+            depositPercentage: 30,
+            depositDueDays: 14,
+            balanceDueDays: 30,
+            securityDepositEnabled: true,
+            securityDepositAmountCents: 50000
+        ));
+
+        $this->service->saveFinanceAccount($this->assetId, $this->accountId);
+
+        $settings = $this->service->settingsFor($this->assetId);
+        $this->assertSame($this->accountId, $settings->financeAccountId);
+        $this->assertSame(30, $settings->depositPercentage);
+        $this->assertSame(14, $settings->depositDueDays);
+        $this->assertSame(30, $settings->balanceDueDays);
+        $this->assertTrue($settings->securityDepositEnabled);
+        $this->assertSame(50000, $settings->securityDepositAmountCents);
+    }
+
+    public function testAManagerSavingThePaymentsBlockCannotClearTheAccount(): void
+    {
+        // The manager's form has no account field at all — it is never
+        // rendered for them, because the picker carries the unit's IBANs.
+        // What matters here is that its absence cannot silently unset it.
+        $this->service->saveFinanceAccount($this->assetId, $this->accountId);
+
+        $this->service->saveManagedSettings($this->assetId, new PaymentSettings(
+            enabled: true,
+            depositMode: DepositMode::FIXED,
+            depositAmountCents: 10000
+        ));
+
+        $settings = $this->service->settingsFor($this->assetId);
+        $this->assertSame($this->accountId, $settings->financeAccountId);
+        $this->assertTrue($settings->enabled);
+        $this->assertSame(10000, $settings->depositAmountCents);
+    }
+
+    public function testAManagerCannotSwitchPaymentsOnBeforeAnAccountIsPinned(): void
+    {
+        // Half-configured is worse than off, and the message says who can
+        // actually fix it — the manager reading it usually cannot.
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/chef d.unité/');
+
+        $this->service->saveManagedSettings($this->assetId, new PaymentSettings(enabled: true));
+    }
+
+    public function testWithFinanceAccountChangesNothingElse(): void
+    {
+        $settings = new PaymentSettings(
+            enabled: true,
+            financeAccountId: 1,
+            depositMode: DepositMode::PERCENTAGE,
+            depositPercentage: 25,
+            depositDueDays: 7,
+            balanceDueDays: 21,
+            securityDepositEnabled: true,
+            securityDepositAmountCents: 30000,
+            securityDepositDueDays: 3
+        );
+
+        $moved = $settings->withFinanceAccount(9);
+
+        $this->assertSame(9, $moved->financeAccountId);
+        $this->assertSame(1, $settings->financeAccountId, 'The original value object is immutable.');
+        foreach ([
+            'enabled', 'depositMode', 'depositAmountCents', 'depositPercentage',
+            'depositDueDays', 'balanceDueDays', 'securityDepositEnabled',
+            'securityDepositAmountCents', 'securityDepositDueDays',
+        ] as $property) {
+            $this->assertSame($settings->$property, $moved->$property, $property . ' must be carried across.');
+        }
+    }
 }
