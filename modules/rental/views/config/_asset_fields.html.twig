@@ -70,6 +70,44 @@
                value="{{ asset and asset.departureTime ? asset.departureTime : '' }}">
     </div>
 
+    {% if asset is null %}
+        {#
+          Creation only: the billing unit decides the calendar, the price and
+          the availability model together (§6.8), so it is a decision to make
+          up front rather than a default discovered later — "forfait par
+          séjour" on a hall was the first wrong thing every new asset
+          carried. On an existing asset it stays where the rest of the tariff
+          lives, in the asset's own managed space, so the two forms cannot
+          fight over one field.
+
+          rental-asset-defaults.js pre-selects a sensible unit when the type
+          changes (a hall is usually per person per night, a trailer per full
+          day) — a suggestion only, never overriding a choice already made.
+        #}
+        <div class="col-12 col-md-6">
+            <label class="form-label" for="{{ p }}-billing-unit">Mode de location</label>
+            <select class="form-select" id="{{ p }}-billing-unit" name="billing_unit"
+                    data-explanation-target="{{ p }}-billing-unit-explanation">
+                {% for unit in billing_units %}
+                    <option value="{{ unit.value }}"
+                            data-explanation="{{ unit.availabilityExplanation }}"
+                            {{ unit.value == 'per_person_night' ? 'selected' : '' }}>
+                        {{ unit.label }}
+                    </option>
+                {% endfor %}
+            </select>
+            <div class="form-text" id="{{ p }}-billing-unit-explanation">
+                {% for unit in billing_units %}
+                    {%- if unit.value == 'per_person_night' %}{{ unit.availabilityExplanation }}{% endif -%}
+                {% endfor %}
+            </div>
+            <div class="form-text">
+                Décide ensemble le calendrier, le prix et la disponibilité. Se modifie ensuite,
+                avec le reste du tarif, dans les réglages du bien.
+            </div>
+        </div>
+    {% endif %}
+
     <div class="col-12 col-md-6">
         <label class="form-label" for="{{ p }}-emergency-phone">Téléphone d'urgence</label>
         <input type="tel" class="form-control" id="{{ p }}-emergency-phone" name="emergency_phone"

@@ -110,4 +110,16 @@ final class PricingSettings
     {
         return $this->minimumAmountCents !== null || $this->minimumPersons !== null;
     }
+
+    /**
+     * Whether any rate is configured at all — a default rate or at least one
+     * grid cell. False means every quote for this asset warns "aucun tarif
+     * n'est encore défini", whatever the dates: the public page then offers
+     * "tarif sur demande" instead of a 0,00 € table, and the managed space
+     * shows the setup warning that points at the tariff page.
+     */
+    public function hasAnyRate(): bool
+    {
+        return $this->defaultUnitPriceCents !== null || $this->priceGridCents !== [];
+    }
 }

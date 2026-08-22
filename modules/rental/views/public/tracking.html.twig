@@ -67,16 +67,33 @@
                         <caption class="visually-hidden">Détail du prix de votre location</caption>
                         <thead>
                             <tr>
-                                <th scope="col">Ligne</th>
-                                <th scope="col" class="text-end">Quantité</th>
+                                <th scope="col">Détail</th>
                                 <th scope="col" class="text-end">Montant</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for line in quote.lines %}
                                 <tr{{ line.isInformational ? ' class="text-body-secondary fst-italic"' : '' }}>
-                                    <td>{{ line.label }}</td>
-                                    <td class="text-end">{{ line.isInformational ? '—' : line.quantity }}</td>
+                                    <td>
+                                        {{ line.label }}
+                                        {# The arithmetic in words, same rules as the public
+                                           estimate: a renter reads "5,50 € par personne et par
+                                           nuit", never a bare machine quantity. #}
+                                        {% if line.isInformational and line.unitPriceCents is not null %}
+                                            <span class="small d-block">
+                                                Facturé après le séjour selon relevé —
+                                                {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} €{{ line.meta.meter_unit is defined and line.meta.meter_unit ? ' / ' ~ line.meta.meter_unit : '' }}
+                                            </span>
+                                        {% elseif line.rule == 'base' and line.unitPriceCents is not null %}
+                                            <span class="small text-body-secondary d-block">
+                                                {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} € {{ quote.billingUnit.pricePhrase }}
+                                            </span>
+                                        {% elseif line.rule == 'fee_per_person' and line.unitPriceCents is not null %}
+                                            <span class="small text-body-secondary d-block">
+                                                {{ line.quantity }} pers. × {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} €
+                                            </span>
+                                        {% endif %}
+                                    </td>
                                     <td class="text-end">
                                         {{ line.isInformational
                                             ? 'Selon relevé'
@@ -87,7 +104,7 @@
                         </tbody>
                         <tfoot>
                             <tr class="fw-semibold">
-                                <th scope="row" colspan="2" class="text-end">Total</th>
+                                <th scope="row" class="text-end">Total</th>
                                 <td class="text-end">{{ (quote.totalCents / 100)|number_format(2, ',', ' ') }} €</td>
                             </tr>
                         </tfoot>

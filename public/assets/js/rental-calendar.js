@@ -118,6 +118,48 @@ export function fragmentUrl(pageUrl) {
 }
 
 /**
+ * The page URL an estimate submission leads to: the form's non-empty
+ * fields as the whole query string, on the current page's path.
+ *
+ * A blank field means "not chosen", not "chosen as empty": carrying it
+ * would put ?persons= in the address bar and read back as a head count
+ * of zero.
+ *
+ * @param {HTMLFormElement} form
+ * @param {string} currentUrl
+ * @returns {string}
+ */
+export function estimateUrl(form, currentUrl) {
+    const params = new URLSearchParams();
+    new FormData(form).forEach(function (value, key) {
+        if (typeof value === 'string' && value !== '') {
+            params.append(key, value);
+        }
+    });
+
+    const url = new URL(currentUrl, 'https://placeholder.invalid');
+    url.search = params.toString();
+
+    return url.pathname + (url.search ? url.search : '');
+}
+
+/**
+ * Whether the summary form holds a complete date range — the condition
+ * for estimating without waiting for a press on « Estimer ». One date
+ * alone is not enough to price anything, and refreshing on it would
+ * wipe what the visitor is in the middle of typing.
+ *
+ * @param {HTMLFormElement} form
+ * @returns {boolean}
+ */
+export function estimateReady(form) {
+    const arrival = /** @type {HTMLInputElement|null} */ (form.querySelector('input[name="arrival"]'));
+    const departure = /** @type {HTMLInputElement|null} */ (form.querySelector('input[name="departure"]'));
+
+    return Boolean(arrival && departure && arrival.value !== '' && departure.value !== '');
+}
+
+/**
  * Fetch $url's fragments and swap them into the page.
  *
  * Falls back to a plain navigation on any failure — a network error, a 404,
@@ -224,24 +266,25 @@ export function wirePage() {
         });
     });
 
-    const form = document.querySelector('#rental-estimate-fragment form[method="get"]');
+    const form = /** @type {HTMLFormElement|null} */ (
+        document.querySelector('#rental-estimate-fragment form[method="get"]')
+    );
     if (form) {
         form.addEventListener('submit', function (event) {
             event.preventDefault();
+            refresh(estimateUrl(form, window.location.href));
+        });
 
-            const params = new URLSearchParams();
-            // A blank field means "not chosen", not "chosen as empty":
-            // carrying it would put ?persons= in the address bar and read
-            // back as a head count of zero.
-            new FormData(/** @type {HTMLFormElement} */ (form)).forEach(function (value, key) {
-                if (typeof value === 'string' && value !== '') {
-                    params.append(key, value);
+        // As soon as both dates are known, estimate without waiting for the
+        // button: the visitor already said everything a price needs. Date
+        // fields only — refreshing while a head count is being typed would
+        // yank the field out from under the keyboard.
+        form.querySelectorAll('input[type="date"]').forEach(function (field) {
+            field.addEventListener('change', function () {
+                if (estimateReady(form)) {
+                    refresh(estimateUrl(form, window.location.href));
                 }
             });
-
-            const url = new URL(window.location.href);
-            url.search = params.toString();
-            refresh(url.toString());
         });
     }
 }

@@ -74,6 +74,8 @@ final class StandardTemplates
             <p>Le bailleur met à disposition du locataire&nbsp;: <strong>{{ bien }}</strong>
             ({{ bien_type }}), pour un séjour de {{ nuits }} nuit(s) et
             {{ participants }} participant(s).</p>
+            <p>La capacité maximale d'accueil du bien est de {{ capacite }} personne(s),
+            animateurs et intendance compris. Elle ne peut être dépassée.</p>
 
             <h3>2. Durée</h3>
             <p>Du <strong>{{ date_arrivee }}</strong> à partir de {{ heure_arrivee }},
@@ -95,12 +97,21 @@ final class StandardTemplates
             <p>La garantie n'est pas un plafond&nbsp;: si les dégâts la dépassent, le
             locataire reste redevable de la différence.</p>
 
-            <h3>5. État des lieux</h3>
-            <p>Un état des lieux contradictoire est établi à l'arrivée et au départ, en
-            présence des deux parties. Les compteurs sont relevés au même moment. À défaut
-            d'état des lieux d'entrée, les lieux sont réputés avoir été reçus en bon état.</p>
+            <h3>5. Charges et consommations</h3>
+            <p>Sauf mention contraire dans le décompte annoncé, les consommations (électricité,
+            eau, gaz, mazout) ne sont pas comprises dans le prix. Les compteurs sont relevés
+            contradictoirement à l'arrivée et au départ, et les consommations sont facturées
+            au prix coûtant sur le décompte final, avec les taxes éventuelles (taxe de
+            séjour, déchets) annoncées lors de la demande.</p>
 
-            <h3>6. Obligations du locataire</h3>
+            <h3>6. État des lieux</h3>
+            <p>Un état des lieux contradictoire est établi à l'arrivée et au départ, en
+            présence des deux parties, et fait foi entre elles. Les compteurs sont relevés au
+            même moment. Les dégâts éventuels sont constatés au plus tard le jour du départ.
+            À défaut d'état des lieux d'entrée, les lieux sont réputés avoir été reçus en bon
+            état.</p>
+
+            <h3>7. Obligations du locataire</h3>
             <ul>
                 <li>Occuper les lieux en bon père de famille et respecter le voisinage,
                     en particulier le calme après 22&nbsp;h.</li>
@@ -113,25 +124,30 @@ final class StandardTemplates
                     consignes relatives aux feux ouverts.</li>
             </ul>
 
-            <h3>7. Assurance et responsabilité</h3>
+            <h3>8. Assurance et responsabilité</h3>
             <p>Le locataire déclare être couvert par une assurance en responsabilité civile
             pour l'ensemble de son groupe et pour la durée du séjour, et en fournit la preuve
             sur simple demande. Le bailleur décline toute responsabilité en cas de vol, de
             perte ou de dommage aux biens personnels des occupants, ainsi qu'en cas
             d'accident lié à l'usage des lieux.</p>
 
-            <h3>8. Annulation</h3>
+            <h3>9. Annulation</h3>
             <p>Toute annulation est notifiée par écrit. L'acompte reste acquis au bailleur.
             En cas d'annulation moins de trente jours avant le début du séjour, le solde
             reste dû, sauf accord contraire des deux parties.</p>
             <p>Si le bailleur se trouve dans l'impossibilité de fournir les lieux, il
             rembourse l'intégralité des sommes versées, sans autre indemnité.</p>
 
-            <h3>9. Traitement des données</h3>
+            <h3>10. Traitement des données</h3>
             <p>Les données du locataire sont traitées uniquement pour la gestion de cette
             location et conservées le temps nécessaire à son suivi comptable et légal.</p>
 
-            <h3>10. Acceptation</h3>
+            <h3>11. Litiges</h3>
+            <p>La présente convention est régie par le droit belge. En cas de litige relatif
+            à son exécution, les tribunaux de l'arrondissement où se situe le bien loué sont
+            seuls compétents.</p>
+
+            <h3>12. Acceptation</h3>
             <p>Fait en deux exemplaires. La signature de la présente convention vaut
             acceptation de l'ensemble de ses conditions.</p>
 

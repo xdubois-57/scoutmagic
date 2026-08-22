@@ -852,8 +852,12 @@ class RentalManagementControllerTest extends TestCase
         $this->assertNotNull($this->documentService->find($foreignDocumentId));
     }
 
-    public function testAnEmptyTemplateIsReportedRatherThanProducingABlankContract(): void
+    public function testAnEmptyTemplateGeneratesTheStandardContract(): void
     {
+        // The shipped standard bodies are a real default: a manager who
+        // never opened the template editor can still press « Générer » and
+        // hand the renter a complete Belgian contract, instead of meeting
+        // "le gabarit est vide" as the first answer.
         $this->loginAsManager();
         $booking = $this->createBooking();
 
@@ -863,9 +867,49 @@ class RentalManagementControllerTest extends TestCase
             'document_type' => 'contract',
         ]);
 
-        $this->assertSame([], $this->documentService->forBooking($booking->id));
+        $this->assertCount(1, $this->documentService->forBooking($booking->id));
         $flash = \Core\Http\FlashMessage::get();
-        $this->assertSame('danger', $flash['type'] ?? null);
+        $this->assertSame('success', $flash['type'] ?? null);
+    }
+
+    public function testTheTemplatePageOpensPrefilledWithTheStandardBody(): void
+    {
+        $this->loginAsManager();
+
+        $body = (string) $this->get(
+            '/mes-locations/{slug}/gabarits',
+            '/mes-locations/local-saint-georges/gabarits',
+            'templates'
+        )->getBody();
+
+        // The editor shows the text generation would actually use…
+        $this->assertStringContainsString('Convention de location', $body);
+        // …says which regime is in force…
+        $this->assertStringContainsString('modèle standard', $body);
+        // …and does NOT offer a reset that would be a no-op.
+        $this->assertStringNotContainsString('Réinitialiser au modèle standard', $body);
+    }
+
+    public function testACustomisedTemplateOffersTheResetToStandard(): void
+    {
+        $this->loginAsManager();
+        $asset = $this->assetRepository->findById($this->assetId);
+        $this->assertNotNull($asset);
+        $this->documentService->saveTemplate(
+            $asset,
+            \Modules\Rental\Document\DocumentType::CONTRACT,
+            '<p>Nos propres conditions de location.</p>',
+            1
+        );
+
+        $body = (string) $this->get(
+            '/mes-locations/{slug}/gabarits',
+            '/mes-locations/local-saint-georges/gabarits',
+            'templates'
+        )->getBody();
+
+        $this->assertStringContainsString('Nos propres conditions de location', $body);
+        $this->assertStringContainsString('Réinitialiser au modèle standard', $body);
     }
 
     public function testAPhotoCannotBeGeneratedBecauseItIsUploadOnly(): void
