@@ -123,6 +123,73 @@ class MemberResolutionRepository
     }
 
     /**
+     * Mail-merge import: which members do these Desk "Tiers" values
+     * designate — keyed by the exact desk_id string, a value with no
+     * member is simply absent (Service\AudienceImportService then refuses
+     * the file, naming the row).
+     *
+     * @param string[] $deskIds
+     * @return array<string, int> desk_id => member_id
+     */
+    public function findMemberIdsByDeskIds(array $deskIds): array
+    {
+        $deskIds = array_values(array_unique(array_filter($deskIds, fn(string $d) => $d !== '')));
+        if ($deskIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($deskIds), '?'));
+        $stmt = $this->pdo->prepare("SELECT desk_id, id FROM members WHERE desk_id IN ({$placeholders})");
+        $stmt->execute($deskIds);
+
+        $map = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $map[(string) $row['desk_id']] = (int) $row['id'];
+        }
+        return $map;
+    }
+
+    /**
+     * Mail-merge freeze: each member's most recent member_years profile
+     * (by the year's real start_date, not row id) — its Desk email and
+     * its scout_year_id, which is what the frozen recipient row gets
+     * tagged with. Deliberately NOT filtered on is_active: a mail-merge
+     * file explicitly names its members, so the file is the authority —
+     * an inactive member listed by their Tiers is still written to.
+     *
+     * @param int[] $memberIds
+     * @return array<int, array{scout_year_id: int, email: ?string}> keyed by member_id;
+     *         a member with no member_years row at all is absent
+     */
+    public function resolveMergeMembers(array $memberIds): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT my.member_id, my.scout_year_id, my.email_encrypted, sy.start_date
+             FROM member_years my
+             JOIN scout_years sy ON sy.id = my.scout_year_id
+             WHERE my.member_id IN ({$placeholders})
+             ORDER BY my.member_id ASC, sy.start_date ASC, my.id ASC"
+        );
+        $stmt->execute($memberIds);
+
+        // Ascending order + overwrite = the last (most recent) year wins.
+        $map = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $map[(int) $row['member_id']] = [
+                'scout_year_id' => (int) $row['scout_year_id'],
+                'email' => $row['email_encrypted'] !== null ? $this->encryption->decrypt($row['email_encrypted'], 'member_years.email') : null,
+            ];
+        }
+        return $map;
+    }
+
+    /**
      * @return array{member_id: int, email: ?string}[]
      */
     private function hydrateResolvedMembers(\PDOStatement $stmt): array

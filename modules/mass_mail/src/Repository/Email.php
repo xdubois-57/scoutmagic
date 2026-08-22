@@ -34,6 +34,13 @@ final class Email
      * "always exactly one, nothing to key against" types above.
      */
     public const LIST_TYPE_EXTERNAL = 'external';
+    /**
+     * A chief-uploaded Excel audience (mass_mail_audiences): one email
+     * per file row, each with its own merge variables. $audienceId is
+     * set for this type and only this type; $scoutYearIds stays empty
+     * (the file, not a scout year, defines who receives it).
+     */
+    public const LIST_TYPE_MAIL_MERGE = 'mail_merge';
 
     /**
      * @param int[] $scoutYearIds One or more scout years this email targets — module addendum
@@ -48,6 +55,7 @@ final class Email
         public readonly string $listType,
         public readonly ?int $listId,
         public readonly ?int $listSectionId,
+        public readonly ?int $audienceId,
         public readonly array $scoutYearIds,
         public readonly string $status,
         public readonly string $createdAt,

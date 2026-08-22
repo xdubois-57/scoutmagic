@@ -17,8 +17,11 @@ final class Recipient
     public function __construct(
         public readonly int $id,
         public readonly int $emailId,
-        public readonly int $memberId,
-        public readonly int $scoutYearId,
+        // Null only for an external mail-merge recipient (a row addressed
+        // by its "Email" column, nobody in the members table) — every
+        // list-resolved recipient always has both.
+        public readonly ?int $memberId,
+        public readonly ?int $scoutYearId,
         public readonly ?string $emailAddress,
         // Which Core\Member\MemberEmail row this address maps to (module
         // addendum, multi-email support) — null only for the "no usable
@@ -26,6 +29,10 @@ final class Recipient
         // unsubscribe link is built from this, never a bare member/email
         // id in the URL.
         public readonly ?int $memberEmailId,
+        // The mass_mail_audience_rows row this recipient was frozen from
+        // (mail-merge only, null otherwise) — what Task\SendBatchHandler
+        // renders the per-recipient merge variables from.
+        public readonly ?int $audienceRowId,
         public readonly string $status,
         public readonly ?string $errorMessage,
         public readonly ?string $sentAt,

@@ -1,8 +1,8 @@
 {
   "id": "mass_mail",
   "name": "Envoi de mails",
-  "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
-  "version": "1.5.0",
+  "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, publipostage depuis un fichier Excel avec variables personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
+  "version": "1.6.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -48,6 +48,33 @@
       "method": "POST",
       "controller": "Modules\\MassMail\\Controller\\MassMailController",
       "action": "create",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/audiences",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "importAudience",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/audiences/{id}",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "showAudience",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/{id}/merge-preview",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "mergePreview",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""
@@ -197,6 +224,14 @@
       "description": "Délai entre deux lots d'envoi. Réglage global à tout le site, s'applique à tous les emails de masse en cours d'envoi."
     },
     {
+      "key": "merge_retention_months",
+      "default_value": "18",
+      "type": "number",
+      "editable": false,
+      "label": "Rétention des audiences de publipostage (mois)",
+      "description": "Durée de conservation des données importées d'un fichier Excel de publipostage après l'envoi de l'email, avant leur suppression définitive. Paramètre en lecture seule."
+    },
+    {
       "key": "previous_year_active_cutoff",
       "default_value": "07-31",
       "type": "text",
@@ -210,6 +245,10 @@
     {
       "key": "send_batch",
       "handler": "Modules\\MassMail\\Task\\SendBatchHandler"
+    },
+    {
+      "key": "purge_merge_audiences",
+      "handler": "Modules\\MassMail\\Task\\PurgeMergeAudiencesHandler"
     }
   ],
   "storage": {

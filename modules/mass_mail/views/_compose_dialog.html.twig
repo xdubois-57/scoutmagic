@@ -18,9 +18,42 @@
                 <div class="mb-3">
                     <label class="form-label small" for="mm-list">Liste de diffusion</label>
                     <select class="form-select form-select-sm" id="mm-list"></select>
+                    <p class="form-text small mb-0 d-none" id="mm-merge-list-note">
+                        Un email par ligne du fichier, contrairement aux listes classiques (un email par adresse).
+                    </p>
                 </div>
 
-                <div class="mb-3">
+                {# Mail-merge audience zone — shown only when the "Publipostage" list type is selected. #}
+                <div class="mb-3 d-none" id="mm-merge-zone">
+                    <div class="border rounded bg-body-tertiary p-2" id="mm-merge-upload-state">
+                        <div class="d-flex gap-2 align-items-center">
+                            <input type="file" class="form-control form-control-sm" id="mm-merge-file" accept=".xlsx"
+                                   aria-label="Choisir le fichier Excel du publipostage">
+                            <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="mm-merge-import-btn">Importer</button>
+                        </div>
+                        <p class="form-text small mb-0 mt-1">
+                            Fichier Excel (.xlsx), première feuille uniquement, première ligne = en-têtes de colonnes.
+                            Colonne « Tiers » (identifiant Desk : l'email part vers toutes les adresses connues du membre)
+                            et/ou colonne « Email » (adresse libre, plusieurs possibles séparées par « ; »).
+                            Chaque colonne devient une variable utilisable dans le sujet et le message.
+                            Les exports Excel du site (membres, réponses de formulaire) sont réutilisables tels quels.
+                        </p>
+                    </div>
+                    <div class="border rounded bg-body-tertiary p-2 d-none" id="mm-merge-info-state">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-file-earmark-spreadsheet fs-4 text-success"></i>
+                            <div class="flex-grow-1">
+                                <div class="small fw-semibold" id="mm-merge-filename"></div>
+                                <div class="form-text small mt-0" id="mm-merge-meta"></div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap d-none" id="mm-merge-replace-btn">Remplacer…</button>
+                        </div>
+                        <div class="d-flex flex-wrap align-items-center gap-1 mt-2" id="mm-merge-columns"></div>
+                    </div>
+                    <div class="alert alert-warning small py-2 mt-2 mb-0 d-none" id="mm-merge-warnings"></div>
+                </div>
+
+                <div class="mb-3" id="mm-scout-year-zone">
                     <div class="form-label small d-block">Année(s) scoute(s)</div>
                     <div class="d-flex flex-wrap gap-3" id="mm-scout-year-group"></div>
                     <p class="form-text small mb-1">
@@ -53,6 +86,14 @@
                         <span class="mx-1"></span>
                         <button type="button" data-command="createLink" class="btn btn-sm btn-outline-secondary" title="Lien"><i class="bi bi-link-45deg"></i></button>
                         <button type="button" data-command="removeFormat" class="btn btn-sm btn-outline-secondary" title="Supprimer le formatage"><i class="bi bi-eraser"></i></button>
+                        <span class="mx-1"></span>
+                        <div class="dropdown d-none" id="mm-variable-dropdown">
+                            <button type="button" class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown"
+                                    title="Insérer une variable du fichier de publipostage">
+                                <i class="bi bi-braces"></i> Variable
+                            </button>
+                            <ul class="dropdown-menu" id="mm-variable-menu"></ul>
+                        </div>
                     </div>
                     <div id="mm-body-content" contenteditable="true" class="form-control" style="min-height:180px;"></div>
                 </div>
@@ -78,12 +119,31 @@
                     <a href="#" class="btn btn-sm btn-outline-secondary" id="mm-tracking-link">Voir le suivi détaillé</a>
                 </div>
 
+                {# Mail-merge per-recipient preview — test mode only. #}
+                <div class="d-none border-top pt-3" id="mm-merge-preview-zone">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <div class="form-label small mb-0">Aperçu par destinataire</div>
+                        <div class="d-flex align-items-center gap-1 ms-auto">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="mm-merge-prev-btn" title="Ligne précédente"><i class="bi bi-chevron-left"></i></button>
+                            <span class="small text-body-secondary text-nowrap" id="mm-merge-preview-position"></span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="mm-merge-next-btn" title="Ligne suivante"><i class="bi bi-chevron-right"></i></button>
+                        </div>
+                    </div>
+                    <p class="small text-body-secondary mb-2" id="mm-merge-preview-recipient"></p>
+                    <div class="alert alert-warning small py-2 d-none" id="mm-merge-preview-warnings"></div>
+                    <div class="border rounded mb-2">
+                        <div class="px-2 py-1 border-bottom bg-body-tertiary small"><span class="text-body-secondary">Sujet :</span> <strong id="mm-merge-preview-subject"></strong></div>
+                        <div class="p-2 small" id="mm-merge-preview-body"></div>
+                    </div>
+                </div>
+
                 <div class="d-none border-top pt-3" id="mm-test-send-zone">
                     <label class="form-label small" for="mm-test-send-email">Envoyer un email de test à</label>
                     <div class="d-flex gap-2">
                         <input type="email" class="form-control form-control-sm" id="mm-test-send-email">
                         <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="mm-test-send-btn">Envoyer le test</button>
                     </div>
+                    <p class="form-text small mb-0 d-none" id="mm-test-send-merge-note">Le test est envoyé avec les valeurs de la ligne affichée dans l'aperçu ci-dessus.</p>
                 </div>
             </div>
             <div class="modal-footer">

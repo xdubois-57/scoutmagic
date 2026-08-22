@@ -13,12 +13,15 @@ use Core\Mail\MailException;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Modules\MassMail\Repository\AudienceRepository;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\EmailAttachmentRepository;
 use Modules\MassMail\Repository\EmailRepository;
 use Modules\MassMail\Repository\Recipient;
 use Modules\MassMail\Repository\RecipientRepository;
+use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Service\MassMailService;
+use Modules\MassMail\Service\MergeRenderer;
 
 /**
  * The one and only task type mass_mail ever schedules (module spec —
@@ -47,6 +50,8 @@ class SendBatchHandler implements TaskHandlerInterface
         $emailRepository = new EmailRepository($pdo);
         $attachmentRepository = new EmailAttachmentRepository($pdo);
         $fileRepository = new \Core\File\FileRepository($pdo);
+        $audienceRepository = new AudienceRepository($pdo, $context->encryption);
+        $mergeRenderer = new MergeRenderer();
         $massMailService = $this->buildMassMailService($context);
 
         $batchSize = (int) $context->settings->get(self::SETTING_BATCH_SIZE, 'mass_mail', (string) self::DEFAULT_BATCH_SIZE);
@@ -72,6 +77,23 @@ class SendBatchHandler implements TaskHandlerInterface
                 $recipientRepository->recordSendFailure($recipient->id, 'Adresse invalide');
                 $errorCount++;
                 continue;
+            }
+
+            // Mail-merge: this recipient's subject/body are rendered from
+            // their own audience row's values, right before sending. A row
+            // already purged by retention can't be rendered — explicit
+            // failure, never a mail with raw {{tokens}} in it.
+            $subject = $email->subject;
+            $baseBodyHtml = $email->bodyHtml;
+            if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
+                $mergeRow = $recipient->audienceRowId !== null ? $audienceRepository->findRowById($recipient->audienceRowId) : null;
+                if ($mergeRow === null) {
+                    $recipientRepository->recordSendFailure($recipient->id, 'Données de publipostage purgées');
+                    $errorCount++;
+                    continue;
+                }
+                $subject = $mergeRenderer->renderText($email->subject, $mergeRow->data);
+                $baseBodyHtml = $mergeRenderer->renderHtml($email->bodyHtml, $mergeRow->data);
             }
 
             $attachments = [];
@@ -109,16 +131,16 @@ class SendBatchHandler implements TaskHandlerInterface
             $unsubscribeUrl = rtrim((string) $context->settings->get('base_url'), '/')
                 . '/mass-mail/unsubscribe/' . $recipient->id . '?token=' . $rawUnsubscribeToken;
 
-            $bodyHtml = $email->bodyHtml
+            $bodyHtml = $baseBodyHtml
                 . '<hr><p style="font-size:12px;color:#999;">Vous recevez cet email en tant que membre de l\'unité. '
                 . '<a href="' . htmlspecialchars($unsubscribeUrl, ENT_QUOTES) . '">Se désinscrire des emails groupés</a>.</p>';
-            $bodyText = strip_tags($email->bodyHtml)
+            $bodyText = strip_tags($baseBodyHtml)
                 . "\n\n---\nVous recevez cet email en tant que membre de l'unité.\nSe désinscrire des emails groupés : " . $unsubscribeUrl;
 
             try {
                 $context->mailService->send(
                     $recipient->emailAddress,
-                    $email->subject,
+                    $subject,
                     $bodyHtml,
                     $bodyText,
                     null,
@@ -172,6 +194,11 @@ class SendBatchHandler implements TaskHandlerInterface
     private function dispatchEmailReceivedNotification(TaskContext $context, Recipient $recipient, Email $email): void
     {
         if ($context->notifications === null || $recipient->emailAddress === null) {
+            return;
+        }
+        // An external mail-merge recipient is nobody in the members table
+        // — no member page, no deep link, no notification to dispatch.
+        if ($recipient->memberId === null || $recipient->scoutYearId === null) {
             return;
         }
 
@@ -263,7 +290,11 @@ class SendBatchHandler implements TaskHandlerInterface
             new \Core\Security\HtmlSanitizer(),
             $scoutYearService,
             new \Core\Import\ImportJournalRepository($pdo),
-            $context->storagePath
+            $context->storagePath,
+            new AudienceRepository($pdo, $context->encryption),
+            new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $context->encryption),
+            new SuppressedAddressRepository($pdo),
+            new MergeRenderer()
         );
     }
 }

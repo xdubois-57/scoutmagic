@@ -169,6 +169,53 @@ class MemberExportRowBuilderTest extends TestCase
         $this->assertContains('Chief', $row->functionLabels);
     }
 
+    // --- buildForMemberYears (member-search export — ARCHITECTURE.md §8.62) ---
+
+    public function testBuildForMemberYearsExportsExactlyTheGivenSelection(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $aliceId = $this->createMember($sectionId, 'Alice', 'identified');
+        $this->createMember($sectionId, 'Bob', 'identified');
+
+        $rows = $this->builder->buildForMemberYears([$aliceId], $this->scoutYearId);
+
+        $this->assertSame(['Alice'], array_map(fn($r) => $r->firstName, $rows));
+        $this->assertSame('Ma section', $rows[0]->sectionName);
+    }
+
+    public function testBuildForMemberYearsKeepsInactiveMembersUnlikeTheSectionRoster(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $memberYearId = $this->createMember($sectionId, 'Alice', 'identified');
+        $this->pdo->prepare('UPDATE member_years SET is_active = 0 WHERE id = ?')->execute([$memberYearId]);
+
+        // The section roster (and its export) drops inactive members…
+        $this->assertSame([], $this->builder->buildForSections([$sectionId], $this->scoutYearId));
+
+        // …the search page lists them ("non inscrit"), so its export keeps them.
+        $rows = $this->builder->buildForMemberYears([$memberYearId], $this->scoutYearId);
+        $this->assertCount(1, $rows);
+        $this->assertFalse($rows[0]->isActive);
+    }
+
+    public function testBuildForMemberYearsSynthesizesARowForAMemberWithoutAnyFunction(): void
+    {
+        $memberId = $this->insertMemberBase();
+        $memberYearId = $this->insertMemberYear($memberId, 'Alice', null, null, null);
+
+        $rows = $this->builder->buildForMemberYears([$memberYearId], $this->scoutYearId);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('Alice', $rows[0]->firstName);
+        $this->assertNull($rows[0]->sectionName);
+        $this->assertSame([], $rows[0]->functionLabels);
+        // Excluded from the movement classifier's input — status honestly
+        // "unknown", never guessed from a zero section id.
+        $this->assertSame(\Core\Member\Movement\MemberMovementStatus::UNKNOWN->label(), $rows[0]->movementStatusLabel);
+    }
+
     private function createMember(int $sectionId, string $firstName, string $functionRole): int
     {
         $memberId = $this->insertMemberBase();
