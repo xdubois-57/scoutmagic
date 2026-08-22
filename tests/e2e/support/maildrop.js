@@ -221,14 +221,18 @@ export async function waitForMail(predicate, options = {}) {
  * follows the link, so the same call works on the text alternative and on
  * the `href` of the HTML one — and `&amp;` is turned back into `&`
  * because a magic link carries two query parameters and Twig escapes the
- * separator in the HTML alternative.
+ * separator in the HTML alternative. Non-ASCII stops it too: a URL is
+ * ASCII by construction (RFC 3986), while the plain-text alternative of a
+ * French template can butt an accented word right up against the link
+ * ("…79c2À tout moment…"), which the class would otherwise swallow into
+ * the URL.
  *
  * @param {{ text: string }} message
  * @param {string} pathPrefix e.g. '/auth/verify'
  * @returns {string}
  */
 export function linkFromMail(message, pathPrefix) {
-    const match = new RegExp(`https?://[^\\s"'<>]*${pathPrefix}[^\\s"'<>]*`).exec(message.text);
+    const match = new RegExp(`https?://[^\\s"'<>\\u0080-\\uffff]*${pathPrefix}[^\\s"'<>\\u0080-\\uffff]*`).exec(message.text);
 
     if (match === null) {
         throw new Error(`No ${pathPrefix} link in the message. Body was:\n${message.text}`);

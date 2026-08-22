@@ -81,6 +81,14 @@
 
     // Save
     document.getElementById('richTextEditorSave').addEventListener('click', function () {
+        // The shared modal is also driven by rich-text-field.js and by
+        // pages with their own add flow (modules/banner) — outside
+        // configuration mode this handler still gets attached (the modal
+        // exists), so it must stand down unless an .editable-content
+        // block was opened HERE. Same guard rich-text-field.js applies
+        // for the same reason.
+        if (currentKey === null) return;
+
         var html = editorContent.innerHTML;
         var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';

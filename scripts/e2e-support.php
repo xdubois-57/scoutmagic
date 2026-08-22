@@ -527,6 +527,18 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // through the interface first.
     e2e_seed_section_with_both_members($connection);
 
+    // --- The super-admin is also the unit's chef d'unité. ---
+    //
+    // Several behaviours gate on a UNIT-CHIEF MEMBERSHIP, not on the
+    // superadmin flag: Modules\Retro's moderation (hide/unhide a word) is
+    // offered only to somebody whose MAIN function sits in the "Staff
+    // d'U" section (MemberService::isUnitChief() — deliberately narrower
+    // than Role::ADMIN, see RetroBoardController). In a real unit the
+    // site's super-admin usually IS the chef d'unité, so the fixture
+    // mirrors that instead of leaving those behaviours unreachable.
+    e2e_seed_unit_chief_function_for_admin($connection);
+    e2e_seed_mobile_for_admin($connection, $encryptionKey, $blindIndexKey);
+
     // --- Every module, activated the way an admin activates one. ---
     //
     // The throwaway instance is pointed at ITSELF as the statistics
@@ -986,6 +998,84 @@ function e2e_seed_section_with_both_members(Core\Database\Connection $connection
             $scoutYearId,
         ]);
     }
+}
+
+/**
+ * Give the super-admin's member a MAIN function in the "Staff d'U"
+ * section — what makes MemberService::isUnitChief() true for them.
+ *
+ * The section itself comes from the real Core\Member\
+ * UnitStaffSectionService (the same code a Desk import runs), never a
+ * hand-rolled copy of its rows. The 'Animé' function
+ * e2e_seed_section_with_both_members() gave the admin stays, demoted to a
+ * secondary function: the admin remains a member of the shared section
+ * (their member_section_periods row is untouched), so every fixture the
+ * groups scenarios rely on holds exactly as before. The account's
+ * resolved role was already `superadmin` through its flag, so a
+ * role-'admin' function moves nothing there.
+ */
+function e2e_seed_unit_chief_function_for_admin(Core\Database\Connection $connection): void
+{
+    $pdo = $connection->getPdo();
+    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+
+    $staffSectionId = (new Core\Member\UnitStaffSectionService($pdo))->ensureSection();
+    $statement = $pdo->prepare('SELECT age_branch_id FROM sections WHERE id = ?');
+    $statement->execute([$staffSectionId]);
+    $staffBranchId = (int) $statement->fetchColumn();
+
+    $pdo->prepare('INSERT INTO functions (desk_code, label, role, confirmed) VALUES (?, ?, ?, 1)')
+        ->execute(['E2E-CDU', "Chef d'unité", Core\Security\Role::ADMIN->value]);
+    $functionId = (int) $pdo->lastInsertId();
+
+    $pdo->prepare(
+        'UPDATE member_functions mf'
+        . ' JOIN member_years my ON my.id = mf.member_year_id'
+        . ' JOIN members m ON m.id = my.member_id'
+        . ' SET mf.is_main_function = 0'
+        . ' WHERE m.desk_id = ? AND my.scout_year_id = ?'
+    )->execute(['E2E-ADMIN', $scoutYearId]);
+
+    $pdo->prepare(
+        'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, start_date, is_main_function)'
+        . ' SELECT my.id, ?, ?, ?, ?, 1 FROM member_years my'
+        . ' JOIN members m ON m.id = my.member_id'
+        . ' WHERE m.desk_id = ? AND my.scout_year_id = ?'
+    )->execute([
+        $functionId,
+        $staffSectionId,
+        $staffBranchId,
+        date('Y-m-d', strtotime('-1 month')),
+        'E2E-ADMIN',
+        $scoutYearId,
+    ]);
+}
+
+/**
+ * Give the unit chief's member a mobile number. Modules\SosStaff only
+ * offers the duty grid for Staff d'U members WITH a known mobile
+ * (SosSettingsService::getStaffOptions()) — without one, the whole
+ * on-call surface is unreachable. A reserved fictitious Belgian mobile,
+ * encrypted with the same context MemberService reads it back with.
+ */
+function e2e_seed_mobile_for_admin(
+    Core\Database\Connection $connection,
+    string $encodedEncryptionKey,
+    string $encodedBlindIndexKey
+): void {
+    $pdo = $connection->getPdo();
+    $encryptionService = Core\Security\EncryptionService::fromEncodedKeys($encodedEncryptionKey, $encodedBlindIndexKey);
+    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+
+    $pdo->prepare(
+        'UPDATE member_years my JOIN members m ON m.id = my.member_id'
+        . ' SET my.mobile_encrypted = ?'
+        . ' WHERE m.desk_id = ? AND my.scout_year_id = ?'
+    )->execute([
+        $encryptionService->encrypt('+32 470 00 00 01', 'member_years.mobile'),
+        'E2E-ADMIN',
+        $scoutYearId,
+    ]);
 }
 
 /**

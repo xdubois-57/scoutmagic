@@ -69,3 +69,32 @@ export async function expectRendersAsACalendar(grid) {
     // symptom being ruled out.
     expect(box.first.height).toBeLessThan(200);
 }
+
+/**
+ * The same statement for the OTHER month grid: the calendar module's
+ * `partials/month_grid.html.twig` (`.calendar-week` rows, event bars laid
+ * over the days), which depends on the very same opt-in components.css as
+ * the day grid above and fails the very same way without it — 42 unstyled
+ * squares stacked down the page, green in every PHP suite.
+ *
+ * @param {import('@playwright/test').Locator} container an element
+ *   wrapping the rendered month (the `.calendar-week` rows are found
+ *   within it).
+ */
+export async function expectRendersAsAnEventCalendar(container) {
+    const week = container.locator('.calendar-week').first();
+    await expect(week).toBeVisible();
+
+    const display = await week.evaluate((node) => getComputedStyle(node).display);
+    expect(display, 'components.css must be linked, or a week is a stack').toBe('grid');
+
+    const days = week.locator('.calendar-day-cell');
+    await expect(days).toHaveCount(7);
+
+    const first = await days.nth(0).boundingBox();
+    const second = await days.nth(1).boundingBox();
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(second.x, 'two days of one week must sit side by side').toBeGreaterThan(first.x);
+    expect(Math.abs(second.y - first.y), 'and share a row').toBeLessThan(2);
+}
