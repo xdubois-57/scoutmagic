@@ -128,12 +128,12 @@ class SettingsControllerTest extends TestCase
         $response = $this->controller->index($request, []);
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Paramètres', $response->getBody());
+        $this->assertStringContainsString('Réglages', $response->getBody());
         $this->assertStringContainsString('Test Key', $response->getBody());
     }
 
     /**
-     * The logo upload block moved to Configuration avancée's "Paramètres
+     * The logo upload block moved to Installation & serveur's "Paramètres
      * généraux" card (SetupControllerTest covers its presence there) — it
      * must no longer appear on this page at all, custom logo or not.
      */

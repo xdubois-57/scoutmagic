@@ -121,7 +121,7 @@ class NavRenderingTest extends TestCase
     {
         $html = $this->renderNav(Role::IDENTIFIED);
         $this->assertStringContainsString('Notre unité', $html);
-        $this->assertStringContainsString('Espace animés', $html);
+        $this->assertStringContainsString('Espace membres', $html);
         $this->assertStringNotContainsString('Configuration', $html);
     }
 

@@ -68,7 +68,7 @@ class SummaryService
         $request = new LlmRequest(
             tier: LlmTier::CHEAP,
             prompt: $prompt,
-            systemPrompt: 'Tu résumes les commentaires anonymes d\'une rétrospective d\'unité scoute pour les chefs. '
+            systemPrompt: 'Tu résumes les commentaires anonymes d\'une rétrospective d\'unité scoute pour les animateurs. '
                 . 'Identifie les thèmes qui reviennent, pas une liste exhaustive de chaque commentaire.',
             responseSchema: self::RESPONSE_SCHEMA
         );

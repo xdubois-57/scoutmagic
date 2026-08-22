@@ -566,7 +566,7 @@ $settingService->register('backup_auto_last_run', '', 'text', 'Dernière sauvega
 // The following 5 settings are managed exclusively from the "Mises à jour
 // automatiques" section of Configuration > Maintenance (Core\Http\
 // Controller\MaintenanceController) — deliberately excluded from the
-// generic Configuration > Paramètres page's grouped rendering
+// generic Configuration > Réglages page's grouped rendering
 // (Core\Http\Controller\SettingsController::EXCLUDED_FROM_GENERIC_PAGE),
 // since that page's plain editable-row UI has no room for the semver
 // explainer / webhook status block this feature needs. auto_update_level's
@@ -693,7 +693,7 @@ $settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 
 
 // Usage statistics and support package (Core\Statistics, Core\Support —
 // ARCHITECTURE.md §8.47/§8.48). All five are deliberately kept out of the
-// generic Configuration > Paramètres page (Core\Http\Controller\
+// generic Configuration > Réglages page (Core\Http\Controller\
 // SettingsController::EXCLUDED_FROM_GENERIC_PAGE, same treatment as the
 // auto-update settings) — they are managed from the dedicated Support
 // page, which pairs the switch with the plain-language explanation of what
@@ -1017,7 +1017,7 @@ $memberSearchService = new MemberSearchService(new MemberSearchRepository($conne
 // endpoint (admin member-search page) is the other, always-available one.
 $departureService = new \Core\Member\DepartureService(new \Core\Member\DepartureRepository($pdo, $encryptionService), $journalService);
 // Badges — transversal roles assignable to chiefs (Core\Badge). Global
-// concept configured once (Configuration générale), assignment scoped per
+// concept configured once (Édition du site), assignment scoped per
 // member_year (Staffs page), displayed on the trombinoscope.
 $badgeRepository = new BadgeRepository($pdo);
 $memberBadgeRepository = new MemberBadgeRepository($pdo);
@@ -1025,7 +1025,7 @@ $memberBadgeRepository = new MemberBadgeRepository($pdo);
 $sectionService = new SectionService($connection, $encryptionService, $memberBadgeRepository);
 $badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sectionService);
 
-// Member page (Espace animés) "Documents privés" storage — see
+// Member page (Espace membres) "Documents privés" storage — see
 // Core\Member\MemberDocumentService.
 $memberDocumentService = new \Core\Member\MemberDocumentService(new \Core\Member\MemberDocumentRepository($pdo));
 
@@ -1221,7 +1221,7 @@ $galleryDelegatedAlbumAccessCheckers = [];
 $galleryDelegatedAlbumDescribers = [];
 
 // Snapshot taken here rather than at the guard's construction site:
-// $linkedMembers is re-resolved further down for the Espace animés menu,
+// $linkedMembers is re-resolved further down for the Espace membres menu,
 // and the guard's owner-scoping must not depend on which of the two
 // resolutions happens to be the current one by the time it is built.
 $linkedMemberIds = array_map(fn($m) => $m->memberId, $linkedMembers);
@@ -1316,25 +1316,25 @@ $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'p
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40, false, null, MenuBuilder::GROUP_CORE, 'bi-shield-check');
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-people-fill');
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Membres par section', '/chefs/membres', 'intendant', 11, false, null, MenuBuilder::GROUP_CORE, 'bi-list-ul');
-// Configuration générale — shrunk to just the configuration-mode toggle,
+// Édition du site — shrunk to just the configuration-mode toggle,
 // moved here from the Configuration menu and widened from superadmin to
 // admin (see /config-mode/activate|deactivate's own role_min and
 // Core\View\ConfigurationMode, widened the same way) so every chief
 // d'unité, not only a superadmin, can edit site content. First in this
 // menu (order 10) — the most-used entry for a chief d'unité.
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Configuration générale', '/config/general', 'admin', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-pencil-square');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Édition du site', '/config/general', 'admin', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-pencil-square');
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 20, false, null, MenuBuilder::GROUP_CORE, 'bi-cloud-arrow-down');
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 30, false, null, MenuBuilder::GROUP_CORE, 'bi-person-lines-fill');
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 40, false, null, MenuBuilder::GROUP_CORE, 'bi-calendar-range');
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 50, false, null, MenuBuilder::GROUP_CORE, 'bi-journal-text');
-// Configuration avancée first (order 5, ahead of Modules/Badges below) —
+// Installation & serveur first (order 5, ahead of Modules/Badges below) —
 // the most-used entry for a superadmin; the rest of this menu keeps its
 // existing relative order.
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration avancée', '/setup', 'superadmin', 5, false, null, MenuBuilder::GROUP_CORE, 'bi-sliders');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Installation & serveur', '/setup', 'superadmin', 5, false, null, MenuBuilder::GROUP_CORE, 'bi-sliders');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Modules', '/config/modules', 'superadmin', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-puzzle');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Badges', '/config/badges', 'superadmin', 12, false, null, MenuBuilder::GROUP_CORE, 'bi-award');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 20, false, null, MenuBuilder::GROUP_CORE, 'bi-diagram-2');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 30, false, null, MenuBuilder::GROUP_CORE, 'bi-gear-wide-connected');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 30, false, null, MenuBuilder::GROUP_CORE, 'bi-gear-wide-connected');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35, false, null, MenuBuilder::GROUP_CORE, 'bi-shield-lock');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40, false, null, MenuBuilder::GROUP_CORE, 'bi-clock-history');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45, false, null, MenuBuilder::GROUP_CORE, 'bi-tools');
@@ -1459,7 +1459,7 @@ if ($schedulerService->find('core', \Core\Support\Task\PurgeSupportPackagesHandl
     $schedulerService->schedule('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE);
 }
 
-// Add dynamic member entries to Espace animés — group: GROUP_DYNAMIC keeps
+// Add dynamic member entries to Espace membres — group: GROUP_DYNAMIC keeps
 // these (and the empty-state placeholder below) sorted ahead of every core
 // static page and every module page in this menu regardless of numeric
 // `order` (Core\View\MenuBuilder::buildPages() sorts by group first). No
@@ -1638,7 +1638,7 @@ $router->addRoute('GET', '/favicon.ico', \Core\Http\Controller\PwaController::cl
 $router->addRoute('GET', '/offline', \Core\Http\Controller\PwaController::class, 'offline', 'public');
 
 // Setup routes (admin, but bypassed when not initialized)
-$router->addRoute('GET', '/setup', SetupController::class, 'index', 'superadmin', ['label' => 'Configuration avancée', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute('GET', '/setup', SetupController::class, 'index', 'superadmin', ['label' => 'Installation & serveur', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/setup/verify-token', SetupController::class, 'verifyToken', 'superadmin');
 $router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'superadmin');
 $router->addRoute('POST', '/setup/install-database', SetupController::class, 'installDatabase', 'superadmin');
@@ -1675,7 +1675,7 @@ $router->addRoute('POST', '/admin/scout-year/activate-public', ScoutYearControll
 $router->addRoute('POST', '/admin/scout-year/step', ScoutYearController::class, 'toggleStep', 'admin');
 
 // Settings
-$router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'superadmin', ['label' => 'Paramètres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'superadmin', ['label' => 'Réglages', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController::class, 'notifyIosLogoUpdate', 'superadmin');
@@ -1709,12 +1709,12 @@ $router->addRoute('POST', '/api/maintenance/webhook-secret', MaintenanceControll
 // instead. See Core\Http\Controller\WebhookController's own docblock.
 $router->addRoute('POST', '/api/webhook/github', \Core\Http\Controller\WebhookController::class, 'github', 'public');
 
-// Configuration générale — shrunk to just the configuration-mode toggle
+// Édition du site — shrunk to just the configuration-mode toggle
 // (module registry and badges split out below); moved to "Espace chefs d'U"
 // in the menu (see addPage() above) and widened to admin, same as the
 // /config-mode/* routes it links to — URL kept unchanged, nothing forces it
 // to change.
-$router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'admin', ['label' => 'Configuration générale', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
+$router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'admin', ['label' => 'Édition du site', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
 
 // Configuration > Modules — module registry (split out of Configuration
 // générale, ARCHITECTURE §7.1). Stays superadmin, in the Configuration menu.
@@ -3802,7 +3802,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
 
     // Menu hook (Core\Module\MenuEntryProvider) — the "Locations" index and
     // one entry per pinned public asset in "Notre unité", plus "Mes
-    // locations" in "Espace animés" for an actual manager. Public entries,
+    // locations" in "Espace membres" for an actual manager. Public entries,
     // so the hook runs for an anonymous visitor too and the email is passed
     // as null rather than the block being skipped. Same rebuild-and-
     // re-derive dance as the registration block above; see

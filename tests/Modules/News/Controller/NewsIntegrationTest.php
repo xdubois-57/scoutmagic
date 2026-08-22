@@ -236,8 +236,8 @@ class NewsIntegrationTest extends TestCase
      */
     public function testEditEditorPageSetsBreadcrumbCurrentToTheArticleTitle(): void
     {
-        $this->twig->addGlobal('route_breadcrumb', ['label' => "Modifier l'article", 'parents' => ['Espace chefs']]);
-        $this->twig->addGlobal('menus', [['id' => 'espace_chefs', 'label' => 'Espace chefs']]);
+        $this->twig->addGlobal('route_breadcrumb', ['label' => "Modifier l'article", 'parents' => ['Espace animateurs']]);
+        $this->twig->addGlobal('menus', [['id' => 'espace_chefs', 'label' => 'Espace animateurs']]);
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Fête des familles', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
 
@@ -257,8 +257,8 @@ class NewsIntegrationTest extends TestCase
      */
     public function testCreateEditorPageBreadcrumbFallsBackToTheStaticLabelSinceThereIsNoArticleYet(): void
     {
-        $this->twig->addGlobal('route_breadcrumb', ['label' => 'Nouvel article', 'parents' => ['Espace chefs']]);
-        $this->twig->addGlobal('menus', [['id' => 'espace_chefs', 'label' => 'Espace chefs']]);
+        $this->twig->addGlobal('route_breadcrumb', ['label' => 'Nouvel article', 'parents' => ['Espace animateurs']]);
+        $this->twig->addGlobal('menus', [['id' => 'espace_chefs', 'label' => 'Espace animateurs']]);
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
 
         $response = $this->newsController->create(new Request('GET', '/news/create', [], [], [], []), []);

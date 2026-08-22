@@ -410,7 +410,7 @@ test('the whole site transitions to the next scout year through the documented w
 
     const staffYearCard = yearCard(page, 'Année du staff');
     await expect(staffYearCard).toContainText(targetYear);
-    await expect(staffYearCard).toContainText('Vue par les chefs et intendants uniquement.');
+    await expect(staffYearCard).toContainText('Vue par les animateurs et intendants uniquement.');
     // The half that matters most, and the one a unit test cannot see: the
     // year everyone else is served has still not moved.
     await expect(publicYearCard).toContainText(outgoingYear);

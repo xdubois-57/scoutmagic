@@ -9,7 +9,7 @@
     <h2 class="h5 mb-3">Valeurs par défaut des évènements</h2>
     <p class="text-body-secondary small mb-3">
         Ces valeurs sont pré-remplies dans le formulaire de création d'un évènement,
-        mais restent modifiables par les chefs pour chaque évènement.
+        mais restent modifiables par les animateurs pour chaque évènement.
     </p>
     <form id="defaults-form" class="border rounded-3 p-3 mb-4">
         <div class="row g-2">
@@ -81,7 +81,7 @@
                 <span class="fw-semibold flex-grow-1">{{ item.section_name }}</span>
                 <select class="form-select form-select-sm visibility-select" style="max-width:220px;" data-calendar-id="{{ item.calendar.id }}" aria-label="Visibilité du calendrier {{ item.section_name }}">
                     <option value="public" {{ item.calendar.visibility == 'public' ? 'selected' : '' }}>Public</option>
-                    <option value="chief" {{ item.calendar.visibility == 'chief' ? 'selected' : '' }}>Chef</option>
+                    <option value="chief" {{ item.calendar.visibility == 'chief' ? 'selected' : '' }}>Animateur</option>
                     <option value="admin" {{ item.calendar.visibility == 'admin' ? 'selected' : '' }}>Chef d'Unité</option>
                 </select>
                 <span class="badge bg-secondary-subtle text-secondary-emphasis text-nowrap">Non supprimable</span>
@@ -112,7 +112,7 @@
                     {% endif %}
                     <select class="form-select form-select-sm visibility-select ms-auto" style="max-width:220px;" data-calendar-id="{{ calendar.id }}" aria-label="Visibilité du calendrier {{ calendar.name }}">
                         <option value="public" {{ calendar.visibility == 'public' ? 'selected' : '' }}>Public</option>
-                        <option value="chief" {{ calendar.visibility == 'chief' ? 'selected' : '' }}>Chef</option>
+                        <option value="chief" {{ calendar.visibility == 'chief' ? 'selected' : '' }}>Animateur</option>
                         <option value="admin" {{ calendar.visibility == 'admin' ? 'selected' : '' }}>Chef d'Unité</option>
                     </select>
                 </div>
@@ -177,7 +177,7 @@
         <input type="text" class="form-control form-control-sm" id="new-calendar-name" placeholder="Anniversaires" style="max-width:220px;" aria-label="Nom du calendrier">
         <select class="form-select form-select-sm" id="new-calendar-visibility" style="max-width:220px;" aria-label="Visibilité du calendrier">
             <option value="public">Public</option>
-            <option value="chief">Chef</option>
+            <option value="chief">Animateur</option>
             <option value="admin">Chef d'Unité</option>
         </select>
         <button type="button" class="btn btn-sm btn-primary" id="add-calendar-btn">

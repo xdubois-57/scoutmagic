@@ -163,7 +163,7 @@ class RouterTest extends TestCase
 
     /**
      * The real incident, end to end, through the real module.json: a
-     * family clicking their pending request in "Espace animés" hit
+     * family clicking their pending request in "Espace membres" hit
      * "/inscriptions/suivi/demande/{id}", and until module.json's routes
      * were reordered, that request was silently swallowed by "/inscriptions/
      * suivi/{id}/{token}" (declared earlier at the time) — bound to
@@ -193,13 +193,13 @@ class RouterTest extends TestCase
             'App\\Controller\\StaffsController',
             'index',
             'intendant',
-            ['label' => 'Staffs', 'parents' => ['Espace chefs']]
+            ['label' => 'Staffs', 'parents' => ['Espace animateurs']]
         );
 
         $request = new Request('GET', '/chefs/staffs', [], [], [], []);
         $resolved = $router->resolve($request);
 
         $this->assertInstanceOf(ResolvedRoute::class, $resolved);
-        $this->assertSame(['label' => 'Staffs', 'parents' => ['Espace chefs']], $resolved->breadcrumb);
+        $this->assertSame(['label' => 'Staffs', 'parents' => ['Espace animateurs']], $resolved->breadcrumb);
     }
 }

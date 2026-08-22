@@ -46,7 +46,7 @@ class MenuRegistrationOrderTest extends TestCase
         $labels = $this->addPageLabelsForMenu('MENU_ESPACE_ADMIN');
 
         $this->assertSame(
-            ['Configuration générale', 'Import Desk', 'Membres', 'Année scoute', 'Journal'],
+            ['Édition du site', 'Import Desk', 'Membres', 'Année scoute', 'Journal'],
             $labels
         );
     }
@@ -55,9 +55,9 @@ class MenuRegistrationOrderTest extends TestCase
     {
         $labels = $this->addPageLabelsForMenu('MENU_CONFIGURATION');
 
-        $this->assertSame('Configuration avancée', $labels[0]);
+        $this->assertSame('Installation & serveur', $labels[0]);
         $this->assertSame(
-            ['Modules', 'Badges', 'Desk', 'Paramètres', 'RGPD', 'Actions planifiées', 'Maintenance', 'Notifications', 'Support'],
+            ['Modules', 'Badges', 'Desk', 'Réglages', 'RGPD', 'Actions planifiées', 'Maintenance', 'Notifications', 'Support'],
             array_slice($labels, 1)
         );
     }

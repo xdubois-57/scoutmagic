@@ -210,8 +210,8 @@ class MenuBuilderTest extends TestCase
     public function testLabelForReturnsTheRegisteredMenuLabel(): void
     {
         $this->assertSame('Notre unité', MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE));
-        $this->assertSame('Espace animés', MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES));
-        $this->assertSame('Espace chefs', MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS));
+        $this->assertSame('Espace membres', MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES));
+        $this->assertSame('Espace animateurs', MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS));
         $this->assertSame("Espace chefs d'U", MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN));
         $this->assertSame('Configuration', MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION));
     }

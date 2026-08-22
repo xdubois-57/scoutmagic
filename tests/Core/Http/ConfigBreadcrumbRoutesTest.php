@@ -43,7 +43,7 @@ class ConfigBreadcrumbRoutesTest extends TestCase
     {
         $breadcrumb = $this->breadcrumbForGetRoute('/config/general');
 
-        $this->assertSame('Configuration générale', $breadcrumb['label']);
+        $this->assertSame('Édition du site', $breadcrumb['label']);
         $this->assertStringContainsString('MenuBuilder::MENU_ESPACE_ADMIN', $breadcrumb['parentsExpr']);
     }
 
@@ -53,11 +53,11 @@ class ConfigBreadcrumbRoutesTest extends TestCase
     public static function configurationSpacePages(): array
     {
         return [
-            '/setup' => ['/setup', 'Configuration avancée'],
+            '/setup' => ['/setup', 'Installation & serveur'],
             '/config/modules' => ['/config/modules', 'Modules'],
             '/config/badges' => ['/config/badges', 'Badges'],
             '/config/functions' => ['/config/functions', 'Desk'],
-            '/config/settings' => ['/config/settings', 'Paramètres'],
+            '/config/settings' => ['/config/settings', 'Réglages'],
             '/config/rgpd' => ['/config/rgpd', 'RGPD'],
             '/config/scheduled' => ['/config/scheduled', 'Actions planifiées'],
             '/config/maintenance' => ['/config/maintenance', 'Maintenance'],

@@ -77,7 +77,7 @@ class SectionRosterControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/chefs/membres');
-        $twig->addGlobal('route_breadcrumb', ['label' => 'Membres par section', 'parents' => ['Espace chefs']]);
+        $twig->addGlobal('route_breadcrumb', ['label' => 'Membres par section', 'parents' => ['Espace animateurs']]);
         $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
         $twig->addFunction(new TwigFunction('get_flash', fn() => null));
         $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));

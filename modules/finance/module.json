@@ -14,7 +14,7 @@
       "role_min": "intendant",
       "label": "Finances",
       "menu_icon": "bi-cash-coin",
-      "breadcrumb": { "label": "Finances", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Finances", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/finance/receivables",

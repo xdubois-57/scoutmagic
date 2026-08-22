@@ -34,7 +34,7 @@
       "role_min": "intendant",
       "label": "Rétrospectives",
       "menu_icon": "bi-sticky",
-      "breadcrumb": { "label": "Rétrospectives", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Rétrospectives", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/retro/create",

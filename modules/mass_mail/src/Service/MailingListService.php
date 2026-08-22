@@ -18,7 +18,7 @@ use Modules\Registration\Api\ExternalMailingListProvider;
 
 /**
  * Owns all "kinds" of mailing list (module spec): default lists — one
- * per active section plus "Membres actifs"/"Chefs uniquement" — are
+ * per active section plus "Membres actifs"/"Animateurs uniquement" — are
  * computed here on every call from Core\Member\SectionService, never
  * stored as rows, so a section becoming inactive (or a new one appearing)
  * at the next Desk import is reflected immediately with no sync step of
@@ -32,7 +32,7 @@ use Modules\Registration\Api\ExternalMailingListProvider;
 class MailingListService
 {
     public const ACTIVE_MEMBERS_LABEL = 'Membres actifs';
-    public const CHIEFS_LABEL = 'Chefs uniquement';
+    public const CHIEFS_LABEL = 'Animateurs uniquement';
 
     public function __construct(
         private MailingListRepository $listRepository,

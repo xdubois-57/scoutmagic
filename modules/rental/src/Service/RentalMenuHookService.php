@@ -18,7 +18,7 @@ use Modules\Rental\Repository\RentalAssetRepository;
  * Core\Module\MenuEntryProvider implementation (ARCHITECTURE.md §7.4),
  * wired into the composition root only when this module is enabled. It
  * contributes two different kinds of entry, which is exactly why the hook
- * had to be generalised beyond "Espace animés" in the first place:
+ * had to be generalised beyond "Espace membres" in the first place:
  *
  * - **"Notre unité"** — the "Locations" index page, and only that. Public,
  *   so it is contributed for an anonymous visitor too (`$email === null`).
@@ -26,7 +26,7 @@ use Modules\Rental\Repository\RentalAssetRepository;
  *   push everything else in that menu off the screen, and the index page
  *   already lists them with the context — type, capacity, a photo — that a
  *   bare menu label cannot carry.
- * - **"Espace animés"** — "Mes locations", visible only to a visitor who
+ * - **"Espace membres"** — "Mes locations", visible only to a visitor who
  *   actually manages at least one asset.
  *
  * **Menu visibility is never a permission.** Every route these entries

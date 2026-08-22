@@ -283,7 +283,7 @@
       "breadcrumb": {
         "label": "Départs",
         "parents": [
-          "Espace chefs"
+          "Espace animateurs"
         ]
       }
     },
@@ -342,7 +342,7 @@
       "breadcrumb": {
         "label": "Prévisions",
         "parents": [
-          "Espace chefs"
+          "Espace animateurs"
         ]
       }
     }

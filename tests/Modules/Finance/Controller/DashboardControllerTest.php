@@ -92,7 +92,7 @@ class DashboardControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/finance');
-        $twig->addGlobal('route_breadcrumb', ['label' => 'Finances', 'parents' => ['Espace chefs']]);
+        $twig->addGlobal('route_breadcrumb', ['label' => 'Finances', 'parents' => ['Espace animateurs']]);
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
         $twig->addFunction(new TwigFunction('get_flash', fn() => null));

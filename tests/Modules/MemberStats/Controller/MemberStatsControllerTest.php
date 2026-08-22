@@ -22,7 +22,7 @@ use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
 
 /**
- * RBAC boundary for /chiefs/stats (Espace chefs, role_min chief):
+ * RBAC boundary for /chiefs/stats (Espace animateurs, role_min chief):
  * chief → 200 (renders), intendant → 403, identified → 403.
  * The real controller + real module template are exercised for the chief case.
  */

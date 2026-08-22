@@ -11,7 +11,7 @@ use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
 /**
- * "Configuration générale" shrunk to just the configuration-mode toggle —
+ * "Édition du site" shrunk to just the configuration-mode toggle —
  * the module registry and badges moved to their own controllers/tests
  * (ConfigModulesControllerTest/ConfigBadgesControllerTest).
  */
@@ -49,7 +49,7 @@ class ConfigGeneralControllerTest extends TestCase
 
         $body = $response->getBody();
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Configuration générale', $body);
+        $this->assertStringContainsString('Édition du site', $body);
         $this->assertStringContainsString('Mode configuration', $body);
         $this->assertStringContainsString('/config-mode/activate', $body);
     }

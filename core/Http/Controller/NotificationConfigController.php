@@ -25,7 +25,7 @@ use Twig\Environment;
  * `/config/notifications`, role_min superadmin: VAPID generation/
  * rotation, cron-detection warning, "envoyer une notification test".
  * Global defaults (quiet hours, retention) are plain SettingService rows
- * and already appear on the generic Configuration > Paramètres page — no
+ * and already appear on the generic Configuration > Réglages page — no
  * need to duplicate them here.
  */
 class NotificationConfigController extends AbstractController

@@ -15,10 +15,10 @@ namespace Core\Module;
  * implementation in only when the module is enabled.
  *
  * This generalises the former Core\Module\EspaceAnimesEntryProvider, which
- * could only ever contribute to "Espace animés" and only for an
+ * could only ever contribute to "Espace membres" and only for an
  * authenticated visitor. Two real needs broke both assumptions: a module
  * wanting its own entry in "Notre unité" (a public menu, no email at all),
- * and a module wanting an "Espace animés" entry gated on a per-object
+ * and a module wanting an "Espace membres" entry gated on a per-object
  * permission rather than on the visitor's own records. Rather than grow a
  * second parallel hook, the menu id moved into the returned
  * Core\Module\MenuEntry and the email became nullable.

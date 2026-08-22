@@ -62,7 +62,7 @@
                 <span class="badge bg-info-subtle text-info-emphasis">Staff</span>
             </div>
             <p class="fs-5 fw-semibold mb-1">{{ staff_year.label }}</p>
-            <p class="text-body-secondary small mb-3">Vue par les chefs et intendants uniquement.</p>
+            <p class="text-body-secondary small mb-3">Vue par les animateurs et intendants uniquement.</p>
             <form method="post" action="/admin/scout-year/deactivate-staff">
                 {{ csrf_field()|raw }}
                 <button type="submit" class="btn btn-outline-secondary btn-sm">Désactiver l'année du staff</button>

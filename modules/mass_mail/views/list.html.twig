@@ -58,7 +58,7 @@
                         <td>{{ sections_by_id[email.sectionId] ?? '—' }}</td>
                         <td>
                             {% if email.listType == 'default_active_members' %}Membres actifs
-                            {% elseif email.listType == 'default_chiefs' %}Chefs uniquement
+                            {% elseif email.listType == 'default_chiefs' %}Animateurs uniquement
                             {% elseif email.listType == 'default_section' %}Section - {{ sections_by_id[email.listSectionId] ?? '?' }}
                             {% elseif email.listType == 'mail_merge' %}Publipostage
                             {% else %}{{ custom_lists_by_id[email.listId] ?? 'Liste personnalisée' }}

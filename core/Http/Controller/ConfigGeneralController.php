@@ -13,7 +13,7 @@ use Core\Http\Response;
 use Twig\Environment;
 
 /**
- * "Configuration générale" used to also carry the module registry and
+ * "Édition du site" used to also carry the module registry and
  * badges — both split out to their own single-concern controllers
  * (Core\Http\Controller\ConfigModulesController/ConfigBadgesController,
  * AGENTS.md). What's left is only the configuration-mode toggle, which is

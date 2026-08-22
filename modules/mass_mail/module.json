@@ -41,7 +41,7 @@
       "role_min": "chief",
       "label": "Envoi de mails",
       "menu_icon": "bi-send",
-      "breadcrumb": { "label": "Envoi de mails", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Envoi de mails", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/mass-mail",

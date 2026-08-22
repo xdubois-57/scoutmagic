@@ -15,7 +15,7 @@
       "label": "Galerie",
       "menu_icon": "bi-images",
       "menu_order": 6,
-      "breadcrumb": { "label": "Galerie", "parents": ["Espace animés"] }
+      "breadcrumb": { "label": "Galerie", "parents": ["Espace membres"] }
     },
     {
       "path": "/gallery/manage",
@@ -26,7 +26,7 @@
       "role_min": "chief",
       "label": "Galerie",
       "menu_icon": "bi-image",
-      "breadcrumb": { "label": "Galerie", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Galerie", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/gallery/create",
@@ -36,7 +36,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Nouvel album", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Nouvel album", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/gallery/{id}",
@@ -82,7 +82,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Nouvel album", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Nouvel album", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/gallery/{id}/edit",
@@ -92,7 +92,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Modifier l'album", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Modifier l'album", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/gallery/{id}",
@@ -102,7 +102,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Modifier l'album", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Modifier l'album", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/gallery/{id}/delete",

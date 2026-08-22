@@ -456,7 +456,7 @@ class UploadControllerTest extends TestCase
     }
 
     /**
-     * unit_logo (Configuration avancée's logo upload) is a direct role
+     * unit_logo (Installation & serveur's logo upload) is a direct role
      * check like age_branch_logo — its own admin page is already
      * superadmin-gated, no configuration-mode flag involved.
      */

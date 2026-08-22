@@ -9,7 +9,7 @@ use Core\View\MenuBuilder;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Espace animés' dynamic per-member entries — same production shape as
+ * Espace membres' dynamic per-member entries — same production shape as
  * public/index.php's own registration (GROUP_DYNAMIC + isDynamic: true for
  * real member pages; GROUP_DYNAMIC + isDynamic: false for the empty-state
  * placeholder, which occupies the same sort slot but must not render with

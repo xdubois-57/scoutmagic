@@ -20,7 +20,7 @@ use Modules\MassMail\Api\MassMailQueryInterface;
 
 /**
  * Orchestrates every data need of the member page (core/View/templates/
- * members/show.html.twig) — the "Espace animés" page. Kept out of
+ * members/show.html.twig) — the "Espace membres" page. Kept out of
  * Core\Http\Controller\MemberController so that controller stays a thin
  * orchestrator (AGENTS.md: no business logic in controllers). Every
  * optional-module dependency here is nullable, injected only when that

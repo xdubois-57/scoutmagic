@@ -243,7 +243,7 @@ class GroupMemberControllerTest extends TestCase
      */
     public function testMembersPageBreadcrumbLinksBackToTheGroupListAndTheGroupItself(): void
     {
-        $body = $this->controller([$this->plainMemberId], 'identified', ['label' => 'Membres', 'parents' => ['Espace animés']])
+        $body = $this->controller([$this->plainMemberId], 'identified', ['label' => 'Membres', 'parents' => ['Espace membres']])
             ->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
 
         $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Groupes<\/a>/', $body);

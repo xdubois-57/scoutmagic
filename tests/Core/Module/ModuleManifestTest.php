@@ -344,13 +344,13 @@ class ModuleManifestTest extends TestCase
                     'action' => 'a',
                     'menu' => 'espace_chefs',
                     'role_min' => 'intendant',
-                    'breadcrumb' => ['label' => 'Staffs', 'parents' => ['Espace chefs']],
+                    'breadcrumb' => ['label' => 'Staffs', 'parents' => ['Espace animateurs']],
                 ],
             ],
         ]);
 
         $this->assertSame(
-            ['label' => 'Staffs', 'parents' => ['Espace chefs']],
+            ['label' => 'Staffs', 'parents' => ['Espace animateurs']],
             $manifest->routes[0]['breadcrumb']
         );
     }
@@ -392,7 +392,7 @@ class ModuleManifestTest extends TestCase
                     'action' => 'a',
                     'menu' => 'espace_chefs',
                     'role_min' => 'intendant',
-                    'breadcrumb' => ['parents' => ['Espace chefs']],
+                    'breadcrumb' => ['parents' => ['Espace animateurs']],
                 ],
             ],
         ]);
@@ -414,7 +414,7 @@ class ModuleManifestTest extends TestCase
                     'action' => 'a',
                     'menu' => 'espace_chefs',
                     'role_min' => 'intendant',
-                    'breadcrumb' => ['label' => 'Staffs', 'parents' => 'Espace chefs'],
+                    'breadcrumb' => ['label' => 'Staffs', 'parents' => 'Espace animateurs'],
                 ],
             ],
         ]);
@@ -519,7 +519,7 @@ class ModuleManifestTest extends TestCase
      * fixtures above. Guards against the exact incident that motivated
      * validateNoShadowedRoutes(): registration's own '/inscriptions/suivi/
      * {id}/{token}' once shadowed '/inscriptions/suivi/demande/{id}',
-     * silently 404ing every "Espace animés" link to a family's own
+     * silently 404ing every "Espace membres" link to a family's own
      * registration request. ModuleManifest::fromFile() already runs this
      * check on every real request (Core\Module\ModuleManager::load()), so
      * this test doesn't add new enforcement — it just fails fast, with a

@@ -625,7 +625,7 @@ class MassMailServiceTest extends TestCase
     public function testUpdateDraftRejectsSwitchingToAnOutOfScopeList(): void
     {
         $restrictedAuth = new SenderAuthorization(false, [$this->sectionId], $this->sectionId);
-        // Starts on an allowed list ("Chefs uniquement") ...
+        // Starts on an allowed list ("Animateurs uniquement") ...
         $email = $this->service->createDraft(
             'Sujet', '<p>Corps</p>', $this->sectionId, Email::LIST_TYPE_DEFAULT_CHIEFS, null, null,
             [$this->scoutYearId], null, $restrictedAuth

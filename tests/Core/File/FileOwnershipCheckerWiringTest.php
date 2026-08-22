@@ -103,7 +103,7 @@ class FileOwnershipCheckerWiringTest extends TestCase
     public function testTheLinkedMemberIdsPassedToTheGuardAreSnapshottedBeforeTheMenuReresolvesThem(): void
     {
         // $linkedMembers is resolved twice (account header, then the
-        // Espace animés menu). The guard must not silently depend on
+        // Espace membres menu). The guard must not silently depend on
         // whichever resolution happens to be current where it is now built.
         $snapshotOffset = $this->offsetOf('$linkedMemberIds = array_map(');
         $secondResolution = strrpos($this->indexPhp, '$linkedMembers = $memberService->getLinkedMembers(');

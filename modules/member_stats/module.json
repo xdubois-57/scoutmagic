@@ -13,7 +13,7 @@
       "label": "Statistiques",
       "menu_icon": "bi-bar-chart",
       "role_min": "chief",
-      "breadcrumb": { "label": "Statistiques", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Statistiques", "parents": ["Espace animateurs"] }
     }
   ],
   "settings": [],
