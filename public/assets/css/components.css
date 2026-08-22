@@ -265,18 +265,6 @@
     .calendar-event-bar { font-size: 0.75rem; }
 }
 
-/* Core\View\templates\partials\list_editor.html.twig / list-editor.js —
-   generic reusable list editor (add/reorder/activate/delete). */
-.list-editor-item {
-    background-color: var(--bs-body-bg);
-}
-.list-editor-item--dragging {
-    opacity: 0.4;
-}
-.list-editor-drag-handle:active {
-    cursor: grabbing;
-}
-
 /* Modules\Groups\views\partials\post_media_grid.html.twig — a post's
    attached media (1 to 4), and the flat "Galerie du groupe" grid
    (gallery.html.twig) reuses the single-cell rule below on its own
