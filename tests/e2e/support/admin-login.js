@@ -18,6 +18,25 @@
 import { expect } from '@playwright/test';
 
 /**
+ * The logout control the visitor can actually reach.
+ *
+ * partials/nav.html.twig renders it twice — once in the mobile drawer,
+ * once on the desktop bar — and the drawer's copy comes FIRST in document
+ * order while being hidden by CSS on a desktop viewport. A plain
+ * `.first()` therefore points at a button nobody can click, and only
+ * appears to work while the stylesheet that hides it has not applied yet:
+ * a race that stays quiet on a fast run and fails on a slow one (it did,
+ * under E2E_COVERAGE=1, which is how CI runs the suite). Filtering on
+ * visibility asks for the one the viewport actually offers, whichever
+ * that is, so the same call is right on a phone and on a desktop.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export function logoutControl(page) {
+    return page.getByRole('button', { name: 'Se déconnecter' }).filter({ visible: true });
+}
+
+/**
  * Sign in as whoever the two environment variables name — the shared half
  * of loginAsAdmin() and loginAsMember() below, which differ only in whose
  * credentials they read and in what they check afterwards.
@@ -71,10 +90,8 @@ async function loginWithPassword(page, emailVariable, passwordVariable) {
     // the logout control to an authenticated visitor and to nobody else.
     // Failing here, in the helper, beats letting a silently-anonymous
     // session surface three assertions later as a puzzling redirect back
-    // to /login. .first() because the navigation renders it twice — once
-    // in the mobile drawer, once on the desktop bar — and either one
-    // proves the same thing.
-    await expect(page.getByRole('button', { name: 'Se déconnecter' }).first()).toBeVisible();
+    // to /login.
+    await expect(logoutControl(page)).toBeVisible();
 }
 
 /**
@@ -91,9 +108,11 @@ export async function loginAsAdmin(page) {
 }
 
 /**
- * Sign in as the ordinary member — no super-admin flag and no function,
- * so Core\Security\RoleResolver resolves them to `identified`, the role
- * most of a real unit has. Asserting the ABSENCE of the admin menu is
+ * Sign in as the ordinary member — no super-admin flag, and a function
+ * whose own role is `identified` (see e2e_seed_section_with_both_members()
+ * in scripts/e2e-support.php), so Core\Security\RoleResolver resolves
+ * them to `identified`: the role most of a real unit has. Asserting the
+ * ABSENCE of the admin menu is
  * what keeps this helper honest: a scenario that means "an ordinary
  * member sees this" must not quietly be running as an administrator.
  *

@@ -23,7 +23,9 @@ set -euo pipefail
 #      instance is a directory of its own, and e2e_activate_all_modules()
 #      for why all the modules and not just the default three).
 #   4. Start `php -S` on a free local port, document root = the instance's
-#      public/.
+#      public/, with sendmail_path pointed at scripts/e2e-maildrop.php so
+#      every email the run sends is captured in a directory the scenarios
+#      can read (tests/e2e/support/maildrop.js).
 #   5. Poll (never sleep) until the server answers.
 #   6. Run the Playwright project in tests/e2e/.
 #   7. Exit with Playwright's own exit code.
@@ -70,6 +72,12 @@ set -euo pipefail
 #       6761 — never a real mailbox); both passwords are generated fresh
 #       for every run, so nothing password-shaped is ever committed and no
 #       two runs share one.
+#
+# Exported for the scenarios (not configuration — set by this script):
+#   E2E_MAILDROP
+#       Directory every email the run sends lands in, one RFC 5322 file
+#       per message. Read through tests/e2e/support/maildrop.js. Inside
+#       the run's own temporary directory, removed with it.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
@@ -298,6 +306,20 @@ SERVER_LOG="${INSTANCE_DIR}/php-server.log"
 BACKUP_SNAPSHOT="${INSTANCE_DIR}/backups-before-run.txt"
 
 # ---------------------------------------------------------------
+# The run's mailbox. The instance is provisioned in local mail mode
+# (scripts/e2e-support.php), so PHP's own mail() is what delivers, and
+# sendmail_path below points it at scripts/e2e-maildrop.php, which writes
+# each message here whole. That is what lets a scenario follow a magic
+# link, a password reset or a form's confirmation email — flows that
+# simply have no browser-only half. Inside the run's temporary directory,
+# so cleanup() takes it away with everything else and no message outlives
+# the run that produced it.
+# ---------------------------------------------------------------
+E2E_MAILDROP="${INSTANCE_DIR}/maildrop"
+mkdir -p "${E2E_MAILDROP}"
+export E2E_MAILDROP
+
+# ---------------------------------------------------------------
 # PHP coverage of the application, when asked for. The fragments live
 # inside the run's own temporary directory, so cleanup() removes them with
 # everything else and only the merged Clover report survives the run.
@@ -321,7 +343,14 @@ while true; do
     attempt=$((attempt + 1))
 
     PORT="${E2E_PORT:-$(php "${SUPPORT}" free-port)}"
-    BASE_URL="http://127.0.0.1:${PORT}"
+    # `localhost`, not the 127.0.0.1 the server binds just below: WebAuthn
+    # Relying Party IDs are domain names, and Chrome rejects an IP-literal
+    # one outright, so an instance calling itself http://127.0.0.1:<port>
+    # cannot register or use a passkey at all. Same loopback address, same
+    # secure context, same not-a-public-host — see e2e_base_url() in
+    # scripts/e2e-support.php for the full reasoning and for what it
+    # deliberately does not change.
+    BASE_URL="http://localhost:${PORT}"
 
     php "${SUPPORT}" provision "${INSTANCE_DIR}/instance" "${PORT}"
     DATABASE_PROVISIONED=1
@@ -340,14 +369,24 @@ while true; do
     # "${array[@]}" on a declared-but-empty array is treated as an unset
     # variable under `set -u` on bash < 4.4 (macOS's own /bin/bash is 3.2)
     # even though it expands to nothing correctly everywhere else — always
-    # having the 5 base -d options in here keeps this array non-empty
+    # having the base -d options in here keeps this array non-empty
     # regardless of whether coverage is on, sidestepping that entirely.
+    #
+    # sendmail_path is the run's mailbox (see E2E_MAILDROP above): the
+    # instance is in local mail mode, so Core\Mail\MailService goes
+    # through PHP's mail(), which runs this and gets the complete message
+    # on stdin. Only the transport's last hop is replaced — MailService,
+    # PHPMailer, DKIM and the templates all run for real.
     php_options=(
         -d display_errors=0
         -d log_errors=1
         -d error_log="${INSTANCE_DIR}/php-error.log"
         -d upload_max_filesize=100M
         -d post_max_size=110M
+        # The inner quotes are not decoration: sendmail_path is run through
+        # a shell, so a repository path containing a space would otherwise
+        # arrive as two arguments.
+        -d sendmail_path="php '${REPO_ROOT}/scripts/e2e-maildrop.php'"
     )
     if [[ -n "${COVERAGE_DIR}" ]]; then
         # pcov.directory has to span both trees the run executes PHP from:

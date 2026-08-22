@@ -68,6 +68,9 @@ import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 
 import { loginAsAdmin } from '../support/admin-login.js';
+// Shared with specs/optional-module-dependencies.spec.js, which switches
+// modules off for the opposite reason — see support/modules.js.
+import { toggleModule } from '../support/modules.js';
 
 const DESK_FIXTURE = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -171,39 +174,6 @@ async function stepKeys(page) {
     return page.locator('[data-step]').evaluateAll(
         (nodes) => nodes.map((node) => node.getAttribute('data-step')),
     );
-}
-
-/**
- * Switch one module on or off through the real Modules page, and wait for
- * the stored state to come back — never the click the browser just
- * registered.
- *
- * The toggle is a fetch() followed by window.location.reload(), landing
- * back on the page we are already on, so waiting on the URL would resolve
- * instantly against the pre-submit DOM (same reasoning as toggleStep()).
- *
- * @param {import('@playwright/test').Page} page
- * @param {string} moduleName the module's name as the page labels it
- * @param {boolean} enabled
- */
-async function toggleModule(page, moduleName, enabled) {
-    const label = `Activer ou désactiver le module ${moduleName}`;
-
-    await page.goto('/config/modules', { waitUntil: 'domcontentloaded' });
-    await Promise.all([
-        page.waitForResponse((response) => response.url().includes('/config/modules/toggle')),
-        enabled
-            ? page.getByRole('checkbox', { name: label }).check()
-            : page.getByRole('checkbox', { name: label }).uncheck(),
-    ]);
-    await page.waitForLoadState('domcontentloaded');
-
-    const checkbox = page.getByRole('checkbox', { name: label });
-    if (enabled) {
-        await expect(checkbox).toBeChecked();
-    } else {
-        await expect(checkbox).not.toBeChecked();
-    }
 }
 
 test('the whole site transitions to the next scout year through the documented workflow', async ({ page }) => {
@@ -423,7 +393,8 @@ test('the whole site transitions to the next scout year through the documented w
     await chooseYear(staffForm, targetYear);
     await staffForm.getByRole('button', { name: 'Activer pour le staff' }).click();
     // A real, unenhanced form submit — same reload every other step-toggle
-    // in this scenario waits out (see toggleStep()/toggleModule() above)
+    // in this scenario waits out (see toggleStep() above, and
+    // toggleModule() in support/modules.js)
     // before touching the DOM again. Skipping it here let a later
     // toggleStep() click reach a checkbox before the page's own inline
     // "wire up .js-step-checkbox" <script> (core/View/templates/admin/

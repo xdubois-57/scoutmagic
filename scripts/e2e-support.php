@@ -29,10 +29,12 @@ declare(strict_types=1);
  *   provision <instance> <port>
  *                              Build the throwaway application instance
  *                              at <instance> and its database, ready to
- *                              be served on 127.0.0.1:<port>, with EVERY
- *                              module the repository ships activated —
- *                              see e2e_activate_all_modules() for why all
- *                              of them and not just the default three.
+ *                              be served on localhost:<port> (see
+ *                              e2e_base_url() for why a name and not the
+ *                              loopback address), with EVERY module the
+ *                              repository ships activated — see
+ *                              e2e_activate_all_modules() for why all of
+ *                              them and not just the default three.
  *   teardown-db                Drop every table of the E2E database and
  *                              the database itself.
  *   merge-coverage <dir> <out> Fold every per-request coverage fragment
@@ -145,6 +147,39 @@ function e2e_free_port(): int
     }
 
     return $port;
+}
+
+/**
+ * The address the throwaway instance answers on, and the one it is told
+ * about itself (`base_url`, in config/app.php and in secrets.enc alike).
+ *
+ * `localhost`, deliberately, rather than the 127.0.0.1 the server binds:
+ * WebAuthn's Relying Party ID is a DOMAIN, and Chrome refuses an
+ * IP-literal one outright ("This is an invalid domain") — so on an
+ * instance that calls itself http://127.0.0.1:<port>, public/index.php
+ * derives rpId = "127.0.0.1" (see its Core\Security\WebAuthnService
+ * wiring) and no passkey can be registered or used AT ALL, in any
+ * browser. `localhost` is a domain name for that purpose, is a secure
+ * context exactly like 127.0.0.1, and resolves to the very same loopback
+ * address, so nothing else about the run changes:
+ *
+ *   - it is still not a public host, so Core\Statistics\StatisticsSender
+ *     still refuses to report from it (isPublicHost() names 'localhost'
+ *     explicitly, next to the IP-literal rule that covered it before);
+ *   - Core\Statistics\DestinationMatcher still sees the instance as its
+ *     own statistics destination, since both values are this same string;
+ *   - it still resolves to a private address on a non-standard port, so
+ *     Modules\Gallery\Service\OgScraperService still refuses to fetch
+ *     from it (SECURITY.md §17) — the documented degradation
+ *     tests/e2e/specs/groups-discussion.spec.js relies on is unchanged.
+ *
+ * One function rather than the literal repeated at each call site, so the
+ * server, the provisioning, the settings and Playwright's baseURL can
+ * never disagree about what the instance is called.
+ */
+function e2e_base_url(int $port): string
+{
+    return 'http://localhost:' . $port;
 }
 
 /**
@@ -314,7 +349,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         . "return [\n"
         . "    'debug' => false,\n"
         . "    'site_name' => 'Unité de test E2E',\n"
-        . "    'base_url' => 'http://127.0.0.1:" . $port . "',\n"
+        . "    'base_url' => '" . e2e_base_url($port) . "',\n"
         . "];\n"
     );
 
@@ -344,11 +379,18 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         'db_name' => $config['name'],
         'db_user' => $config['user'],
         'db_password' => $config['password'],
-        'mail_mode' => 'smtp',
-        'smtp_host' => 'localhost',
-        'smtp_port' => 25,
-        'smtp_user' => '',
-        'smtp_password' => '',
+        // 'local', not 'smtp': Core\Mail\MailService hands a local-mode
+        // message to PHP's own mail(), which scripts/e2e.sh points at
+        // scripts/e2e-maildrop.php through sendmail_path — so every mail
+        // the run produces lands, whole, in a directory a scenario can
+        // read (tests/e2e/support/maildrop.js). The previous 'smtp' to
+        // localhost:25 had nothing listening: every send raised a
+        // MailException, which is why no scenario could go through a
+        // magic link, a password reset or a confirmation email. Nothing
+        // is stubbed here — MailService, PHPMailer, the DKIM signing and
+        // the templates all run exactly as they do in production; only
+        // the transport's last hop is a file instead of a socket.
+        'mail_mode' => 'local',
         'encryption_key' => $encryptionKey,
         'blind_index_key' => $blindIndexKey,
         // public/index.php self-heals a missing super-admin from this key
@@ -361,7 +403,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         'vapid_private_key' => $vapidKeys['privateKey'],
         'site_name' => 'Unité de test E2E',
         'short_name' => 'E2E',
-        'base_url' => 'http://127.0.0.1:' . $port,
+        'base_url' => e2e_base_url($port),
         'mail_from_address' => 'e2e@example.invalid',
         'mail_from_name' => 'Unité de test E2E',
         'dkim_selector' => 's2026',
@@ -487,8 +529,8 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // can see is a module whose wiring no run ever boots, which is the one
     // blind spot this harness exists to close. It costs nothing else:
     // Core\Statistics\StatisticsSender refuses to send to itself
-    // ('self_destination'), and 127.0.0.1 is not a public host either, so
-    // no run ever emits a report.
+    // ('self_destination'), and `localhost` is not a public host either
+    // (isPublicHost() names it), so no run ever emits a report.
     //
     // Registered rather than updated because the row does not exist yet
     // (public/index.php registers it at boot, later than this): the insert
@@ -497,7 +539,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     $settingService = new Core\Config\SettingService(new Core\Config\SettingRepository($connection->getPdo()));
     $settingService->register(
         'statistics_destination',
-        'http://127.0.0.1:' . $port,
+        e2e_base_url($port),
         'url',
         'Destination des statistiques',
         "Adresse du site qui reçoit les rapports d'utilisation. Pointée sur cette instance elle-même "
@@ -514,7 +556,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         $connection,
         $migrationRunner(),
         $settingService,
-        'http://127.0.0.1:' . $port
+        e2e_base_url($port)
     );
 
     echo "E2E instance provisioned at {$instanceDir} (database '{$config['name']}', port {$port}).\n";
@@ -876,10 +918,21 @@ function e2e_seed_ordinary_member(
  * (Core\Import\DeskImportService). Left open (end_date NULL), exactly as
  * an import leaves a member who is still in the section.
  *
- * Deliberately no `member_functions` row, so neither member gains a role:
- * Core\Security\RoleResolver reads functions, and giving one a chief's
- * function would quietly turn "an ordinary member sees this" into "an
- * animator sees this" in every scenario that follows.
+ * Both also get a `member_functions` row, for a function whose `role` is
+ * `identified` — the level Core\Security\RoleResolver already resolves
+ * them to, so neither gains anything by it and "an ordinary member sees
+ * this" never quietly becomes "an animator sees this". It is there
+ * because a real Desk import always writes one, and because two features
+ * read the section through functions rather than through periods:
+ * Core\Member\SectionService::getSectionAnimes()/getSectionStaff(), which
+ * is what Modules\Groups\Controller\GroupMemberController offers a
+ * moderator as the people they may invite. Without it that list is empty
+ * and no scenario can invite anybody
+ * (tests/e2e/specs/groups-management.spec.js).
+ *
+ * Never a chief's, an admin's or an intendant's function: those are
+ * exactly the roles getSectionStaff() selects on, and any of them would
+ * also move the member's resolved role.
  */
 function e2e_seed_section_with_both_members(Core\Database\Connection $connection): void
 {
@@ -900,6 +953,30 @@ function e2e_seed_section_with_both_members(Core\Database\Connection $connection
     );
     foreach (['E2E-ADMIN', 'E2E-MEMBER'] as $deskId) {
         $statement->execute([$sectionId, $scoutYearId, date('Y-m-d', strtotime('-1 month')), $deskId]);
+    }
+
+    // role 'identified' — see this function's docblock: the function exists
+    // so the two members are visible through SectionService, never to give
+    // either of them anything RoleResolver would notice.
+    $pdo->prepare('INSERT INTO functions (desk_code, label, role, confirmed) VALUES (?, ?, ?, 1)')
+        ->execute(['E2E-FCT', 'Animé', Core\Security\Role::IDENTIFIED->value]);
+    $functionId = (int) $pdo->lastInsertId();
+
+    $functionStatement = $pdo->prepare(
+        'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, start_date, is_main_function)'
+        . ' SELECT my.id, ?, ?, ?, ?, 1 FROM member_years my'
+        . ' JOIN members m ON m.id = my.member_id'
+        . ' WHERE m.desk_id = ? AND my.scout_year_id = ?'
+    );
+    foreach (['E2E-ADMIN', 'E2E-MEMBER'] as $deskId) {
+        $functionStatement->execute([
+            $functionId,
+            $sectionId,
+            $ageBranchId,
+            date('Y-m-d', strtotime('-1 month')),
+            $deskId,
+            $scoutYearId,
+        ]);
     }
 }
 
