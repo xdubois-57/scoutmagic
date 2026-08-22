@@ -71,6 +71,17 @@ class AlbumService
     }
 
     /**
+     * Every album another module owns — for the storage administration
+     * page, and nothing else. See Repository\AlbumRepository::findDelegated().
+     *
+     * @return Album[]
+     */
+    public function findDelegatedForAdministration(): array
+    {
+        return $this->albumRepository->findDelegated();
+    }
+
+    /**
      * @param int[] $sectionIds
      * @param int[] $scoutYearIds
      * @return Album[]
@@ -348,12 +359,26 @@ class AlbumService
     public function startMigration(int $albumId, int $targetLocationId, Role $role, string $email): void
     {
         $album = $this->albumRepository->findById($albumId);
-        if ($album === null || $album->isDelegated()) {
+        if ($album === null) {
             throw new GalleryException('Album introuvable.');
         }
-        if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
+
+        if ($album->isDelegated()) {
+            // A delegated album belongs to another module: gallery neither
+            // browses it nor edits it, and section management says nothing
+            // about who may touch it. Moving it between storage locations is
+            // the one thing gallery still owns, and it is an administrator's
+            // job — the route is superadmin-only, and this repeats the rule
+            // where it is testable rather than trusting the router alone.
+            if ($role->level() < Role::ADMIN->level()) {
+                throw new GalleryException(
+                    'Seul un administrateur peut déplacer un album appartenant à un autre module.'
+                );
+            }
+        } elseif (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
             throw new GalleryException('Vous ne gérez pas cette section.');
         }
+
         if (!$album->isLocal()) {
             throw new GalleryException('Seuls les albums locaux peuvent être migrés.');
         }
@@ -368,6 +393,19 @@ class AlbumService
         if ($target === null) {
             throw new GalleryException('Emplacement cible introuvable.');
         }
+        // The invariant Service\DelegatedAlbumService::ensureAlbum() enforces
+        // at creation, enforced again at every move: a delegated album must
+        // live where gallery can serve it through a genuinely
+        // access-controlled path. Migrating one onto a public-prefix
+        // location would publish somebody's group photos to anyone holding
+        // the URL, silently and for ever.
+        if ($album->isDelegated() && $target->s3PublicUrl !== null && $target->s3PublicUrl !== '') {
+            throw new GalleryException(
+                'Cet album appartient à un autre module et ne peut pas être déplacé vers un '
+                . 'emplacement à URL publique : ses médias doivent rester servis par ScoutMagic.'
+            );
+        }
+
         $target = $this->storageLocationService->checkFresh($target);
         if ($target->lastCheckOk !== true) {
             throw new GalleryException('Cet emplacement n\'est pas disponible actuellement — testez-le avant de migrer.');

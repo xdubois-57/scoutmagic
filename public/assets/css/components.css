@@ -317,25 +317,6 @@
     background-color: var(--bs-tertiary-bg);
 }
 
-/* Flat grid for gallery.html.twig ("Galerie du groupe") — every media of
-   the group's posts, same square-cell look as modules/gallery's own
-   album grid, laid out with plain wrapping instead of the 1-4 mosaic
-   above (there is no "one post" grouping to shape here). */
-.groups-gallery-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
-}
-@media (min-width: 576px) {
-    .groups-gallery-grid { grid-template-columns: repeat(4, 1fr); }
-}
-@media (min-width: 768px) {
-    .groups-gallery-grid { grid-template-columns: repeat(6, 1fr); }
-}
-.groups-gallery-grid .groups-media-cell {
-    aspect-ratio: 1 / 1;
-}
-
 /* Modules\Groups\views\partials\post_link.html.twig — a post's optional
    link preview card. The image is capped rather than aspect-ratio-boxed
    like the media grid above: an og:image is whatever shape the linked

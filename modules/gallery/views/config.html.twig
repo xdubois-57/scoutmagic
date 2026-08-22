@@ -129,7 +129,23 @@
                     Déplace les photos/vidéos d'un album local d'un emplacement de stockage vers un autre, en arrière-plan —
                     l'album est indisponible pour les membres pendant l'opération.
                 </p>
-                {% if local_albums is empty %}
+                {#
+                  One table for both kinds. A delegated album — one another
+                  module owns and access-controls, such as a discussion
+                  group's photos — is absent from every other gallery page on
+                  purpose, but it takes real space on a real location and
+                  moving it is gallery's job. Listing it nowhere is how an
+                  administrator ends up unable to explain their storage bill.
+                #}
+                {% set migratable = [] %}
+                {% for album in local_albums %}
+                    {% set migratable = migratable|merge([{album: album, label: album.title, owner: null}]) %}
+                {% endfor %}
+                {% for row in delegated_albums %}
+                    {% set migratable = migratable|merge([{album: row.album, label: row.owner_label, owner: row.album.ownerType}]) %}
+                {% endfor %}
+
+                {% if migratable is empty %}
                     <p class="text-body-secondary mb-0">Aucun album local.</p>
                 {% else %}
                     <div class="table-responsive">
@@ -143,11 +159,29 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for album in local_albums %}
+                                {% for entry in migratable %}
+                                    {% set album = entry.album %}
                                     {% set current_location = locations|filter(l => l.id == album.storageLocationId)|first %}
-                                    {% set other_locations = locations|filter(l => l.id != album.storageLocationId) %}
+                                    {# A delegated album must stay somewhere ScoutMagic can serve
+                                       it through an access-controlled path: migrating one onto a
+                                       public-prefix location would publish a group's photos to
+                                       anyone holding the URL. The server refuses it either way
+                                       (Service\AlbumService::startMigration); not offering it is
+                                       so nobody has to find out by trying. #}
+                                    {% set other_locations = locations|filter(l =>
+                                        l.id != album.storageLocationId
+                                        and (entry.owner is null or not l.s3PublicUrl)
+                                    ) %}
                                     <tr>
-                                        <td>{{ album.title }}</td>
+                                        <td>
+                                            {{ entry.label }}
+                                            {% if entry.owner %}
+                                                <span class="badge rounded-pill bg-light text-dark border ms-1"
+                                                      title="Album géré par un autre module : son contenu et ses accès ne se configurent pas ici.">
+                                                    <i class="bi bi-box-arrow-in-right"></i> Album délégué
+                                                </span>
+                                            {% endif %}
+                                        </td>
                                         <td>{{ current_location ? current_location.label ~ ' (' ~ (current_location.type == 's3' ? 'S3' : 'Disque local') ~ ')' : 'Non défini' }}</td>
                                         <td class="gallery-album-migration-status" data-album-id="{{ album.id }}">
                                             {% if album.migrationStatus == 'in_progress' %}
@@ -165,7 +199,7 @@
                                                 <span class="text-body-secondary small">Aucun autre emplacement disponible</span>
                                             {% else %}
                                                 <div class="d-inline-flex gap-2 align-items-center">
-                                                    <label class="visually-hidden" for="gallery-migrate-target-{{ album.id }}">Emplacement de destination pour {{ album.title }}</label>
+                                                    <label class="visually-hidden" for="gallery-migrate-target-{{ album.id }}">Emplacement de destination pour {{ entry.label }}</label>
                                                     <select class="form-select form-select-sm gallery-migrate-target" id="gallery-migrate-target-{{ album.id }}" data-album-id="{{ album.id }}" style="width:auto;">
                                                         {% for location in other_locations %}
                                                             <option value="{{ location.id }}">{{ location.label }} ({{ location.type == 's3' ? 'S3' : 'Disque local' }})</option>

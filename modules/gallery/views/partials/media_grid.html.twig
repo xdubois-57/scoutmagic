@@ -1,0 +1,59 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Gallery's media grid: the square thumbnails that open the lightbox.
+
+  Its own partial so that a module hosting a DELEGATED album — a discussion
+  group's photos, say — shows its members the same grid, with the same
+  lightbox, as any other album. The alternative, which is what groups had,
+  is a second grid whose cells open each photo in a new browser tab: the
+  same media, a visibly worse page, and two places to fix anything.
+
+  Requires `rows`, a list of
+  `{media, thumb_url, medium_url, large_url}`. `media` needs only
+  `mediaType` and `processingStatus` — true of both gallery's own
+  Repository\Media and Api\DelegatedMedia, which is what lets one grid serve
+  both.
+
+  The caller renders partials/lightbox.html.twig once and loads
+  assets/js/gallery.js; this partial only produces the triggers.
+
+  Never a broken image: 'pending'/'processing' shows a spinner and 'failed' a
+  discreet notice, so a photo still being resized never renders as a broken
+  icon on somebody's phone.
+#}
+<div class="row g-2" id="gallery-media-grid">
+    {% for row in rows %}
+        {% set m = row.media %}
+        <div class="col-4 col-md-3 col-lg-2">
+            <button type="button" class="btn p-0 border-0 w-100 position-relative gallery-lightbox-trigger"
+                    style="aspect-ratio:1/1;overflow:hidden;background:#eee;"
+                    data-index="{{ loop.index0 }}"
+                    data-type="{{ m.mediaType }}"
+                    data-medium-url="{{ row.medium_url }}"
+                    data-large-url="{{ row.large_url }}">
+                {% if m.processingStatus == 'done' %}
+                    <img src="{{ row.thumb_url }}" alt="" class="w-100 h-100" style="object-fit:cover;" loading="lazy">
+                    {% if m.mediaType == 'video' %}
+                        <span class="position-absolute top-50 start-50 translate-middle text-white"
+                              style="font-size:2rem;text-shadow:0 0 6px rgba(0,0,0,.6);">
+                            <i class="bi bi-play-circle-fill"></i>
+                        </span>
+                    {% endif %}
+                {% elseif m.processingStatus == 'failed' %}
+                    <span class="d-flex align-items-center justify-content-center h-100 text-danger"
+                          title="Échec du traitement">
+                        <i class="bi bi-exclamation-triangle"></i>
+                    </span>
+                {% else %}
+                    <span class="d-flex align-items-center justify-content-center h-100 text-body-secondary"
+                          title="Traitement en cours">
+                        <span class="spinner-border spinner-border-sm"></span>
+                    </span>
+                {% endif %}
+            </button>
+        </div>
+    {% endfor %}
+</div>

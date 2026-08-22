@@ -367,6 +367,109 @@ class AlbumServiceTest extends TestCase
         $this->assertSame($targetId, $album->migrationTargetLocationId);
     }
 
+    public function testADelegatedAlbumCanBeMovedByAnAdministrator(): void
+    {
+        // The whole reason delegated albums were made visible on the storage
+        // page: they occupy a real location and somebody has to be able to
+        // move them. Gallery still neither browses nor edits them.
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Photos du groupe', null, '2026-01-01', null,
+            $this->scoutYearId, null, $this->locationId, $this->authorId,
+            'discussion_group', 7
+        );
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+
+        $this->service->startMigration($id, $targetId, Role::SUPERADMIN, 'admin@test.com');
+
+        $this->assertSame(Album::MIGRATION_IN_PROGRESS, $this->albumRepository->findById($id)->migrationStatus);
+    }
+
+    public function testADelegatedAlbumIsNotAChiefsToMove(): void
+    {
+        // Section management says nothing about an album another module owns
+        // and access-controls: this is an administrator's call, and the rule
+        // lives in the service rather than only in the route.
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Photos du groupe', null, '2026-01-01', null,
+            $this->scoutYearId, null, $this->locationId, $this->authorId,
+            'discussion_group', 7
+        );
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+
+        $this->expectException(GalleryException::class);
+        $this->expectExceptionMessageMatches('/administrateur/');
+
+        $this->service->startMigration($id, $targetId, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testADelegatedAlbumIsNeverMovedOntoAPublicUrlLocation(): void
+    {
+        // The invariant DelegatedAlbumService::ensureAlbum() enforces at
+        // creation, enforced again at every move: migrating a group's photos
+        // onto a public-prefix bucket would publish them to anyone holding
+        // the URL, silently and for ever.
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Photos du groupe', null, '2026-01-01', null,
+            $this->scoutYearId, null, $this->locationId, $this->authorId,
+            'discussion_group', 7
+        );
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_S3, 'Bucket public', null, 'custom', 'https://s3.test', 'eu',
+            'bucket', 'ak', 'https://cdn.test', 'sk'
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+
+        $this->expectException(GalleryException::class);
+        $this->expectExceptionMessageMatches('/URL publique/');
+
+        $this->service->startMigration($id, $targetId, Role::SUPERADMIN, 'admin@test.com');
+    }
+
+    public function testAnOrdinaryAlbumMayStillGoToAPublicUrlLocation(): void
+    {
+        // The restriction is about delegated albums, not about public
+        // locations: an ordinary album on a CDN is a supported setup.
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null,
+            $this->scoutYearId, null, $this->locationId, $this->authorId
+        );
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_S3, 'Bucket public', null, 'custom', 'https://s3.test', 'eu',
+            'bucket', 'ak', 'https://cdn.test', 'sk'
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+
+        $this->service->startMigration($id, $targetId, Role::CHIEF, 'chief@test.com');
+
+        $this->assertSame(Album::MIGRATION_IN_PROGRESS, $this->albumRepository->findById($id)->migrationStatus);
+    }
+
+    public function testDelegatedAlbumsAreListedForAdministrationAndNowhereElse(): void
+    {
+        $ordinary = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null,
+            $this->scoutYearId, null, $this->locationId, $this->authorId
+        );
+        $delegated = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Photos du groupe', null, '2026-01-01', null,
+            $this->scoutYearId, null, $this->locationId, $this->authorId,
+            'discussion_group', 7
+        );
+
+        $manageIds = array_map(fn(Album $a) => $a->id, $this->service->findAllForManage());
+        $adminIds = array_map(fn(Album $a) => $a->id, $this->service->findDelegatedForAdministration());
+
+        $this->assertContains($ordinary, $manageIds);
+        $this->assertNotContains($delegated, $manageIds, 'Gallery never browses or edits a delegated album.');
+        $this->assertSame([$delegated], $adminIds);
+    }
+
     public function testStartMigrationRejectsAnUnhealthyTarget(): void
     {
         $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);

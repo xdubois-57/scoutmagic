@@ -5,7 +5,19 @@
 {% block stylesheets %}
 <link rel="stylesheet" href="/assets/css/components.css">
 {% endblock %}
+{#
+  A group's photos, shown with gallery's OWN grid and gallery's own lightbox
+  (@gallery/partials/media_grid + lightbox) rather than a second grid written
+  here. The media already live in a gallery delegated album, so the only
+  thing this page ever had of its own was a worse presentation: cells that
+  opened each photo in a new browser tab instead of the viewer every other
+  album on the site uses.
 
+  What stays this module's own is the only thing that is: WHICH media are
+  listed. A report-hidden post's photos are filtered out upstream, in
+  Service\PostMediaService::groupGalleryMedia() — gallery knows nothing of
+  this module's moderation state and must not.
+#}
 {% block content %}
     <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap mb-3">
         <div>
@@ -20,13 +32,28 @@
     {% if media is empty %}
         <p class="text-body-secondary text-center py-5 mb-0">Aucun média n'a encore été publié dans ce groupe.</p>
     {% else %}
-        <div class="groups-gallery-grid">
-            {% for m in media %}
-                <a href="/gallery/media/{{ m.id }}/{{ m.mediaType == 'video' ? 'original' : 'large' }}"
-                   target="_blank" rel="noopener" class="groups-media-cell text-decoration-none">
-                    {% include '@groups/partials/media_thumb.html.twig' with { media: m } %}
-                </a>
-            {% endfor %}
-        </div>
+        {#
+          Every rendition is addressed through GET /gallery/media/{id}/{size},
+          the same well-known route an ordinary album's own templates use —
+          see Api\DelegatedMedia, which deliberately carries no URL of its
+          own so the storage backend stays gallery's business.
+        #}
+        {% set rows = [] %}
+        {% for m in media %}
+            {% set rows = rows|merge([{
+                media: m,
+                thumb_url: '/gallery/media/' ~ m.id ~ '/thumb',
+                medium_url: '/gallery/media/' ~ m.id ~ '/medium',
+                large_url: '/gallery/media/' ~ m.id ~ (m.mediaType == 'video' ? '/original' : '/large'),
+            }]) %}
+        {% endfor %}
+
+        {% include '@gallery/partials/media_grid.html.twig' with { rows: rows } %}
+
+        {% include '@gallery/partials/lightbox.html.twig' %}
     {% endif %}
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/gallery.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

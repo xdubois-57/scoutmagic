@@ -1175,6 +1175,12 @@ $fileOwnershipCheckers = [$sectionDocumentOwnershipChecker];
 // that point.
 $galleryDelegatedAlbumAccessCheckers = [];
 
+// The read-only twin of the array above, consumed the same way and at the
+// same point: it tells gallery's storage-administration page what to CALL a
+// delegated album, so one can be listed and moved without gallery ever
+// learning what a discussion group is (Api\DelegatedAlbumDescriber).
+$galleryDelegatedAlbumDescribers = [];
+
 // Snapshot taken here rather than at the guard's construction site:
 // $linkedMembers is re-resolved further down for the Espace animés menu,
 // and the guard's owner-scoping must not depend on which of the two
@@ -2539,14 +2545,10 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
             new \Core\File\ChunkedUploadStore($storagePath)
         )
     );
-    $frontController->registerController(
-        \Modules\Gallery\Controller\GalleryConfigController::class,
-        new \Modules\Gallery\Controller\GalleryConfigController(
-            $twig, $settingService, $galleryFfmpegAvailability, $journalService,
-            $galleryS3ErrorExplainerService, $galleryStorageLocationService, $galleryStorageLocationRepo,
-            $galleryAlbumService
-        )
-    );
+    // GalleryConfigController is NOT registered here — see the late block
+    // at the end of this file. It needs the describer registry, and every
+    // module that contributes to it runs below this point, exactly like
+    // GalleryController and its access registry.
     $frontController->registerController(
         \Modules\Gallery\Controller\GalleryStorageLocationController::class,
         new \Modules\Gallery\Controller\GalleryStorageLocationController(
@@ -2736,6 +2738,15 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     // that might append to it — this one included — has run.
     $galleryDelegatedAlbumAccessCheckers[] = new \Modules\Groups\Gallery\GroupDelegatedAlbumAccessChecker(
         $groupsFileOwnershipChecker
+    );
+
+    // And the name gallery's storage-administration page shows for that
+    // same album — "Groupe Chefs d'unité" rather than "discussion_group #7".
+    // Read-only and separate on purpose: naming an album for an
+    // administrator is not the same permission as opening it.
+    $galleryDelegatedAlbumDescribers[] = new \Modules\Groups\Gallery\GroupDelegatedAlbumDescriber(
+        $groupsFileOwnershipChecker,
+        $groupsGroupRepo
     );
 
     // GroupController and PostController are the two that carry groups'
@@ -3719,9 +3730,32 @@ $frontController->registerController(FileController::class, $fileController);
 // might append to $galleryDelegatedAlbumAccessCheckers runs above this
 // point. Guarded by isset(): gallery might be disabled, in which case none
 // of its variables exist and there is nothing to register.
-if (isset($galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galleryStorageBackendFactory, $galleryStorageLocationService)) {
+if (isset(
+    $galleryAlbumService,
+    $galleryMediaService,
+    $galleryMediaRepo,
+    $galleryStorageBackendFactory,
+    $galleryStorageLocationService,
+    $galleryStorageLocationRepo,
+    $galleryFfmpegAvailability,
+    $galleryS3ErrorExplainerService
+)) {
     $galleryDelegatedAlbumAccessRegistry = new \Modules\Gallery\Service\DelegatedAlbumAccessRegistry(
         $galleryDelegatedAlbumAccessCheckers
+    );
+    $galleryDelegatedAlbumDescriberRegistry = new \Modules\Gallery\Service\DelegatedAlbumDescriberRegistry(
+        $galleryDelegatedAlbumDescribers
+    );
+    // Registered here rather than with gallery's other controllers, for the
+    // same reason: its storage page lists delegated albums, and the
+    // describers that name them are contributed by module blocks above.
+    $frontController->registerController(
+        \Modules\Gallery\Controller\GalleryConfigController::class,
+        new \Modules\Gallery\Controller\GalleryConfigController(
+            $twig, $settingService, $galleryFfmpegAvailability, $journalService,
+            $galleryS3ErrorExplainerService, $galleryStorageLocationService, $galleryStorageLocationRepo,
+            $galleryAlbumService, $galleryDelegatedAlbumDescriberRegistry
+        )
     );
     $frontController->registerController(
         \Modules\Gallery\Controller\GalleryController::class,

@@ -38,6 +38,29 @@ class AlbumRepository
     }
 
     /**
+     * Every delegated album (owner_type IS NOT NULL) — the complement of
+     * findAll() above.
+     *
+     * Deliberately NOT for browsing or editing: what a delegated album
+     * holds and who may see it belong to the module that owns it. It exists
+     * for the one thing an administrator legitimately does with such an
+     * album from gallery's side — see where it lives and move it — which
+     * was impossible while gallery's own configuration page could not so
+     * much as list it. An album nobody can see is an album whose storage
+     * bill nobody can explain.
+     *
+     * @return Album[]
+     */
+    public function findDelegated(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT * FROM gallery_albums WHERE owner_type IS NOT NULL ORDER BY owner_type ASC, owner_id ASC'
+        );
+
+        return $stmt !== false ? array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC)) : [];
+    }
+
+    /**
      * Albums visible to an identified member: matching one of the given
      * section ids, or unit-wide (section_id IS NULL), for one of the
      * given scout years — the public gallery list (module spec: "current

@@ -20,6 +20,7 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
+use Modules\Gallery\Service\DelegatedAlbumDescriberRegistry;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryException;
 use Modules\Gallery\Service\S3ErrorExplainerService;
@@ -55,7 +56,14 @@ class GalleryConfigController extends AbstractController
         private S3ErrorExplainerService $s3ErrorExplainerService,
         private StorageLocationService $storageLocationService,
         private StorageLocationRepository $storageLocationRepository,
-        private AlbumService $albumService
+        private AlbumService $albumService,
+        /**
+         * Turns a delegated album's (owner_type, owner_id) into a name an
+         * administrator recognises. Optional: with no delegating module
+         * installed the registry is simply empty, and the fallback label is
+         * the owner_type itself — never a hidden album.
+         */
+        private DelegatedAlbumDescriberRegistry $delegatedAlbumDescriberRegistry = new DelegatedAlbumDescriberRegistry()
     ) {
     }
 
@@ -268,6 +276,24 @@ class GalleryConfigController extends AbstractController
             'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
             'locations' => $locations,
             'local_albums' => array_values(array_filter($this->albumService->findAllForManage(), fn(Album $a) => $a->isLocal())),
+            // Albums another module owns. Listed HERE and nowhere else in
+            // gallery: what they hold and who may see them belong to their
+            // owner, but they take real space on a real location and moving
+            // them is gallery's job — which was impossible while this page
+            // could not so much as name them.
+            'delegated_albums' => array_map(
+                fn(Album $a) => [
+                    'album' => $a,
+                    'owner_label' => $this->delegatedAlbumDescriberRegistry->describe(
+                        (string) $a->ownerType,
+                        (int) $a->ownerId
+                    ),
+                ],
+                array_values(array_filter(
+                    $this->albumService->findDelegatedForAdministration(),
+                    fn(Album $a) => $a->isLocal()
+                ))
+            ),
             'location_album_counts' => array_combine(
                 array_map(fn(StorageLocation $l) => $l->id, $locations),
                 array_map(fn(StorageLocation $l) => $this->storageLocationRepository->countAlbumsUsing($l->id), $locations)
