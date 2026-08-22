@@ -52,6 +52,8 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
+// Shared with specs/groups-discussion.spec.js — see support/groups.js.
+import { openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
 
 // Unique per run, so a re-run against a database that somehow survived
 // still matches its own group rather than an older one by name.
@@ -73,21 +75,6 @@ const POST_BODY = '[id^="post-body-"]';
  */
 function memberRow(page, name) {
     return page.locator('.list-group-item').filter({ hasText: name });
-}
-
-/**
- * Waits for groups.js's own "I am running" signal (it adds a `groups-js`
- * class to the document element once its deferred top-level code has
- * finished). Creating a group is an unenhanced form POST that lands on a
- * freshly navigated page, so without this an automated click can beat the
- * script's load and fall back to a real form submit — correct behaviour
- * (that fallback is the module's promise), but a second navigation that
- * makes everything timed after it non-deterministic.
- *
- * @param {import('@playwright/test').Page} page
- */
-async function waitForGroupsJsReady(page) {
-    await page.waitForFunction(() => document.documentElement.classList.contains('groups-js'));
 }
 
 /**
@@ -139,6 +126,7 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
     // granted or withdrawn here, so none of what follows would exist.
     // ---------------------------------------------------------------
     await page.goto('/groups', { waitUntil: 'domcontentloaded' });
+    await openCreateGroupForm(page);
 
     const creation = page.locator('form[action="/groups"]');
     await creation.getByLabel('Nom du groupe').fill(GROUP_NAME);
@@ -196,7 +184,9 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
         await expect(memberPage.getByRole('link', { name: new RegExp(GROUP_NAME) })).toHaveCount(0);
         // An ordinary member is not offered the creation form at all —
         // POST /groups is `role_min: chief`.
-        await expect(memberPage.getByRole('heading', { name: 'Créer un groupe' })).toHaveCount(0);
+        // The disclosure itself, not a heading: it is a <summary> whose
+        // label only looks like one (`class="h6"`).
+        await expect(memberPage.locator('summary', { hasText: 'Créer un groupe' })).toHaveCount(0);
 
         const beforeInvite = await memberPage.goto(groupUrl, { waitUntil: 'domcontentloaded' });
         expect(beforeInvite.status(), 'a non-member must get 404, never 403').toBe(404);

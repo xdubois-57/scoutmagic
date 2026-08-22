@@ -65,6 +65,8 @@
 import { expect, test } from '@playwright/test';
 
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
+// Shared with specs/groups-management.spec.js — see support/groups.js.
+import { openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
 
 // Unique per run so a re-run against a database that somehow survived
 // (E2E_DB_NAME pointed elsewhere, a killed teardown) still starts from an
@@ -83,45 +85,6 @@ const POLL_QUESTION = 'Qui vient au week-end de novembre ?';
 // post's body has.
 const POST_BODY = '[id^="post-body-"]';
 
-/**
- * Waits for groups.js's own "I am running" signal (public/assets/js/
- * groups.js sets `document.documentElement.classList.add('groups-js')`
- * once its own, deferred, top-level code has finished running).
- *
- * Creating a group is a real, unenhanced form POST (modules/groups/views/
- * list.html.twig never loads groups.js), so it always lands on a freshly
- * navigated /groups/{id} — a real page, with the deferred script only
- * just starting to load. Without this wait, an automated click on
- * "Publier" straight after can beat that load: the composer's own submit
- * handler (the fetch()-based, no-reload path) is not attached yet, so the
- * browser falls back to a genuine, unenhanced form submit — not a bug,
- * the same intended progressive-enhancement fallback every dynamic
- * action here has (see this file's own header comment) — but it reloads
- * the page a second time and makes everything timed after it
- * non-deterministic: on a slow enough run the SAME race can then repeat
- * on that reload, for instance losing the `change` event a later
- * `setInputFiles()` fires on a reply's image input. A real member never
- * hits this: reading the form and typing a message takes far longer than
- * the script needs to finish loading.
- *
- * @param {import('@playwright/test').Page} page
- */
-/**
- * Opens the "Créer un groupe" disclosure on /groups. The form is collapsed
- * by default (views/list.html.twig): a native <details>, so this is the
- * same click a chief makes and it needs no JavaScript to work.
- *
- * @param {import('@playwright/test').Page} page
- */
-async function openCreateGroupForm(page) {
-    const summary = page.locator('summary', { hasText: 'Créer un groupe' });
-    await summary.click();
-    await expect(page.getByLabel('Nom du groupe')).toBeVisible();
-}
-
-async function waitForGroupsJsReady(page) {
-    await page.waitForFunction(() => document.documentElement.classList.contains('groups-js'));
-}
 
 test('a member writes in a discussion group: a message, a link, a poll, a reply and a reaction', async ({ page }) => {
     /** @type {string[]} */
