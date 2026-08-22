@@ -416,6 +416,12 @@
 .groups-reaction-picker {
     display: inline-flex;
 }
+/* Owned here rather than by `flex-wrap`, for the same reason: that
+   utility is `!important` and the one place this row must NOT wrap
+   (the open picker on a phone, below) could never turn it off. */
+.groups-reactions {
+    flex-wrap: wrap;
+}
 @media (max-width: 767.98px) {
     /* The two halves swap by UNFOLDING rather than by appearing: the
        emoji run grows out to the right from where the button was, and the
@@ -460,6 +466,41 @@
         padding-right: 0;
         opacity: 0;
         visibility: hidden;
+    }
+    /* The row must hold on ONE line at 360px even when a tally is
+       already sitting in it — six 44px buttons plus a tally of three or
+       four counts is wider than any phone, and the row wrapped, putting
+       the emoji under the message they belong to.
+
+       So the open picker is allowed to shrink instead of wrap: it takes
+       the space left beside the tally (flex: 1 1 auto over min-width: 0)
+       and its buttons shrink with it, down to a floor of 32px. The 44px
+       target is kept whenever there is room for it — a message with no
+       reactions yet, and every screen wider than this media query — and
+       given up only in the one case where the alternative is a control
+       that does not fit at all. */
+    .groups-js .groups-reactions-open {
+        flex-wrap: nowrap;
+    }
+    /* The picker keeps its whole width and never gives any of it up:
+       six 34px targets and their gaps come to ~224px, which fits on the
+       narrowest phone this project supports with room to spare. */
+    .groups-js .groups-reactions-open .groups-reaction-btn {
+        min-width: 34px;
+        width: 34px;
+        font-size: 0.95rem;
+    }
+    .groups-js .groups-reactions-open .groups-reaction-picker {
+        flex: 0 0 auto;
+    }
+    /* The tally is what yields, because it is the part that can: it
+       takes whatever is left and scrolls sideways inside itself if a
+       message collected more kinds of reaction than fit. Nothing is
+       lost, and the row stays one line. */
+    .groups-js .groups-reactions-open .groups-reaction-tally {
+        flex: 0 1 auto;
+        min-width: 0;
+        overflow-x: auto;
     }
     .groups-js .groups-reactions-open .groups-reaction-picker {
         max-width: 22rem;

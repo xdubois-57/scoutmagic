@@ -32,6 +32,7 @@ use Modules\Groups\Service\MemberIdentityService;
 use Modules\Groups\Service\LeaveOutcome;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Support\GroupLabel;
 use Twig\Environment;
 
 /**
@@ -116,6 +117,14 @@ class GroupMemberController extends AbstractController
 
         return $this->render('@groups/members.html.twig', [
             'group' => $group,
+            // Named the same way every other page of this module names it
+            // — with the scout year when the group is tied to the current
+            // one (Support\GroupLabel).
+            'group_label' => GroupLabel::withYear(
+                $group,
+                $context->effectiveScoutYearId,
+                $context->effectiveScoutYearLabel
+            ),
             'derived_sections' => $this->sectionNames($this->sectionRepository->findSectionIds($group->id)),
             'explicit_members' => $explicit,
             'can_moderate' => $canModerate,

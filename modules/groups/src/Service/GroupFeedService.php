@@ -63,6 +63,19 @@ class GroupFeedService
     {
         $isFirstPage = $cursor === null;
 
+        // A pin whose deadline has passed stops being one HERE, before
+        // the page is read — a lapsed pin has to go away on its own
+        // whether or not this install's scheduler ever runs, and the
+        // group's own page load is the one moment somebody is certainly
+        // looking (Service\PostService::expireStalePins()). One bounded
+        // UPDATE that writes nothing at all in the ordinary case, so the
+        // feed pays for it only when there is something to fix. Only on
+        // the first page: the deeper pages of one scroll must not
+        // re-answer a question already settled at the top.
+        if ($isFirstPage) {
+            $this->postService->expireStalePins($group->id);
+        }
+
         // One extra row, to know whether another page exists without a
         // second COUNT query. A moderator, and only a moderator, sees
         // auto-hidden posts — and the exclusion happens in the SQL, so a

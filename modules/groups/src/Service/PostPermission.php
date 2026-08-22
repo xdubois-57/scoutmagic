@@ -22,6 +22,14 @@ final class PostPermission
     public const REASON_PAST_YEAR = 'past_year';
     public const REASON_INCOMPLETE_PROFILE = 'incomplete_profile';
 
+    /**
+     * The group publishes by moderators only (discussion_groups.
+     * posting_policy). The only refusal here that still leaves the member
+     * every other way of taking part — commenting, reacting, answering a
+     * poll — which is why the message says so.
+     */
+    public const REASON_MODERATORS_ONLY = 'moderators_only';
+
     private function __construct(
         public readonly bool $allowed,
         public readonly ?string $reason = null,

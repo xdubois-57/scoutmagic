@@ -82,7 +82,10 @@
                 #}
                 <a class="list-group-item list-group-item-action py-3" href="/groups/{{ item.group.id }}" style="min-height:44px;">
                     <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <span class="{{ item.has_unread ? 'fw-bold' : 'fw-semibold' }}">{{ item.group.name }}</span>
+                        {# The current year's groups carry it in their name here too —
+                           this list is exactly where two years of the same section sit
+                           side by side (Support\GroupLabel). #}
+                        <span class="{{ item.has_unread ? 'fw-bold' : 'fw-semibold' }}">{{ item.label|default(item.group.name) }}</span>
                         {% if item.has_unread %}
                             <span class="badge bg-danger">Nouveau</span>
                         {% endif %}

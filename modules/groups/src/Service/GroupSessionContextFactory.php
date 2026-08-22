@@ -61,7 +61,8 @@ class GroupSessionContextFactory
             $roleEnum,
             $linkedMemberIds,
             $effectiveYear->id,
-            $hasCompleteProfile
+            $hasCompleteProfile,
+            $effectiveYear->label
         );
     }
 }

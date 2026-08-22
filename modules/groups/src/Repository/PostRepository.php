@@ -199,10 +199,51 @@ class PostRepository
         $stmt->execute([$calendarEventId, $id]);
     }
 
-    public function setPinned(int $id, bool $isPinned): void
+    /**
+     * @param string|null $pinnedUntil when the pin lapses on its own, or
+     *        null for "until a moderator takes it down". Always cleared
+     *        when unpinning, so an old deadline can never come back with
+     *        a later pin.
+     */
+    public function setPinned(int $id, bool $isPinned, ?string $pinnedUntil = null): void
     {
-        $stmt = $this->pdo->prepare('UPDATE discussion_group_posts SET is_pinned = ? WHERE id = ?');
-        $stmt->execute([$isPinned ? 1 : 0, $id]);
+        $stmt = $this->pdo->prepare('UPDATE discussion_group_posts SET is_pinned = ?, pinned_until = ? WHERE id = ?');
+        $stmt->execute([$isPinned ? 1 : 0, $isPinned ? $pinnedUntil : null, $id]);
+    }
+
+    /**
+     * Takes the pin off every post of one group but $exceptId — how "one
+     * pinned post at a time" is actually enforced (schema.sql). Written
+     * as a single statement rather than a read-then-write loop: two
+     * moderators pinning at the same moment would otherwise both read
+     * "one pinned" and both leave their own, and a group would end up
+     * with two.
+     */
+    public function unpinAllExcept(int $groupId, int $exceptId = 0): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE discussion_group_posts SET is_pinned = 0, pinned_until = NULL
+             WHERE group_id = ? AND is_pinned = 1 AND id <> ?'
+        );
+        $stmt->execute([$groupId, $exceptId]);
+    }
+
+    /**
+     * Unpins whatever this group's pin deadline has passed, and says how
+     * many. Idempotent and one statement, which is what makes it safe to
+     * run from a page load (Service\PostService::expireStalePins()).
+     *
+     * @return int how many posts stopped being pinned
+     */
+    public function clearExpiredPins(int $groupId, string $now): int
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE discussion_group_posts SET is_pinned = 0, pinned_until = NULL
+             WHERE group_id = ? AND is_pinned = 1 AND pinned_until IS NOT NULL AND pinned_until <= ?'
+        );
+        $stmt->execute([$groupId, $now]);
+
+        return $stmt->rowCount();
     }
 
     public function touchActivity(int $id, string $at): void
@@ -294,7 +335,8 @@ class PostRepository
             (string) $row['created_at'],
             $row['hidden_at'] !== null ? (string) $row['hidden_at'] : null,
             (bool) $row['moderation_cleared'],
-            ($row['calendar_event_id'] ?? null) !== null ? (int) $row['calendar_event_id'] : null
+            ($row['calendar_event_id'] ?? null) !== null ? (int) $row['calendar_event_id'] : null,
+            ($row['pinned_until'] ?? null) !== null ? (string) $row['pinned_until'] : null
         );
     }
 }

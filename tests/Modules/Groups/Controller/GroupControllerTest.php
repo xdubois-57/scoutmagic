@@ -611,7 +611,10 @@ class GroupControllerTest extends TestCase
             ->getBody();
 
         $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Groupes<\/a>/', $body);
-        $this->assertMatchesRegularExpression('/aria-current="page">\s*Louveteaux\s*<\/li>/', $body);
+        // Named with its scout year, like every other place this module
+        // writes the name of a group tied to the year in effect
+        // (Support\GroupLabel).
+        $this->assertMatchesRegularExpression('/aria-current="page">\s*Louveteaux \(2025-2026\)\s*<\/li>/', $body);
     }
 
     public function testShowOffersTheEditFormToAModeratorWithTheGroupsCurrentName(): void

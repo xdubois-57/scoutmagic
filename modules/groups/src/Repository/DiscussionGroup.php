@@ -14,6 +14,16 @@ namespace Modules\Groups\Repository;
  */
 class DiscussionGroup
 {
+    /** Every member of the group may publish — the default. */
+    public const POSTING_MEMBERS = 'members';
+
+    /**
+     * Only the group's moderators publish. Commenting, reacting and
+     * answering a poll stay open to every member either way — see
+     * Service\GroupAccessService::canPost() versus canParticipate().
+     */
+    public const POSTING_MODERATORS = 'moderators';
+
     public function __construct(
         public readonly int $id,
         public readonly string $name,
@@ -36,7 +46,12 @@ class DiscussionGroup
         // galleryAlbumId above: every existing positional construction of
         // this DTO keeps working unchanged. An optional one-liner saying
         // what the group is for, editable by a moderator.
-        public readonly ?string $description = null
+        public readonly ?string $description = null,
+        // Appended last for the same append-only reason as the two above.
+        // One of the POSTING_* constants; anything else read from a row
+        // is normalised to POSTING_MEMBERS by the repository, so a
+        // caller never has to defend against a third value.
+        public readonly string $postingPolicy = self::POSTING_MEMBERS
     ) {
     }
 

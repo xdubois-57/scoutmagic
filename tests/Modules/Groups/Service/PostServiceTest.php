@@ -169,6 +169,125 @@ class PostServiceTest extends TestCase
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM discussion_group_posts')->fetchColumn());
     }
 
+    // --- pinning --------------------------------------------------------
+
+    /**
+     * The rule the whole feature exists for: a group has ONE pinned
+     * message. Pinning a second takes the pin off the first rather than
+     * stacking two banners nobody reads.
+     */
+    public function testPinningASecondPostUnpinsTheFirst(): void
+    {
+        $first = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Premier', $this->minutesAgo(30), 7, 3);
+        $second = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Second', $this->minutesAgo(10), 7, 3);
+
+        $this->postService->pin($this->postRepo->findById($first));
+        $this->postService->pin($this->postRepo->findById($second));
+
+        $this->assertFalse($this->postRepo->findById($first)->isPinned);
+        $this->assertTrue($this->postRepo->findById($second)->isPinned);
+        $this->assertCount(1, $this->postRepo->findPinned($this->groupId));
+    }
+
+    /**
+     * …and only in ITS group: two groups each keep their own pinned
+     * message, which a `WHERE is_pinned = 1` with no group would break.
+     */
+    public function testPinningLeavesAnotherGroupsPinnedPostAlone(): void
+    {
+        $otherGroupId = $this->groupRepo->create('Éclaireurs', null, null, 1);
+        $elsewhere = GroupsTestHelper::createPostAt($this->pdo, $otherGroupId, 'Ailleurs', $this->minutesAgo(30), 7, 3);
+        $here = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Ici', $this->minutesAgo(10), 7, 3);
+
+        $this->postService->pin($this->postRepo->findById($elsewhere));
+        $this->postService->pin($this->postRepo->findById($here));
+
+        $this->assertTrue($this->postRepo->findById($elsewhere)->isPinned);
+        $this->assertTrue($this->postRepo->findById($here)->isPinned);
+    }
+
+    public function testAPinCarriesTheChosenDeadlineAndForeverCarriesNone(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', $this->minutesAgo(1), 7, 3);
+
+        $this->postService->pin($this->postRepo->findById($postId), 'day');
+        $deadline = $this->postRepo->findById($postId)->pinnedUntil;
+        $this->assertNotNull($deadline);
+        $this->assertGreaterThan(Timestamps::now(), $deadline);
+
+        // "Jusqu'à ce qu'un modérateur le retire" — the one choice whose
+        // value is null, which a `?? default` would silently turn into
+        // the default week.
+        $this->postService->pin($this->postRepo->findById($postId), 'forever');
+        $this->assertNull($this->postRepo->findById($postId)->pinnedUntil);
+    }
+
+    public function testAnInventedDurationFallsBackToTheDefaultRatherThanFailing(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', $this->minutesAgo(1), 7, 3);
+
+        $this->postService->pin($this->postRepo->findById($postId), 'un-siècle');
+
+        $post = $this->postRepo->findById($postId);
+        $this->assertTrue($post->isPinned);
+        $this->assertNotNull($post->pinnedUntil);
+    }
+
+    public function testUnpinningClearsTheDeadlineToo(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', $this->minutesAgo(1), 7, 3);
+        $this->postService->pin($this->postRepo->findById($postId), 'week');
+
+        $this->postService->unpin($this->postRepo->findById($postId));
+
+        $post = $this->postRepo->findById($postId);
+        $this->assertFalse($post->isPinned);
+        $this->assertNull($post->pinnedUntil);
+    }
+
+    /**
+     * A lapsed pin stops being one — as a real write, so the retention
+     * purge (which never touches a pinned post, at any age) can reach it
+     * again.
+     */
+    public function testAPinWhoseDeadlineHasPassedIsTakenDown(): void
+    {
+        $expired = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Vieux', $this->minutesAgo(60), 7, 3);
+        $current = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Récent', $this->minutesAgo(10), 7, 3);
+        $this->postRepo->setPinned($expired, true, $this->minutesAgo(5));
+        $this->postRepo->setPinned($current, true, null);
+
+        $this->assertSame(1, $this->postService->expireStalePins($this->groupId));
+
+        $this->assertFalse($this->postRepo->findById($expired)->isPinned);
+        $this->assertNull($this->postRepo->findById($expired)->pinnedUntil);
+        // A pin with no deadline at all is never swept by this pass.
+        $this->assertTrue($this->postRepo->findById($current)->isPinned);
+        // Idempotent: a second pass has nothing left to do.
+        $this->assertSame(0, $this->postService->expireStalePins($this->groupId));
+    }
+
+    public function testTheConfirmationQuotesWhateverIsPinnedRightNow(): void
+    {
+        $this->assertSame('', $this->postService->pinnedLabel($this->groupId));
+
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, "Rendez-vous\nsamedi", $this->minutesAgo(5), 7, 3);
+        $this->postService->pin($this->postRepo->findById($postId));
+
+        $this->assertSame('Rendez-vous samedi', $this->postService->pinnedLabel($this->groupId));
+    }
+
+    public function testALongPinnedMessageIsQuotedShort(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, str_repeat('a', 200), $this->minutesAgo(5), 7, 3);
+        $this->postService->pin($this->postRepo->findById($postId));
+
+        $label = $this->postService->pinnedLabel($this->groupId);
+
+        $this->assertSame(61, mb_strlen($label));
+        $this->assertStringEndsWith('…', $label);
+    }
+
     // --- body handling -------------------------------------------------
 
     public function testTheBodyIsBoundedServerSide(): void

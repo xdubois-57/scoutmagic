@@ -2804,7 +2804,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
                 $groupsContextFactory, $sectionService, $feedService, $groupsPostMediaService,
                 $groupsPostRepo, $groupsSectionGroupSync, $groupsModeratorBinding, $groupsMembershipService,
                 $settingService, $groupsReadStateService, $eventService, $groupsIdentityService,
-                $groupsReportService
+                $groupsReportService, $groupsPostService
             )
         );
         // The moderator's reports page renders the same post cards as the
@@ -2818,7 +2818,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             new \Modules\Groups\Controller\ReportController(
                 $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
                 $groupsReportService, $groupsContextFactory, $groupsNotificationService,
-                $groupsRecipientResolver, $feedService
+                $groupsRecipientResolver, $feedService, $groupsPostService
             )
         );
         $frontController->registerController(

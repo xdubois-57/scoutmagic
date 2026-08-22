@@ -35,6 +35,17 @@ CREATE TABLE discussion_groups (
     -- in discussion_group_sections — this column only records which kind
     -- of group it is, membership always goes through that table.
     section_id INT UNSIGNED NULL,
+    -- Who may START a conversation here: every member (the default), or
+    -- only the group's moderators — a chief's announcement group, where
+    -- the point is that one voice publishes and everyone else answers.
+    --
+    -- It is deliberately about POSTS and nothing else. Commenting,
+    -- reacting and answering a poll stay open to every member of the
+    -- group under either value (Service\GroupAccessService::canPost()
+    -- versus canParticipate()): a group nobody may answer is not a
+    -- restricted group, it is a noticeboard, and this module already has
+    -- "clôturé" for that.
+    posting_policy ENUM('members', 'moderators') NOT NULL DEFAULT 'members',
     -- Non-NULL closes the group: no new post, no new reply (prompt 4+).
     -- Reading a closed group stays allowed for its members.
     closed_at DATETIME NULL,
@@ -168,7 +179,26 @@ CREATE TABLE discussion_group_posts (
     -- and no Markdown is interpreted. Line breaks are preserved on
     -- display only.
     body TEXT NOT NULL,
+    -- At most ONE post per group carries this at a time: pinning a second
+    -- one unpins the first (Service\PostService::pin(), which is the only
+    -- writer). The moderator is told which post that is before it
+    -- happens — a pin is a deliberate "read this one", so silently
+    -- replacing yesterday's would be the site making that choice.
     is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+    -- When the pin lapses on its own, or NULL for "until a moderator
+    -- takes it down". A pin answers a question that expires (the camp is
+    -- next Saturday), and a group whose pinned message is three months
+    -- old has a banner nobody reads any more — so the moderator says how
+    -- long at the moment they pin.
+    --
+    -- Enforcement is a real write, never a read-time filter:
+    -- Repository\PostRepository::clearExpiredPins() flips is_pinned back
+    -- off, run from the group's own page load the same way this module
+    -- already self-heals elsewhere (Service\ModeratorBindingService).
+    -- A read-time "pinned AND not expired" would leave the flag set,
+    -- which the retention purge reads as "somebody deliberately kept
+    -- this" and would exclude the post from the purge for ever.
+    pinned_until DATETIME NULL,
     -- Set the first time the author edits, within the edit window; drives
     -- the "modifié" marker. Editing deliberately does NOT touch
     -- last_activity_at.

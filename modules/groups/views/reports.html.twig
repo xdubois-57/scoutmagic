@@ -1,6 +1,6 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Signalements — {{ group.name }} — {{ site_name }}{% endblock %}
+{% block title %}Signalements — {{ group_label|default(group.name) }} — {{ site_name }}{% endblock %}
 
 {% block stylesheets %}
 <link rel="stylesheet" href="/assets/css/components.css">

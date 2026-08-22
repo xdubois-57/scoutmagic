@@ -29,7 +29,12 @@ final class GroupSessionContext
         public readonly Role $role,
         public readonly array $linkedMemberIds,
         public readonly int $effectiveScoutYearId,
-        public readonly bool $hasCompleteProfile
+        public readonly bool $hasCompleteProfile,
+        // Trailing and defaulted so every existing construction of this
+        // value object keeps working. Display only — how a group tied to
+        // the current year is NAMED (Support\GroupLabel); no access
+        // decision reads it, they all compare the id above.
+        public readonly string $effectiveScoutYearLabel = ''
     ) {
     }
 

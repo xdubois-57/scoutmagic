@@ -82,10 +82,24 @@ class GroupService
      * here always means "the moderator emptied the field", never "this
      * caller had nothing to say about it".
      */
-    public function edit(DiscussionGroup $group, string $name, ?int $scoutYearId, ?string $description): void
-    {
+    /**
+     * @param string|null $postingPolicy one of DiscussionGroup::POSTING_*,
+     *        or null to leave the current one alone — which is what a
+     *        form that does not carry the control at all means.
+     */
+    public function edit(
+        DiscussionGroup $group,
+        string $name,
+        ?int $scoutYearId,
+        ?string $description,
+        ?string $postingPolicy = null
+    ): void {
         $this->groupRepository->rename($group->id, $name);
         $this->groupRepository->setDescription($group->id, $description);
+
+        if ($postingPolicy !== null) {
+            $this->groupRepository->setPostingPolicy($group->id, $postingPolicy);
+        }
 
         if (!$group->isSectionGroup()) {
             $this->groupRepository->setScoutYearId($group->id, $scoutYearId);

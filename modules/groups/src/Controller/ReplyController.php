@@ -151,8 +151,11 @@ class ReplyController extends AbstractController
 
         // A closed group, a past-year one and an incomplete profile refuse
         // a reply exactly as they refuse a post — re-checked here, never
-        // merely hidden in the UI.
-        $permission = $this->accessService->canPost($group, $context);
+        // merely hidden in the UI. The group's posting policy is the one
+        // thing that does NOT refuse it: commenting stays open to every
+        // member of a moderators-only group (canParticipate() versus
+        // canPost(), Service\GroupAccessService).
+        $permission = $this->accessService->canParticipate($group, $context);
         if (!$permission->allowed) {
             return new Response($permission->message, 403);
         }
@@ -273,7 +276,7 @@ class ReplyController extends AbstractController
                 return new Response('Cette réponse ne peut plus être modifiée.', 403);
             }
 
-            if (!$this->accessService->canPost($group, $context)->allowed) {
+            if (!$this->accessService->canParticipate($group, $context)->allowed) {
                 return new Response('Ce groupe n\'accepte plus de modification.', 403);
             }
 

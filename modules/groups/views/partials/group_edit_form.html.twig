@@ -39,6 +39,37 @@
                 Une ligne pour dire à quoi sert ce groupe. Visible par tous ses membres, sur la page du groupe et dans la liste des groupes.
             </p>
 
+            {#
+              Who may START a conversation here. Deliberately a pair of
+              radios rather than a single checkbox: the two answers are
+              equally ordinary, and the second one needs its sentence
+              said out loud — restricting who publishes must not read as
+              restricting who takes part, which it does not
+              (Service\GroupAccessService::canPost() versus
+              canParticipate()).
+            #}
+            <fieldset class="mb-2">
+                <legend class="form-label small mb-1">Qui peut publier</legend>
+                {% for choice in [
+                    { value: constant('Modules\\Groups\\Repository\\DiscussionGroup::POSTING_MEMBERS'), label: 'Tous les membres du groupe' },
+                    { value: constant('Modules\\Groups\\Repository\\DiscussionGroup::POSTING_MODERATORS'), label: 'Seulement les modérateurs' }
+                ] %}
+                    <div class="form-check d-flex align-items-center gap-2" style="min-height:44px;">
+                        <input class="form-check-input mt-0" type="radio" name="posting_policy"
+                               id="group-edit-posting-{{ choice.value }}" value="{{ choice.value }}"
+                               {{ group.postingPolicy == choice.value ? 'checked' : '' }}>
+                        <label class="form-check-label small d-flex align-items-center"
+                               for="group-edit-posting-{{ choice.value }}" style="min-height:44px;">
+                            {{ choice.label }}
+                        </label>
+                    </div>
+                {% endfor %}
+            </fieldset>
+            <p class="small text-body-secondary">
+                Dans les deux cas, tous les membres peuvent commenter, réagir et répondre aux sondages.
+                Le staff d'unité publie toujours, il est modérateur de chaque groupe.
+            </p>
+
             {% if group.sectionId is null %}
                 <div class="form-check d-flex align-items-center gap-2 mb-2" style="min-height:44px;">
                     <input class="form-check-input mt-0" type="checkbox" value="1" id="group-edit-tie-year" name="tie_to_year"

@@ -510,7 +510,13 @@ A section group is tied to its scout year, which is what keeps last year's group
 
 ### 20.2 What a group holds
 
-Posts (up to 5000 characters, up to four photos or videos, an optional poll, and at most one link with an automatic title/description/image preview), one level of replies (up to 2000 characters, at most one image — replies are never nested), and six fixed reactions (👍 ❤️ 😂 😮 😢 👏), one per person per item. There is no separate field for a link: the first URL typed anywhere in the message is detected automatically, previewed live while composing, and removed from the stored text once its preview card is attached — the card represents it from then on. An author may edit their own post or reply for 15 minutes; an author or a moderator may delete one at any time. A moderator may pin posts to the top of the feed.
+Posts (up to 5000 characters, up to four photos or videos, an optional poll, and at most one link with an automatic title/description/image preview), one level of replies (up to 2000 characters, at most one image — replies are never nested), and six fixed reactions (👍 ❤️ 😂 😮 😢 👏), one per person per item. There is no separate field for a link: the first URL typed anywhere in the message is detected automatically, previewed live while composing, and removed from the stored text once its preview card is attached — the card represents it from then on. An author may edit their own post or reply for 15 minutes; an author or a moderator may delete one at any time. Publishing brings the new message into view rather than leaving the author looking at the composer.
+
+**Who may publish is the group's own choice**: every member (the default), or its moderators alone — an announcement group, where one voice publishes and everybody answers. The restriction is about starting a conversation and nothing else: commenting, reacting and answering a poll stay open to every member either way. Staff d'U publishes in every group without being granted anything, being an implicit moderator of all of them.
+
+**A group has one pinned message at a time.** Pinning a second takes the pin off the first — the moderator is told which message that is, and chooses how long the new one stays up (a day, a week, a month, or until a moderator takes it down) before it happens. A pin that reaches its deadline lapses on its own, and the message becomes an ordinary one again.
+
+**A group tied to the current scout year carries it in its name** — "Louveteaux (2025-2026)" — wherever it is written: the list, the group's own page, its members and gallery pages, the breadcrumb. A past-year group does not, being already marked as an archive, and a group tied to no year has nothing to add.
 
 Photos and videos live in a gallery album belonging to the group, never listed in the unit's own gallery and readable only by the group's members. "Galerie du groupe" shows them all on one page.
 
@@ -539,7 +545,8 @@ Five types, all optional per member except one: a new post in one of my groups, 
 
 | Action | Who | Rule |
 |---|---|---|
-| Modifier le groupe | Moderator | Rename it. An **invitation** group may also be linked or unlinked to the current scout year (same effect as the checkbox at creation); a **section** group's year always follows its section and is never editable here. |
+| Modifier le groupe | Moderator | Rename it, describe it, and choose who may publish (all members, or moderators only). An **invitation** group may also be linked or unlinked to the current scout year (same effect as the checkbox at creation); a **section** group's year always follows its section and is never editable here. |
+| Épingler un message | Moderator | One pinned message per group, for a chosen length of time — see §20.2. |
 | Modifier les membres | Moderator | Invite a member or a whole section; grant or revoke the moderator flag; remove an invited member. |
 | Quitter le groupe | Any invited member | Deletes their invitation; access is lost immediately and coming back needs a new invitation. A membership that comes from a **linked section cannot be left** — it follows the Desk import. The **last moderator** may not leave until another one is appointed; site admins do not count. Their existing posts and replies stay in the group. |
 | Clôturer | Moderator | Read-only from then on, still fully visible. |
@@ -555,7 +562,7 @@ Four nightly tasks, each with its own admin-configurable duration and none of th
 |---|---|
 | Create section groups | One group per visible, active section per scout year, Staff d'U included. Idempotent, and also run whenever the group list is opened, so a missing group heals itself. Next year's groups appear as soon as that year is imported, ready for chiefs through the staff-year mechanism (§16). |
 | Close inactive groups | A group with no post, reply or reaction for `groups_inactivity_close_months` (12 by default) is closed: read-only, still fully visible to its members. A group that never held anything is counted from its creation. A moderator may also close a group by hand. |
-| Purge posts | A post is deleted `groups_post_retention_months` (24 by default) after its last activity, with its replies, reactions, reports, media and cached link image — the files themselves, not only the rows. A pinned post is never purged, at any age. |
+| Purge posts | A post is deleted `groups_post_retention_months` (24 by default) after its last activity, with its replies, reactions, reports, media and cached link image — the files themselves, not only the rows. A pinned post is never purged, at any age; a pin whose deadline has passed is not one any more (§20.2). |
 | Purge closed groups | A closed group is deleted `groups_closed_purge_months` (12 by default) after its closure, gallery album included. A group of the current or a future scout year is never purged. |
 
 

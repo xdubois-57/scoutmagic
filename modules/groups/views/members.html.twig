@@ -1,6 +1,6 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Membres — {{ group.name }} — {{ site_name }}{% endblock %}
+{% block title %}Membres — {{ group_label|default(group.name) }} — {{ site_name }}{% endblock %}
 
 {% block content %}
     {% include '@groups/partials/group_header.html.twig' with { badges: { is_invitation: group.sectionId is null, section_names: derived_sections, is_archived: false, is_moderator: can_moderate } } %}
