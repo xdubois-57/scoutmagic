@@ -21,6 +21,7 @@ use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\DelegatedAlbumAccessRegistry;
+use Modules\Gallery\Service\MediaFileName;
 use Modules\Gallery\Service\MediaService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
 use Modules\Gallery\Service\Storage\StorageBackendInterface;
@@ -140,7 +141,6 @@ class GalleryController extends AbstractController
             'media' => $m,
             'thumb_url' => $this->mediaService->resolveUrl($m, $album, 'thumb'),
             'medium_url' => $this->mediaService->resolveUrl($m, $album, 'medium'),
-            'large_url' => $this->mediaService->resolveUrl($m, $album, 'large'),
         ], $mediaRows);
 
         return $this->render('@gallery/album.html.twig', [
@@ -208,7 +208,6 @@ class GalleryController extends AbstractController
                 return new Response('Archive indisponible.', 500);
             }
 
-            $usedNames = [];
             $spooled = 0;
             $totalBytes = 0;
             foreach ($media as $m) {
@@ -235,7 +234,12 @@ class GalleryController extends AbstractController
                 $spoolPath = $spoolDir . '/' . $spooled++;
                 file_put_contents($spoolPath, $contents);
                 unset($contents);
-                $zip->addFile($spoolPath, $this->uniqueZipEntryName($m, $usedNames));
+                // The same name this media downloads under on its own
+                // (Service\MediaFileName): the id is part of it, so two
+                // photos a phone both called IMG_1234 stay two entries
+                // here AND two files in the folder somebody saves them
+                // into one at a time.
+                $zip->addFile($spoolPath, MediaFileName::forMedia($m));
             }
             $zip->close();
 
@@ -259,6 +263,100 @@ class GalleryController extends AbstractController
             }
             $this->removeDirectory($spoolDir);
         }
+    }
+
+    /**
+     * GET /gallery/media/{media_id}/download — saves ONE media, at the
+     * best quality this site keeps of it, under the name the album's own
+     * zip gives it (Service\MediaFileName).
+     *
+     * Its own route rather than a `download` attribute on the rendition's
+     * URL, for two reasons the lightbox used to live with:
+     *
+     * - `download` is ignored cross-origin, and with S3 storage the
+     *   rendition URL IS cross-origin — so on those installations the
+     *   button opened a tab instead of saving anything, which is why it
+     *   had to be labelled vaguely and paired with a second button;
+     * - the browser then names the file after the storage key, which is
+     *   an internal path, and two photos saved from the same album could
+     *   land on the same name and overwrite each other.
+     *
+     * Here the bytes always travel through the application, which costs
+     * one stream on an S3 install and buys a `Content-Disposition` the
+     * browser has to honour, with a name that is unique per media.
+     *
+     * Same visibility rules as serveMedia() below, delegated albums
+     * included — the one difference being that a delegated album streams
+     * rather than redirecting to a presigned URL, since a redirect would
+     * lose the filename.
+     *
+     * @param array<string, string> $params
+     */
+    public function downloadMedia(Request $request, array $params): Response
+    {
+        $media = $this->mediaRepository->findById((int) ($params['media_id'] ?? 0));
+        if ($media === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $album = $this->albumService->findById($media->albumId);
+        if ($album === null) {
+            return new Response('Not Found', 404);
+        }
+
+        if ($album->isDelegated()) {
+            \assert($album->ownerType !== null && $album->ownerId !== null);
+            $role = Role::fromString(AuthSession::getRole());
+            if (!$this->delegatedAlbumAccessRegistry->isAllowed($album->ownerType, $album->ownerId, $role, $this->linkedMemberIds)) {
+                return new Response('Not Found', 404);
+            }
+        } elseif (!$this->isVisible($album)) {
+            return new Response('Forbidden', 403);
+        }
+
+        if ($album->isMigrating()) {
+            return new Response('Album en cours de migration.', 503);
+        }
+
+        // The best rendition this site actually kept — the same choice
+        // the album's zip makes for the same media, so the file somebody
+        // saves one at a time is byte-for-byte the one they would have
+        // got in the archive.
+        $path = $this->bestDownloadPath($media);
+        if ($path === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        if ($location === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $backend = $this->storageBackendFactory->create($location);
+        $mimeType = $media->isVideo() ? 'video/mp4' : 'image/jpeg';
+        $disposition = 'attachment; filename="' . MediaFileName::forMedia($media) . '"';
+
+        $localPath = $backend->localPath($path);
+        if ($localPath !== null) {
+            return (new Response())
+                ->setBodyFile($localPath)
+                ->setHeader('Content-Type', $mimeType)
+                ->setHeader('Content-Length', (string) (filesize($localPath) ?: 0))
+                ->setHeader('Content-Disposition', $disposition)
+                ->setHeader('Cache-Control', 'private, no-store');
+        }
+
+        try {
+            $contents = $backend->get($path);
+        } catch (\RuntimeException) {
+            return new Response('Not Found', 404);
+        }
+
+        return (new Response($contents))
+            ->setHeader('Content-Type', $mimeType)
+            ->setHeader('Content-Length', (string) strlen($contents))
+            ->setHeader('Content-Disposition', $disposition)
+            ->setHeader('Cache-Control', 'private, no-store');
     }
 
     /**
@@ -690,25 +788,6 @@ class GalleryController extends AbstractController
         return $m->largePath ?? $m->mediumPath ?? $m->thumbPath;
     }
 
-    /**
-     * @param array<string, true> $usedNames
-     */
-    private function uniqueZipEntryName(Media $m, array &$usedNames): string
-    {
-        $ext = $m->isVideo() ? 'mp4' : 'jpg';
-        $base = $m->originalFilename !== null
-            ? pathinfo($m->originalFilename, PATHINFO_FILENAME)
-            : 'media_' . $m->id;
-        $base = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $base) ?: ('media_' . $m->id);
-
-        $name = $base . '.' . $ext;
-        for ($i = 2; isset($usedNames[$name]); $i++) {
-            $name = $base . '_' . $i . '.' . $ext;
-        }
-        $usedNames[$name] = true;
-
-        return $name;
-    }
 
     /**
      * @return array<string, mixed>
