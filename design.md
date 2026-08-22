@@ -31,7 +31,7 @@ Three-tab segmented control: "Lien magique" (default), "Mot de passe", "Clé num
 Name/surname. Password section (status + set/change). Passkey section (list + add). Cookie preferences link/section.
 
 ### 1.7 Cookie consent banner
-Bottom of screen on first visit. Three buttons: "Accepter tout", "Refuser tout", "Personnaliser". Non-intrusive, does not block content. Disappears after choice.
+Fixed at the bottom of the screen while no consent has been given — except on the /cookies page itself, where the server never includes it (it would cover the very preferences it links to). Actions, in this exact order: "Tout refuser" then "Tout accepter", two identical primary (`btn-primary`) buttons — refusing is exactly as prominent as accepting — then "Personnaliser", a discreet link (`btn-link`) to /cookies. Does not block content: the page body is padded by the banner's height so everything below stays reachable. Disappears after choice.
 
 ### 1.8 Cookie preferences page
 Each category as a card: name, description, toggle (except strictly necessary: always on, explained). List of individual cookies per category with name, purpose, duration. Accessible from banner, RGPD page, Mon compte.

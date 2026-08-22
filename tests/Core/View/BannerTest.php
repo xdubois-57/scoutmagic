@@ -55,6 +55,7 @@ class BannerTest extends TestCase
     public function testBannerPresentWhenNoConsentGiven(): void
     {
         $this->twig->addGlobal('cookie_consent_given', false);
+        $this->twig->addGlobal('current_path', '/');
         $html = $this->twig->render('base.html.twig');
 
         $this->assertStringContainsString('id="cookie-banner"', $html);
@@ -68,7 +69,19 @@ class BannerTest extends TestCase
         $this->assertStringNotContainsString('id="cookie-banner"', $html);
     }
 
-    public function testBannerContainsAllThreeButtons(): void
+    public function testBannerAbsentOnCookiePreferencesRoute(): void
+    {
+        // The banner must never be included on /cookies: it is a fixed
+        // overlay that was covering the preference toggles and the save
+        // button of the very page its "Personnaliser" action leads to.
+        $this->twig->addGlobal('cookie_consent_given', false);
+        $this->twig->addGlobal('current_path', '/cookies');
+        $html = $this->twig->render('base.html.twig');
+
+        $this->assertStringNotContainsString('id="cookie-banner"', $html);
+    }
+
+    public function testBannerContainsAllThreeActions(): void
     {
         $this->twig->addGlobal('cookie_consent_given', false);
         $html = $this->twig->render('base.html.twig');
@@ -79,5 +92,51 @@ class BannerTest extends TestCase
         $this->assertStringContainsString('Tout accepter', $html);
         $this->assertStringContainsString('Tout refuser', $html);
         $this->assertStringContainsString('Personnaliser', $html);
+    }
+
+    public function testRejectAndAcceptAreIdenticalPrimaryButtons(): void
+    {
+        // Accept/refuse parity (design.md §1.7): refusing must be exactly
+        // as prominent as accepting — same btn-primary classes on both.
+        $this->twig->addGlobal('cookie_consent_given', false);
+        $html = $this->twig->render('base.html.twig');
+
+        $this->assertStringContainsString(
+            'class="btn btn-primary btn-sm w-100 w-sm-auto" id="cookie-reject-all"',
+            $html
+        );
+        $this->assertStringContainsString(
+            'class="btn btn-primary btn-sm w-100 w-sm-auto" id="cookie-accept-all"',
+            $html
+        );
+        $this->assertStringNotContainsString('btn-outline-secondary btn-sm w-100 w-sm-auto" id="cookie-reject-all"', $html);
+    }
+
+    public function testCustomizeIsADiscreetLinkToPreferencesPage(): void
+    {
+        $this->twig->addGlobal('cookie_consent_given', false);
+        $html = $this->twig->render('base.html.twig');
+
+        $this->assertStringContainsString(
+            '<a class="btn btn-link btn-sm w-100 w-sm-auto" id="cookie-customize" href="/cookies">',
+            $html
+        );
+    }
+
+    public function testActionsOrderIsRejectThenAcceptThenCustomize(): void
+    {
+        // design.md §1.7: "Tout refuser", "Tout accepter", then the
+        // "Personnaliser" link — DOM order is display order.
+        $this->twig->addGlobal('cookie_consent_given', false);
+        $html = $this->twig->render('base.html.twig');
+
+        $reject = strpos($html, 'id="cookie-reject-all"');
+        $accept = strpos($html, 'id="cookie-accept-all"');
+        $customize = strpos($html, 'id="cookie-customize"');
+        $this->assertNotFalse($reject);
+        $this->assertNotFalse($accept);
+        $this->assertNotFalse($customize);
+        $this->assertLessThan($accept, $reject);
+        $this->assertLessThan($customize, $accept);
     }
 }

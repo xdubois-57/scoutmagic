@@ -13,16 +13,23 @@
                     <a href="/cookies">En savoir plus</a>
                 </p>
             </div>
+            {# Accept/refuse parity (design.md §1.7): "Tout refuser" and
+               "Tout accepter" are two IDENTICAL btn-primary buttons —
+               refusing must be exactly as easy and as visible as accepting.
+               "Personnaliser" is a discreet link to the preferences page;
+               it keeps id="cookie-customize" because cookie-consent.js
+               looks it up unconditionally (the href alone would navigate
+               anyway, the JS handler is just redundant on an <a>). #}
             <div class="col-12 col-lg-5 d-flex flex-column flex-sm-row flex-wrap gap-2 justify-content-lg-end">
-                <button type="button" class="btn btn-outline-secondary btn-sm w-100 w-sm-auto" id="cookie-customize">
-                    Personnaliser
-                </button>
-                <button type="button" class="btn btn-outline-secondary btn-sm w-100 w-sm-auto" id="cookie-reject-all">
+                <button type="button" class="btn btn-primary btn-sm w-100 w-sm-auto" id="cookie-reject-all">
                     Tout refuser
                 </button>
                 <button type="button" class="btn btn-primary btn-sm w-100 w-sm-auto" id="cookie-accept-all">
                     Tout accepter
                 </button>
+                <a class="btn btn-link btn-sm w-100 w-sm-auto" id="cookie-customize" href="/cookies">
+                    Personnaliser
+                </a>
             </div>
         </div>
     </div>

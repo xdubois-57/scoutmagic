@@ -206,6 +206,41 @@ td code,
 }
 
 /* ============================================================
+   COOKIE BANNER HEIGHT COMPENSATION
+   The consent banner (partials/cookie_banner.html.twig) is fixed-bottom
+   and overlays the page; without compensation the end of every page
+   (footer, last form buttons) sits underneath it and can be unreachable,
+   especially on mobile where the banner is ~300px tall.
+   Chosen approach: pure CSS via body:has(), rather than a body class set
+   by the template or a JS height measurement, because
+   - the padding appears with the banner and disappears the instant
+     cookie-consent.js removes it from the DOM — no stale body class to
+     clean up and no change needed in cookie-consent.js;
+   - :has() is supported by every browser we target (all evergreen
+     browsers since 2023); where it is not, the fallback is exactly
+     today's behavior (no padding), never something worse.
+   The paddings bracket the banner's real rendered height at the banner's
+   own breakpoints (checked at 360, 768 and 1280px wide), slightly
+   oversized so the bottom of the page always clears it.
+   ============================================================ */
+body:has(> #cookie-banner) {
+    /* <576px: text block + three stacked full-width actions (~280px) */
+    padding-bottom: 20rem;
+}
+@media (min-width: 576px) {
+    body:has(> #cookie-banner) {
+        /* 576-991px: text block above a single row of actions (~150px) */
+        padding-bottom: 12rem;
+    }
+}
+@media (min-width: 992px) {
+    body:has(> #cookie-banner) {
+        /* >=992px: text and actions side by side (~100px) */
+        padding-bottom: 8rem;
+    }
+}
+
+/* ============================================================
    UTILITY: full-width stacking for action bar buttons on mobile
    ============================================================ */
 @media (max-width: 575.98px) {

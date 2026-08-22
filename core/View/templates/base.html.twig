@@ -263,7 +263,14 @@
     });
     </script>
 
-    {% if cookie_consent_given is defined and not cookie_consent_given %}
+    {# Server-side decision, not CSS: the banner is never included on the
+       /cookies route. It is a fixed-bottom overlay (~300px tall on mobile)
+       that was covering the very page its own "Personnaliser" action leads
+       to — the category toggles and the "Enregistrer mes choix" button were
+       unreachable. Everywhere else app.css compensates the banner's height
+       with a body:has(> #cookie-banner) padding so the bottom of the page
+       stays reachable (see "COOKIE BANNER HEIGHT COMPENSATION" there). #}
+    {% if cookie_consent_given is defined and not cookie_consent_given and current_path|default('') != '/cookies' %}
         {% include 'partials/cookie_banner.html.twig' %}
     {% endif %}
 </body>
