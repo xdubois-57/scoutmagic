@@ -64,7 +64,15 @@
     <div class="list-editor-items d-flex flex-column gap-2 mb-3">
         {% for item in items %}
             {% set can_delete = item.can_delete is not defined or item.can_delete %}
-            <div class="list-editor-item border rounded-3 p-3 d-flex align-items-start gap-2" draggable="true" data-id="{{ item.id }}">
+            {#
+              `flex-wrap` is what lets the action block below drop under
+              the item's own text on a phone rather than sharing its line:
+              four controls wide (edit, visibility, activate, delete), it
+              was leaving a couple of words per line to the text it acts
+              on. The width that actually forces the wrap is in app.css —
+              Bootstrap has no responsive width utility to say it here.
+            #}
+            <div class="list-editor-item border rounded-3 p-3 d-flex align-items-start gap-2 flex-wrap" draggable="true" data-id="{{ item.id }}">
                 <span class="list-editor-drag-handle text-body-secondary d-none d-lg-inline" title="Glisser pour réordonner" style="cursor:grab;">
                     <i class="bi bi-grip-vertical"></i>
                 </span>
@@ -80,7 +88,7 @@
                 <div class="list-editor-item-content flex-grow-1">
                     {% block item_content %}{% endblock %}
                 </div>
-                <div class="d-flex flex-row align-items-center gap-2 flex-shrink-0">
+                <div class="list-editor-item-actions d-flex flex-row align-items-center gap-2 flex-shrink-0">
                     {% block item_edit %}{% endblock %}
                     {% if active_url is defined and active_url %}
                         <button type="button" class="btn btn-sm {{ item.is_active ? 'btn-outline-success' : 'btn-outline-secondary' }} list-editor-active-toggle"
