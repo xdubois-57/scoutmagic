@@ -95,12 +95,12 @@
 
     document.addEventListener('click', function (event) {
         var target = /** @type {HTMLElement|null} */ (event.target);
-        var button = target ? target.closest('.support-detail-btn') : null;
+        var button = /** @type {HTMLElement|null} */ (target ? target.closest('.support-detail-btn') : null);
         if (!button) {
             return;
         }
 
-        var installationId = button.getAttribute('data-installation-id');
+        var installationId = button.dataset.installationId;
         if (!installationId) {
             return;
         }

@@ -54,12 +54,17 @@
                         <input type="hidden" name="option_id" value="{{ option.id }}">
                         {#
                           Filled from the picker above — by the browser
-                          when groups.js is running, by the <select>'s own
+                          when groups.js is running, by the select's own
                           value when it is not (the script copies it into
                           every form on change). Ignored outright by an
                           account-scoped poll, and re-checked against the
                           caller's own members either way
                           (Service\PollService::vote()).
+
+                          No literal HTML tag in this comment: Twig comments
+                          are not HTML comments, so an analyser reading the
+                          rendered-source text would take one for a real
+                          unlabelled control.
                         #}
                         {% if is_member_scope %}
                             <input type="hidden" name="voter_member_id" value="{{ default_voter_id }}"

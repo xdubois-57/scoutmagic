@@ -79,10 +79,14 @@
               A search box, not a checklist. The checklist rendered one row
               per active member of the unit — three hundred rows to tick two
               of them, with a second column of checkboxes beside every one.
-              The <select> below is what a visitor without JavaScript gets,
+              The select below is what a visitor without JavaScript gets,
               and it is also what the POST always carries: rental-managers.js
               hides it and drives it, so both paths submit the identical form
               (the same shape modules/groups' own invite search uses).
+
+              No literal HTML tag in this comment: Twig comments are not HTML
+              comments, so an analyser reading the rendered-source text would
+              take one for a real unlabelled control.
             #}
             <div class="card mb-4">
                 <div class="card-body">
@@ -204,6 +208,9 @@
                                         pour en sélectionner plusieurs.
                                     </div>
                                 </div>
+                                <label class="visually-hidden" for="rental-manager-search">
+                                    Rechercher un gestionnaire à ajouter
+                                </label>
                                 <input type="text" class="form-control d-none" id="rental-manager-search"
                                        autocomplete="off" placeholder="Nom, prénom ou totem…"
                                        aria-describedby="rental-manager-search-help">
@@ -400,7 +407,10 @@
        rejects it with a SyntaxError before a line of it runs. #}
     <script type="module" src="/assets/js/select-explanation.js"></script>
     {# Plain script, no module: it enhances the managers form in place and
-       exports nothing the page needs. Without it the <select> it hides
-       stays visible and the form works unchanged. #}
+       exports nothing the page needs. Without it the select it hides
+       stays visible and the form works unchanged. No literal HTML tag in
+       this comment: Twig comments are not HTML comments, so an analyser
+       reading the rendered-source text would take one for a real
+       unlabelled control. #}
     <script src="/assets/js/rental-managers.js"></script>
 {% endblock %}

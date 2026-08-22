@@ -148,11 +148,11 @@
                 if (offline) {
                     if (!control.disabled) {
                         control.disabled = true;
-                        control.setAttribute('data-offline-disabled', 'true');
+                        control.dataset.offlineDisabled = 'true';
                     }
-                } else if (control.hasAttribute('data-offline-disabled')) {
+                } else if (control.dataset.offlineDisabled !== undefined) {
                     control.disabled = false;
-                    control.removeAttribute('data-offline-disabled');
+                    delete control.dataset.offlineDisabled;
                 }
             });
         });
