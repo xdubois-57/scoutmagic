@@ -32,8 +32,8 @@
 // A link's Open Graph metadata. Fetching one is an outbound HTTP request
 // to a member-supplied URL, and Modules\Gallery\Service\OgScraperService
 // refuses those to a private address or a non-default port (SECURITY.md
-// §17) — which is exactly what a throwaway instance on 127.0.0.1:<port>
-// is. The documented degradation is what this asserts instead, and it is
+// §17) — which is exactly what a throwaway instance on localhost:<port>
+// is (it resolves to the loopback address, on a non-default port). The documented degradation is what this asserts instead, and it is
 // the more valuable half anyway: the URL is detected in the body, removed
 // from the stored text, and rendered as its own card with the host and
 // the plain link on it. The metadata-carrying path is covered where it

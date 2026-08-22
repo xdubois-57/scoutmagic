@@ -456,6 +456,35 @@ class NewsIntegrationTest extends TestCase
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM news_form_responses')->fetchColumn());
     }
 
+    /**
+     * A capped number field must render `max="2"` — a real HTML number, not
+     * a string that merely looks like one.
+     *
+     * The attribute used to be built as a Twig expression
+     * (`'max="' ~ remaining_capacity ~ '"'`), which autoescaping turned
+     * into `max=&quot;2&quot;`; an HTML parser reads that back as an
+     * UNQUOTED value of `"2"`, so the browser had a max it could not
+     * interpret and enforced no cap at all. The regression is invisible to
+     * an assertion on the rendered text ("Il reste 2 places" was always
+     * right) and was found by driving the form in a real browser
+     * (tests/e2e/specs/news-form-payment.spec.js).
+     */
+    public function testCappedNumberFieldRendersARealMaxAttribute(): void
+    {
+        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $this->fieldRepository->create($formId, 0, FormField::TYPE_NUMBER, 'Places', true, null, null, 2, null, null);
+
+        $body = $this->newsController->show(
+            new Request('GET', '/news/' . $articleId, [], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        $this->assertStringContainsString('max="2"', $body);
+        $this->assertStringNotContainsString('max=&quot;', $body);
+        $this->assertStringContainsString('Il reste 2 places', $body);
+    }
+
     public function testSubmitRejectsClosedFormAndRedisplaysArticle(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);

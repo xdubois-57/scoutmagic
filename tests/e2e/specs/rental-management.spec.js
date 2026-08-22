@@ -107,7 +107,17 @@ test.describe('Rentals — running an asset', () => {
         // ── The managed space, and its calendar ─────────────────────────
         await page.goto('/mes-locations');
         await page.getByRole('link', { name: ASSET_NAME }).first().click();
-        await page.getByRole('link', { name: 'Calendrier' }).first().click();
+        // Scoped to the page's own content: the Calendrier MODULE puts a
+        // link of the same name in the navigation drawer and in the
+        // footer, and page-wide .first() picks the drawer's — which is
+        // hidden on a desktop viewport, so the click waits for an element
+        // that will never become visible. It only surfaced under
+        // E2E_COVERAGE=1, where every request is slow enough for the
+        // stylesheet that hides the drawer to have applied before the
+        // click; without it the same locator sometimes caught the drawer
+        // link while it was still unstyled and visible, and navigated to
+        // /calendar instead of to this asset's calendar.
+        await page.locator('main').getByRole('link', { name: 'Calendrier' }).first().click();
 
         await expect(page.getByRole('heading', { name: `Calendrier — ${ASSET_NAME}` })).toBeVisible();
         await expectRendersAsACalendar(page.locator('.daygrid').first());
