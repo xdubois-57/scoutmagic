@@ -345,7 +345,7 @@ test('a chief publishes an article with a paying form, and a family signs up and
     const responses = page.getByRole('table');
     // Anchored: one address is a suffix of the other, and an unanchored
     // match would resolve to both rows at once.
-    const rowFor = (email) => responses.getByRole('row', { name: new RegExp(`^${email.replace(/\./g, '\\.')}\\b`) });
+    const rowFor = (email) => responses.getByRole('row', { name: new RegExp(`^${email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`) });
 
     await expect(rowFor(FAMILY_EMAIL)).toBeVisible();
     await expect(rowFor(SECOND_FAMILY_EMAIL)).toBeVisible();

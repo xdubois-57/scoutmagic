@@ -1,11 +1,13 @@
 // Isolated JavaScript unit test — jsdom DOM only, no PHP/DB/network.
 //
-// The receipts and mass-mail list pages build table rows in an inline
-// <script> and interpolate escapeHtml(...) output into alt=/title=/data-*
-// attributes. A textContent->innerHTML escaper handles & < > but NOT quotes,
-// so a filename or description containing a double quote used to break out of
-// the attribute (audit M16). This test reads the REAL escapeHtml definition
-// out of each template source and proves a quote can no longer break out.
+// The receipts and mass-mail list pages build table rows client-side and
+// interpolate escapeHtml(...) output into alt=/title=/data-* attributes —
+// mass-mail's inline in the template's own <script>, receipts' in its own
+// extracted file (public/assets/js/finance-receipts.js). A
+// textContent->innerHTML escaper handles & < > but NOT quotes, so a
+// filename or description containing a double quote used to break out of
+// the attribute (audit M16). This test reads the REAL escapeHtml
+// definition out of each source and proves a quote can no longer break out.
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +22,10 @@ const here = dirname(fileURLToPath(import.meta.url));
  */
 function loadEscapeHtml(relativePath) {
     const source = readFileSync(resolve(here, '../../', relativePath), 'utf8');
-    const match = source.match(/function escapeHtml\s*\([^)]*\)\s*\{[\s\S]*?\n\}/);
+    // \n *\} rather than \n\}: mass_mail's copy sits unindented at the
+    // template's <script> top level, but finance-receipts.js's is nested
+    // one level inside that file's own wrapping IIFE.
+    const match = source.match(/function escapeHtml\s*\([^)]*\)\s*\{[\s\S]*?\n *\}/);
     if (match === null) {
         throw new Error(`No escapeHtml() found in ${relativePath}`);
     }
@@ -29,7 +34,11 @@ function loadEscapeHtml(relativePath) {
 }
 
 const templates = {
-    'finance receipts list': 'modules/finance/views/receipts/list.html.twig',
+    // Extracted from the template's inline <script> into its own file
+    // (public/assets/js/finance-receipts.js) so tests/js/finance-receipts
+    // .test.js could exercise the production code directly — escapeHtml()
+    // moved with it.
+    'finance receipts list': 'public/assets/js/finance-receipts.js',
     'mass_mail list': 'modules/mass_mail/views/list.html.twig',
 };
 

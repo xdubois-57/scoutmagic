@@ -83,10 +83,20 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
 
     await dialog.locator('#mm-save-btn').click();
 
-    // Saving re-renders the list row with its status badge.
+    // Saving re-renders the list row with its status badge — via a real
+    // window.location.reload() (list.html.twig's mm-save-btn handler),
+    // not a dynamic DOM update, so the freshly rendered row's own
+    // .mm-open-btn only gets a click listener once THIS reload's copy of
+    // the page's own inline <script> (querySelectorAll('.mm-open-btn')
+    // at the bottom of the page) has run. The row itself can already be
+    // visible before that — rendering reaches it well before parsing
+    // reaches the script further down — so an explicit wait here is
+    // required; the assertions above only prove the row exists, not that
+    // the page has finished loading.
     const row = page.getByRole('row', { name: new RegExp(SUBJECT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) });
     await expect(row).toBeVisible();
     await expect(row.getByText('Brouillon')).toBeVisible();
+    await page.waitForLoadState('domcontentloaded');
 
     // ---------------------------------------------------------------
     // Attachment, now that the draft exists: a real multipart POST.
