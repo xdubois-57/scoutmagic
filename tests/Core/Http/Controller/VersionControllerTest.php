@@ -67,6 +67,64 @@ class VersionControllerTest extends TestCase
         $this->assertStringNotContainsString('abc1234', $response->getBody());
     }
 
+    // --- scripts/release.sh's own "has this dev build caught up?" check ---
+
+    public function testDevBuildConfirmsAMatchingCommitWithoutEverEchoingItBack(): void
+    {
+        VersionFile::write($this->basePath, 'dev-abc1234');
+
+        $response = $this->buildController()->index(
+            new Request('GET', '/api/version', ['commit' => 'abc1234'], [], [], []),
+            []
+        );
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertSame('dev', $data['version']);
+        $this->assertTrue($data['matches']);
+        $this->assertStringNotContainsString('abc1234', $response->getBody());
+    }
+
+    public function testDevBuildDeniesAGuessRatherThanRevealingTheRealCommit(): void
+    {
+        VersionFile::write($this->basePath, 'dev-abc1234');
+
+        $response = $this->buildController()->index(
+            new Request('GET', '/api/version', ['commit' => 'ffffff0'], [], [], []),
+            []
+        );
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertFalse($data['matches']);
+    }
+
+    public function testCommitQueryParamIsIgnoredOnAStableRelease(): void
+    {
+        VersionFile::write($this->basePath, '1.0.24');
+
+        $response = $this->buildController()->index(
+            new Request('GET', '/api/version', ['commit' => 'abc1234'], [], [], []),
+            []
+        );
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertSame('1.0.24', $data['version']);
+        $this->assertArrayNotHasKey('matches', $data);
+    }
+
+    public function testMalformedCommitQueryParamIsIgnoredRatherThanErroring(): void
+    {
+        VersionFile::write($this->basePath, 'dev-abc1234');
+
+        $response = $this->buildController()->index(
+            new Request('GET', '/api/version', ['commit' => ['not' => 'a string']], [], [], []),
+            []
+        );
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertArrayNotHasKey('matches', $data);
+    }
+
     // --- RBAC boundary ---
 
     private function buildFrontController(): FrontController

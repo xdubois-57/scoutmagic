@@ -116,10 +116,15 @@ GATE_REPORT=""
 # production before a new one is created, and that production isn't
 # currently broken. Exposed via GET /api/version (Core\Http\Controller\
 # VersionController, role_min: public — see its own docblock), which
-# reports the same version/commit already shown to a logged-in admin on
+# reports the same version already shown to a logged-in admin on
 # Configuration > Maintenance. Two cases, matching VersionFile's own
 # format:
-#   - dev build ("dev-{sha}"): the reported commit must match local HEAD.
+#   - dev build: the bare "version":"dev" response never discloses the
+#     real commit (audit hardening — it would fingerprint exactly which
+#     patches an install is missing), so this asks the one question that
+#     needs answering instead: GET .../api/version?commit=<local HEAD
+#     short sha> back, and check its own "matches" boolean rather than
+#     comparing a value it was never given.
 #   - stable build (a semver tag): the reported version must equal
 #     ${CURRENT}, the latest tag before this run's bump — i.e. the last
 #     release already installed itself.
@@ -132,24 +137,29 @@ check_deployment_gate() {
     command -v curl &> /dev/null || { echo "ERROR: curl is required for the deployment gate." >&2; exit 1; }
     command -v php &> /dev/null || { echo "ERROR: php is required for the deployment gate." >&2; exit 1; }
 
-    local version_json remote_version remote_commit local_head_short home_body home_status
+    local version_json remote_version local_head_short match_json matches report_suffix home_body home_status
 
     version_json="$(curl -fsS --max-time 15 "${PRODUCTION_URL}/api/version")" \
         || { echo "ERROR: cannot reach ${PRODUCTION_URL}/api/version." >&2; exit 1; }
     remote_version="$(php -r '$d=json_decode(file_get_contents("php://stdin"), true); echo $d["version"] ?? "";' <<< "${version_json}")"
-    remote_commit="$(php -r '$d=json_decode(file_get_contents("php://stdin"), true); echo $d["commit"] ?? "";' <<< "${version_json}")"
 
-    if [[ -n "${remote_commit}" ]]; then
+    if [[ "${remote_version}" == "dev" ]]; then
         local_head_short="$(git rev-parse --short=7 HEAD)"
-        if [[ "${remote_commit}" != "${local_head_short}" ]]; then
-            echo "ERROR: release blocked by the deployment gate — ${PRODUCTION_URL} is on dev commit ${remote_commit}, but local HEAD is ${local_head_short}." >&2
+        match_json="$(curl -fsS --max-time 15 "${PRODUCTION_URL}/api/version?commit=${local_head_short}")" \
+            || { echo "ERROR: cannot reach ${PRODUCTION_URL}/api/version?commit=${local_head_short}." >&2; exit 1; }
+        matches="$(php -r '$d=json_decode(file_get_contents("php://stdin"), true); echo ($d["matches"] ?? false) ? "1" : "";' <<< "${match_json}")"
+        if [[ -z "${matches}" ]]; then
+            echo "ERROR: release blocked by the deployment gate — ${PRODUCTION_URL} is a dev build not yet on local HEAD (${local_head_short})." >&2
             echo "Wait for the site to pick up the latest commit (or re-run with --skip-deployment-check to bypass, emergency use only)." >&2
             exit 1
         fi
+        report_suffix="dev/${local_head_short}"
     elif [[ "${remote_version}" != "${CURRENT}" ]]; then
         echo "ERROR: release blocked by the deployment gate — ${PRODUCTION_URL} reports version '${remote_version}', expected the latest released tag '${CURRENT}'." >&2
         echo "The previous release may not have deployed yet. Wait for it, or re-run with --skip-deployment-check to bypass (emergency use only)." >&2
         exit 1
+    else
+        report_suffix="${remote_version}"
     fi
 
     home_body="$(curl -fsS --max-time 15 -w '\n%{http_code}' "${PRODUCTION_URL}/")" \
@@ -167,8 +177,8 @@ check_deployment_gate() {
         exit 1
     fi
 
-    DEPLOYMENT_GATE_REPORT_LINE="vérifié — ${PRODUCTION_URL} à jour (${remote_version}${remote_commit:+/${remote_commit}}), HTTP ${home_status}."
-    echo "Deployment gate OK: ${PRODUCTION_URL} is up to date (${remote_version}${remote_commit:+/${remote_commit}}) and responds normally."
+    DEPLOYMENT_GATE_REPORT_LINE="vérifié — ${PRODUCTION_URL} à jour (${report_suffix}), HTTP ${home_status}."
+    echo "Deployment gate OK: ${PRODUCTION_URL} is up to date (${report_suffix}) and responds normally."
 }
 
 # ---------------------------------------------------------------
