@@ -68,6 +68,8 @@ class RentalRbacTest extends TestCase
     private RentalAssetRepository $assetRepository;
     private RentalAssetManagerRepository $managerRepository;
     private EncryptionService $encryption;
+    private RentalAuthorizationService $authorizationService;
+    private ScoutYearService $scoutYearService;
     private int $scoutYearId;
 
     protected function setUp(): void
@@ -110,12 +112,19 @@ class RentalRbacTest extends TestCase
             $this->assetRepository,
             $this->managerRepository
         );
+        $this->authorizationService = $authorizationService;
+        $this->scoutYearService = $scoutYearService;
         $assetService = new RentalAssetService(
             $this->assetRepository,
             new RentalSlugGenerator($this->assetRepository),
             $journalService
         );
-        $managerService = new RentalManagerService($this->managerRepository, $memberService, $journalService);
+        $managerService = new RentalManagerService(
+            $this->managerRepository,
+            $memberService,
+            $journalService,
+            $settingService
+        );
         $availabilityService = $this->availabilityServiceFor();
         $pricingService = new RentalPricingService(
             new RentalPricingRepository($this->pdo),
@@ -142,11 +151,8 @@ class RentalRbacTest extends TestCase
             $this->assetRepository,
             $assetService,
             $managerService,
-            $memberService,
             $scoutYearService,
-            $settingService,
-            $pricingService,
-            $availabilityService
+            $settingService
         );
         $bookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($this->pdo, $encryption);
         $eventRepository = new \Modules\Rental\Repository\RentalBookingEventRepository($this->pdo);
@@ -245,21 +251,116 @@ class RentalRbacTest extends TestCase
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
 
         $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
-        $frontController->registerController($controllerClass, match ($controllerClass) {
-            RentalConfigController::class => $this->configController,
-            RentalManagementController::class => $this->managementController,
-            \Modules\Rental\Controller\RentalPricingController::class => new \Modules\Rental\Controller\RentalPricingController(
-                $this->twig,
-                $this->pricingServiceFor(),
-                $this->availabilityServiceFor()
-            ),
-            default => $this->publicController,
-        });
+        $frontController->registerController($controllerClass, $this->controllerFor($controllerClass));
 
         $response = $frontController->handle(new Request('GET', $requestPath, $query, [], [], []));
         @unlink($configFile);
 
         return $response;
+    }
+
+    /**
+     * A POST through the real Router and FrontController, with a valid CSRF
+     * token in the body — the transport these endpoints actually require
+     * (`validateRequest()` reads $_POST first).
+     *
+     * @param array<string, string> $body
+     */
+    private function dispatchPost(
+        string $routePath,
+        string $requestPath,
+        string $controllerClass,
+        string $action,
+        string $roleMin,
+        array $body = []
+    ): Response {
+        $router = new Router();
+        $router->addRoute('POST', $routePath, $controllerClass, $action, $roleMin);
+
+        $configFile = sys_get_temp_dir() . '/test_rental_config_' . uniqid() . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+
+        $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
+        $frontController->registerController($controllerClass, $this->controllerFor($controllerClass));
+
+        $body['_csrf_token'] = \Core\Security\CsrfGuard::generateToken();
+        $_POST = $body;
+
+        $response = $frontController->handle(new Request('POST', $requestPath, [], $body, [], []));
+
+        $_POST = [];
+        @unlink($configFile);
+
+        return $response;
+    }
+
+    /**
+     * GET the asset's own settings page.
+     *
+     * @param array<string, string> $query
+     */
+    private function dispatchSettings(string $slug, array $query = []): Response
+    {
+        return $this->dispatch(
+            '/mes-locations/{slug}/reglages',
+            '/mes-locations/' . $slug . '/reglages',
+            RentalManagementController::class,
+            'settings',
+            'identified',
+            $query
+        );
+    }
+
+    /** POST one of the settings page's write actions. */
+    private function dispatchSettingsWrite(string $slug, string $suffix, string $action): Response
+    {
+        return $this->dispatchPost(
+            '/mes-locations/{slug}/reglages/' . $suffix,
+            '/mes-locations/' . $slug . '/reglages/' . $suffix,
+            \Modules\Rental\Controller\RentalPricingController::class,
+            $action,
+            'identified'
+        );
+    }
+
+    /**
+     * Log in as a member who manages $slug and nothing else — the ordinary
+     * case this whole module exists for: somebody who is not a chief.
+     */
+    private function loginAsManagerOf(string $slug): void
+    {
+        $asset = $this->assetRepository->findBySlug($slug);
+        self::assertNotNull($asset, 'No asset with slug ' . $slug);
+
+        $memberId = RentalTestHelper::insertMember($this->pdo, 'D-MGR-' . $asset->id);
+        RentalTestHelper::insertMemberYear(
+            $this->pdo,
+            $this->encryption,
+            $memberId,
+            $this->scoutYearId,
+            'manager-' . $slug . '@test.be'
+        );
+        $this->managerRepository->grant($asset->id, $memberId, false);
+
+        AuthSession::login(1, 'manager-' . $slug . '@test.be', 'identified');
+    }
+
+    private function controllerFor(string $controllerClass): object
+    {
+        return match ($controllerClass) {
+            RentalConfigController::class => $this->configController,
+            RentalManagementController::class => $this->managementController,
+            \Modules\Rental\Controller\RentalPricingController::class =>
+                new \Modules\Rental\Controller\RentalPricingController(
+                    $this->twig,
+                    $this->pricingServiceFor(),
+                    $this->availabilityServiceFor(),
+                    $this->authorizationService,
+                    $this->assetRepository,
+                    $this->scoutYearService
+                ),
+            default => $this->publicController,
+        };
     }
 
     private function dispatchConfig(): Response
@@ -647,15 +748,16 @@ class RentalRbacTest extends TestCase
 
     // ── The pricing section renders, and the simulator is the real engine ──
 
-    public function testTheConfigurationPageRendersTheBillingUnitSelectorAndItsExplanation(): void
+    public function testTheSettingsPageRendersTheBillingUnitSelectorAndItsExplanation(): void
     {
         // §6.8 requires the explanatory text under the selector; it is
         // rendered server-side from BillingUnit so the page is already
-        // correct before any JavaScript runs.
+        // correct before any JavaScript runs. It now lives on the asset's
+        // own Réglages page rather than on the admin configuration screen.
         $this->createAsset('Local', 'local');
-        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->loginAsManagerOf('local');
 
-        $body = (string) $this->dispatchConfig()->getBody();
+        $body = (string) $this->dispatchSettings('local')->getBody();
 
         $this->assertStringContainsString('Unité de facturation', $body);
         $this->assertStringContainsString('Par personne et par nuit', $body);
@@ -668,30 +770,18 @@ class RentalRbacTest extends TestCase
     public function testTheSimulatorRendersARealBreakdownFromTheStoredTariff(): void
     {
         // End to end: a tariff saved through the service, priced by the same
-        // engine the public page uses, rendered on the configuration screen.
+        // engine the public page uses, rendered on the settings screen.
         $assetId = $this->createAsset('Local', 'local');
-        $pricingService = new RentalPricingService(
-            new RentalPricingRepository($this->pdo),
-            new RentalPricingEngine(),
-            new JournalService(new JournalRepository($this->pdo))
-        );
+        $pricingService = $this->pricingServiceFor();
         $pricingService->saveAssetPricing($assetId, 'per_person_night', 250, null, 25);
         $pricingService->addFee($assetId, 'Nettoyage', \Modules\Rental\Pricing\RentalFee::NATURE_FIXED, 5000, null);
 
-        AuthSession::login(1, 'admin@test.be', 'admin');
-        $response = $this->dispatch(
-            '/admin/locations',
-            '/admin/locations',
-            RentalConfigController::class,
-            'index',
-            'admin',
-            [
-                'asset_id' => (string) $assetId,
-                'sim_arrival' => '2027-07-16',
-                'sim_departure' => '2027-07-19',
-                'sim_persons' => '18',
-            ]
-        );
+        $this->loginAsManagerOf('local');
+        $response = $this->dispatchSettings('local', [
+            'sim_arrival' => '2027-07-16',
+            'sim_departure' => '2027-07-19',
+            'sim_persons' => '18',
+        ]);
         $body = (string) $response->getBody();
 
         $this->assertSame(200, $response->getStatusCode());
@@ -704,29 +794,108 @@ class RentalRbacTest extends TestCase
     public function testTheSimulatorShowsNothingUntilDatesAreGiven(): void
     {
         $this->createAsset('Local', 'local');
-        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->loginAsManagerOf('local');
 
-        $body = (string) $this->dispatchConfig()->getBody();
+        $body = (string) $this->dispatchSettings('local')->getBody();
 
         $this->assertStringContainsString('Simulateur', $body);
         $this->assertStringNotContainsString('Détail du prix simulé', $body);
     }
 
-    public function testAChiefCannotReachThePricingActions(): void
+    // ── The settings page and its write actions: per-asset, never a role ──
+
+    public function testAManagerReachesTheSettingsPageOfTheirOwnAsset(): void
     {
-        // Same admin boundary as the rest of the configuration space.
         $this->createAsset('Local', 'local');
-        AuthSession::login(1, 'chief@test.be', 'chief');
+        $this->loginAsManagerOf('local');
 
-        $response = $this->dispatch(
-            '/admin/locations/pricing',
-            '/admin/locations/pricing',
-            \Modules\Rental\Controller\RentalPricingController::class,
-            'savePricing',
-            'admin'
+        $response = $this->dispatchSettings('local');
+
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertStringContainsString('Règles de réservation', (string) $response->getBody());
+    }
+
+    public function testAnIdentifiedVisitorWhoManagesNothingGetsA404OnTheSettingsPage(): void
+    {
+        // 404, never 403: "this exists but is not yours" is itself a
+        // disclosure about the unit's assets (§6.6). The route guard let
+        // them through — `identified` is the floor — so this answer comes
+        // from RentalAuthorizationService alone.
+        $this->createAsset('Local', 'local');
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+
+        $this->assertSame(404, $this->dispatchSettings('local')->getStatusCode());
+    }
+
+    public function testAManagerOfOneAssetGetsA404OnAnothersSettingsPage(): void
+    {
+        $this->createAsset('Mon local', 'mon-local');
+        $this->createAsset('Local des autres', 'local-des-autres');
+        $this->loginAsManagerOf('mon-local');
+
+        $this->assertSame(200, $this->dispatchSettings('mon-local')->getStatusCode());
+        $this->assertSame(404, $this->dispatchSettings('local-des-autres')->getStatusCode());
+    }
+
+    public function testAnAnonymousVisitorIsRefusedTheSettingsPage(): void
+    {
+        $this->createAsset('Local', 'local');
+
+        $this->assertContains($this->dispatchSettings('local')->getStatusCode(), [302, 401, 403]);
+    }
+
+    /**
+     * Every write action of the settings page, one per case: an identified
+     * visitor who does not manage the asset must get 404 from each of them.
+     * A single one of these left unchecked is a tariff anybody logged in can
+     * rewrite.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('settingsWriteActions')]
+    public function testEverySettingsWriteActionRefusesANonManager(string $suffix, string $action): void
+    {
+        $this->createAsset('Local', 'local');
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+
+        $response = $this->dispatchSettingsWrite('local', $suffix, $action);
+
+        $this->assertSame(404, $response->getStatusCode(), $action . ' must refuse a non-manager.');
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('settingsWriteActions')]
+    public function testEverySettingsWriteActionAcceptsTheAssetsOwnManager(string $suffix, string $action): void
+    {
+        $this->createAsset('Local', 'local');
+        $this->loginAsManagerOf('local');
+
+        $response = $this->dispatchSettingsWrite('local', $suffix, $action);
+
+        // A redirect back to the settings page: the write was authorized and
+        // ran. What it wrote is each service's own test — what matters here
+        // is that the door opened for the right person.
+        $this->assertSame(302, $response->getStatusCode(), $action . ' must accept its own manager.');
+        $this->assertStringContainsString(
+            '/mes-locations/local/reglages',
+            (string) $response->getHeaders()['Location']
         );
+    }
 
-        $this->assertSame(403, $response->getStatusCode());
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function settingsWriteActions(): array
+    {
+        return [
+            'règles' => ['regles', 'saveConstraints'],
+            'tarif' => ['tarif', 'savePricing'],
+            'période' => ['periode', 'addPeriod'],
+            'période supprimée' => ['periode-supprimer', 'deletePeriod'],
+            'catégorie' => ['categorie', 'addCategory'],
+            'catégorie supprimée' => ['categorie-supprimer', 'deleteCategory'],
+            'grille' => ['grille', 'saveGrid'],
+            'frais' => ['frais', 'addFee'],
+            'frais supprimé' => ['frais-supprimer', 'deleteFee'],
+            'paiements' => ['paiements', 'savePayments'],
+        ];
     }
 
     public function testTheManageButtonIsShownToAManager(): void

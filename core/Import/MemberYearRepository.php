@@ -321,6 +321,73 @@ class MemberYearRepository
     }
 
     /**
+     * The whole active roster of one scout year, reduced to the columns a
+     * name picker actually reads — and to nothing else.
+     *
+     * Two queries for the entire roster, never one per member: the obvious
+     * alternative (Core\Member\SectionService::getSectionStaff() plus
+     * getSectionAnimes(), which Modules\Groups' invite search uses) issues
+     * three queries per member for addresses, functions and badges, so a
+     * unit of three hundred members costs roughly nine hundred queries per
+     * keystroke of a search-as-you-type box.
+     *
+     * The main function's section and label are resolved in the second
+     * query and folded in by member_year id; a member with several
+     * functions and no main one simply has neither.
+     *
+     * @return array<int, array<string, mixed>> One row per active member,
+     *         carrying the encrypted name columns plus `section_name` and
+     *         `function_label`.
+     */
+    public function findActiveRosterForYear(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT my.id, my.member_id, my.first_name_encrypted, my.last_name_encrypted,
+                    my.totem_encrypted, my.birth_date_encrypted
+             FROM member_years my
+             WHERE my.scout_year_id = ? AND my.is_active = 1'
+        );
+        $stmt->execute([$scoutYearId]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        if ($rows === []) {
+            return [];
+        }
+
+        $memberYearIds = array_map(static fn(array $row) => (int) $row['id'], $rows);
+        $placeholders = implode(',', array_fill(0, count($memberYearIds), '?'));
+
+        $stmt = $this->pdo->prepare(
+            "SELECT mf.member_year_id, mf.is_main_function, s.name AS section_name, f.label AS function_label
+             FROM member_functions mf
+             JOIN functions f ON mf.function_id = f.id
+             LEFT JOIN sections s ON mf.section_id = s.id
+             WHERE mf.member_year_id IN ({$placeholders})
+             ORDER BY mf.is_main_function ASC"
+        );
+        $stmt->execute($memberYearIds);
+
+        // Ordered main-function-last so the loop keeps overwriting with it:
+        // one pass, and the same answer as a per-member "main function or
+        // nothing" query would give. Same technique as
+        // findMostRecentEmailBlindIndexesForMembers() above.
+        $functions = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $functions[(int) $row['member_year_id']] = [
+                'section_name' => $row['section_name'] !== null ? (string) $row['section_name'] : null,
+                'function_label' => $row['function_label'] !== null ? (string) $row['function_label'] : null,
+            ];
+        }
+
+        foreach ($rows as $index => $row) {
+            $rows[$index]['section_name'] = $functions[(int) $row['id']]['section_name'] ?? null;
+            $rows[$index]['function_label'] = $functions[(int) $row['id']]['function_label'] ?? null;
+        }
+
+        return $rows;
+    }
+
+    /**
      * Replace all addresses for a member_year.
      *
      * @param array<int, array<string, mixed>> $addresses

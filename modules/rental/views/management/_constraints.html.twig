@@ -7,7 +7,7 @@
   notice window ends up shown to a visitor as "occupé", who then concludes
   the asset is booked and gives up on it (§6.7).
 
-  Requires `selected_asset` and `constraints`.
+  Requires `asset` and `constraints`.
 #}
 <div class="card mb-4" id="regles">
     <div class="card-body">
@@ -18,9 +18,8 @@
             Laissez une valeur à zéro pour ne pas appliquer la règle.
         </p>
 
-        <form method="post" action="/admin/locations/constraints">
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/regles">
             {{ csrf_field()|raw }}
-            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
 
             <div class="row g-3 mb-3">
                 <div class="col-6 col-md-3">

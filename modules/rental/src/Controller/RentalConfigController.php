@@ -14,31 +14,38 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
-use Core\Member\MemberService;
+use Core\Member\MemberDirectoryEntry;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAssetService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalManagerService;
-use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Mail\MailboxSelection;
-use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Service\RentalPaymentService;
-use Modules\Rental\Service\RentalPricingService;
 use Twig\Environment;
 
 /**
- * "Espace chefs d'U > Locations" (`role_min: admin`) — the **structural**
- * configuration of the assets themselves: what exists, who manages it, and
- * later its booking rules, pricing and compliance register.
+ * "Espace chefs d'U > Locations" (`role_min: admin`) — the administration of
+ * the **park**: which assets exist, who manages each one, and the handful of
+ * things that are not a property of a single asset (the watched mailboxes,
+ * the Finance account an asset's money lands on).
  *
- * Deliberately NOT where an asset is operated day to day. The contract
- * template, the email templates and the bookings all live in the asset's
- * own managed space, reachable by its managers — who are not necessarily
- * chiefs and have no business needing `admin` (roadmap §6.4). Unit staff
- * reach both, since they are implicitly managers of every asset.
+ * Deliberately NOT where an asset is *configured*, and no longer where it is
+ * operated. There is exactly one authority in this module — "manager of this
+ * asset" — and unit staff hold it over every asset by virtue of their
+ * function, never through a stored grant (Service\RentalAuthorizationService).
+ * So an asset's booking rules, its tariff and its deposit rules live in the
+ * asset's own managed space alongside its bookings, reachable by the people
+ * who actually run it, and unit staff reach them there like any other
+ * manager rather than through a second, admin-only screen.
+ *
+ * **The one field that did not follow, and why.** Which Finance account an
+ * asset's money is expected on stays here: `getConfiguredAccounts()` hands
+ * back every active account with its IBAN and does not filter by
+ * `role_min_view`, and a manager may be a parent or a former leader — see
+ * saveFinanceAccount() below.
  *
  * **Why "Espace chefs d'U" and not "Configuration".** The intended audience
  * is the unit chief, i.e. `admin`. The `configuration` menu's own minimum is
@@ -62,11 +69,8 @@ class RentalConfigController extends AbstractController
         private RentalAssetRepository $assetRepository,
         private RentalAssetService $assetService,
         private RentalManagerService $managerService,
-        private MemberService $memberService,
         private ScoutYearService $scoutYearService,
         private SettingService $settingService,
-        private RentalPricingService $pricingService,
-        private RentalAvailabilityService $availabilityService,
         /**
          * Optional (§6.19): null on an installation without the Finance
          * module, where the payments section explains that instead of
@@ -137,7 +141,6 @@ class RentalConfigController extends AbstractController
         $assets = $this->assetRepository->findAll();
         $selected = $this->resolveSelectedAsset($request, $assets);
         $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
-        $pricingSettings = $selected !== null ? $this->pricingService->loadSettings($selected->id) : null;
 
         return $this->render('@rental/config/index.html.twig', [
             'assets' => $assets,
@@ -145,30 +148,15 @@ class RentalConfigController extends AbstractController
             'managers' => $selected !== null
                 ? $this->managerService->listManagersForAsset($selected->id, $scoutYearId, false)
                 : [],
-            'assignable_members' => $selected !== null
-                ? $this->assignableMembers($selected->id, $scoutYearId)
+            // The whole eligible roster, rendered as a plain <select> the
+            // search box replaces client-side. A no-JS visitor keeps a
+            // working control and the POST is identical either way —
+            // Modules\Groups' invite search sets the same precedent.
+            'candidates' => $selected !== null
+                ? $this->managerService->listCandidates($scoutYearId)
                 : [],
+            'manager_minimum_age' => $this->managerService->minimumAge(),
             'type_suggestions' => $this->typeSuggestions(),
-            'billing_units' => \Modules\Rental\Pricing\BillingUnit::all(),
-            'fee_natures' => \Modules\Rental\Pricing\RentalFee::natures(),
-            'pricing' => $pricingSettings,
-            'constraints' => $selected !== null
-                ? $this->availabilityService->constraintsFor($selected->id)
-                : null,
-            // The simulator runs through the very same engine as the public
-            // page and the contract (see RentalPricingController::simulate()),
-            // which is the only thing that makes it a real guard-rail against
-            // a wrong tariff rather than a second opinion.
-            'simulation' => $selected !== null && $pricingSettings !== null
-                ? RentalPricingController::simulate($this->pricingService, $pricingSettings, [
-                    'sim_arrival' => $request->getQuery('sim_arrival', ''),
-                    'sim_departure' => $request->getQuery('sim_departure', ''),
-                    'sim_persons' => $request->getQuery('sim_persons', 0),
-                    'sim_units' => $request->getQuery('sim_units', 1),
-                    'sim_rooms' => $request->getQuery('sim_rooms', 1),
-                    'sim_category' => $request->getQuery('sim_category', ''),
-                ])
-                : null,
             // Finance is a nullable dependency: with it off, the section
             // says so rather than rendering a broken account picker.
             'finance_available' => $this->paymentService?->isAvailable() ?? false,
@@ -176,7 +164,6 @@ class RentalConfigController extends AbstractController
             'payment_settings' => $selected !== null && $this->paymentService !== null
                 ? $this->paymentService->settingsFor($selected->id)
                 : new PaymentSettings(),
-            'deposit_modes' => DepositMode::all(),
             // Inbound mail is a nullable dependency too (§7.5): without it
             // the section explains that instead of offering a picker with
             // nothing in it. A manager sees each box's name and state —
@@ -198,15 +185,23 @@ class RentalConfigController extends AbstractController
     }
 
     /**
-     * POST /admin/locations/payments — the asset's money configuration
-     * (§6.19, §6.20).
+     * POST /admin/locations/compte — which Finance account this asset's
+     * money is expected on, and **nothing else** about the money.
      *
-     * Its own action, like every other section here: a single
-     * two-hundred-field form is the thing this screen is designed against.
+     * This one field stays with unit staff while the rest of the payment
+     * configuration (deposit, balance, security deposit) belongs to the
+     * asset's managers, for a reason that is not a matter of taste:
+     * `Modules\Finance\Api\FinanceAccountInterface::getConfiguredAccounts()`
+     * returns every active account **with its IBAN** and does not filter by
+     * `role_min_view`, while a manager is explicitly allowed to be a parent
+     * or a former leader (§6.3). Rendering that picker on a `role_min:
+     * identified` page would hand the unit's account numbers to all of
+     * them, against SECURITY.md §3's rule that every page resolving Finance
+     * accounts filters through their own visibility.
      *
      * @param array<string, string> $params
      */
-    public function savePayments(Request $request, array $params): Response
+    public function saveFinanceAccount(Request $request, array $params): Response
     {
         if (!CsrfGuard::validateRequest()) {
             return new Response('Forbidden', 403);
@@ -220,30 +215,43 @@ class RentalConfigController extends AbstractController
         $accountId = (int) $request->getBody('finance_account_id', 0);
 
         try {
-            $this->paymentService->saveSettings($assetId, new PaymentSettings(
-                enabled: $request->getBody('payments_enabled') !== null,
-                financeAccountId: $accountId > 0 ? $accountId : null,
-                depositMode: DepositMode::tryFrom((string) $request->getBody('deposit_mode', 'none'))
-                    ?? DepositMode::NONE,
-                depositAmountCents: RentalPricingService::parseAmountToCents(
-                    (string) $request->getBody('deposit_amount', '')
-                ),
-                depositPercentage: self::optionalInt($request->getBody('deposit_percentage')),
-                depositDueDays: self::optionalInt($request->getBody('deposit_due_days')),
-                balanceDueDays: self::optionalInt($request->getBody('balance_due_days')),
-                securityDepositEnabled: $request->getBody('security_deposit_enabled') !== null,
-                securityDepositAmountCents: RentalPricingService::parseAmountToCents(
-                    (string) $request->getBody('security_deposit_amount', '')
-                ),
-                securityDepositDueDays: self::optionalInt($request->getBody('security_deposit_due_days'))
-            ));
+            // Only this field: everything else is read back from storage, so
+            // pinning an account can never blank a deposit rule a manager
+            // set on the other screen.
+            $this->paymentService->saveFinanceAccount($assetId, $accountId > 0 ? $accountId : null);
 
-            FlashMessage::set('success', 'Configuration des paiements enregistrée.');
+            FlashMessage::set('success', 'Le compte de ce bien a été enregistré.');
         } catch (RentalException $e) {
             FlashMessage::set('danger', $e->getMessage());
         }
 
-        return $this->redirect('/admin/locations?asset=' . $assetId . '#paiements');
+        return $this->redirect('/admin/locations?asset_id=' . $assetId . '#compte');
+    }
+
+    /**
+     * GET /admin/locations/gestionnaire-recherche — the search-as-you-type
+     * box behind the managers section.
+     *
+     * Answers names, sections and functions. **Never an email address**: the
+     * only reason Modules\Groups shows one in its own member picker is to
+     * tell two logins of the same human apart, and a grant here names a
+     * member, not a login.
+     *
+     * @param array<string, string> $params
+     */
+    public function searchManagers(Request $request, array $params): Response
+    {
+        $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
+        $matches = $this->managerService->searchCandidates(
+            (string) $request->getQuery('q', ''),
+            $scoutYearId
+        );
+
+        return $this->json(array_map(static fn(MemberDirectoryEntry $entry) => [
+            'id' => $entry->memberId,
+            'label' => $entry->label(),
+            'sublabel' => $entry->sublabel(),
+        ], $matches));
     }
 
 
@@ -319,10 +327,23 @@ class RentalConfigController extends AbstractController
      * POST /admin/locations/managers — the "gestionnaires" section only.
      *
      * Reads the full desired manager set from the form and reconciles it,
-     * rather than taking an add/remove verb: the page shows a checklist, so
-     * "these are the managers now" is what the operator actually expressed.
-     * A member absent from the post is revoked — a deliberate decision by a
-     * chief, unlike the import-driven deactivation, which never deletes.
+     * rather than taking an add/remove verb: the page shows the current
+     * managers, so "these are the managers now" is what the operator
+     * actually expressed. A member absent from the post is revoked — a
+     * deliberate decision by a chief, unlike the import-driven
+     * deactivation, which never deletes.
+     *
+     * **A real bug this shape used to have, and the reason the honoured set
+     * is built the way it is.** The form only ever rendered members the
+     * picker offers — active members of the year, and now only those old
+     * enough — while `revoke()` is a `DELETE`. A manager dropped by the last
+     * Desk import is in neither list, so every save silently and permanently
+     * deleted their grant, precisely the grant the warning above the section
+     * promises is "conservée : elle se réactive d'elle-même s'ils
+     * réapparaissent dans un import". The honoured set is therefore built
+     * from the candidates **plus every existing grant, active or not**: a
+     * grant can only be removed by somebody who could actually see it on the
+     * page and untick it.
      *
      * @param array<string, string> $params
      */
@@ -344,32 +365,54 @@ class RentalConfigController extends AbstractController
 
         $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
 
-        // Only member ids actually assignable this year are honoured — a
-        // forged id in the post must not create a grant for someone who is
-        // not on the roster at all.
-        $assignableIds = array_keys($this->assignableMembers($assetId, $scoutYearId));
+        $userId = AuthSession::getUserAccountId();
+        $existing = $this->managerService->listManagersForAsset($assetId, $scoutYearId, false);
+        $existingIds = array_map(static fn(array $row) => $row['manager']->memberId, $existing);
+
+        // Only ids the page could actually offer are honoured — a forged id
+        // in the post must not create a grant for somebody off the roster,
+        // or under the configured minimum age. Existing grants count as
+        // offerable because the page renders them: that is what stops a
+        // save from deleting a manager it never showed.
+        $offerableIds = array_merge(
+            array_map(
+                static fn(MemberDirectoryEntry $entry) => $entry->memberId,
+                $this->managerService->listCandidates($scoutYearId)
+            ),
+            $existingIds
+        );
+
         $submitted = $request->getBody('manager_member_ids', []);
         $submittedIds = is_array($submitted) ? array_map('intval', $submitted) : [];
-        $wantedIds = array_values(array_intersect($submittedIds, $assignableIds));
+        $wantedIds = array_values(array_intersect($submittedIds, $offerableIds));
 
         $renterContacts = $request->getBody('renter_contact_member_ids', []);
         $renterContactIds = is_array($renterContacts) ? array_map('intval', $renterContacts) : [];
 
-        $userId = AuthSession::getUserAccountId();
-        $existing = $this->managerService->listManagersForAsset($assetId, $scoutYearId, false);
-        $existingIds = array_map(static fn(array $row) => $row['manager']->memberId, $existing);
+        $suspendedIds = array_map(
+            static fn(array $row) => $row['manager']->memberId,
+            array_filter($existing, static fn(array $row) => !$row['manager']->isActive)
+        );
 
         foreach (array_diff($existingIds, $wantedIds) as $memberId) {
             $this->managerService->revoke($assetId, (int) $memberId, $userId);
         }
 
         foreach ($wantedIds as $memberId) {
-            $this->managerService->grant(
-                $assetId,
-                $memberId,
-                in_array($memberId, $renterContactIds, true),
-                $userId
-            );
+            $isRenterContact = in_array($memberId, $renterContactIds, true);
+
+            if (in_array($memberId, $suspendedIds, true)) {
+                // Kept exactly as the import left it: suspended. grant()
+                // would flip `is_active` back on, handing access to
+                // somebody the roster no longer lists — the import, not
+                // this form, is what decides that, and it reactivates on
+                // its own when they reappear. Only the renter-contact flag
+                // is honoured here.
+                $this->managerService->setRenterContact($assetId, $memberId, $isRenterContact);
+                continue;
+            }
+
+            $this->managerService->grant($assetId, $memberId, $isRenterContact, $userId);
         }
 
         FlashMessage::set('success', 'Les gestionnaires ont été enregistrés.');
@@ -476,26 +519,6 @@ class RentalConfigController extends AbstractController
         }
 
         return $assets[0] ?? null;
-    }
-
-    /**
-     * Every member who could be made a manager of this asset, as
-     * `members.id => display name`.
-     *
-     * Any active member of the current year qualifies: a manager is
-     * explicitly not required to be a chief (roadmap §6.3), so narrowing
-     * this by role would defeat the point of the feature. Authority still
-     * comes only from the grant itself.
-     *
-     * @return array<int, string>
-     */
-    private function assignableMembers(int $assetId, int $scoutYearId): array
-    {
-        $memberIds = $this->memberService->findActiveMemberIdsForYear($scoutYearId);
-        $names = $this->memberService->findDisplayNamesByMemberIds($memberIds, $scoutYearId);
-        asort($names, SORT_NATURAL | SORT_FLAG_CASE);
-
-        return $names;
     }
 
     /**

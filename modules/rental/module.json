@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -425,6 +425,22 @@
       }
     },
     {
+      "path": "/mes-locations/{slug}/reglages",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "settings",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Réglages",
+        "parents": [
+          "Espace animés",
+          "Mes locations"
+        ]
+      }
+    },
+    {
       "path": "/mes-locations/{slug}/reservations/{id}/sejour",
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
@@ -548,6 +564,24 @@
       "label": ""
     },
     {
+      "path": "/admin/locations/gestionnaire-recherche",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "searchManagers",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/locations/compte",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "saveFinanceAccount",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/admin/locations/archive",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalConfigController",
@@ -575,93 +609,93 @@
       "label": ""
     },
     {
-      "path": "/admin/locations/pricing",
+      "path": "/mes-locations/{slug}/reglages/tarif",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "savePricing",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "espace_animes",
+      "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/admin/locations/pricing/period",
+      "path": "/mes-locations/{slug}/reglages/periode",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "addPeriod",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "espace_animes",
+      "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/admin/locations/pricing/period-delete",
+      "path": "/mes-locations/{slug}/reglages/periode-supprimer",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "deletePeriod",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "espace_animes",
+      "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/admin/locations/pricing/category",
+      "path": "/mes-locations/{slug}/reglages/categorie",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "addCategory",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "espace_animes",
+      "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/admin/locations/pricing/category-delete",
+      "path": "/mes-locations/{slug}/reglages/categorie-supprimer",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "deleteCategory",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "espace_animes",
+      "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/admin/locations/pricing/grid",
+      "path": "/mes-locations/{slug}/reglages/grille",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "saveGrid",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "espace_animes",
+      "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/admin/locations/pricing/fee",
+      "path": "/mes-locations/{slug}/reglages/frais",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "addFee",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "espace_animes",
+      "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/admin/locations/pricing/fee-delete",
+      "path": "/mes-locations/{slug}/reglages/frais-supprimer",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "deleteFee",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "espace_animes",
+      "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/admin/locations/constraints",
+      "path": "/mes-locations/{slug}/reglages/regles",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "saveConstraints",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "espace_animes",
+      "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/admin/locations/payments",
+      "path": "/mes-locations/{slug}/reglages/paiements",
       "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "savePayments",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "espace_animes",
+      "role_min": "identified",
       "label": ""
     },
     {
@@ -749,6 +783,13 @@
       "type": "number",
       "label": "Rétention des réservations (années)",
       "description": "Nombre d'années pendant lesquelles une réservation et ses documents sont conservés, comptées depuis la clôture de l'exercice comptable contenant le séjour — pas depuis le séjour lui-même, pour que toutes les locations d'un même exercice se purgent ensemble. Passé ce délai, la réservation, ses lignes, ses documents, ses jetons, ses relevés et les emails qui lui sont rattachés sont supprimés définitivement ; seule subsiste une ligne d'agrégat anonyme (bien, mois, nombre de jours, montant) pour que les statistiques de l'année restent justes. La valeur par défaut de 7 ans reprend l'usage comptable belge courant : c'est une aide, jamais un conseil juridique."
+    },
+    {
+      "key": "rental_manager_minimum_age",
+      "default_value": "16",
+      "type": "number",
+      "label": "Âge minimum d'un gestionnaire de bien",
+      "description": "Âge à partir duquel un membre peut être désigné gestionnaire d'un bien en location. Un gestionnaire n'est pas forcément un chef — c'est souvent l'intendant, un parent ou un ancien — mais il accède aux coordonnées des locataires, à l'argent et aux contrats, ce qui n'a pas à être proposé pour un louveteau de 8 ans. L'âge est calculé sur la date de naissance réelle ; un membre dont la date n'est pas encodée dans Desk reste proposé, plutôt que de disparaître sans explication. Une valeur vide ou nulle n'est pas appliquée : c'est 16 ans qui vaut alors."
     }
   ],
   "cookies": [],
