@@ -719,6 +719,7 @@ class GroupController extends AbstractController
             'is_moderator' => $item->isModerator,
             'is_archived' => $item->isArchived,
             'section_names' => $this->sectionNames($item->sectionIds),
+            'member_count' => $item->memberCount,
             // Never on the archives tab: a past-year group is a read-only
             // archive, so "you have not caught up" is not a call to
             // action there, just noise on something already finished.

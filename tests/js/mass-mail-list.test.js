@@ -26,6 +26,32 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const START_SENDING_MESSAGE =
     'Lancer l\'envoi ? La liste des destinataires sera figée et l\'envoi ne pourra plus être annulé.';
 
+/**
+ * The send button asks the server how many people this would reach before
+ * it asks the manager anything. Every test in this file therefore has to
+ * answer that request first, so the helper below routes it.
+ *
+ * @param {{count: number, kind?: string}|null} estimate null = the request fails
+ */
+function recipientCountFetch(estimate) {
+    return (url) => {
+        const path = String(url);
+        if (path.endsWith('/recipient-count')) {
+            return estimate === null
+                ? jsonResponse({ success: false, error: 'Email introuvable.' })
+                : jsonResponse({ success: true, count: estimate.count, kind: estimate.kind || 'members' });
+        }
+        // A successful status change re-opens the email; answer that the
+        // way the server would, or the reload lands on a payload with no
+        // email in it.
+        if (path === '/mass-mail/7') {
+            return jsonResponse(email({ status: 'sending' }));
+        }
+
+        return jsonResponse({ success: true });
+    };
+}
+
 function jsonResponse(data) {
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(data) });
 }
@@ -201,11 +227,13 @@ describe('mass-mail-list.js: starting the send', () => {
         const nativeConfirm = vi.fn(() => true);
         window.confirm = nativeConfirm;
         await bootAndOpen();
+        global.fetch = vi.fn(recipientCountFetch({ count: 42 }));
 
         document.getElementById('mm-start-sending-btn').click();
+        await settle();
 
         expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith({
-            message: START_SENDING_MESSAGE,
+            message: 'Cet email partira à 42 personnes. ' + START_SENDING_MESSAGE,
             confirmLabel: 'Envoyer',
             // Irreversible, but it destroys nothing: sending is the point of
             // the screen, so the primary button, not the danger one.
@@ -214,25 +242,88 @@ describe('mass-mail-list.js: starting the send', () => {
         expect(nativeConfirm).not.toHaveBeenCalled();
     });
 
+    it('counts the people, so 42 and 400 are not the same question', async () => {
+        // A wrong list selection looks exactly like a right one until the
+        // mail is out, and nothing can be recalled after that.
+        await bootAndOpen();
+        global.fetch = vi.fn(recipientCountFetch({ count: 400 }));
+
+        document.getElementById('mm-start-sending-btn').click();
+        await settle();
+
+        expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message)
+            .toContain('partira à 400 personnes');
+    });
+
+    it('says one person in the singular', async () => {
+        await bootAndOpen();
+        global.fetch = vi.fn(recipientCountFetch({ count: 1 }));
+
+        document.getElementById('mm-start-sending-btn').click();
+        await settle();
+
+        expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message)
+            .toContain('partira à 1 personne. ');
+    });
+
+    it('counts rows of the file for a mail merge, not people', async () => {
+        await bootAndOpen();
+        global.fetch = vi.fn(recipientCountFetch({ count: 12, kind: 'rows' }));
+
+        document.getElementById('mm-start-sending-btn').click();
+        await settle();
+
+        expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message)
+            .toContain('12 lignes du fichier');
+    });
+
+    it('says so when the list currently designates nobody', async () => {
+        await bootAndOpen();
+        global.fetch = vi.fn(recipientCountFetch({ count: 0 }));
+
+        document.getElementById('mm-start-sending-btn').click();
+        await settle();
+
+        expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message)
+            .toBe('Cette liste ne désigne actuellement personne. ' + START_SENDING_MESSAGE);
+    });
+
+    it('still asks, without a number, when the count cannot be had', async () => {
+        // A failed count must not become a silent send, and must not
+        // become a send that cannot happen either.
+        await bootAndOpen();
+        global.fetch = vi.fn(recipientCountFetch(null));
+
+        document.getElementById('mm-start-sending-btn').click();
+        await settle();
+
+        expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message).toBe(START_SENDING_MESSAGE);
+    });
+
     it('posts nothing when the confirmation resolves false — an email cannot be un-sent', async () => {
         await bootAndOpen();
+        global.fetch = vi.fn(recipientCountFetch({ count: 42 }));
         window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
 
         document.getElementById('mm-start-sending-btn').click();
         await settle();
 
         expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled();
-        expect(fetch).not.toHaveBeenCalled();
+        // The count is a GET and changes nothing; the status POST is what
+        // must not have happened.
+        expect(fetch.mock.calls.every(([url]) => !String(url).endsWith('/status'))).toBe(true);
     });
 
     it('posts start_sending for the open email when it resolves true', async () => {
         await bootAndOpen();
+        global.fetch = vi.fn(recipientCountFetch({ count: 42 }));
 
         document.getElementById('mm-start-sending-btn').click();
         await settle();
 
-        expect(fetch.mock.calls[0][0]).toBe('/mass-mail/7/status');
-        expect(JSON.parse(fetch.mock.calls[0][1].body))
+        const post = fetch.mock.calls.find(([url]) => String(url).endsWith('/status'));
+        expect(post[0]).toBe('/mass-mail/7/status');
+        expect(JSON.parse(post[1].body))
             .toEqual({ action: 'start_sending', _csrf_token: 'tok' });
     });
 

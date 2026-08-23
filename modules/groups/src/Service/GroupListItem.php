@@ -22,13 +22,20 @@ final class GroupListItem
      *        account last opened it. A group never opened at all counts as
      *        unread only when it has genuinely had activity — otherwise a
      *        brand-new empty group would announce itself as "new" forever.
+     * @param int $memberCount how many people are in the group, invited
+     *        and section-derived taken together and counted once. Not the
+     *        number of rows in discussion_group_members: on a section
+     *        group that table is nearly empty and the real membership
+     *        comes from the sections, so the row count would read as « 1
+     *        membre » for a group of forty.
      */
     public function __construct(
         public readonly DiscussionGroup $group,
         public readonly bool $isModerator,
         public readonly bool $isArchived,
         public readonly array $sectionIds,
-        public readonly bool $hasUnread = false
+        public readonly bool $hasUnread = false,
+        public readonly int $memberCount = 0
     ) {
     }
 }

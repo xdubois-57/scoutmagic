@@ -148,6 +148,28 @@ class MassMailController extends AbstractController
     }
 
     /**
+     * GET /mass-mail/{id}/recipient-count — how many people this would
+     * reach if sent right now.
+     *
+     * Its own request rather than a field of show(): the list behind an
+     * email is live, and the point of the number is that it is true at the
+     * moment the manager is asked to confirm, not at the moment they
+     * opened the dialog.
+     *
+     * @param array<string, string> $params
+     */
+    public function recipientCount(Request $request, array $params): Response
+    {
+        try {
+            $estimate = $this->massMailService->estimateRecipientCount((int) $params['id']);
+        } catch (MassMailException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 404);
+        }
+
+        return $this->json(['success' => true] + $estimate);
+    }
+
+    /**
      * POST /mass-mail — create a draft.
      *
      * @param array<string, string> $params

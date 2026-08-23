@@ -95,6 +95,36 @@ class GroupMemberRepository
     }
 
     /**
+     * The explicit member ids of several groups at once.
+     *
+     * The counterpart of findByMemberIds() for the other axis: the list
+     * page needs "who is in this group" for every group it shows, and a
+     * findByGroup() per row would be one query per card.
+     *
+     * @param int[] $groupIds
+     * @return array<int, list<int>> group id => members.id values
+     */
+    public function findMemberIdsByGroups(array $groupIds): array
+    {
+        if ($groupIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT group_id, member_id FROM discussion_group_members WHERE group_id IN ({$placeholders})"
+        );
+        $stmt->execute(array_map('intval', array_values($groupIds)));
+
+        $byGroup = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $byGroup[(int) $row['group_id']][] = (int) $row['member_id'];
+        }
+
+        return $byGroup;
+    }
+
+    /**
      * Grants the moderator flag to ONE login, or revokes it. A member who
      * has no explicit row yet (a derived member of a section group) gets
      * one created here carrying only that flag — which is exactly what

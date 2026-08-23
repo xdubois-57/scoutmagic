@@ -633,15 +633,48 @@
 
     el('mm-to-test-btn').addEventListener('click', () => postStatusAction('to_test'));
     el('mm-to-draft-btn').addEventListener('click', () => postStatusAction('to_draft'));
-    el('mm-start-sending-btn').addEventListener('click', () =>
-        postStatusAction('start_sending', {
-            message: 'Lancer l\'envoi ? La liste des destinataires sera figée et l\'envoi ne pourra plus être annulé.',
+    /**
+     * « Lancer l'envoi ? » on its own is a question about an unknown
+     * quantity. The difference between 42 and 400 is the difference
+     * between one section and the whole unit, and a wrong list looks
+     * exactly like a right one until the mail is out — at which point
+     * nothing can be recalled.
+     *
+     * Asked fresh here rather than read from what the dialog loaded: the
+     * list behind the email is live, and a count from when this page was
+     * opened is a count from before somebody else edited that list. If
+     * the count cannot be had, the send still asks — without a number,
+     * rather than not at all.
+     *
+     * @returns {Promise<string>}
+     */
+    async function recipientSentence() {
+        const res = await api.getJson('/mass-mail/' + mmCurrentId + '/recipient-count');
+        const data = res.data;
+        if (!data || !data.success) return '';
+
+        if (data.count === 0) {
+            return 'Cette liste ne désigne actuellement personne. ';
+        }
+
+        const noun = data.kind === 'rows'
+            ? (data.count > 1 ? 'lignes du fichier' : 'ligne du fichier')
+            : (data.count > 1 ? 'personnes' : 'personne');
+
+        return 'Cet email partira à ' + data.count + ' ' + noun + '. ';
+    }
+
+    el('mm-start-sending-btn').addEventListener('click', async () => {
+        const count = await recipientSentence();
+        await postStatusAction('start_sending', {
+            message: count
+                + 'Lancer l\'envoi ? La liste des destinataires sera figée et l\'envoi ne pourra plus être annulé.',
             confirmLabel: 'Envoyer',
             // Irreversible, but it destroys nothing — sending is the whole
             // point of the screen, so it gets the primary button.
             variant: 'primary'
-        })
-    );
+        });
+    });
 
     el('mm-test-send-btn').addEventListener('click', async () => {
         const res = await api.postJson('/mass-mail/' + mmCurrentId + '/test-send', {

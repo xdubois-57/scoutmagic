@@ -177,6 +177,38 @@ class SectionMembershipRepository
     }
 
     /**
+     * The same question as findMemberIdsForSections(), answered per
+     * section in a single query.
+     *
+     * The groups list needs one headcount per group, and a group's
+     * sections are its own — asking section by section is a query per
+     * group on a page that already batches everything else it needs.
+     *
+     * @param int[] $sectionIds
+     * @return array<int, list<int>> section id => distinct members.id values
+     */
+    public function findMemberIdsBySection(array $sectionIds, int $scoutYearId): array
+    {
+        if ($sectionIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($sectionIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT DISTINCT section_id, member_id FROM member_section_periods
+             WHERE scout_year_id = ? AND section_id IN ({$placeholders})"
+        );
+        $stmt->execute(array_merge([$scoutYearId], array_map('intval', array_values($sectionIds))));
+
+        $bySection = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $bySection[(int) $row['section_id']][] = (int) $row['member_id'];
+        }
+
+        return $bySection;
+    }
+
+    /**
      * Every period ever recorded for this member, most recent first — the
      * member page (Core\Member\SectionDocumentPageService) walks this to
      * find every (section, scout year) the member was ever active in.

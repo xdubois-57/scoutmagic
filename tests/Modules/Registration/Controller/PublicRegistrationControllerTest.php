@@ -25,6 +25,7 @@ use Modules\Registration\Controller\PublicRegistrationController;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
+use Modules\Registration\Service\RegistrationSubmissionReceipt;
 use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
 use Modules\Registration\Service\RegistrationService;
@@ -185,6 +186,20 @@ class PublicRegistrationControllerTest extends TestCase
         ], $overrides);
     }
 
+    /**
+     * A submission that went through answers with a redirect, never with
+     * the confirmation page itself.
+     *
+     * The Location matters as much as the status: a rejected CSRF token is
+     * also a 302, and asserting the code alone would have let a submission
+     * that silently bounced back to /inscriptions pass as accepted.
+     */
+    private function assertSubmissionAccepted(\Core\Http\Response $response): void
+    {
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/inscriptions/envoyee', $response->getHeaders()['Location'] ?? null);
+    }
+
     public function testFormClosedWithoutCodeRejectsWithFriendlyError(): void
     {
         $this->settingService->set('registration_form_open', '0', 'registration');
@@ -290,7 +305,7 @@ class PublicRegistrationControllerTest extends TestCase
             []
         );
 
-        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSubmissionAccepted($response);
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
         // Targets the CURRENT public year (in-year code), not next year.
         $this->assertSame($this->publicYearId, (int) $this->pdo->query('SELECT scout_year_id FROM registration_requests ORDER BY id DESC LIMIT 1')->fetchColumn());
@@ -320,7 +335,7 @@ class PublicRegistrationControllerTest extends TestCase
             []
         );
 
-        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSubmissionAccepted($response);
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
     }
 
@@ -362,7 +377,7 @@ class PublicRegistrationControllerTest extends TestCase
             []
         );
 
-        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSubmissionAccepted($response);
         $row = $this->pdo->query('SELECT desired_section_id FROM registration_requests ORDER BY id DESC LIMIT 1')->fetch(\PDO::FETCH_ASSOC);
         $this->assertNotSame((string) $this->louveteauxSectionId, (string) $row['desired_section_id']);
     }
@@ -382,7 +397,7 @@ class PublicRegistrationControllerTest extends TestCase
             []
         );
 
-        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSubmissionAccepted($response);
         $requestId = (int) $this->pdo->query('SELECT id FROM registration_requests ORDER BY id DESC LIMIT 1')->fetchColumn();
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_request_siblings WHERE registration_request_id = ' . $requestId)->fetchColumn());
     }
@@ -439,8 +454,57 @@ class PublicRegistrationControllerTest extends TestCase
             []
         );
 
-        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSubmissionAccepted($response);
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
+    }
+
+    // ── The confirmation is a GET (POST-redirect-GET) ───────────────────
+
+    public function testTheConfirmationPageNamesTheChildAndIsReachableTwice(): void
+    {
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+        $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge($this->baseFields(), $hcFields), [], []),
+            []
+        );
+
+        // Twice, deliberately: reloading a confirmation must confirm
+        // again. That is the whole reason the page is a GET — and what
+        // rendering it as the POST's own response made impossible without
+        // the browser re-posting the form.
+        foreach ([1, 2] as $visit) {
+            $response = $this->controller->submitted(new Request('GET', '/inscriptions/envoyee', [], [], [], []), []);
+
+            $this->assertSame(200, $response->getStatusCode(), "visit {$visit}");
+            $this->assertStringContainsString('Demande envoyée', $response->getBody());
+            $this->assertStringContainsString('Léa', $response->getBody());
+        }
+
+        // And no second request was created by any of it.
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
+    }
+
+    public function testTheConfirmationPageWithNothingToConfirmGoesBackToTheForm(): void
+    {
+        // A bookmark, a shared link, a tab reopened tomorrow. « Merci ! »
+        // for a request that may belong to somebody else's browser is
+        // worse than the registration page.
+        $response = $this->controller->submitted(new Request('GET', '/inscriptions/envoyee', [], [], [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/inscriptions', $response->getHeaders()['Location'] ?? null);
+    }
+
+    public function testAStaleConfirmationExpiresRatherThanLingering(): void
+    {
+        RegistrationSubmissionReceipt::remember('Léa', 42, time() - 7200);
+
+        $this->assertNull(RegistrationSubmissionReceipt::read());
+        $this->assertSame(
+            302,
+            $this->controller->submitted(new Request('GET', '/inscriptions/envoyee', [], [], [], []), [])->getStatusCode()
+        );
     }
 
     private function insertLinkedMember(string $email, string $deskId, string $firstName, string $lastName): int

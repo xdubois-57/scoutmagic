@@ -21,6 +21,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Service\RegistrationService;
+use Modules\Registration\Service\RegistrationSubmissionReceipt;
 use Modules\Registration\Service\RegistrationYearCodeSession;
 use Modules\Registration\Service\SlotMath;
 use Modules\Registration\Service\SlotService;
@@ -173,9 +174,40 @@ class PublicRegistrationController extends AbstractController
             $slotLabel
         );
 
+        // POST-redirect-GET. Rendering the confirmation as this POST's own
+        // response leaves the browser sitting on a POST: an F5, a
+        // « Recharger » after a dropped connection, or back-then-forward
+        // re-submits the whole form — the family sees their browser's
+        // "Confirmer le renvoi du formulaire ?", and the unit gets a
+        // second inscription for the same child that looks exactly like a
+        // real one.
+        RegistrationSubmissionReceipt::remember((string) $fields['child_first_name'], $requestId);
+
+        return $this->redirect('/inscriptions/envoyee');
+    }
+
+    /**
+     * GET /inscriptions/envoyee — the confirmation, after the redirect.
+     *
+     * Reads the receipt rather than consuming it: reloading a confirmation
+     * page must confirm again, which is the whole reason this route
+     * exists. Without one — a bookmark, a shared link, a tab reopened
+     * tomorrow — there is nothing to confirm, and the honest answer is the
+     * registration page rather than a « Merci ! » for a request that may
+     * belong to somebody else's browser.
+     *
+     * @param array<string, string> $params
+     */
+    public function submitted(Request $request, array $params): Response
+    {
+        $receipt = RegistrationSubmissionReceipt::read();
+        if ($receipt === null) {
+            return $this->redirect('/inscriptions');
+        }
+
         return $this->render('@registration/submitted.html.twig', [
-            'child_first_name' => $fields['child_first_name'],
-            'request_id' => $requestId,
+            'child_first_name' => $receipt['child_first_name'],
+            'request_id' => $receipt['request_id'],
         ]);
     }
 

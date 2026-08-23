@@ -532,6 +532,31 @@ class GroupControllerTest extends TestCase
         $this->assertStringNotContainsString('Éclaireurs', $body);
     }
 
+    public function testTheListCardCarriesTheGroupsHeadcount(): void
+    {
+        // « Louveteaux » next to « Louveteaux (2025-2026) » says nothing
+        // about which one is the live group. The number does, and it was
+        // two clicks away on the members page.
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'C20', $this->sectionId, $this->currentYearId);
+        $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
+        GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M20', $this->sectionId, $this->currentYearId);
+
+        $body = $this->controller([$creator])->index(new Request('GET', '/groups', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('2 membres', $body);
+    }
+
+    public function testAGroupOfOneIsWrittenInTheSingular(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C21');
+        $this->groupService->createInvitationGroup('Coordination', null, $creator, 1);
+
+        $body = $this->controller([$creator])->index(new Request('GET', '/groups', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('1 membre', $body);
+        $this->assertStringNotContainsString('1 membres', $body);
+    }
+
     public function testShowReturns404ForANonMemberRatherThan403(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'C2');

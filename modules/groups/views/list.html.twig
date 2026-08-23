@@ -104,8 +104,20 @@
                     {% if item.group.description %}
                         <p class="small text-body-secondary mb-0 mt-1">{{ item.group.description }}</p>
                     {% endif %}
+                    {#
+                      The headcount belongs on the card rather than two
+                      clicks away on the members page: « Louveteaux » next
+                      to « Louveteaux (2025-2026) » tells you nothing about
+                      which one is the live group, and the number does.
+                      It counts PEOPLE — invited and section-derived
+                      together, each once (Service\GroupListService) —
+                      never the rows of discussion_group_members, which on
+                      a section group is usually just the moderator.
+                    #}
                     <p class="small text-body-secondary mb-0 mt-1 d-flex flex-wrap gap-2">
                         <span>{{ item.section_names is not empty ? item.section_names|join(', ') : 'Sur invitation' }}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{{ item.member_count }} {{ item.member_count > 1 ? 'membres' : 'membre' }}</span>
                         <span aria-hidden="true">·</span>
                         <span>Activité {{ item.group.lastActivityAt|relative_date }}</span>
                     </p>
