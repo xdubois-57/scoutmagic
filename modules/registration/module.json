@@ -120,6 +120,7 @@
       "role_min": "admin",
       "label": "Inscriptions",
       "menu_icon": "bi-person-plus",
+      "menu_group": "services",
       "breadcrumb": {
         "label": "Inscriptions",
         "parents": [
@@ -299,6 +300,7 @@
       "role_min": "chief",
       "label": "Départs",
       "menu_icon": "bi-box-arrow-right",
+      "menu_group": "ma_section",
       "breadcrumb": {
         "label": "Départs",
         "parents": [
@@ -324,6 +326,7 @@
       "role_min": "admin",
       "label": "Passage",
       "menu_icon": "bi-arrow-left-right",
+      "menu_group": "membres_annee",
       "breadcrumb": {
         "label": "Passage",
         "parents": [
@@ -358,6 +361,7 @@
       "role_min": "chief",
       "label": "Prévisions",
       "menu_icon": "bi-graph-up-arrow",
+      "menu_group": "ma_section",
       "breadcrumb": {
         "label": "Prévisions",
         "parents": [

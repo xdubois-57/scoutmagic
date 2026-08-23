@@ -54,12 +54,17 @@ class RegistrationMenuHookService implements MenuEntryProvider
                 '/inscriptions/suivi/demande/' . $request->id,
                 'identified',
                 // Sorts after the core-built per-member entries, which use
-                // small orders, while staying inside GROUP_DYNAMIC so it
+                // small orders, while staying inside SORT_GROUP_DYNAMIC so it
                 // still lands before the separator.
                 1000 + count($entries),
                 true,
                 'Demande d\'inscription',
-                MenuBuilder::GROUP_DYNAMIC
+                MenuBuilder::SORT_GROUP_DYNAMIC,
+                null,
+                // Same column as the core-built per-member entries: a
+                // request stands for a child the visitor is waiting to see
+                // become a member, not for a page of the site.
+                'mes_membres'
             );
         }
 

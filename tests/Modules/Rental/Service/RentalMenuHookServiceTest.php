@@ -268,7 +268,7 @@ class RentalMenuHookServiceTest extends TestCase
                 $entry->order,
                 $entry->isDynamic,
                 $entry->subtitle,
-                $entry->group
+                $entry->sortGroup
             );
         }
 

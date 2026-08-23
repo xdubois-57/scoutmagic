@@ -25,6 +25,7 @@
       "role_min": "chief",
       "label": "Actualités",
       "menu_icon": "bi-pencil-square",
+      "menu_group": "communication",
       "breadcrumb": { "label": "Actualités", "parents": ["Espace animateurs"] }
     },
     {

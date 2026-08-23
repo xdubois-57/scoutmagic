@@ -53,8 +53,10 @@ class DynamicMenuRegistrar
                     $entry->order,
                     $entry->isDynamic,
                     $entry->subtitle,
-                    $entry->group,
-                    $entry->icon
+                    $entry->sortGroup,
+                    $entry->icon,
+                    null,
+                    $entry->menuGroup
                 );
                 $added[] = $entry;
             }
