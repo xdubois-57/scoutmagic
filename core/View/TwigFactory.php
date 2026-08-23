@@ -41,7 +41,28 @@ class TwigFactory
         $environment = new Environment($loader, [
             'cache' => $debug ? false : $cacheDir,
             'debug' => $debug,
-            'auto_reload' => $debug,
+            // ALWAYS on, deliberately — not `$debug`, which is what it was.
+            //
+            // Without it Twig never re-reads a template it has already
+            // compiled: it loads the cached class and does not so much as
+            // stat the source. The compiled files are namespaced by
+            // VERSION (see cacheDirectory()), so a numbered release does
+            // get a fresh directory — but VersionFile::read() falls back
+            // to the constant 'dev' when there is no VERSION file, which
+            // is exactly what a site deployed from a checkout has. On
+            // such an install the namespace NEVER changes, so every
+            // deploy after the first served the previous deploy's
+            // templates: new controllers passing new variables into old
+            // compiled markup, for as long as storage/temp survived.
+            // That is a deployment defect, not a caching trade-off.
+            //
+            // The cost is one filemtime() per template actually used by
+            // the request — a handful — against a page that already opens
+            // a database connection and runs the schema-hash check. The
+            // version namespace stays: it still isolates releases and
+            // still lets the updater wipe one cleanly
+            // (Task\InstallUpdateHandler::clearCompiledTemplateCache()).
+            'auto_reload' => true,
             // HTML everywhere, EXCEPT the plain-text half of an email.
             //
             // Escaping is right for every page and for the HTML body of a
