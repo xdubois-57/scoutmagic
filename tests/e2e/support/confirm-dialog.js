@@ -20,7 +20,7 @@
  * test — the equivalent of the old `page.on('dialog', d => d.accept())`.
  *
  * Must be called BEFORE the navigation that renders the page, because the
- * observer is installed as an init script.
+ * answering loop is installed as an init script.
  *
  * @param {import('@playwright/test').Page} page
  * @param {{ native?: boolean }} [options] native defaults to true and
@@ -38,9 +38,8 @@ export async function autoConfirm(page, options = {}) {
         page.on('dialog', (dialog) => dialog.accept());
     }
 
-    // The site's dialog: click its confirmation button as soon as it is on
-    // screen. A MutationObserver rather than polling, so no spec has to
-    // wait for a dialog it never asked to see.
+    // The site's dialog: answer it when Bootstrap says it has finished
+    // opening.
     await page.addInitScript(() => {
         const answer = (modal) => {
             // « Annuler » is first in the footer and the confirmation
@@ -52,41 +51,53 @@ export async function autoConfirm(page, options = {}) {
             }
         };
 
-        /** @param {HTMLElement} modal */
-        const answerWhenReady = (modal) => {
-            // NOT on insertion: Bootstrap's Modal.hide() returns without
-            // doing anything while the show transition is still running, so
-            // a click landing in that window leaves the dialog AND its
-            // backdrop on screen for the rest of the test, swallowing every
-            // later click. Answering on 'shown.bs.modal' is the first
-            // moment the dialog can actually be dismissed. Without the
-            // Bootstrap bundle confirm.js shows the same markup by hand,
-            // with no transition and no event — answer straight away.
-            const bootstrapBundle = /** @type {{ Modal?: unknown }|undefined} */ (
-                /** @type {?} */ (window).bootstrap
-            );
-            if (bootstrapBundle && bootstrapBundle.Modal) {
-                modal.addEventListener('shown.bs.modal', () => answer(modal), { once: true });
-            } else {
+        // DELEGATED ON THE DOCUMENT, and installed by an init script — so
+        // it is in place long before any dialog exists. Bootstrap's events
+        // bubble, so this catches `shown.bs.modal` for a dialog created
+        // much later.
+        //
+        // The previous version attached the listener to the dialog itself,
+        // from a MutationObserver watching for its insertion. That loses a
+        // race it cannot win: confirm.js appends the dialog and calls
+        // Modal.show() in the SAME task, while the observer's callback is a
+        // microtask the insertion queues — so the listener could only ever
+        // attach after show() had returned. That is in time whenever the
+        // fade really animates, and silently too late whenever it does not
+        // (Bootstrap runs its callback synchronously when it measures a
+        // transition duration of zero). The listener then waited for an
+        // event already fired: nothing clicked, the dialog stayed on screen
+        // for the rest of the test, and the failure blamed whatever
+        // assertion came next. CI caught exactly that, twice, on a run that
+        // was green locally both times.
+        //
+        // Answering ON `shown.bs.modal` — rather than as soon as the dialog
+        // appears — is not a detail either: Bootstrap's Modal.hide() returns
+        // without doing anything while the opening transition runs, so a
+        // click landing in that window leaves the dialog AND its backdrop on
+        // screen, swallowing every later click. `.modal.fade` reaches full
+        // opacity the moment `.show` lands (what the fade animates is the
+        // `.modal-dialog` transform), so "it looks opaque" is not the same
+        // question and cannot stand in for this event.
+        document.addEventListener('shown.bs.modal', (event) => {
+            const modal = event.target;
+            if (modal instanceof HTMLElement && modal.id === 'sm-confirm-modal') {
                 answer(modal);
             }
-        };
-
-        const observer = new MutationObserver((records) => {
-            records.forEach((record) => {
-                record.addedNodes.forEach((node) => {
-                    if (node instanceof HTMLElement && node.id === 'sm-confirm-modal') {
-                        answerWhenReady(node);
-                    }
-                });
-            });
         });
-        const start = () => observer.observe(document.body, { childList: true });
-        if (document.body) {
-            start();
-        } else {
-            document.addEventListener('DOMContentLoaded', start);
-        }
+
+        // Without the Bootstrap bundle (a stripped page, or a spec that
+        // blocks it) confirm.js shows the same markup by hand: no
+        // transition, and no event to wait for. Poll for that case alone.
+        setInterval(() => {
+            if (window.bootstrap && window.bootstrap.Modal) {
+                return;
+            }
+            const modal = document.getElementById('sm-confirm-modal');
+            if (modal && modal.classList.contains('show') && modal.dataset.e2eAnswered !== '1') {
+                modal.dataset.e2eAnswered = '1';
+                answer(modal);
+            }
+        }, 50);
     });
 }
 
