@@ -166,4 +166,70 @@ class StorageLocationServiceTest extends TestCase
         $this->assertNotNull($location);
         $this->assertSame($id, $location->id);
     }
+
+    // --- remaining disk space (Galerie configuration page) ---
+
+    public function testDiskSpaceIsReportedForALocalLocation(): void
+    {
+        mkdir($this->storagePath . '/gallery', 0755, true);
+        $id = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Local', 'gallery', null, null, null, null, null, null, null);
+
+        $space = $this->service->diskSpaceFor($this->storageLocationRepository->findById($id));
+
+        $this->assertNotNull($space);
+        $this->assertGreaterThan(0, $space->freeBytes);
+        $this->assertGreaterThanOrEqual($space->freeBytes, $space->totalBytes);
+        $this->assertNotSame('', $space->freeLabel());
+    }
+
+    /** A bucket's capacity belongs to its provider — this page cannot know it. */
+    public function testDiskSpaceIsNotReportedForAnS3Location(): void
+    {
+        $id = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_S3, 'Bucket', null, 'custom',
+            'https://example.invalid', 'eu', 'bucket', 'access-key', null, 'secret'
+        );
+
+        $this->assertNull($this->service->diskSpaceFor($this->storageLocationRepository->findById($id)));
+    }
+
+    /**
+     * A location configured a minute ago has no directory until the first
+     * upload or the first health check — and its volume is the storage
+     * root's volume, so answering "unknown" there would hide the number on
+     * exactly the location whose administrator is asking.
+     */
+    public function testDiskSpaceFallsBackToTheStorageRootWhenTheSubdirDoesNotExistYet(): void
+    {
+        $id = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Neuf', 'jamais-cree', null, null, null, null, null, null, null);
+
+        $space = $this->service->diskSpaceFor($this->storageLocationRepository->findById($id));
+
+        $this->assertNotNull($space);
+        $this->assertGreaterThan(0, $space->freeBytes);
+    }
+
+    /**
+     * The "running out" threshold is the biggest file the gallery would
+     * actually accept, so it follows the two upload limits rather than an
+     * arbitrary number of gigabytes.
+     */
+    public function testTheLowThresholdFollowsTheLargestAllowedUpload(): void
+    {
+        $this->settingService->register('gallery_allow_video', '1', 'boolean', 'l', 'd', 'gallery');
+        $this->settingService->register('gallery_max_photo_upload_mb', '30', 'number', 'l', 'd', 'gallery');
+        $this->settingService->register('gallery_max_video_upload_mb', '2048', 'number', 'l', 'd', 'gallery');
+        $id = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Local', 'gallery', null, null, null, null, null, null, null);
+        $location = $this->storageLocationRepository->findById($id);
+
+        $this->assertSame(2048 * 1024 * 1024, $this->service->diskSpaceFor($location)->warnBelowBytes);
+
+        // Video off: the largest file this installation accepts is a photo,
+        // and warning about a 2 Go limit it refuses would warn about
+        // something that cannot happen.
+        $this->settingService->set('gallery_allow_video', '0', 'gallery');
+        $this->settingService->clearCache();
+
+        $this->assertSame(30 * 1024 * 1024, $this->service->diskSpaceFor($location)->warnBelowBytes);
+    }
 }

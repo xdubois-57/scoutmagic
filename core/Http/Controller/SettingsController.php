@@ -32,7 +32,10 @@ class SettingsController extends AbstractController
     // SupportController), which pairs the switch with the explanation of what
     // actually leaves the site — and several of them (installation id,
     // installation date, last-send bookkeeping) are read-only facts nobody
-    // should be invited to hand-edit.
+    // should be invited to hand-edit. `statistics_destination` is the one key
+    // no page renders at all any more: it is a project-level fact, changed
+    // only by whoever stands up a receiver, and a URL field inviting every
+    // unit to redirect its own reports is worth nothing to any of them.
     /** @var string[] */
     private const EXCLUDED_FROM_GENERIC_PAGE = [
         'auto_update_enabled', 'auto_update_level', 'auto_update_day', 'auto_update_time',

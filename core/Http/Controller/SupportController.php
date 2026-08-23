@@ -29,9 +29,12 @@ use Twig\Environment;
  * ARCHITECTURE.md §8.47/§8.48.
  *
  * One page for the two things a unit can do about support: decide whether
- * this installation reports usage statistics, and see exactly what such a
- * report contains; and (from §8.48 onward) generate a diagnostic package to
- * attach to a support request.
+ * this installation reports usage statistics, send one report on demand to
+ * check that it works, and see exactly what such a report contains; and
+ * (from §8.48 onward) generate a diagnostic package to attach to a support
+ * request.
+ *
+ * Deliberately not here: where the report goes. See index().
  *
  * The controller orchestrates only — the payload is built by
  * Core\Statistics\StatisticsPayloadBuilder, the settings are read and
@@ -53,7 +56,8 @@ class SupportController extends AbstractController
         private SettingService $settingService,
         private JournalService $journalService,
         private StatisticsPayloadBuilder $payloadBuilder,
-        private SchedulerService $schedulerService
+        private SchedulerService $schedulerService,
+        private StatisticsSender $statisticsSender
     ) {
     }
 
@@ -69,7 +73,17 @@ class SupportController extends AbstractController
 
         return $this->render('config/support.html.twig', [
             'statistics_enabled' => $this->settingService->get('statistics_enabled') === '1',
-            'statistics_destination' => (string) ($this->settingService->get('statistics_destination') ?? ''),
+            // `statistics_destination` is deliberately NOT passed to the
+            // view. Where the report goes is a project-level fact, not a
+            // unit-level choice: the only legitimate reason to change it is
+            // standing up a second receiver, which is a deployment act by
+            // whoever runs that receiver — while every unit offered the
+            // field could point a live installation at something that never
+            // answers, and find out a day later from a failure code. It
+            // stays a `settings` row (a restored backup carries it, the
+            // sender reads it) that no page renders and no form writes.
+            // What the page owes the reader is what leaves the site, and
+            // that is the payload preview, not the URL.
             'support_email' => (string) ($this->settingService->get('support_email') ?? ''),
             'last_success_at' => $lastSuccessAt,
             'last_failure_at' => $lastFailureAt,
@@ -156,8 +170,18 @@ class SupportController extends AbstractController
     }
 
     /**
-     * POST /config/support/statistics — the reporting switch and its
-     * destination.
+     * POST /config/support/statistics — the reporting switch, and nothing
+     * else.
+     *
+     * The destination used to be part of this form. It is not any more, and
+     * a value posted under that name is ignored rather than validated: a
+     * field no page renders must not stay writable through a hand-made
+     * POST, which would be a hidden way to modify exactly the setting that
+     * decides where this installation's bearer secret goes. Nothing is lost
+     * by dropping the validation with it — Core\Statistics\StatisticsSender
+     * checks https and public-host at send time and always had to, since a
+     * destination can also arrive from a restored backup, which never
+     * passed through this form either.
      *
      * @param array<string, string> $params
      */
@@ -170,40 +194,12 @@ class SupportController extends AbstractController
         $wasEnabled = $this->settingService->get('statistics_enabled') === '1';
         $enabled = (string) $request->getBody('statistics_enabled', '') === '1';
 
-        $destination = trim((string) $request->getBody('statistics_destination', ''));
-        if ($destination !== '' && filter_var($destination, FILTER_VALIDATE_URL) === false) {
-            FlashMessage::set('error', 'L\'adresse de destination n\'est pas une URL valide.');
-            return $this->redirect('/config/support');
-        }
-
-        // Refused here rather than discovered a day later as a failed send.
-        // Two separate facts, two separate messages, because they have two
-        // separate fixes: a cleartext destination would carry the bearer
-        // secret in an `Authorization` header over http, and a destination
-        // that is not a public name (localhost, an IP literal, `intranet`,
-        // a `.local`/`.test` suffix) points that same credential at
-        // something inside the hosting network. Core\Statistics\
-        // StatisticsSender enforces both again at send time — a setting can
-        // also arrive from a restored backup, which never passes through
-        // this form.
-        if ($destination !== '' && !str_starts_with(strtolower($destination), 'https://')) {
-            FlashMessage::set('error', 'L\'adresse de destination doit être en https : le secret d\'authentification voyage dans un en-tête.');
-            return $this->redirect('/config/support');
-        }
-
-        if ($destination !== '' && !StatisticsSender::isPublicHost($destination)) {
-            FlashMessage::set('error', 'L\'adresse de destination doit désigner un site public. Une adresse locale, une adresse IP ou un nom interne n\'est pas acceptée.');
-            return $this->redirect('/config/support');
-        }
-
         $this->settingService->setInternal('statistics_enabled', $enabled ? '1' : '0');
-        if ($destination !== '') {
-            $this->settingService->setInternal('statistics_destination', $destination);
-        }
 
-        // Journaled on an actual change only. A daily "still enabled" entry
-        // would be noise, and re-saving the destination is not a privacy
-        // decision worth recording as one.
+        // Journaled on an actual change only: a "still enabled" entry every
+        // time someone opens the page and presses Enregistrer would be
+        // noise, and the switch is the only privacy decision this form
+        // still carries.
         if ($enabled !== $wasEnabled) {
             $this->journalService->log(
                 'core',
@@ -220,6 +216,65 @@ class SupportController extends AbstractController
         FlashMessage::set('success', 'Préférences de support enregistrées.');
 
         return $this->redirect('/config/support');
+    }
+
+    /**
+     * POST /config/support/statistics/test — one report, now, on demand.
+     *
+     * The page can no longer be pointed at another receiver, so the only
+     * way left to find out whether reporting actually works is to try it;
+     * waiting a day and re-reading "État des envois" is not a test. On the
+     * installation that IS the receiver this sends to itself, which is the
+     * only way its own report ever reaches its dashboard and the only
+     * end-to-end check of the intake endpoint that exists at all
+     * (Core\Statistics\StatisticsSender::sendTest()).
+     *
+     * Synchronous rather than a scheduled task, unlike the support package:
+     * the whole value of the button is the answer coming back on the next
+     * page, and the request is one bounded POST with a 20 s cap, not a
+     * filesystem walk.
+     *
+     * @param array<string, string> $params
+     */
+    public function sendTestStatistics(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/config/support')) !== null) {
+            return $guard;
+        }
+
+        $result = $this->statisticsSender->sendTest();
+
+        if ($result->isSent()) {
+            FlashMessage::set('success', sprintf(
+                'Rapport de test transmis (réponse HTTP %d en %d ms).',
+                (int) $result->statusCode,
+                (int) $result->durationMs
+            ));
+        } elseif ($result->isSkipped()) {
+            FlashMessage::set('warning', self::skipMessage((string) $result->reason));
+        } else {
+            FlashMessage::set('error', 'Le rapport de test n\'a pas pu être transmis. Motif : ' . (string) $result->reason);
+        }
+
+        return $this->redirect('/config/support');
+    }
+
+    /**
+     * The French reading of a guard that stopped a test send.
+     *
+     * A reason code is what the journal and "État des envois" record, and
+     * that is right for them — it is stable and greppable. It is not right
+     * for someone who just pressed a button: `non_public_host` names a
+     * setting they have to go and fix, and only the sentence says which.
+     */
+    private static function skipMessage(string $reason): string
+    {
+        return match ($reason) {
+            'disabled' => 'L\'envoi automatique des statistiques doit être activé pour pouvoir envoyer un rapport de test.',
+            'non_public_host' => 'L\'adresse de ce site (paramètre « base_url ») n\'est pas un nom public : aucun rapport n\'est envoyé depuis une installation locale ou de test.',
+            'maintenance_in_progress' => 'Une opération de maintenance est en cours : le rapport sera possible une fois terminée.',
+            default => 'Aucun rapport n\'a été envoyé. Motif : ' . $reason,
+        };
     }
 
     /**

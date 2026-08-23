@@ -57,6 +57,11 @@
                 <p class="small text-body-secondary">
                     Plusieurs emplacements (disque local et/ou plusieurs buckets S3) peuvent coexister — chaque album local
                     reste rattaché à l'emplacement où il a été créé, même si l'emplacement « actif » par défaut change ensuite.
+                    <br>
+                    L'espace libre indiqué est celui du disque qui héberge le dossier, partagé avec le reste du site
+                    (base de données, sauvegardes, autres emplacements locaux du même disque) — ce n'est pas un quota
+                    réservé à la galerie. Sur un hébergement mutualisé, il peut dépasser l'espace réellement alloué à
+                    votre compte.
                 </p>
                 {% if locations is empty %}
                     {% include 'partials/empty_state.html.twig' with {
@@ -71,6 +76,7 @@
                                     <th>Nom</th>
                                     <th>Type</th>
                                     <th>Statut</th>
+                                    <th>Espace libre</th>
                                     <th>Par défaut</th>
                                     <th>Albums</th>
                                     <th class="text-end">Actions</th>
@@ -88,6 +94,29 @@
                                                 <span class="badge text-bg-danger" title="{{ location.lastCheckError }}">Indisponible</span>
                                             {% else %}
                                                 <span class="badge text-bg-secondary">Non testé</span>
+                                            {% endif %}
+                                        </td>
+                                        {# Disque local uniquement : la capacité d'un bucket S3 est celle du
+                                           fournisseur, et un hôte qui refuse de répondre (open_basedir, fonction
+                                           désactivée) donne le même tiret qu'un emplacement sans objet. #}
+                                        {% set disk = location_disk_space[location.id] ?? null %}
+                                        <td>
+                                            {% if disk is null %}
+                                                <span class="text-body-secondary"
+                                                      title="{{ location.type == 's3' ? 'Sans objet : la capacité est celle du fournisseur de stockage.' : 'Espace disque non communiqué par l\'hébergeur.' }}">—</span>
+                                            {% else %}
+                                                <span{% if disk.isLow %} class="text-danger fw-semibold"{% endif %}>{{ disk.freeLabel }}</span>
+                                                {% if disk.totalLabel %}
+                                                    <span class="text-body-secondary small d-block">
+                                                        sur {{ disk.totalLabel }}{% if disk.usedPercent is not null %} — {{ disk.usedPercent }} % utilisés{% endif %}
+                                                    </span>
+                                                {% endif %}
+                                                {% if disk.isLow %}
+                                                    <span class="text-danger small d-block">
+                                                        Moins que la taille maximale d'un envoi ({{ disk.warnBelowLabel }}) :
+                                                        le prochain envoi peut échouer.
+                                                    </span>
+                                                {% endif %}
                                             {% endif %}
                                         </td>
                                         <td>
