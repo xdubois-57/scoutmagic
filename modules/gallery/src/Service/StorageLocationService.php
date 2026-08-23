@@ -184,6 +184,82 @@ class StorageLocationService
         return $this->storageLocationRepository->findById($location->id) ?? $location;
     }
 
+    /**
+     * How much room is left for a local location, for the Galerie
+     * configuration page — null for an S3 location (its capacity is the
+     * provider's business, not readable from here) and null whenever the
+     * host will not answer at all (`open_basedir`, a disabled
+     * `disk_free_space()`).
+     *
+     * Read at render time rather than cached alongside the health check:
+     * free space is the one property of a location that is stale the moment
+     * it is written down, and it costs one `statvfs` on a page a superadmin
+     * opens by hand — the gallery's own read path never calls this.
+     */
+    public function diskSpaceFor(StorageLocation $location): ?DiskSpace
+    {
+        if ($location->isS3()) {
+            return null;
+        }
+
+        $dir = $this->measurableDirFor($location);
+        if ($dir === null) {
+            return null;
+        }
+
+        $free = @disk_free_space($dir);
+        if (!is_float($free) || $free < 0) {
+            return null;
+        }
+
+        $total = @disk_total_space($dir);
+
+        return new DiskSpace(
+            (int) $free,
+            is_float($total) && $total > 0 ? (int) $total : 0,
+            $this->largestAllowedUploadBytes()
+        );
+    }
+
+    /**
+     * The directory to measure: the location's own, or the storage root
+     * when that directory does not exist yet.
+     *
+     * A location created a minute ago has no directory until the first
+     * upload or the first health check — and the answer would be the same
+     * anyway, since a subdirectory of `storage/` is on the volume
+     * `storage/` is on. Reporting "unknown" there would hide the number on
+     * exactly the freshly-configured location whose administrator is most
+     * likely to be asking.
+     */
+    private function measurableDirFor(StorageLocation $location): ?string
+    {
+        $subdir = $location->subdir !== null && $location->subdir !== '' ? $location->subdir : 'gallery';
+        $dir = $this->localStoragePath($subdir);
+        if (is_dir($dir)) {
+            return $dir;
+        }
+
+        return is_dir($this->storagePath) ? $this->storagePath : null;
+    }
+
+    /**
+     * The biggest single file the gallery would accept right now — the
+     * threshold under which the page calls the remaining space low. Video
+     * counts only while video uploads are actually enabled: warning about a
+     * 2 Go limit on an installation that refuses every video would be
+     * warning about something that cannot happen.
+     */
+    private function largestAllowedUploadBytes(): int
+    {
+        $photoMb = (int) $this->settingService->get('gallery_max_photo_upload_mb', 'gallery', 30);
+        $videoMb = (bool) $this->settingService->get('gallery_allow_video', 'gallery', true)
+            ? (int) $this->settingService->get('gallery_max_video_upload_mb', 'gallery', 2048)
+            : 0;
+
+        return max(0, max($photoMb, $videoMb)) * 1024 * 1024;
+    }
+
     private function localStoragePath(string $subdir): string
     {
         return $this->storagePath . '/' . $subdir;

@@ -182,6 +182,38 @@ class GalleryConfigControllerTest extends TestCase
         $this->assertStringNotContainsString('Autoriser les albums locaux (photos', $response->getBody());
     }
 
+    /**
+     * "Is there still room?" is the question an administrator asks this page
+     * right before an album of camp photos, and the answer used to be
+     * nowhere on it.
+     */
+    public function testIndexShowsTheRemainingDiskSpaceOfALocalLocation(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Espace libre', $body);
+        // A real measurement of the volume the test's storage path is on —
+        // asserting the exact figure would assert the CI runner's disk.
+        $this->assertMatchesRegularExpression('/\d+(,\d)? (o|Ko|Mo|Go|To)/', $body);
+        $this->assertStringContainsString('partagé avec le reste du site', $body);
+    }
+
+    /**
+     * A bucket's capacity is the provider's business; the column says so
+     * rather than showing a number that would be the web server's disk.
+     */
+    public function testIndexShowsNoDiskSpaceForAnS3Location(): void
+    {
+        $this->storageLocationRepository->create(
+            StorageLocation::TYPE_S3, 'Bucket', null, 'custom',
+            'https://example.invalid', 'eu', 'bucket', 'access-key', null, 'secret'
+        );
+
+        $body = $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Sans objet : la capacité est celle du fournisseur de stockage.', $body);
+    }
+
     public function testIndexBackfillsALocalLocationOnFreshInstall(): void
     {
         $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), []);
