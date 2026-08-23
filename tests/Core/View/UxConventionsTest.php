@@ -53,6 +53,38 @@ final class UxConventionsTest extends TestCase
     private const DATA_CONFIRM_ALLOWLIST = [];
 
     /**
+     * design.md §7.5 — `alert()`, `confirm()` and `prompt()` are the one
+     * surface of this site that is not this site. The native box renders
+     * the origin above the sentence (« 127.0.0.1:8000 dit : »), labels its
+     * buttons in the browser's language rather than the page's, and gives
+     * « Supprimer définitivement cet album » exactly the same two grey
+     * buttons as « Recréer les catégories par défaut ». On iOS it is a
+     * system sheet that takes the whole screen.
+     *
+     * The site has one of each instead — `window.ScoutMagicToast.show()`,
+     * `window.ScoutMagicConfirm.ask()` and `.prompt()`, all loaded on every
+     * page by base.html.twig.
+     *
+     * There were 91 native calls when this rule landed. `public/assets/js/`
+     * is now at zero and stays there; what is left is inside templates'
+     * inline `<script>` blocks, and each entry disappears as its template's
+     * script moves to a real file (which is also the only way it becomes
+     * testable at all).
+     *
+     * @var array<string, int> file path (repo-relative) => count
+     */
+    private const NATIVE_DIALOG_ALLOWLIST = [
+        'core/View/templates/account/index.html.twig' => 5,
+        'core/View/templates/admin/scout_year.html.twig' => 1,
+        'core/View/templates/config/modules.html.twig' => 1,
+        'core/View/templates/config/notifications.html.twig' => 1,
+        'modules/banner/views/config.html.twig' => 3,
+        'modules/calendar/views/public.html.twig' => 2,
+        'modules/mass_mail/views/tracking.html.twig' => 1,
+        'modules/registration/views/departures.html.twig' => 2,
+    ];
+
+    /**
      * design.md §7.3 — the breadcrumb bar is the site's only back
      * affordance; « Retour » controls duplicate it (two stacked back
      * affordances on mobile) or, worse, exist only on pages whose
@@ -307,6 +339,58 @@ final class UxConventionsTest extends TestCase
             }
         }
         self::assertMatchesAllowlist($found, self::DATA_CONFIRM_ALLOWLIST, 'data-confirm is read on the <form> only; anywhere else it is silently inert');
+    }
+
+    public function testNoNativeBrowserDialogs(): void
+    {
+        $found = [];
+
+        foreach (self::templates() as $rel) {
+            $inline = '';
+            preg_match_all('~<script[^>]*>(.*?)</script>~s', self::templateSource($rel), $blocks);
+            foreach ($blocks[1] as $block) {
+                $inline .= "\n" . $block;
+            }
+            $count = self::countNativeDialogCalls($inline);
+            if ($count > 0) {
+                $found[$rel] = $count;
+            }
+        }
+
+        foreach (glob(self::repoRoot() . '/public/assets/js/*.js') ?: [] as $path) {
+            $count = self::countNativeDialogCalls((string) file_get_contents($path));
+            if ($count > 0) {
+                $found[str_replace(self::repoRoot() . '/', '', $path)] = $count;
+            }
+        }
+
+        self::assertMatchesAllowlist(
+            $found,
+            self::NATIVE_DIALOG_ALLOWLIST,
+            'Use ScoutMagicToast.show() / ScoutMagicConfirm.ask() / .prompt() — never the browser\'s own box'
+        );
+    }
+
+    /**
+     * Counts real `alert(...)`/`confirm(...)`/`prompt(...)` CALLS in a
+     * chunk of JavaScript.
+     *
+     * Comments are stripped first: half the files that use the shared
+     * dialogs explain in prose which native box they replaced, and
+     * counting that documentation as a violation would punish exactly the
+     * files that fixed the problem. The `//` strip skips `://` so a URL in
+     * a string does not swallow the rest of its line. A `function
+     * prompt(...)` DECLARATION is not a call — confirm.js defines one.
+     */
+    private static function countNativeDialogCalls(string $js): int
+    {
+        $js = (string) preg_replace('~/\*.*?\*/~s', '', $js);
+        $js = (string) preg_replace('~(?<!:)//[^\n]*~', '', $js);
+
+        return preg_match_all(
+            '~(?<![\w.$])(?<!function\s)(?:window\.)?(?:alert|confirm|prompt)\s*\(~',
+            $js
+        );
     }
 
     public function testBreadcrumbIsTheOnlyBackAffordance(): void

@@ -235,9 +235,27 @@ add, `bi-three-dots-vertical` overflow menus.
   silently inert. Rule of thumb: every POST that deletes, removes, refuses
   or revokes carries one; nothing else does. Messages state the
   consequence: « {Verbe} {objet} ? {Conséquence concrète}. »
-- Never `alert()`/`confirm()`/`prompt()` and never `on*=` attributes in
-  templates — the CSP (`script-src 'self' 'nonce-…'`) makes inline
-  handlers dead code, silently.
+- Never `on*=` attributes in templates — the CSP (`script-src 'self'
+  'nonce-…'`) makes inline handlers dead code, silently.
+- Never `alert()`/`confirm()`/`prompt()`, in a template or in
+  `public/assets/js/`. The site has one of each:
+  - **`window.ScoutMagicToast.show(message, {variant})`** for a result —
+    variants `success` | `error` | `warning` | `info`, matching the flash
+    vocabulary. It announces itself to screen readers; a native box does
+    not.
+  - **`window.ScoutMagicConfirm.ask(message)`** → `Promise<boolean>` for a
+    question. Options: `{message, title, confirmLabel, cancelLabel,
+    variant}`; `variant` is `danger` (default) or `primary` for a
+    confirmation that destroys nothing. Always name the action on the
+    button (« Supprimer », « Délier », « Appliquer ») rather than leaving
+    « Confirmer » — the label is where the visitor reads what they are
+    agreeing to. Focus lands on « Annuler », never on the destructive
+    button.
+
+  A native dialog renders the origin above the message
+  (« 127.0.0.1:8000 dit : »), labels its buttons in the browser's language
+  rather than the page's, and gives a permanent deletion exactly the same
+  two buttons as a harmless question.
 - Session-expiry text is a single constant: « Votre session a expiré.
   Rechargez la page et réessayez. » — never « Jeton CSRF invalide. ».
 
@@ -260,3 +278,49 @@ copy: « Aucun(e) {objet}. » followed, whenever the visitor has the right
 to create the missing thing, by the creation action (« Créez le premier
 album ! »). The variant without an action is only for visitors who
 genuinely cannot act.
+
+### 7.8 Colour scheme
+
+Three states, one control: the ◐ toggle in the navigation cycles
+`light` → `dark` → `auto`, where `auto` follows the operating system live.
+`data-bs-theme` on `<html>` carries the resolved choice,
+`public/assets/js/theme.js` owns it (`window.ScoutMagicTheme`), and an
+inline script in `base.html.twig`'s `<head>` applies the stored value
+before first paint — without it the page flashes white on every load.
+
+The preference is stored in `localStorage` under `theme_preference`, which
+makes it a functional cookie in the RGPD sense: it is declared in
+`core/Cookie/CookieRegistry.php` and written only when
+`CookieConsentService::isAllowed('functional')` says so. Without consent
+the toggle still works for the session; it simply does not persist.
+
+Write colours as Bootstrap semantic utilities (`text-body-secondary`,
+`bg-body-tertiary`, `border`) — never `bg-white`/`text-dark`, which are
+the same colour in both themes and produce black-on-black.
+
+### 7.9 Form fields
+
+Rendered through the `form_field` partial (`password_field` for passwords,
+`rich_text_form_field` for rich text). It renders label, control, help text
+and the required marker as one unit, with `aria-describedby` wired from the
+control to its help text — which of 136 hand-written help texts, exactly
+one did.
+
+Two sizes and no more: the default, and `size: 'sm'` for a dense table or
+a repeated row, which shrinks the label and the control together. The
+fourteen label-class combinations this replaced were the disease; a third
+size would be the relapse.
+
+A field's `id` is what JavaScript and tests grip. Renaming one is a
+breaking change — grep `public/assets/js/` and `tests/` before touching it.
+
+### 7.10 Rich text
+
+The « lien » button in every rich-text toolbar goes through
+`window.ScoutMagicRichText.insertLink()`
+(`public/assets/js/rich-text-link.js`). Five toolbars used to implement it
+separately, so none of them ever fixed the three things it gets right: the
+selection survives the dialog (a modal takes focus, and a contenteditable
+that loses focus loses its range), a bare host becomes `https://…` rather
+than a relative link that 404s, and a `javascript:` URL is refused with a
+reason rather than silently stripped later by the server-side sanitiser.

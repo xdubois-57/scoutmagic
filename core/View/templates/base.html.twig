@@ -174,6 +174,8 @@
        header for what divergence it exists to end. #}
     <script src="/assets/js/api.js"></script>
     <script src="/assets/js/toast.js"></script>
+    <script src="/assets/js/confirm.js"></script>
+    <script src="/assets/js/rich-text-link.js"></script>
     {# Everything the inline <head> block above does not: the
        [data-theme-toggle] cycle buttons (partials/theme_toggle.html.twig),
        consent-gated persistence, live prefers-color-scheme follow-up. #}
@@ -285,13 +287,37 @@
        them) carries data-confirm markup identical to what was there on
        load, but querySelectorAll() at load time can never see it — the
        confirmation would silently never fire for anything added after the
-       page rendered. #}
+       page rendered.
+
+       The dialog is ScoutMagicConfirm's, which is asynchronous, so the
+       submit is always stopped first and replayed once the visitor
+       confirms. The replay carries the submitter along: a form with two
+       submit buttons sends which one was pressed, and form.submit() would
+       have dropped that (and skipped validation with it). data-confirmed
+       marks the replayed submit so this same handler lets it through
+       instead of asking a second time. #}
     <script nonce="{{ csp_nonce }}">
     document.addEventListener('submit', function (e) {
         var form = e.target.closest('form[data-confirm]');
-        if (form && !confirm(form.dataset.confirm)) {
-            e.preventDefault();
+        if (!form || form.dataset.confirmed === '1') {
+            return;
         }
+        e.preventDefault();
+        var submitter = e.submitter;
+        window.ScoutMagicConfirm.ask({
+            message: form.dataset.confirm,
+            confirmLabel: form.dataset.confirmLabel || 'Confirmer'
+        }).then(function (confirmed) {
+            if (!confirmed) {
+                return;
+            }
+            form.dataset.confirmed = '1';
+            if (form.requestSubmit) {
+                form.requestSubmit(submitter);
+            } else {
+                form.submit();
+            }
+        });
     });
     </script>
 

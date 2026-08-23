@@ -36,7 +36,13 @@ class AppShellManifestTest extends TestCase
         );
         preg_match('/const APP_SHELL_BASE_URLS = \[(.*?)\];/s', $swJs, $matches);
 
-        preg_match_all("/'([^']+)'/", $matches[1], $urlMatches);
+        // Comments inside the array are prose, and French prose is full of
+        // apostrophes — « l'ancien », « d'un ». The quote extraction below
+        // happily pairs two of those into a "path" that exists nowhere,
+        // and the failure it produces names a sentence rather than a file.
+        $body = (string) preg_replace('~//[^\n]*~', '', $matches[1]);
+
+        preg_match_all("/'([^']+)'/", $body, $urlMatches);
         $urls = $urlMatches[1];
         $this->assertNotEmpty($urls, 'APP_SHELL_BASE_URLS parsed as empty — the extraction regex likely broke.');
 
