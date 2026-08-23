@@ -51,21 +51,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-const accountSelect = document.getElementById('import-account');
-const balanceInput = document.getElementById('import-balance');
-const balanceHint = document.getElementById('import-balance-hint');
-
-function updateBalanceRequirement() {
-    const option = accountSelect.options[accountSelect.selectedIndex];
-    const isFirstImport = option && option.dataset.firstImport === '1';
-    balanceInput.required = isFirstImport;
-    balanceHint.textContent = isFirstImport
-        ? "Premier import pour ce compte : le solde est obligatoire."
-        : "Facultatif — laissez vide pour recalculer le solde automatiquement depuis les mouvements.";
-}
-
-accountSelect.addEventListener('change', updateBalanceRequirement);
-updateBalanceRequirement();
-</script>
+<script src="/assets/js/finance-import-form.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

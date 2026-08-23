@@ -22,8 +22,8 @@
 //     origin above the message and labels its buttons in the browser's
 //     language, not French;
 //   - the oversize threshold, which Twig used to interpolate straight into
-//     the script body, arrives through window.staffsData — the
-//     window.llmConfigData / window.supportDashboardCharts pattern.
+//     the script body, arrives through the `staffs-data` JSON island
+//     (ScoutMagicApi.pageData()) — the site-wide pattern.
 //
 // The oversize warning's message keeps its three paragraphs word for word.
 // Its closing line (« Cliquez sur OK pour ajouter ce fichier tel quel, ou
@@ -102,7 +102,7 @@
     // sets oversizeWarningEnabled in that configuration). Purely advisory:
     // it never blocks the upload, it only offers to shrink the file first
     // via iLovePDF or an offline alternative.
-    var data = window.staffsData;
+    var data = window.ScoutMagicApi.pageData('staffs-data');
     if (fileInput && data && data.oversizeWarningEnabled) {
         var thresholdBytes = (data.oversizeWarningMb || 5) * 1024 * 1024;
 

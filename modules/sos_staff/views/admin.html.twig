@@ -195,18 +195,17 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/sos-admin.js" defer></script>
-<script nonce="{{ csp_nonce }}">
-{# Server data handed to sos-admin.js — the window.llmConfigData pattern.
-   JSON_HEX_TAG/JSON_HEX_AMP so no value can break out of this block; the
-   payload is dates, member ids and duty states only — never a phone
-   number (AGENTS.md § Security checklist). #}
+{# Server data as a JSON ISLAND, read by sos-admin.js through
+   ScoutMagicApi.pageData(). The payload is dates, member ids and duty
+   states only — never a phone number (AGENTS.md § Security checklist). #}
 {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
-window.sosAdminData = {
-    year: {{ year }},
-    month: {{ month }},
-    monthParam: {{ month_param|json_encode(json_flags)|raw }},
-    states: {{ states|json_encode(json_flags)|raw }}
-};
+<script type="application/json" id="sos-admin-data">
+{{ {
+    year: year,
+    month: month,
+    monthParam: month_param,
+    states: states
+}|json_encode(json_flags)|raw }}
 </script>
+<script src="/assets/js/sos-admin.js" defer></script>
 {% endblock %}

@@ -33,7 +33,8 @@
                             <div class="accordion" id="instances-accordion-{{ loop.index }}">
                                 {% for instance in source.instances %}
                                     {% set instance_open = source_open and focus_id == instance.source_reference_id %}
-                                    <div class="accordion-item" id="instance-item-{{ source.source_module }}-{{ instance.source_reference_id }}">
+                                    <div class="accordion-item" id="instance-item-{{ source.source_module }}-{{ instance.source_reference_id }}"
+                                         {{ instance_open ? 'data-scroll-focus' : '' }}>
                                         <h3 class="accordion-header">
                                             <button class="accordion-button {{ instance_open ? '' : 'collapsed' }}" type="button"
                                                     data-bs-toggle="collapse" data-bs-target="#instance-{{ loop.parent.loop.index }}-{{ loop.index }}"
@@ -110,12 +111,12 @@
         partageant la même communication structurée. Un paiement peut être effectué en plusieurs versements.
     </p>
 
+{% endblock %}
+
+{% block scripts %}
+    {# Only when the page was opened FOR one instance: the server marks
+       that accordion item with `data-scroll-focus` above. #}
     {% if focus_source and focus_id %}
-        <script nonce="{{ csp_nonce }}">
-            document.addEventListener('DOMContentLoaded', function () {
-                var el = document.getElementById('instance-item-{{ focus_source }}-{{ focus_id }}');
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            });
-        </script>
+        <script src="/assets/js/scroll-into-focus.js" defer></script>
     {% endif %}
 {% endblock %}

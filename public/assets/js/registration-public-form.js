@@ -10,7 +10,7 @@
 // production code directly (tests/js/registration-public-form.test.js).
 //
 // The branch table comes from a `<script type="application/json">`
-// island the template fills with the very same
+// island (ScoutMagicApi.pageData()) the template fills with the very same
 // Service\SlotService::birthYearsByBranch() rows the « nés en… » table
 // above renders (base.html.twig's `offline-config-data` precedent).
 // Reusing that exact data avoids a round trip and keeps this preview
@@ -24,10 +24,10 @@
 (function () {
     var birthDateInput = /** @type {HTMLInputElement|null} */ (document.getElementById('birth_date'));
     var hint = document.getElementById('birth-date-branch-hint');
-    var blob = document.getElementById('registration-slots-data');
+    var data = window.ScoutMagicApi.pageData('registration-slots-data');
 
     // A no-op on every other page of the site.
-    if (!birthDateInput || !hint || !blob) {
+    if (!birthDateInput || !hint || !data) {
         return;
     }
 
@@ -37,14 +37,6 @@
         limited: 'Limitée',
         heavy: 'Complet'
     };
-
-    /** @type {any} */
-    var data;
-    try {
-        data = JSON.parse(blob.textContent || '{}');
-    } catch (e) {
-        return;
-    }
 
     var slots = data.birthYearSlots || [];
     var waitlistEnabled = data.waitlistEnabled === true;

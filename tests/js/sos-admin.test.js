@@ -9,7 +9,7 @@
 // The page under test is the on-call planning grid
 // (modules/sos_staff/views/admin.html.twig), which decides which Staff d'U
 // member the unit's SOS number rings. What this file pins down:
-//   - the month and its starting duty states come from window.sosAdminData,
+//   - the month and its starting duty states come from the page's JSON island,
 //     not from an inline script Vitest cannot see;
 //   - the three-state click cycle repaints the desktop cell AND the mobile
 //     button, and saves the whole month with the CSRF token;
@@ -18,6 +18,23 @@
 //   - a server message containing markup is shown as text;
 //   - the transitions pagination never writes a failed response into the page.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * Installs a page's server data the way the template does — a
+ * `<script type="application/json">` island — rather than an inline
+ * assignment to a window global. ScoutMagicApi.pageData() reads it.
+ */
+function installIsland(id, data) {
+    document.getElementById(id)?.remove();
+    if (data === undefined) {
+        return;
+    }
+    const el = document.createElement('script');
+    el.type = 'application/json';
+    el.id = id;
+    el.textContent = JSON.stringify(data);
+    document.body.appendChild(el);
+}
 
 const STATES = {
     '2026-03-01': { 4: 'oncall' },
@@ -123,12 +140,12 @@ describe('sos-admin.js', () => {
         vi.restoreAllMocks();
         document.head.innerHTML = '<meta name="csrf-token" content="tok-123">';
         document.body.innerHTML = PAGE_DOM;
-        window.sosAdminData = {
+        installIsland('sos-admin-data', {
             year: 2026,
             month: 3,
             monthParam: '2026-03',
             states: structuredClone(STATES),
-        };
+        });
         global.fetch = mockFetch({});
         window.ScoutMagicToast = { show: vi.fn() };
         window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
@@ -147,7 +164,7 @@ describe('sos-admin.js', () => {
         });
 
         it('survives a page with no server data at all', async () => {
-            delete window.sosAdminData;
+            installIsland('sos-admin-data', undefined);
             document.body.innerHTML = '<div id="oncall-save-status"></div>';
             await expect(boot()).resolves.not.toThrow();
             expect(fetch).not.toHaveBeenCalled();

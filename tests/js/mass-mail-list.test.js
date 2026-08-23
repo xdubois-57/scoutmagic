@@ -7,7 +7,7 @@
 //
 // Exercises the REAL public/assets/js/mass-mail-list.js (imported below,
 // never reimplemented) on top of the real api.js envelope, with the
-// server-side payload handed over as window.massMailListData exactly as
+// server-side payload handed over in the page's JSON island exactly as
 // _compose_dialog.html.twig's inline nonce-tagged script does.
 //
 // SCOPE. Most of this file is dialog glue — a few hundred lines of "show
@@ -22,6 +22,23 @@
 // The rest is left to tests/e2e/specs/mass-mail-merge.spec.js and the PHP
 // integration tests.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * Installs a page's server data the way the template does — a
+ * `<script type="application/json">` island — rather than an inline
+ * assignment to a window global. ScoutMagicApi.pageData() reads it.
+ */
+function installIsland(id, data) {
+    document.getElementById(id)?.remove();
+    if (data === undefined) {
+        return;
+    }
+    const el = document.createElement('script');
+    el.type = 'application/json';
+    el.id = id;
+    el.textContent = JSON.stringify(data);
+    document.body.appendChild(el);
+}
 
 const START_SENDING_MESSAGE =
     'Lancer l\'envoi ? La liste des destinataires sera figée et l\'envoi ne pourra plus être annulé.';
@@ -196,12 +213,12 @@ function email(overrides = {}) {
  * Boots the page, then opens email #7 so mmCurrentId is set — the status
  * actions all address the email currently in the dialog.
  *
- * @param {object} [data] the window.massMailListData payload
+ * @param {object} [data] the page's JSON-island payload
  * @param {object} [opened] the email GET response
  */
 async function bootAndOpen(data = listData(), opened = email()) {
     buildDom();
-    window.massMailListData = data;
+    installIsland('mass-mail-list-data', data);
     global.fetch = vi.fn(() => jsonResponse(opened));
     vi.resetModules();
     await import('../../public/assets/js/api.js');
@@ -441,7 +458,7 @@ describe('mass-mail-list.js: what each status locks', () => {
 
     it('toasts rather than silently doing nothing when the email cannot be loaded', async () => {
         buildDom();
-        window.massMailListData = listData();
+        installIsland('mass-mail-list-data', listData());
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Email introuvable.' }));
         vi.resetModules();
         await import('../../public/assets/js/api.js');

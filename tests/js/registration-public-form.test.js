@@ -40,6 +40,7 @@ describe('registration-public-form.js', () => {
     });
 
     async function boot() {
+        await import('../../public/assets/js/api.js');
         await import('../../public/assets/js/registration-public-form.js');
     }
 

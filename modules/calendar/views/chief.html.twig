@@ -121,21 +121,21 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/calendar-chief.js" defer></script>
-<script nonce="{{ csp_nonce }}">
-{# Server data handed to calendar-chief.js — the llm_connector /
-   support_dashboard pattern (window.llmConfigData,
-   window.supportDashboardCharts). JSON_HEX_TAG/JSON_HEX_AMP: the default
-   event title and location are free text an admin types on the calendar
-   configuration page, so a value containing tag-closing characters must
-   not break out of this block. #}
+{# Server data as a JSON ISLAND, not an inline assignment: an island is
+   data to the parser, so the default event title or location — free text
+   an admin types on the calendar configuration page — cannot end the
+   block, and the template needs no nonce for it.
+   JSON_HEX_TAG/JSON_HEX_AMP escape those characters anyway.
+   calendar-chief.js reads it through ScoutMagicApi.pageData(). #}
 {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
-window.calendarChiefData = {
-    defaultTitle: {{ default_title|json_encode(json_flags)|raw }},
-    defaultStartTime: {{ default_start_time|json_encode(json_flags)|raw }},
-    defaultEndTime: {{ default_end_time|json_encode(json_flags)|raw }},
-    defaultLocation: {{ default_location|json_encode(json_flags)|raw }},
-    defaultCalendarId: {{ default_calendar_id|json_encode(json_flags)|raw }}
-};
+<script type="application/json" id="calendar-chief-data">
+{{ {
+    defaultTitle: default_title,
+    defaultStartTime: default_start_time,
+    defaultEndTime: default_end_time,
+    defaultLocation: default_location,
+    defaultCalendarId: default_calendar_id
+}|json_encode(json_flags)|raw }}
 </script>
+<script src="/assets/js/calendar-chief.js" defer></script>
 {% endblock %}

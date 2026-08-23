@@ -237,6 +237,17 @@ add, `bi-three-dots-vertical` overflow menus.
   consequence: « {Verbe} {objet} ? {Conséquence concrète}. »
 - Never `on*=` attributes in templates — the CSP (`script-src 'self'
   'nonce-…'`) makes inline handlers dead code, silently.
+- **Behaviour lives in `public/assets/js/`, never in a template's own
+  `<script>` block.** A template is the one place JavaScript cannot be
+  tested — Vitest imports files, not Twig output — and every duplicated
+  behaviour this codebase has found was living in one. Server data goes
+  in a `<script type="application/json" id="…">` island, read with
+  `window.ScoutMagicApi.pageData(id)`: data to the parser, so a value
+  containing `</script` cannot end the block mid-statement, and no nonce
+  is needed. Pinned by
+  `UxConventionsTest::testBehaviourLivesInFilesNotInTemplates`; the two
+  exceptions (the anti-FOUC theme bootstrap and the service-worker
+  registration, both in `base.html.twig`) are listed there with reasons.
 - Never `alert()`/`confirm()`/`prompt()`, in a template or in
   `public/assets/js/`. The site has one of each:
   - **`window.ScoutMagicToast.show(message, {variant})`** for a result —

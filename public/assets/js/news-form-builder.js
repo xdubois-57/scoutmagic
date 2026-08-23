@@ -524,6 +524,12 @@
 
     // --- Field builder ---
     var fieldsListEl = document.getElementById('news-fields-list');
+    // The editor's server data — the article, its form fields, the
+    // finance accounts — arrives as a `news-editor-data` JSON island
+    // (ScoutMagicApi.pageData()): data to the parser rather than code, so
+    // a field label containing a tag-closing sequence cannot end the
+    // block in the middle of an object literal.
+    var NEWS_EDITOR_DATA = window.ScoutMagicApi.pageData('news-editor-data');
     var fieldState = [];
     var expandedKey = null;
     var nextKey = 1;
@@ -547,8 +553,8 @@
     var TYPE_LABELS = {};
     FIELD_TYPES.forEach(function (t) { TYPE_LABELS[t.type] = t.label; });
 
-    if (fieldsListEl && /** @type {any} */ (window).NEWS_EDITOR_DATA) {
-        fieldState = (/** @type {any} */ (window).NEWS_EDITOR_DATA.fields || []).map(function (f) {
+    if (fieldsListEl && NEWS_EDITOR_DATA) {
+        fieldState = (NEWS_EDITOR_DATA.fields || []).map(function (f) {
             f._key = nextKey++;
             return f;
         });
@@ -656,7 +662,7 @@
         }
 
         function persistReorderIfSaved() {
-            var articleId = /** @type {any} */ (window).NEWS_EDITOR_DATA.articleId;
+            var articleId = NEWS_EDITOR_DATA.articleId;
             var ids = fieldState.filter(function (f) { return f.id; }).map(function (f) { return f.id; });
             if (!articleId || ids.length !== fieldState.length) return;
             window.ScoutMagicApi.postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids });
@@ -1027,7 +1033,7 @@
             capRow.appendChild(capInput);
             addFieldEditRow(panel, '<span class="form-text">Le nombre maximum est le cumul de toutes les réponses. Exemple : si la limite est 50 et que 48 ont déjà été réservés, le prochain répondant verra « Il reste 2 places ».</span>');
 
-            if (/** @type {any} */ (window).NEWS_EDITOR_DATA.financeAvailable) {
+            if (NEWS_EDITOR_DATA.financeAvailable) {
                 var priceId = fieldControlId(field, 'price');
                 var priceRow = addLabelledFieldEditRow(panel, 'Prix unitaire (€)', priceId);
                 var priceInput = document.createElement('input');

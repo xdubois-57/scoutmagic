@@ -47,6 +47,7 @@ describe('finance-dashboard.js', () => {
 
     async function boot() {
         await import('../../public/assets/js/pdf-thumbnail.js');
+        await import('../../public/assets/js/api.js');
         await import('../../public/assets/js/finance-dashboard.js');
     }
 

@@ -31,7 +31,11 @@
             ({{ device_count }} appareil{{ device_count > 1 ? 's' : '' }}) — chacun devra réactiver les
             notifications push depuis son propre appareil.
         </p>
-        <form method="post" action="/config/notifications/rotate-vapid" id="rotate-vapid-form">
+        {# The confirmation is `data-confirm` on the FORM (design.md §7.5):
+           confirm.js stops the submission, asks, and replays it. #}
+        <form method="post" action="/config/notifications/rotate-vapid" id="rotate-vapid-form"
+              data-confirm="Régénérer les clés VAPID ? Cela déconnectera immédiatement {{ device_count }} appareil{{ device_count > 1 ? 's' : '' }}."
+              data-confirm-label="Régénérer">
             {{ csrf_field() }}
             <button type="submit" class="btn btn-outline-danger">Régénérer les clés VAPID</button>
         </form>
@@ -61,16 +65,3 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
-<script nonce="{{ csp_nonce }}">
-(function () {
-    var form = document.getElementById('rotate-vapid-form');
-    if (!form) return;
-    form.addEventListener('submit', function (e) {
-        if (!window.confirm('Régénérer les clés VAPID ? Cela déconnectera immédiatement {{ device_count }} appareil(s).')) {
-            e.preventDefault();
-        }
-    });
-})();
-</script>
-{% endblock %}

@@ -10,8 +10,7 @@
 // (tests/js/finance-dashboard.test.js).
 //
 // The figures' numbers come from a `<script type="application/json">`
-// island rather than an inline assignment to a window.* global (the
-// base.html.twig `offline-config-data` precedent): a JSON island is data
+// island, read through ScoutMagicApi.pageData(): a JSON island is data
 // to the parser, not code, so a category named with a « < » cannot end
 // the block early, and the template needs no nonce for it.
 //
@@ -23,17 +22,9 @@
         thumbnails.bind(document, { height: '160px', iconClass: 'fs-1' });
     }
 
-    var blob = document.getElementById('finance-dashboard-data');
+    var data = window.ScoutMagicApi.pageData('finance-dashboard-data');
     var Chart = window.Chart;
-    if (!blob || !Chart) {
-        return;
-    }
-
-    /** @type {any} */
-    var data;
-    try {
-        data = JSON.parse(blob.textContent || '{}');
-    } catch (e) {
+    if (!data || !Chart) {
         return;
     }
 

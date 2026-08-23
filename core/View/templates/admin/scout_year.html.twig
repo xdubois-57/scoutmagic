@@ -219,8 +219,13 @@
                                    year first, and the registration module vetoes it while requests
                                    are open (specifications.md §19.2). Re-checked server-side in
                                    Core\ScoutYear\ScoutYearAdminService::activatePublicYear(). #}
+                                {# The confirmation is `data-confirm` on the FORM (design.md
+                                   §7.5): confirm.js stops the submission, asks, and replays it
+                                   with its original submitter. #}
                                 <form method="post" action="/admin/scout-year/activate-public" id="activate-public-form"
-                                      class="d-flex flex-wrap gap-2 align-items-end">
+                                      class="d-flex flex-wrap gap-2 align-items-end"
+                                      data-confirm="Activer cette année pour tout le monde ? Le public verra immédiatement cette année."
+                                      data-confirm-label="Activer">
                                     {{ csrf_field()|raw }}
                                     <div>
                                         <label class="form-label small mb-1" for="public-year">Année</label>
@@ -291,23 +296,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-{% if can_activate_public %}
-document.getElementById('activate-public-form')?.addEventListener('submit', function (e) {
-    if (!confirm('Activer cette année pour tout le monde ? Le public verra immédiatement cette année.')) {
-        e.preventDefault();
-    }
-});
-{% endif %}
-// Ticking a step submits its own form. The checkbox itself carries no
-// name: the value posted is the hidden "done" field, already set to the
-// opposite of the current state server-side, so a double-click or a
-// stale page can never post a state that disagrees with what was
-// rendered. Without JavaScript the <noscript> button does the same thing.
-document.querySelectorAll('.js-step-checkbox').forEach(function (checkbox) {
-    checkbox.addEventListener('change', function () {
-        checkbox.closest('.js-step-form')?.submit();
-    });
-});
-</script>
+<script src="/assets/js/admin-scout-year.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

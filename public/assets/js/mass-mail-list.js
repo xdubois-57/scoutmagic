@@ -8,8 +8,8 @@
 // sending wizard. Extracted from the template's inline <script> verbatim
 // so the Vitest suite can exercise the production code directly
 // (tests/js/mass-mail-list.test.js). Server-side data (sections, lists,
-// scout years…) is handed over by an inline nonce-tagged script setting
-// window.massMailListData — the support-dashboard pattern.
+// scout years…) arrives as a `<script type="application/json">` island,
+// read through ScoutMagicApi.pageData().
 //
 // Fetches ride the site-wide ScoutMagicApi envelope ({ok, status, data})
 // and success feedback goes through ScoutMagicToast; the two multipart
@@ -17,9 +17,9 @@
 // the JSON toolbox deliberately owns JSON bodies only.
 (function () {
     var mmModalEl = document.getElementById('mm-modal');
-    if (!mmModalEl || !window.massMailListData) return;
+    const MM_DATA = window.ScoutMagicApi.pageData('mass-mail-list-data');
+    if (!mmModalEl || !MM_DATA) return;
 
-    const MM_DATA = window.massMailListData;
     const api = window.ScoutMagicApi;
     const escapeHtml = api.escapeHtml;
 

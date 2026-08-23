@@ -74,7 +74,8 @@
                 </thead>
                 <tbody>
                     {% for entry in entries %}
-                    <tr class="journal-row" data-context='{{ entry.context|default("")|e('html_attr') }}' style="cursor:pointer;">
+                    <tr class="journal-row" data-context='{{ entry.context|default("")|e('html_attr') }}'
+                        data-reveal="next:.context-row" style="cursor:pointer;">
                         <td class="text-nowrap small">{{ entry.logged_at }}</td>
                         <td>
                             {% if entry.level == 'security' %}
@@ -109,7 +110,8 @@
     {# Mobile cards #}
     <div class="d-md-none">
         {% for entry in entries %}
-        <div class="card mb-2 journal-card" data-context='{{ entry.context|default("")|e('html_attr') }}'>
+        <div class="card mb-2 journal-card" data-context='{{ entry.context|default("")|e('html_attr') }}'
+             data-reveal=".context-detail">
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <span class="text-body-secondary" style="font-size:0.7rem;">{{ entry.logged_at }}</span>
@@ -150,20 +152,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-document.querySelectorAll('.journal-row').forEach(function(row) {
-    row.addEventListener('click', function() {
-        var next = row.nextElementSibling;
-        if (next && next.classList.contains('context-row')) {
-            next.classList.toggle('d-none');
-        }
-    });
-});
-document.querySelectorAll('.journal-card').forEach(function(card) {
-    card.addEventListener('click', function() {
-        var detail = card.querySelector('.context-detail');
-        if (detail) detail.classList.toggle('d-none');
-    });
-});
-</script>
+<script src="/assets/js/reveal-details.js" defer></script>
 {% endblock %}
