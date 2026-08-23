@@ -1603,9 +1603,23 @@ $router->addRoute('POST', '/members/emails/confirm/{id}', \Core\Http\Controller\
 $router->addRoute('POST', '/config-mode/activate', ConfigModeController::class, 'activate', 'admin');
 $router->addRoute('POST', '/config-mode/deactivate', ConfigModeController::class, 'deactivate', 'admin');
 
-// Editable content API
-$router->addRoute('POST', '/api/editable-content', EditableContentController::class, 'update', 'superadmin');
-$router->addRoute('POST', '/api/rich-text-content', EditableContentController::class, 'updateField', 'superadmin');
+// Editable content API — both routes are role_min: admin, deliberately
+// less strict than the Configuration menu. Neither is authorized by being
+// in that menu: the authorization comes from the HOST page, and every host
+// of either endpoint is already an admin page.
+//   - /api/editable-content backs configuration mode's in-place editing,
+//     whose real enforcement point is Core\View\ConfigurationMode::
+//     isActive() — widened to admin when the toggle moved to "Espace chefs
+//     d'U" (see /config-mode/activate above). Left at superadmin, this
+//     route 403'd precisely the chief d'unité the toggle had just been
+//     opened to, on save.
+//   - /api/rich-text-content backs partials/rich_text_field.html.twig on
+//     admin pages that manage their own rich-text items (banner config,
+//     registration config, the leadership module's unit note) — all of
+//     them role_min: admin pages of the Espace chefs d'U menu.
+// A chief, one level below, is still refused by the RBAC guard on both.
+$router->addRoute('POST', '/api/editable-content', EditableContentController::class, 'update', 'admin');
+$router->addRoute('POST', '/api/rich-text-content', EditableContentController::class, 'updateField', 'admin');
 
 // Cookie consent
 $router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public', ['label' => 'Préférences cookies', 'parents' => []]);
