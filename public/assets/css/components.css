@@ -3,6 +3,16 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
+:root {
+    /* Single micro type size for dense chrome (calendar weekday header,
+       event bars, overflow badge, "new" markers). Used to be an ad-hoc
+       spread of 0.65/0.68/0.7/0.72rem — one variable so the smallest text
+       on the site never drifts below the ~11.5px legibility floor again.
+       Anything that needs to read as body copy uses .small/0.875rem
+       instead; this is strictly for compact, glanceable labels. */
+    --fs-micro: 0.72rem;
+}
+
 /* Core member_photo() component (see Core\Photo, TwigFactory::create()).
    3:4 portrait format, same size wherever it's used (e.g. every photo on the
    trombinoscope, including the highlighted "responsable" card). */
@@ -89,7 +99,7 @@
     display: grid;
     grid-template-columns: repeat(7, 1fr);
     text-align: center;
-    font-size: 0.7rem;
+    font-size: var(--fs-micro);
 }
 .calendar-week {
     /* Single source of truth for bar-row height — partials/month_grid.html.twig
@@ -160,7 +170,7 @@
     pointer-events: auto;
     cursor: default;
     flex-shrink: 0;
-    font-size: 0.65rem;
+    font-size: var(--fs-micro);
     font-weight: 600;
     color: var(--bs-secondary-color, #6c757d);
 }
@@ -174,7 +184,7 @@
     margin: 1px;
     padding: 0 0.3rem;
     border-radius: 0.25rem;
-    font-size: 0.68rem;
+    font-size: var(--fs-micro);
     /* Derived from the same --calendar-bar-height the grid row height comes
        from (minus the 1px top/bottom margin above) — never a value of its
        own, or the two drift apart again. */
@@ -246,15 +256,18 @@
    44px-tall bar simply overflowed its ~22px track and covered the
    neighbouring row/day below it. That was the actual reported bug. The bar
    now keeps its real, compact height as its tap target on every pointer
-   type — a small font-size bump is still worth it for legibility, but the
-   box itself no longer grows.
+   type — the legibility font-size bump this block used to add on coarse
+   pointers is now the base size (--fs-micro), and the box itself no
+   longer grows.
    Cell height / MonthGridBuilder's maxVisibleRows: unaffected by this —
    that cap was always a fixed PHP-side constant (3), never derived from
    any CSS value; this fix only makes the grid's own rendered row height
    finally match what that cap was always meant to look like. */
 @media (pointer: coarse) {
     .calendar-event-bar {
-        font-size: 0.72rem;
+        /* Same --fs-micro as the base rule now (the bump this used to
+           apply became the baseline); only the roomier padding remains
+           coarse-specific. */
         padding: 0.15rem 0.4rem;
     }
 }
@@ -608,7 +621,7 @@
    this is a marker of what changed rather than a control — it is never
    the only way to reach the new comments. */
 .groups-thread-new {
-    font-size: 0.7rem;
+    font-size: var(--fs-micro);
 }
 
 /* Modules\Groups — an auto-hidden post or reply, as its group's moderators

@@ -6,6 +6,8 @@
 :root {
     --page-max-width: 1200px;
     --page-narrow-width: 560px;
+    --page-medium-width: 720px;
+    --page-wide-width: 960px;
 }
 
 /* Unify the main content container at a single width on large screens,
@@ -17,6 +19,18 @@
 /* Centered narrow column for form-centric pages, inside the shared container. */
 .page-narrow {
     max-width: var(--page-narrow-width);
+    margin-inline: auto;
+}
+/* Same idea, two wider tiers (design.md §7.6): medium for detail/config
+   pages, wide for dense management screens. Views use one of these three
+   classes instead of nesting a second .container or writing an inline
+   max-width. */
+.page-medium {
+    max-width: var(--page-medium-width);
+    margin-inline: auto;
+}
+.page-wide {
+    max-width: var(--page-wide-width);
     margin-inline: auto;
 }
 
@@ -59,12 +73,22 @@
 
 /* ============================================================
    MOBILE TOUCH-TARGET BASELINE
-   Enforces AGENTS.md 44px minimum on coarse-pointer devices.
-   Restored to compact at lg (≥992px) where mouse usage is expected.
+   Enforces the design.md §7.2 44px comfort goal on coarse-pointer
+   devices. Restored to compact under `pointer: fine` (a real mouse/
+   trackpad) — NOT at a width breakpoint: a 10" touch tablet is wider
+   than 992px yet still needs its touch targets, and conversely a
+   narrow desktop window still has a mouse.
    ============================================================ */
 
 @media (pointer: coarse) {
-    /* Buttons */
+    /* Buttons — standard .btn included, not just .btn-sm: covering only
+       the -sm variants made a "small" control render TALLER than a
+       normal one (44px vs Bootstrap's 38px), which is what bred the
+       inline min-height:44px patches in templates. The bump on .btn is
+       modest (38 → 44px) and only affects height, never padding. */
+    .btn {
+        min-height: 44px;
+    }
     .btn-sm {
         min-height: 44px;
         min-width: 44px;
@@ -72,7 +96,13 @@
         padding-bottom: 0.5rem;
     }
 
-    /* Form controls */
+    /* Form controls — min-height only on the standard sizes (38 → 44px);
+       deliberately no line-height/padding inflation beyond 44px
+       (design.md §7.2: never lengthen forms for zero gain). */
+    .form-control,
+    .form-select {
+        min-height: 44px;
+    }
     .form-control-sm,
     .form-select-sm {
         min-height: 44px;
@@ -130,6 +160,16 @@
         min-height: 44px;
     }
 
+    /* Generic tappable zone for interactive elements that are neither
+       .btn, form controls, nor .list-group-item-action (e.g. a plain
+       <a> row, a dropdown item, a clickable area). Replaces the former
+       template-level style="min-height:44px" patches — inline styles
+       beat every stylesheet rule, including the pointer:fine restore
+       below, which is why they are banned (design.md §7.2). */
+    .tap-target {
+        min-height: 44px;
+    }
+
     /* Icon-only buttons (ensure square minimum) */
     .btn-sm:has(> i:only-child),
     .btn-sm:has(> .bi:only-child) {
@@ -139,12 +179,19 @@
     }
 }
 
-/* Restore compact sizes on large screens (mouse/trackpad assumed) */
-@media (min-width: 992px) {
+/* Restore compact sizes where a real mouse/trackpad is the primary
+   pointer. Keyed on `pointer: fine`, not a width breakpoint: the old
+   `min-width: 992px` restore stripped the 44px targets from wide TOUCH
+   devices (a 10" tablet in landscape), while this leaves them intact
+   there and still compacts any desktop, whatever its window width. */
+@media (pointer: fine) {
+    .btn,
     .btn-sm {
         min-height: revert;
         min-width: revert;
     }
+    .form-control,
+    .form-select,
     .form-control-sm,
     .form-select-sm {
         min-height: revert;
@@ -161,15 +208,9 @@
         align-items: revert;
         min-height: revert;
     }
-}
-
-/* ============================================================
-   SAFE OVERFLOW FOR LONG CONTENT
-   Prevents horizontal overflow from IBANs, filenames, URLs, etc.
-   ============================================================ */
-.overflow-wrap-anywhere {
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    .tap-target {
+        min-height: revert;
+    }
 }
 
 /* Code blocks in tables/cards: prevent blow-out */
@@ -241,23 +282,22 @@ body:has(> #cookie-banner) {
 }
 
 /* ============================================================
-   UTILITY: full-width stacking for action bar buttons on mobile
-   ============================================================ */
-@media (max-width: 575.98px) {
-    .action-bar-wrap {
-        flex-wrap: wrap;
-    }
-    .action-bar-wrap > .btn,
-    .action-bar-wrap > a.btn {
-        flex: 1 1 100%;
-    }
-}
-
-/* ============================================================
    UTILITY: responsive width auto (Bootstrap has w-100 but no w-sm-auto)
    ============================================================ */
 @media (min-width: 576px) {
     .w-sm-auto { width: auto !important; }
+}
+
+/* ============================================================
+   UTILITY: dashed border for drop zones (upload, receipts, gallery).
+   Bootstrap 5 has border-* color/width utilities but no border-style
+   one — the templates already used this class name, which silently
+   rendered as a SOLID border until it was defined here. !important
+   matches Bootstrap's own border-utility convention so it wins over
+   .border's shorthand wherever the two are combined.
+   ============================================================ */
+.border-dashed {
+    border-style: dashed !important;
 }
 
 /* ============================================================
