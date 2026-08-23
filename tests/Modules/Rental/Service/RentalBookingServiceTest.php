@@ -172,7 +172,7 @@ class RentalBookingServiceTest extends TestCase
         $this->expectException(\PDOException::class);
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_bookings (asset_id, reference, arrival_date, departure_date,
-                renter_name_encrypted, renter_email_encrypted, renter_email_blind_index, tracking_token_hash)
+                renter_name_encrypted, renter_email_encrypted, renter_email_blind_index, tracking_token_encrypted)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$this->assetId, 'LOC-2027-0001', '2027-08-01', '2027-08-03', 'x', 'y', 'z', 'h']);
@@ -256,7 +256,7 @@ class RentalBookingServiceTest extends TestCase
 
     // ── Tracking token (§13 of the conventions) ─────────────────────────
 
-    public function testTheTrackingTokenIsLongRandomAndStoredOnlyHashed(): void
+    public function testTheTrackingTokenIsLongRandomAndNeverStoredInTheClear(): void
     {
         $result = $this->submit();
         $token = $result['tracking_token'];
@@ -264,10 +264,50 @@ class RentalBookingServiceTest extends TestCase
         $this->assertSame(64, strlen($token), '32 random bytes, hex-encoded.');
         $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $token);
 
-        $storedHash = $this->pdo->query('SELECT tracking_token_hash FROM rental_bookings')->fetchColumn();
-        $this->assertIsString($storedHash);
-        $this->assertStringNotContainsString($token, $storedHash, 'The raw token is never stored.');
-        $this->assertTrue(password_verify($token, $storedHash));
+        // Encrypted rather than hashed since the module started writing to
+        // the renter (see the note in schema.sql): a hash can say "yes,
+        // that is the token" and nothing else, and every decision email
+        // has to carry the link itself. What must still hold is that the
+        // column is unreadable without the application key.
+        $stored = $this->pdo->query('SELECT tracking_token_encrypted FROM rental_bookings')->fetchColumn();
+        $this->assertIsString($stored);
+        $this->assertStringNotContainsString($token, $stored, 'The raw token never sits in the column.');
+    }
+
+    public function testTheStoredTrackingTokenCanBeReadBackForAnEmail(): void
+    {
+        $result = $this->submit();
+
+        $this->assertSame(
+            $result['tracking_token'],
+            $this->service->trackingTokenFor($result['booking']->id)
+        );
+    }
+
+    public function testARegeneratedTokenReplacesTheOldOneEverywhere(): void
+    {
+        $result = $this->submit();
+        $bookingId = $result['booking']->id;
+
+        $fresh = $this->service->regenerateTrackingToken($bookingId);
+
+        $this->assertNotSame($result['tracking_token'], $fresh);
+        // Revocation is the whole point: the forwarded link stops working.
+        $this->assertNull($this->service->findByTrackingToken($bookingId, $result['tracking_token']));
+        $this->assertNotNull($this->service->findByTrackingToken($bookingId, $fresh));
+        $this->assertSame($fresh, $this->service->trackingTokenFor($bookingId));
+    }
+
+    public function testAnEmptyTokenNeverUnlocksAnything(): void
+    {
+        $result = $this->submit();
+
+        $this->assertNull($this->service->findByTrackingToken($result['booking']->id, ''));
+    }
+
+    public function testAnUnknownBookingHasNoTokenToRead(): void
+    {
+        $this->assertNull($this->service->trackingTokenFor(9999));
     }
 
     public function testTwoBookingsNeverShareATrackingToken(): void

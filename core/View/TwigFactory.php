@@ -42,7 +42,18 @@ class TwigFactory
             'cache' => $debug ? false : $cacheDir,
             'debug' => $debug,
             'auto_reload' => $debug,
-            'autoescape' => 'html',
+            // HTML everywhere, EXCEPT the plain-text half of an email.
+            //
+            // Escaping is right for every page and for the HTML body of a
+            // message; in a text/plain part it is simply wrong, and
+            // silently so — nothing renders it back. A renter called
+            // O'Brien read « Bonjour O&#039;Brien », and « c&#039;est
+            // votre seul accès » sat in the acknowledgement of every
+            // rental request. The templates cannot fix it one variable at
+            // a time either: |raw on each of them is the same decision
+            // made repeatedly, and forgotten once.
+            'autoescape' => static fn (string $name): string|false
+                => str_ends_with($name, '.text.twig') ? false : 'html',
         ]);
 
         // Register csrf_field() function

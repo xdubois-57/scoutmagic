@@ -96,10 +96,29 @@
                         Une nouvelle demande est nécessaire.
                     </p>
                 {% else %}
+                    {#
+                      Every transition the renter hears about asks first, and
+                      the dialog carries the free-text box the manager's word
+                      goes in (base.html.twig's data-confirm-note, handled in
+                      /assets/js/confirm.js). Which ones those are comes from
+                      Booking\RenterDecision::forStatus(), never re-derived
+                      here — a status added to that enum must not need this
+                      template edited to stop being silent.
+
+                      The rest — « en cours d'examen », a closure — send
+                      nothing and ask nothing: they are bookkeeping, and a
+                      dialog in front of bookkeeping is a dialog nobody reads.
+                    #}
                     <div class="d-flex flex-wrap gap-2">
                         {% for target in allowed_transitions %}
+                            {% set decision = renter_decisions[target.value]|default(null) %}
                             <form method="post" action="/mes-locations/statut" class="d-inline"
-                                  {% if target.value in ['refused', 'cancelled'] %}
+                                  {% if decision %}
+                                      data-confirm="{{ decision.question }}"
+                                      data-confirm-label="{{ target.label }}"
+                                      data-confirm-note="{{ decision.note_label }}"
+                                      data-confirm-note-name="message"
+                                  {% elseif target.value in ['refused', 'cancelled'] %}
                                       data-confirm="Confirmer le passage à « {{ target.label }} » ? Les dates seront libérées."
                                   {% endif %}>
                                 {{ csrf_field()|raw }}
@@ -113,6 +132,10 @@
                             </form>
                         {% endfor %}
                     </div>
+                    <p class="text-body-secondary small mb-0 mt-2">
+                        Le locataire est prévenu par email d'une confirmation, d'un refus,
+                        d'une annulation, d'une proposition ou d'une demande de précision.
+                    </p>
                 {% endif %}
             </div>
         </div>
@@ -339,7 +362,11 @@
                                 </div>
                                 {% if change.isPending and change.origin.value == 'renter' %}
                                     <div class="d-flex gap-2 mt-2">
-                                        <form method="post" action="/mes-locations/demande">
+                                        <form method="post" action="/mes-locations/demande"
+                                              data-confirm="Accepter cette demande ? Elle sera appliquée à la réservation, et le locataire en sera informé."
+                                              data-confirm-label="Accepter"
+                                              data-confirm-note="Un mot au locataire (facultatif)"
+                                              data-confirm-note-name="message">
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
@@ -347,7 +374,11 @@
                                             <input type="hidden" name="decision" value="accept">
                                             <button type="submit" class="btn btn-sm btn-outline-success">Accepter</button>
                                         </form>
-                                        <form method="post" action="/mes-locations/demande">
+                                        <form method="post" action="/mes-locations/demande"
+                                              data-confirm="Refuser cette demande ? La réservation reste inchangée, et le locataire en sera informé."
+                                              data-confirm-label="Refuser"
+                                              data-confirm-note="Dire pourquoi, si vous le souhaitez (facultatif)"
+                                              data-confirm-note-name="message">
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
@@ -377,8 +408,10 @@
                             <input type="date" class="form-control form-control-sm" id="propose-departure" name="departure">
                         </div>
                         <div class="col-12 col-md-4">
-                            <label class="form-label" for="propose-message">Message</label>
-                            <input type="text" class="form-control form-control-sm" id="propose-message" name="message">
+                            <label class="form-label" for="propose-message">Message au locataire</label>
+                            <input type="text" class="form-control form-control-sm" id="propose-message" name="message"
+                                   aria-describedby="propose-message-help">
+                            <div class="form-text" id="propose-message-help">Envoyé avec la proposition.</div>
                         </div>
                         <div class="col-12 col-md-2">
                             <button type="submit" class="btn btn-sm btn-outline-primary w-100">Proposer</button>

@@ -1,0 +1,36 @@
+{#
+  What a manager decided, said to the renter (§6.15, §6.16). One template
+  for all of them: the decision supplies the announcement, the call to
+  action and whether the tracking link belongs in it
+  (Booking\RenterDecision), so a new decision is a case in that enum rather
+  than a seventh near-copy of this file.
+
+  `manager_word` is the manager's own sentence, optional, and it is quoted
+  as theirs rather than folded into the announcement — the renter should be
+  able to tell what the site says from what a person wrote.
+#}
+<p>Bonjour {{ booking.renterName }},</p>
+
+<p>{{ announcement }}</p>
+
+<p>
+    <strong>{{ asset.name }}</strong>, du {{ booking.arrivalDate|date_fr }}
+    au {{ booking.departureDate|date_fr }}<br>
+    Votre référence : <strong>{{ booking.reference }}</strong>
+</p>
+
+{% if manager_word %}
+    <blockquote style="margin:1em 0;padding-left:1em;border-left:3px solid #ccc;">
+        {{ manager_word|nl2br }}
+    </blockquote>
+{% endif %}
+
+{% if call_to_action %}
+    <p>{{ call_to_action }}</p>
+{% endif %}
+
+{% if tracking_url %}
+    <p><a href="{{ tracking_url }}">Voir ma réservation</a></p>
+{% endif %}
+
+<p>À bientôt,<br>{{ site_name }}</p>

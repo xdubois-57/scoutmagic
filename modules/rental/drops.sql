@@ -25,3 +25,15 @@ ALTER TABLE rental_assets DROP COLUMN show_in_menu;
 -- asset's calendars are read. Adding the DROP here in the same release
 -- would race that backfill and silently lose whichever calendar a unit had
 -- already chosen.
+
+-- The renter tracking token's old password_hash() column. It was replaced
+-- by `tracking_token_encrypted` when the module started emailing the renter
+-- its decisions: a hash answers "is this the token?" and nothing else, and
+-- an email has to carry the link itself (see the note in schema.sql).
+--
+-- Nothing carries the old values over, deliberately. A hash cannot be
+-- turned back into a token by anyone, this installation included — that
+-- was its whole merit. Bookings that predate the change therefore keep a
+-- link that no longer opens, and the fix for one is a manager pressing
+-- « Régénérer le lien de suivi », which mints a fresh token and emails it.
+ALTER TABLE rental_bookings DROP COLUMN tracking_token_hash;

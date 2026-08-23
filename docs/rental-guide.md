@@ -230,6 +230,36 @@ n'y a pas droit.
 Rien n'est recopié dans le calendrier : si vous désactivez la publication,
 l'occupation disparaît d'elle-même.
 
+## 10 bis. Ce que le locataire reçoit de vos décisions
+
+**Vous décidez, il est prévenu.** Confirmer, refuser, annuler, proposer
+d'autres dates, demander une précision, accepter ou refuser sa demande de
+modification : chacune de ces actions lui envoie un email. Ce n'est pas une
+option à cocher — un locataire n'a pas de compte ici, pas de centre de
+notifications, et aucune raison de revenir voir une page qu'il a ouverte une
+fois.
+
+Avant chaque décision de ce type, le site vous demande confirmation **et
+vous offre un cadre de texte libre**. Ce que vous y écrivez part avec la
+décision, cité tel quel, séparé de la phrase automatique. C'est ce qui
+transforme « nous ne pouvons pas donner suite à votre demande » en « le
+local est déjà pris ce week-end-là par un autre groupe ». Le laisser vide
+est parfaitement valable : l'email dit quand même ce qui s'est passé.
+
+Après coup, le bandeau vert vous dit si le message est bien parti. S'il n'a
+pas pu partir, il vous le dit aussi — la décision, elle, est enregistrée
+dans tous les cas.
+
+Les emails qui portent le **lien de suivi** sont ceux sur lesquels le
+locataire peut encore agir : une confirmation, une proposition, une demande
+de précision. Un refus et une annulation n'en portent pas : il n'y a plus
+rien à y faire, et un lien qui circule est un lien qui se retrouve
+transféré.
+
+Les changements qui ne sont *pas* des décisions n'envoient rien : passer une
+demande « en cours d'examen » parce que vous l'ouvrez, ou une option qui
+expire toute seule à quatre heures du matin.
+
 ## 11. Les emails du locataire
 
 Avec le module Courrier entrant, les réponses du locataire remontent

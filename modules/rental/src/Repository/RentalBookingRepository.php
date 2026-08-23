@@ -43,6 +43,7 @@ class RentalBookingRepository
     private const CTX_BILLING_ENTERPRISE = 'rental_bookings.billing_enterprise_number';
     private const CTX_BILLING_EMAIL = 'rental_bookings.billing_email';
     private const CTX_BILLING_REFERENCE = 'rental_bookings.billing_reference';
+    private const CTX_TRACKING_TOKEN = 'rental_bookings.tracking_token';
 
     /**
      * Blind-index purpose. Shared with nothing else: an index computed under
@@ -109,7 +110,7 @@ class RentalBookingRepository
                 estimated_price_snapshot, estimated_total_cents,
                 conditions_version, conditions_hash, conditions_accepted_at,
                 privacy_version, privacy_hash, privacy_acknowledged_at,
-                tracking_token_hash, created_at, updated_at
+                tracking_token_encrypted, created_at, updated_at
              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
 
@@ -140,7 +141,7 @@ class RentalBookingRepository
             $privacyVersion,
             $privacyHash,
             $privacyVersion !== null ? $timestamp : null,
-            password_hash($trackingToken, PASSWORD_DEFAULT),
+            $this->encryption->encrypt($trackingToken, self::CTX_TRACKING_TOKEN),
             $timestamp,
             $timestamp,
         ]);
@@ -167,40 +168,72 @@ class RentalBookingRepository
     }
 
     /**
-     * Verifies a presented tracking token against a booking's stored hash.
+     * Verifies a presented tracking token against a booking's stored one.
      *
-     * `password_verify()` against a hash, exactly like the registration
-     * module's tracking token: the raw token is never stored, so a database
-     * copy does not hand over every renter's booking. Constant-time by
-     * construction, which is what stops the token being guessed one
-     * character at a time.
+     * `hash_equals()` against the decrypted token — constant-time, which is
+     * what stops the token being guessed one character at a time. See the
+     * note in schema.sql for why this is encrypted rather than hashed: a
+     * hash can answer "is this the token?" and nothing else, and every
+     * email a manager's decision sends needs the answer to "what is this
+     * booking's link?".
      *
      * Returns false for an unknown id rather than distinguishing "no such
      * booking" from "wrong token" — the caller must not be able to probe
-     * which references exist.
+     * which references exist. A token that fails to decrypt (a key rotated
+     * without re-encrypting, a corrupted row) is the same false: the renter
+     * gets a fresh link from a manager, which is what regeneration is for.
      */
     public function verifyTrackingToken(int $id, string $token): bool
     {
-        $stmt = $this->pdo->prepare('SELECT tracking_token_hash FROM rental_bookings WHERE id = ?');
-        $stmt->execute([$id]);
-        $hash = $stmt->fetchColumn();
+        $stored = $this->trackingTokenOf($id);
 
-        return $hash !== false && password_verify($token, (string) $hash);
+        return $stored !== null && $token !== '' && hash_equals($stored, $token);
+    }
+
+    /**
+     * A booking's tracking token in the clear, or null if there is none to
+     * read.
+     *
+     * The one call that hands a credential back out, and it exists for one
+     * reason: an email to a renter is worth nothing without their link, and
+     * the renter has no account to log into instead. Callers must treat
+     * what comes back the way `RentalBookingMailService` does — into the
+     * URL of a message addressed to the renter, never into a journal entry,
+     * a flash message, a template variable a manager can see, or a log.
+     */
+    public function trackingTokenOf(int $id): ?string
+    {
+        $stmt = $this->pdo->prepare('SELECT tracking_token_encrypted FROM rental_bookings WHERE id = ?');
+        $stmt->execute([$id]);
+        $stored = $stmt->fetchColumn();
+
+        if ($stored === false || $stored === null || $stored === '') {
+            return null;
+        }
+
+        try {
+            return $this->encryption->decrypt((string) $stored, self::CTX_TRACKING_TOKEN);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
      * Mints a fresh tracking token, invalidating the previous one.
      *
-     * The raw token is returned and stored only as a hash — the caller has
-     * one chance to deliver it. Revocability is what makes a capability
-     * token acceptable at all: a renter who forwarded their link to the
-     * wrong person can be given a new one.
+     * Revocability is what makes a capability token acceptable at all: a
+     * renter who forwarded their link to the wrong person can be given a
+     * new one, and the old link stops working the moment this returns.
      */
     public function regenerateTrackingToken(int $id): string
     {
         $token = bin2hex(random_bytes(32));
-        $stmt = $this->pdo->prepare('UPDATE rental_bookings SET tracking_token_hash = ?, updated_at = ? WHERE id = ?');
-        $stmt->execute([password_hash($token, PASSWORD_DEFAULT), (new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
+        $stmt = $this->pdo->prepare('UPDATE rental_bookings SET tracking_token_encrypted = ?, updated_at = ? WHERE id = ?');
+        $stmt->execute([
+            $this->encryption->encrypt($token, self::CTX_TRACKING_TOKEN),
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $id,
+        ]);
 
         return $token;
     }
