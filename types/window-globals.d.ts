@@ -105,6 +105,16 @@ interface Window {
         cycle: () => void;
         hasFunctionalConsent: () => boolean;
     };
+    // public/assets/js/pdf-thumbnail.js — the fallback for a PDF
+    // thumbnail the server could not render, loaded only by the pages
+    // that show receipts. `error` does not bubble, so every code path
+    // that INSERTS such an image calls bind() again for it.
+    ScoutMagicPdfThumbnail?: {
+        bind: (
+            root: ParentNode | null | undefined,
+            options?: { height?: string, width?: string, iconClass?: string }
+        ) => void;
+    };
     // public/assets/js/toast.js — the non-blocking replacement for
     // alert(), loaded by base.html.twig on every page.
     ScoutMagicToast?: {
