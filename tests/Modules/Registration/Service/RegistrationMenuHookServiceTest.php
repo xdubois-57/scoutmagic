@@ -100,7 +100,7 @@ class RegistrationMenuHookServiceTest extends TestCase
         $entry = $this->hookService->getMenuEntries('marie@example.com')[0];
 
         $this->assertSame(MenuBuilder::MENU_ESPACE_ANIMES, $entry->menuId);
-        $this->assertSame(MenuBuilder::GROUP_DYNAMIC, $entry->group);
+        $this->assertSame(MenuBuilder::SORT_GROUP_DYNAMIC, $entry->sortGroup);
         $this->assertTrue($entry->isDynamic);
         $this->assertSame('identified', $entry->roleMin);
         $this->assertSame("Demande d'inscription", $entry->subtitle);

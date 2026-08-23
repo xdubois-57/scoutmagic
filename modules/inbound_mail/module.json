@@ -14,6 +14,7 @@
       "role_min": "superadmin",
       "label": "Courrier entrant",
       "menu_icon": "bi-envelope-open",
+      "menu_group": "modules",
       "breadcrumb": {
         "label": "Courrier entrant",
         "parents": [
