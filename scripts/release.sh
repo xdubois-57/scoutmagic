@@ -803,6 +803,21 @@ if command -v gh &> /dev/null; then
         exit 1
     fi
 
+    # The reference dataset (tests/fixtures/reference-dataset/ — its own
+    # README.md) is a test harness: fake member exports, fake bank
+    # statements, a CLI builder that writes massively to the database, and
+    # documented demo passwords. It is already covered by the "tests/*"
+    # entry of the -x list above, so this check has nothing of its own to
+    # exclude — it exists so that exclusion stops being tacit. Anything
+    # that moves this dataset out from under tests/ (or a -x list someone
+    # trims) fails the release here instead of shipping a builder into an
+    # installable artifact.
+    if grep -q 'reference-dataset' "${LISTING_FILE}"; then
+        echo "ERROR: release artifact contains reference-dataset — the test dataset must never ship; aborting release." >&2
+        rm -f "${ARTIFACT}"
+        exit 1
+    fi
+
     # Release notes always end with the "Vérifications effectuées" block
     # (${GATE_REPORT}, built above as each gate ran or was bypassed) — this
     # is added here in the script itself, never left to whoever wrote
