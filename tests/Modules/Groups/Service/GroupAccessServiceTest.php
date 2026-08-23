@@ -430,6 +430,31 @@ class GroupAccessServiceTest extends TestCase
     }
 
     /**
+     * The shape the defect was reported in, kept as its own case because
+     * a rule is easiest to trust against the household that found it: one
+     * account reaching four active members — two animés in the group's
+     * own section, one in another, and the parent's own Staff d'U
+     * membership. The poll used to offer the two, and the family had four
+     * answers to give.
+     */
+    public function testAParentOfFourIsOfferedFourAnswersInASectionGroupPoll(): void
+    {
+        $staffId = GroupsTestHelper::createSection($this->pdo, 'STAFF', "Staff d'U");
+        $groupId = $this->sectionGroup();
+        $firstInSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SV025L1-A', $this->louveteauxId, $this->currentYearId);
+        $secondInSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SV025L1-B', $this->louveteauxId, $this->currentYearId);
+        $otherSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SV025E1', $this->eclaireursId, $this->currentYearId);
+        $theParent = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'STAFF-PARENT', $staffId, $this->currentYearId);
+
+        $allowed = $this->access->memberIdsAllowedToVoteAs(
+            $this->groupRepo->findById($groupId),
+            $this->context([$firstInSection, $otherSection, $secondInSection, $theParent])
+        );
+
+        $this->assertSame([$firstInSection, $secondInSection, $otherSection, $theParent], $allowed);
+    }
+
+    /**
      * An account with a single member has nothing to pick between, and no
      * poll offers it a choice — the same list, one entry long.
      */
