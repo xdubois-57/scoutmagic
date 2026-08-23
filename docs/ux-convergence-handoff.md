@@ -39,6 +39,15 @@ Références :
    UxConventionsTest.
 10. **Ne pas merger sur main** — Xavier veut tester à la main d'abord.
 
+10. **Emails de décision (location)** : automatiques, avec un mot libre
+    facultatif du gestionnaire. Ni silencieux, ni derrière une case à
+    cocher.
+11. **Jeton de suivi (location)** : stocké **chiffré**, pas haché. Pas de
+    migration des données — l'instance de test n'a que des biens qui
+    seront supprimés.
+12. **Aide au test** : un plan de test manuel
+    (`docs/plan-de-test-manuel.md`), pas de passe de captures d'écran.
+
 ## FAIT
 
 ### Première session (phases 0 à 4)
@@ -110,6 +119,75 @@ Références :
   (l'échappatoire documentée dans README § « Où ça tourne »). Sur une
   machine dont les navigateurs correspondent, `npm run e2e` suffit.
 
+### Troisième session — les trous fonctionnels
+
+Priorité choisie par Xavier : **les trous fonctionnels**, pas plus de
+refactoring. Les quatre sont faits, les trois arbitrages ouverts sont
+tranchés, et un plan de test manuel existe
+(`docs/plan-de-test-manuel.md`).
+
+- **Le dialogue partagé sort du gabarit et apprend à porter un mot.** Le
+  gestionnaire `data-confirm` délégué était un `<script>` inline dans
+  `base.html.twig` — dernière copie d'un bloc qui avait déjà existé à
+  l'identique dans trois gabarits et **manqué** dans un quatrième. Il est
+  dans `confirm.js`, donc testable (42 tests au lieu de 27), avec une
+  garde contre un double chargement. Nouveau : `data-confirm-note`
+  (+ `data-confirm-note-name`, défaut `message`) affiche un `<textarea>`
+  sous la question et poste ce qui y est écrit ; `prompt()` a gagné
+  `multiline` (Entrée passe à la ligne au lieu de valider) et `label`
+  (un vrai `<label for>` au lieu d'un `aria-labelledby` sur le corps).
+- **Location — les décisions atteignent le locataire.** `Booking\RenterDecision`
+  énumère ce que quelqu'un a *décidé* (jamais `BookingStatus` : une option
+  qui expire à 4 h du matin ne doit écrire à personne), et porte sa
+  question, sa phrase d'annonce, son libellé de champ et le fait de porter
+  ou non le lien de suivi. `RentalBookingMailService::sendDecision()` +
+  `views/email/decision.{html,text}.twig`. Un envoi raté est signalé dans
+  le bandeau et **n'annule jamais** la décision déjà enregistrée.
+- **Le jeton de suivi est chiffré, plus haché.** Décision de Xavier
+  (option 1, sans migration). Un hash ne répond qu'à « est-ce le jeton ? »,
+  et chaque email de décision doit répondre à « quel est le lien ? ». Le
+  coût est écrit dans `schema.sql` : la colonne résiste à une copie de base
+  prise **sans** la clé applicative, plus à une copie prise avec — là où
+  toutes les autres colonnes d'identité de cette table étaient déjà.
+  `drops.sql` retire `tracking_token_hash`. Les réservations antérieures
+  gardent un lien mort ; le correctif est « Régénérer le lien de suivi ».
+- **Inscription en POST-redirect-GET** (`/inscriptions/envoyee`, reçu en
+  session via `Service\RegistrationSubmissionReceipt`, valable 30 min, **non
+  consommé à la lecture** pour qu'un F5 reconfirme).
+- **Décompte avant envoi groupé** : `MassMailService::estimateRecipientCount()`
+  + `GET /mass-mail/{id}/recipient-count`, demandé **au moment de la
+  question** (la liste est vivante). Compte des personnes, pas des adresses.
+- **Effectif d'un groupe sur les cartes** : union « invités ∪ dérivés des
+  sections », comptée une fois, deux requêtes pour toute la page
+  (`SectionMembershipRepository::findMemberIdsBySection()`,
+  `GroupMemberRepository::findMemberIdsByGroups()`). Un groupe archivé garde
+  l'effectif de **son** année.
+- **Les trois arbitrages** (points 4, 5 et 6 de l'ancienne liste) sont
+  fermés : bouton explicite sur `#default-number-member` ;
+  `writeFailureMessage()` relatif à la racine et sans `error_get_last()`,
+  donc `UpdateException` est maintenant marquée `UserFacingException` ;
+  l'erreur technique du SDK S3 passe par la session
+  (`Service\S3TestFailure`) au lieu de transiter par le navigateur — ce qui
+  retire au passage une chaîne fournie par le navigateur d'un prompt de
+  modèle.
+- **Bug d'échappement trouvé en écrivant les gabarits d'email** : tous les
+  `*.text.twig` du dépôt étaient rendus avec l'auto-échappement HTML. Rien
+  ne re-transforme ces entités dans une partie `text/plain`, donc un
+  locataire nommé O'Brien lisait « Bonjour O&#039;Brien », et
+  « c&#039;est votre seul accès » était dans l'accusé de réception de
+  **chaque** demande de location. `TwigFactory` choisit désormais la
+  stratégie par nom de fichier ; épinglé par
+  `tests/Core/View/PlainTextEmailEscapingTest.php`.
+- **Un test de bout en bout passait pour la mauvaise raison** : la spec
+  location cliquait « Confirmée » puis vérifiait que `/Confirmée/` était
+  visible — ce qui décrit le bouton qu'elle venait de presser. Elle a
+  continué à passer quand le clic s'est mis à ouvrir un dialogue au lieu
+  de soumettre. Elle répond maintenant au dialogue, y écrit le mot, et
+  vérifie le bandeau.
+- **Validation complète** : 9 030 tests PHP / 24 994 assertions,
+  1 173 tests JS / 62 fichiers, 38 scénarios Playwright, PHPStan `[OK]`,
+  typecheck 0 nouveau.
+
 ## À FAIRE (dans l'ordre suggéré)
 
 1. **Extraction du JS inline restant** — 814 lignes dans 26 gabarits. Les
@@ -134,41 +212,11 @@ Références :
    notifications/preferences. Exclus : `setup/index.html.twig`, et tout
    champ dont le contrôle porte des `data-*` lus par du JS (le partial ne
    les émet pas).
-4. **`Core\Maintenance\UpdateException` reste non marquée, délibérément.**
-   Deux de ses sites de lancement construisent leur message avec
-   `InstallUpdateHandler::writeFailureMessage()`, qui interpole un chemin
-   serveur ABSOLU et l'avertissement PHP brut (« copy(...): Failed to open
-   stream: Permission denied »). Conséquence assumée : sur la page
-   Maintenance, l'admin lit le repli (« …le détail est dans le journal »)
-   au lieu du chemin. Si on veut lui rendre le chemin — c'est l'information
-   qui lui sert à corriger ses droits — il faut d'abord rendre
-   `writeFailureMessage()` relatif à la racine d'installation et lui retirer
-   `error_get_last()`, puis marquer la classe. Pas fait : la version sûre
-   est en place, l'amélioration est un choix produit.
-5. **« Expliquer avec l'IA » d'un échec S3, légèrement dégradé.**
-   `public/assets/js/gallery-storage-location.js` renvoie au serveur la
-   chaîne d'erreur qu'il a reçue ; comme `S3StorageBackend::testConnection()`
-   retourne désormais une phrase française au lieu du message du SDK AWS,
-   `S3ErrorExplainerService` reçoit moins de matière. La perte est faible —
-   la phrase française est dérivée du **code** d'erreur S3, donc elle porte
-   la même information, en plus structurée — et le texte du SDK est au
-   journal. Correctif propre si on veut le refermer : que
-   `GalleryConfigController::testConnection()` mémorise
-   `$backend->lastTechnicalError()` en session et que `explainS3Error()` le
-   relise côté serveur, plutôt que de le faire transiter par le navigateur.
-6. **Un « save on change » silencieux restant** — `#default-number-member`
-   (sos_staff/admin) confirme maintenant par un toast, mais **enregistre
-   toujours au `change`** : c'est la forme exacte du bug llm_connector, sur
-   le réglage qui décide à qui sonne le numéro SOS de l'unité. Décision
-   produit à prendre : bouton explicite, ou statu quo.
-7. **Hors périmètre du chantier mais toujours ouverts** : parcours de la
-   section E de la révision 3 (page de confirmation d'inscription autonome,
-   extractions IA des reçus, décompte avant envoi groupé, prérequis FTP de
-   la maintenance, **emails rental décision/proposition/modification —
-   toujours absents de `RentalManagementController::changeStatus/propose/
-   decideChange`**, effectif visible d'un groupe) ; « Requis par : … » sur
-   les cartes de modules ; luminance sur couleurs configurables ;
-   conventions d'URL (dette assumée).
+4. **Toujours ouverts, hors périmètre** : extractions IA des reçus ;
+   prérequis FTP de la maintenance ; « Requis par : … » sur les cartes de
+   modules ; luminance sur couleurs configurables ; conventions d'URL
+   (dette assumée). Les autres points de la section E de la révision 3
+   sont faits (troisième session).
 
 ## Pièges appris (à respecter absolument)
 
@@ -208,3 +256,16 @@ Références :
   sa sélection.** Tout dialogue ouvert depuis un éditeur de texte riche doit
   capturer la `Range` avant et la restaurer après (`rich-text-link.js` le
   fait ; c'est la partie subtile de ce fichier).
+- **Un test de bout en bout peut passer pour la mauvaise raison.**
+  `expect(page.getByText(/Confirmée/))` après un clic sur un bouton
+  intitulé « Confirmée » ne prouve rien : il décrit le bouton. Quand un
+  clic change de nature (soumission → dialogue), ce genre d'assertion
+  continue à passer sur une action qui n'a plus lieu. Vérifier le
+  **bandeau** ou l'**état en base**, jamais un texte que la page portait
+  déjà avant le geste.
+- **Les `*.text.twig` ne sont plus auto-échappés** (`TwigFactory` choisit
+  la stratégie par nom de fichier). Un nouveau gabarit d'email en texte
+  brut n'a donc PAS besoin de `|raw` — et ne doit pas en avoir.
+- **Playwright dans ce conteneur** : `E2E_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium npm run e2e`.
+  Sans ça, les 38 scénarios échouent tous en 2 ms sur
+  « Executable doesn't exist » — ce n'est jamais une régression du code.
