@@ -50,15 +50,30 @@ Deux conséquences, qui sont la raison d'être de cette approche :
 
 ```
 tests/fixtures/reference-dataset/
-  README.md            ce fichier
-  photos/              le lot de photos (§4)
-  desk/                les trois exports Desk générés          — IT-02
-  bank/                les relevés bancaires générés           — IT-04
-  generate.php         générateur déterministe + mode --check  — IT-02/IT-04
-  build.php            builder CLI                             — IT-05/IT-06
+  README.md              ce fichier
+  generate.php           point d'entrée CLI du générateur (+ --check)
+  DatasetGenerator.php   produit tous les fichiers générés, en mémoire
+  UnitBlueprint.php      LA TABLE : sections, effectifs, fonctions, viviers
+  ScenarioCatalog.php    LA TABLE : les 24 scénarios et les Tiers épinglés
+  ScenarioPeople.php     les 33 membres de scénario, écrits à la main
+  PopulationBuilder.php  fait vieillir et renouvelle la population de fond
+  PersonFactory.php      fabrique une personne fictive
+  Person / PersonYear / PostalAddress / FunctionAssignment / Rng
+  DeskCsvWriter.php      écrit une année au format d'export Desk
+  PhotoLot.php           LA TABLE : genre de chaque portrait, photos de groupe
+  PhotoAssigner.php      attribue les portraits aux cadres
+  desk/                  les trois exports Desk générés, commités
+  photos/                le lot de photos (§4) + assignments.csv, généré
+  bank/                  les relevés bancaires générés           — IT-04
+  build.php              builder CLI                             — IT-05/IT-06
 ```
 
-Les répertoires marqués d'une itération n'existent pas encore.
+Les entrées marquées d'une itération n'existent pas encore.
+
+Les classes sont autochargées par l'entrée `autoload-dev` de `composer.json`
+(`Tests\Fixtures\ReferenceDataset\`) : elles n'existent donc pas du tout dans
+une installation `composer install --no-dev`, en plus de ne jamais entrer dans
+l'artefact de release.
 
 ## 4. Le lot de photos
 
@@ -117,8 +132,8 @@ aussi un cas à représenter.
    supposé.
 3. **La correspondance photo → `Tiers` est déclarative et versionnée**, jamais un
    appariement implicite par ordre alphabétique ou par compteur qu'un fichier
-   ajouté décalerait silencieusement. Elle arrive en IT-02, régénérée et comparée
-   par `generate.php --check`.
+   ajouté décalerait silencieusement. Elle vit dans `photos/assignments.csv`,
+   régénérée et comparée par `generate.php --check` — voir §9.3.
 
 ### 4.4 Contraintes techniques vérifiées
 
@@ -209,7 +224,74 @@ l'itération des extras.
 
 ## 9. Régénération des fichiers
 
-*À compléter en IT-02.* `generate.php` n'existe pas encore.
+```bash
+php tests/fixtures/reference-dataset/generate.php           # écrit les fichiers
+php tests/fixtures/reference-dataset/generate.php --check   # vérifie qu'ils sont à jour
+```
+
+**Les fichiers générés sont commités.** Une instance en construction n'a rien à
+générer, et un relecteur de PR voit changer les données, pas seulement le code
+qui les produit. Le mode `--check` régénère tout en mémoire et compare octet par
+octet à ce qui est sur disque : un générateur modifié sans avoir été relancé
+devient un test qui échoue, jamais une divergence silencieuse. Même mécanisme,
+et même raison, que `js-typecheck-baseline.json`.
+
+`Tests\Integration\ReferenceDatasetFormatTest` invoque ce `--check`, fait passer
+chaque export par le vrai `DeskCsvParser`, et vérifie qu'aucune photo du lot n'est
+orpheline.
+
+Où porter une modification :
+
+| Ce qu'on veut changer | Où |
+|---|---|
+| Taille ou forme de l'unité, effectifs, viviers de noms | `UnitBlueprint.php` |
+| Un comportement nommé à exercer | `ScenarioCatalog.php`, puis `ScenarioPeople.php` |
+| Quelle photo de groupe va à quelle section | `PhotoLot::GROUP_PHOTOS` |
+| Le genre d'un portrait ajouté au lot | `PhotoLot::INDIVIDUAL_GENDERS` |
+
+puis relancer le générateur et committer ce qu'il a écrit.
+
+Le tirage est déterministe : un xorshift32 écrit sur place plutôt que `mt_rand()`,
+parce que le déterminisme de `mt_rand()` est une propriété d'implémentation du
+moteur et non une promesse — il a déjà changé une fois — et que `--check`
+échouerait alors sur une simple montée de version de PHP.
+
+### 9.1 Les trois exports Desk
+
+| Année | Membres | Lignes |
+|---|---|---|
+| 2024-2025 | 178 | 266 |
+| 2025-2026 | 180 | 274 |
+| 2026-2027 | 180 | 278 |
+
+Une ligne par (fonction × adresse) : les adresses sont dédupliquées par
+`Type d'adresse` dans le parseur, les fonctions ne le sont pas.
+
+### 9.2 Les scénarios
+
+Les 24 scénarios sont déclarés dans `ScenarioCatalog::SCENARIOS`, avec pour
+chacun son nom, les `Tiers` qui le portent et ce qu'on doit pouvoir observer.
+Les `Tiers` sont **épinglés** et non dérivés : un identifiant calculé se
+décalerait le jour où quelqu'un insère une personne au-dessus, et toutes les
+assertions bougeraient avec lui. `T0001`-`T0099` sont réservés aux scénarios,
+la population de fond commence à `T0101`.
+
+### 9.3 La correspondance photo → Tiers
+
+`photos/assignments.csv`, généré et commité, comparé par `--check` : une photo
+ajoutée ou retirée sans régénération devient une erreur. Colonnes
+`file;kind;target;year;note` — `target` est un `Tiers` pour une photo
+individuelle, un identifiant de section pour une photo de groupe.
+
+L'attribution des **photos de groupe** est écrite à la main dans
+`PhotoLot::GROUP_PHOTOS` : chaque ligne est une décision sur ce que le site doit
+être vu en train de faire. Celle des **portraits** est calculée puis commitée :
+elle dépend de quels cadres existent, ce que seul le générateur sait.
+
+Une note `hors-prefixe` signale un portrait attribué à un cadre d'une autre
+branche que ne le suggère son préfixe — c'est permis, le préfixe n'est qu'une
+indication. Une note `rephotographie` signale la deuxième photo d'un cadre déjà
+photographié une année antérieure.
 
 ## 10. Comptes de démonstration
 

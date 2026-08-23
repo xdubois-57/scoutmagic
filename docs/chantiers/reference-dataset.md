@@ -133,3 +133,109 @@ de 50 Mpx et le filtre `chief`/`admin` de `getSectionStaff()`.
   photo individuelle appartiennent à IT-02 : ils se dérivent des `Tiers`, qui
   n'existent pas avant le générateur, et se référeront aux noms de fichiers
   définitifs issus de la renumérotation.
+
+
+---
+
+## IT-02 — Générateur Desk, table des scénarios, les trois exports
+
+**Livré.**
+
+- **`generate.php`** — point d'entrée CLI (garde `PHP_SAPI !== 'cli'` de
+  `public/cron.php`) avec un mode `--check` qui régénère tout en mémoire et
+  compare octet par octet aux fichiers commités.
+- **Les tables déclaratives.** `UnitBlueprint` porte les sections, les
+  effectifs par section et par année, les fonctions et leur rôle cible, les
+  viviers de noms, de rues et de communes. `ScenarioCatalog` porte les 24
+  scénarios : nom, `Tiers` épinglés, ce qu'on doit pouvoir observer.
+  `PhotoLot` porte le genre de chacun des 40 portraits et l'attribution des 14
+  photos de groupe. Maintenir le jeu de données veut dire éditer l'une de ces
+  trois tables et relancer.
+- **Les 33 membres de scénario**, écrits à la main dans `ScenarioPeople`, un
+  bloc par scénario. Les années de naissance sont choisies pour que la branche
+  tombe de l'arithmétique que fera `MemberYearService::getEffectiveAge()` —
+  année de référence moins année de naissance — et non d'une règle déclarée :
+  un passage de frontière est une année de naissance, pas une consigne.
+- **La population de fond**, vieillie d'année en année par `PopulationBuilder`
+  plutôt que tirée indépendamment à chaque année : tout le monde prend un an,
+  la branche est recalculée depuis l'âge, puis seulement départs et arrivées
+  ramènent chaque section à son effectif déclaré.
+- **Les trois exports Desk**, générés et commités : 178, 180 et 180 membres
+  pour 266, 274 et 278 lignes — dans la fourchette de 170-190 membres et
+  250-300 lignes qu'un vrai export de cette taille produit.
+- **`photos/assignments.csv`**, généré et commité : 43 attributions
+  individuelles et 14 de groupe, aucune photo orpheline.
+- **`Tests\Integration\ReferenceDatasetFormatTest`** — 11 tests : chaque export
+  passe par le vrai `DeskCsvParser`, les fichiers commités correspondent au
+  générateur, aucune photo n'est orpheline, chaque portrait a un genre déclaré,
+  chaque attribution pointe sur quelque chose qui existe, le `Genre` du membre
+  ne contredit jamais sa photo, et un portrait n'appartient jamais qu'à un
+  cadre. Placé dans `tests/Integration/`, suite déjà déclarée : aucun nouveau
+  `<testsuite>` n'était nécessaire.
+
+**Décisions prises en autonomie.**
+
+1. **Un xorshift32 écrit sur place plutôt que `mt_rand()`.** Le déterminisme de
+   `mt_rand()` est une propriété d'implémentation du moteur, pas une promesse
+   faite aux appelants — il a déjà changé une fois, au correctif de biais de
+   PHP 7.1. Comme les fichiers générés sont comparés à l'octet près, `--check`
+   échouerait alors sur une simple montée de version de PHP, avec rien dans le
+   jeu de données qui ait bougé. Trente lignes d'arithmétique coûtent moins
+   cher que ce diagnostic.
+2. **Une entrée `autoload-dev` ajoutée à `composer.json`**
+   (`Tests\Fixtures\ReferenceDataset\` → `tests/fixtures/reference-dataset/`).
+   PSR-4 mappe les segments de namespace littéralement sur des noms de
+   répertoire, et le chantier impose un répertoire en minuscules avec un tiret :
+   sans cette entrée, aucune classe n'est autochargeable. Ce n'est pas une
+   dépendance nouvelle, et `autoload-dev` disparaît d'un
+   `composer install --no-dev`.
+3. **La table des scénarios est un fichier dédié, pas l'en-tête de
+   `generate.php`.** Le chantier demandait « la table des scénarios en tête de
+   fichier » ; il y a trois tables (unité, scénarios, photos) et les mettre
+   toutes en tête d'un même fichier l'aurait rendu illisible. L'intention —
+   éditer une table plutôt que 900 lignes de CSV — est tenue, et le README §9
+   dit où porter chaque type de modification.
+4. **Les `Tiers` des scénarios sont épinglés, pas dérivés.** `T0001`-`T0099`
+   sont réservés, la population de fond commence à `T0101`. Un identifiant
+   calculé se décalerait le jour où quelqu'un insère une personne au-dessus, et
+   toutes les assertions bougeraient avec lui — exactement la dérive
+   silencieuse que le §4 du chantier existe pour empêcher. Le test refuse aussi
+   un `T00xx` qui occuperait la plage réservée sans être déclaré au catalogue.
+5. **L'attribution des portraits est calculée puis commitée ; celle des photos
+   de groupe est écrite à la main.** Une photo de groupe va à une section : la
+   décision est signifiante et tient en quatorze lignes. Un portrait va à un
+   cadre, et quels cadres existent n'est connu que du générateur. Les deux
+   passent par `--check`, donc ni l'une ni l'autre ne peut se décaler en
+   silence.
+6. **Le genre apparent de chaque portrait a été relevé une fois et versionné**
+   dans `PhotoLot::INDIVIDUAL_GENDERS`. Rien dans un JPEG ne le dit, et une
+   incohérence entre la fiche et la photo affichée à côté n'est visible que
+   pour un humain qui regarde la page. Le générateur refuse un portrait dont le
+   genre n'est pas déclaré, plutôt que de deviner.
+7. **Deux staffs ont été étoffés** (Meute de Seeonee 4→5 cadres, Troupe du
+   Faucon 5→6, sur les trois années). Le lot compte 24 portraits masculins et
+   l'unité n'offrait que 23 cadres masculins distincts : une photo serait
+   restée orpheline. Le chantier autorise explicitement d'agrandir un staff
+   pour consommer le reliquat — jamais l'inverse.
+8. **T0028 (handicap) quitte la section Iama en A3.** Il y était les trois
+   années, ce qui annulait en silence le scénario 15 : Iama Horizon doit être
+   vidée en A3 pour que la section passe inactive. Il a 15 ans en A3, le
+   passage aux Éclaireurs est légal en âge.
+9. **Deux générateurs aléatoires distincts**, l'un pour la population et
+   l'autre pour les photos, graines décalées. Ajouter une photo au lot ne peut
+   ainsi déplacer aucun octet des CSV.
+
+**Divergence constatée.**
+
+- Le chantier annonçait « environ 46 % » de filles ; le tirage réel donne 42,
+  39 et 40 % selon l'année. L'attente du catalogue a été réécrite en
+  l'invariant qui compte réellement — la part de F n'est jamais à moins de cinq
+  points de 50 % et bouge d'une année à l'autre — plutôt qu'en un chiffre à
+  poursuivre.
+
+**Reporté.**
+
+- Les invariants de sens (les passages de branche ont bien eu lieu, Staff d'U
+  est peuplé après confirmation, la section vidée est inactive, les fratries
+  partagent un blind index) demandent une base de données et le vrai pipeline
+  d'import : c'est IT-03.
