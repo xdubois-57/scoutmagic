@@ -11,9 +11,13 @@ Primary device is mobile. Base CSS for mobile, `min-width` breakpoints for large
 
 **Mobile**: hamburger left, unit name right. Offcanvas from left: user card (initials, display name, role, member count), accordion sub-menus (one open), login/logout at bottom.
 
-**Desktop**: horizontal bar (unit name left, menus center, user right). Sub-menu bar below, wraps to multiple lines.
+**Desktop**: horizontal bar (unit name left, menus center, user right). No permanent sub-menu row: a menu opens a **mega-menu panel** floating under the bar — titled columns of text rows, one column per declared group (`MenuBuilder::MENU_GROUPS`), at most four. Opens on click, never on hover; closes on a second click, on Escape (focus returns to the tab), or on a press outside the bar. The tab of the menu the current page belongs to keeps its underline whatever is open. An ungrouped menu ("Notre unité") draws one untitled column.
 
-**Espace des animés sub-menu**: dynamic member entries (totem/prénom + section) → separator → static module pages.
+The row this replaced wrapped to three lines at Configuration's nineteen entries, changed height with the active menu, and gave "Maintenance" and "Galerie" exactly the same weight.
+
+**Espace membres panel**: a "Mes membres" column (dynamic member entries — avatar, totem/prénom, section) beside a "Pages" column of static and module pages.
+
+**Breadcrumb**: visible at every width, desktop included — with the sub-menu row gone, it is the only thing on screen naming the current page's ancestry (§7.3).
 
 ### 1.3 Configuration mode
 Banner when active. Text: click → rich text editor. Images: click → upload page (drag-drop, file picker, camera).
@@ -200,12 +204,14 @@ pass comfortably. Concretely:
 
 ### 7.3 Going back
 
-The breadcrumb bar is the site's **only** back affordance. No « Retour »
-buttons — a destination that matters belongs in the breadcrumb trail
-(`parents` for menu sections, `breadcrumb_trail` for real ancestor pages).
-Documented exceptions live in `UxConventionsTest::BACK_BUTTON_EXCEPTIONS`.
-A `parents` entry must exactly match a `MenuBuilder` label, or it renders
-as dead text.
+The breadcrumb bar is the site's **only** back affordance, and it shows at
+every width — mobile, desktop browser, installed PWA alike. (It used to be
+hidden on a desktop browser, where the permanent sub-menu row stated the
+current section; that row is gone.) No « Retour » buttons — a destination
+that matters belongs in the breadcrumb trail (`parents` for menu sections,
+`breadcrumb_trail` for real ancestor pages). Documented exceptions live in
+`UxConventionsTest::BACK_BUTTON_EXCEPTIONS`. A `parents` entry must exactly
+match a `MenuBuilder` label, or it renders as dead text.
 
 ### 7.4 Buttons
 
