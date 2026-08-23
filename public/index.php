@@ -2000,11 +2000,16 @@ $frontController->registerController(
     \Core\Http\Controller\MemberEmailAddressController::class,
     new \Core\Http\Controller\MemberEmailAddressController($twig, $memberEmailService, $memberService)
 );
-$frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService, $sectionDocumentService, $settingService, $sectionStaffAuthorizationService));
+$frontController->registerController(StaffsController::class, new StaffsController(
+    $twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService,
+    $unitStaffSectionService, $sectionDocumentService, $settingService, $sectionStaffAuthorizationService
+));
 $frontController->registerController(\Core\Http\Controller\SectionRosterController::class, new \Core\Http\Controller\SectionRosterController(
     $twig, $sectionService, $sectionRosterService, $memberExportRowBuilder, $memberExportService, $scoutYearResolver, $journalService
 ));
-$frontController->registerController(\Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController($twig, $sectionDocumentService, $sectionStaffAuthorizationService, $scoutYearResolver, $journalService));
+$frontController->registerController(\Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController(
+    $twig, $sectionDocumentService, $sectionStaffAuthorizationService, $scoutYearResolver, $journalService
+));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
