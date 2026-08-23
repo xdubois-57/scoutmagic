@@ -670,4 +670,134 @@ class StatisticsSenderTest extends TestCase
         $this->assertTrue($result->isSent());
         $this->assertSame(204, $result->statusCode);
     }
+
+    // --- sendTest(): the button on Configuration > Support ---
+
+    /**
+     * The reason the manual send exists at all: on the installation that IS
+     * the receiver, the daily task skips itself, so nothing ever exercises
+     * the payload, the bearer header and the intake endpoint together.
+     */
+    public function testATestSendMayTargetThisInstallationItself(): void
+    {
+        $this->set('base_url', 'https://www.scoutmagic.be');
+        $transport = new RecordingTransport();
+
+        $result = $this->sender($transport)->sendTest();
+
+        $this->assertTrue($result->isSent());
+        $this->assertSame('https://www.scoutmagic.be/api/statistics', $transport->calls[0]['url']);
+    }
+
+    public function testTheDailySendStillSkipsItselfWhenTheTestSendDoesNot(): void
+    {
+        $this->set('base_url', 'https://www.scoutmagic.be');
+
+        $this->assertSame('self_destination', $this->sender(new RecordingTransport())->send()->reason);
+    }
+
+    /** A test that cannot be repeated is not a test. */
+    public function testATestSendIgnoresTheOncePerDayInterval(): void
+    {
+        $this->set(StatisticsStateSettings::LAST_SUCCESS_AT, (new \DateTimeImmutable('-3 hours'))->format(\DateTimeInterface::ATOM));
+        $transport = new RecordingTransport();
+
+        $this->assertTrue($this->sender($transport)->sendTest()->isSent());
+        $this->assertCount(1, $transport->calls);
+    }
+
+    public function testATestSendStillRespectsTheOptOut(): void
+    {
+        $this->set('statistics_enabled', '0');
+        $transport = new RecordingTransport();
+
+        $result = $this->sender($transport)->sendTest();
+
+        $this->assertTrue($result->isSkipped());
+        $this->assertSame('disabled', $result->reason);
+        $this->assertSame([], $transport->calls);
+    }
+
+    /**
+     * A staging clone pressing the button must no more register under the
+     * production installation's identity than the daily task may.
+     */
+    public function testATestSendStillRefusesANonPublicBaseUrl(): void
+    {
+        $this->set('base_url', 'https://unite.test');
+        $transport = new RecordingTransport();
+
+        $result = $this->sender($transport)->sendTest();
+
+        $this->assertTrue($result->isSkipped());
+        $this->assertSame('non_public_host', $result->reason);
+        $this->assertSame([], $transport->calls);
+    }
+
+    public function testATestSendStillRefusesDuringMaintenance(): void
+    {
+        $this->pdo->prepare('INSERT INTO update_history (version_from, version_to, status) VALUES (?, ?, ?)')
+            ->execute(['1.0.32', '1.0.33', 'installing']);
+        $transport = new RecordingTransport();
+
+        $this->assertSame('maintenance_in_progress', $this->sender($transport)->sendTest()->reason);
+        $this->assertSame([], $transport->calls);
+    }
+
+    /**
+     * "État des envois" answers "is the *automatic* reporting healthy?".
+     * A manual send — successful or not — must not be able to answer it,
+     * and must not delay the next scheduled report by 24 h either.
+     */
+    public function testATestSendNeverWritesTheDailySendState(): void
+    {
+        $this->assertTrue($this->sender(new RecordingTransport())->sendTest()->isSent());
+        $this->settings->clearCache();
+        $this->assertSame('', (string) $this->settings->get(StatisticsStateSettings::LAST_SUCCESS_AT));
+
+        $failing = new RecordingTransport(StatisticsTransportResponse::response(500, 'boom'));
+        $this->assertTrue($this->sender($failing)->sendTest()->isFailed());
+        $this->settings->clearCache();
+        $this->assertSame('', (string) $this->settings->get(StatisticsStateSettings::LAST_FAILURE_AT));
+        $this->assertSame('', (string) $this->settings->get(StatisticsStateSettings::LAST_FAILURE_REASON));
+    }
+
+    /** What leaves the site is recorded, whoever asked for it. */
+    public function testATestSendIsJournaledUnderItsOwnEventType(): void
+    {
+        $this->sender(new RecordingTransport())->sendTest();
+        $this->sender(new RecordingTransport(StatisticsTransportResponse::response(500, 'boom')))->sendTest();
+
+        $this->assertSame(
+            ['statistics_test_sent', 'statistics_test_send_failed'],
+            array_column($this->journalEntries(), 'type')
+        );
+    }
+
+    /**
+     * A skipped test sent nothing, and the superadmin who pressed the button
+     * is reading the answer on the next page — journaling it would only fill
+     * the journal with somebody's clicks.
+     */
+    public function testASkippedTestSendIsNotJournaled(): void
+    {
+        $this->set('statistics_enabled', '0');
+
+        $this->sender(new RecordingTransport())->sendTest();
+
+        $this->assertSame([], $this->journalEntries());
+    }
+
+    /** The secret rides in the header on a test send too, never in the body. */
+    public function testATestSendCarriesTheSecretInTheHeaderOnly(): void
+    {
+        $secret = $this->identityService->getSecret();
+        $this->assertNotNull($secret);
+        $transport = new RecordingTransport();
+
+        $this->sender($transport)->sendTest();
+
+        $this->assertSame($secret, $transport->calls[0]['token']);
+        $this->assertStringNotContainsString($secret, $transport->calls[0]['body']);
+    }
 }
