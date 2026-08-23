@@ -239,3 +239,76 @@ de 50 Mpx et le filtre `chief`/`admin` de `getSectionStaff()`.
   est peuplé après confirmation, la section vidée est inactive, les fratries
   partagent un blind index) demandent une base de données et le vrai pipeline
   d'import : c'est IT-03.
+
+
+---
+
+## IT-03 — Test d'import de bout en bout et ses invariants
+
+**Livré.**
+
+- **`Tests\Fixtures\ReferenceDataset\DeskImportReplay`** — le rejeu des trois
+  exports à travers le vrai pipeline : composition des services, création des
+  années scoutes par `ScoutYearService::ensureYear()`, import dans l'ordre
+  chronologique, puis confirmation des rôles par le chemin exact de Config Desk
+  (`FunctionRepository::updateRole(..., true)` suivi de
+  `UnitStaffSectionService::syncMembership()`). **Partagé avec le builder
+  d'IT-05** : un test qui aurait sa propre copie du câblage continuerait de
+  passer le jour où celle du builder casse.
+- **`Tests\Integration\ReferenceDatasetImportTest`** — 22 tests, 182
+  assertions, sur base SQLite en mémoire (`@group database`). Les invariants
+  demandés par le chantier : effectifs par année et par section, chaque passage
+  de frontière effectivement franchi, le membre parti qui garde sa ligne
+  `members` sans `member_years`, le membre revenu qui hérite de son
+  `scout_year_offset` par-dessus l'année manquante, la section vidée passée
+  `is_active = false` sans être supprimée, Staff d'U peuplé après confirmation
+  des rôles, et la fratrie qui partage un blind index d'adresse.
+- **Trois invariants ajoutés au-delà de la liste du chantier** : l'ordre
+  canonique des sept branches (une résolution par sous-chaîne qui cesserait de
+  matcher enverrait silencieusement une branche en 99), l'absence de toute
+  section identifiée par la colonne `SECTION`, et le fait que la fonction
+  inédite de A3 arrive bien en `role = 'identified'`.
+
+**Deux erreurs d'assertion attrapées par le test lui-même.**
+
+1. **L'héritage du `scout_year_offset` ne s'observe pas sur un rejeu.**
+   `MemberYearRepository::inheritedScoutYearOffset()` ne s'applique qu'à
+   l'INSERT — délibérément, pour qu'une correction de chef survive à un
+   ré-import de la même année. Poser le décalage puis rejouer les trois années
+   ne prend donc que la branche UPDATE, qui ne touche jamais la colonne. Le test
+   rejoue désormais année par année (`DeskImportReplay::importYear()`) et pose
+   le décalage **entre** A1 et A3, ce qui est aussi la chronologie réelle : un
+   chef ouvre la fiche en A1, l'import suivant hérite.
+2. **Un membre à deux adresses et une fonction produit deux `member_functions`,
+   pas une.** J'avais asserté une seule ligne. Le comportement est celui que le
+   chantier décrit et que `replaceFunctions()` applique : les adresses sont
+   dédupliquées par type, les fonctions ne le sont pas. L'assertion a été
+   retournée en ce qu'elle doit dire — deux lignes portant le même `Animé`, et
+   un comptage par section qui reste en `DISTINCT member_year_id`, sinon ce
+   membre serait compté deux fois.
+
+**Décisions prises en autonomie.**
+
+1. **Le rejeu est une classe du jeu de données, pas du test.** Le chantier
+   demandait un test qui rejoue les CSV ; le mettre dans une classe partagée
+   avec le builder est ce qui rend le test protecteur du builder plutôt que
+   simplement voisin. Elle n'appelle que des API publiques existantes et
+   n'écrit dans aucune table directement.
+2. **La confirmation des rôles resynchronise les trois années.**
+   `FunctionsController` ne resynchronise que l'année en vigueur pour la
+   requête ; un jeu de données à trois années doit les faire toutes, sinon
+   Staff d'U est peuplé dans l'une et vide dans les autres.
+3. **Une fonction absente de `UnitBlueprint::FUNCTIONS` est laissée non
+   confirmée** plutôt que de recevoir un rôle par défaut. C'est exactement
+   l'état d'une fonction inédite pour un chef qui n'est pas encore passé par
+   Config Desk, et le jeu de données doit en contenir une.
+4. **Le test capture l'état de Staff d'U avant la confirmation** au lieu de le
+   décrire en commentaire. C'est la moitié qui compte : si Staff d'U était déjà
+   peuplé avant confirmation, cela voudrait dire que le rôle vient du CSV.
+5. **L'équilibre filles/garçons est asserté comme une fourchette**
+   (30 % < part de F < 45 %) et non comme une valeur : la valeur exacte est une
+   conséquence du tirage, la non-trivialité est l'invariant.
+
+**Reporté.**
+
+- Les relevés bancaires et leur test de format : IT-04.

@@ -60,6 +60,8 @@ tests/fixtures/reference-dataset/
   PersonFactory.php      fabrique une personne fictive
   Person / PersonYear / PostalAddress / FunctionAssignment / Rng
   DeskCsvWriter.php      écrit une année au format d'export Desk
+  DeskImportReplay.php   rejoue les trois exports par le vrai pipeline
+                         (partagé avec le builder)
   PhotoLot.php           LA TABLE : genre de chaque portrait, photos de groupe
   PhotoAssigner.php      attribue les portraits aux cadres
   desk/                  les trois exports Desk générés, commités
