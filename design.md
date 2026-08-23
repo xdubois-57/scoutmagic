@@ -377,3 +377,38 @@ selection survives the dialog (a modal takes focus, and a contenteditable
 that loses focus loses its range), a bare host becomes `https://…` rather
 than a relative link that 404s, and a `javascript:` URL is refused with a
 reason rather than silently stripped later by the server-side sanitiser.
+
+### 7.11 Contextual help
+
+One help button per page, always visible, at the right of the breadcrumb
+bar (`partials/help_button.html.twig` — the bar shows at every width, so
+this single placement covers mobile, desktop and installed PWA). When a
+topic covers the page it opens the help panel
+(`partials/help_panel.html.twig`: bottom sheet on mobile,
+right-hand drawer at lg and up), whose content is server-rendered into
+the page so it works offline; otherwise it links to `/aide`, which the
+mobile offcanvas footer also links, next to connexion/déconnexion.
+Topics are Markdown files in `docs/help/` (core) or `modules/<id>/help/`
+(modules) — see ARCHITECTURE.md §8.64; a new end-user-facing page must be
+covered by a topic, existing or new (AGENTS.md checklists).
+
+**Charte rédactionnelle** — enforced mechanically where possible by
+`tests/Core/Help/HelpInvariantsTest.php`, by review otherwise:
+
+- Vouvoiement, phrases courtes, voix active. Le ton d'un collègue qui
+  explique, jamais d'un manuel.
+- Vocabulaire du §7.1 : **animé**, **animateur**, **chef d'unité**,
+  **Staff d'Unité**. Jamais « chef » seul, jamais « utilisateur ».
+- On décrit ce que la personne contrôle et ce qui se passe à l'écran.
+  Jamais un nom de classe, de table, de route ou de réglage technique.
+- ~400 mots par sujet maximum. Au-delà, c'est deux sujets.
+- Les sections commencent à `##` (le titre du sujet est déjà le `<h1>`
+  de la page) ; jamais de `#` seul.
+- Pas de capture d'écran en v1 : elles périment à chaque évolution de
+  l'UI et alourdissent l'artefact. Le rendu supporte les images
+  (`/assets/` uniquement) pour le jour où un écran est réellement
+  inexplicable en mots.
+- Un encadré d'avertissement (`> `) par sujet au maximum, réservé à ce
+  qui est irréversible ou contre-intuitif.
+- Pas de lien externe, sauf vers le site de la fédération
+  (lesscouts.be).

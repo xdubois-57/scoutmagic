@@ -79,10 +79,18 @@ class OfflineManifestService
         $hasMembers = false;
 
         foreach ($entries as $entry) {
-            if ($entry['match'] === 'child' && $entry['path'] === '/members/') {
-                // Never added literally — expanded to the caller's own
-                // linked members below, each as its own page URL.
-                $hasMembers = true;
+            if ($entry['match'] === 'child') {
+                if ($entry['path'] === '/members/') {
+                    // Expanded to the caller's own linked members below,
+                    // each as its own page URL.
+                    $hasMembers = true;
+                }
+                // No child entry is ever added literally: its bare parent
+                // path ('/members/', '/aide/') is not a servable URL, and
+                // this service has no way to enumerate the concrete
+                // children ('/aide/{id}' pages are cached by the service
+                // worker as they are visited instead — network-first with
+                // cache fallback already covers them via the whitelist).
                 continue;
             }
 

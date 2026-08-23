@@ -148,6 +148,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Page | Content |
 |---|---|
 | Connexion | Three-tab login (magic link / password / passkey). |
+| Aide | Index of every help topic the visitor's role may see (`/aide`), grouped by category with a `?q=` search, plus one page per topic (`/aide/{id}`). Fed by Markdown files shipped in the release (`docs/help/`, `modules/<id>/help/`) — help is product documentation, never unit-editable content. A per-page help button (right of the breadcrumb bar) opens the matching topic(s) in a panel without leaving the page; a topic below the visitor's role does not exist anywhere (404 by direct URL). |
 | Mon compte | Name, surname. Password. Passkeys. Notification preferences (link). Cookie preferences (link). |
 | Préférences cookies | Cookie categories with toggles. Accessible from banner, RGPD page, and Mon compte. |
 | Upload | Generic file upload (drag-drop, file selection, mobile camera). |

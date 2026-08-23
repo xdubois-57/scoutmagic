@@ -91,7 +91,12 @@ class ModuleManifest
         // page, a menu, a route table or the scheduler. Same "last
         // parameter with a default" rule as $requires above, and for the
         // same reason.
-        public readonly array $visibleWhen = []
+        public readonly array $visibleWhen = [],
+        // Optional override of the module's help-topics directory name
+        // (module.json's `help.dir`, ARCHITECTURE.md §8.64). Null means
+        // the default: ModuleManager scans `help/` when it exists. Same
+        // "last parameter with a default" rule as the two above.
+        public readonly ?string $helpDirectory = null
     ) {
     }
 
@@ -282,7 +287,34 @@ class ModuleManifest
             }
         }
 
-        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline, $requires, $visibleWhen);
+        // Validate help (Core\Help\HelpRegistry aggregation, ARCHITECTURE.md
+        // §8.64). The section is OPTIONAL and only ever overrides the topics
+        // directory name — a module that simply ships a help/ directory needs
+        // no manifest section at all (ModuleManager scans the default name),
+        // so adding a topic never requires touching code or JSON.
+        $helpDirectory = null;
+        if (isset($data['help'])) {
+            // json_decode turns an empty JSON object into an empty PHP
+            // array, which array_is_list() reports as a list — accept it
+            // (it just selects the default directory name).
+            if (!is_array($data['help']) || ($data['help'] !== [] && array_is_list($data['help']))) {
+                throw new ModuleException("Module '{$id}' help must be an object");
+            }
+            foreach (array_keys($data['help']) as $key) {
+                if ($key !== 'dir') {
+                    throw new ModuleException("Module '{$id}' help declares an unknown key '{$key}' (only 'dir' is supported)");
+                }
+            }
+            $dir = $data['help']['dir'] ?? 'help';
+            // A bare directory name, never a path: the topics always live
+            // inside the module's own tree.
+            if (!is_string($dir) || $dir === '' || preg_match('#^[A-Za-z0-9_-]+$#', $dir) !== 1) {
+                throw new ModuleException("Module '{$id}' help.dir must be a plain directory name");
+            }
+            $helpDirectory = $dir;
+        }
+
+        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline, $requires, $visibleWhen, $helpDirectory);
     }
 
     /**
