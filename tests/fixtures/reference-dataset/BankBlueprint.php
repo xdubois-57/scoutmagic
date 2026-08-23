@@ -23,8 +23,15 @@ use Modules\Finance\Service\StructuredCommunicationService;
  * date below therefore has to sit inside one of UnitBlueprint::YEARS, which
  * run 1 September to 31 August.
  *
- * All IBANs are invalid by construction (`BE00 0000 0000 000X`), in the same
- * style as `tests/fixtures/finance/bnp_statement_sample.csv`.
+ * **The IBANs are fictional but checksum-valid**, and that is a deliberate
+ * departure from `tests/fixtures/finance/bnp_statement_sample.csv`, whose
+ * `BE00 0000 0000 000X` fails the mod-97 check. The builder creates its
+ * accounts through the real Modules\Finance\Service\FinanceService::
+ * createAccount(), which validates the IBAN (IbanNormalizer::isValidFullIban()) —
+ * an invalid one would have to bypass the service layer, which is the one thing
+ * this dataset exists not to do. The bank code `000` is not allocated to any
+ * Belgian institution, so these belong to nobody; only the check digits differ
+ * from the sample's.
  */
 final class BankBlueprint
 {
@@ -39,13 +46,13 @@ final class BankBlueprint
     public const ACCOUNTS = [
         'unite' => [
             'name' => "Compte d'unité",
-            'iban' => 'BE00 0000 0000 0001',
+            'iban' => 'BE27 0000 0000 0001',
             'opening' => 4250.00,
             'roleMinView' => 'intendant',
         ],
         'camps' => [
             'name' => 'Compte camps',
-            'iban' => 'BE00 0000 0000 0002',
+            'iban' => 'BE97 0000 0000 0002',
             'opening' => 1875.00,
             'roleMinView' => 'intendant',
         ],

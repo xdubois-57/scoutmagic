@@ -429,3 +429,88 @@ jetable a été provisionnée et servie par le vrai `public/index.php`, et `/`,
 `/login`, `/api/version` répondent 200 tandis que `/upload` répond 302 vers la
 connexion — le comportement attendu pour un visiteur anonyme sur une route
 `role_min: identified`. Aucun `TypeError`, aucun fatal dans le journal.
+
+
+---
+
+## IT-05 — Le builder CLI : imports, rôles, comptes, finances
+
+**Livré.**
+
+- **`build.php`** — garde `PHP_SAPI !== 'cli'`, `--yes` obligatoire, `--root`
+  optionnel, refus explicite si l'installation a déjà servi, rapport final en
+  français.
+- **`InstanceContext`** — ouvre l'installation cible comme `public/index.php` :
+  `SecretManager`, credentials, `EncryptionService` construit sur **les clés de
+  la cible**. C'est là que se joue tout l'intérêt de l'approche « recette » :
+  les clés ne voyagent jamais.
+- **`FinanceSeeder`** — catégories et comptes par défaut, les deux comptes
+  d'unité, puis les six relevés par le vrai `ImportService`.
+- **`DemoAccounts`** — la table de qui porte quel rôle de démonstration, et un
+  mot de passe posé sur le compte que l'import Desk a déjà créé pour ce
+  membre. Le rôle obtenu est dérivé par le site de ses fonctions confirmées,
+  pas écrit à la main.
+- **`Tests\Integration\ReferenceDatasetBuilderTest`** — 5 tests sur ce que le
+  builder orchestre : import des relevés par le vrai pipeline, déduplication
+  entre fichiers successifs, IBAN retrouvable par index aveugle, catégories
+  semées avant tout compte, superadministrateur créé avant les imports,
+  comptes de démonstration adossés à leurs membres.
+
+**Le builder a été exécuté pour de vrai**, sur une instance provisionnée par le
+harnais e2e puis ramenée à l'état d'une installation neuve. Résultat : 178 /
+180 / 180 membres actifs, 5 puis 1 puis 1 fonctions inédites, 7 fonctions
+confirmées, 13 rattachements Staff d'U, 125 mouvements importés, 12 doublons
+reconnus, 13 catégories, 105 mouvements catégorisés sur 125, `Iama Horizon`
+inactive et `Ribambelle Verte` créée.
+
+**Trois défauts que seule l'exécution réelle pouvait révéler.**
+
+1. **IBAN écrit par le dépôt au lieu du service.** `AccountRepository::create()`
+   calcule l'index aveugle sur la chaîne qu'on lui donne ; j'y passais
+   `BE.. 0000 0000 0001` avec ses espaces, alors que
+   `BnpParser::extractSourceIban()` renvoie la forme compacte. Résultat : deux
+   index différents pour le même compte, et un import qui échouait sur
+   « l'IBAN du fichier ne correspond pas » en nommant deux IBAN finissant par
+   les mêmes chiffres. Le builder passe désormais par
+   `FinanceService::createAccount()`, qui normalise — et qui synchronise aussi
+   la catégorie système « Virement <compte> ».
+2. **Les IBAN du jeu de données ont dû devenir valides au mod-97.** Corollaire
+   du point 1 : `createAccount()` valide l'IBAN. Le chantier demandait des IBAN
+   « invalides par construction » ; les rendre invalides aurait obligé à
+   contourner la couche service, ce que ce chantier existe pour ne pas faire.
+   Les deux comptes de l'unité portent donc `BE27 0000 0000 0001` et
+   `BE97 0000 0000 0002` : somme de contrôle juste, code banque `000` non
+   attribué en Belgique. Les IBAN de contrepartie, eux, ne sont validés par
+   rien et gardent le `BE00` impossible.
+3. **Un `1` en dur comme identifiant d'importateur.**
+   `import_journal.user_account_id` porte une clé étrangère vers
+   `user_accounts`. Sur une installation neuve le premier compte est
+   généralement l'id 1 et cela passait ; sur l'instance de test, après remise à
+   zéro, le superadministrateur a reçu l'**id 608** et l'import a échoué sur la
+   contrainte. Le builder crée désormais le superadministrateur **avant** les
+   imports et les lui crédite — ce qui est aussi la vérité : c'est lui qui
+   lance un import Desk.
+
+**Un quatrième, d'ordonnancement.** `ensureDefaultCategories()` ne sème que
+tant que la table des catégories est complètement vide — délibérément, pour ne
+pas ressusciter des catégories qu'un administrateur a supprimées. Créer les
+comptes d'abord y ajoute leur catégorie « Virement <compte> » et neutralise le
+semis : la première exécution a produit 2 catégories au lieu de 13 et 6
+mouvements catégorisés sur 125. L'ordre est maintenant explicite dans le code
+et dans le README, et un test le tient.
+
+**Décisions prises en autonomie.**
+
+1. **Destructeur, pas idempotent.** Le chantier laissait le choix en imposant
+   d'en faire un. Un builder qui recolle à moitié sur un existant est le piège
+   que la consigne décrit ; exiger une installation vierge est simple à dire,
+   simple à vérifier, et c'est ce que sert une instance de test.
+2. **Le refus est absolu, sans option de forçage.** Trois signaux : des
+   membres, des mouvements financiers, plus d'un compte utilisateur. Ajouter un
+   `--force` aurait transformé un garde-fou en formalité.
+3. **Une table manquante compte pour zéro** dans ce garde plutôt que de lever :
+   un module peut être désactivé sur la cible, et le builder n'a alors rien à
+   vérifier de ce côté.
+4. **Les collaborateurs IA du module Finances reçoivent un connecteur nul**, ce
+   que fait la racine de composition elle-même quand `llm_connector` est
+   désactivé : la catégorisation retombe sur les règles.

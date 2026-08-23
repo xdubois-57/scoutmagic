@@ -66,10 +66,13 @@ tests/fixtures/reference-dataset/
   PhotoAssigner.php      attribue les portraits aux cadres
   BankBlueprint.php      LA TABLE : comptes, IBAN, mouvements récurrents
   BankStatementBuilder / BnpCsvWriter / StatementDraft
+  build.php              point d'entrée CLI du builder
+  InstanceContext.php    ouvre l'installation cible et refuse les mauvaises
+  FinanceSeeder.php      comptes bancaires + import des six relevés
+  DemoAccounts.php       LA TABLE : quel membre porte quel rôle de démo
   desk/                  les trois exports Desk générés, commités
   bank/                  les six relevés BNP générés, commités
   photos/                le lot de photos (§4) + assignments.csv, généré
-  build.php              builder CLI                             — IT-05/IT-06
 ```
 
 Les entrées marquées d'une itération n'existent pas encore.
@@ -231,7 +234,60 @@ acceptaient déjà.
 
 ## 8. Construction sur une instance de test
 
-*À compléter en IT-05.* Le builder n'existe pas encore.
+```bash
+php tests/fixtures/reference-dataset/build.php --yes
+php tests/fixtures/reference-dataset/build.php --yes --root=/chemin/vers/installation
+```
+
+Sans `--root`, le builder cible l'installation dans laquelle il se trouve.
+
+**Il est destructeur, pas idempotent** — et le chantier impose de choisir l'un
+ou l'autre, jamais l'entre-deux. Il refuse de tourner sur une installation qui
+contient déjà des membres, des mouvements financiers ou plus d'un compte
+utilisateur, et il ne fusionne rien. Pour reconstruire, repartez d'une
+installation vierge, ou restaurez la sauvegarde prise juste après la première
+construction (§11).
+
+### 8.1 Ce qu'il fait, dans cet ordre
+
+1. **Le superadministrateur.** Créé en premier, parce que chaque import Desk
+   écrit une ligne `import_journal` créditant un compte et que cette colonne
+   porte une clé étrangère. Un identifiant `1` en dur marche par coïncidence
+   sur une installation neuve et échoue dès que les comptes ont été
+   renumérotés.
+2. **Les trois années scoutes et les trois imports Desk**, dans l'ordre
+   chronologique, par le vrai `DeskImportService` — le même
+   `DeskImportReplay` que le test d'import de bout en bout.
+3. **La confirmation des rôles**, par le chemin de Config Desk
+   (`FunctionRepository::updateRole(..., true)` puis
+   `UnitStaffSectionService::syncMembership()` sur les trois années). C'est le
+   seul endroit d'où Staff d'U peut naître.
+4. **Les finances** : catégories par défaut, puis comptes de section, puis les
+   deux comptes d'unité, puis les six relevés. **L'ordre est porteur** —
+   `ensureDefaultCategories()` ne sème que tant que la table est vide, et créer
+   un compte y ajoute déjà sa catégorie « Virement <compte> ».
+5. **Les comptes de démonstration** adossés à des membres, après les imports
+   qui les créent.
+6. **Un rapport en français** : effectifs par année, sections actives et
+   inactives, compteurs financiers.
+
+### 8.2 Résultat constaté sur une instance jetable
+
+| Contrôle | Valeur |
+|---|---|
+| Membres actifs | 178 / 180 / 180 |
+| Fonctions inédites | 5 en A1, 1 en A2, 1 en A3 |
+| Fonctions confirmées | 7 |
+| Staff d'U (rôle admin confirmé) | 13 rattachements sur les trois années |
+| Mouvements financiers importés | 125 |
+| Doublons reconnus | 12 — les 2 comptes × 2 années × 3 lignes de recouvrement |
+| Catégories | 13, dont les 2 de virement interne |
+| Mouvements catégorisés | 105 sur 125 |
+| Sections | 8 + Staff d'U, `Iama Horizon` inactive |
+
+Les 20 mouvements non catégorisés sont les cotisations à communication
+structurée : elles se réconcilient contre des créances attendues, pas contre
+une règle de libellé.
 
 ## 9. Régénération des fichiers
 
@@ -346,8 +402,27 @@ photographié une année antérieure.
 
 ## 10. Comptes de démonstration
 
-*À compléter en IT-05.* Les mots de passe seront documentés ici, en clair et
-assumés comme tels — voir l'avertissement en tête de ce fichier.
+**Mot de passe, pour tous : `Reference-Dataset-2026!`**
+
+Ce sont des identifiants de démonstration assumés, publiés ici en clair. Une
+instance construite avec ce jeu de données **n'est pas une instance de
+production** — voir l'avertissement en tête de ce fichier.
+
+| Compte | Adresse | Ce qu'il montre |
+|---|---|---|
+| superadmin | `superadmin@example.com` | Le seul compte sans membre derrière : celui de l'installation. |
+| chef d'unité | l'email de `T0015` | Animateur en A1, Chef d'unité ensuite (scénario 10) — le membre par qui Staff d'U se peuple. |
+| intendant | l'email de `T0016` | Intendant d'unité les trois années (scénario 11) : voit les Finances sans être chef. |
+| chef de section | l'email de `T0014` | Animateur qui change de section entre A1 et A2 (scénario 9). |
+| animé | l'email de `T0012` | Éclaireur qui gagne son totem entre A1 et A2 (scénario 7). |
+| parent | l'email de `T0020` | Aîné d'une fratrie de trois partageant l'email d'un parent (scénario 17). |
+
+Les cinq derniers ne sont pas des identités parallèles : le builder retrouve le
+compte que l'import Desk a créé pour ce membre et lui pose un mot de passe. Le
+rôle obtenu à la connexion est donc **dérivé par le site** de leurs fonctions
+confirmées (`Core\Security\RoleResolver`), pas écrit à la main — c'est
+précisément ce que le jeu de données doit démontrer. Le builder affiche les
+adresses exactes à la fin de son exécution.
 
 ## 11. Repartir d'un état propre entre deux essais
 

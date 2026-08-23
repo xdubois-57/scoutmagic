@@ -331,6 +331,12 @@ final class BankStatementBuilder
         return number_format($amount, 2, ',', '');
     }
 
+    /**
+     * A counterparty's IBAN is never validated by anything — it is text on a
+     * statement line, stored as-is — so these keep the deliberately impossible
+     * `BE00` prefix. Only the unit's OWN accounts need checksum-valid IBANs,
+     * because those go through FinanceService::createAccount().
+     */
     private function fakeCounterpartyIban(int $serial): string
     {
         return sprintf('BE00 0000 0000 %04d', $serial % 10000);
