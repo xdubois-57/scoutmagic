@@ -92,6 +92,7 @@ When creating a new module:
 10. ☐ RGPD documentation updated if the module processes personal data.
 11. ☐ Automated tests written for all module functionality.
 12. ☐ If the module has an optional dependency on another module, it must degrade gracefully when that other module is absent or disabled — never a hard coupling (see `ARCHITECTURE.md` §7.5).
+13. ☐ Every new page meant for an end user is covered by a help topic, existing or new — a `.md` file in the module's `help/` directory (or `docs/help/` for a core page), per `design.md` §7.11's charter and `docs/module-development.md` § Help topics. This applies to core pages too, not only modules.
 
 ## Tests
 

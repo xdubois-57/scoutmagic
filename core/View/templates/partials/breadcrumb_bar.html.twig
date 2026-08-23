@@ -61,8 +61,13 @@
    visible on a desktop browser; the bar is now visible everywhere, so
    the class is left as a hook and a statement of what this bar contains,
    with no visibility rule behind it. #}
-<nav class="breadcrumb-bar{{ breadcrumb_trail|default([]) is not empty ? ' breadcrumb-bar--has-trail' : '' }} border-bottom bg-body-tertiary px-3 py-2" aria-label="Fil d'Ariane">
-    <ol class="breadcrumb mb-0 small align-items-center">
+{# The help button sits at the bar's right edge (partials/help_button.
+   html.twig) — this bar shows at every width since the mega-menu rework,
+   so one placement reaches mobile, desktop browser and installed PWA
+   alike. The <ol> grows and the button never shrinks, so a long trail
+   truncates before the button ever leaves the screen. #}
+<nav class="breadcrumb-bar{{ breadcrumb_trail|default([]) is not empty ? ' breadcrumb-bar--has-trail' : '' }} border-bottom bg-body-tertiary px-3 py-2 align-items-center" aria-label="Fil d'Ariane">
+    <ol class="breadcrumb mb-0 small align-items-center flex-grow-1" style="min-width:0;">
         <li class="breadcrumb-item">
             <a href="/" class="text-decoration-none" aria-label="Accueil">
                 <i class="bi bi-house-door" aria-hidden="true"></i>
@@ -95,4 +100,5 @@
             </li>
         {% endif %}
     </ol>
+    {% include 'partials/help_button.html.twig' %}
 </nav>

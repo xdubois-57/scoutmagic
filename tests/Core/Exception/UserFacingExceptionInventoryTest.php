@@ -84,6 +84,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Core\Cookie\CookieConsentException::class => 'English, names a cookie category and its consent state',
         \Core\Mail\MailException::class => "PHPMailer's ErrorInfo — an SMTP transcript, always English",
         \Core\Member\MemberNotFoundException::class => 'English, names a member_year id',
+        \Core\Help\HelpException::class => 'English, and every message names a topic file path or a field name',
         \Core\Module\ModuleException::class => 'about fifty English manifest-validation messages, one with a filesystem path',
         \Core\Security\DecryptionException::class => 'English, and describes the shape of the ciphertext',
         \Core\Statistics\StatisticsException::class => 'English, names an unregistered setting key',

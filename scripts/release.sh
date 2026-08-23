@@ -794,6 +794,18 @@ if command -v gh &> /dev/null; then
         exit 1
     fi
 
+    # The contextual help ships as Markdown under docs/help/ (ARCHITECTURE.md
+    # §8.64) and is read at runtime — docs/ is deliberately NOT in the -x
+    # exclusion list above, and this assertion is what keeps a future
+    # "exclude docs/ from the artifact" cleanup from silently shipping a
+    # release whose /aide is empty. Same file-based grep as the
+    # vendor/autoload.php check for the same SIGPIPE reason.
+    if ! grep -q 'docs/help/' "${LISTING_FILE}"; then
+        echo "ERROR: release artifact is missing docs/help/ (contextual help) — aborting release." >&2
+        rm -f "${ARTIFACT}"
+        exit 1
+    fi
+
     # node_modules/ and coverage/ are development/test-only (Vitest — see
     # the -x list above); a leftover local install of either must never
     # reach a release artifact regardless of how it got there.

@@ -586,6 +586,55 @@ A module can make one or more of its own GET pages available for offline viewing
 - If your page renders any image through `member_photo()`/`section_photo()`/`editable_image()` (§8.39) and you want it to actually show a photo (not just render offline with everything missing), you need a way for `Core\Offline\OfflineManifestService` to know which image URLs to include in `GET /api/offline/manifest`'s response — today this is done ad hoc per core page inside that service (it has no generic per-module hook for this yet). If your module's whitelisted page shows a photo, either reuse an existing image source that service already resolves (e.g. staff photos via `Core\Module\StaffDirectoryProvider`, the same hook that already backs the trombinoscope's offline photos) or raise it with a maintainer — don't grow that service by guessing at conventions ad hoc.
 - Whitelisting a page doesn't change its `role_min`, its route, or anything about how it's served online — it only makes it eligible for the service worker's network-first-with-cache-fallback treatment and the pre-download script's proactive warming while offline.
 
+## Help topics (`Core\Help\HelpRegistry`)
+
+A module documents its own pages by shipping Markdown topics in a `help/`
+directory at the module root — same aggregation shape as `cookies`/
+`notifications`/`offline`: `Core\Module\ModuleManager` registers the
+directory into the single shared `Core\Help\HelpRegistry` while loading
+the module, and a disabled module's topics simply never exist. **No
+manifest section is needed**: dropping a `.md` file into `help/` is the
+whole integration. The optional `module.json` section only renames the
+directory:
+
+```json
+"help": { "dir": "help" }
+```
+
+One file per topic, named `{id}.md`, front matter between `---` lines
+(`key: value` per line, lists comma-separated — deliberately not YAML):
+
+```
+---
+id: reserver-un-local
+title: Demander la location d'un local
+summary: Choisir des dates libres et envoyer une demande.
+category: Notre unité
+role_min: public
+paths: /locations/*
+related: suivre-ma-demande
+---
+
+Corps en Markdown…
+```
+
+- `id` must match the file name and be unique across core + every module
+  — a collision is a load error, and `tests/Core/Help/HelpInvariantsTest`
+  pins the whole corpus.
+- `role_min`: below it the topic exists nowhere (panel, index, search,
+  direct URL — 404). Same role vocabulary as routes.
+- `paths`: pages the topic covers — exact (`/locations`) or direct child
+  (`/locations/*`, the path plus exactly one segment; `offline`'s
+  exact/child semantics). Every declared path must correspond to a real
+  registered GET route, or the invariant test fails. Empty is valid: the
+  topic is then only reachable from `/aide`.
+- Body sections start at `##` (the title already is the page's `<h1>`).
+  Write to the editorial charter in design.md §7.11 — vouvoiement, the
+  §7.1 lexicon, ~400 words, at most one `> ` warning callout, no external
+  link but the federation's.
+- A new end-user-facing page should ship with a topic covering it, in the
+  same change (AGENTS.md § Module creation checklist).
+
 ## Protecting a public form (`Core\Security\HumanCheck`)
 
 Any route with `role_min: "public"` that accepts a POST from a visitor who might not be identified — a response form, a contact form, anything anonymous submission-shaped — should go through `Core\Security\HumanCheck\HumanCheckService` (`ARCHITECTURE.md` §8.31) rather than rolling a module-specific anti-spam mechanism. No captcha, no external service, nothing to configure per module beyond the four core `SettingService` keys that already apply site-wide.
