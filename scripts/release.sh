@@ -264,10 +264,16 @@ check_security_gate() {
 # `npm ci` yourself first (see README.md § Développement) if this fails.
 # ---------------------------------------------------------------
 check_tests_gate() {
-    local phpunit_output phpunit_summary
+    local phpunit_output phpunit_summary phpunit_exit
 
+    # launch_gate runs every gate function under `set +e` (see the comment
+    # in check_sonar_gate) — errexit is OFF here, so every command below
+    # that can fail needs its own explicit check; otherwise a real failure
+    # falls through to the "vérifié" line at the end and the gate reports
+    # a false pass instead of blocking the release.
     echo "Running PHPStan..."
-    vendor/bin/phpstan analyse --memory-limit=512M
+    vendor/bin/phpstan analyse --memory-limit=512M \
+        || { echo "ERROR: PHPStan found errors — release blocked by the tests gate." >&2; exit 1; }
 
     echo "Checking the MySQL test instance is reachable..."
     # Without a server the suite is GREEN, not broken — the server-dependent
@@ -304,29 +310,40 @@ check_tests_gate() {
     echo "Running PHPUnit (complete suite, database group included)..."
     # Piped through tee so the run still streams live (to stderr, since
     # stdout is captured here) rather than going silent for its whole
-    # duration — pipefail (line 2) still propagates PHPUnit's own exit
-    # code through the pipeline, so a failure still aborts the script via
-    # set -e exactly as a direct `vendor/bin/phpunit` call would.
+    # duration.
     phpunit_output="$(vendor/bin/phpunit 2>&1 | tee /dev/stderr)"
+    # pipefail (line 2) makes $? here reflect PHPUnit's own exit status
+    # (the rightmost failing command in the pipeline; tee itself always
+    # succeeds) rather than tee's — but with errexit OFF in this function
+    # (see the comment at the top of check_tests_gate), that nonzero exit
+    # does NOT abort on its own, so it's captured and checked explicitly
+    # right away, before any other command overwrites $?.
+    phpunit_exit=$?
     # PHPUnit 13 colorizes its summary line (e.g. "\e[30;43mTests: …\e[0m")
     # even when piped through tee here, so the ANSI codes are stripped
     # before matching — otherwise the line no longer starts with "OK (" or
-    # "Tests: " and grep's no-match exit 1 would abort the whole release
-    # via pipefail below. `|| true` on the grep itself is a second guard:
-    # if PHPUnit's summary format ever changes again, this degrades to the
-    # "résumé non trouvé" fallback instead of aborting a release that
-    # otherwise passed.
+    # "Tests: ". `|| true` on the grep itself is a second guard: if
+    # PHPUnit's summary format ever changes again, this degrades to the
+    # "résumé non trouvé" fallback instead of masking the real pass/fail
+    # signal below.
     phpunit_summary="$(sed -E $'s/\x1b\\[[0-9;]*m//g' <<< "${phpunit_output}" | { grep -E '^(OK \(|Tests: )' || true; } | tail -1)"
     [[ -n "${phpunit_summary}" ]] || phpunit_summary="résumé PHPUnit non trouvé dans la sortie"
+
+    if [[ "${phpunit_exit}" -ne 0 ]]; then
+        echo "ERROR: PHPUnit reported failures (${phpunit_summary}) — release blocked by the tests gate." >&2
+        exit 1
+    fi
 
     command -v npm &> /dev/null || { echo "ERROR: npm is required for the JavaScript portion of the tests gate (see package.json/README.md § Développement) — install Node.js LTS, or re-run with --skip-tests-gate (emergency use only)." >&2; exit 1; }
     [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see README.md § Développement), or re-run with --skip-tests-gate (emergency use only)." >&2; exit 1; }
 
     echo "Running JavaScript static analysis (npm run typecheck)..."
-    npm run typecheck
+    npm run typecheck \
+        || { echo "ERROR: JavaScript static analysis failed (npm run typecheck) — release blocked by the tests gate." >&2; exit 1; }
 
     echo "Running JavaScript unit tests (npm run test:coverage)..."
-    npm run test:coverage
+    npm run test:coverage \
+        || { echo "ERROR: JavaScript unit tests failed (npm run test:coverage) — release blocked by the tests gate." >&2; exit 1; }
 
     echo "vérifié — PHPStan sans erreur ; PHPUnit : ${phpunit_summary} ; analyse statique JavaScript (npm run typecheck) : OK ; tests JavaScript (Vitest) : OK." > "${GATE_REPORT_FILE}"
     echo "Tests gate OK: PHPStan, PHPUnit, JavaScript static analysis, and JavaScript unit tests passed."
@@ -357,7 +374,10 @@ check_e2e_gate() {
     [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see README.md § Développement), or re-run with --skip-e2e-gate (emergency use only)." >&2; exit 1; }
 
     echo "Running end-to-end browser tests (npm run e2e)..."
-    npm run e2e
+    # See the comment in check_sonar_gate: this function runs under
+    # `set +e`, so a failing `npm run e2e` would otherwise fall through
+    # to the "vérifié" line below instead of blocking the release.
+    npm run e2e || { echo "ERROR: end-to-end tests failed (npm run e2e) — release blocked by the e2e gate." >&2; exit 1; }
 
     echo "vérifié — la page d'accueil publique démarre et s'affiche dans un vrai navigateur (Playwright/Chromium, via \`public/index.php\`)." > "${GATE_REPORT_FILE}"
     echo "E2E gate OK: the application boots and renders in a real browser."
@@ -460,7 +480,15 @@ check_dependency_freshness_gate() {
 check_sonar_gate() {
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    "${script_dir}/check-sonar-release.sh"
+    # launch_gate runs every gate function under `set +e` (so a gate can
+    # decide for itself when to abort instead of the whole subshell dying
+    # on the first nonzero exit) — which also means errexit is OFF for
+    # this function, so a failing command here does NOT stop execution on
+    # its own. Every command that can fail must be explicitly checked;
+    # `check-sonar-release.sh` already exits 1 and prints its own reason
+    # on failure, so `|| exit 1` is enough to propagate that here instead
+    # of silently falling through to the "vérifié" line below.
+    "${script_dir}/check-sonar-release.sh" || exit 1
     echo "vérifié — aucun signalement de sécurité actif, aucun problème de sévérité HIGH ou supérieure, Quality Gate OK." > "${GATE_REPORT_FILE}"
 }
 
