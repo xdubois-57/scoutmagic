@@ -701,9 +701,16 @@ $settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 
 $settingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatique des statistiques d\'utilisation',
     'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
     null, null, null, true, 280);
+// Rendered by no page at all — not by the Support page (Core\Http\Controller\
+// SupportController::index() says why) and not by the generic Réglages page
+// (SettingsController::EXCLUDED_FROM_GENERIC_PAGE) — because where the reports
+// go is a project-level fact, not a per-unit choice. Declared `editable =
+// false` to say the same thing in the row itself; on an installation that
+// already has the row, the exclusion list is what does the work, since
+// SettingRepository::upsert() only ever refreshes `default_value`.
 $settingService->register('statistics_destination', 'https://www.scoutmagic.be', 'url', 'Destination des statistiques',
-    'Adresse du site qui reçoit les rapports d\'utilisation. À ne modifier que pour pointer vers une autre installation ScoutMagic réceptrice.',
-    null, null, null, true, 281);
+    'Adresse du site qui reçoit les rapports d\'utilisation. Fait de niveau projet, modifiable uniquement lors du déploiement d\'une installation réceptrice.',
+    null, null, null, false, 281);
 $settingService->register('statistics_installation_id', '', 'text', 'Identifiant de cette installation',
     'Identifiant aléatoire attribué une seule fois à cette installation pour reconnaître ses rapports d\'utilisation. Il ne dérive d\'aucune donnée personnelle.',
     null, null, null, false, 282);
@@ -1391,6 +1398,21 @@ $statisticsPayloadBuilder = new \Core\Statistics\StatisticsPayloadBuilder(
     $mailService
 );
 
+// The same sender the daily task builds from its TaskContext (Core\Statistics\
+// StatisticsServiceFactory), built here for the one thing that cannot wait for
+// a scheduler run: the "envoyer un rapport de test" button on Configuration >
+// Support. Constructing it opens nothing — no secret is read and no socket is
+// touched until sendTest() is actually called.
+$statisticsSender = new \Core\Statistics\StatisticsSender(
+    $settingService,
+    $statisticsPayloadBuilder,
+    $installationIdentityService,
+    new \Core\Statistics\StreamStatisticsTransport(),
+    $journalService,
+    $pdo,
+    \Core\Maintenance\VersionFile::read(dirname(__DIR__))
+);
+
 // Set up SchedulerRunner with ModuleManager and the context task handlers run
 // with — without this, processOverdue() throws the moment it reaches a real
 // (module-registered) task, since TaskContext has no fallback construction.
@@ -1683,6 +1705,7 @@ $router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController
 // Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.47/§8.48)
 $router->addRoute('GET', '/config/support', SupportController::class, 'index', 'superadmin', ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
+$router->addRoute('POST', '/config/support/statistics/test', SupportController::class, 'sendTestStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
 $router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
 
@@ -2004,7 +2027,8 @@ $frontController->registerController(SupportController::class, new SupportContro
     $settingService,
     $journalService,
     $statisticsPayloadBuilder,
-    $schedulerService
+    $schedulerService,
+    $statisticsSender
 ));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));

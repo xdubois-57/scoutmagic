@@ -17,7 +17,8 @@
         <div class="alert alert-info small">
             <strong>Ce rapport n'est pas anonyme.</strong> Il contient l'adresse de ce site, ce qui permet de
             rattacher un rapport à l'unité qui demande de l'aide. Il ne contient en revanche aucune donnée de
-            membre : ni nom, ni adresse email, ni photo, ni contenu. Le détail exact est visible plus bas.
+            membre : ni nom, ni adresse email, ni photo, ni contenu. Le détail exact est consultable plus bas,
+            sous « Aperçu de ce qui est envoyé ».
         </div>
 
         <form method="post" action="/config/support/statistics">
@@ -32,15 +33,30 @@
                 </label>
             </div>
 
-            {% include 'partials/form_field.html.twig' with {
-                field_id: 'statistics_destination', field_name: 'statistics_destination', type: 'url',
-                label: 'Destination', value: statistics_destination,
-                placeholder: 'https://www.scoutmagic.be',
-                help: 'Site qui reçoit les rapports. À ne modifier que pour pointer vers une autre installation ScoutMagic réceptrice.',
-            } only %}
-
             <button type="submit" class="btn btn-primary">Enregistrer</button>
         </form>
+
+        <hr>
+
+        <h3 class="h6">Envoi de test</h3>
+        <p class="small text-body-secondary">
+            Envoie immédiatement un rapport, sans attendre l'envoi quotidien, et affiche la réponse reçue.
+            C'est le seul moyen de vérifier que la chaîne fonctionne réellement depuis ce site. Le contenu
+            transmis est exactement celui de l'aperçu ci-dessous.
+        </p>
+
+        <form method="post" action="/config/support/statistics/test">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-outline-primary"{% if not statistics_enabled %} disabled{% endif %}>
+                Envoyer un rapport de test maintenant
+            </button>
+        </form>
+
+        {% if not statistics_enabled %}
+            <p class="small text-body-secondary mt-2 mb-0">
+                Activez l'envoi automatique ci-dessus, puis enregistrez, pour pouvoir envoyer un rapport de test.
+            </p>
+        {% endif %}
     </div>
 </div>
 
@@ -70,14 +86,33 @@
     </div>
 </div>
 
+{# Collapsed by default: the payload is a couple of dozen lines of JSON
+   that answer a question most visitors to this page are not asking, and
+   unfolded it pushed the support-package block — the reason most people
+   come here at all — below the fold. Same button/collapse pairing as the
+   groups on Configuration > Réglages. #}
 <div class="card mb-3">
     <div class="card-body">
-        <h2 class="h5 mb-3">Aperçu de ce qui est envoyé</h2>
-        <p class="small text-body-secondary">
-            Contenu exact du rapport, tel qu'il serait transmis à l'instant. L'adresse de ce site et l'identifiant
-            d'installation y figurent ; aucune donnée de membre ni aucun identifiant de sécurité n'y figure.
-        </p>
-        <pre class="border rounded p-3 bg-body-tertiary small mb-0 support-payload-preview"><code>{{ payload_json }}</code></pre>
+        <button type="button"
+                class="btn w-100 d-flex align-items-center gap-2 border rounded-3 p-3 text-start collapsed"
+                data-bs-toggle="collapse" data-bs-target="#support-payload"
+                aria-expanded="false" aria-controls="support-payload">
+            <span class="flex-grow-1">
+                <span class="h5 mb-0 d-block">Aperçu de ce qui est envoyé</span>
+                <span class="text-body-secondary small d-block">
+                    Contenu exact du rapport, tel qu'il serait transmis à l'instant.
+                </span>
+            </span>
+            <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+        </button>
+
+        <div class="collapse mt-3" id="support-payload">
+            <p class="small text-body-secondary">
+                L'adresse de ce site et l'identifiant d'installation y figurent ; aucune donnée de membre ni
+                aucun identifiant de sécurité n'y figure.
+            </p>
+            <pre class="border rounded p-3 bg-body-tertiary small mb-0 support-payload-preview"><code>{{ payload_json }}</code></pre>
+        </div>
     </div>
 </div>
 

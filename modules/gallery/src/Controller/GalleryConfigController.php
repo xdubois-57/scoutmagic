@@ -337,6 +337,14 @@ class GalleryConfigController extends AbstractController
                 array_map(fn(StorageLocation $l) => $l->id, $locations),
                 array_map(fn(StorageLocation $l) => $this->storageLocationRepository->countAlbumsUsing($l->id), $locations)
             ),
+            // Room left on the volume behind each local location. Null for
+            // an S3 location and null on a host that will not answer — the
+            // template shows an em dash for both, since "we cannot tell" and
+            // "not applicable" are equally not a number of gigabytes.
+            'location_disk_space' => array_combine(
+                array_map(fn(StorageLocation $l) => $l->id, $locations),
+                array_map(fn(StorageLocation $l) => $this->storageLocationService->diskSpaceFor($l), $locations)
+            ),
             'gallery_allow_external' => (bool) $this->settingService->get('gallery_allow_external', 'gallery', true),
             'gallery_max_media_per_album' => (int) $this->settingService->get('gallery_max_media_per_album', 'gallery', 200),
             'gallery_max_photo_upload_mb' => (int) $this->settingService->get('gallery_max_photo_upload_mb', 'gallery', 30),

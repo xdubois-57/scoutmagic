@@ -21,12 +21,43 @@ use Core\Security\SecretManager;
 use Core\Statistics\InstallationDateService;
 use Core\Statistics\InstallationIdentityService;
 use Core\Statistics\StatisticsPayloadBuilder;
+use Core\Statistics\StatisticsSender;
+use Core\Statistics\StatisticsTransportInterface;
+use Core\Statistics\StatisticsTransportResponse;
 use Core\Support\SupportPackageState;
 use Core\Support\Task\GenerateSupportPackageHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
+
+/**
+ * A transport that records the call instead of making it. The page's test
+ * send is the one action on this controller that would otherwise reach the
+ * network, and what has to be asserted about it — that it went out at all,
+ * and to where — is exactly what a fake can answer.
+ *
+ * Declared here rather than shared with Tests\Core\Statistics: the PSR-4
+ * autoloader maps Tests\ to a file per class, so a helper living inside
+ * another test file only resolves when that file happens to have been
+ * loaded first.
+ */
+final class SupportRecordingTransport implements StatisticsTransportInterface
+{
+    /** @var array<int, array{url: string, body: string, token: string}> */
+    public array $calls = [];
+
+    public function __construct(private ?StatisticsTransportResponse $response = null)
+    {
+    }
+
+    public function post(string $url, string $jsonBody, string $bearerToken, string $userAgent): StatisticsTransportResponse
+    {
+        $this->calls[] = ['url' => $url, 'body' => $jsonBody, 'token' => $bearerToken];
+
+        return $this->response ?? StatisticsTransportResponse::response(200, '');
+    }
+}
 
 /**
  * @group database
@@ -42,6 +73,7 @@ class SupportControllerTest extends TestCase
     private string $projectRoot;
     private SecretManager $secretManager;
     private InstallationIdentityService $identityService;
+    private SupportRecordingTransport $transport;
     private int $userId;
 
     protected function setUp(): void
@@ -77,17 +109,28 @@ class SupportControllerTest extends TestCase
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('csp_nonce', 'n');
 
+        $payloadBuilder = new StatisticsPayloadBuilder(
+            $this->settings,
+            $this->pdo,
+            $this->identityService,
+            $this->projectRoot
+        );
+        $this->transport = new SupportRecordingTransport();
         $this->controller = new SupportController(
             $this->twig,
             $this->settings,
             $journalService,
-            new StatisticsPayloadBuilder(
+            $payloadBuilder,
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            new StatisticsSender(
                 $this->settings,
-                $this->pdo,
+                $payloadBuilder,
                 $this->identityService,
-                $this->projectRoot
-            ),
-            new SchedulerService(new SchedulerRepository($this->pdo))
+                $this->transport,
+                $journalService,
+                $this->pdo,
+                '1.0.33'
+            )
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, 1)');
@@ -168,6 +211,21 @@ class SupportControllerTest extends TestCase
         $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
 
         $this->assertStringContainsString('n\'est pas anonyme', $body);
+    }
+
+    /**
+     * The payload is a couple of dozen lines of JSON answering a question
+     * most people on this page are not asking. Unfolded, it pushed the
+     * support-package block — what most of them came for — below the fold.
+     */
+    public function testThePayloadPreviewIsCollapsedByDefault(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('data-bs-target="#support-payload"', $body);
+        $this->assertStringContainsString('aria-expanded="false"', $body);
+        $this->assertStringContainsString('<div class="collapse mt-3" id="support-payload">', $body);
+        $this->assertStringNotContainsString('collapse show" id="support-payload"', $body);
     }
 
     public function testThePreviewIsProducedEvenWhenReportingIsDisabled(): void
@@ -276,92 +334,132 @@ class SupportControllerTest extends TestCase
         $this->assertSame([], $this->journalEventTypes());
     }
 
-    public function testTheDestinationIsSavedAndValidated(): void
+    // --- the destination is not this page's business any more ---
+
+    /**
+     * Where the report goes is a project-level fact. The field is gone from
+     * the form, and the URL itself is not in the page either — a unit
+     * reading it would only wonder whether they were supposed to change it.
+     */
+    public function testTheDestinationIsNeitherShownNorOffered(): void
     {
-        $token = $this->issueCsrfToken();
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
 
-        $this->controller->saveStatistics(new Request('POST', '/config/support/statistics', [], [
-            '_csrf_token' => $token,
-            'statistics_enabled' => '1',
-            'statistics_destination' => 'https://stats.exemple.be',
-        ], [], []), []);
-        $this->settings->clearCache();
-        $this->assertSame('https://stats.exemple.be', $this->settings->get('statistics_destination'));
-
-        $this->controller->saveStatistics(new Request('POST', '/config/support/statistics', [], [
-            '_csrf_token' => $token,
-            'statistics_enabled' => '1',
-            'statistics_destination' => 'not a url',
-        ], [], []), []);
-        $this->settings->clearCache();
-        $this->assertSame('https://stats.exemple.be', $this->settings->get('statistics_destination'));
+        $this->assertStringNotContainsString('name="statistics_destination"', $body);
+        $this->assertStringNotContainsString('www.scoutmagic.be', $body);
     }
 
     /**
-     * The destination is where this installation's bearer secret is sent,
-     * in a header, from inside the hosting network — the shape
-     * Core\Security\SsrfUrlValidator guards on every other configured
-     * outbound endpoint. It is refused here rather than a day later as a
-     * failed send nobody is watching.
+     * A field no page renders must not stay writable through a hand-made
+     * POST: this is the setting that decides where this installation's
+     * bearer secret is sent.
      */
-    #[\PHPUnit\Framework\Attributes\DataProvider('refusedDestinations')]
-    public function testADestinationThatIsNotAPublicHttpsSiteIsRefused(string $destination): void
+    public function testAPostedDestinationIsIgnored(): void
     {
         $token = $this->issueCsrfToken();
 
         $this->controller->saveStatistics(new Request('POST', '/config/support/statistics', [], [
             '_csrf_token' => $token,
             'statistics_enabled' => '1',
-            'statistics_destination' => 'https://stats.exemple.be',
-        ], [], []), []);
-
-        $this->controller->saveStatistics(new Request('POST', '/config/support/statistics', [], [
-            '_csrf_token' => $token,
-            'statistics_enabled' => '1',
-            'statistics_destination' => $destination,
+            'statistics_destination' => 'https://ailleurs.exemple.be',
         ], [], []), []);
 
         $this->settings->clearCache();
-        $this->assertSame(
-            'https://stats.exemple.be',
-            $this->settings->get('statistics_destination'),
-            $destination . ' must not have been accepted'
+        $this->assertSame('https://www.scoutmagic.be', $this->settings->get('statistics_destination'));
+    }
+
+    // --- the test send ---
+
+    public function testTheTestSendIsOffered(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('/config/support/statistics/test', $body);
+        $this->assertStringContainsString('Envoyer un rapport de test maintenant', $body);
+    }
+
+    public function testTheTestSendTransmitsTheReportAndSaysSo(): void
+    {
+        $token = $this->issueCsrfToken();
+
+        $response = $this->controller->sendTestStatistics(
+            new Request('POST', '/config/support/statistics/test', [], ['_csrf_token' => $token], [], []),
+            []
         );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertCount(1, $this->transport->calls);
+        $this->assertSame('https://www.scoutmagic.be/api/statistics', $this->transport->calls[0]['url']);
+        $this->assertSame(['statistics_test_sent'], $this->journalEventTypes());
+        $this->assertSame('success', (\Core\Http\FlashMessage::get() ?? [])['type'] ?? null);
     }
 
     /**
-     * @return array<string, array{0: string}>
+     * The whole point of the button on the installation that IS the
+     * receiver: the daily task skips itself (`self_destination`), so this is
+     * the only way its own report — and the intake endpoint it is sent to —
+     * is ever exercised.
      */
-    public static function refusedDestinations(): array
+    public function testTheTestSendIsAllowedToReachThisInstallationItself(): void
     {
-        return [
-            'cleartext' => ['http://stats.exemple.be'],
-            'localhost' => ['https://localhost/'],
-            'private IPv4' => ['https://192.168.1.10/'],
-            'cloud metadata' => ['https://169.254.169.254/'],
-            'single label' => ['https://intranet/'],
-            'dot-test' => ['https://stats.test/'],
-        ];
+        $this->settingRepository->updateValue(null, 'statistics_destination', 'https://unite-exemple.be');
+        $this->settings->clearCache();
+
+        $this->controller->sendTestStatistics(
+            new Request('POST', '/config/support/statistics/test', [], ['_csrf_token' => $this->issueCsrfToken()], [], []),
+            []
+        );
+
+        $this->assertCount(1, $this->transport->calls);
+        $this->assertSame('https://unite-exemple.be/api/statistics', $this->transport->calls[0]['url']);
     }
 
     /**
-     * Refusing the destination must not silently swallow the switch the
-     * administrator was actually toggling — nothing is written at all, and
-     * the page says why.
+     * A test send never writes the daily bookkeeping: "État des envois"
+     * answers "is automatic reporting healthy?", and a click must not be
+     * able to answer it.
      */
-    public function testARefusedDestinationLeavesTheReportingSwitchUntouched(): void
+    public function testTheTestSendLeavesTheDailySendStateUntouched(): void
     {
-        $token = $this->issueCsrfToken();
-
-        $this->controller->saveStatistics(new Request('POST', '/config/support/statistics', [], [
-            '_csrf_token' => $token,
-            'statistics_enabled' => '',
-            'statistics_destination' => 'https://localhost/',
-        ], [], []), []);
+        $this->controller->sendTestStatistics(
+            new Request('POST', '/config/support/statistics/test', [], ['_csrf_token' => $this->issueCsrfToken()], [], []),
+            []
+        );
 
         $this->settings->clearCache();
-        $this->assertSame('1', $this->settings->get('statistics_enabled'));
-        $this->assertSame([], $this->journalEventTypes());
+        $this->assertSame('', (string) $this->settings->get(SupportController::LAST_SUCCESS_SETTING));
+        $this->assertSame('', (string) $this->settings->get(SupportController::LAST_FAILURE_SETTING));
+    }
+
+    /**
+     * One button must not overrule a unit's opt-out — the switch is the
+     * decision, and the test send only checks that the decision works.
+     */
+    public function testTheTestSendRespectsTheOptOut(): void
+    {
+        $this->settingRepository->updateValue(null, 'statistics_enabled', '0');
+        $this->settings->clearCache();
+
+        $this->controller->sendTestStatistics(
+            new Request('POST', '/config/support/statistics/test', [], ['_csrf_token' => $this->issueCsrfToken()], [], []),
+            []
+        );
+
+        $this->assertSame([], $this->transport->calls);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('warning', $flash['type'] ?? null);
+        $this->assertStringContainsString('doit être activé', $flash['message'] ?? '');
+    }
+
+    public function testTheTestSendRequiresAValidCsrfToken(): void
+    {
+        $response = $this->controller->sendTestStatistics(
+            new Request('POST', '/config/support/statistics/test', [], ['_csrf_token' => 'wrong'], [], []),
+            []
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->transport->calls);
     }
 
     // --- "État des envois" ---
@@ -528,6 +626,7 @@ class SupportControllerTest extends TestCase
         $router = new Router();
         $router->addRoute('GET', '/config/support', SupportController::class, 'index', 'superadmin');
         $router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
+        $router->addRoute('POST', '/config/support/statistics/test', SupportController::class, 'sendTestStatistics', 'superadmin');
         $router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
 
         $configFile = sys_get_temp_dir() . '/test_support_config_' . uniqid() . '.php';
@@ -557,12 +656,18 @@ class SupportControllerTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
-    public function testAdminCanNeitherTriggerAGenerationNorPollItsStatus(): void
+    public function testAdminCanNeitherTriggerAGenerationNorPollItsStatusNorSendATestReport(): void
     {
         AuthSession::logout();
         AuthSession::login($this->userId, 'admin@test.example', 'admin');
 
         $frontController = $this->buildFrontController();
+
+        $this->assertSame(
+            403,
+            $frontController->handle(new Request('POST', '/config/support/statistics/test', [], [], [], []))->getStatusCode()
+        );
+        $this->assertSame([], $this->transport->calls);
 
         $this->assertSame(
             403,

@@ -20,6 +20,11 @@ use Core\Journal\JournalService;
  * ordered list of situations in which it deliberately does nothing, and the
  * care taken never to write a secret — ours or the receiver's answer — into
  * a setting or the journal.
+ *
+ * Two entry points share that POST: send(), the daily task, and sendTest(),
+ * the button on Configuration > Support. They differ only in which guards
+ * apply and in whether the outcome is written to the send-state settings —
+ * see sendTest() for why each of those two differences exists.
  */
 class StatisticsSender
 {
@@ -49,6 +54,11 @@ class StatisticsSender
     ) {
     }
 
+    /**
+     * The daily report, as Core\Statistics\Task\SendStatisticsHandler runs
+     * it: every guard applies, and the outcome is written to the send-state
+     * settings the Support page renders under "État des envois".
+     */
     public function send(): StatisticsSendResult
     {
         $guard = $this->firstFailingGuard();
@@ -56,13 +66,62 @@ class StatisticsSender
             return $this->recordSkip($guard);
         }
 
+        return $this->transmit(true);
+    }
+
+    /**
+     * A manual report, triggered by a superadmin from Configuration >
+     * Support to exercise the chain end to end instead of waiting a day for
+     * the next scheduled run (ARCHITECTURE.md §8.47).
+     *
+     * Exactly two guards are lifted. `already_sent_today` goes, because a
+     * test that cannot be repeated is not a test. `self_destination` goes,
+     * because the installation that IS the receiver is the only place where
+     * the whole chain — payload, bearer header, intake endpoint, dashboard
+     * row — can be checked at all, and it is the one installation whose
+     * own report its dashboard never shows. The daily task keeps that
+     * guard, so nothing here makes the receiver report to itself on a
+     * schedule; it reports to itself when someone asks it to.
+     *
+     * Everything else holds: reporting still has to be enabled (one button
+     * must not overrule a unit's opt-out), `base_url` still has to be a
+     * public host (a staging clone must never register under the production
+     * installation's identity), and maintenance still blocks.
+     *
+     * The daily bookkeeping is deliberately left alone. A test writing
+     * `statistics_last_success_at` would silence the next scheduled report
+     * for 24 h and overwrite "État des envois" — the panel that answers
+     * "is *automatic* reporting healthy?" — with the outcome of a click.
+     * The journal records the transmission instead, and the page shows the
+     * result as a flash message.
+     */
+    public function sendTest(): StatisticsSendResult
+    {
+        $guard = $this->firstFailingGuard(true);
+        if ($guard !== null) {
+            // Not journaled: nothing left the site, and the superadmin who
+            // pressed the button is reading the answer on the next page.
+            return StatisticsSendResult::skipped($guard);
+        }
+
+        return $this->transmit(false);
+    }
+
+    /**
+     * The transmission itself, shared by the two entry points above.
+     *
+     * @param bool $scheduled whether this is the daily run (writes the
+     *                        send-state settings) or a manual test (does not)
+     */
+    private function transmit(bool $scheduled): StatisticsSendResult
+    {
         $destination = rtrim((string) $this->settingService->get('statistics_destination'), '/');
 
         // HTTPS or nothing. There is no fallback to cleartext, not even
         // "just this once": the bearer secret travels in a header, and a
         // downgrade would hand it to anyone on the path.
         if (!str_starts_with(strtolower($destination), 'https://')) {
-            return $this->recordFailure('insecure_destination');
+            return $this->recordFailure('insecure_destination', null, $scheduled);
         }
 
         // The same public-host rule already applied to `base_url` above,
@@ -77,12 +136,12 @@ class StatisticsSender
         // in the test suite, and the destination is a superadmin-typed
         // value rather than something a member supplies.
         if (!self::isPublicHost($destination)) {
-            return $this->recordFailure('non_public_destination');
+            return $this->recordFailure('non_public_destination', null, $scheduled);
         }
 
         $secret = $this->identityService->getSecret();
         if ($secret === null || $secret === '') {
-            return $this->recordFailure('secret_unavailable');
+            return $this->recordFailure('secret_unavailable', null, $scheduled);
         }
 
         $payloadJson = $this->payloadBuilder->buildJson();
@@ -97,22 +156,26 @@ class StatisticsSender
                 $userAgent
             );
         } catch (\Throwable $e) {
-            return $this->recordFailure($this->redact('transport_error: ' . $e->getMessage(), $secret));
+            return $this->recordFailure($this->redact('transport_error: ' . $e->getMessage(), $secret), null, $scheduled);
         }
         $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
 
         if (!$response->isSuccessful()) {
-            return $this->recordFailure($this->failureReasonFor($response, $secret), $durationMs);
+            return $this->recordFailure($this->failureReasonFor($response, $secret), $durationMs, $scheduled);
         }
 
-        return $this->recordSuccess((int) $response->statusCode, $durationMs);
+        return $this->recordSuccess((int) $response->statusCode, $durationMs, $scheduled);
     }
 
     /**
      * The guard sequence, in order. Returns the reason of the first guard
      * that stops the send, or null when the send may proceed.
+     *
+     * @param bool $manual a superadmin-triggered test send, which lifts the
+     *                     two guards that exist only to pace the daily task
+     *                     (see sendTest())
      */
-    private function firstFailingGuard(): ?string
+    private function firstFailingGuard(bool $manual = false): ?string
     {
         if ($this->settingService->get('statistics_enabled') !== '1') {
             return 'disabled';
@@ -138,7 +201,7 @@ class StatisticsSender
         }
 
         $destination = (string) ($this->settingService->get('statistics_destination') ?? '');
-        if (DestinationMatcher::isReceiver($baseUrl, $destination)) {
+        if (!$manual && DestinationMatcher::isReceiver($baseUrl, $destination)) {
             return 'self_destination';
         }
 
@@ -146,7 +209,7 @@ class StatisticsSender
             return 'maintenance_in_progress';
         }
 
-        if ($this->sentWithinLastDay()) {
+        if (!$manual && $this->sentWithinLastDay()) {
             return 'already_sent_today';
         }
 
@@ -243,28 +306,42 @@ class StatisticsSender
         return (time() - $timestamp) < self::MIN_INTERVAL_SECONDS;
     }
 
-    private function recordSuccess(int $statusCode, int $durationMs): StatisticsSendResult
+    private function recordSuccess(int $statusCode, int $durationMs, bool $scheduled = true): StatisticsSendResult
     {
-        $this->writeSetting(StatisticsStateSettings::LAST_SUCCESS_AT, self::nowIso());
+        if ($scheduled) {
+            $this->writeSetting(StatisticsStateSettings::LAST_SUCCESS_AT, self::nowIso());
+        }
 
         // Context is the HTTP status and the duration, nothing else. The
         // installation id is not personal data and would be harmless, but
         // there is no reason to write it either.
+        //
+        // A test send is journaled too, under its own event type: it is a
+        // real transmission of this site's report, and what leaves the site
+        // is recorded whoever asked for it.
         $this->journalService->log(
             'core',
-            'statistics_sent',
+            $scheduled ? 'statistics_sent' : 'statistics_test_sent',
             'info',
-            'Statistiques d\'utilisation transmises',
+            $scheduled
+                ? 'Statistiques d\'utilisation transmises'
+                : 'Rapport de statistiques de test transmis',
             ['status' => $statusCode, 'duration_ms' => $durationMs]
         );
 
         return StatisticsSendResult::sent($statusCode, $durationMs);
     }
 
-    private function recordFailure(string $reason, ?int $durationMs = null): StatisticsSendResult
+    private function recordFailure(string $reason, ?int $durationMs = null, bool $scheduled = true): StatisticsSendResult
     {
-        $this->writeSetting(StatisticsStateSettings::LAST_FAILURE_AT, self::nowIso());
-        $this->writeSetting(StatisticsStateSettings::LAST_FAILURE_REASON, $reason);
+        // A failed test leaves "État des envois" alone as well. The panel
+        // describes the daily task, and a manual attempt that failed —
+        // typically the very first one, before anything is configured —
+        // must not show up there as the automatic reporting being broken.
+        if ($scheduled) {
+            $this->writeSetting(StatisticsStateSettings::LAST_FAILURE_AT, self::nowIso());
+            $this->writeSetting(StatisticsStateSettings::LAST_FAILURE_REASON, $reason);
+        }
 
         $context = ['reason' => $reason];
         if ($durationMs !== null) {
@@ -273,9 +350,11 @@ class StatisticsSender
 
         $this->journalService->log(
             'core',
-            'statistics_send_failed',
+            $scheduled ? 'statistics_send_failed' : 'statistics_test_send_failed',
             'warning',
-            'Échec de la transmission des statistiques d\'utilisation',
+            $scheduled
+                ? 'Échec de la transmission des statistiques d\'utilisation'
+                : 'Échec de la transmission du rapport de statistiques de test',
             $context
         );
 
