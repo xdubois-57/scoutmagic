@@ -205,7 +205,7 @@
        skipped. The mobile offcanvas above still reads the flat
        `menu.pages` and is deliberately untouched by any of this. #}
     {% for menu in menus %}
-    <div class="desktop-megamenu d-none border-top bg-body" id="megamenu-{{ menu.id }}" data-megamenu-id="{{ menu.id }}">
+    <div class="desktop-megamenu d-none border-bottom bg-body" id="megamenu-{{ menu.id }}" data-megamenu-id="{{ menu.id }}">
         <div class="container-fluid px-3 py-3 desktop-megamenu-grid">
             {% for group in menu.groups %}
             <div>
