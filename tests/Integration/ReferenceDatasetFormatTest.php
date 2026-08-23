@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Tests\Integration;
 
 use Core\Import\DeskCsvParser;
+use Modules\Finance\Parser\BnpParser;
+use Modules\Finance\Service\StructuredCommunicationService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Fixtures\ReferenceDataset\BankBlueprint;
 use Tests\Fixtures\ReferenceDataset\DatasetGenerator;
 use Tests\Fixtures\ReferenceDataset\PhotoLot;
 use Tests\Fixtures\ReferenceDataset\ScenarioCatalog;
@@ -20,10 +23,11 @@ use Tests\Fixtures\ReferenceDataset\UnitBlueprint;
  * two questions and nothing else:
  *
  *   - does every committed export still go through the REAL
- *     Core\Import\DeskCsvParser? A change to EXPECTED_HEADERS, to the
- *     delimiter detection or to the boolean parsing breaks CI on the pull
- *     request that introduces it, instead of on the day somebody tries to
- *     build an instance;
+ *     Core\Import\DeskCsvParser, and every committed statement through the
+ *     REAL Modules\Finance\Parser\BnpParser? A change to EXPECTED_HEADERS, to
+ *     the delimiter detection, to the boolean parsing or to the amount
+ *     parsing breaks CI on the pull request that introduces it, instead of on
+ *     the day somebody tries to build an instance;
  *   - are the committed files still what the generator produces? A generator
  *     edited without re-running it is a divergence, not a difference of
  *     opinion — same mechanism, and the same reason, as
@@ -210,6 +214,193 @@ final class ReferenceDatasetFormatTest extends TestCase
                 "Le Tiers {$row['target']} porte une photo individuelle sans jamais être cadre.",
             );
         }
+    }
+
+    // ---------------------------------------------------- relevés bancaires
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function statements(): array
+    {
+        $cases = [];
+        foreach (UnitBlueprint::YEARS as $year) {
+            foreach (array_keys(BankBlueprint::ACCOUNTS) as $account) {
+                $cases["{$year} {$account}"] = [$year, $account];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('statements')]
+    public function testEachStatementIsAcceptedByTheRealBankParser(string $year, string $account): void
+    {
+        $path = self::datasetRoot() . '/' . BankBlueprint::fileFor($year, $account);
+        self::assertFileExists($path, "Le relevé {$year}/{$account} est absent du dépôt.");
+
+        $parser = new BnpParser();
+
+        // The IBAN carried on every row must be the account's own:
+        // ImportService::verifyIban() compares its blind index to the
+        // account's and refuses the whole file otherwise.
+        self::assertSame(
+            BankBlueprint::compactIban(BankBlueprint::ACCOUNTS[$account]['iban']),
+            $parser->extractSourceIban($path),
+            "Le relevé {$year}/{$account} ne porte pas l'IBAN de son compte.",
+        );
+
+        $lines = $parser->parse($path);
+        self::assertNotEmpty($lines, "Le relevé {$year}/{$account} ne contient aucune ligne exploitable.");
+
+        foreach ($lines as $line) {
+            self::assertNotSame('', $line->bankReference, 'Une ligne sans REFERENCE BANQUE ne peut pas être dédupliquée.');
+            self::assertNotSame('', $line->label, 'Une ligne sans libellé ne montre rien à un trésorier.');
+        }
+    }
+
+    #[DataProvider('statements')]
+    public function testEveryStatementLineFallsInsideOneOfTheThreeExercises(string $year, string $account): void
+    {
+        // A finance exercise IS a scout year: FiscalYearRepository::
+        // findForDate() resolves it straight out of scout_years, and
+        // ImportService aborts the whole import on a date no exercise covers.
+        $first = new \DateTimeImmutable(UnitBlueprint::referenceYear(UnitBlueprint::YEARS[0]) . '-09-01');
+        $lastYear = UnitBlueprint::YEARS[count(UnitBlueprint::YEARS) - 1];
+        $last = new \DateTimeImmutable((UnitBlueprint::referenceYear($lastYear) + 1) . '-08-31');
+
+        foreach ((new BnpParser())->parse(self::datasetRoot() . '/' . BankBlueprint::fileFor($year, $account)) as $line) {
+            self::assertGreaterThanOrEqual($first, $line->transactionDate, 'Ligne antérieure au premier exercice du jeu de données.');
+            self::assertLessThanOrEqual($last, $line->transactionDate, 'Ligne postérieure au dernier exercice du jeu de données.');
+        }
+    }
+
+    #[DataProvider('statements')]
+    public function testNoBankReferenceIsRepeatedInsideOneFile(string $year, string $account): void
+    {
+        // Within one file every reference must be unique, or deduplication
+        // would silently drop a genuine second movement. Between two files it
+        // is the opposite — see the overlap test below.
+        $references = [];
+        foreach ((new BnpParser())->parse(self::datasetRoot() . '/' . BankBlueprint::fileFor($year, $account)) as $line) {
+            self::assertArrayNotHasKey(
+                $line->bankReference,
+                $references,
+                "La référence {$line->bankReference} apparaît deux fois dans le même relevé.",
+            );
+            $references[$line->bankReference] = true;
+        }
+    }
+
+    public function testSuccessiveStatementsOverlapSoDeduplicationIsExercised(): void
+    {
+        $parser = new BnpParser();
+
+        foreach (array_keys(BankBlueprint::ACCOUNTS) as $account) {
+            $previous = [];
+            foreach (UnitBlueprint::YEARS as $index => $year) {
+                $current = array_map(
+                    static fn (object $line): string => $line->bankReference,
+                    $parser->parse(self::datasetRoot() . '/' . BankBlueprint::fileFor($year, $account)),
+                );
+
+                if ($index > 0) {
+                    self::assertCount(
+                        BankBlueprint::OVERLAP_LINES,
+                        array_intersect($previous, $current),
+                        "Le relevé {$year}/{$account} ne recouvre plus le précédent : la déduplication n'est plus exercée.",
+                    );
+                }
+
+                $previous = $current;
+            }
+        }
+    }
+
+    public function testTheTwoAwkwardAmountFormatsAreReadCorrectly(): void
+    {
+        // The two cases BnpParser::parseAmount() exists for. The dot-decimal
+        // one is the regression that mattered: read as a thousands separator,
+        // 35.98 imports as 3598,00 € with no error at all.
+        $amounts = [];
+        foreach ((new BnpParser())->parse(self::datasetRoot() . '/' . BankBlueprint::fileFor(UnitBlueprint::YEARS[0], 'unite')) as $line) {
+            $amounts[] = $line->amount;
+        }
+
+        self::assertContains(1284.50, $amounts, 'Le montant à séparateur de milliers (1.284,50) a disparu ou est mal lu.');
+        self::assertContains(-35.98, $amounts, 'Le montant en décimale pointée (-35.98) a disparu ou est lu comme -3598.');
+        self::assertNotContains(-3598.0, $amounts, 'La décimale pointée a été lue comme un séparateur de milliers.');
+    }
+
+    public function testTheRefusedLineNeverReachesTheImport(): void
+    {
+        // Statut != "Accepté" means the transaction never happened on the
+        // account. It must be in the file and absent from the parse.
+        $path = self::datasetRoot() . '/' . BankBlueprint::fileFor(UnitBlueprint::YEARS[0], 'unite');
+
+        self::assertStringContainsString('Refusé', (string) file_get_contents($path), 'Le relevé ne contient plus de ligne refusée.');
+
+        foreach ((new BnpParser())->parse($path) as $line) {
+            self::assertNotSame(-142.60, $line->amount, 'La ligne refusée a été importée.');
+        }
+    }
+
+    public function testTheInternalTransferHasBothSides(): void
+    {
+        // One debit on the unit account, one credit of the same amount on the
+        // same day on the camp account, each naming the other's IBAN.
+        $parser = new BnpParser();
+        $year = UnitBlueprint::YEARS[0];
+
+        $out = $this->findLineByAmount($parser->parse(self::datasetRoot() . '/' . BankBlueprint::fileFor($year, 'unite')), -1500.00);
+        $in = $this->findLineByAmount($parser->parse(self::datasetRoot() . '/' . BankBlueprint::fileFor($year, 'camps')), 1500.00);
+
+        self::assertNotNull($out, 'Le débit du virement interne a disparu.');
+        self::assertNotNull($in, 'Le crédit du virement interne a disparu.');
+        self::assertSame($out->transactionDate->format('Y-m-d'), $in->transactionDate->format('Y-m-d'));
+        self::assertSame(BankBlueprint::compactIban(BankBlueprint::ACCOUNTS['camps']['iban']), $out->counterpartyAccount);
+        self::assertSame(BankBlueprint::compactIban(BankBlueprint::ACCOUNTS['unite']['iban']), $in->counterpartyAccount);
+    }
+
+    public function testEveryMembershipPaymentCarriesAValidStructuredCommunication(): void
+    {
+        // The communications are declared in BankBlueprint and formatted by
+        // the application's own StructuredCommunicationService::format(), so
+        // the mod-97 check digits are right by construction. IT-06 creates the
+        // matching expected receivables from the same list — if these two ever
+        // drift apart, the "Paiements attendus" page reconciles nothing.
+        foreach (UnitBlueprint::YEARS as $year) {
+            $expected = BankBlueprint::communicationsFor($year);
+            self::assertNotEmpty($expected, "Aucune cotisation déclarée pour {$year}.");
+
+            $labels = array_map(
+                static fn (object $line): string => $line->label,
+                (new BnpParser())->parse(self::datasetRoot() . '/' . BankBlueprint::fileFor($year, 'unite')),
+            );
+
+            foreach ($expected as $communication) {
+                self::assertContains($communication, $labels, "La cotisation {$communication} n'apparaît pas sur le relevé de {$year}.");
+                self::assertSame(
+                    $communication,
+                    StructuredCommunicationService::format(substr(preg_replace('/\D/', '', $communication) ?? '', 0, 10)),
+                    'La communication structurée ne repasse pas le calcul mod-97.',
+                );
+            }
+        }
+    }
+
+    /**
+     * @param list<object> $lines
+     */
+    private function findLineByAmount(array $lines, float $amount): ?object
+    {
+        foreach ($lines as $line) {
+            if (abs($line->amount - $amount) < 0.001) {
+                return $line;
+            }
+        }
+
+        return null;
     }
 
     /**

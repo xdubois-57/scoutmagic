@@ -312,3 +312,56 @@ de 50 Mpx et le filtre `chief`/`admin` de `getSectionStaff()`.
 **Reporté.**
 
 - Les relevés bancaires et leur test de format : IT-04.
+
+
+---
+
+## IT-04 — Générateur de relevés BNP
+
+**Livré.**
+
+- **`BankBlueprint`** — la table : deux comptes (`Compte d'unité`,
+  `Compte camps`) avec leurs IBAN invalides par construction et leurs soldes
+  d'ouverture, les bases à dix chiffres des communications structurées, les
+  mouvements récurrents et la règle de catégorisation que chacun est censé
+  déclencher, et le nombre de lignes de recouvrement entre deux fichiers.
+- **`BankStatementBuilder`** — une méthode par cas exigé par le chantier, pour
+  qu'aucun ne soit espéré : cotisations à communication structurée, ligne
+  refusée, séparateur de milliers, décimale pointée, ligne sans communication,
+  virement entre les deux comptes de l'unité, et le recouvrement entre
+  exercices successifs.
+- **`BnpCsvWriter`** — le format exact de l'export BNP : BOM UTF-8, treize
+  colonnes, `Nº de séquence` identique sur toutes les lignes, IBAN du compte
+  répété sur chaque ligne, et la colonne `Détails` en prose continue avec son
+  espace final.
+- **Six fichiers commités**, deux comptes × trois exercices, 137 lignes
+  exploitables au total.
+- **Onze tests de format ajoutés** à `ReferenceDatasetFormatTest` : chaque
+  relevé passe `BnpParser::parse()` et `extractSourceIban()`, chaque date tombe
+  dans l'un des trois exercices, aucune référence n'est répétée à l'intérieur
+  d'un fichier, trois le sont entre deux fichiers successifs, les deux formats
+  de montant délicats sont lus correctement, la ligne refusée n'atteint jamais
+  l'import, le virement interne a bien ses deux côtés, et chaque communication
+  structurée repasse le calcul mod-97.
+
+**Décisions prises en autonomie.**
+
+1. **Le montant est une chaîne, pas un flottant, dans `StatementDraft`.** Deux
+   des cas exigés portent sur le *formatage* du nombre — `1.234,56` et
+   `35.98` — et un flottant ne peut pas porter cette distinction.
+2. **Les communications structurées passent par
+   `StructuredCommunicationService::format()`**, la méthode statique publique
+   du vrai générateur, plutôt que par des chiffres de contrôle écrits à la
+   main : le mod-97 est juste par construction.
+3. **Le recouvrement porte les lignes de l'exercice précédent avec leur date
+   d'origine.** Elles atterrissent donc dans l'exercice antérieur, où
+   `findForDate()` les place quel que soit le fichier d'où elles viennent —
+   c'est ce qu'un vrai téléchargement « quinze derniers mois » produit.
+4. **Un troisième générateur aléatoire**, décalé encore d'un cran. Les exports
+   Desk, le manifeste photo et les relevés sont régénérés ensemble et doivent
+   rester indépendants les uns des autres : ajouter une photo ne peut pas
+   déplacer une référence bancaire.
+5. **Aucun solde courant n'est asserté.** Le solde d'ouverture que le builder
+   passera à `ImportService` est celui de `BankBlueprint` ; les points de
+   contrôle en découlent, et les figer dans un test en ferait un test du calcul
+   de solde plutôt que du jeu de données.

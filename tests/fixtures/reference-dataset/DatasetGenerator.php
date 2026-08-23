@@ -31,6 +31,9 @@ final class DatasetGenerator
     /** @var list<array{file: string, kind: string, target: string, year: string, note: string}>|null */
     private ?array $photoRows = null;
 
+    /** @var array<string, list<StatementDraft>>|null */
+    private ?array $statements = null;
+
     public function __construct(private readonly string $datasetRoot)
     {
     }
@@ -49,9 +52,28 @@ final class DatasetGenerator
         foreach (UnitBlueprint::YEARS as $year) {
             $files[self::DESK_DIRECTORY . '/' . $year . '.csv'] = $writer->write($people, $year);
         }
+        $bankWriter = new BnpCsvWriter();
+        foreach ($this->statements() as $relativePath => $lines) {
+            [$year, $account] = self::splitStatementPath($relativePath);
+            $files[$relativePath] = $bankWriter->write($lines, BankBlueprint::ACCOUNTS[$account]['iban'], $year);
+        }
+
         $files[self::PHOTO_MANIFEST] = PhotoAssigner::toCsv($this->photoRows());
 
         return $files;
+    }
+
+    /**
+     * `bank/2024-2025_unite.csv` → `['2024-2025', 'unite']`.
+     *
+     * @return array{string, string}
+     */
+    private static function splitStatementPath(string $relativePath): array
+    {
+        $name = basename($relativePath, '.csv');
+        $separator = strrpos($name, '_');
+
+        return [substr($name, 0, (int) $separator), substr($name, (int) $separator + 1)];
     }
 
     /**
@@ -166,6 +188,21 @@ final class DatasetGenerator
             count($this->orphanPhotos()),
         );
 
+        $lines[] = '';
+        $lines[] = 'Relevés bancaires :';
+        foreach ($this->statements() as $relativePath => $statementLines) {
+            $accepted = 0;
+            foreach ($statementLines as $line) {
+                $accepted += $line->status === 'Accepté' ? 1 : 0;
+            }
+            $lines[] = sprintf(
+                '  %-28s %3d lignes, dont %3d acceptées',
+                $relativePath,
+                count($statementLines),
+                $accepted,
+            );
+        }
+
         return $lines;
     }
 
@@ -178,6 +215,25 @@ final class DatasetGenerator
         }
 
         return $this->people;
+    }
+
+    /**
+     * The bank statements, keyed by their path relative to the dataset root.
+     *
+     * A third Rng, offset again from the same constant: the Desk exports, the
+     * photo manifest and the statements are regenerated together and must stay
+     * independent of one another's size, so that adding a photo cannot shift a
+     * bank reference and vice versa.
+     *
+     * @return array<string, list<StatementDraft>>
+     */
+    public function statements(): array
+    {
+        if ($this->statements === null) {
+            $this->statements = (new BankStatementBuilder(new Rng(UnitBlueprint::SEED + 2)))->build();
+        }
+
+        return $this->statements;
     }
 
     /**

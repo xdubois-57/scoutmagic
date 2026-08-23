@@ -64,9 +64,11 @@ tests/fixtures/reference-dataset/
                          (partagé avec le builder)
   PhotoLot.php           LA TABLE : genre de chaque portrait, photos de groupe
   PhotoAssigner.php      attribue les portraits aux cadres
+  BankBlueprint.php      LA TABLE : comptes, IBAN, mouvements récurrents
+  BankStatementBuilder / BnpCsvWriter / StatementDraft
   desk/                  les trois exports Desk générés, commités
+  bank/                  les six relevés BNP générés, commités
   photos/                le lot de photos (§4) + assignments.csv, généré
-  bank/                  les relevés bancaires générés           — IT-04
   build.php              builder CLI                             — IT-05/IT-06
 ```
 
@@ -135,7 +137,7 @@ aussi un cas à représenter.
 3. **La correspondance photo → `Tiers` est déclarative et versionnée**, jamais un
    appariement implicite par ordre alphabétique ou par compteur qu'un fichier
    ajouté décalerait silencieusement. Elle vit dans `photos/assignments.csv`,
-   régénérée et comparée par `generate.php --check` — voir §9.3.
+   régénérée et comparée par `generate.php --check` — voir §9.4.
 
 ### 4.4 Contraintes techniques vérifiées
 
@@ -278,7 +280,47 @@ décalerait le jour où quelqu'un insère une personne au-dessus, et toutes les
 assertions bougeraient avec lui. `T0001`-`T0099` sont réservés aux scénarios,
 la population de fond commence à `T0101`.
 
-### 9.3 La correspondance photo → Tiers
+### 9.3 Les relevés bancaires
+
+Six fichiers : deux comptes × trois exercices. Un seul format existe,
+`bnp` (`BankStatementParserFactory::getSupportedBankCodes()`).
+
+| Compte | IBAN | Solde d'ouverture |
+|---|---|---|
+| Compte d'unité | `BE00 0000 0000 0001` | 4 250,00 € |
+| Compte camps | `BE00 0000 0000 0002` | 1 875,00 € |
+
+**Un exercice comptable est une année scoute** : `FiscalYearRepository::findForDate()`
+le résout directement dans `scout_years`, et l'import refuse toute ligne
+qu'aucun exercice ne couvre. Chaque date tombe donc entre le 1er septembre
+2024 et le 31 août 2027.
+
+Cas placés délibérément, un par méthode de `BankStatementBuilder` :
+
+- des **cotisations** portant une vraie communication structurée, calculée par
+  `StructuredCommunicationService::format()` — la même liste sert à créer les
+  créances attendues en IT-06, sinon la page « Paiements attendus » ne
+  réconcilie rien ;
+- une ligne **`Refusé`**, que `BnpParser` ignore : elle n'a jamais eu lieu sur
+  le compte ;
+- un montant à **séparateur de milliers** (`1.284,50`) ;
+- un montant en **décimale pointée** (`-35.98`) — lu comme un séparateur de
+  milliers, il s'importerait en −3 598,00 € sans la moindre erreur ;
+- une ligne **sans communication**, dont le libellé retombe sur la colonne
+  `Détails` ;
+- des libellés qui **déclenchent les règles de catégorisation** par défaut ;
+- un **virement entre les deux comptes de l'unité**, débit d'un côté et crédit
+  du même montant le même jour de l'autre ;
+- les **trois dernières lignes de l'exercice précédent répétées** en tête du
+  fichier suivant, avec la même `REFERENCE BANQUE` — ce qu'un vrai
+  téléchargement « quinze derniers mois » produit, et la seule façon d'exercer
+  la déduplication.
+
+La clé de déduplication est `REFERENCE BANQUE : <chiffres>` dans la colonne
+`Détails`, jamais le `Nº de séquence` — BNP Fortis écrit la même chaîne sur
+toutes les lignes d'un export.
+
+### 9.4 La correspondance photo → Tiers
 
 `photos/assignments.csv`, généré et commité, comparé par `--check` : une photo
 ajoutée ou retirée sans régénération devient une erreur. Colonnes
