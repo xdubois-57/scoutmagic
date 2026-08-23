@@ -17,10 +17,16 @@
   - `vote_scope: member` means one answer per MEMBER rather than per
     login, so an account linked to several members picks whose answer it
     is casting — every member it reaches, this group's own first
-    (Service\GroupAccessService::memberIdsAllowedToVoteAs()). The picker
-    below is a plain <select> that works on its own; groups.js hides it
-    and asks the same question in a small dialog at the moment of
-    voting, which is where it belongs.
+    (Service\GroupAccessService::memberIdsAllowedToVoteAsBySide()). Those
+    from outside the group sit under a heading of their own: a parent
+    scanning four totems cannot otherwise tell which of them this group
+    is even about, and the answer they give for the wrong child is one
+    nobody can see is wrong. Both headings, or neither — with everybody
+    on the same side there is nothing to distinguish, and a lone heading
+    over a whole list says nothing. The picker below is a plain <select>
+    that works on its own; groups.js hides it and asks the same question
+    in a small dialog at the moment of voting, which is where it
+    belongs, reading the same two halves off the optgroups.
   - `allow_multiple` means a voter may hold several options at once, and
     tapping one they already hold takes it back — so the buttons are
     "pressed or not" rather than "one of these".
@@ -38,12 +44,35 @@
         <p class="fw-semibold mb-2 small">{{ poll.question }}</p>
 
         {% if can_vote and is_member_scope and members is not empty %}
+            {# `is defined ? :` rather than `|default(true)`: the latter
+               answers TRUE for a member who really is `false`, which is
+               precisely the ones this heading exists to name.
+
+               Counted before either list is drawn, because the headings
+               are all-or-nothing — with everybody on one side there is
+               nothing to distinguish and a lone heading says nothing. #}
+            {% set in_group_members = members|filter(member => member.in_group is defined ? member.in_group : true) %}
+            {% set outside_members = members|filter(member => not (member.in_group is defined ? member.in_group : true)) %}
+            {% set split = in_group_members|length > 0 and outside_members|length > 0 %}
             <div class="mb-2 groups-poll-voter">
                 <label class="form-label small mb-1" for="poll-voter-{{ post.id }}">Vous répondez pour</label>
                 <select class="form-select form-select-sm" id="poll-voter-{{ post.id }}">
-                    {% for member in members %}
-                        <option value="{{ member.id }}">{{ member.name }}</option>
-                    {% endfor %}
+                    {% if split %}
+                        <optgroup label="Dans ce groupe">
+                            {% for member in in_group_members %}
+                                <option value="{{ member.id }}">{{ member.name }}</option>
+                            {% endfor %}
+                        </optgroup>
+                        <optgroup label="Hors de ce groupe">
+                            {% for member in outside_members %}
+                                <option value="{{ member.id }}">{{ member.name }}</option>
+                            {% endfor %}
+                        </optgroup>
+                    {% else %}
+                        {% for member in members %}
+                            <option value="{{ member.id }}">{{ member.name }}</option>
+                        {% endfor %}
+                    {% endif %}
                 </select>
             </div>
         {% endif %}

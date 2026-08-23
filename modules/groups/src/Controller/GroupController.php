@@ -664,16 +664,22 @@ class GroupController extends AbstractController
      * account-first and narrowed to one membership each ("Marie Dupont
      * (Akéla)"). Empty when there is only one — nothing to pick between.
      *
+     * Every member this account reaches, this group's own first and
+     * marked as such — Service\GroupAccessService::
+     * memberIdsAllowedToVoteAsBySide() says why the picker is wider than
+     * the composer's "publier en tant que", and why it has to say which
+     * side each option is on.
+     *
      * The same list Controller\PostController builds for the fragment it
-     * re-renders after a vote; both go through
-     * Service\GroupAccessService::memberIdsAllowedToPostAs(), so the
+     * re-renders after a vote; both go through that one method, so the
      * page and the fragment can never offer a different set.
      *
-     * @return array<int, array{id: int, name: string}>
+     * @return array<int, array{id: int, name: string, in_group: bool}>
      */
     private function voteMemberOptions(DiscussionGroup $group, GroupSessionContext $context): array
     {
-        $memberIds = $this->accessService->memberIdsAllowedToVoteAs($group, $context);
+        $sides = $this->accessService->memberIdsAllowedToVoteAsBySide($group, $context);
+        $memberIds = array_merge($sides['in_group'], $sides['elsewhere']);
         if (count($memberIds) < 2) {
             return [];
         }
@@ -687,6 +693,10 @@ class GroupController extends AbstractController
             static fn(int $memberId): array => [
                 'id' => $memberId,
                 'name' => ($labels[$memberId] ?? '') !== '' ? $labels[$memberId] : ('Membre #' . $memberId),
+                // Which side of the group this membership is on — the
+                // picker groups them under two headings rather than
+                // mixing four totems a reader cannot tell apart.
+                'in_group' => in_array($memberId, $sides['in_group'], true),
             ],
             $memberIds
         );

@@ -227,12 +227,34 @@ class GroupAccessService
      */
     public function memberIdsAllowedToVoteAs(DiscussionGroup $group, GroupSessionContext $context): array
     {
+        $sides = $this->memberIdsAllowedToVoteAsBySide($group, $context);
+
+        return array_merge($sides['in_group'], $sides['elsewhere']);
+    }
+
+    /**
+     * The same members, kept on the two sides the picker has to be able
+     * to name: the ones this group is built from, and the ones this
+     * account reaches from outside it.
+     *
+     * Offering the second kind without saying so would answer one
+     * question by asking another — a parent scanning four totems cannot
+     * tell which of them the group is even about. The split is resolved
+     * HERE rather than by asking both questions from the Controller, so
+     * the picker's two halves and the set a vote is checked against are
+     * one membership resolution and can never disagree.
+     *
+     * @return array{in_group: int[], elsewhere: int[]} members.id values,
+     *         each side in the caller's own order
+     */
+    public function memberIdsAllowedToVoteAsBySide(DiscussionGroup $group, GroupSessionContext $context): array
+    {
         $inGroup = $this->memberIdsAllowedToPostAs($group, $context);
 
-        return array_merge(
-            $inGroup,
-            array_values(array_diff($context->linkedMemberIds, $inGroup))
-        );
+        return [
+            'in_group' => $inGroup,
+            'elsewhere' => array_values(array_diff($context->linkedMemberIds, $inGroup)),
+        ];
     }
 
     private function explicitRowFor(DiscussionGroup $group, GroupSessionContext $context): ?\Modules\Groups\Repository\GroupMember

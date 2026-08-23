@@ -455,6 +455,44 @@ class GroupAccessServiceTest extends TestCase
     }
 
     /**
+     * The picker has to be able to say which side each option is on, so
+     * the two are resolved together rather than by asking the same
+     * membership question twice from the Controller.
+     */
+    public function testMemberIdsAllowedToVoteAsBySideKeepsTheTwoSidesApart(): void
+    {
+        $groupId = $this->sectionGroup();
+        $inGroup = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD1', $this->louveteauxId, $this->currentYearId);
+        $otherSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD2', $this->eclaireursId, $this->currentYearId);
+
+        $sides = $this->access->memberIdsAllowedToVoteAsBySide(
+            $this->groupRepo->findById($groupId),
+            $this->context([$otherSection, $inGroup])
+        );
+
+        $this->assertSame(['in_group' => [$inGroup], 'elsewhere' => [$otherSection]], $sides);
+    }
+
+    /**
+     * An account whose members are all in the group has nothing to
+     * distinguish — the picker draws no headings at all in that case
+     * (partials/poll.html.twig), which is what the empty side says.
+     */
+    public function testMemberIdsAllowedToVoteAsBySideLeavesTheOtherSideEmptyWhenEverybodyIsHere(): void
+    {
+        $groupId = $this->sectionGroup();
+        $first = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD1', $this->louveteauxId, $this->currentYearId);
+        $second = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD2', $this->louveteauxId, $this->currentYearId);
+
+        $sides = $this->access->memberIdsAllowedToVoteAsBySide(
+            $this->groupRepo->findById($groupId),
+            $this->context([$first, $second])
+        );
+
+        $this->assertSame(['in_group' => [$first, $second], 'elsewhere' => []], $sides);
+    }
+
+    /**
      * An account with a single member has nothing to pick between, and no
      * poll offers it a choice — the same list, one entry long.
      */

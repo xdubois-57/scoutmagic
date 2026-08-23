@@ -766,18 +766,21 @@ class PostController extends AbstractController
      * the way this module names anybody — the account first, narrowed to
      * the one membership each option stands for ("Marie Dupont (Akéla)").
      *
-     * Every member this account reaches, this group's own first —
-     * Service\GroupAccessService::memberIdsAllowedToVoteAs() says why the
-     * picker is wider than the composer's "publier en tant que".
+     * Every member this account reaches, this group's own first and
+     * marked as such — Service\GroupAccessService::
+     * memberIdsAllowedToVoteAsBySide() says why the picker is wider than
+     * the composer's "publier en tant que", and why it has to say which
+     * side each option is on.
      *
      * Empty when there is only one: there is nothing to pick between, and
      * a dialog asking a question with one answer is a click for nothing.
      *
-     * @return array<int, array{id: int, name: string}>
+     * @return array<int, array{id: int, name: string, in_group: bool}>
      */
     private function voteMemberOptions(DiscussionGroup $group, GroupSessionContext $context): array
     {
-        $memberIds = $this->accessService->memberIdsAllowedToVoteAs($group, $context);
+        $sides = $this->accessService->memberIdsAllowedToVoteAsBySide($group, $context);
+        $memberIds = array_merge($sides['in_group'], $sides['elsewhere']);
         if (count($memberIds) < 2) {
             return [];
         }
@@ -791,6 +794,10 @@ class PostController extends AbstractController
             static fn(int $memberId): array => [
                 'id' => $memberId,
                 'name' => ($labels[$memberId] ?? '') !== '' ? $labels[$memberId] : ('Membre #' . $memberId),
+                // Which side of the group this membership is on — the
+                // picker groups them under two headings rather than
+                // mixing four totems a reader cannot tell apart.
+                'in_group' => in_array($memberId, $sides['in_group'], true),
             ],
             $memberIds
         );

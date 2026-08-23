@@ -1151,6 +1151,56 @@ class PostControllerTest extends TestCase
         );
     }
 
+    /**
+     * And it says which is which. Four totems in one list tell a parent
+     * nothing about which children this group is about; the two headings
+     * do, and they are what the dialog groups.js opens reads its own
+     * sections off.
+     */
+    public function testTheVoterPickerSeparatesTheGroupsOwnMembersFromTheRest(): void
+    {
+        $this->seedPostWithMemberScopedPoll();
+        $sibling = $this->siblingInAnotherSection();
+
+        $body = $this->controller([$sibling, $this->memberId])
+            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())
+            ->getBody();
+
+        $this->assertStringContainsString('<optgroup label="Dans ce groupe">', $body);
+        $this->assertStringContainsString('<optgroup label="Hors de ce groupe">', $body);
+        $this->assertSame(
+            1,
+            preg_match(
+                '#<optgroup label="Dans ce groupe">.*?value="' . $this->memberId . '".*?'
+                . '<optgroup label="Hors de ce groupe">.*?value="' . $sibling . '"#s',
+                $body
+            ),
+            'each member has to sit under the heading that describes them'
+        );
+    }
+
+    /**
+     * With everybody on the same side there is nothing to distinguish,
+     * and a lone heading over the whole list would say nothing at all.
+     */
+    public function testTheVoterPickerDrawsNoHeadingsWhenEveryMemberIsInTheGroup(): void
+    {
+        $this->seedPostWithMemberScopedPoll();
+        $secondInSection = GroupsTestHelper::createMemberWithPeriod(
+            $this->pdo,
+            'SAME-SECTION',
+            $this->sectionId,
+            $this->currentYearId
+        );
+
+        $body = $this->controller([$this->memberId, $secondInSection])
+            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())
+            ->getBody();
+
+        $this->assertStringContainsString('<option value="' . $secondInSection . '"', $body);
+        $this->assertStringNotContainsString('<optgroup', $body);
+    }
+
     private function siblingInAnotherSection(): int
     {
         return GroupsTestHelper::createMemberWithPeriod(
