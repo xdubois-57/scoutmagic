@@ -43,6 +43,7 @@
       "role_min": "chief",
       "label": "Envoi de mails",
       "menu_icon": "bi-send",
+      "menu_group": "communication",
       "breadcrumb": { "label": "Envoi de mails", "parents": ["Espace animateurs"] }
     },
     {
@@ -172,6 +173,7 @@
       "role_min": "superadmin",
       "label": "Envoi de mails",
       "menu_icon": "bi-send",
+      "menu_group": "modules",
       "breadcrumb": { "label": "Envoi de mails", "parents": ["Configuration"] }
     },
     {

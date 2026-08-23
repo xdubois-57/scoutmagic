@@ -14,6 +14,7 @@
       "role_min": "identified",
       "label": "Trombinoscope",
       "menu_icon": "bi-person-badge",
+      "menu_group": "pages",
       "menu_order": 5,
       "breadcrumb": { "label": "Trombinoscope", "parents": ["Espace membres"] }
     }

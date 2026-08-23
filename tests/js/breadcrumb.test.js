@@ -120,6 +120,53 @@ describe('breadcrumb.js on mobile', () => {
     });
 });
 
+// The two real files together, no mock in between: what a visitor
+// actually gets when they click "Espace animateurs" in the fil d'Ariane.
+describe('breadcrumb.js against the real nav.js', () => {
+    const NAV = `
+        <nav>
+            <button class="breadcrumb-parent-btn" data-open-menu="espace_chefs">Espace animateurs</button>
+        </nav>
+        <nav id="desktopNav">
+            <button class="desktop-menu-btn" data-menu-id="espace_chefs" aria-expanded="false" aria-controls="megamenu-espace_chefs">Espace animateurs</button>
+            <div class="desktop-megamenu d-none" id="megamenu-espace_chefs" data-megamenu-id="espace_chefs"></div>
+        </nav>
+    `;
+
+    async function loadBoth() {
+        document.body.innerHTML = NAV;
+        window.matchMedia = vi.fn((query) => ({
+            matches: query === '(min-width: 992px)',
+            media: query,
+            addEventListener() {},
+            removeEventListener() {},
+        }));
+        vi.resetModules();
+        delete window.ScoutMagicNav;
+        await import('../../public/assets/js/nav.js');
+        await import('../../public/assets/js/breadcrumb.js');
+    }
+
+    it('opens the mega-menu panel of the menu the crumb names', async () => {
+        await loadBoth();
+
+        document.querySelector('.breadcrumb-parent-btn').click();
+
+        const panel = document.getElementById('megamenu-espace_chefs');
+        expect(panel.classList.contains('d-none')).toBe(false);
+        expect(document.querySelector('.desktop-menu-btn').getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('leaves an already-open panel open rather than toggling it shut', async () => {
+        await loadBoth();
+        document.querySelector('.desktop-menu-btn').click();
+
+        document.querySelector('.breadcrumb-parent-btn').click();
+
+        expect(document.getElementById('megamenu-espace_chefs').classList.contains('d-none')).toBe(false);
+    });
+});
+
 describe('breadcrumb.js guards', () => {
     it('ignores a parent button that names no menu', async () => {
         await loadBreadcrumb(BAR, { desktop: true });

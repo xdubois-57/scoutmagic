@@ -7,13 +7,10 @@ namespace Tests\Core\View;
 use PHPUnit\Framework\TestCase;
 
 /**
- * public/assets/css/app.css's .breadcrumb-bar visibility rule — always
- * visible below the site's lg breakpoint (992px, same as
- * nav.html.twig's own d-lg-none/d-none d-lg-block split), and on desktop
- * only when the site runs as an installed PWA (display-mode: standalone).
- * No JS/server-side detection involved (see the partial's own doc
- * comment) — this reads the raw CSS structurally, same precedent as
- * BreadcrumbJsTest for the JS side.
+ * public/assets/css/app.css's .breadcrumb-bar rules — visibility, and the
+ * spacing of the « / » between two crumbs. No JS/server-side detection
+ * involved (see the partial's own doc comment); this reads the raw CSS
+ * structurally, same precedent as BreadcrumbJsTest for the JS side.
  */
 class BreadcrumbBarCssTest extends TestCase
 {
@@ -24,25 +21,52 @@ class BreadcrumbBarCssTest extends TestCase
         $this->css = (string) file_get_contents(dirname(__DIR__, 3) . '/public/assets/css/app.css');
     }
 
-    public function testHiddenByDefault(): void
-    {
-        $start = strpos($this->css, '.breadcrumb-bar {');
-        $this->assertNotFalse($start);
-        $this->assertStringContainsString('display: none;', substr($this->css, $start, 60));
-    }
-
-    public function testVisibleBelowTheLgBreakpoint(): void
+    /**
+     * The bar shows at every width now. It used to be hidden at lg and up
+     * unless the site ran as an installed PWA, because the desktop nav's
+     * permanent sub-menu row already stated where you were; that row is
+     * gone (partials/nav.html.twig's mega-menu panels open on click and
+     * close again), so this bar is the only thing left on a desktop
+     * screen that names the current page's ancestry.
+     */
+    public function testVisibleAtEveryWidthWithNoMediaQueryGate(): void
     {
         $this->assertMatchesRegularExpression(
-            '/@media \(max-width: 991\.98px\) \{\s*\.breadcrumb-bar \{\s*display: flex;/',
+            '/\.breadcrumb-bar \{\s*display: flex;\s*\}/',
+            $this->css
+        );
+        $this->assertStringNotContainsString('display-mode: standalone', $this->css);
+        $this->assertDoesNotMatchRegularExpression(
+            '/@media \(max-width: 991\.98px\) \{\s*\.breadcrumb-bar \{/',
             $this->css
         );
     }
 
-    public function testVisibleWhenInstalledAsStandalonePwa(): void
+    /**
+     * `--has-trail` is still emitted by the template (it marks a bar
+     * carrying real ancestor-page links), but it exists only to force
+     * visibility the bar now has unconditionally — a duplicate rule
+     * kept alive would just be one more thing to keep in sync.
+     */
+    public function testTheHasTrailModifierNoLongerCarriesAVisibilityRule(): void
+    {
+        $this->assertStringNotContainsString('.breadcrumb-bar--has-trail {', $this->css);
+    }
+
+    /**
+     * Bootstrap pads each side of every « / » by 0.5rem — a full rem per
+     * separator, which a 375px screen carrying three crumbs cannot
+     * afford. The glyph brings its own visual gap. Scoped to this bar so
+     * any other breadcrumb keeps Bootstrap's own spacing.
+     */
+    public function testTheSeparatorSpendsNoHorizontalSpaceOnPadding(): void
     {
         $this->assertMatchesRegularExpression(
-            '/@media \(display-mode: standalone\) \{\s*\.breadcrumb-bar \{\s*display: flex;/',
+            '/\.breadcrumb-bar \.breadcrumb-item \+ \.breadcrumb-item \{\s*padding-left: 0;/',
+            $this->css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.breadcrumb-bar \.breadcrumb-item \+ \.breadcrumb-item::before \{\s*padding-right: 0;/',
             $this->css
         );
     }
@@ -66,7 +90,7 @@ class BreadcrumbBarCssTest extends TestCase
     public function testTheSeparatorDoesNotFloatAboveATallerCrumb(): void
     {
         $this->assertMatchesRegularExpression(
-            '/\.breadcrumb-bar \.breadcrumb-item \+ \.breadcrumb-item::before \{\s*float: none;/',
+            '/\.breadcrumb-bar \.breadcrumb-item \+ \.breadcrumb-item::before \{[^}]*float: none;/',
             $this->css,
             'Bootstrap floats the breadcrumb separator; inside this bar it has to stay in the line box.'
         );
