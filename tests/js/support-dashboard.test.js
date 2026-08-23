@@ -11,6 +11,27 @@
 // built a label with string concatenation here would silently undo that.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+/**
+ * Installs a page's server data the way the template does — a
+ * `<script type="application/json">` island — rather than an inline
+ * assignment to a window global. ScoutMagicApi.pageData() reads it.
+ */
+function installIsland(id, data) {
+    removeIsland(id);
+    if (data === undefined) {
+        return;
+    }
+    const el = document.createElement('script');
+    el.type = 'application/json';
+    el.id = id;
+    el.textContent = JSON.stringify(data);
+    document.body.appendChild(el);
+}
+
+function removeIsland(id) {
+    document.getElementById(id)?.remove();
+}
+
 // The script registers a delegated click listener on `document`, which
 // jsdom keeps alive between tests in the same file even though the body is
 // rebuilt — so a scenario's boot() would otherwise still be listening
@@ -47,6 +68,7 @@ function mockChart() {
 
 async function boot() {
     vi.resetModules();
+    await import('../../public/assets/js/api.js');
     await import('../../public/assets/js/support-dashboard.js');
 }
 
@@ -55,7 +77,7 @@ beforeEach(() => {
     buildDom();
     delete global.window.Chart;
     delete global.window.bootstrap;
-    delete global.window.supportDashboardCharts;
+    removeIsland('support-dashboard-data');
     global.fetch = vi.fn(() => Promise.resolve({ ok: true, text: () => Promise.resolve('<p>détail</p>') }));
 
     const register = document.addEventListener.bind(document);
@@ -80,11 +102,11 @@ describe('support-dashboard.js: charts', () => {
 
     it('builds one doughnut per current-state chart and one line for the history', async () => {
         const built = mockChart();
-        global.window.supportDashboardCharts = {
+        installIsland('support-dashboard-data', {
             versions: [{ label: '1.0.33', count: 3 }, { label: '1.0.33 (dev)', count: 1 }],
             autoUpdate: [{ label: 'Désactivées', count: 2 }],
             history: [{ month: '2026-06', count: 4 }, { month: '2026-07', count: 6 }],
-        };
+        });
 
         await boot();
 
@@ -93,11 +115,11 @@ describe('support-dashboard.js: charts', () => {
 
     it('passes labels and counts straight through, never rebuilt as markup', async () => {
         const built = mockChart();
-        global.window.supportDashboardCharts = {
+        installIsland('support-dashboard-data', {
             versions: [{ label: '1.0.33 (dev)', count: 3 }],
             autoUpdate: [],
             history: [],
-        };
+        });
 
         await boot();
 
@@ -107,11 +129,11 @@ describe('support-dashboard.js: charts', () => {
 
     it('gives a colour to every slice, cycling the palette past its length', async () => {
         const built = mockChart();
-        global.window.supportDashboardCharts = {
+        installIsland('support-dashboard-data', {
             versions: Array.from({ length: 13 }, (unused, i) => ({ label: 'v' + i, count: 1 })),
             autoUpdate: [],
             history: [],
-        };
+        });
 
         await boot();
 
@@ -123,11 +145,11 @@ describe('support-dashboard.js: charts', () => {
 
     it('skips an empty series rather than drawing an empty chart', async () => {
         const built = mockChart();
-        global.window.supportDashboardCharts = {
+        installIsland('support-dashboard-data', {
             versions: [{ label: '1.0.33', count: 1 }],
             autoUpdate: [],
             history: [],
-        };
+        });
 
         await boot();
 
@@ -135,22 +157,22 @@ describe('support-dashboard.js: charts', () => {
     });
 
     it('does not throw when Chart.js failed to load', async () => {
-        global.window.supportDashboardCharts = {
+        installIsland('support-dashboard-data', {
             versions: [{ label: '1.0.33', count: 1 }],
             autoUpdate: [],
             history: [],
-        };
+        });
 
         await expect(boot()).resolves.toBeUndefined();
     });
 
     it('starts the history axis at zero, in whole installations', async () => {
         const built = mockChart();
-        global.window.supportDashboardCharts = {
+        installIsland('support-dashboard-data', {
             versions: [],
             autoUpdate: [],
             history: [{ month: '2026-07', count: 6 }],
-        };
+        });
 
         await boot();
 

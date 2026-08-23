@@ -92,42 +92,54 @@
                 <form id="account-form">
                         <input type="hidden" id="account-id" value="">
                         <div class="row g-2">
+                            {# No `field_name`: finance-accounts.js reads the
+                               dialog by id and posts the account itself. #}
                             <div class="col-12">
-                                <label class="form-label small" for="account-name">Nom</label>
-                                <input type="text" class="form-control form-control-sm" id="account-name" required>
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'account-name', label: 'Nom', required: true,
+                                    size: 'sm', wrapper_class: '',
+                                } only %}
                             </div>
                             <div class="col-6">
-                                <label class="form-label small" for="account-type">Type</label>
-                                <select class="form-select form-select-sm" id="account-type">
-                                    {% for value, label in account_types %}
-                                        <option value="{{ value }}">{{ label }}</option>
-                                    {% endfor %}
-                                </select>
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'account-type', label: 'Type', type: 'select',
+                                    size: 'sm', wrapper_class: '',
+                                    options: account_types|default({})|map((label, value) => {
+                                        value: value, label: label,
+                                    }),
+                                } only %}
                             </div>
                             <div class="col-6">
-                                <label class="form-label small" for="account-section">Section</label>
-                                <select class="form-select form-select-sm" id="account-section">
-                                    <option value="">—</option>
-                                    {% for id, section in sections_by_id %}
-                                        <option value="{{ id }}">{{ section.name ?? section.desk_code }}</option>
-                                    {% endfor %}
-                                </select>
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'account-section', label: 'Section', type: 'select',
+                                    size: 'sm', wrapper_class: '',
+                                    options: [{ value: '', label: '—' }]
+                                        |merge(sections_by_id|default({})|map((section, id) => {
+                                            value: id, label: section.name ?? section.desk_code,
+                                        })),
+                                } only %}
                             </div>
                             <div class="col-12">
-                                <label class="form-label small" for="account-iban">IBAN</label>
-                                <input type="text" class="form-control form-control-sm" id="account-iban" placeholder="ex. BE71 0961 2345 6769">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'account-iban', label: 'IBAN',
+                                    placeholder: 'ex. BE71 0961 2345 6769',
+                                    size: 'sm', wrapper_class: '',
+                                } only %}
                             </div>
                             <div class="col-12">
-                                <label class="form-label small" for="account-holder">Nom du titulaire</label>
-                                <input type="text" class="form-control form-control-sm" id="account-holder">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'account-holder', label: 'Nom du titulaire',
+                                    size: 'sm', wrapper_class: '',
+                                } only %}
                             </div>
                             <div class="col-12">
-                                <label class="form-label small" for="account-role-min-view">Visible à partir de</label>
-                                <select class="form-select form-select-sm" id="account-role-min-view">
-                                    {% for value, label in role_min_options %}
-                                        <option value="{{ value }}">{{ label }}</option>
-                                    {% endfor %}
-                                </select>
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'account-role-min-view', label: 'Visible à partir de',
+                                    type: 'select', size: 'sm', wrapper_class: '',
+                                    options: role_min_options|default({})|map((label, value) => {
+                                        value: value, label: label,
+                                    }),
+                                } only %}
                             </div>
                         </div>
                         <div class="text-danger small mt-2 d-none" id="account-form-error" role="alert"></div>

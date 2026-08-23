@@ -190,7 +190,10 @@
                     <label class="form-label small" for="sandbox-empty-keyword">
                         Tapez <strong>{{ confirmation_word }}</strong> pour confirmer
                     </label>
+                    {# The word rides in a data-* attribute; the server compares it
+                       again and refuses the request outright when it does not match. #}
                     <input type="text" class="form-control" id="sandbox-empty-keyword" name="confirmation"
+                           data-confirmation-word="{{ confirmation_word }}"
                            autocomplete="off">
                 </div>
                 <div class="col-12 col-lg-4">
@@ -206,18 +209,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-    (function () {
-        var keyword = document.getElementById('sandbox-empty-keyword');
-        var submit = document.getElementById('sandbox-empty-submit');
-        if (!keyword || !submit) {
-            return;
-        }
-        // Convenience only: the server compares the word again and refuses
-        // the request outright when it does not match.
-        keyword.addEventListener('input', function () {
-            submit.disabled = keyword.value !== {{ confirmation_word|json_encode|raw }};
-        });
-    })();
-</script>
+<script src="/assets/js/mail-sandbox.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

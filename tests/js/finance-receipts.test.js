@@ -46,6 +46,7 @@ async function boot() {
     // order in production).
     await import('../../public/assets/js/api.js');
     await import('../../public/assets/js/toast.js');
+    await import('../../public/assets/js/pdf-thumbnail.js');
     await import('../../public/assets/js/finance-receipts.js');
 }
 

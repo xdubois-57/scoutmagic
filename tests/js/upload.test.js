@@ -81,6 +81,7 @@ async function boot(context) {
     const input = document.getElementById('file-input');
     Object.defineProperty(input, 'files', { value: null, writable: true, configurable: true });
     vi.resetModules();
+    await import('../../public/assets/js/drop-zone.js');
     await import('../../public/assets/js/upload.js');
     return input;
 }

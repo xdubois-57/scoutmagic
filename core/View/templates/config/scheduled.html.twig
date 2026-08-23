@@ -23,7 +23,8 @@
                 </thead>
                 <tbody>
                     {% for action in actions %}
-                    <tr class="action-row" data-error="{{ action.last_error|default('')|e('html_attr') }}">
+                    <tr class="action-row" data-error="{{ action.last_error|default('')|e('html_attr') }}"
+                        data-reveal="next:.error-row">
                         <td class="small">{{ action.module_id }}</td>
                         <td class="small">{{ action.task_key }}</td>
                         <td class="small">{{ action.reference ?? '—' }}</td>
@@ -109,14 +110,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-document.querySelectorAll('.action-row').forEach(function(row) {
-    row.addEventListener('click', function() {
-        var next = row.nextElementSibling;
-        if (next && next.classList.contains('error-row')) {
-            next.classList.toggle('d-none');
-        }
-    });
-});
-</script>
+<script src="/assets/js/reveal-details.js" defer></script>
 {% endblock %}

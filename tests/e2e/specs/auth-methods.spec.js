@@ -248,7 +248,7 @@ test('a passkey registered from the account page then signs in on its own, and i
     await expect(page.getByText('Aucune clé enregistrée')).toBeVisible();
 
     // Two clicks by design: the first reveals the name field, the second
-    // starts the ceremony (account/index.html.twig's own script).
+    // starts the ceremony (public/assets/js/account-passkeys.js).
     const addKey = page.getByRole('button', { name: 'Ajouter une clé' });
     await addKey.click();
     await page.getByLabel('Nom de cette clé').fill('Téléphone E2E');
@@ -257,7 +257,12 @@ test('a passkey registered from the account page then signs in on its own, and i
     // The page reloads itself once the server has stored the credential,
     // so the key appearing in the list IS the round trip completing.
     await expect(page.getByText('Téléphone E2E')).toBeVisible();
-    await expect(page.getByText('Aucune clé enregistrée')).toHaveCount(0);
+    // Hidden, not absent: the empty state is rendered on every visit and
+    // revealed by account-passkeys.js once the LAST key is revoked (it
+    // used to live in the loop's {% else %}, so on a page that had keys it
+    // did not exist and deleting the last one emptied the list into
+    // nothing at all).
+    await expect(page.getByText('Aucune clé enregistrée')).toBeHidden();
     expect(alerts, 'registering the passkey failed').toEqual([]);
 
     await logout(page);

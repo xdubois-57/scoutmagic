@@ -95,22 +95,19 @@ test('a hard dependency is refused both ways, and an optional one degrades and c
     // ---------------------------------------------------------------
     await page.goto('/config/modules', { waitUntil: 'domcontentloaded' });
 
-    // The refusal is a window.alert() raised once the toggle's own fetch()
-    // resolves, so it is awaited as the event it is — asserting on it any
-    // earlier would read an empty list every time, whatever the server
-    // answered. Handling the dialog explicitly also stops Playwright's
-    // default (dismiss silently) from swallowing the one sentence this
-    // half of the scenario is about.
-    const refusal = page.waitForEvent('dialog');
+    // The refusal is a toast raised once the toggle's own fetch()
+    // resolves (design.md §7.5 — it used to be a window.alert()), so the
+    // response is awaited first: asserting any earlier would read an
+    // empty screen every time, whatever the server answered.
     await Promise.all([
         page.waitForResponse((response) => response.url().includes('/config/modules/toggle')),
         moduleToggle(page, GALLERY).uncheck(),
     ]);
 
-    const refusalDialog = await refusal;
-    expect(refusalDialog.message(), 'the refusal must name the module that needs this one, and what to do')
-        .toBe(`Ce module est requis par le module « ${GROUPS} ». Désactivez-le d'abord.`);
-    await refusalDialog.dismiss();
+    await expect(
+        page.locator('.toast-body'),
+        'the refusal must name the module that needs this one, and what to do',
+    ).toHaveText(`Ce module est requis par le module « ${GROUPS} ». Désactivez-le d'abord.`);
 
     // The switch springs back rather than lying about a state the server
     // refused — and reloading proves the refusal really was a refusal.

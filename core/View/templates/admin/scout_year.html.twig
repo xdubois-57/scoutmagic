@@ -176,12 +176,13 @@
                                       class="d-flex flex-wrap gap-2 align-items-end">
                                     {{ csrf_field()|raw }}
                                     <div>
-                                        <label class="form-label small mb-1" for="preview-year">Année</label>
-                                        <select class="form-select form-select-sm" name="scout_year_id" id="preview-year">
-                                            {% for y in years %}
-                                                <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
-                                            {% endfor %}
-                                        </select>
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'preview-year', field_name: 'scout_year_id',
+                                            label: 'Année', type: 'select', size: 'sm', wrapper_class: '',
+                                            options: years|default([])|map(y => {
+                                                value: y.id, label: y.label, selected: y.id == target_year.id,
+                                            }),
+                                        } only %}
                                     </div>
                                     <button type="submit"
                                             class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}">
@@ -200,12 +201,13 @@
                                       class="d-flex flex-wrap gap-2 align-items-end">
                                     {{ csrf_field()|raw }}
                                     <div>
-                                        <label class="form-label small mb-1" for="staff-year">Année</label>
-                                        <select class="form-select form-select-sm" name="scout_year_id" id="staff-year">
-                                            {% for y in years %}
-                                                <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
-                                            {% endfor %}
-                                        </select>
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'staff-year', field_name: 'scout_year_id',
+                                            label: 'Année', type: 'select', size: 'sm', wrapper_class: '',
+                                            options: years|default([])|map(y => {
+                                                value: y.id, label: y.label, selected: y.id == target_year.id,
+                                            }),
+                                        } only %}
                                     </div>
                                     <button type="submit"
                                             class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}">
@@ -219,17 +221,23 @@
                                    year first, and the registration module vetoes it while requests
                                    are open (specifications.md §19.2). Re-checked server-side in
                                    Core\ScoutYear\ScoutYearAdminService::activatePublicYear(). #}
+                                {# The confirmation is `data-confirm` on the FORM (design.md
+                                   §7.5): confirm.js stops the submission, asks, and replays it
+                                   with its original submitter. #}
                                 <form method="post" action="/admin/scout-year/activate-public" id="activate-public-form"
-                                      class="d-flex flex-wrap gap-2 align-items-end">
+                                      class="d-flex flex-wrap gap-2 align-items-end"
+                                      data-confirm="Activer cette année pour tout le monde ? Le public verra immédiatement cette année."
+                                      data-confirm-label="Activer">
                                     {{ csrf_field()|raw }}
                                     <div>
-                                        <label class="form-label small mb-1" for="public-year">Année</label>
-                                        <select class="form-select form-select-sm" name="scout_year_id" id="public-year"
-                                                {{ can_activate_public ? '' : 'disabled' }}>
-                                            {% for y in years %}
-                                                <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
-                                            {% endfor %}
-                                        </select>
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'public-year', field_name: 'scout_year_id',
+                                            label: 'Année', type: 'select', size: 'sm', wrapper_class: '',
+                                            disabled: not can_activate_public,
+                                            options: years|default([])|map(y => {
+                                                value: y.id, label: y.label, selected: y.id == target_year.id,
+                                            }),
+                                        } only %}
                                     </div>
                                     <button type="submit"
                                             class="btn btn-sm {{ is_current ? 'btn-danger' : 'btn-outline-secondary' }}"
@@ -291,23 +299,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-{% if can_activate_public %}
-document.getElementById('activate-public-form')?.addEventListener('submit', function (e) {
-    if (!confirm('Activer cette année pour tout le monde ? Le public verra immédiatement cette année.')) {
-        e.preventDefault();
-    }
-});
-{% endif %}
-// Ticking a step submits its own form. The checkbox itself carries no
-// name: the value posted is the hidden "done" field, already set to the
-// opposite of the current state server-side, so a double-click or a
-// stale page can never post a state that disagrees with what was
-// rendered. Without JavaScript the <noscript> button does the same thing.
-document.querySelectorAll('.js-step-checkbox').forEach(function (checkbox) {
-    checkbox.addEventListener('change', function () {
-        checkbox.closest('.js-step-form')?.submit();
-    });
-});
-</script>
+<script src="/assets/js/admin-scout-year.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

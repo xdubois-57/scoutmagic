@@ -12,6 +12,8 @@ async function loadGallery() {
     // page script — same order here.
     await import('../../public/assets/js/api.js');
     await import('../../public/assets/js/toast.js');
+    await import('../../public/assets/js/drop-zone.js');
+    await import('../../public/assets/js/sortable.js');
     await import('../../public/assets/js/gallery.js');
 }
 

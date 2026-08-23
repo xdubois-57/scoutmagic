@@ -15,6 +15,23 @@
 // its own suite, tests/js/calendar-chief-retro-link-order.test.js.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+/**
+ * Installs a page's server data the way the template does — a
+ * `<script type="application/json">` island — rather than an inline
+ * assignment to a window global. ScoutMagicApi.pageData() reads it.
+ */
+function installIsland(id, data) {
+    document.getElementById(id)?.remove();
+    if (data === undefined) {
+        return;
+    }
+    const el = document.createElement('script');
+    el.type = 'application/json';
+    el.id = id;
+    el.textContent = JSON.stringify(data);
+    document.body.appendChild(el);
+}
+
 /** @param {any} data */
 function jsonResponse(data) {
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(data) });
@@ -92,7 +109,7 @@ function buildDom() {
 /** @param {object} [pageData] */
 async function boot(pageData) {
     buildDom();
-    window.calendarChiefData = pageData === undefined
+    installIsland('calendar-chief-data', pageData === undefined
         ? {
             defaultTitle: 'Réunion',
             defaultStartTime: '14:00',
@@ -100,7 +117,7 @@ async function boot(pageData) {
             defaultLocation: 'Local',
             defaultCalendarId: 3,
         }
-        : pageData;
+        : pageData);
     vi.resetModules();
     await import('../../public/assets/js/api.js');
     await import('../../public/assets/js/calendar-chief.js');
@@ -144,7 +161,7 @@ beforeEach(() => {
     window.confirm = vi.fn(() => true);
     window.alert = vi.fn();
     delete window.bootstrap;
-    delete window.calendarChiefData;
+    installIsland('calendar-chief-data', undefined);
     Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
 });
 
@@ -162,7 +179,7 @@ describe('calendar-chief.js: entry guard', () => {
 });
 
 describe('calendar-chief.js: adding an event', () => {
-    it('pre-fills the dialog with the unit defaults handed over by window.calendarChiefData', async () => {
+    it('pre-fills the dialog with the unit defaults handed over by the page data island', async () => {
         await boot();
 
         openAdd();

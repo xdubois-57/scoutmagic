@@ -32,18 +32,21 @@
                 <form method="post" action="/groups" class="row g-2">
                     {{ csrf_field()|raw }}
                     <div class="col-12 col-md-5">
-                        <label class="form-label small mb-1" for="group-name">Nom du groupe</label>
-                        <input type="text" class="form-control" id="group-name" name="name" maxlength="150" required
-                               placeholder="Ex. : Louveteaux 2025-2026">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'group-name', field_name: 'name', label: 'Nom du groupe',
+                            maxlength: 150, required: true,
+                            placeholder: 'Ex. : Louveteaux 2025-2026', wrapper_class: '',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-4">
-                        <label class="form-label small mb-1" for="group-section">Section</label>
-                        <select class="form-select" id="group-section" name="section_id">
-                            <option value="0">Sur invitation (sans section)</option>
-                            {% for section in sections %}
-                                <option value="{{ section.id }}">{{ section.name ?? section.desk_code }}</option>
-                            {% endfor %}
-                        </select>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'group-section', field_name: 'section_id', label: 'Section',
+                            type: 'select', wrapper_class: '',
+                            options: [{ value: 0, label: 'Sur invitation (sans section)' }]
+                                |merge(sections|default([])|map(section => {
+                                    value: section.id, label: section.name ?? section.desk_code,
+                                })),
+                        } only %}
                     </div>
                     <div class="col-12 col-md-3 d-flex align-items-end">
                         <button type="submit" class="btn btn-primary w-100">Créer</button>
