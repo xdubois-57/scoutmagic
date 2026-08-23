@@ -11,7 +11,7 @@ Références :
   https://claude.ai/code/artifact/72d1ffad-0d11-4aab-a2e0-a0ff083cec0f
 - Rapport précédent (révision 3, fiches détaillées des 17 bloquants) :
   artifact « Revue UX ScoutMagic » du même compte.
-- Conventions du chantier : `design.md` §7.1 à §7.10 (écrit par ce chantier) ;
+- Conventions du chantier : `design.md` §7.1 à §7.11 (écrit par ce chantier) ;
   politique des messages d'exception : `AGENTS.md` § Exception messages ;
   verrou mécanique : `tests/Core/View/UxConventionsTest.php`.
 

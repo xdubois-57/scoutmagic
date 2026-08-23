@@ -55,6 +55,28 @@ interface Window {
         cycle: () => void;
         hasFunctionalConsent: () => boolean;
     };
+    // public/assets/js/drop-zone.js — the shared « drop files here »
+    // zone (design.md §7.10), loaded only by the pages that show one.
+    ScoutMagicDropZone?: {
+        bind: (
+            zone: HTMLElement | null,
+            onFiles: (files: FileList) => void,
+            options?: { input?: HTMLInputElement | null, pickOnClick?: boolean }
+        ) => void;
+    };
+    // public/assets/js/sortable.js — drag-and-drop reordering of a list,
+    // loaded only by the pages that offer it.
+    ScoutMagicSortable?: {
+        bind: (
+            container: HTMLElement | null,
+            options: {
+                itemSelector: string;
+                axis?: string;
+                draggingClass?: string;
+                onReorder?: () => void;
+            }
+        ) => void;
+    };
     // public/assets/js/pdf-thumbnail.js — the fallback for a PDF
     // thumbnail the server could not render, loaded only by the pages
     // that show receipts. `error` does not bubble, so every code path

@@ -8,13 +8,12 @@
 // fires, the click resolves nothing, and the spec fails on a timeout that
 // blames the assertion rather than the dialog.
 //
-// autoConfirm() covers both, on purpose. A handful of templates still
-// carry their confirmation inside an inline <script> that has not been
-// extracted yet (they are enumerated in
-// tests/Core/View/UxConventionsTest::NATIVE_DIALOG_ALLOWLIST, and the list
-// only shrinks), so during the migration a spec can legitimately meet
-// either kind. Once that allowlist is empty, the native branch here can go
-// with it.
+// autoConfirm() covers both. The site's own templates are now free of
+// native boxes (tests/Core/View/UxConventionsTest::NATIVE_DIALOG_ALLOWLIST
+// is empty and stays so), so the native branch is a safety net rather
+// than a migration crutch: the browser can still raise a dialog of its
+// own — a beforeunload prompt, a basic-auth challenge — and Playwright's
+// default for one is to dismiss it silently.
 
 /**
  * Answers every confirmation on the page with "yes", for the rest of the
@@ -33,7 +32,8 @@
  *        dialog, and Playwright rejects that call.
  */
 export async function autoConfirm(page, options = {}) {
-    // Templates whose script has not been extracted yet.
+    // Any dialog the BROWSER raises (beforeunload, basic auth): the site
+    // itself no longer opens one.
     if (options.native !== false) {
         page.on('dialog', (dialog) => dialog.accept());
     }

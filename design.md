@@ -325,7 +325,27 @@ size would be the relapse.
 A field's `id` is what JavaScript and tests grip. Renaming one is a
 breaking change — grep `public/assets/js/` and `tests/` before touching it.
 
-### 7.10 Rich text
+### 7.10 Files and lists
+
+`partials/drop_zone.html.twig` is the one « déposez un fichier ici » zone
+— dashed border, centred icon, one padding scale of two (`md`, `lg`), and
+`border-primary` while a file hovers. Its behaviour is
+`window.ScoutMagicDropZone.bind(zone, onFiles, {input, pickOnClick})`
+(`public/assets/js/drop-zone.js`). Three screens used to draw and wire it
+separately, and only one of the three remembered that `dragover` must
+call `preventDefault()` — without it the browser refuses the drop and
+opens the file in a new tab, so the zone looks alive and does nothing.
+
+`window.ScoutMagicSortable.bind(container, {itemSelector, axis,
+draggingClass, onReorder})` (`public/assets/js/sortable.js`) is the one
+drag-and-drop reordering. It saves on `dragend`, never on the item's own
+`drop`: `drop` only fires when the pointer is released ON a sibling, so a
+release just outside the list left two of the three previous
+implementations visually reordered and the server none the wiser. Every
+sortable list also offers up/down buttons — dragging is not available to
+a finger or a keyboard (§7.2).
+
+### 7.11 Rich text
 
 The « lien » button in every rich-text toolbar goes through
 `window.ScoutMagicRichText.insertLink()`

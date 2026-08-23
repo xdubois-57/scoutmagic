@@ -328,6 +328,76 @@ final class SharedPartialsRenderingTest extends TestCase
         $this->assertStringNotContainsString('aria-describedby', $neither);
     }
 
+    public function testDropZoneRendersItsInputInsideTheZone(): void
+    {
+        $html = $this->render(
+            "{% include 'partials/drop_zone.html.twig' with {
+                id: 'drop-zone',
+                message: 'Glissez-déposez vos reçus ici, ou cliquez pour parcourir',
+                input_id: 'receipt-files',
+                input_name: 'receipts[]',
+                accept: '.pdf,.jpg,.jpeg,.png',
+                multiple: true,
+            } only %}"
+        );
+
+        $this->assertStringContainsString('id="drop-zone"', $html);
+        $this->assertStringContainsString('border-dashed', $html);
+        $this->assertStringContainsString('Glissez-déposez vos reçus ici', $html);
+        // Inside the zone and visually hidden — not d-none, so it stays
+        // focusable: a file input opens its picker on Enter and Space
+        // natively, which is the keyboard equivalent the CSP would not
+        // let an inline handler provide.
+        $this->assertStringContainsString('id="receipt-files"', $html);
+        $this->assertStringContainsString('visually-hidden', $html);
+        $this->assertStringNotContainsString('d-none', $html);
+        $this->assertStringContainsString('name="receipts[]"', $html);
+        $this->assertStringContainsString('accept=".pdf,.jpg,.jpeg,.png"', $html);
+        $this->assertStringContainsString('multiple', $html);
+        // Clicking anywhere in the zone opens that picker.
+        $this->assertStringContainsString('cursor:pointer', $html);
+    }
+
+    public function testDropZoneWithoutAnInputRendersNoneAndIsNotClickable(): void
+    {
+        // The generic uploader offers a picker AND a camera capture, so it
+        // renders its own two inputs in {% block actions %}; the partial
+        // must not add a third, nor claim the whole zone is clickable.
+        $html = $this->render(
+            "{% embed 'partials/drop_zone.html.twig' with { id: 'drop-zone', size: 'lg' } only %}
+                {% block message %}<p>Glissez-déposez un fichier ici</p>{% endblock %}
+                {% block actions %}<label class=\"btn\">Choisir<input type=\"file\" id=\"file-input\"></label>{% endblock %}
+            {% endembed %}"
+        );
+
+        $this->assertStringContainsString('id="file-input"', $html);
+        $this->assertStringNotContainsString('visually-hidden', $html);
+        $this->assertStringNotContainsString('cursor:pointer', $html);
+        // size: 'lg' is the roomier padding and the bigger icon.
+        $this->assertStringContainsString('p-5', $html);
+        $this->assertStringContainsString('display-4', $html);
+    }
+
+    public function testDropZoneCarriesTheCallersDataAttributesAndExtraBlock(): void
+    {
+        $html = $this->render(
+            "{% embed 'partials/drop_zone.html.twig' with {
+                id: 'gallery-upload-zone',
+                data: { 'upload-url': '/gallery/4/media' },
+                message: 'Glissez-déposez des fichiers ici',
+                input_id: 'gallery-upload-input',
+            } only %}
+                {% block extra %}<p class=\"text-warning\">Vidéos indisponibles.</p>{% endblock %}
+            {% endembed %}"
+        );
+
+        $this->assertStringContainsString('data-upload-url="/gallery/4/media"', $html);
+        $this->assertStringContainsString('Vidéos indisponibles.', $html);
+        // Default padding and icon when no size is given.
+        $this->assertStringContainsString('p-4', $html);
+        $this->assertStringNotContainsString('p-5', $html);
+    }
+
     public function testPagePickerFeedsChipPickerAndMatchesPrefixes(): void
     {
         $html = $this->render(

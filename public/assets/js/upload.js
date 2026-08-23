@@ -230,25 +230,15 @@
         uploadBtn.disabled = false;
     }
 
-    ['dragenter', 'dragover'].forEach(function (evt) {
-        dropZone.addEventListener(evt, function (e) {
-            e.preventDefault();
-            dropZone.classList.add('border-primary');
-        });
-    });
-    ['dragleave', 'drop'].forEach(function (evt) {
-        dropZone.addEventListener(evt, function (e) {
-            e.preventDefault();
-            dropZone.classList.remove('border-primary');
-        });
-    });
-
-    dropZone.addEventListener('drop', function (e) {
-        var file = e.dataTransfer.files[0];
-        if (file) {
-            handleFile(file);
+    // The drop half is the shared zone (public/assets/js/drop-zone.js).
+    // pickOnClick:false because this screen's two controls are <label>s
+    // that already open their own inputs — wiring the zone's click on top
+    // would open a picker the visitor did not ask for.
+    window.ScoutMagicDropZone.bind(dropZone, function (files) {
+        if (files[0]) {
+            handleFile(files[0]);
         }
-    });
+    }, { pickOnClick: false });
 
     fileInput.addEventListener('change', function () {
         if (fileInput.files[0]) handleFile(fileInput.files[0]);
