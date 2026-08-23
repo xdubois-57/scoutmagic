@@ -13,24 +13,34 @@
     </p>
     <form id="defaults-form" class="border rounded-3 p-3 mb-4">
         <div class="row g-2">
+            {# No `field_name`: calendar-config.js reads these by id and
+               posts the panel itself — the form is never submitted. #}
             <div class="col-12 col-md-6">
-                <label class="form-label small" for="default-title">Nom par défaut</label>
-                <input type="text" class="form-control form-control-sm" id="default-title" value="{{ default_title }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'default-title', label: 'Nom par défaut',
+                    value: default_title, size: 'sm', wrapper_class: '',
+                } only %}
             </div>
             <div class="col-6 col-md-2">
-                <label class="form-label small" for="default-start-time">Heure de début</label>
-                <input type="time" class="form-control form-control-sm" id="default-start-time" value="{{ default_start_time }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'default-start-time', label: 'Heure de début', type: 'time',
+                    value: default_start_time, size: 'sm', wrapper_class: '',
+                } only %}
             </div>
             <div class="col-6 col-md-2">
-                <label class="form-label small" for="default-end-time">Heure de fin</label>
-                <input type="time" class="form-control form-control-sm" id="default-end-time" value="{{ default_end_time }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'default-end-time', label: 'Heure de fin', type: 'time',
+                    value: default_end_time, size: 'sm', wrapper_class: '',
+                } only %}
             </div>
             <div class="col-12 col-md-2 d-flex align-items-end">
                 <button type="submit" class="btn btn-sm btn-primary w-100">Enregistrer</button>
             </div>
             <div class="col-12">
-                <label class="form-label small" for="default-location">Localisation par défaut</label>
-                <input type="text" class="form-control form-control-sm" id="default-location" value="{{ default_location }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'default-location', label: 'Localisation par défaut',
+                    value: default_location, size: 'sm', wrapper_class: '',
+                } only %}
             </div>
         </div>
     </form>
@@ -56,9 +66,11 @@
                 </div>
             </div>
             <div class="col-12 col-md-4">
-                <label class="form-label small" for="notify-days-before">Délai avant l'évènement (jours)</label>
-                <input type="number" min="1" max="365" class="form-control form-control-sm" id="notify-days-before"
-                       value="{{ notify_multiday_events_days_before }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'notify-days-before', label: "Délai avant l'évènement (jours)",
+                    type: 'number', min: 1, max: 365,
+                    value: notify_multiday_events_days_before, size: 'sm', wrapper_class: '',
+                } only %}
             </div>
             <div class="col-12 col-md-4">
                 <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>

@@ -134,7 +134,7 @@ test('a chief publishes an article with a paying form, and a family signs up and
     await page.goto('/config/finance/accounts', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Nouveau compte' }).click();
 
-    await page.getByLabel('Nom', { exact: true }).fill(ACCOUNT_NAME);
+    await page.getByLabel(/^Nom \*$/).fill(ACCOUNT_NAME);
     await page.getByLabel('IBAN').fill(ACCOUNT_IBAN);
     await page.getByLabel('Nom du titulaire').fill(ACCOUNT_HOLDER);
     await page.getByRole('button', { name: 'Enregistrer' }).click();

@@ -11,10 +11,10 @@
 // tests/js/calendar-chief-retro-link-order.test.js).
 //
 // The event defaults the dialog pre-fills come from the server through
-// window.calendarChiefData, set by an inline nonce-tagged script in the
-// template — the window.supportDashboardCharts / window.llmConfigData
-// pattern, which is what a page-scoped `|json_encode|raw` becomes once the
-// script it feeds lives in a real file.
+// the `calendar-chief-data` JSON island the template renders, read with
+// ScoutMagicApi.pageData() — data to the parser rather than code, which
+// is what a page-scoped `|json_encode|raw` should become once the script
+// it feeds lives in a real file.
 //
 // Fetches ride the site-wide ScoutMagicApi envelope ({ok, status, data}),
 // which also owns the CSRF token this file used to read through a local
@@ -52,7 +52,7 @@
     var retroLinkWrap = document.getElementById('event-retro-link-wrap');
     var retroLinkAnchor = /** @type {HTMLAnchorElement} */ (document.getElementById('event-retro-link'));
 
-    var pageData = window.calendarChiefData || {};
+    var pageData = window.ScoutMagicApi.pageData('calendar-chief-data') || {};
     var defaultTitle = pageData.defaultTitle || '';
     var defaultStartTime = pageData.defaultStartTime || '';
     var defaultEndTime = pageData.defaultEndTime || '';

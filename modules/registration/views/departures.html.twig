@@ -71,37 +71,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-const departsCsrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-
-function departsSave(memberYearId, payload) {
-    fetch('/departs/' + memberYearId, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.assign({ _csrf_token: departsCsrf() }, payload))
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (!data.success) alert(data.error || 'Erreur lors de l\'enregistrement.');
-    })
-    .catch(() => alert('Erreur réseau.'));
-}
-
-document.querySelectorAll('.departure-checkbox').forEach(function (checkbox) {
-    checkbox.addEventListener('change', function () {
-        const memberYearId = checkbox.dataset.memberYearId;
-        const commentRow = document.querySelector('.departure-comment-row[data-member-year-id="' + memberYearId + '"]');
-        if (commentRow) {
-            commentRow.style.display = checkbox.checked ? '' : 'none';
-        }
-        departsSave(memberYearId, { leaving: checkbox.checked });
-    });
-});
-
-document.querySelectorAll('.departure-comment').forEach(function (field) {
-    field.addEventListener('blur', function () {
-        departsSave(field.dataset.memberYearId, { comment: field.value });
-    });
-});
-</script>
+<script src="/assets/js/registration-departures.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

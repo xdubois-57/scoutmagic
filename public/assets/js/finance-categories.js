@@ -341,37 +341,25 @@
     });
 
     // --- Drag-and-drop reordering ---
-    let draggedRow = null;
-
-    /** @type {NodeListOf<HTMLElement>} */ (rulesList.querySelectorAll('div[data-id]')).forEach(row => {
-        row.addEventListener('dragstart', () => {
-            draggedRow = row;
-            row.classList.add('opacity-50');
-        });
-        row.addEventListener('dragend', () => {
-            row.classList.remove('opacity-50');
-            draggedRow = null;
-        });
-        row.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            if (!draggedRow || draggedRow === row) {
-                return undefined;
-            }
-            const rect = row.getBoundingClientRect();
-            const before = (e.clientY - rect.top) < rect.height / 2;
-            row.parentNode.insertBefore(draggedRow, before ? row : row.nextSibling);
-        });
-        row.addEventListener('drop', async (e) => {
-            e.preventDefault();
-            const ids = orderedRuleIds();
-            const res = await api.postJson('/config/finance/rules', { action: 'reorder', ordered_ids: ids });
+    // The shared toolbox (public/assets/js/sortable.js). It saves on
+    // `dragend`, which this file used to do on the item's own `drop`:
+    // `drop` only fires when the pointer is released ON a sibling rule,
+    // so releasing it just outside the list left the rules visually
+    // reordered and the server none the wiser until the next reload.
+    window.ScoutMagicSortable.bind(rulesList, {
+        itemSelector: 'div[data-id]',
+        onReorder: async () => {
+            const res = await api.postJson('/config/finance/rules', {
+                action: 'reorder',
+                ordered_ids: orderedRuleIds(),
+            });
             if (!res.data || !res.data.success) {
                 toastError(res.data && res.data.error);
                 window.location.reload();
             }
             // On success the list is already visually reordered by the
-            // drag-and-drop handlers above — no reload needed.
-        });
+            // shared toolbox — no reload needed.
+        },
     });
 
     /** @returns {number[]} */

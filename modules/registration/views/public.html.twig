@@ -238,50 +238,18 @@
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-(function () {
-    // Same birth-year-only precision Service\SlotService::birthYearsByBranch()
-    // already commits to for the "nés en..." table above (Service\SlotMath's
-    // own docblock: a not-yet-registered child's exact birth day is unknown
-    // ahead of the parent filling in the form) — reusing that exact data
-    // client-side avoids a round trip and keeps this preview trivially in
-    // sync with the real branch capacities and waitlist tiers shown above it.
-    var birthYearSlots = {{ birth_year_slots|json_encode|raw }};
-    var waitlistEnabled = {{ waitlist_enabled ? 'true' : 'false' }};
-    var tierLabels = {
-        available: { text: 'Disponible', badge: 'bg-success' },
-        limited: { text: 'Limitée', badge: 'text-bg-warning' },
-        heavy: { text: 'Complet', badge: 'bg-danger' }
-    };
-
-    var birthDateInput = document.getElementById('birth_date');
-    var hint = document.getElementById('birth-date-branch-hint');
-    if (!birthDateInput || !hint) {
-        return;
-    }
-
-    function updateHint() {
-        var year = parseInt((birthDateInput.value || '').slice(0, 4), 10);
-        if (!year) {
-            hint.textContent = '';
-            return;
-        }
-        var match = birthYearSlots.find(function (slot) {
-            return slot.birth_year === year;
-        });
-        if (!match) {
-            hint.textContent = 'Hors des tranches d\'âge de l\'unité pour l\'année ' + {{ target_year_label|json_encode|raw }} + '.';
-            return;
-        }
-        var text = 'Branche prévue : ' + match.branch_label + ' — ' + match.year_in_branch + 'ᵉ année.';
-        if (waitlistEnabled && match.tier && tierLabels[match.tier]) {
-            text += ' ' + tierLabels[match.tier].text + '.';
-        }
-        hint.textContent = text;
-    }
-
-    birthDateInput.addEventListener('change', updateHint);
-    updateHint();
-})();
+{# A JSON island, not an inline assignment: the parser reads it as data,
+   so a branch label containing a « < » cannot end the block early, and
+   the template needs no nonce for it (base.html.twig's
+   `offline-config-data` is the same shape). The rows are the very ones
+   Service\SlotService::birthYearsByBranch() gave the « nés en… » table
+   above, so the preview cannot drift from it. #}
+<script type="application/json" id="registration-slots-data">
+{{ {
+    birthYearSlots: birth_year_slots,
+    waitlistEnabled: waitlist_enabled,
+    targetYearLabel: target_year_label
+}|json_encode(constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE'))|raw }}
 </script>
+<script src="/assets/js/registration-public-form.js" defer></script>
 {% endblock %}

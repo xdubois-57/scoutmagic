@@ -1,0 +1,67 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The one way this site says « déposez un fichier ici » (design.md §7.10).
+
+  Three screens had drawn this by hand — the generic uploader, the
+  gallery's album form and « Nouveau reçu » — with three paddings, two
+  icons, three wordings of the same sentence, and three copies of the
+  four drag listeners in JavaScript. The behaviour is now
+  `public/assets/js/drop-zone.js` (`ScoutMagicDropZone.bind()`); this is
+  its markup.
+
+  An embed, not an include, so a caller can put its own controls inside:
+
+  {% embed 'partials/drop_zone.html.twig' with {
+      id: 'drop-zone',                     -- required; what the JS binds
+      input_id: 'receipt-files',           -- the file input's id
+      input_name: 'receipts[]',            -- omit for a JS-only picker
+      accept: '.pdf,.jpg,.jpeg,.png',      -- optional
+      multiple: true,                      -- optional, default false
+      message: 'Glissez-déposez vos reçus ici, ou cliquez pour parcourir',
+      icon: 'bi-cloud-arrow-up',           -- optional, this is the default
+      size: 'lg',                          -- 'md' (default) or 'lg'
+      input_label: 'Sélectionner des reçus',  -- aria-label on the input
+      class_extra: 'mb-3',                 -- optional extra classes
+      data: { 'upload-url': '/gallery/4/media' },  -- optional data-* on the zone
+  } only %}
+      {% block extra %}…{% endblock %}     -- optional, under the message
+  {% endembed %}
+
+  The input is INSIDE the zone and visually hidden: that keeps the label
+  association local, and drop-zone.js opens it on a click anywhere in the
+  zone. A caller whose zone carries its own <label class="btn"> controls
+  passes `pick_on_click: false` to ScoutMagicDropZone.bind() instead, so
+  the picker does not open twice — and overrides {% block actions %} to
+  render them.
+
+  `text-body-secondary` and the dashed border are the whole visual
+  identity; drop-zone.js adds `border-primary` while a file hovers.
+#}
+<div id="{{ id }}"
+     class="drop-zone border border-2 border-dashed rounded-3 text-center text-body-secondary
+            {{ size|default('md') == 'lg' ? 'p-5' : 'p-4' }} {{ class_extra|default('') }}"
+     {# The pointer only where a click actually opens something: a zone
+        whose controls are its own <label>s is not itself clickable. #}
+     {% if input_id is defined and input_id %}style="cursor:pointer;"{% endif %}
+     {% for key, value in data|default({}) %}data-{{ key }}="{{ value }}"{% endfor %}>
+    <i class="bi {{ icon|default('bi-cloud-arrow-up') }} {{ size|default('md') == 'lg' ? 'display-4' : 'fs-2' }} d-block mb-2"
+       aria-hidden="true"></i>
+    {% block message %}<span>{{ message|default('') }}</span>{% endblock %}
+    {% block actions %}{% endblock %}
+    {# No input_id: the caller renders its own controls in {% block actions %}
+       (the generic uploader offers a picker AND a camera capture, two
+       inputs, each wrapped in its own <label class="btn">). #}
+    {% if input_id is defined and input_id %}
+        <input type="file"
+               class="visually-hidden"
+               id="{{ input_id }}"
+               {% if input_name is defined and input_name %}name="{{ input_name }}"{% endif %}
+               {% if accept is defined and accept %}accept="{{ accept }}"{% endif %}
+               {% if multiple|default(false) %}multiple{% endif %}
+               {% if input_label is defined and input_label %}aria-label="{{ input_label }}"{% endif %}>
+    {% endif %}
+    {% block extra %}{% endblock %}
+</div>

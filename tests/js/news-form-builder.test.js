@@ -284,3 +284,37 @@ describe('news-form-builder.js: visibility and AI-button predicates', () => {
         expect(nfb.hasTitleOrContent()).toBe(true);
     });
 });
+
+// A source-level lock rather than a behavioural one: `addFieldEditRow()`
+// writes its argument straight into `innerHTML`, and the editor's data now
+// reaches this file as parsed JSON from a `<script type="application/json">`
+// island — DOM text, the source CodeQL follows into exactly that sink. The
+// two call sites that used to build their markup by concatenating a field's
+// id go through `addFieldCaptionRow()` instead, which builds the node and
+// sets `textContent`. This test keeps it that way: a caller that starts
+// concatenating again would reintroduce the alert, and no behavioural test
+// would notice as long as the id stayed an integer.
+describe('news-form-builder.js: addFieldEditRow() is only ever handed a literal', () => {
+    it('no call site concatenates a value into the markup it writes', async () => {
+        const { readFileSync } = await import('node:fs');
+        const { fileURLToPath } = await import('node:url');
+        const { dirname, resolve } = await import('node:path');
+        const here = dirname(fileURLToPath(import.meta.url));
+        const source = readFileSync(
+            resolve(here, '../../public/assets/js/news-form-builder.js'),
+            'utf8',
+        );
+
+        // Every call, its argument list flattened onto one line. The
+        // definition itself (`function addFieldEditRow(`) is excluded.
+        const calls = [...source.matchAll(/(?<!function\s)addFieldEditRow\(([\s\S]*?)\);/g)]
+            .map((m) => m[1].replace(/\s+/g, ' ').trim());
+
+        expect(calls.length).toBeGreaterThan(0);
+        calls.forEach((args) => {
+            // `panel, ''` or `panel, '<span …>text</span>'` — a single
+            // quoted literal after the panel, and no ` + ` splicing.
+            expect(args, `addFieldEditRow(${args})`).not.toMatch(/\s\+\s/);
+        });
+    });
+});

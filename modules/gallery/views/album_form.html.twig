@@ -155,15 +155,26 @@
         <div class="card mb-3">
             <div class="card-body">
                 <h2 class="h6 mb-3">Ajouter des photos / vidéos</h2>
-                <div id="gallery-upload-zone" class="border border-2 border-dashed rounded p-4 text-center text-body-secondary"
-                     data-upload-url="/gallery/{{ album.id }}/media" style="cursor:pointer;">
-                    <i class="bi bi-cloud-upload fs-2 d-block mb-2" aria-hidden="true"></i>
-                    Glissez-déposez des fichiers ici, ou cliquez pour parcourir
-                    {% if not video_upload_allowed %}
-                        <p class="small text-warning mb-0 mt-2"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> L'envoi de vidéos est actuellement indisponible.</p>
-                    {% endif %}
-                </div>
-                <input type="file" id="gallery-upload-input" class="d-none" multiple aria-label="Sélectionner des photos ou vidéos à téléverser" accept="image/jpeg,image/png,image/webp{{ video_upload_allowed ? ',video/mp4,video/quicktime,video/webm' : '' }}">
+                {% embed 'partials/drop_zone.html.twig' with {
+                    id: 'gallery-upload-zone',
+                    data: { 'upload-url': '/gallery/' ~ album.id ~ '/media' },
+                    icon: 'bi-cloud-upload',
+                    message: 'Glissez-déposez des fichiers ici, ou cliquez pour parcourir',
+                    input_id: 'gallery-upload-input',
+                    input_label: 'Sélectionner des photos ou vidéos à téléverser',
+                    multiple: true,
+                    accept: 'image/jpeg,image/png,image/webp' ~ (video_upload_allowed ? ',video/mp4,video/quicktime,video/webm' : ''),
+                    video_upload_allowed: video_upload_allowed,
+                } only %}
+                    {% block extra %}
+                        {% if not video_upload_allowed %}
+                            <p class="small text-warning mb-0 mt-2">
+                                <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                                L'envoi de vidéos est actuellement indisponible.
+                            </p>
+                        {% endif %}
+                    {% endblock %}
+                {% endembed %}
                 <div id="gallery-upload-progress" class="mt-3 d-none" role="status">
                     <div class="progress" style="height:0.5rem;">
                         <div id="gallery-upload-progress-bar" class="progress-bar" style="width:0%;"></div>
@@ -236,5 +247,7 @@
 
 {% block scripts %}
     <script src="/assets/js/chunked-upload.js" defer></script>
+    <script src="/assets/js/drop-zone.js" defer></script>
+    <script src="/assets/js/sortable.js" defer></script>
     <script src="/assets/js/gallery.js" defer></script>
 {% endblock %}

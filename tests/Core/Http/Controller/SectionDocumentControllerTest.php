@@ -16,11 +16,15 @@ use Core\Http\Request;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Import\MemberYearRepository;
+use Core\Member\MemberEmailRepository;
 use Core\Member\SectionDocumentRepository;
 use Core\Member\SectionDocumentService;
 use Core\Member\SectionMembershipRepository;
 use Core\Member\SectionService;
+use Core\Member\SectionStaffAuthorizationService;
 use Core\Pdf\PdfCompressor;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\CsrfGuard;
@@ -40,7 +44,9 @@ class SectionDocumentControllerTest extends TestCase
     private SectionDocumentRepository $documentRepository;
     private string $storagePath;
     private int $sectionId;
+    private int $otherSectionId;
     private int $scoutYearId;
+    private \Core\Security\EncryptionService $encryption;
 
     protected function setUp(): void
     {
@@ -72,7 +78,19 @@ class SectionDocumentControllerTest extends TestCase
             new PdfCompressor($this->storagePath . '/temp')
         );
 
-        $this->controller = new SectionDocumentController($this->createMock(\Twig\Environment::class), $service);
+        $this->encryption = $encryption;
+        $this->controller = new SectionDocumentController(
+            $this->createMock(\Twig\Environment::class),
+            $service,
+            new SectionStaffAuthorizationService(
+                $connection,
+                $encryption,
+                $sectionService,
+                new MemberEmailRepository($this->pdo, $encryption)
+            ),
+            new ScoutYearResolver(new \Core\Config\ScoutYearService($this->pdo), $settingService, new MemberYearRepository($this->pdo)),
+            new JournalService(new JournalRepository($this->pdo))
+        );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
@@ -80,11 +98,51 @@ class SectionDocumentControllerTest extends TestCase
         $branchId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO sections (desk_code, age_branch_id) VALUES ('SEC_A', {$branchId})");
         $this->sectionId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO sections (desk_code, age_branch_id) VALUES ('SEC_B', {$branchId})");
+        $this->otherSectionId = (int) $this->pdo->lastInsertId();
+
+        // Every functional test below acts as an animateur of SEC_A — the
+        // nominal case. The cloisonnement tests re-log as somebody else.
+        $this->loginAsAnimateurOf('animateur@test.example', [$this->sectionId]);
+    }
+
+    /**
+     * Links an account's address to a chief-role function on each of
+     * $sectionIds, then logs it in — the only way this controller can see
+     * an account as an animateur of a section (Core\Member\
+     * SectionStaffAuthorizationService).
+     *
+     * @param array<int, int> $sectionIds
+     */
+    private function loginAsAnimateurOf(string $email, array $sectionIds, string $accountRole = 'chief'): void
+    {
+        if ($sectionIds !== []) {
+            $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
+            $memberId = (int) $this->pdo->lastInsertId();
+
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_blind_index) VALUES (?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([$memberId, $this->scoutYearId, 'enc', 'enc', $this->encryption->blindIndex(strtolower($email), 'email')]);
+            $memberYearId = (int) $this->pdo->lastInsertId();
+
+            $this->pdo->exec("INSERT OR IGNORE INTO functions (desk_code, label, role) VALUES ('chief', 'Animateur', 'chief')");
+            $functionId = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'chief'")->fetchColumn();
+
+            foreach ($sectionIds as $sectionId) {
+                $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)');
+                $stmt->execute([$memberYearId, $functionId, $sectionId]);
+            }
+        }
+
+        $this->startTestSession();
+        \Core\Security\AuthSession::login(1, $email, $accountRole);
     }
 
     protected function tearDown(): void
     {
         $_SESSION = [];
+        $_FILES = [];
         if (is_dir($this->storagePath)) {
             $this->removeDirectory($this->storagePath);
         }
@@ -214,6 +272,160 @@ class SectionDocumentControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $docs = $this->documentRepository->findBySectionAndYear($this->sectionId, $this->scoutYearId);
         $this->assertSame($b, $docs[0]->id);
+    }
+
+    // --- Cloisonnement: role_min chief is the floor, the staffed section
+    // is the boundary (SECURITY.md §3, ARCHITECTURE.md §8.33) ---
+
+    public function testAddAcceptsASectionTheAccountAnimates(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->add($this->uploadRequest($this->sectionId, $token), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertCount(1, $this->documentRepository->findBySectionAndYear($this->sectionId, $this->scoutYearId));
+    }
+
+    public function testAddRefusesASectionTheAccountDoesNotAnimate(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->add($this->uploadRequest($this->otherSectionId, $token), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], $this->documentRepository->findBySectionAndYear($this->otherSectionId, $this->scoutYearId));
+    }
+
+    /**
+     * The UI never renders the control for another section — so the only
+     * way this request exists is forged, and the server refuses it on its
+     * own rather than because a template hid a button.
+     */
+    public function testUpdateRefusesADocumentOfAnotherSection(): void
+    {
+        $token = $this->csrfToken();
+        $id = $this->documentRepository->create($this->otherSectionId, $this->scoutYearId, $this->makeFile(), 'Intact', null, 100, null);
+
+        $response = $this->controller->update($this->jsonRequest(['title' => 'Détourné', '_csrf_token' => $token]), ['id' => (string) $id]);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('Intact', $this->documentRepository->findById($id)->title);
+    }
+
+    public function testDeleteRefusesADocumentOfAnotherSection(): void
+    {
+        $token = $this->csrfToken();
+        $id = $this->documentRepository->create($this->otherSectionId, $this->scoutYearId, $this->makeFile(), 'Intact', null, 100, null);
+
+        $response = $this->controller->delete($this->jsonRequest(['id' => $id, '_csrf_token' => $token]), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertNotNull($this->documentRepository->findById($id));
+    }
+
+    /**
+     * A reorder carries many ids at once. Authorizing it id-by-id would
+     * apply the caller's ordering to the documents that did pass and leave
+     * the list inconsistent — so one id out of scope refuses the batch.
+     */
+    public function testReorderRefusesTheWholeBatchWhenOneIdIsOutOfScope(): void
+    {
+        $token = $this->csrfToken();
+        $mine = $this->documentRepository->create($this->sectionId, $this->scoutYearId, $this->makeFile(), 'A', null, 100, null);
+        $mineToo = $this->documentRepository->create($this->sectionId, $this->scoutYearId, $this->makeFile(), 'B', null, 100, null);
+        $theirs = $this->documentRepository->create($this->otherSectionId, $this->scoutYearId, $this->makeFile(), 'C', null, 100, null);
+
+        $response = $this->controller->reorder($this->jsonRequest(['ids' => [$mineToo, $mine, $theirs], '_csrf_token' => $token]), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        // Untouched: the two in-scope documents keep their original order.
+        $docs = $this->documentRepository->findBySectionAndYear($this->sectionId, $this->scoutYearId);
+        $this->assertSame($mine, $docs[0]->id);
+    }
+
+    public function testReorderRefusesAnUnknownDocumentId(): void
+    {
+        $token = $this->csrfToken();
+        $mine = $this->documentRepository->create($this->sectionId, $this->scoutYearId, $this->makeFile(), 'A', null, 100, null);
+
+        $response = $this->controller->reorder($this->jsonRequest(['ids' => [$mine, 999999], '_csrf_token' => $token]), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testReorderRefusesAnEmptyBatch(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->reorder($this->jsonRequest(['ids' => [], '_csrf_token' => $token]), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testAChiefOfSeveralSectionsWritesInAllOfThem(): void
+    {
+        $_SESSION = [];
+        $this->loginAsAnimateurOf('multi@test.example', [$this->sectionId, $this->otherSectionId]);
+        $token = $this->csrfToken();
+        $id = $this->documentRepository->create($this->otherSectionId, $this->scoutYearId, $this->makeFile(), 'Doc', null, 100, null);
+
+        $response = $this->controller->update($this->jsonRequest(['title' => 'Renommé', '_csrf_token' => $token]), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('Renommé', $this->documentRepository->findById($id)->title);
+    }
+
+    public function testAdminWritesInASectionTheyDoNotAnimate(): void
+    {
+        $_SESSION = [];
+        $this->loginAsAnimateurOf('cu@test.example', [], 'admin');
+        $token = $this->csrfToken();
+        $id = $this->documentRepository->create($this->otherSectionId, $this->scoutYearId, $this->makeFile(), 'Doc', null, 100, null);
+
+        $response = $this->controller->update($this->jsonRequest(['title' => 'Renommé', '_csrf_token' => $token]), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testARefusalIsJournaledAtSecurityLevelWithIdentifiersOnly(): void
+    {
+        $token = $this->csrfToken();
+        $id = $this->documentRepository->create($this->otherSectionId, $this->scoutYearId, $this->makeFile(), 'Carnet secret', null, 100, null);
+
+        $this->controller->delete($this->jsonRequest(['id' => $id, '_csrf_token' => $token]), []);
+
+        $row = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'section_document_access_denied'")->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($row);
+        $this->assertSame('security', $row['level']);
+        $this->assertStringContainsString((string) $id, $row['context']);
+        $this->assertStringContainsString((string) $this->otherSectionId, $row['context']);
+        // Never the document's own title, nor anything else it carries.
+        $this->assertStringNotContainsString('Carnet secret', $row['context']);
+        $this->assertStringNotContainsString('Carnet secret', (string) $row['description']);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function uploadRequest(int $sectionId, string $token): Request
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'sdc');
+        file_put_contents($tmp, '%PDF-1.4 test document');
+        $_FILES['file'] = [
+            'name' => 'camp.pdf',
+            'type' => 'application/pdf',
+            'tmp_name' => $tmp,
+            'error' => UPLOAD_ERR_OK,
+            'size' => filesize($tmp),
+        ];
+
+        return new Request('POST', '/chefs/staffs/documents', [], [
+            'section_id' => (string) $sectionId,
+            'scout_year_id' => (string) $this->scoutYearId,
+            'title' => 'Carnet',
+            '_csrf_token' => $token,
+        ], [], []);
     }
 
     private function makeFile(): int

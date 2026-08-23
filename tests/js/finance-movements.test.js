@@ -121,6 +121,7 @@ async function boot() {
     // the answer, not how confirm.js draws its modal (tests/js/confirm.test.js).
     await import('../../public/assets/js/api.js');
     await import('../../public/assets/js/toast.js');
+    await import('../../public/assets/js/pdf-thumbnail.js');
     await import('../../public/assets/js/finance-movements.js');
 }
 
@@ -162,6 +163,7 @@ describe('finance-movements.js: boot guard', () => {
         vi.resetModules();
         await import('../../public/assets/js/api.js');
         await import('../../public/assets/js/toast.js');
+        await import('../../public/assets/js/pdf-thumbnail.js');
         await expect(import('../../public/assets/js/finance-movements.js')).resolves.toBeDefined();
 
         expect(() => document.querySelector('.movement-row').click()).not.toThrow();
