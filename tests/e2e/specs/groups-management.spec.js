@@ -51,6 +51,7 @@
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
+import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 // Shared with specs/groups-discussion.spec.js — see support/groups.js.
 import { openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
@@ -109,11 +110,13 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
         }
     });
 
-    // Several of the moderator's controls guard themselves with a
-    // window.confirm() (removing somebody, closing the group), which
-    // Playwright dismisses by default — that would silently cancel the
-    // submit and leave the assertion below looking inexplicable.
-    page.on('dialog', (dialog) => dialog.accept());
+    // Several of the moderator's controls ask before acting (removing
+    // somebody, closing the group) — through the site's own modal now
+    // (base.html.twig's data-confirm handler → window.ScoutMagicConfirm),
+    // which Playwright never sees as a dialog. Unanswered, the submit
+    // never happens and the assertion below reads inexplicable. Installed
+    // before the first navigation: the observer is an init script.
+    await autoConfirm(page);
 
     await loginAsAdmin(page);
     // The banner is fixed to the bottom of the viewport and would sit over

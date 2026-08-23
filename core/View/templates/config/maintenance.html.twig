@@ -272,7 +272,6 @@
                     <option value="biweekly" {{ backup_auto_frequency == 'biweekly' ? 'selected' : '' }}>Toutes les 2 semaines</option>
                     <option value="monthly" {{ backup_auto_frequency == 'monthly' ? 'selected' : '' }}>Mensuelle</option>
                 </select>
-                <span class="small text-success d-none" id="auto-backup-frequency-saved" role="status">Enregistré</span>
             </div>
             <p class="small text-body-secondary mb-3">
                 {% if backup_auto_last_run %}

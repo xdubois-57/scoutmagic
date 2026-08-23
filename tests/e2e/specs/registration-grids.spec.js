@@ -30,6 +30,7 @@
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
+import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 
 const MEMBER_NAME = 'Kaa Serpent';
@@ -60,6 +61,13 @@ test('the departures and passage grids save on change, with no save button anywh
         alerts.push(dialog.message());
         await dialog.dismiss();
     });
+    // « Revenir en attente » carries a data-confirm, answered by the
+    // site's own modal now (base.html.twig → window.ScoutMagicConfirm),
+    // which Playwright never sees as a dialog. native: false because the
+    // grids themselves still report a failed save through window.alert()
+    // — the handler above captures those, and two handlers answering one
+    // native dialog is an error, not a redundancy.
+    await autoConfirm(page, { native: false });
 
     await loginAsAdmin(page);
     await answerCookieBanner(page);

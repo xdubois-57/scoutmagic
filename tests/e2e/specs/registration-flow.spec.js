@@ -122,7 +122,11 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         await waitOutHumanCheckDelay(familyPage, form);
         await form.getByRole('button', { name: 'Envoyer la demande' }).click();
 
-        await expect(familyPage.getByRole('heading', { name: 'Merci !' })).toBeVisible();
+        // partials/page_header.html.twig gives the page its own <h1> —
+        // « Demande envoyée » — and « Merci ! » leads the paragraph under
+        // it, where it used to be the heading itself.
+        await expect(familyPage.getByRole('heading', { level: 1, name: 'Demande envoyée' })).toBeVisible();
+        await expect(familyPage.getByText('Merci !')).toBeVisible();
         await expect(familyPage.getByText(`pour ${CHILD_FIRST_NAME} a bien été reçue`)).toBeVisible();
 
         // ---------------------------------------------------------------

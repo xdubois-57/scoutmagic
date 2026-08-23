@@ -40,6 +40,7 @@
 // unlimited mode; the like mode drives the shared path.
 import { expect, test } from '@playwright/test';
 
+import { answerConfirmation } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 
 const BOARD_TITLE = `Rétro camp E2E ${Date.now()}`;
@@ -221,8 +222,13 @@ test('two anonymous visitors write and vote on a live board, a chief moderates, 
         // spot, the new page carries every word and vote across.
         // ---------------------------------------------------------------
         await page.goto(editUrl, { waitUntil: 'domcontentloaded' });
-        page.once('dialog', (dialog) => dialog.accept());
+        // The form's data-confirm, answered through the site's own modal
+        // (base.html.twig → window.ScoutMagicConfirm). Answered explicitly
+        // rather than by autoConfirm(): it is the only confirmation in the
+        // scenario, and being warned before an old link dies for everybody
+        // is part of what this step is about.
         await page.getByRole('button', { name: 'Régénérer le lien' }).click();
+        await answerConfirmation(page);
         await page.waitForURL(/\/retro\/\d+\/edit$/, { waitUntil: 'domcontentloaded' });
 
         const newPublicUrl = (await page.locator('.text-break', { hasText: '/s/' }).innerText()).trim();

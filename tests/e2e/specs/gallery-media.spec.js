@@ -27,6 +27,7 @@
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
+import { autoConfirm, collectToasts } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 import { noisePngBuffer, pngBuffer } from '../support/png.js';
 
@@ -48,16 +49,13 @@ test('a chief uploads plain and chunked, reorders by drag, and a member browses 
             serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
         }
     });
-    /** @type {string[]} */
-    const alerts = [];
-    page.on('dialog', async (dialog) => {
-        if (dialog.type() === 'confirm') {
-            await dialog.accept();
-            return;
-        }
-        alerts.push(dialog.message());
-        await dialog.dismiss();
-    });
+    // « Supprimer ce média ? » is the site's own modal now
+    // (public/assets/js/gallery.js → window.ScoutMagicConfirm), and every
+    // failure this page can report is a toast — both invisible to
+    // page.on('dialog'). Installed before the first navigation: both ride
+    // in on an init script.
+    await autoConfirm(page);
+    const toasts = await collectToasts(page);
 
     await loginAsAdmin(page);
     await answerCookieBanner(page);
@@ -197,7 +195,7 @@ test('a chief uploads plain and chunked, reorders by drag, and a member browses 
     // "processing finished" notices that quote the album's name.
     await expect(page.locator('main').getByText(ALBUM_TITLE)).toHaveCount(0);
 
-    expect(alerts, 'the gallery reported an error through window.alert()').toEqual([]);
+    expect(await toasts(), 'the gallery reported an error through a toast').toEqual([]);
     expect(serverErrors, 'the application returned a server error').toEqual([]);
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
 });

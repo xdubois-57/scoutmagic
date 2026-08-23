@@ -39,6 +39,7 @@
 // because the member account is shared fixture for every later spec.
 import { expect, test } from '@playwright/test';
 
+import { answerConfirmation } from '../support/confirm-dialog.js';
 import { loginAsMember, logoutControl } from '../support/admin-login.js';
 import { pngBuffer } from '../support/png.js';
 
@@ -144,8 +145,11 @@ test('the account page updates the profile, replaces the photo through the clien
     // And taken away again — through the data-confirm dialog that
     // base.html.twig wires once for every form that declares one.
     // ---------------------------------------------------------------
-    page.once('dialog', (dialog) => dialog.accept());
+    // Answered explicitly rather than through autoConfirm(): this is the
+    // one confirmation of the scenario, and the point of the step is that
+    // the visitor is asked at all before their photo goes.
     await page.getByRole('button', { name: 'Retirer la photo' }).click();
+    await answerConfirmation(page);
     await page.waitForURL('**/account', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('.editable-image img.person-avatar')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Retirer la photo' })).toHaveCount(0);

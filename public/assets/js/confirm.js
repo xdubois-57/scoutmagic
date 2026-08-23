@@ -165,6 +165,15 @@
         open = null;
 
         document.removeEventListener('keydown', closing.onKeydown);
+        // Give up every id straight away — the root's and the title, body
+        // and field ids under it. Bootstrap removes the element only once
+        // its hide transition ends, so a dialog opened in the same breath as
+        // this one closes would briefly leave two of each in the document,
+        // and getElementById would answer with the dying one.
+        closing.root.removeAttribute('id');
+        closing.root.querySelectorAll('[id^="' + MODAL_ID + '"]').forEach(function (el) {
+            el.removeAttribute('id');
+        });
         if (closing.instance) {
             closing.root.addEventListener('hidden.bs.modal', function () { closing.root.remove(); });
             closing.instance.hide();

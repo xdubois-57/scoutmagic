@@ -54,7 +54,6 @@ describe('maintenance.js: auto-backup-frequency select', () => {
     function buildDom() {
         appendAll(
             el('<select id="auto-backup-frequency"><option value="daily">daily</option><option value="weekly">weekly</option></select>'),
-            el('<span id="auto-backup-frequency-saved" class="d-none"></span>'),
             el('<input type="hidden" name="_csrf_token" value="form-tok">'),
         );
     }

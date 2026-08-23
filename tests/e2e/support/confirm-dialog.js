@@ -24,24 +24,63 @@
  * observer is installed as an init script.
  *
  * @param {import('@playwright/test').Page} page
+ * @param {{ native?: boolean }} [options] native defaults to true and
+ *        installs the Playwright dialog handler for the templates still on
+ *        the allowlist. Pass false when the spec keeps a dialog handler of
+ *        its own — a page whose remaining native box is an alert() the spec
+ *        CAPTURES rather than accepts. Two handlers on one dialog is not a
+ *        matter of taste: whichever runs second answers an already-answered
+ *        dialog, and Playwright rejects that call.
  */
-export async function autoConfirm(page) {
+export async function autoConfirm(page, options = {}) {
     // Templates whose script has not been extracted yet.
-    page.on('dialog', (dialog) => dialog.accept());
+    if (options.native !== false) {
+        page.on('dialog', (dialog) => dialog.accept());
+    }
 
-    // The site's dialog: click its confirmation button the moment it is
-    // inserted. A MutationObserver rather than polling, so the click lands
-    // in the same task the dialog was built in and no spec has to wait.
+    // The site's dialog: click its confirmation button as soon as it is on
+    // screen. A MutationObserver rather than polling, so no spec has to
+    // wait for a dialog it never asked to see.
     await page.addInitScript(() => {
-        const clickConfirmation = () => {
-            const button = document.querySelector(
-                '#sm-confirm-modal .modal-footer .btn:last-child',
-            );
+        const answer = (modal) => {
+            // « Annuler » is first in the footer and the confirmation
+            // second — design.md §7.4's ordering, which the dialog builds
+            // deliberately.
+            const button = modal.querySelector('.modal-footer .btn:last-child');
             if (button instanceof HTMLElement) {
                 button.click();
             }
         };
-        const observer = new MutationObserver(clickConfirmation);
+
+        /** @param {HTMLElement} modal */
+        const answerWhenReady = (modal) => {
+            // NOT on insertion: Bootstrap's Modal.hide() returns without
+            // doing anything while the show transition is still running, so
+            // a click landing in that window leaves the dialog AND its
+            // backdrop on screen for the rest of the test, swallowing every
+            // later click. Answering on 'shown.bs.modal' is the first
+            // moment the dialog can actually be dismissed. Without the
+            // Bootstrap bundle confirm.js shows the same markup by hand,
+            // with no transition and no event — answer straight away.
+            const bootstrapBundle = /** @type {{ Modal?: unknown }|undefined} */ (
+                /** @type {?} */ (window).bootstrap
+            );
+            if (bootstrapBundle && bootstrapBundle.Modal) {
+                modal.addEventListener('shown.bs.modal', () => answer(modal), { once: true });
+            } else {
+                answer(modal);
+            }
+        };
+
+        const observer = new MutationObserver((records) => {
+            records.forEach((record) => {
+                record.addedNodes.forEach((node) => {
+                    if (node instanceof HTMLElement && node.id === 'sm-confirm-modal') {
+                        answerWhenReady(node);
+                    }
+                });
+            });
+        });
         const start = () => observer.observe(document.body, { childList: true });
         if (document.body) {
             start();
@@ -63,16 +102,30 @@ export async function autoConfirm(page) {
  *
  * Must be called BEFORE the navigation that renders the page.
  *
+ * The messages accumulate across navigations, which is what the `alerts`
+ * arrays this replaces did: they lived in the test's own process and a
+ * page load meant nothing to them, while an init script runs again on
+ * every load and would hand back only the last page's toasts. sessionStorage
+ * is the one store with exactly the lifetime wanted here — the tab's, so a
+ * toast survives the reload that follows the action that raised it, and
+ * nothing survives the test.
+ *
  * @param {import('@playwright/test').Page} page
  * @returns {() => Promise<string[]>} the messages shown so far, in order
  */
 export async function collectToasts(page) {
     await page.addInitScript(() => {
-        window.__smToasts = [];
+        const KEY = '__smToasts';
+        /** @param {string} message */
+        const remember = (message) => {
+            const seen = JSON.parse(sessionStorage.getItem(KEY) || '[]');
+            seen.push(message);
+            sessionStorage.setItem(KEY, JSON.stringify(seen));
+        };
         const record = () => {
             document.querySelectorAll('.toast-body:not([data-e2e-seen])').forEach((body) => {
                 body.setAttribute('data-e2e-seen', '1');
-                window.__smToasts.push(body.textContent.trim());
+                remember((body.textContent || '').trim());
             });
         };
         const observer = new MutationObserver(record);
@@ -84,7 +137,9 @@ export async function collectToasts(page) {
         }
     });
 
-    return async () => page.evaluate(() => window.__smToasts || []);
+    return async () => page.evaluate(
+        () => JSON.parse(sessionStorage.getItem('__smToasts') || '[]'),
+    );
 }
 
 /**

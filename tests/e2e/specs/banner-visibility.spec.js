@@ -25,6 +25,7 @@
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
+import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 
 const BANNER_TEXT = `Grand nettoyage du local samedi ${Date.now()}`;
@@ -50,6 +51,13 @@ test('a banner is created via the modal (or rolled back on dismiss), and its rol
         alerts.push(dialog.message());
         await dialog.dismiss();
     });
+    // « Supprimer » in the list editor now asks through the site's own
+    // modal (public/assets/js/list-editor.js → window.ScoutMagicConfirm),
+    // which Playwright never sees as a dialog. native: false because this
+    // page's own script still reports its failures through window.alert()
+    // — the handler above captures those, and two handlers answering one
+    // native dialog is an error, not a redundancy.
+    await autoConfirm(page, { native: false });
 
     await loginAsAdmin(page);
     await answerCookieBanner(page);

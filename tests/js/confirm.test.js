@@ -159,6 +159,24 @@ describe('ScoutMagicConfirm.ask()', () => {
         )).not.toThrow();
     });
 
+    it('hands the id to the new dialog the instant the old one is answered', async () => {
+        // Bootstrap removes an element only when its hide transition ends,
+        // so without this the document briefly holds two #sm-confirm-modal
+        // and every selector finds the dying one first — including
+        // Playwright's, which errors on an ambiguous locator.
+        const hide = vi.fn();
+        window.bootstrap = { Modal: vi.fn(function () { return { show: vi.fn(), hide }; }) };
+
+        const smConfirm = await loadConfirm();
+        smConfirm.ask('Première question ?');
+        smConfirm.ask('Deuxième question ?');
+
+        // The first is still in the document — Bootstrap has not finished
+        // hiding it — but it no longer answers to the id.
+        expect(document.querySelectorAll('#sm-confirm-modal').length).toBe(1);
+        expect(document.getElementById('sm-confirm-modal-body').textContent).toBe('Deuxième question ?');
+    });
+
     it('answers a still-open dialog with false rather than stacking a second', async () => {
         const smConfirm = await loadConfirm();
         const first = smConfirm.ask('Première question ?');
