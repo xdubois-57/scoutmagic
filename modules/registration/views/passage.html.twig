@@ -139,59 +139,13 @@
 
 {# Saving happens in place, without reloading the page — same JSON contract
    as departures.html.twig above (Controller\DeparturesController::update()).
-   Deliberately a nonce-carrying <script> rather than an inline onchange=
-   attribute: the site's CSP sets script-src without 'unsafe-inline', and a
-   nonce never covers an on* attribute, so an inline handler here is silently
-   blocked by the browser — which is exactly what made both selects on this
-   page unable to save anything at all. See core/Http/Response.php and the
-   same note in core/View/templates/members/show.html.twig. #}
+   The behaviour is in public/assets/js/registration-passage.js, never in an
+   inline onchange= attribute: the site's CSP sets script-src without
+   'unsafe-inline', and a nonce never covers an on* attribute, so an inline
+   handler here is silently blocked by the browser — which is exactly what
+   made both selects on this page unable to save anything at all. See
+   core/Http/Response.php and the same note in
+   core/View/templates/members/show.html.twig. #}
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-(function () {
-    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-
-    function feedback(cell, message, isError) {
-        const box = cell.querySelector('.passage-feedback');
-        if (!box) return;
-        box.textContent = message;
-        box.classList.toggle('text-danger', !!isError);
-        box.classList.toggle('text-success', !isError);
-    }
-
-    document.querySelectorAll('.passage-save').forEach(function (button) {
-        const cell = button.closest('td');
-        const select = cell.querySelector('.passage-select');
-
-        button.addEventListener('click', function () {
-            const payload = { _csrf_token: csrf() };
-            payload[select.dataset.field] = parseInt(select.value, 10);
-
-            button.disabled = true;
-            feedback(cell, 'Enregistrement…', false);
-
-            fetch(select.dataset.endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    feedback(cell, 'Enregistré.', false);
-                } else {
-                    feedback(cell, data.error || 'Erreur lors de l\'enregistrement.', true);
-                }
-            })
-            .catch(() => feedback(cell, 'Erreur réseau.', true))
-            .finally(() => { button.disabled = false; });
-        });
-
-        // A pick that hasn't been saved yet shouldn't still show the
-        // previous line's "Enregistré." confirmation.
-        select.addEventListener('change', function () {
-            feedback(cell, '', false);
-        });
-    });
-})();
-</script>
+<script src="/assets/js/registration-passage.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}
