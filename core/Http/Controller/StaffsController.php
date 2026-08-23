@@ -18,6 +18,7 @@ use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Member\SectionDocumentService;
 use Core\Member\SectionService;
+use Core\Member\SectionStaffAuthorizationService;
 use Core\Member\UnitStaffSectionService;
 use Core\Pdf\PdfCompressor;
 use Core\ScoutYear\ScoutYearResolver;
@@ -39,7 +40,8 @@ class StaffsController extends AbstractController
         private BadgeService $badgeService,
         private UnitStaffSectionService $unitStaffSectionService,
         private SectionDocumentService $sectionDocumentService,
-        private SettingService $settingService
+        private SettingService $settingService,
+        private SectionStaffAuthorizationService $sectionStaffAuthorizationService
     ) {
     }
 
@@ -82,19 +84,38 @@ class StaffsController extends AbstractController
         $requestedSectionId = $requestedId !== null && $requestedId !== '' ? (int) $requestedId : null;
         $selectedSectionId = SectionPickerHelper::resolveDefault($requestedSectionId, $linkedMembers, $sections);
 
+        // Two different questions, deliberately kept apart.
+        //
+        // $isChief is about the ROLE — "may this account act on this page
+        // at all". It still governs contact-info visibility and badge
+        // assignment exactly as it always did.
+        //
+        // $canEditSection is about the SECTION — "is this account an
+        // animateur of the section currently displayed" (§8.33). It is the
+        // one that gates this section's documents: an animateur of the
+        // Baladins has no business writing in the Éclaireurs' documents.
+        // Collapsing the two into one boolean, as this page did until now,
+        // is precisely what let them.
+        $isChief = $currentRole->hasAccess(Role::CHIEF);
+        $staffedSectionIds = array_map(
+            static fn(array $section): int => (int) $section['id'],
+            $this->sectionStaffAuthorizationService->getStaffedSections($email, $currentRole->value, $scoutYearId)
+        );
+
         // Get current section details and staff
         $currentSection = null;
         $staff = [];
-        $canEditSection = $currentRole->hasAccess(Role::CHIEF);
+        $canEditSection = false;
 
         if ($selectedSectionId !== null) {
             $currentSection = $this->sectionService->getSection($selectedSectionId);
 
             if ($currentSection !== null) {
+                $canEditSection = $isChief && in_array((int) $currentSection['id'], $staffedSectionIds, true);
                 $staff = $this->sectionService->getSectionStaff($selectedSectionId, $scoutYearId);
 
                 // For intendants viewing a section they are not linked to: strip contact info
-                if (!$canEditSection) {
+                if (!$isChief) {
                     $linkedSectionCodes = $this->getLinkedSectionCodes($linkedMembers);
                     if (!in_array($currentSection['desk_code'], $linkedSectionCodes, true)) {
                         $staff = $this->stripContactInfo($staff);
@@ -103,7 +124,7 @@ class StaffsController extends AbstractController
             }
         }
 
-        $availableBadges = $canEditSection ? $this->badgeService->getActive() : [];
+        $availableBadges = $isChief ? $this->badgeService->getActive() : [];
         // "Référent {section}" badges are only meaningful for Staff d'U
         // members — this page's staff list is always exactly the current
         // section's members, so simply hiding them from the picker on any
@@ -115,8 +136,8 @@ class StaffsController extends AbstractController
         }
 
         // Documents de section (module addendum) — built for any selected
-        // section regardless of role (intendants see it read-only via
-        // can_edit_section, same as the rest of this page); the
+        // section regardless of role (intendants, and animateurs of another
+        // section, see it read-only via can_edit_section); the
         // compression-backend re-detection only runs here, not on every
         // request site-wide, since it's a real subprocess spawn.
         $sectionDocumentYears = [];
@@ -129,7 +150,13 @@ class StaffsController extends AbstractController
             'sections' => $sections,
             'current_section' => $currentSection,
             'staff' => $staff,
+            'is_chief' => $isChief,
             'can_edit_section' => $canEditSection,
+            // An animateur the Desk import left without a single section
+            // can edit no documents anywhere, and nothing on screen would
+            // otherwise say why. Only shown to a chief+: an intendant's
+            // read-only view is the expected state, not a misconfiguration.
+            'chief_without_staffed_section' => $isChief && $staffedSectionIds === [],
             'section_document_years' => $sectionDocumentYears,
             'section_document_compression_backend' => $compressionBackend,
             'section_document_compression_backend_none' => $compressionBackend === PdfCompressor::BACKEND_NONE,

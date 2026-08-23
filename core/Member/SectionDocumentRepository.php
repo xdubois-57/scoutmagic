@@ -37,6 +37,34 @@ class SectionDocumentRepository
     }
 
     /**
+     * The section each of these documents belongs to, keyed by document
+     * id. Keyed rather than a flat list because the caller is an
+     * authorization check (Core\Http\Controller\SectionDocumentController)
+     * and it has to be able to see that an id is MISSING — a flat list of
+     * section ids cannot express "one of these documents doesn't exist".
+     *
+     * @param int[] $ids
+     * @return array<int, int> document id => section id
+     */
+    public function findSectionIdsByIds(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare("SELECT id, section_id FROM section_documents WHERE id IN ({$placeholders})");
+        $stmt->execute($ids);
+
+        $result = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $result[(int) $row['id']] = (int) $row['section_id'];
+        }
+
+        return $result;
+    }
+
+    /**
      * Every scout year id that has at least one document for this
      * section — Staffs page accordion (module addendum: "there will be
      * many years over time — do not render every year's contents

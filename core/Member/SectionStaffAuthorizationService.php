@@ -24,13 +24,29 @@ use Core\Security\Role;
  * the answer stays with the caller — this service only answers "which
  * sections", never "is this allowed" — which is what keeps it reusable
  * across different call sites (first consumer: the "Départs" page).
+ *
+ * Resolution matches MemberService::getLinkedMembers(): the account's
+ * Desk address AND every member it reaches as a currently-'valid'
+ * secondary address. The one thing it deliberately does not resolve is
+ * the temporary member override (ARCHITECTURE.md §8.42) — it exists for
+ * admins, who already get every section from the rule above.
  */
 class SectionStaffAuthorizationService
 {
+    /**
+     * $memberEmailRepo is optional, exactly as it is on MemberService and
+     * Core\Security\RoleResolver: given one, the account is resolved
+     * through its currently-'valid' secondary addresses as well as its
+     * Desk address. Omitting it can only ever return FEWER sections, so a
+     * call site that forgets it fails closed — but it also silently
+     * strips an animateur who signs in with a secondary address of every
+     * section they staff, which is why the composition root passes it.
+     */
     public function __construct(
         private Connection $connection,
         private EncryptionService $encryption,
-        private SectionService $sectionService
+        private SectionService $sectionService,
+        private ?MemberEmailRepository $memberEmailRepo = null
     ) {
     }
 
@@ -48,6 +64,17 @@ class SectionStaffAuthorizationService
         $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
         $pdo = $this->connection->getPdo();
 
+        // The same address reaches a member two ways, and this service is
+        // the boundary that decides what they may edit — so it resolves
+        // BOTH, exactly like MemberService::getLinkedMembers(): the Desk
+        // address on member_years, and every member reachable through a
+        // currently-'valid' secondary address (a 'pending'/'inactive' one
+        // grants nothing, same rule as Core\Security\RoleResolver).
+        // Matching only the Desk address made an animateur who signs in
+        // with their secondary address the animateur of no section at all.
+        $memberIds = $this->memberEmailRepo?->findMemberIdsByValidBlindIndex($blindIndex) ?? [];
+        $memberIdPlaceholders = $memberIds !== [] ? implode(',', array_fill(0, count($memberIds), '?')) : null;
+
         // Same trap as SectionService::getSectionStaff(): an animé's own
         // member_functions row carries the same section_id as their
         // section's staff — without the role filter, every animé would
@@ -57,11 +84,13 @@ class SectionStaffAuthorizationService
              FROM member_functions mf
              JOIN member_years my ON mf.member_year_id = my.id
              JOIN functions f ON mf.function_id = f.id
-             WHERE my.email_blind_index = ? AND my.scout_year_id = ? AND my.is_active = 1
+             WHERE (my.email_blind_index = ?'
+            . ($memberIdPlaceholders !== null ? " OR my.member_id IN ({$memberIdPlaceholders})" : '')
+            . ') AND my.scout_year_id = ? AND my.is_active = 1
                AND f.role IN (\'chief\', \'admin\')
                AND mf.section_id IS NOT NULL'
         );
-        $stmt->execute([$blindIndex, $scoutYearId]);
+        $stmt->execute([$blindIndex, ...$memberIds, $scoutYearId]);
         $sectionIds = array_map(static fn(array $row): int => (int) $row['section_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
 
         $sections = [];

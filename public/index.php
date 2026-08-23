@@ -1032,6 +1032,17 @@ $memberBadgeRepository = new MemberBadgeRepository($pdo);
 $sectionService = new SectionService($connection, $encryptionService, $memberBadgeRepository);
 $badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sectionService);
 
+// "Which sections is this account an animateur of" (ARCHITECTURE.md
+// §8.33) — a core service, built once here and shared by every consumer
+// (the Staffs page and its documents, the registration module's Départs
+// page). Never a second instance: each construction is another chance to
+// pass a different set of dependencies (one built without
+// $memberEmailRepository silently staffs fewer sections), and this
+// question must have exactly one answer site-wide.
+$sectionStaffAuthorizationService = new \Core\Member\SectionStaffAuthorizationService(
+    $connection, $encryptionService, $sectionService, $memberEmailRepository
+);
+
 // Member page (Espace membres) "Documents privés" storage — see
 // Core\Member\MemberDocumentService.
 $memberDocumentService = new \Core\Member\MemberDocumentService(new \Core\Member\MemberDocumentRepository($pdo));
@@ -1993,11 +2004,16 @@ $frontController->registerController(
     \Core\Http\Controller\MemberEmailAddressController::class,
     new \Core\Http\Controller\MemberEmailAddressController($twig, $memberEmailService, $memberService)
 );
-$frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService, $sectionDocumentService, $settingService));
+$frontController->registerController(StaffsController::class, new StaffsController(
+    $twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService,
+    $unitStaffSectionService, $sectionDocumentService, $settingService, $sectionStaffAuthorizationService
+));
 $frontController->registerController(\Core\Http\Controller\SectionRosterController::class, new \Core\Http\Controller\SectionRosterController(
     $twig, $sectionService, $sectionRosterService, $memberExportRowBuilder, $memberExportService, $scoutYearResolver, $journalService
 ));
-$frontController->registerController(\Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController($twig, $sectionDocumentService));
+$frontController->registerController(\Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController(
+    $twig, $sectionDocumentService, $sectionStaffAuthorizationService, $scoutYearResolver, $journalService
+));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
@@ -3295,17 +3311,16 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         )
     );
 
-    // Iteration 6 — Départs (Core\Member\SectionStaffAuthorizationService is
-    // core, first actually consumed by this page; DepartureService is also
-    // core but constructed once, up top, since Core\Http\Controller\
-    // MemberController's own departure endpoint needs it whether or not
-    // this module is even enabled) and Passage (own PassageService +
-    // SectionTransferRepository storage).
-    $registrationSectionStaffAuth = new \Core\Member\SectionStaffAuthorizationService($connection, $encryptionService, $sectionService);
+    // Iteration 6 — Départs (reusing the one core section-staff
+    // authorization service built up top, never a second instance;
+    // DepartureService is also core but constructed once, up top, since
+    // Core\Http\Controller\MemberController's own departure endpoint needs
+    // it whether or not this module is even enabled) and Passage (own
+    // PassageService + SectionTransferRepository storage).
     $frontController->registerController(
         \Modules\Registration\Controller\DeparturesController::class,
         new \Modules\Registration\Controller\DeparturesController(
-            $twig, $registrationSectionStaffAuth, $sectionService, $departureService, $scoutYearResolver
+            $twig, $sectionStaffAuthorizationService, $sectionService, $departureService, $scoutYearResolver
         )
     );
 
