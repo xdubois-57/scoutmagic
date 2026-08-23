@@ -885,6 +885,31 @@
         }
 
         /**
+         * One edit-panel row holding a CAPTION — a <span> that names a group
+         * of controls where a <label for> cannot reach (a button group, a
+         * contenteditable). Built node by node rather than through
+         * addFieldEditRow()'s innerHTML: the id is derived from the field
+         * and the text is a sentence, and neither has any business being
+         * parsed as markup.
+         *
+         * @param {HTMLElement} panel
+         * @param {string} captionId
+         * @param {string} text
+         * @returns {HTMLElement} the row, for a caller appending to it
+         */
+        function addFieldCaptionRow(panel, captionId, text) {
+            var div = document.createElement('div');
+            div.className = 'mb-2';
+            var caption = document.createElement('span');
+            caption.className = 'form-label small d-block';
+            caption.id = captionId;
+            caption.textContent = text;
+            div.appendChild(caption);
+            panel.appendChild(div);
+            return div;
+        }
+
+        /**
          * A DOM id for one control of one field's edit panel.
          *
          * Every control below needs one, because a <label> only names a
@@ -1058,10 +1083,7 @@
             // group carries role="group" + aria-labelledby instead, which is
             // how a set of controls gets one shared name.
             var sourceCaptionId = fieldControlId(field, 'options-source');
-            var sourceRow = addFieldEditRow(
-                panel,
-                '<span class="form-label small d-block" id="' + sourceCaptionId + '">Source des options</span>'
-            );
+            var sourceRow = addFieldCaptionRow(panel, sourceCaptionId, 'Source des options');
             var sourceGroup = document.createElement('div');
             sourceGroup.className = 'btn-group';
             sourceGroup.setAttribute('role', 'group');
@@ -1156,10 +1178,7 @@
                 // "Source des options" above: what it names is a
                 // contenteditable, which no <label for> can reach.
                 var contentCaptionId = fieldControlId(field, 'content');
-                addFieldEditRow(
-                    panel,
-                    '<span class="form-label small d-block" id="' + contentCaptionId + '">Contenu</span>'
-                );
+                addFieldCaptionRow(panel, contentCaptionId, 'Contenu');
                 buildRichTextEditor(panel, field, contentCaptionId);
             }
 

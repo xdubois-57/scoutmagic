@@ -523,3 +523,44 @@ describe('mass-mail-list.js: saving a draft', () => {
         });
     });
 });
+
+// The page's server data reaches this file as parsed JSON from a
+// `<script type="application/json">` island — DOM text, which is exactly
+// the source CodeQL follows into an innerHTML sink. The list markup is
+// built by string concatenation, so EVERY interpolated value has to be
+// escaped, ids and enums included: they are integers and server-side
+// enums today, and that is the kind of assumption that rots.
+describe('mass-mail-list.js: no value reaches the option markup unescaped', () => {
+    it('a quote in a list id or type cannot open an attribute of its own', async () => {
+        await bootAndOpen(listData({
+            defaultLists: [{
+                list_type: 'default_section" data-injected="1',
+                list_section_id: '2" data-injected="1',
+                label: 'Louveteaux',
+                description: 'Section',
+            }],
+            customLists: [{ id: '9" data-injected="1', name: 'Anciens', description: 'Liste maison' }],
+        }));
+
+        expect(document.querySelectorAll('#mm-list [data-injected]')).toHaveLength(0);
+        // …and the value survives intact as text, rather than being dropped.
+        const option = [...document.querySelectorAll('#mm-list option')]
+            .find((o) => o.textContent === 'Anciens');
+        expect(option.dataset.listId).toBe('9" data-injected="1');
+    });
+
+    it('a quote in a scout year label or id cannot break out either', async () => {
+        await bootAndOpen(listData({
+            scoutYears: {
+                previous: { id: '1" data-injected="1', label: '2024-2025', available: true },
+                current: { id: 2, label: '2025-2026', available: true },
+                next: { id: 3, label: '<img src=x onerror=alert(1)>', available: false },
+            },
+        }));
+
+        expect(document.querySelectorAll('#mm-scout-year-group [data-injected]')).toHaveLength(0);
+        expect(document.querySelector('#mm-scout-year-group img')).toBeNull();
+        expect(document.querySelector('label[for="mm-year-next"]').textContent)
+            .toBe('<img src=x onerror=alert(1)>');
+    });
+});
