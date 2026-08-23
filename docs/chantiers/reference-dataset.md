@@ -365,3 +365,67 @@ de 50 Mpx et le filtre `chief`/`admin` de `getSectionStaff()`.
    passera à `ImportService` est celui de `BankBlueprint` ; les points de
    contrôle en découlent, et les figer dans un test en ferait un test du calcul
    de solde plutôt que du jeu de données.
+
+
+---
+
+## IT-05bis — `PhotoIngestionService`, extrait d'`UploadController`
+
+L'itération de code de production décidée avant IT-01 (décisions 3 et 4).
+Elle ne fait partie du découpage d'origine du chantier que parce que la
+consigne « téléverser les photos par le vrai chemin » était inapplicable en
+ligne de commande.
+
+**Livré.**
+
+- **`Core\Photo\PhotoIngestionService`** — tout ce qui arrive aux octets :
+  liste blanche MIME, plafond de taille, court-circuit `unit_logo`, recadrage
+  selon le contexte, `UploadHandler`, génération du dérivé, et le rattachement
+  de la cible (contenu éditable, photo de membre, photo de compte, photo de
+  section, logo de branche).
+- **`Core\Photo\PhotoIngestionResult`** — l'identifiant de fichier (nul pour
+  `unit_logo`, qui ne devient jamais une ligne `files`), le fait qu'une cible
+  ait été rattachée, et le contexte de journal déjà extrait de la clé.
+- **`UploadController` passe de 466 à 242 lignes** et de onze collaborateurs à
+  deux. Il garde ce qui appartient vraiment à une requête : jeton CSRF,
+  frontière d'autorisation, entrée de journal, message flash, redirection.
+- **`public/index.php` recâblé**, service construit avant le contrôleur.
+- **`Tests\Core\Photo\PhotoIngestionServiceTest`** — 7 tests sur le chemin
+  sans requête : rattachement d'une photo de membre **sans compte auteur**,
+  recadrage 4:3 avant stockage, plancher de rôle par contexte, un dérivé et un
+  seul par contexte, clé malformée qui stocke sans rattacher, photo de compte
+  refusée à un auteur qui n'est pas le compte, logo d'unité qui ne devient
+  jamais une ligne `files`.
+- **Les 22 tests existants d'`UploadControllerTest` passent inchangés**, en
+  construisant le vrai service derrière le contrôleur plutôt qu'un double :
+  ce qu'ils vérifient reste le pipeline de production.
+
+**Ce qui a été préservé au caractère près.** Les deux recadrages écrivent dans
+un **nouveau** fichier temporaire et ne réécrivent pas celui du téléversement
+(PHP possède `$_FILES['tmp_name']` et le supprime en fin de requête), et un
+fichier illisible ou d'un MIME hors liste est **retourné tel quel** au lieu de
+lever : `UploadHandler::handle()` reste le seul endroit qui refuse un fichier,
+avec un seul message. Ma première rédaction s'écartait des deux, ce qui aurait
+donné à un même téléversement deux erreurs différentes selon son contexte.
+
+**La seule différence de comportement, assumée et documentée.** Le contrôleur
+n'attachait une photo de membre ou de section que si
+`AuthSession::getUserAccountId()` était non nul. Sur le web il l'est toujours
+(la route est `role_min: identified`), donc rien ne change pour un visiteur ;
+mais c'est ce qui rendait le pipeline inutilisable depuis une ligne de
+commande, alors que `MemberPhotoService::setPhoto()` et
+`SectionPhotoService::setPhoto()` acceptent tous deux un auteur nul depuis
+toujours. `account_photo` garde en revanche son refus explicite d'un auteur nul
+ou différent du compte : c'est de l'autorisation, pas de la plomberie.
+
+**Vérification du démarrage.** `npm run e2e` ne peut pas tourner dans ce
+conteneur : les binaires installés sont `chromium_headless_shell-1194` et
+`@playwright/test` 1.56 en réclame `-1234`. Les quarante tests échouent
+identiquement au lancement du navigateur, sans qu'aucun corps de test ne
+s'exécute — c'est l'environnement, pas le diff. Comme le risque propre à ce
+refactor est précisément celui que la barrière e2e couvre (une racine de
+composition qui ne se câble plus), il a été vérifié directement : une instance
+jetable a été provisionnée et servie par le vrai `public/index.php`, et `/`,
+`/login`, `/api/version` répondent 200 tandis que `/upload` répond 302 vers la
+connexion — le comportement attendu pour un visiteur anonyme sur une route
+`role_min: identified`. Aucun `TypeError`, aucun fatal dans le journal.

@@ -219,8 +219,15 @@ service core réutilisable, appelé par le contrôleur comme par le builder, plu
 que de le dupliquer. C'est une modification de code de production, contraire à la
 règle « le builder ne modifie pas le code de production » — elle est assumée pour
 qu'il n'existe qu'un seul chemin de téléversement, donc aucune dérive possible
-entre les deux appelants. Livrée par son itération propre, avec ses tests, avant
-l'itération des extras.
+entre les deux appelants.
+
+**Livrée (IT-05bis) :** `Core\Photo\PhotoIngestionService` porte désormais la
+liste blanche MIME, le plafond de taille, le recadrage par contexte,
+`UploadHandler`, la génération du dérivé et le rattachement de la cible.
+`UploadController` garde le jeton CSRF, l'autorisation, le journal, le message
+flash et la redirection — et passe de onze collaborateurs à deux. Le builder
+appelle `ingest()` avec un auteur nul, ce que tous les collaborateurs
+acceptaient déjà.
 
 ## 8. Construction sur une instance de test
 
