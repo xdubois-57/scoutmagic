@@ -97,7 +97,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 
 | Page | Role | Content |
 |---|---|---|
-| Staffs | intendant | SectionPicker + staff info per section (chief/chief-d'unité only — animés are not shown). Section's staff group photo, editable in configuration mode (one per scout year, falls back to the most recent earlier year). Badges assignable to staff (chief only, see Core\Badge). Section documents (chief only): add/reorder/delete/update PDF attachments per section and scout year (e.g. planning, camp info sheets), displayed both on the Staffs page and the member page. Section name/email are configured from Config Desk (§4.5), not here. |
+| Staffs | intendant | SectionPicker + staff info per section (chief/chief-d'unité only — animés are not shown). Section's staff group photo, editable in configuration mode (one per scout year, falls back to the most recent earlier year). Badges assignable to staff (chief only, see Core\Badge). Section documents (an animateur of that section only, see §15.2): add/reorder/delete/update PDF attachments per section and scout year (e.g. planning, camp info sheets), displayed both on the Staffs page and the member page. Section name/email are configured from Config Desk (§4.5), not here. |
 | Finances (module) | intendant | Bank statement import, receivables, receipts, movements |
 | Statistiques (module) | chief | Member statistics |
 | Calendrier (module) | chief | Chiefs' calendar view (month grid, event edit) |
@@ -305,7 +305,8 @@ Chiefs can attach PDF documents to sections (per scout year), displayed on both 
 - Activity schedules
 - Parent information
 
-### 15.2 Management (Staffs page, chief only)
+### 15.2 Management (Staffs page, animateurs of that section only)
+- **Who**: an animateur manages the documents of the sections they staff, and only those — the four write operations below are all re-checked server-side against the account's own sections (a chef d'unité manages every section). Reading is unrestricted: every animateur sees every section's documents, whether or not they can edit them.
 - **Add**: upload PDF, enter title, select section and scout year
 - **Reorder**: drag-and-drop or move up/down to change display order
 - **Update**: change title or replace PDF file

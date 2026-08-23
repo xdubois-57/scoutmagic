@@ -132,7 +132,13 @@ class StaffsControllerTest extends TestCase
             $this->badgeService,
             new UnitStaffSectionService($this->pdo),
             $this->sectionDocumentService,
-            $settingService
+            $settingService,
+            new \Core\Member\SectionStaffAuthorizationService(
+                $connection,
+                $this->encryption,
+                $this->sectionService,
+                new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption)
+            )
         );
 
         // Set up session as chief
@@ -468,6 +474,117 @@ class StaffsControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
+    }
+
+    // --- Section documents: the write affordance follows the SECTION, the
+    // badge picker still follows the ROLE (IT-01) ---
+
+    public function testTheAddDocumentButtonAppearsOnASectionTheChiefAnimates(): void
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId, 'Section Bal');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief', 'chief@test.be');
+
+        $request = new Request('GET', '/chefs/staffs', ['section' => (string) $sectionId], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringContainsString('Ajouter un document', $body);
+    }
+
+    public function testTheAddDocumentButtonIsAbsentOnASectionTheChiefDoesNotAnimate(): void
+    {
+        $balId = $this->createBranch('BAL', 'Baladins', 1);
+        $louId = $this->createBranch('LOU', 'Louveteaux', 2);
+        $own = $this->createSection('BAL01', $balId, 'Section Bal');
+        $other = $this->createSection('LOU01', $louId, 'Section Lou');
+        $this->createMemberInSection($own, 'Alice', 'chief', 'chief@test.be');
+
+        $request = new Request('GET', '/chefs/staffs', ['section' => (string) $other], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringNotContainsString('Ajouter un document', $body);
+    }
+
+    public function testAnotherSectionsDocumentsRenderReadOnly(): void
+    {
+        $balId = $this->createBranch('BAL', 'Baladins', 1);
+        $louId = $this->createBranch('LOU', 'Louveteaux', 2);
+        $own = $this->createSection('BAL01', $balId, 'Section Bal');
+        $other = $this->createSection('LOU01', $louId, 'Section Lou');
+        $this->createMemberInSection($own, 'Alice', 'chief', 'chief@test.be');
+        $this->sectionDocumentService->upload(
+            $other, $this->scoutYearId, str_repeat('%PDF-1.4 x', 50), 'application/pdf',
+            'camp.pdf', 'Carnet des Louveteaux', null, null
+        );
+
+        $request = new Request('GET', '/chefs/staffs', ['section' => (string) $other], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        // Still readable — narrowing the WRITE must never hide the section.
+        $this->assertStringContainsString('Carnet des Louveteaux', $body);
+        // But no editable control and no reorder/delete endpoint.
+        $this->assertStringNotContainsString('section-document-title-input', $body);
+        $this->assertStringNotContainsString('/chefs/staffs/documents/reorder', $body);
+        $this->assertStringNotContainsString('/chefs/staffs/documents/delete', $body);
+    }
+
+    public function testAdminAnimatesEverySectionAndKeepsTheAddButtonEverywhere(): void
+    {
+        AuthSession::login(3, 'cu@test.be', 'admin');
+
+        $louId = $this->createBranch('LOU', 'Louveteaux', 2);
+        $sectionId = $this->createSection('LOU01', $louId, 'Section Lou');
+
+        $request = new Request('GET', '/chefs/staffs', ['section' => (string) $sectionId], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringContainsString('Ajouter un document', $body);
+    }
+
+    public function testAChiefWithoutAnyStaffedSectionIsToldWhy(): void
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId, 'Section Bal');
+        // Deliberately NOT linked to chief@test.be — the Desk import case
+        // where the account carries no section-bound animateur function.
+        $this->createMemberInSection($sectionId, 'Alice', 'chief', 'someone.else@test.be');
+
+        $request = new Request('GET', '/chefs/staffs', ['section' => (string) $sectionId], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringNotContainsString('Ajouter un document', $body);
+        $this->assertStringContainsString('aucune fonction d\'animateur ne vous est rattachée', $body);
+    }
+
+    public function testTheExplanationIsNotShownToAChiefWhoDoesAnimateASection(): void
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId, 'Section Bal');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief', 'chief@test.be');
+
+        $request = new Request('GET', '/chefs/staffs', ['section' => (string) $sectionId], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringNotContainsString('aucune fonction d\'animateur ne vous est rattachée', $body);
+    }
+
+    public function testTheBadgePickerStillFollowsTheRoleNotTheSection(): void
+    {
+        // IT-01 narrows the DOCUMENTS, deliberately not the badges: a chief
+        // keeps assigning badges in any section, exactly as before.
+        $balId = $this->createBranch('BAL', 'Baladins', 1);
+        $louId = $this->createBranch('LOU', 'Louveteaux', 2);
+        $own = $this->createSection('BAL01', $balId, 'Section Bal');
+        $other = $this->createSection('LOU01', $louId, 'Section Lou');
+        $this->createMemberInSection($own, 'Alice', 'chief', 'chief@test.be');
+        $memberYearId = $this->createMemberInSection($other, 'Bob', 'chief', 'bob@test.be');
+        $this->badgeService->create('Communication');
+
+        $request = new Request('GET', '/chefs/staffs', ['section' => (string) $other], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringContainsString('id="badge-picker-' . $memberYearId . '"', $body);
+        $this->assertStringContainsString('Communication', $body);
     }
 
     /**
