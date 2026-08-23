@@ -28,10 +28,17 @@
         <div id="state-email">
             <div class="card">
                 <div class="card-body">
-                    <div class="mb-3">
-                        <label for="email" class="form-label">Adresse email</label>
-                        <input type="email" class="form-control" id="email" name="email" placeholder="nom@exemple.be" required autocomplete="email">
-                    </div>
+                    {# describedby_extra wires the JS-filled #email-error below
+                       into this control's aria-describedby: the error auth.js
+                       writes there is now announced, not just displayed. The
+                       div stays outside the field wrapper — auth.js and
+                       tests/js/auth.test.js both address it by that id. #}
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'email', field_name: 'email', type: 'email',
+                        label: 'Adresse email', required: true,
+                        placeholder: 'nom@exemple.be', autocomplete: 'email',
+                        describedby_extra: 'email-error',
+                    } only %}
                     <div id="email-error" class="text-danger small mb-2 d-none" role="alert"></div>
 
                     {# Mandatory RGPD consent — module addendum. #}
@@ -103,10 +110,22 @@
     <div id="tab-password" class="{{ default_login_method != 'password' ? 'd-none' : '' }}" role="tabpanel" aria-labelledby="password-tab">
         <div class="card">
             <div class="card-body">
-                <div class="mb-3">
-                    <label class="form-label" for="password-email">Adresse email</label>
-                    <input type="email" name="email" class="form-control" id="password-email" placeholder="nom@exemple.be" required autocomplete="email">
-                </div>
+                {# Same field as the magic-link tab's, so it renders through the
+                   same partial and carries the same required marker — the two
+                   tabs looked different for no reason while only one of them
+                   was migrated. The e2e specs that address this control use
+                   getByLabel(/^Adresse email \*$/), which still tells it apart
+                   from « Adresse email du compte » in the forgot-password
+                   sub-form below. #}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'password-email',
+                    field_name: 'email',
+                    label: 'Adresse email',
+                    type: 'email',
+                    required: true,
+                    placeholder: 'nom@exemple.be',
+                    autocomplete: 'email',
+                } only %}
                 <div class="mb-2">
                     <label class="form-label" for="password-input">Mot de passe</label>
                     <input type="password" name="password" class="form-control" id="password-input" required autocomplete="current-password">

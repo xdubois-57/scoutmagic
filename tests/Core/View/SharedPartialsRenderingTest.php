@@ -240,6 +240,94 @@ final class SharedPartialsRenderingTest extends TestCase
         $this->assertStringContainsString('Ligne &lt;un&gt;', $textarea);
     }
 
+    /**
+     * The compact variant exists because 34 templates could not use this
+     * partial at all: their labels carried `small`/`fw-semibold`/`mb-1` and
+     * their controls `-sm`. Two sizes, and only two — a third would put the
+     * partial back where the fourteen hand-written variants left it.
+     */
+    public function testFormFieldCompactVariantShrinksLabelAndControlTogether(): void
+    {
+        $input = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'qty', field_name: 'qty', label: 'Quantité', type: 'number', size: 'sm',
+            } only %}"
+        );
+        $this->assertStringContainsString('class="form-label small"', $input);
+        $this->assertStringContainsString('class="form-control form-control-sm"', $input);
+
+        $select = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'kind', field_name: 'kind', label: 'Type', type: 'select', size: 'sm',
+                options: [ { value: 'a', label: 'A' } ],
+            } only %}"
+        );
+        $this->assertStringContainsString('class="form-select form-select-sm"', $select);
+
+        $standard = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'qty', field_name: 'qty', label: 'Quantité',
+            } only %}"
+        );
+        $this->assertStringContainsString('class="form-label"', $standard);
+        $this->assertStringNotContainsString('form-control-sm', $standard);
+    }
+
+    public function testFormFieldCarriesTheRemainingControlAttributes(): void
+    {
+        $html = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'code', field_name: 'code', label: 'Code',
+                pattern: '[0-9]{4}', list: 'code-suggestions', autofocus: true, readonly: true,
+            } only %}"
+        );
+
+        $this->assertStringContainsString('pattern="[0-9]{4}"', $html);
+        $this->assertStringContainsString('list="code-suggestions"', $html);
+        $this->assertStringContainsString(' autofocus', $html);
+        $this->assertStringContainsString(' readonly', $html);
+
+        $disabledOption = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'kind', field_name: 'kind', label: 'Type', type: 'select', disabled: true,
+                options: [ { value: '', label: 'Choisissez…', selected: true, disabled: true } ],
+            } only %}"
+        );
+        $this->assertStringContainsString('<select class="form-select" id="kind" name="kind" disabled', $disabledOption);
+        $this->assertStringContainsString('<option value="" selected disabled>Choisissez…</option>', $disabledOption);
+    }
+
+    /**
+     * A field whose error or hint node is rendered outside this partial
+     * (auth/login.html.twig's `#email-error`, filled by auth.js) still has
+     * to be announced. Both ids end up in one aria-describedby.
+     */
+    public function testFormFieldDescribedByCombinesHelpAndAnExternalNode(): void
+    {
+        $both = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'email', field_name: 'email', label: 'Adresse email', type: 'email',
+                help: 'Nous ne la partageons jamais.', describedby_extra: 'email-error',
+            } only %}"
+        );
+        $this->assertStringContainsString('aria-describedby="email-help email-error"', $both);
+
+        $externalOnly = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'email', field_name: 'email', label: 'Adresse email', type: 'email',
+                describedby_extra: 'email-error',
+            } only %}"
+        );
+        $this->assertStringContainsString('aria-describedby="email-error"', $externalOnly);
+
+        $neither = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'email', field_name: 'email', label: 'Adresse email', type: 'email',
+            } only %}"
+        );
+        $this->assertStringNotContainsString('aria-describedby', $neither);
+    }
+
     public function testPagePickerFeedsChipPickerAndMatchesPrefixes(): void
     {
         $html = $this->render(

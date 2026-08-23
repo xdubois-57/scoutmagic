@@ -116,22 +116,21 @@
                         } %}
 
                         {% if template.type.value == 'invoice' %}
-                            <div class="mb-3">
-                                <label class="form-label" for="vat-note">
-                                    Phrase à imprimer à la place d'une ligne de TVA
-                                </label>
-                                <input type="text" class="form-control" id="vat-note" name="vat_exemption_note"
-                                       maxlength="255" value="{{ vat_note }}"
-                                       placeholder="Non assujetti à la TVA — article 44 du Code de la TVA">
-                                <div class="form-text">
-                                    ScoutMagic ne calcule <strong>jamais</strong> de TVA : le prix affiché est
-                                    celui que le locataire paie, point. Une unité scoute n'est en principe pas
-                                    assujettie, mais une facture belge sans TVA doit dire pourquoi — c'est cette
-                                    phrase-là, reprise telle quelle en bas de la facture. Laissez vide si votre
-                                    unité n'émet pas de facture ou n'a pas besoin de cette mention. Elle est
-                                    aussi disponible comme champ <code>{{ '{{ mention_tva }}' }}</code>.
-                                </div>
-                            </div>
+                            {# The help text is plain prose here: the shared partial
+                               escapes it, so the emphasis and the <code> span are
+                               carried by the wording instead of by markup. #}
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'vat-note', field_name: 'vat_exemption_note',
+                                label: 'Phrase à imprimer à la place d\'une ligne de TVA',
+                                maxlength: 255, value: vat_note,
+                                placeholder: 'Non assujetti à la TVA — article 44 du Code de la TVA',
+                                help: 'ScoutMagic ne calcule jamais de TVA : le prix affiché est
+                                       celui que le locataire paie, point. Une unité scoute n\'est en principe pas
+                                       assujettie, mais une facture belge sans TVA doit dire pourquoi — c\'est cette
+                                       phrase-là, reprise telle quelle en bas de la facture. Laissez vide si votre
+                                       unité n\'émet pas de facture ou n\'a pas besoin de cette mention. Elle est
+                                       aussi disponible comme champ {{ mention_tva }}.',
+                            } only %}
                         {% endif %}
 
                         <button type="submit" class="btn btn-primary">Enregistrer le gabarit</button>

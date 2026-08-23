@@ -12,18 +12,31 @@
                 {{ csrf_field()|raw }}
 
                 <div>
-                    <label class="form-label small fw-semibold" for="retro-title">Titre</label>
-                    <input type="text" class="form-control" id="retro-title" name="title" required maxlength="150"
-                           value="{{ board ? board.title : '' }}" {{ (board and board.calendarEventId) ? 'disabled' : '' }}>
-                    <div class="form-text">Si un événement est lié, le titre est généré automatiquement à partir de son nom et ne peut plus être modifié ici.</div>
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'retro-title',
+                        field_name: 'title',
+                        label: 'Titre',
+                        value: board ? board.title : '',
+                        maxlength: 150,
+                        required: true,
+                        disabled: board and board.calendarEventId,
+                        help: "Si un événement est lié, le titre est généré automatiquement à partir de son nom et ne peut plus être modifié ici.",
+                        size: 'sm',
+                    } only %}
                 </div>
 
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
-                        <label class="form-label small fw-semibold" for="retro-date">Date</label>
-                        <input type="date" class="form-control" id="retro-date" name="board_date"
-                               value="{{ board ? board.boardDate : '' }}" {{ (board and board.calendarEventId) ? 'disabled' : '' }}>
-                        <div class="form-text">Si un événement est lié, la date se cale automatiquement sur sa date de fin et ne peut plus être modifiée ici.</div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'retro-date',
+                            field_name: 'board_date',
+                            label: 'Date',
+                            type: 'date',
+                            value: board ? board.boardDate : '',
+                            disabled: board and board.calendarEventId,
+                            help: "Si un événement est lié, la date se cale automatiquement sur sa date de fin et ne peut plus être modifiée ici.",
+                            size: 'sm',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-6">
                         <label class="form-label small fw-semibold" for="retro-event">Événement lié</label>

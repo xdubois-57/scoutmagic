@@ -69,23 +69,42 @@
                         <input type="text" class="form-control" id="album-title" name="title" value="{{ album.title ?? '' }}" maxlength="255" {{ (album or allow_local) ? 'required' : '' }}>
                     </div>
                     <div class="col-12 col-md-4">
-                        <label class="form-label small" for="album-date">Date</label>
-                        <input type="date" class="form-control" id="album-date" name="album_date" value="{{ (album.albumDate ?? 'now')|date('Y-m-d') }}" required>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'album-date',
+                            field_name: 'album_date',
+                            label: 'Date',
+                            type: 'date',
+                            value: (album.albumDate ?? 'now')|date('Y-m-d'),
+                            required: true,
+                            size: 'sm',
+                        } only %}
                     </div>
                     <div class="col-12">
-                        <label class="form-label small" for="album-subtitle">Sous-titre <span class="text-body-secondary">(optionnel)</span></label>
-                        <input type="text" class="form-control" id="album-subtitle" name="subtitle" value="{{ album.subtitle ?? '' }}" maxlength="255">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'album-subtitle',
+                            field_name: 'subtitle',
+                            label: 'Sous-titre (optionnel)',
+                            value: album.subtitle ?? '',
+                            maxlength: 255,
+                            size: 'sm',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label small" for="album-section">Section</label>
-                        <select class="form-select" id="album-section" name="section_id">
-                            <option value="">Toute l'unité</option>
-                            {% for section in sections %}
-                                <option value="{{ section.id }}" {{ album and album.sectionId == section.id ? 'selected' : '' }}>
-                                    {{ section.name ?? section.desk_code }}
-                                </option>
-                            {% endfor %}
-                        </select>
+                        {% set section_options = [{ value: '', label: "Toute l'unité" }]|merge(
+                            sections|map(s => {
+                                value: s.id,
+                                label: s.name ?? s.desk_code,
+                                selected: album and album.sectionId == s.id,
+                            })
+                        ) %}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'album-section',
+                            field_name: 'section_id',
+                            label: 'Section',
+                            type: 'select',
+                            options: section_options,
+                            size: 'sm',
+                        } only %}
                     </div>
                     {% if album and album.type == 'external' %}
                         <div class="col-12 col-md-6">

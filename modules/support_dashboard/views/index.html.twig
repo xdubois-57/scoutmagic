@@ -51,67 +51,85 @@
     <div class="card-body">
         <div class="row g-3">
             <div class="col-12 col-lg-4">
-                <label for="filter-q" class="form-label">Recherche</label>
-                <input type="search" class="form-control" id="filter-q" name="q" value="{{ filters.search }}"
-                       placeholder="URL, identifiant, version, année scoute">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-q', field_name: 'q', type: 'search',
+                    label: 'Recherche', value: filters.search,
+                    placeholder: 'URL, identifiant, version, année scoute',
+                } only %}
             </div>
 
             <div class="col-6 col-lg-2">
-                <label for="filter-status" class="form-label">Statut</label>
-                <select class="form-select" id="filter-status" name="status">
-                    <option value="active" {{ filters.status == 'active' ? 'selected' : '' }}>Actives</option>
-                    <option value="stale" {{ filters.status == 'stale' ? 'selected' : '' }}>Obsolètes</option>
-                    <option value="all" {{ filters.status == 'all' ? 'selected' : '' }}>Toutes</option>
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-status', field_name: 'status', type: 'select',
+                    label: 'Statut',
+                    options: [
+                        { value: 'active', label: 'Actives', selected: filters.status == 'active' },
+                        { value: 'stale', label: 'Obsolètes', selected: filters.status == 'stale' },
+                        { value: 'all', label: 'Toutes', selected: filters.status == 'all' },
+                    ],
+                } only %}
             </div>
 
             <div class="col-6 col-lg-2">
-                <label for="filter-version" class="form-label">Version / build</label>
-                <select class="form-select" id="filter-version" name="version">
-                    <option value="">Toutes</option>
-                    {% for version in view.available.versions %}
-                        <option value="{{ version }}" {{ filters.version == version ? 'selected' : '' }}>{{ version }}</option>
-                    {% endfor %}
-                </select>
+                {# The looped options are built just above each include so the
+                   placeholder entry and the selected state stay side by side. #}
+                {% set _version_options = [{ value: '', label: 'Toutes' }]|merge(
+                    view.available.versions|map(version => {
+                        value: version, label: version, selected: filters.version == version,
+                    })
+                ) %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-version', field_name: 'version', type: 'select',
+                    label: 'Version / build', options: _version_options,
+                } only %}
             </div>
 
             <div class="col-6 col-lg-2">
-                <label for="filter-method" class="form-label">Méthode d'installation</label>
-                <select class="form-select" id="filter-method" name="installation_method">
-                    <option value="">Toutes</option>
-                    {% for method in view.available.installation_methods %}
-                        <option value="{{ method }}" {{ filters.installationMethod == method ? 'selected' : '' }}>{{ method }}</option>
-                    {% endfor %}
-                </select>
+                {% set _method_options = [{ value: '', label: 'Toutes' }]|merge(
+                    view.available.installation_methods|map(method => {
+                        value: method, label: method, selected: filters.installationMethod == method,
+                    })
+                ) %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-method', field_name: 'installation_method', type: 'select',
+                    label: "Méthode d'installation", options: _method_options,
+                } only %}
             </div>
 
             <div class="col-6 col-lg-2">
-                <label for="filter-auto-update" class="form-label">Mise à jour automatique</label>
-                <select class="form-select" id="filter-auto-update" name="auto_update">
-                    <option value="">Toutes</option>
-                    {% for level in view.available.auto_update_levels %}
-                        <option value="{{ level.key }}" {{ filters.autoUpdate == level.key ? 'selected' : '' }}>{{ level.label }}</option>
-                    {% endfor %}
-                </select>
+                {% set _auto_update_options = [{ value: '', label: 'Toutes' }]|merge(
+                    view.available.auto_update_levels|map(level => {
+                        value: level.key, label: level.label, selected: filters.autoUpdate == level.key,
+                    })
+                ) %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-auto-update', field_name: 'auto_update', type: 'select',
+                    label: 'Mise à jour automatique', options: _auto_update_options,
+                } only %}
             </div>
 
             <div class="col-6 col-lg-3">
-                <label for="filter-module" class="form-label">Module</label>
-                <select class="form-select" id="filter-module" name="module">
-                    <option value="">Tous</option>
-                    {% for moduleId in view.available.modules %}
-                        <option value="{{ moduleId }}" {{ filters.moduleId == moduleId ? 'selected' : '' }}>{{ moduleId }}</option>
-                    {% endfor %}
-                </select>
+                {% set _module_options = [{ value: '', label: 'Tous' }]|merge(
+                    view.available.modules|map(moduleId => {
+                        value: moduleId, label: moduleId, selected: filters.moduleId == moduleId,
+                    })
+                ) %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-module', field_name: 'module', type: 'select',
+                    label: 'Module', options: _module_options,
+                } only %}
             </div>
 
             <div class="col-6 col-lg-3">
-                <label for="filter-module-state" class="form-label">État du module</label>
-                <select class="form-select" id="filter-module-state" name="module_state">
-                    <option value="">Peu importe</option>
-                    <option value="enabled" {{ filters.moduleEnabled is same as(true) ? 'selected' : '' }}>Activé</option>
-                    <option value="disabled" {{ filters.moduleEnabled is same as(false) ? 'selected' : '' }}>Désactivé</option>
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-module-state', field_name: 'module_state', type: 'select',
+                    label: 'État du module',
+                    options: [
+                        { value: '', label: 'Peu importe' },
+                        { value: 'enabled', label: 'Activé', selected: filters.moduleEnabled is same as(true) },
+                        { value: 'disabled', label: 'Désactivé', selected: filters.moduleEnabled is same as(false) },
+                    ],
+                } only %}
             </div>
 
             {# Every sortable field is reachable here, including the two the
@@ -120,22 +138,28 @@
                shortcut onto the same query parameters, never a second,
                narrower vocabulary. #}
             <div class="col-6 col-lg-3">
-                <label for="filter-sort" class="form-label">Trier par</label>
-                <select class="form-select" id="filter-sort" name="sort">
-                    <option value="last_received" {{ filters.sort == 'last_received' ? 'selected' : '' }}>Dernière réception</option>
-                    <option value="active_members" {{ filters.sort == 'active_members' ? 'selected' : '' }}>Membres actifs</option>
-                    <option value="version" {{ filters.sort == 'version' ? 'selected' : '' }}>Version / build</option>
-                    <option value="installed_at" {{ filters.sort == 'installed_at' ? 'selected' : '' }}>Date d'installation</option>
-                    <option value="instance_url" {{ filters.sort == 'instance_url' ? 'selected' : '' }}>URL d'instance</option>
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-sort', field_name: 'sort', type: 'select',
+                    label: 'Trier par',
+                    options: [
+                        { value: 'last_received', label: 'Dernière réception', selected: filters.sort == 'last_received' },
+                        { value: 'active_members', label: 'Membres actifs', selected: filters.sort == 'active_members' },
+                        { value: 'version', label: 'Version / build', selected: filters.sort == 'version' },
+                        { value: 'installed_at', label: "Date d'installation", selected: filters.sort == 'installed_at' },
+                        { value: 'instance_url', label: "URL d'instance", selected: filters.sort == 'instance_url' },
+                    ],
+                } only %}
             </div>
 
             <div class="col-6 col-lg-3">
-                <label for="filter-dir" class="form-label">Sens</label>
-                <select class="form-select" id="filter-dir" name="dir">
-                    <option value="desc" {{ filters.descending ? 'selected' : '' }}>Décroissant</option>
-                    <option value="asc" {{ filters.descending ? '' : 'selected' }}>Croissant</option>
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-dir', field_name: 'dir', type: 'select',
+                    label: 'Sens',
+                    options: [
+                        { value: 'desc', label: 'Décroissant', selected: filters.descending },
+                        { value: 'asc', label: 'Croissant', selected: not filters.descending },
+                    ],
+                } only %}
             </div>
 
             <div class="col-12 col-lg-6 d-flex align-items-end gap-2">

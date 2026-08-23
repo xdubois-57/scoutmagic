@@ -131,10 +131,12 @@
                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
                         <input type="hidden" name="booking_id" value="{{ booking.id }}">
                         <div class="col-12 col-sm-7">
-                            <label class="form-label" for="option-until">Option jusqu'au</label>
-                            <input type="datetime-local" class="form-control" id="option-until" name="until"
-                                   value="{{ booking.holdUntil ? booking.holdUntil|date('Y-m-d\\TH:i') : '' }}">
-                            <div class="form-text">Laisser vide et enregistrer lève le blocage.</div>
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'option-until', field_name: 'until', type: 'datetime-local',
+                                label: 'Option jusqu\'au',
+                                help: 'Laisser vide et enregistrer lève le blocage.',
+                                value: booking.holdUntil ? booking.holdUntil|date('Y-m-d\\TH:i') : '',
+                            } only %}
                         </div>
                         <div class="col-12 col-sm-5">
                             <button type="submit" class="btn btn-outline-primary w-100">Enregistrer l'option</button>

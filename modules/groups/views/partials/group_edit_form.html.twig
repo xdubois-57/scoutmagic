@@ -22,22 +22,33 @@
         </summary>
         <form method="post" action="/groups/{{ group.id }}/edit" class="card card-body mt-2" style="max-width:420px;">
             {{ csrf_field()|raw }}
-            <label class="form-label small mb-1" for="group-edit-name">Nom du groupe</label>
-            <input type="text" class="form-control mb-2" id="group-edit-name" name="name"
-                   maxlength="150" required value="{{ group.name }}">
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'group-edit-name',
+                field_name: 'name',
+                label: 'Nom du groupe',
+                value: group.name,
+                maxlength: 150,
+                required: true,
+                size: 'sm',
+            } only %}
 
             {#
               Optional, and emptying it clears it (GroupController::edit()).
               Plain text: rendered escaped in group_header.html.twig and in
               the groups list, never |raw.
             #}
-            <label class="form-label small mb-1" for="group-edit-description">Description (facultatif)</label>
-            <textarea class="form-control mb-1" id="group-edit-description" name="description" rows="2"
-                      maxlength="{{ constant('Modules\\Groups\\Controller\\GroupController::MAX_DESCRIPTION_LENGTH') }}"
-                      placeholder="À quoi sert ce groupe ?">{{ group.description }}</textarea>
-            <p class="small text-body-secondary">
-                Une ligne pour dire à quoi sert ce groupe. Visible par tous ses membres, sur la page du groupe et dans la liste des groupes.
-            </p>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'group-edit-description',
+                field_name: 'description',
+                label: 'Description (facultatif)',
+                type: 'textarea',
+                rows: 2,
+                value: group.description,
+                maxlength: constant('Modules\\Groups\\Controller\\GroupController::MAX_DESCRIPTION_LENGTH'),
+                placeholder: 'À quoi sert ce groupe ?',
+                help: 'Une ligne pour dire à quoi sert ce groupe. Visible par tous ses membres, sur la page du groupe et dans la liste des groupes.',
+                size: 'sm',
+            } only %}
 
             {#
               Who may START a conversation here. Deliberately a pair of

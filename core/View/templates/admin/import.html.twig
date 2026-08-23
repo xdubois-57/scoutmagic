@@ -35,16 +35,18 @@
             </p>
             <form method="post" action="/admin/import" enctype="multipart/form-data">
                 {{ csrf_field()|raw }}
-                <div class="mb-3">
-                    <label class="form-label" for="scout-year-id">Année scoute cible</label>
-                    <select class="form-select" name="scout_year_id" id="scout-year-id">
-                        {% for y in years %}
-                            <option value="{{ y.id }}" {% if y.id == current_year.id %}selected{% endif %}>
-                                {{ y.label }}{% if y.id == current_year.id %} — année publique{% endif %}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
+                {# The public year's own entry says so in its label, so the one
+                   year the import is NOT about by default is named, not just
+                   pre-selected. #}
+                {% set _year_options = years|map(y => {
+                    value: y.id,
+                    label: y.label ~ (y.id == current_year.id ? ' — année publique' : ''),
+                    selected: y.id == current_year.id,
+                }) %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'scout-year-id', field_name: 'scout_year_id', type: 'select',
+                    label: 'Année scoute cible', options: _year_options,
+                } only %}
                 <div class="mb-3">
                     <input type="file" name="csv_file" accept=".csv" class="form-control" required aria-label="Fichier CSV à importer">
                 </div>

@@ -47,14 +47,16 @@
                 {{ csrf_field() }}
                 <div class="row g-3 mb-3">
                     <div class="col-12 col-sm-6">
-                        <label class="form-label" for="account-first-name">Prénom</label>
-                        <input type="text" name="first_name" id="account-first-name" class="form-control"
-                               value="{{ account.firstName }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'account-first-name', field_name: 'first_name',
+                            label: 'Prénom', value: account.firstName,
+                        } only %}
                     </div>
                     <div class="col-12 col-sm-6">
-                        <label class="form-label" for="account-last-name">Nom</label>
-                        <input type="text" name="last_name" id="account-last-name" class="form-control"
-                               value="{{ account.lastName }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'account-last-name', field_name: 'last_name',
+                            label: 'Nom', value: account.lastName,
+                        } only %}
                     </div>
                 </div>
                 <button type="submit" class="btn btn-primary">Enregistrer</button>

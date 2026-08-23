@@ -34,38 +34,50 @@
         <form method="get" class="row g-2 align-items-end mb-3">
             <input type="hidden" name="month" value="{{ calendar_month }}">
             <input type="hidden" name="estimate" value="1">
+            {# rental-calendar.js reads input[name="arrival"], input[name="departure"]
+               and input[name="persons"] out of this fragment after swapping it in,
+               so these names and ids are load-bearing — they must not drift. #}
             <div class="col-6 col-md-3">
-                <label class="form-label" for="arrival">Arrivée</label>
-                <input type="date" class="form-control" id="arrival" name="arrival"
-                       value="{{ selection ? selection[0] : '' }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'arrival', field_name: 'arrival', type: 'date',
+                    label: 'Arrivée',
+                    value: selection ? selection[0] : '',
+                } only %}
             </div>
             <div class="col-6 col-md-3">
-                <label class="form-label" for="departure">Départ</label>
-                <input type="date" class="form-control" id="departure" name="departure"
-                       value="{{ selection and selection[1] ? selection[1] : '' }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'departure', field_name: 'departure', type: 'date',
+                    label: 'Départ',
+                    value: selection and selection[1] ? selection[1] : '',
+                } only %}
             </div>
             <div class="col-4 col-md-2">
-                <label class="form-label" for="persons">Participants</label>
-                <input type="number" inputmode="numeric" min="0" class="form-control" id="persons" name="persons"
-                       value="{{ form_persons }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'persons', field_name: 'persons', type: 'number',
+                    label: 'Participants', min: 0, inputmode: 'numeric',
+                    value: form_persons,
+                } only %}
             </div>
             {% if asset.isStock %}
                 <div class="col-4 col-md-2">
-                    <label class="form-label" for="units">Quantité</label>
-                    <input type="number" inputmode="numeric" min="1" max="{{ asset.quantity }}" class="form-control"
-                           id="units" name="units" value="{{ form_units }}">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'units', field_name: 'units', type: 'number',
+                        label: 'Quantité', min: 1, max: asset.quantity, inputmode: 'numeric',
+                        value: form_units,
+                    } only %}
                 </div>
             {% endif %}
             {% if categories is not empty %}
                 <div class="col-4 col-md-2">
-                    <label class="form-label" for="category">Vous êtes</label>
-                    <select class="form-select" id="category" name="category">
-                        <option value="">—</option>
-                        {% for category in categories %}
-                            <option value="{{ category.id }}"
-                                    {{ form_category == category.id ? 'selected' : '' }}>{{ category.label }}</option>
-                        {% endfor %}
-                    </select>
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'category', field_name: 'category', type: 'select',
+                        label: 'Vous êtes',
+                        options: [{ value: '', label: '—' }]|merge(categories|map(c => {
+                            value: c.id,
+                            label: c.label,
+                            selected: form_category == c.id,
+                        })),
+                    } only %}
                 </div>
             {% endif %}
             <div class="col-12 col-md-2">

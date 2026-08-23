@@ -168,14 +168,17 @@
             </div>
 
             <div class="col-6 col-md-2">
-                <label class="form-label" for="new-expires">Échéance</label>
-                <input type="date" class="form-control" id="new-expires" name="expires_on">
-                <div class="form-text">Facultative.</div>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'new-expires', field_name: 'expires_on', type: 'date',
+                    label: 'Échéance', help: 'Facultative.',
+                } only %}
             </div>
 
             <div class="col-12 col-md-3">
-                <label class="form-label" for="new-remark">Remarque</label>
-                <input type="text" class="form-control" id="new-remark" name="remark">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'new-remark', field_name: 'remark',
+                    label: 'Remarque',
+                } only %}
             </div>
 
             <div class="col-12 col-md-3">

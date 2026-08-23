@@ -32,15 +32,12 @@
                 </label>
             </div>
 
-            <div class="mb-3">
-                <label for="statistics_destination" class="form-label">Destination</label>
-                <input type="url" class="form-control" id="statistics_destination" name="statistics_destination"
-                       value="{{ statistics_destination }}" placeholder="https://www.scoutmagic.be">
-                <div class="form-text">
-                    Site qui reçoit les rapports. À ne modifier que pour pointer vers une autre installation
-                    ScoutMagic réceptrice.
-                </div>
-            </div>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'statistics_destination', field_name: 'statistics_destination', type: 'url',
+                label: 'Destination', value: statistics_destination,
+                placeholder: 'https://www.scoutmagic.be',
+                help: 'Site qui reçoit les rapports. À ne modifier que pour pointer vers une autre installation ScoutMagic réceptrice.',
+            } only %}
 
             <button type="submit" class="btn btn-primary">Enregistrer</button>
         </form>
