@@ -3297,7 +3297,7 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     // MemberController's own departure endpoint needs it whether or not
     // this module is even enabled) and Passage (own PassageService +
     // SectionTransferRepository storage).
-    $registrationSectionStaffAuth = new \Core\Member\SectionStaffAuthorizationService($connection, $encryptionService, $sectionService);
+    $registrationSectionStaffAuth = new \Core\Member\SectionStaffAuthorizationService($connection, $encryptionService, $sectionService, $memberEmailRepository);
     $frontController->registerController(
         \Modules\Registration\Controller\DeparturesController::class,
         new \Modules\Registration\Controller\DeparturesController(
