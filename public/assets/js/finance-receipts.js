@@ -195,7 +195,11 @@
 
         document.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
-                if (!confirm('Supprimer ce reçu ?')) {
+                const confirmed = await window.ScoutMagicConfirm.ask({
+                    message: 'Supprimer ce reçu ?',
+                    confirmLabel: 'Supprimer'
+                });
+                if (!confirmed) {
                     return;
                 }
                 const res = await window.ScoutMagicApi.postJson('/finance/receipts/' + /** @type {HTMLElement} */ (btn).dataset.id, {}, { method: 'DELETE' });

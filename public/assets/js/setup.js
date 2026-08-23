@@ -277,8 +277,12 @@
     }
 
     if (btnEmptyWithoutBackup) {
-        btnEmptyWithoutBackup.addEventListener('click', function() {
-            if (!window.confirm('Vider la base de données SANS sauvegarde ? Les données actuellement en base seront définitivement perdues.')) {
+        btnEmptyWithoutBackup.addEventListener('click', async function() {
+            var confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Vider la base de données SANS sauvegarde ? Les données actuellement en base seront définitivement perdues.',
+                confirmLabel: 'Vider sans sauvegarde'
+            });
+            if (!confirmed) {
                 return;
             }
             runBackupAndEmpty(true);

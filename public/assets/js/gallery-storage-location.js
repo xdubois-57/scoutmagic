@@ -87,10 +87,17 @@
     // ------------------------------------------------------------------
     document.querySelectorAll('.gallery-migrate-start').forEach(function (btn) {
         var button = /** @type {HTMLButtonElement} */ (btn);
-        button.addEventListener('click', function () {
+        button.addEventListener('click', async function () {
             var select = /** @type {HTMLSelectElement} */ (document.querySelector('.gallery-migrate-target[data-album-id="' + button.dataset.albumId + '"]'));
             if (!select) return;
-            if (!confirm('Démarrer la migration de cet album vers cet autre emplacement ? L\'album sera indisponible pour les membres pendant l\'opération.')) return;
+            // Not destructive: the album is copied to the other location,
+            // only unavailable while it moves — 'primary', not 'danger'.
+            var confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Démarrer la migration de cet album vers cet autre emplacement ? L\'album sera indisponible pour les membres pendant l\'opération.',
+                confirmLabel: 'Migrer',
+                variant: 'primary'
+            });
+            if (!confirmed) return;
             button.disabled = true;
             window.ScoutMagicApi.postJson(button.dataset.url, { target_location_id: parseInt(select.value, 10) }).then(function (res) {
                 if (isNetworkFailure(res)) {
@@ -110,9 +117,13 @@
 
     document.querySelectorAll('.gallery-location-delete').forEach(function (btn) {
         var button = /** @type {HTMLButtonElement} */ (btn);
-        button.addEventListener('click', function () {
+        button.addEventListener('click', async function () {
             if (button.disabled) return;
-            if (!confirm('Supprimer cet emplacement de stockage ?')) return;
+            var confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Supprimer cet emplacement de stockage ?',
+                confirmLabel: 'Supprimer'
+            });
+            if (!confirmed) return;
             button.disabled = true;
             window.ScoutMagicApi.postJson('/config/gallery/locations/' + button.dataset.id + '/delete', {}).then(function (res) {
                 if (isNetworkFailure(res)) {

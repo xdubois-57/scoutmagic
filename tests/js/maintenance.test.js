@@ -44,6 +44,10 @@ beforeEach(() => {
     meta.content = 'tok';
     document.head.innerHTML = '';
     document.head.appendChild(meta);
+    // The shared confirmation, stubbed: this suite pins that the two
+    // irreversible operations ASK before they start, and that a refusal
+    // sends nothing — the dialog itself is tests/js/confirm.test.js's.
+    window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
 });
 
 describe('maintenance.js: auto-backup-frequency select', () => {
@@ -798,28 +802,49 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
         });
     });
 
-    describe('full-reset-form submit — window.confirm() gate', () => {
-        it('never calls fetch when the user declines the confirm() dialog', async () => {
+    describe('full-reset-form submit — the confirmation gate', () => {
+        it('never calls fetch when the visitor declines the confirmation', async () => {
             buildFullReset();
             const checkbox = /** @type {HTMLInputElement} */ (document.getElementById('full-reset-checkbox'));
             checkbox.checked = true;
             checkbox.dispatchEvent(new Event('change'));
             type(document.getElementById('full-reset-keyword'), 'EFFACER');
             global.fetch = vi.fn();
-            window.confirm = vi.fn(() => false);
+            window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
             await boot();
             checkbox.checked = true; checkbox.dispatchEvent(new Event('change'));
             type(document.getElementById('full-reset-keyword'), 'EFFACER');
             const evt = new Event('submit', { cancelable: true });
             document.getElementById('full-reset-form').dispatchEvent(evt);
-            expect(window.confirm).toHaveBeenCalled();
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+            await Promise.resolve();
             expect(fetch).not.toHaveBeenCalled();
+        });
+
+        it('asks the site dialog — never the native box — before wiping everything', async () => {
+            buildFullReset();
+            const nativeConfirm = vi.fn(() => true);
+            window.confirm = nativeConfirm;
+            global.fetch = vi.fn(() => jsonResponse({ success: true, action_id: 1 }));
+            await boot();
+            const checkbox = /** @type {HTMLInputElement} */ (document.getElementById('full-reset-checkbox'));
+            checkbox.checked = true; checkbox.dispatchEvent(new Event('change'));
+            type(document.getElementById('full-reset-keyword'), 'EFFACER');
+            document.getElementById('full-reset-form').dispatchEvent(new Event('submit', { cancelable: true }));
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(nativeConfirm).not.toHaveBeenCalled();
+            expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+                message: 'Cette action est irréversible : toutes les données du site seront définitivement supprimées. Continuer ?',
+                confirmLabel: 'Tout supprimer',
+            }));
+            expect(window.ScoutMagicConfirm.ask.mock.invocationCallOrder[0])
+                .toBeLessThan(fetch.mock.invocationCallOrder[0]);
         });
 
         it('redirects to "/" both when the reset completes and when the status poll 404s (both mean everything, including the tracking row, is gone)', async () => {
             buildFullReset();
             const checkbox = /** @type {HTMLInputElement} */ (document.getElementById('full-reset-checkbox'));
-            window.confirm = vi.fn(() => true);
             Object.defineProperty(window, 'location', { configurable: true, value: { href: '' } });
             global.fetch = vi.fn()
                 .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, action_id: 1 }) })
@@ -834,24 +859,38 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
         });
     });
 
-    describe('restore-backup-form submit — window.confirm() gate + classic multipart submit', () => {
-        it('declining confirm() prevents the default form submission', async () => {
+    // The dialog is asynchronous, so the submit event itself is ALWAYS
+    // stopped and the confirmed restore is re-sent by hand with
+    // form.submit() (which bypasses the listener — one confirmation, one
+    // pass). That native call is what these tests watch for.
+    describe('restore-backup-form submit — the confirmation gate + classic multipart submit', () => {
+        it('declining the confirmation submits nothing and leaves the button usable', async () => {
             buildRestoreBackup();
-            window.confirm = vi.fn(() => false);
+            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
+            window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
             await boot();
             const evt = new Event('submit', { cancelable: true });
             document.getElementById('restore-backup-form').dispatchEvent(evt);
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+            await Promise.resolve();
+
             expect(evt.defaultPrevented).toBe(true);
+            expect(nativeSubmit).not.toHaveBeenCalled();
             expect(/** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit')).disabled).toBe(false);
         });
 
-        it('accepting confirm() disables the submit button and lets the native multipart submission proceed', async () => {
+        it('accepting the confirmation disables the submit button and re-sends the multipart form itself', async () => {
             buildRestoreBackup();
-            window.confirm = vi.fn(() => true);
+            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
             await boot();
             const evt = new Event('submit', { cancelable: true });
             document.getElementById('restore-backup-form').dispatchEvent(evt);
-            expect(evt.defaultPrevented).toBe(false);
+            await vi.waitFor(() => expect(nativeSubmit).toHaveBeenCalledTimes(1));
+
+            expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+                message: 'Cette action va remplacer les données actuelles par celles de la sauvegarde sélectionnée. Continuer ?',
+                confirmLabel: 'Restaurer',
+            }));
             expect(/** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit')).disabled).toBe(true);
         });
 
@@ -899,10 +938,6 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             return evt;
         }
 
-        beforeEach(() => {
-            window.confirm = vi.fn(() => true);
-        });
-
         it('intercepts the submit for a large file: chunks first, then re-submits with upload_id and no file', async () => {
             buildChunkedRestore();
             selectFile(100 * 1024 * 1024);
@@ -915,6 +950,7 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             await boot();
 
             const evt = submitForm();
+            await vi.waitFor(() => expect(window.ScoutMagicChunkedUpload.uploadInChunks).toHaveBeenCalled());
 
             expect(evt.defaultPrevented).toBe(true);
             expect(window.ScoutMagicChunkedUpload.uploadInChunks).toHaveBeenCalledWith(
@@ -930,22 +966,23 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
 
             expect(document.getElementById('restore-upload-id').value).toBe('f'.repeat(32));
             expect(nativeSubmit).toHaveBeenCalledTimes(1);
-            // .submit() bypasses the handler — one confirm(), one chunk pass.
-            expect(window.confirm).toHaveBeenCalledTimes(1);
+            // .submit() bypasses the listener — one confirmation, one chunk pass.
+            expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledTimes(1);
         });
 
         it('lets a small file ride the classic multipart POST untouched', async () => {
             buildChunkedRestore();
             selectFile(1024);
+            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
             window.ScoutMagicChunkedUpload = {
                 CHUNK_THRESHOLD: 24 * 1024 * 1024,
                 uploadInChunks: vi.fn(),
             };
             await boot();
 
-            const evt = submitForm();
+            submitForm();
+            await vi.waitFor(() => expect(nativeSubmit).toHaveBeenCalledTimes(1));
 
-            expect(evt.defaultPrevented).toBe(false);
             expect(window.ScoutMagicChunkedUpload.uploadInChunks).not.toHaveBeenCalled();
         });
 
@@ -954,15 +991,16 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             selectFile(100 * 1024 * 1024);
             document.getElementById('restore-source-upload').checked = false;
             document.getElementById('restore-source-server').checked = true;
+            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
             window.ScoutMagicChunkedUpload = {
                 CHUNK_THRESHOLD: 24 * 1024 * 1024,
                 uploadInChunks: vi.fn(),
             };
             await boot();
 
-            const evt = submitForm();
+            submitForm();
+            await vi.waitFor(() => expect(nativeSubmit).toHaveBeenCalledTimes(1));
 
-            expect(evt.defaultPrevented).toBe(false);
             expect(window.ScoutMagicChunkedUpload.uploadInChunks).not.toHaveBeenCalled();
         });
 
@@ -976,10 +1014,9 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             await boot();
 
             submitForm();
-            await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
-
             const errorEl = document.getElementById('restore-backup-error');
-            expect(errorEl.classList.contains('d-none')).toBe(false);
+            await vi.waitFor(() => expect(errorEl.classList.contains('d-none')).toBe(false));
+
             expect(errorEl.textContent).toBe('Le fichier dépasse la taille maximale autorisée (500 Mo).');
             expect(/** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit')).disabled).toBe(false);
             expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(true);

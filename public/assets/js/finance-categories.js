@@ -14,7 +14,9 @@
 // used to be alert() is a toast now, and the background run's completion
 // summary lands in the persistent #run-rules-result block (it used to be a
 // one-shot alert() nobody could re-read) plus a completion toast. The
-// status polling loop rides ScoutMagicApi.poll.
+// status polling loop rides ScoutMagicApi.poll. Every confirmation goes
+// through window.ScoutMagicConfirm (design.md §7.5), each naming its own
+// action on the confirm button rather than a generic « OK ».
 (function () {
     var rulesList = document.getElementById('rules-list');
     if (!rulesList || !document.getElementById('category-form')) return;
@@ -108,15 +110,26 @@
     });
 
     /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.delete-category-btn')).forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (confirm('Supprimer cette catégorie ?')) {
+        btn.addEventListener('click', async () => {
+            const confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Supprimer cette catégorie ?',
+                confirmLabel: 'Supprimer'
+            });
+            if (confirmed) {
                 postCategoryAction('delete', parseInt(btn.dataset.id, 10));
             }
         });
     });
 
     el('reset-default-categories-btn').addEventListener('click', async () => {
-        if (!confirm('Recréer les catégories par défaut qui auraient été supprimées ? Les catégories existantes ne sont pas modifiées.')) {
+        // Recreating a missing default touches nothing that exists — a
+        // primary confirmation, not the danger one a delete gets.
+        const confirmed = await window.ScoutMagicConfirm.ask({
+            message: 'Recréer les catégories par défaut qui auraient été supprimées ? Les catégories existantes ne sont pas modifiées.',
+            confirmLabel: 'Recréer',
+            variant: 'primary'
+        });
+        if (!confirmed) {
             return undefined;
         }
         const res = await api.postJson('/config/finance/categories', { action: 'reset_defaults' });
@@ -147,7 +160,11 @@
     });
 
     el('reset-default-rules-btn').addEventListener('click', async () => {
-        if (!confirm("Réinitialiser les règles par défaut ? Toute modification apportée aux règles marquées « Par défaut » sera perdue. Vos propres règles ne seront pas touchées.")) {
+        const confirmed = await window.ScoutMagicConfirm.ask({
+            message: "Réinitialiser les règles par défaut ? Toute modification apportée aux règles marquées « Par défaut » sera perdue. Vos propres règles ne seront pas touchées.",
+            confirmLabel: 'Réinitialiser'
+        });
+        if (!confirmed) {
             return undefined;
         }
         const res = await api.postJson('/config/finance/rules', { action: 'reset_defaults' });
@@ -206,7 +223,14 @@
     }
 
     runRulesBtn.addEventListener('click', async () => {
-        if (!confirm("Appliquer les règles de catégorisation à tous les mouvements non catégorisés ? Cette opération se déroule en arrière-plan.")) {
+        // Categorising uncategorised movements adds information, it never
+        // removes any — primary, not danger.
+        const confirmed = await window.ScoutMagicConfirm.ask({
+            message: "Appliquer les règles de catégorisation à tous les mouvements non catégorisés ? Cette opération se déroule en arrière-plan.",
+            confirmLabel: 'Appliquer',
+            variant: 'primary'
+        });
+        if (!confirmed) {
             return undefined;
         }
 
@@ -305,8 +329,12 @@
     });
 
     /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.delete-rule-btn')).forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (confirm('Supprimer cette règle ?')) {
+        btn.addEventListener('click', async () => {
+            const confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Supprimer cette règle ?',
+                confirmLabel: 'Supprimer'
+            });
+            if (confirmed) {
                 postRuleAction('delete', { id: parseInt(btn.dataset.id, 10) });
             }
         });

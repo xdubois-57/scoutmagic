@@ -10,7 +10,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     notifyBtn.addEventListener('click', async function() {
-        if (!confirm('Envoyer une notification à tous les comptes pour les inviter à réinstaller l\'application sur iOS ?')) {
+        // Sending a notification destroys nothing — primary, not danger.
+        var confirmed = await window.ScoutMagicConfirm.ask({
+            message: 'Envoyer une notification à tous les comptes pour les inviter à réinstaller l\'application sur iOS ?',
+            confirmLabel: 'Envoyer',
+            variant: 'primary'
+        });
+        if (!confirmed) {
             return;
         }
 
@@ -26,7 +32,7 @@ document.addEventListener('DOMContentLoaded', function() {
             notifyBtn.disabled = true;
             notifyBtn.textContent = 'Notification envoyée';
         } else {
-            alert(data.error || 'Une erreur est survenue.');
+            window.ScoutMagicToast.show(data.error || 'Une erreur est survenue.', { variant: 'error' });
         }
     });
 });

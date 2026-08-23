@@ -1432,7 +1432,7 @@
                 // A refusal the server actually returned (the moderation
                 // layer, most often) — the edit form stays open with the
                 // member's text in it so they can revise and resend.
-                window.alert(result.data.error);
+                window.ScoutMagicToast.show(result.data.error, { variant: 'error' });
             } else {
                 form.submit();
             }
@@ -1521,7 +1521,7 @@
                 // A moderator trying to restore their own reported content
                 // — the one refusal this endpoint has, and one the member
                 // has to actually read.
-                window.alert(result.data.error);
+                window.ScoutMagicToast.show(result.data.error, { variant: 'error' });
             } else {
                 form.submit();
             }
@@ -1714,15 +1714,17 @@
 
         // The "êtes-vous sûr ?" behind data-confirm is asked ONCE, by
         // base.html.twig's site-wide handler, and this listener only reads
-        // its verdict.
+        // its verdict — preventDefault() means "not answered yes (yet)".
+        //
+        // That handler shows ScoutMagicConfirm, which is asynchronous, so
+        // it stops the submit it sees and replays it (requestSubmit, with
+        // data-confirmed="1") once the member has actually confirmed. The
+        // replayed submit is the one that reaches the code below.
         //
         // The ordering is a guarantee, not a coincidence: base.html.twig's
         // handler is an inline classic script, and this file is loaded
         // with `defer`, which the HTML standard runs after every inline
         // script in the document — whatever order the two tags appear in.
-        // So by the time anything below runs, the member has already
-        // answered, and a cancelled confirmation has already called
-        // preventDefault() for us.
         //
         // This file used to call confirm() itself as well, on the belief
         // that it ran first and could stopImmediatePropagation() the other
@@ -2131,9 +2133,12 @@
     // pasted anywhere — a bare "/groups/3/posts/12" would not.
     //
     // navigator.clipboard needs a secure context (https, or localhost) and
-    // is simply absent otherwise; window.prompt with the URL pre-selected
-    // is the honest fallback — the member can still copy it by hand,
-    // rather than the entry silently doing nothing.
+    // is simply absent otherwise; showing the URL, pre-selected, is the
+    // honest fallback — the member can still copy it by hand, rather than
+    // the entry silently doing nothing. The dialog is the site's own
+    // (design.md §7.5): window.prompt renders the origin above the
+    // sentence and labels its buttons in the browser's language, which for
+    // a "here, copy this" moment is pure noise.
     async function copyMessageLink(button) {
         var url = new URL(button.dataset.url, window.location.origin).href;
         var original = button.textContent;
@@ -2146,7 +2151,14 @@
             button.textContent = 'Lien copié';
             setTimeout(function () { button.textContent = original; }, 2000);
         } catch (e) {
-            window.prompt('Copiez le lien de ce message :', url);
+            await window.ScoutMagicConfirm.prompt({
+                message: 'Copiez le lien de ce message :',
+                title: 'Lien du message',
+                value: url,
+                readonly: true,
+                inputType: 'url',
+                confirmLabel: 'Fermer',
+            });
         }
     }
 

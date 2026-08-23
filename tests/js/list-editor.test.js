@@ -1,5 +1,5 @@
 // Isolated JavaScript unit test — jsdom-simulated DOM only. No PHP server,
-// no MySQL, no network: fetch and window.confirm are mocked.
+// no MySQL, no network: fetch and window.ScoutMagicConfirm are mocked.
 // Exercises the REAL implementation in public/assets/js/list-editor.js
 // (imported below, never reimplemented here), on top of the real
 // api.js/toast.js toolboxes. No test seam needed — every function's effect
@@ -72,7 +72,10 @@ beforeEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = '';
     global.fetch = vi.fn(() => jsonResponse({ success: true }));
-    window.confirm = vi.fn(() => true);
+    // The shared confirmation, stubbed: this suite pins that it is asked
+    // and awaited before a delete leaves — the dialog itself is
+    // tests/js/confirm.test.js's subject.
+    window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
 });
 
 describe('list-editor.js: move up/down — button-state logic (off-by-one bugs live here)', () => {
@@ -136,7 +139,7 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
         expect(fetch).not.toHaveBeenCalled();
     });
 
-    it('alerts the server error message when persisting a move fails', async () => {
+    it('toasts the server error message when persisting a move fails', async () => {
         buildEditor({ items: [1, 2] });
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Verrou déjà pris.' }));
         await boot();
@@ -238,17 +241,34 @@ describe('list-editor.js: active toggle', () => {
 describe('list-editor.js: delete', () => {
     it('asks for confirmation before deleting; declining never calls fetch', async () => {
         buildEditor({ items: [5] });
-        window.confirm = vi.fn(() => false);
+        window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
         global.fetch = vi.fn();
         await boot();
         document.querySelector('.list-editor-delete-btn').dispatchEvent(new Event('click'));
-        expect(window.confirm).toHaveBeenCalled();
+        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+        await Promise.resolve();
         expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('names the action on the confirmation button, and asks before the POST', async () => {
+        buildEditor({ items: [5] });
+        global.fetch = vi.fn(() => jsonResponse({ success: true }));
+        Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
+        await boot();
+
+        document.querySelector('.list-editor-delete-btn').dispatchEvent(new Event('click'));
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'Supprimer définitivement cet élément ?',
+            confirmLabel: 'Supprimer',
+        }));
+        expect(window.ScoutMagicConfirm.ask.mock.invocationCallOrder[0])
+            .toBeLessThan(fetch.mock.invocationCallOrder[0]);
     });
 
     it('accepting confirmation POSTs the id and reloads on success', async () => {
         buildEditor({ items: [5] });
-        window.confirm = vi.fn(() => true);
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
         Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
         await boot();
@@ -261,9 +281,8 @@ describe('list-editor.js: delete', () => {
         await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalled());
     });
 
-    it('alerts the server error and does not reload on a rejected delete', async () => {
+    it('toasts the server error and does not reload on a rejected delete', async () => {
         buildEditor({ items: [5] });
-        window.confirm = vi.fn(() => true);
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Élément référencé ailleurs.' }));
         Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
         await boot();
@@ -272,14 +291,14 @@ describe('list-editor.js: delete', () => {
         expect(window.location.reload).not.toHaveBeenCalled();
     });
 
-    it('a disabled delete button ignores clicks entirely — never even prompts', async () => {
+    it('a disabled delete button ignores clicks entirely — never even asks', async () => {
         buildEditor({ items: [5] });
         document.querySelector('.list-editor-delete-btn').disabled = true;
-        window.confirm = vi.fn(() => true);
         global.fetch = vi.fn();
         await boot();
         document.querySelector('.list-editor-delete-btn').dispatchEvent(new Event('click'));
-        expect(window.confirm).not.toHaveBeenCalled();
+        await Promise.resolve();
+        expect(window.ScoutMagicConfirm.ask).not.toHaveBeenCalled();
         expect(fetch).not.toHaveBeenCalled();
     });
 });
@@ -299,7 +318,7 @@ describe('list-editor.js: add', () => {
         await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalled());
     });
 
-    it('alerts the server error on a rejected add, without reloading', async () => {
+    it('toasts the server error on a rejected add, without reloading', async () => {
         buildEditor({ items: [] });
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Quota atteint.' }));
         Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });

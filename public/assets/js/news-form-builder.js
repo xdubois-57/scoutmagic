@@ -226,9 +226,12 @@
             btn.addEventListener('click', function () {
                 editable.focus();
                 if (cmd.command === 'createLink') {
-                    var url = prompt('URL du lien :');
-                    if (url) document.execCommand('createLink', false, url);
-                } else if (cmd.command === 'insertImage') {
+                    // Shared: captures the selection, asks, normalizes the
+                    // URL and gives focus back. See rich-text-link.js.
+                    window.ScoutMagicRichText.insertLink(editable);
+                    return;
+                }
+                if (cmd.command === 'insertImage') {
                     imageInput.click();
                 } else {
                     document.execCommand(cmd.command, false, cmd.value || null);

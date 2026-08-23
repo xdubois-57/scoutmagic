@@ -222,8 +222,14 @@
     });
 
     // Reset button - resets to default content and persists it for the current mode
-    resetBtn.addEventListener('click', function () {
-        if (!confirm('Réinitialiser au contenu par défaut ?')) return;
+    resetBtn.addEventListener('click', async function () {
+        // Destructive: whatever was written or generated is replaced by the
+        // default text, so this keeps the danger variant.
+        var confirmed = await window.ScoutMagicConfirm.ask({
+            message: 'Réinitialiser au contenu par défaut ?',
+            confirmLabel: 'Réinitialiser'
+        });
+        if (!confirmed) return;
 
         api.postJson('/config/rgpd/reset', {}).then(function (res) {
             if (res.data && res.data.success) {

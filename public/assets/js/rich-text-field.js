@@ -34,9 +34,12 @@
         btn.addEventListener('click', function () {
             var cmd = /** @type {HTMLElement} */ (btn).dataset.command;
             if (cmd === 'createLink') {
-                var url = prompt('URL du lien :');
-                if (url) document.execCommand(cmd, false, url);
-            } else if (cmd === 'formatBlock') {
+                // Shared: captures the selection, asks, normalizes the URL
+                // and gives focus back. See rich-text-link.js.
+                window.ScoutMagicRichText.insertLink(editorContent);
+                return;
+            }
+            if (cmd === 'formatBlock') {
                 document.execCommand(cmd, false, '<' + /** @type {HTMLElement} */ (btn).dataset.value + '>');
             } else {
                 document.execCommand(cmd, false, null);
@@ -77,11 +80,11 @@
                 if (currentPreview) currentPreview.innerHTML = html;
                 modal.hide();
             } else {
-                alert(json.error || 'Erreur lors de l\'enregistrement.');
+                window.ScoutMagicToast.show(json.error || 'Erreur lors de l\'enregistrement.', { variant: 'error' });
             }
         })
         .catch(function () {
-            alert('Erreur réseau.');
+            window.ScoutMagicToast.show('Erreur réseau.', { variant: 'error' });
         });
     });
 })();

@@ -164,3 +164,89 @@ describe('gallery-storage-location.js error rendering', () => {
         expect(cell.querySelector('span').getAttribute('title')).toBe('');
     });
 });
+
+describe('gallery-storage-location.js confirmations', () => {
+    function renderMigrationRow() {
+        document.head.innerHTML = '<meta name="csrf-token" content="tok">';
+        document.body.innerHTML = `
+            <table><tbody><tr>
+                <td>
+                    <select class="gallery-migrate-target" data-album-id="9">
+                        <option value="4" selected>Autre emplacement</option>
+                    </select>
+                </td>
+                <td><button class="gallery-migrate-start" data-album-id="9" data-url="/config/gallery/albums/9/migrate"></button></td>
+            </tr></tbody></table>
+            <button class="gallery-location-delete" data-id="4"></button>
+        `;
+    }
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        renderMigrationRow();
+        // Both success paths reload the page; jsdom has no navigation.
+        Object.defineProperty(window, 'location', {
+            configurable: true,
+            value: { href: '/config/gallery', reload: vi.fn() },
+        });
+        // The shared dialog is stubbed — what this block owns is that it is
+        // asked, with the right words, before anything is sent.
+        window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
+    });
+
+    it('asks before starting a migration, with a « Migrer » button and the non-destructive variant', async () => {
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
+        await loadScript();
+
+        document.querySelector('.gallery-migrate-start').click();
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'Démarrer la migration de cet album vers cet autre emplacement ? L\'album sera indisponible pour les membres pendant l\'opération.',
+            confirmLabel: 'Migrer',
+            variant: 'primary',
+        }));
+        expect(fetch.mock.calls[0][0]).toBe('/config/gallery/albums/9/migrate');
+        expect(JSON.parse(fetch.mock.calls[0][1].body).target_location_id).toBe(4);
+    });
+
+    it('starts no migration when the confirmation is declined', async () => {
+        global.fetch = vi.fn();
+        window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
+        await loadScript();
+
+        document.querySelector('.gallery-migrate-start').click();
+        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+        await Promise.resolve();
+
+        expect(fetch).not.toHaveBeenCalled();
+        expect(/** @type {HTMLButtonElement} */ (document.querySelector('.gallery-migrate-start')).disabled).toBe(false);
+    });
+
+    it('asks « Supprimer » before deleting a storage location', async () => {
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
+        await loadScript();
+
+        document.querySelector('.gallery-location-delete').click();
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'Supprimer cet emplacement de stockage ?',
+            confirmLabel: 'Supprimer',
+        }));
+        expect(fetch.mock.calls[0][0]).toBe('/config/gallery/locations/4/delete');
+    });
+
+    it('deletes nothing when the deletion confirmation is declined', async () => {
+        global.fetch = vi.fn();
+        window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
+        await loadScript();
+
+        document.querySelector('.gallery-location-delete').click();
+        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+        await Promise.resolve();
+
+        expect(fetch).not.toHaveBeenCalled();
+        expect(/** @type {HTMLButtonElement} */ (document.querySelector('.gallery-location-delete')).disabled).toBe(false);
+    });
+});

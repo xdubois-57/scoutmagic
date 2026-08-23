@@ -300,8 +300,12 @@
         });
 
         grid.querySelectorAll('.gallery-media-delete').forEach(/** @param {HTMLElement} btn */ function (btn) {
-            btn.addEventListener('click', function () {
-                if (!confirm('Supprimer ce média ?')) return;
+            btn.addEventListener('click', async function () {
+                var confirmed = await window.ScoutMagicConfirm.ask({
+                    message: 'Supprimer ce média ?',
+                    confirmLabel: 'Supprimer'
+                });
+                if (!confirmed) return;
                 var item = btn.closest('.gallery-media-item');
                 window.ScoutMagicApi.postJson(btn.dataset.url, {}).then(function (res) {
                     var data = envelopeData(res);
@@ -384,8 +388,12 @@
     (function initDeleteAlbum() {
         var btn = document.getElementById('gallery-delete-album');
         if (!btn) return;
-        btn.addEventListener('click', function () {
-            if (!confirm('Supprimer définitivement cet album et tous ses médias ?')) return;
+        btn.addEventListener('click', async function () {
+            var confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Supprimer définitivement cet album et tous ses médias ?',
+                confirmLabel: 'Supprimer'
+            });
+            if (!confirmed) return;
             window.ScoutMagicApi.postJson(btn.dataset.url, {}).then(function (res) {
                 var data = envelopeData(res);
                 if (data.success) {

@@ -182,9 +182,12 @@
             const cmd = btn.dataset.command;
             const bodyContent = el('mm-body-content');
             if (cmd === 'createLink') {
-                const url = prompt('URL du lien :');
-                if (url) document.execCommand(cmd, false, url);
-            } else if (cmd === 'formatBlock') {
+                // Shared: captures the selection, asks, normalizes the URL
+                // and gives focus back. See rich-text-link.js.
+                window.ScoutMagicRichText.insertLink(bodyContent);
+                return;
+            }
+            if (cmd === 'formatBlock') {
                 document.execCommand(cmd, false, '<' + btn.dataset.value + '>');
             } else {
                 document.execCommand(cmd, false, null);
@@ -610,11 +613,15 @@
     // Refreshes the dialog in place (never a full page reload/close) — the
     // underlying list table catches up next time the page itself reloads.
     /**
+     * `confirmOptions` is handed straight to window.ScoutMagicConfirm.ask()
+     * — a status change only asks when there is something irreversible
+     * about it, and then the button names that thing.
+     *
      * @param {string} action
-     * @param {string} [confirmMessage]
+     * @param {{message: string, confirmLabel: string, variant?: 'danger'|'primary'}} [confirmOptions]
      */
-    async function postStatusAction(action, confirmMessage) {
-        if (confirmMessage && !confirm(confirmMessage)) return;
+    async function postStatusAction(action, confirmOptions) {
+        if (confirmOptions && !await window.ScoutMagicConfirm.ask(confirmOptions)) return;
         const res = await api.postJson('/mass-mail/' + mmCurrentId + '/status', { action: action });
         const data = res.data;
         if (!data || !data.success) {
@@ -627,7 +634,13 @@
     el('mm-to-test-btn').addEventListener('click', () => postStatusAction('to_test'));
     el('mm-to-draft-btn').addEventListener('click', () => postStatusAction('to_draft'));
     el('mm-start-sending-btn').addEventListener('click', () =>
-        postStatusAction('start_sending', 'Lancer l\'envoi ? La liste des destinataires sera figée et l\'envoi ne pourra plus être annulé.')
+        postStatusAction('start_sending', {
+            message: 'Lancer l\'envoi ? La liste des destinataires sera figée et l\'envoi ne pourra plus être annulé.',
+            confirmLabel: 'Envoyer',
+            // Irreversible, but it destroys nothing — sending is the whole
+            // point of the screen, so it gets the primary button.
+            variant: 'primary'
+        })
     );
 
     el('mm-test-send-btn').addEventListener('click', async () => {

@@ -132,9 +132,13 @@
         itemsEl.querySelectorAll('.list-editor-delete-btn').forEach(
             /** @param {HTMLButtonElement} btn */
             function (btn) {
-            btn.addEventListener('click', function () {
+            btn.addEventListener('click', async function () {
                 if (btn.disabled) return;
-                if (!confirm('Supprimer définitivement cet élément ?')) return;
+                var confirmed = await window.ScoutMagicConfirm.ask({
+                    message: 'Supprimer définitivement cet élément ?',
+                    confirmLabel: 'Supprimer'
+                });
+                if (!confirmed) return;
                 window.ScoutMagicApi.postJson(deleteUrl, { id: parseInt(btn.dataset.id, 10) }).then(function (res) {
                     var data = res.data || {};
                     if (data.success) {

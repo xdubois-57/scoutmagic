@@ -22,6 +22,10 @@ describe('unit-logo.js — custom logo deletion', () => {
         // load order in production).
         await import('../../public/assets/js/api.js');
         await import('../../public/assets/js/toast.js');
+        // The confirmation is stubbed rather than rendered: what matters
+        // here is that it is ASKED and that its answer is awaited before
+        // anything is deleted — confirm.js's own dialog has its own spec.
+        window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
     });
 
     async function boot() {
@@ -29,29 +33,48 @@ describe('unit-logo.js — custom logo deletion', () => {
         document.dispatchEvent(new Event('DOMContentLoaded'));
     }
 
+    // The handler is async now: the click returns before the answer does.
+    async function clickDelete() {
+        document.getElementById('unit-logo-delete-btn').click();
+        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+        await Promise.resolve();
+    }
+
     it('does nothing at all when the delete button is absent from the page', async () => {
         document.body.innerHTML = '<p>Une autre page.</p>';
         global.fetch = vi.fn();
-        window.confirm = vi.fn();
         await boot();
         expect(fetch).not.toHaveBeenCalled();
-        expect(window.confirm).not.toHaveBeenCalled();
+        expect(window.ScoutMagicConfirm.ask).not.toHaveBeenCalled();
     });
 
-    it('sends nothing when the user declines the confirm() dialog', async () => {
+    it('sends nothing when the visitor declines the confirmation', async () => {
         global.fetch = vi.fn();
-        window.confirm = vi.fn(() => false);
+        window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
         await boot();
-        document.getElementById('unit-logo-delete-btn').click();
-        expect(window.confirm).toHaveBeenCalled();
+        await clickDelete();
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled();
         expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('asks before deleting, in French, with a button naming the action', async () => {
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
+        await boot();
+        await clickDelete();
+
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'Supprimer le logo personnalisé ? Le favicon, les icônes de l\'application et le logo du pied de page reviendront aux icônes par défaut.',
+            confirmLabel: 'Supprimer',
+        }));
+        // Asked BEFORE the request, never after it.
+        expect(window.ScoutMagicConfirm.ask.mock.invocationCallOrder[0])
+            .toBeLessThan(fetch.mock.invocationCallOrder[0]);
     });
 
     it('POSTs the CSRF token and reloads the page on a successful deletion', async () => {
         global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
-        window.confirm = vi.fn(() => true);
         await boot();
-        document.getElementById('unit-logo-delete-btn').click();
+        await clickDelete();
 
         await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalled());
         const [url, init] = fetch.mock.calls[0];
@@ -63,9 +86,8 @@ describe('unit-logo.js — custom logo deletion', () => {
 
     it('toasts the server error and does not reload when the deletion fails', async () => {
         global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: false, error: 'Aucun logo personnalisé.' }) }));
-        window.confirm = vi.fn(() => true);
         await boot();
-        document.getElementById('unit-logo-delete-btn').click();
+        await clickDelete();
 
         await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
         expect(document.querySelector('.toast-body').textContent).toBe('Aucun logo personnalisé.');
@@ -75,9 +97,8 @@ describe('unit-logo.js — custom logo deletion', () => {
 
     it('toasts a generic message on a network failure', async () => {
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
-        window.confirm = vi.fn(() => true);
         await boot();
-        document.getElementById('unit-logo-delete-btn').click();
+        await clickDelete();
 
         await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
         expect(document.querySelector('.toast-body').textContent).toBe('Une erreur est survenue.');

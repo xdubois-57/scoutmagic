@@ -79,6 +79,10 @@ beforeEach(() => {
     meta.content = 'tok';
     document.head.appendChild(meta);
     global.fetch = vi.fn();
+    // The shared confirmation, stubbed: this suite pins that it is ASKED
+    // and awaited before anything is deleted — the dialog itself is
+    // tests/js/confirm.test.js's subject.
+    window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
     delete window.bootstrap;
 });
 
@@ -243,19 +247,20 @@ describe('finance-receipts.js: association dialog', () => {
 });
 
 describe('finance-receipts.js: delete', () => {
-    it('asks confirm() and sends nothing on refusal; deletes with the CSRF token on acceptance', async () => {
+    it('asks the shared confirmation and sends nothing on refusal; deletes with the CSRF token on acceptance', async () => {
         await boot();
         fetch.mockReturnValueOnce(jsonResponse({ success: true, page: 1, total_pages: 1, receipts: [receipt()] }));
         document.getElementById('receipts-filter-btn').click();
         await settle();
         fetch.mockClear();
 
-        vi.spyOn(window, 'confirm').mockReturnValue(false);
+        window.ScoutMagicConfirm.ask.mockResolvedValue(false);
         document.querySelector('.delete-btn').click();
         await settle();
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled();
         expect(fetch).not.toHaveBeenCalled();
 
-        window.confirm.mockReturnValue(true);
+        window.ScoutMagicConfirm.ask.mockResolvedValue(true);
         fetch
             .mockReturnValueOnce(jsonResponse({ success: true }))
             .mockReturnValueOnce(jsonResponse({ success: true, receipts: [], page: 1, total_pages: 1 }));
@@ -265,6 +270,31 @@ describe('finance-receipts.js: delete', () => {
         expect(fetch.mock.calls[0][0]).toBe('/finance/receipts/31');
         expect(fetch.mock.calls[0][1]).toMatchObject({ method: 'DELETE' });
         expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ _csrf_token: 'tok' });
+    });
+
+    it('never calls the native confirm(), and names the action on its button', async () => {
+        const nativeConfirm = vi.fn(() => true);
+        window.confirm = nativeConfirm;
+        await boot();
+        fetch.mockReturnValueOnce(jsonResponse({ success: true, page: 1, total_pages: 1, receipts: [receipt()] }));
+        document.getElementById('receipts-filter-btn').click();
+        await settle();
+        fetch.mockClear();
+        fetch
+            .mockReturnValueOnce(jsonResponse({ success: true }))
+            .mockReturnValueOnce(jsonResponse({ success: true, receipts: [], page: 1, total_pages: 1 }));
+
+        document.querySelector('.delete-btn').click();
+        await settle();
+
+        expect(nativeConfirm).not.toHaveBeenCalled();
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'Supprimer ce reçu ?',
+            confirmLabel: 'Supprimer',
+        }));
+        // The question comes before the DELETE, never after it.
+        expect(window.ScoutMagicConfirm.ask.mock.invocationCallOrder[0])
+            .toBeLessThan(fetch.mock.invocationCallOrder[0]);
     });
 });
 

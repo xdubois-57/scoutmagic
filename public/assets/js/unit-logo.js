@@ -10,7 +10,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     deleteBtn.addEventListener('click', async function() {
-        if (!confirm('Supprimer le logo personnalisé ? Le favicon, les icônes de l\'application et le logo du pied de page reviendront aux icônes par défaut.')) {
+        var confirmed = await window.ScoutMagicConfirm.ask({
+            message: 'Supprimer le logo personnalisé ? Le favicon, les icônes de l\'application et le logo du pied de page reviendront aux icônes par défaut.',
+            confirmLabel: 'Supprimer'
+        });
+        if (!confirmed) {
             return;
         }
 

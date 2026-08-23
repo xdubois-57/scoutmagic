@@ -174,7 +174,10 @@ describe('gallery.js media actions', () => {
                 </div>
             </div>
         `;
-        window.confirm = vi.fn(() => true);
+        // The shared dialog, stubbed: this suite pins that it is asked and
+        // awaited before a delete leaves — confirm.js's own rendering is
+        // tests/js/confirm.test.js's subject.
+        window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
     });
 
     it('sends the CSRF token from the meta tag with a delete', async () => {
@@ -209,6 +212,62 @@ describe('gallery.js media actions', () => {
         await vi.waitFor(() => expect(lastToastText()).not.toBeNull());
 
         expect(lastToastText()).toContain('serveur');
+    });
+
+    it('asks « Supprimer ce média ? » before deleting, and sends nothing when it is declined', async () => {
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
+        window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
+        await loadGallery();
+
+        document.querySelector('.gallery-media-delete').click();
+        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+        await Promise.resolve();
+
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'Supprimer ce média ?',
+            confirmLabel: 'Supprimer',
+        }));
+        expect(fetch).not.toHaveBeenCalled();
+        expect(document.querySelector('.gallery-media-item')).not.toBeNull();
+    });
+});
+
+describe('gallery.js delete-album button', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        document.head.innerHTML = '<meta name="csrf-token" content="tok">';
+        document.body.innerHTML = `
+            <button id="gallery-delete-album" data-url="/gallery/5/delete"></button>
+        `;
+        Object.defineProperty(window, 'location', { configurable: true, value: { href: '/gallery/5/edit' } });
+        window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
+    });
+
+    it('deletes the album and leaves for the manage page once confirmed', async () => {
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
+        await loadGallery();
+
+        document.getElementById('gallery-delete-album').click();
+        await vi.waitFor(() => expect(window.location.href).toBe('/gallery/manage'));
+
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'Supprimer définitivement cet album et tous ses médias ?',
+            confirmLabel: 'Supprimer',
+        }));
+        expect(fetch.mock.calls[0][0]).toBe('/gallery/5/delete');
+    });
+
+    it('sends nothing at all when the confirmation is declined', async () => {
+        global.fetch = vi.fn();
+        window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
+        await loadGallery();
+
+        document.getElementById('gallery-delete-album').click();
+        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+        await Promise.resolve();
+
+        expect(fetch).not.toHaveBeenCalled();
+        expect(window.location.href).toBe('/gallery/5/edit');
     });
 });
 

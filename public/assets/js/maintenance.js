@@ -463,9 +463,13 @@
     }
     var fullResetForm = document.getElementById('full-reset-form');
     if (fullResetForm) {
-        fullResetForm.addEventListener('submit', function (e) {
+        fullResetForm.addEventListener('submit', async function (e) {
             e.preventDefault();
-            if (!window.confirm('Cette action est irréversible : toutes les données du site seront définitivement supprimées. Continuer ?')) {
+            var confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Cette action est irréversible : toutes les données du site seront définitivement supprimées. Continuer ?',
+                confirmLabel: 'Tout supprimer'
+            });
+            if (!confirmed) {
                 return;
             }
             var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('full-reset-submit'));
@@ -526,11 +530,29 @@
 
     var restoreForm = /** @type {HTMLFormElement | null} */ (document.getElementById('restore-backup-form'));
     if (restoreForm) {
+        // The dialog is asynchronous, so the browser's own submission can
+        // never be allowed to continue underneath it: every submit is
+        // stopped here, and the confirmed one is re-sent by hand below.
         restoreForm.addEventListener('submit', function (e) {
-            if (!window.confirm('Cette action va remplacer les données actuelles par celles de la sauvegarde sélectionnée. Continuer ?')) {
-                e.preventDefault();
-                return;
-            }
+            e.preventDefault();
+            window.ScoutMagicConfirm.ask({
+                message: 'Cette action va remplacer les données actuelles par celles de la sauvegarde sélectionnée. Continuer ?',
+                confirmLabel: 'Restaurer'
+            }).then(function (confirmed) {
+                if (confirmed) {
+                    startRestore();
+                }
+            });
+        });
+
+        /**
+         * The confirmed restore: chunk a large archive first, then submit
+         * the form natively. form.submit() deliberately bypasses the
+         * listener above — the confirmation is asked once, never twice.
+         *
+         * @returns {void}
+         */
+        function startRestore() {
             var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit'));
 
             // A large uploaded archive can't ride the classic multipart POST
@@ -545,7 +567,6 @@
             var chunkFile = sourceUploadRadio && sourceUploadRadio.checked
                 && fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
             if (chunker && uploadIdInput && chunkFile && chunkFile.size > chunker.CHUNK_THRESHOLD) {
-                e.preventDefault();
                 submitBtn.disabled = true;
                 var chunkErrorEl = document.getElementById('restore-backup-error');
                 var chunkProgressEl = document.getElementById('restore-backup-progress');
@@ -556,8 +577,8 @@
                 }).then(function (result) {
                     uploadIdInput.value = result.uploadId;
                     fileInput.value = '';
-                    // .submit() bypasses this handler — no second confirm,
-                    // no second chunk pass.
+                    // .submit() bypasses the submit listener — no second
+                    // confirmation, no second chunk pass.
                     restoreForm.submit();
                 }).catch(function (err) {
                     submitBtn.disabled = false;
@@ -573,7 +594,8 @@
             // Classic multipart submit — the server redirects back with
             // ?restore_id={id}, picked up by the polling block below.
             submitBtn.disabled = true;
-        });
+            restoreForm.submit();
+        }
     }
 
     // Resume polling after the classic-form restore redirect.
