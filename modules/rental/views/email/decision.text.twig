@@ -1,0 +1,20 @@
+{#- The plain-text half of decision.html.twig. -#}
+Bonjour {{ booking.renterName }},
+
+{{ announcement }}
+
+{{ asset.name }}, du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}
+Votre référence : {{ booking.reference }}
+{% if manager_word %}
+{{ manager_word }}
+{% endif %}
+{% if call_to_action %}
+{{ call_to_action }}
+{% endif %}
+{% if tracking_url %}
+Votre page de suivi :
+{{ tracking_url }}
+{% endif %}
+
+À bientôt,
+{{ site_name }}

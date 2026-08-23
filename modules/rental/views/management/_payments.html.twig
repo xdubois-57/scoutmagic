@@ -72,33 +72,38 @@
                 <h3 class="h6 mt-4">Acompte</h3>
                 <div class="row g-3 mb-3">
                     <div class="col-12 col-md-4">
-                        <label class="form-label" for="deposit-mode">Type</label>
-                        <select class="form-select" id="deposit-mode" name="deposit_mode">
-                            {% for mode in deposit_modes %}
-                                <option value="{{ mode.value }}"
-                                        {{ payment_settings.depositMode.value == mode.value ? 'selected' : '' }}>
-                                    {{ mode.label }}
-                                </option>
-                            {% endfor %}
-                        </select>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'deposit-mode', field_name: 'deposit_mode', type: 'select',
+                            label: 'Type',
+                            options: deposit_modes|map(mode => {
+                                value: mode.value,
+                                label: mode.label,
+                                selected: payment_settings.depositMode.value == mode.value,
+                            }),
+                        } only %}
                     </div>
                     <div class="col-6 col-md-3">
-                        <label class="form-label" for="deposit-amount">Montant fixe (€)</label>
-                        <input type="text" class="form-control" id="deposit-amount" name="deposit_amount"
-                               inputmode="decimal"
-                               value="{{ payment_settings.depositAmountCents is not null
-                                   ? (payment_settings.depositAmountCents / 100)|number_format(2, ',', '') : '' }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'deposit-amount', field_name: 'deposit_amount',
+                            label: 'Montant fixe (€)', inputmode: 'decimal',
+                            value: payment_settings.depositAmountCents is not null
+                                ? (payment_settings.depositAmountCents / 100)|number_format(2, ',', '') : '',
+                        } only %}
                     </div>
                     <div class="col-6 col-md-2">
-                        <label class="form-label" for="deposit-percentage">Pourcentage</label>
-                        <input type="number" min="0" max="100" class="form-control" id="deposit-percentage"
-                               name="deposit_percentage" value="{{ payment_settings.depositPercentage }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'deposit-percentage', field_name: 'deposit_percentage', type: 'number',
+                            label: 'Pourcentage', min: 0, max: 100,
+                            value: payment_settings.depositPercentage,
+                        } only %}
                     </div>
                     <div class="col-6 col-md-3">
-                        <label class="form-label" for="deposit-due-days">Échéance (jours)</label>
-                        <input type="number" min="0" class="form-control" id="deposit-due-days"
-                               name="deposit_due_days" value="{{ payment_settings.depositDueDays }}">
-                        <div class="form-text">Après la confirmation.</div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'deposit-due-days', field_name: 'deposit_due_days', type: 'number',
+                            label: 'Échéance (jours)', min: 0,
+                            help: 'Après la confirmation.',
+                            value: payment_settings.depositDueDays,
+                        } only %}
                     </div>
                 </div>
 
@@ -128,16 +133,19 @@
                         </div>
                     </div>
                     <div class="col-6 col-md-4">
-                        <label class="form-label" for="security-deposit-amount">Montant (€)</label>
-                        <input type="text" class="form-control" id="security-deposit-amount"
-                               name="security_deposit_amount" inputmode="decimal"
-                               value="{{ payment_settings.securityDepositAmountCents is not null
-                                   ? (payment_settings.securityDepositAmountCents / 100)|number_format(2, ',', '') : '' }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'security-deposit-amount', field_name: 'security_deposit_amount',
+                            label: 'Montant (€)', inputmode: 'decimal',
+                            value: payment_settings.securityDepositAmountCents is not null
+                                ? (payment_settings.securityDepositAmountCents / 100)|number_format(2, ',', '') : '',
+                        } only %}
                     </div>
                     <div class="col-6 col-md-4">
-                        <label class="form-label" for="security-deposit-due-days">Échéance (jours)</label>
-                        <input type="number" min="0" class="form-control" id="security-deposit-due-days"
-                               name="security_deposit_due_days" value="{{ payment_settings.securityDepositDueDays }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'security-deposit-due-days', field_name: 'security_deposit_due_days',
+                            type: 'number', label: 'Échéance (jours)', min: 0,
+                            value: payment_settings.securityDepositDueDays,
+                        } only %}
                     </div>
                 </div>
 

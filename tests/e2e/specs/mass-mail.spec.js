@@ -26,6 +26,7 @@
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
+import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { pngBuffer } from '../support/png.js';
 import { readMailbox, waitForMail } from '../support/maildrop.js';
@@ -56,9 +57,12 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
         }
     });
 
-    // "Lancer l'envoi" stands behind a window.confirm — accepted here,
-    // the way the chief answers it.
-    page.on('dialog', (dialog) => dialog.accept());
+    // "Lancer l'envoi" asks before it freezes the recipients — through the
+    // site's own modal now (public/assets/js/mass-mail-list.js →
+    // window.ScoutMagicConfirm), which no Playwright dialog handler can
+    // see. Answered here the way the chief answers it, and installed
+    // before the first navigation because the observer is an init script.
+    await autoConfirm(page);
 
     await loginAsAdmin(page);
     await answerCookieBanner(page);
@@ -101,6 +105,12 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
     // ---------------------------------------------------------------
     // Attachment, now that the draft exists: a real multipart POST.
     // ---------------------------------------------------------------
+    // Saving reloaded the page, and mass-mail-list.js is deferred: the row
+    // is server-rendered and therefore visible BEFORE the script that
+    // makes its buttons do anything has run. Without this wait the click
+    // below lands on a button with no listener yet and the dialog simply
+    // never opens.
+    await page.waitForLoadState('load');
     await row.locator('.mm-open-btn').click();
     await expect(dialog).toBeVisible();
     await expect(dialog.locator('#mm-subject')).toHaveValue(SUBJECT);

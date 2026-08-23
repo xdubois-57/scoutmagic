@@ -70,7 +70,7 @@ class ConfigurationParametersCollector implements SupportCollectorInterface
             SupportSpreadsheet::build(
                 ['Clé', 'Module', 'Libellé', 'Type', 'Valeur courante', 'Valeur par défaut', 'Diffère du défaut', 'Éditable'],
                 $rows,
-                'Paramètres'
+                'Réglages'
             )
         );
     }

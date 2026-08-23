@@ -174,7 +174,9 @@ class OvhApiClient
             if ($responseBody === false) {
                 $error = curl_error($ch);
                 curl_close($ch);
-                throw new OvhApiException("Erreur réseau lors de l'appel à l'API OVH : {$error}");
+                // cURL's text is English and names libraries, hosts and TLS
+                // internals — it is carried as $detail, not shown.
+                throw OvhApiException::networkFailure($error);
             }
             \assert(is_string($responseBody));
 
@@ -194,10 +196,14 @@ class OvhApiClient
         $decoded = $response['body'] !== '' ? json_decode($response['body'], true) : null;
 
         if ($response['status'] >= 400) {
-            $message = is_array($decoded) && isset($decoded['message'])
+            // OVH's own `message` field is English ("This call has not been
+            // granted", "Invalid signature") and used to be rendered as-is
+            // on the configuration page. It is a detail for the journal;
+            // the status code is what the sentence keeps.
+            $detail = is_array($decoded) && isset($decoded['message'])
                 ? (string) $decoded['message']
-                : "Erreur OVH (HTTP {$response['status']}).";
-            throw new OvhApiException($message);
+                : $response['body'];
+            throw OvhApiException::httpError($response['status'], $detail);
         }
 
         return is_array($decoded) ? $decoded : [];

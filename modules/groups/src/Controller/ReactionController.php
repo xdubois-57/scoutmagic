@@ -251,8 +251,8 @@ class ReactionController extends AbstractController
      */
     private function reactAction(Request $request, array $params, bool $compact, callable $toggle): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/groups/' . (int) ($params['id'] ?? 0))) !== null) {
+            return $guard;
         }
 
         $context = $this->context();

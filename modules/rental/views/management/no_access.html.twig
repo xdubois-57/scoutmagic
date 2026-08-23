@@ -10,8 +10,8 @@
   reached precisely by people the module must tell nothing to.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 720px;">
-        <h1 class="h3 mb-3">Mes locations</h1>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with { title: 'Mes locations' } only %}
 
         <div class="card">
             <div class="card-body">

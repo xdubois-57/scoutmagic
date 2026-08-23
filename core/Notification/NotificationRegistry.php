@@ -69,7 +69,7 @@ class NotificationRegistry
                 channels: ['in_app' => 'default_on', 'push' => 'default_off', 'email' => 'default_off']
             ),
             // Manually triggered by a superadmin from the logo upload
-            // block (Configuration avancée, /setup) after a unit logo
+            // block (Installation & serveur, /setup) after a unit logo
             // change — never automatically on every upload (see Core\
             // Http\Controller\SettingsController::notifyIosLogoUpdate()).
             // Broadcast to every account, not just iOS ones — the site has

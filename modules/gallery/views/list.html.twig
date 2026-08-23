@@ -3,10 +3,13 @@
 {% block title %}Galerie — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="h4 mb-3">Galerie</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Galerie' } only %}
 
     {% if albums is empty %}
-        <p class="text-body-secondary text-center py-5">Aucun album pour le moment.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun album pour le moment.',
+            icon: 'bi-images',
+        } only %}
     {% else %}
         <div class="row g-3">
             {% for row in albums %}
@@ -14,8 +17,8 @@
                 <div class="col-6 col-md-4 col-lg-3">
                     {% if row.storage_unavailable %}
                         <div class="card h-100">
-                            <div class="bg-light d-flex flex-column align-items-center justify-content-center text-body-secondary" style="aspect-ratio:1/1;overflow:hidden;">
-                                <i class="bi bi-exclamation-triangle" style="font-size:2rem;"></i>
+                            <div class="bg-body-tertiary d-flex flex-column align-items-center justify-content-center text-body-secondary" style="aspect-ratio:1/1;overflow:hidden;">
+                                <i class="bi bi-exclamation-triangle" style="font-size:2rem;" aria-hidden="true"></i>
                                 <span class="small mt-1">Indisponible</span>
                             </div>
                             <div class="card-body p-2">
@@ -32,11 +35,11 @@
                            class="text-decoration-none text-body"
                            {% if album.type == 'external' %}target="_blank" rel="noopener noreferrer"{% endif %}>
                             <div class="card h-100">
-                                <div class="bg-light d-flex align-items-center justify-content-center" style="aspect-ratio:1/1;overflow:hidden;">
+                                <div class="bg-body-tertiary d-flex align-items-center justify-content-center" style="aspect-ratio:1/1;overflow:hidden;">
                                     {% if row.cover_url %}
                                         <img src="{{ row.cover_url }}" alt="" class="w-100 h-100" style="object-fit:cover;">
                                     {% else %}
-                                        <i class="bi bi-images text-muted" style="font-size:2rem;"></i>
+                                        <i class="bi bi-images text-body-secondary" style="font-size:2rem;" aria-hidden="true"></i>
                                     {% endif %}
                                 </div>
                                 <div class="card-body p-2">

@@ -130,10 +130,21 @@ class RequestEmailService
                 'registration_status_email_failed',
                 'info',
                 "Échec de l'envoi d'un email de décision — lien de suivi inchangé, réessai possible",
-                ['request_id' => $request->id, 'content_key' => $contentKey]
+                [
+                    'request_id' => $request->id,
+                    'content_key' => $contentKey,
+                    // Core\Mail\MailException is built from PHPMailer's
+                    // ErrorInfo — raw SMTP English, and the reason this
+                    // never goes in the sentence below.
+                    'mail_error' => $e->getMessage(),
+                ]
             );
 
-            throw new RegistrationException("Échec de l'envoi de l'email : {$e->getMessage()}");
+            throw new RegistrationException(
+                "L'email n'a pas pu être envoyé à la famille — le lien de suivi précédent reste valable, réessayez dans quelques instants.",
+                0,
+                $e
+            );
         }
 
         $this->repository->storeTrackingTokenHash($request->id, $trackingToken);

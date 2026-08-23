@@ -190,7 +190,7 @@ class GroupMemberController extends AbstractController
      */
     public function inviteMember(Request $request, array $params): Response
     {
-        return $this->moderatorAction($params, function (DiscussionGroup $group, GroupSessionContext $context) use ($request) {
+        return $this->moderatorAction($request, $params, function (DiscussionGroup $group, GroupSessionContext $context) use ($request) {
             $memberId = (int) $request->getBody('member_id', 0);
             if ($memberId > 0) {
                 $this->groupService->inviteMember($group, $memberId, $context->linkedMemberIds[0] ?? 0);
@@ -213,7 +213,7 @@ class GroupMemberController extends AbstractController
      */
     public function inviteSection(Request $request, array $params): Response
     {
-        return $this->moderatorAction($params, function (DiscussionGroup $group) use ($request) {
+        return $this->moderatorAction($request, $params, function (DiscussionGroup $group) use ($request) {
             $sectionId = (int) $request->getBody('section_id', 0);
             if ($sectionId > 0) {
                 $this->groupService->inviteSection($group, $sectionId);
@@ -230,7 +230,7 @@ class GroupMemberController extends AbstractController
      */
     public function setModerator(Request $request, array $params): Response
     {
-        return $this->moderatorAction($params, function (DiscussionGroup $group, GroupSessionContext $context) use ($request) {
+        return $this->moderatorAction($request, $params, function (DiscussionGroup $group, GroupSessionContext $context) use ($request) {
             $memberId = (int) $request->getBody('member_id', 0);
             $grant = (string) $request->getBody('is_moderator', '0') === '1';
             $accountId = (int) $request->getBody('user_account_id', 0);
@@ -248,13 +248,22 @@ class GroupMemberController extends AbstractController
             }
 
             if ($memberId > 0) {
-                $this->groupService->setModerator(
+                $done = $this->groupService->setModerator(
                     $group,
                     $memberId,
                     $grant,
                     $context->linkedMemberIds[0] ?? 0,
                     $grant ? $accountId : null
                 );
+
+                // The same rule as leaving (LeaveOutcome::LAST_MODERATOR),
+                // told the same way this page tells its other refusal: a
+                // group must keep a moderator of its own, and revoking the
+                // last one is refused rather than performed.
+                if (!$done) {
+                    FlashMessage::set('error', 'Ce compte est le dernier modérateur de ce groupe : désignez '
+                        . 'd\'abord un autre modérateur avant de lui retirer la modération.');
+                }
             }
 
             return $this->redirect('/groups/' . $group->id . '/members');
@@ -268,10 +277,14 @@ class GroupMemberController extends AbstractController
      */
     public function removeMember(Request $request, array $params): Response
     {
-        return $this->moderatorAction($params, function (DiscussionGroup $group) use ($request) {
+        return $this->moderatorAction($request, $params, function (DiscussionGroup $group) use ($request) {
             $memberId = (int) $request->getBody('member_id', 0);
-            if ($memberId > 0) {
-                $this->groupService->removeMember($group, $memberId);
+            if ($memberId > 0 && !$this->groupService->removeMember($group, $memberId)) {
+                // Same protection as a voluntary departure: the last
+                // moderator cannot be removed either, or the group would
+                // be left with nobody of its own in charge.
+                FlashMessage::set('error', 'Ce membre est le dernier modérateur de ce groupe : désignez '
+                    . 'd\'abord un autre modérateur avant de le retirer.');
             }
 
             return $this->redirect('/groups/' . $group->id . '/members');
@@ -293,8 +306,8 @@ class GroupMemberController extends AbstractController
      */
     public function leave(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/groups/' . (int) ($params['id'] ?? 0) . '/members')) !== null) {
+            return $guard;
         }
 
         $context = $this->context();
@@ -350,10 +363,10 @@ class GroupMemberController extends AbstractController
      * @param array<string, string> $params
      * @param callable(DiscussionGroup, GroupSessionContext): Response $action
      */
-    private function moderatorAction(array $params, callable $action): Response
+    private function moderatorAction(Request $request, array $params, callable $action): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/groups/' . (int) ($params['id'] ?? 0) . '/members')) !== null) {
+            return $guard;
         }
 
         $context = $this->context();

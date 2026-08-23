@@ -3,10 +3,9 @@
 {% block title %}{{ location ? 'Modifier l\'emplacement' : 'Nouvel emplacement de stockage' }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
-        <h1 class="h4 mb-0">{{ location ? 'Modifier l\'emplacement de stockage' : 'Nouvel emplacement de stockage' }}</h1>
-        <a href="/config/gallery" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Retour</a>
-    </div>
+    {# The way back to the gallery config lives in the breadcrumb trail
+       (design.md §7.3) — no « Retour » button here. #}
+    {% include 'partials/page_header.html.twig' with { title: location ? 'Modifier l\'emplacement de stockage' : 'Nouvel emplacement de stockage' } only %}
 
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>
@@ -26,8 +25,15 @@
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
-                        <label class="form-label small" for="location-label">Nom de l'emplacement</label>
-                        <input type="text" class="form-control" id="location-label" name="label" value="{{ location.label ?? '' }}" maxlength="255" required>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'location-label',
+                            field_name: 'label',
+                            label: "Nom de l'emplacement",
+                            value: location.label ?? '',
+                            maxlength: 255,
+                            required: true,
+                            size: 'sm',
+                        } only %}
                     </div>
 
                     <div class="col-12">
@@ -35,10 +41,10 @@
                         <div class="btn-group w-100" role="group">
                             <input type="radio" class="btn-check" name="type" id="storage-local" value="local" autocomplete="off"
                                    {{ location and location.type == 's3' ? '' : 'checked' }} {{ location ? 'disabled' : '' }}>
-                            <label class="btn btn-outline-primary" for="storage-local"><i class="bi bi-hdd"></i> Stockage local</label>
+                            <label class="btn btn-outline-primary" for="storage-local"><i class="bi bi-hdd" aria-hidden="true"></i> Stockage local</label>
                             <input type="radio" class="btn-check" name="type" id="storage-s3" value="s3" autocomplete="off"
                                    {{ location and location.type == 's3' ? 'checked' : '' }} {{ location ? 'disabled' : '' }}>
-                            <label class="btn btn-outline-primary" for="storage-s3"><i class="bi bi-cloud"></i> Stockage objet (S3)</label>
+                            <label class="btn btn-outline-primary" for="storage-s3"><i class="bi bi-cloud" aria-hidden="true"></i> Stockage objet (S3)</label>
                         </div>
                         {% if location %}
                             {# Disabled radios don't submit their value — resend it as a hidden field so the type is preserved. #}
@@ -47,8 +53,13 @@
                     </div>
 
                     <div class="col-12 col-md-6 gallery-storage-local">
-                        <label class="form-label small" for="storage-local-subdir">Sous-dossier local</label>
-                        <input type="text" class="form-control" id="storage-local-subdir" name="subdir" value="{{ location.subdir ?? 'gallery' }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'storage-local-subdir',
+                            field_name: 'subdir',
+                            label: 'Sous-dossier local',
+                            value: location.subdir ?? 'gallery',
+                            size: 'sm',
+                        } only %}
                     </div>
                 </div>
 
@@ -106,20 +117,43 @@
                     </div>
 
                     <div class="col-12 col-md-6">
-                        <label class="form-label small" for="s3-endpoint">Endpoint</label>
-                        <input type="url" class="form-control" id="s3-endpoint" name="s3_endpoint" value="{{ location.s3Endpoint ?? '' }}" placeholder="https://...">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 's3-endpoint',
+                            field_name: 's3_endpoint',
+                            label: 'Endpoint',
+                            type: 'url',
+                            value: location.s3Endpoint ?? '',
+                            placeholder: 'https://...',
+                            size: 'sm',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-3">
-                        <label class="form-label small" for="s3-region">Région</label>
-                        <input type="text" class="form-control" id="s3-region" name="s3_region" value="{{ location.s3Region ?? '' }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 's3-region',
+                            field_name: 's3_region',
+                            label: 'Région',
+                            value: location.s3Region ?? '',
+                            size: 'sm',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-3">
-                        <label class="form-label small" for="s3-bucket">Bucket</label>
-                        <input type="text" class="form-control" id="s3-bucket" name="s3_bucket" value="{{ location.s3Bucket ?? '' }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 's3-bucket',
+                            field_name: 's3_bucket',
+                            label: 'Bucket',
+                            value: location.s3Bucket ?? '',
+                            size: 'sm',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label small" for="s3-access-key">Access key</label>
-                        <input type="text" class="form-control" id="s3-access-key" name="s3_access_key" value="{{ location.s3AccessKey ?? '' }}" autocomplete="off">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 's3-access-key',
+                            field_name: 's3_access_key',
+                            label: 'Access key',
+                            value: location.s3AccessKey ?? '',
+                            autocomplete: 'off',
+                            size: 'sm',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-6">
                         <label class="form-label small" for="s3-secret-key">Secret key</label>
@@ -127,20 +161,27 @@
                         <div class="form-text">{{ location and location.secretConfigured ? 'Laisser vide pour conserver la clé actuelle.' : '' }}</div>
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label small" for="s3-public-url">URL publique (CDN, optionnel)</label>
-                        <input type="url" class="form-control" id="s3-public-url" name="s3_public_url" value="{{ location.s3PublicUrl ?? '' }}" placeholder="https://cdn.example.org">
-                        <div class="form-text">Si vide, les médias sont servis via une URL signée temporaire.</div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 's3-public-url',
+                            field_name: 's3_public_url',
+                            label: 'URL publique (CDN, optionnel)',
+                            type: 'url',
+                            value: location.s3PublicUrl ?? '',
+                            placeholder: 'https://cdn.example.org',
+                            help: 'Si vide, les médias sont servis via une URL signée temporaire.',
+                            size: 'sm',
+                        } only %}
                     </div>
                     <div class="col-12">
                         <button type="button" class="btn btn-outline-secondary btn-sm" id="s3-test-connection"
                                 data-location-id="{{ location.id ?? '' }}">
-                            <i class="bi bi-plug"></i> Tester la connexion
+                            <i class="bi bi-plug" aria-hidden="true"></i> Tester la connexion
                         </button>
                         <div id="s3-test-result" class="mt-2"></div>
                         {% if gallery_s3_ai_available %}
                             <div id="s3-explain-wrap" class="mt-2 d-none">
                                 <button type="button" class="btn btn-outline-secondary btn-sm" id="s3-explain-ai">
-                                    <i class="bi bi-stars"></i> Expliquer avec l'IA
+                                    <i class="bi bi-stars" aria-hidden="true"></i> Expliquer avec l'IA
                                 </button>
                                 <div id="s3-explain-result" class="mt-2"></div>
                             </div>

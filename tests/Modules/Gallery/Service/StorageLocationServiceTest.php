@@ -131,6 +131,30 @@ class StorageLocationServiceTest extends TestCase
         $this->assertSame('stale cached failure', $result->lastCheckError);
     }
 
+    /**
+     * `lastCheckError` is rendered on the gallery configuration page, and
+     * checkNow() used to store S3StorageBackend::testConnection()'s return
+     * value straight from the AWS SDK — "Error executing \"HeadBucket\" …
+     * AWS HTTP error: cURL error 7", endpoint and request id included.
+     */
+    public function testAFailedS3CheckStoresAFrenchReasonNotAnSdkMessage(): void
+    {
+        $id = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_S3, 'Bucket', null, 'custom',
+            'http://127.0.0.1:1', 'eu', 'bucket', 'access-key', null, 'secret'
+        );
+
+        $this->service->checkNow($this->storageLocationRepository->findById($id));
+
+        $location = $this->storageLocationRepository->findById($id);
+        $this->assertFalse($location->lastCheckOk);
+        $stored = (string) $location->lastCheckError;
+        foreach (['AWS', 'cURL', 'HeadBucket', 'Error executing', 'GuzzleHttp', 'http://'] as $fragment) {
+            $this->assertStringNotContainsStringIgnoringCase($fragment, $stored);
+        }
+        $this->assertStringContainsString('Connexion au bucket impossible', $stored);
+    }
+
     public function testResolveLocationForAlbumReturnsTheAlbumsOwnLocation(): void
     {
         $id = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Local', 'gallery', null, null, null, null, null, null, null);

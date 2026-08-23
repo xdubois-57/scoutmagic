@@ -68,9 +68,14 @@ async function loginWithPassword(page, emailVariable, passwordVariable) {
 
     await page.getByRole('tab', { name: 'Mot de passe' }).click();
 
-    // exact: the "forgot password" sub-form in this same panel is labelled
-    // "Adresse email du compte", which a substring match would also hit.
-    await passwordTab.getByLabel('Adresse email', { exact: true }).fill(email);
+    // Anchored regex rather than `{ exact: true }`: partials/form_field.html.twig
+    // appends a visible « * » to the label of every required field, so the
+    // label now reads "Adresse email *". The anchors keep it apart from the
+    // "forgot password" sub-form in this same panel, labelled "Adresse email
+    // du compte", which a plain substring match would also hit. Same selector
+    // as auth-methods.spec.js and password-reset.spec.js, and as the login
+    // template's own comment names.
+    await passwordTab.getByLabel(/^Adresse email \*$/).fill(email);
     await passwordTab.getByLabel('Mot de passe', { exact: true }).fill(password);
     // Mandatory RGPD consent — the server refuses the login without it
     // (AuthController::hasRgpdConsent()), so this is part of the flow, not

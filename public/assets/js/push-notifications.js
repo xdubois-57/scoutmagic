@@ -17,11 +17,6 @@
     var errorNotice = document.getElementById('push-error-notice');
     var vapidPublicKey = toggle.dataset.vapidPublicKey || '';
 
-    function csrf() {
-        var meta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
-        return meta ? meta.content : '';
-    }
-
     function hideNotices() {
         [unsupportedNotice, deniedNotice, errorNotice].forEach(function (el) {
             if (el) el.classList.add('d-none');
@@ -80,24 +75,15 @@
 
     function postSubscription(subscription) {
         var json = subscription.toJSON();
-        return fetch('/api/push-subscription', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                endpoint: json.endpoint,
-                auth_key: json.keys.auth,
-                p256dh_key: json.keys.p256dh,
-                _csrf_token: csrf()
-            })
-        }).then(function (res) { return res.json(); });
+        return window.ScoutMagicApi.postJson('/api/push-subscription', {
+            endpoint: json.endpoint,
+            auth_key: json.keys.auth,
+            p256dh_key: json.keys.p256dh
+        });
     }
 
     function deleteSubscription(endpoint) {
-        return fetch('/api/push-subscription', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ endpoint: endpoint, _csrf_token: csrf() })
-        }).then(function (res) { return res.json(); });
+        return window.ScoutMagicApi.postJson('/api/push-subscription', { endpoint: endpoint }, { method: 'DELETE' });
     }
 
     function enable() {
@@ -118,7 +104,10 @@
                 })
                 .then(postSubscription)
                 .then(function (result) {
-                    if (!result.success) {
+                    // A transport failure or an HTTP error page both land
+                    // here as a data-less envelope — same outcome as a
+                    // server-refused subscription.
+                    if (!result.data || !result.data.success) {
                         toggle.checked = false;
                         syncAriaChecked();
                         if (errorNotice) errorNotice.classList.remove('d-none');
@@ -140,6 +129,10 @@
                 var endpoint = subscription.endpoint;
                 return subscription.unsubscribe().then(function () {
                     return deleteSubscription(endpoint);
+                }).then(function (result) {
+                    if (result && !result.ok && errorNotice) {
+                        errorNotice.classList.remove('d-none');
+                    }
                 });
             })
             .catch(function () {

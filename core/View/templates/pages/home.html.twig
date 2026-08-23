@@ -13,32 +13,42 @@
               "Something happened in your groups" — the one surface every
               visitor passes through, for the member the notification bell
               never reaches (no push permission granted, or simply never
-              looked at it). Only ever non-empty for a signed-in member of
+              looked at it). Only ever non-null for a signed-in member of
               a group with unread activity: the provider
               (Core\Module\HomeGroupActivityProvider, implemented by
               Modules\Groups\Api\HomeActivityService) resolves the caller
-              itself and returns nothing for anyone else, so no membership
+              itself and returns null for anyone else, so no membership
               check belongs in this template.
+
+              Banner-shaped on purpose — same visual weight as the banner
+              block above it, never a card taller than the welcome text it
+              introduces. Three counters, and one action: the single
+              unread group directly, or the list when there are several.
             #}
-            {% if unread_groups|default([]) is not empty %}
-                <div class="card border-primary-subtle mb-4">
-                    <div class="card-body">
-                        <h2 class="h6 d-flex align-items-center gap-2 mb-3">
-                            <i class="bi bi-chat-dots text-primary" aria-hidden="true"></i>
-                            Du nouveau dans vos groupes
-                        </h2>
-                        <div class="list-group list-group-flush">
-                            {% for group in unread_groups %}
-                                <a href="/groups/{{ group.id }}"
-                                   class="list-group-item list-group-item-action d-flex align-items-center justify-content-between gap-2 px-0"
-                                   style="min-height:44px;">
-                                    <span class="fw-semibold">{{ group.name }}</span>
-                                    <span class="small text-body-secondary flex-shrink-0">{{ group.last_activity_at|relative_date }}</span>
-                                </a>
-                            {% endfor %}
-                        </div>
-                        <a href="/groups" class="btn btn-sm btn-outline-primary mt-3" style="min-height:44px;">Voir tous mes groupes</a>
+            {% if group_activity|default(null) is not null %}
+                {% set activity_parts = [] %}
+                {% if group_activity.new_posts > 0 %}
+                    {% set activity_parts = activity_parts|merge([group_activity.new_posts ~ (group_activity.new_posts > 1 ? ' nouveaux messages' : ' nouveau message')]) %}
+                {% endif %}
+                {% if group_activity.new_replies_or_reactions > 0 %}
+                    {% set activity_parts = activity_parts|merge([group_activity.new_replies_or_reactions ~ (group_activity.new_replies_or_reactions > 1 ? ' réactions ou réponses' : ' réaction ou réponse')]) %}
+                {% endif %}
+                {% if group_activity.new_mentions > 0 %}
+                    {% set activity_parts = activity_parts|merge([group_activity.new_mentions ~ (group_activity.new_mentions > 1 ? ' mentions' : ' mention')]) %}
+                {% endif %}
+                <div class="alert alert-primary d-flex flex-wrap align-items-center gap-2 mb-4">
+                    <i class="bi bi-chat-dots" aria-hidden="true"></i>
+                    <div class="flex-grow-1">
+                        <strong>Du nouveau dans vos groupes</strong>
+                        {% if activity_parts is not empty %}
+                            <span class="d-block small">{{ activity_parts|join(' · ') }}</span>
+                        {% endif %}
                     </div>
+                    {% if group_activity.single_group is not null %}
+                        <a href="/groups/{{ group_activity.single_group.id }}" class="btn btn-sm btn-primary">Ouvrir {{ group_activity.single_group.name }}</a>
+                    {% else %}
+                        <a href="/groups" class="btn btn-sm btn-primary">Voir mes groupes</a>
+                    {% endif %}
                 </div>
             {% endif %}
             <div class="mb-4">

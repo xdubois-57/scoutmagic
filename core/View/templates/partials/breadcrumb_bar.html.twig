@@ -15,7 +15,7 @@
    module.json's `routes[].breadcrumb` for module routes) — a route that
    declares none simply stops the trail at the home icon. `parents` are
    ancestor labels naming a *menu* (Core\View\MenuBuilder's `label`, e.g.
-   "Espace chefs" — core routes derive this from
+   "Espace animateurs" — core routes derive this from
    Core\View\MenuBuilder::labelFor() rather than repeating the string, so a
    label rename only ever needs changing in MenuBuilder::MENUS itself;
    module.json breadcrumbs still hardcode their own copy, since a JSON
@@ -59,11 +59,11 @@
    offer at all. Without this, a visitor several levels into such a section
    has nothing but the browser's back button, which is exactly what pushed
    one module into hand-rolling "← Réservations" links of its own. #}
-<nav class="breadcrumb-bar{{ breadcrumb_trail|default([]) is not empty ? ' breadcrumb-bar--has-trail' : '' }} border-bottom bg-light px-3 py-2" aria-label="Fil d'Ariane">
+<nav class="breadcrumb-bar{{ breadcrumb_trail|default([]) is not empty ? ' breadcrumb-bar--has-trail' : '' }} border-bottom bg-body-tertiary px-3 py-2" aria-label="Fil d'Ariane">
     <ol class="breadcrumb mb-0 small align-items-center">
         <li class="breadcrumb-item">
             <a href="/" class="text-decoration-none" aria-label="Accueil">
-                <i class="bi bi-house-door"></i>
+                <i class="bi bi-house-door" aria-hidden="true"></i>
             </a>
         </li>
         {% set breadcrumb = route_breadcrumb|default(null) %}

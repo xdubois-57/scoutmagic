@@ -27,6 +27,16 @@ document.addEventListener('DOMContentLoaded', function () {
             headers: { 'X-CSRF-Token': getCsrf() }
         }).then(function () {
             banner.remove();
+            // Withdrawing functional consent also withdraws the stored
+            // theme preference (public/assets/js/theme.js — functional
+            // category, declared in core/Cookie/CookieRegistry.php): the
+            // current page keeps its look until the next load, where the
+            // 'automatique' default takes over.
+            try {
+                localStorage.removeItem('theme_preference');
+            } catch (e) {
+                // Storage disabled — nothing was ever persisted anyway.
+            }
             // Withdrawing functional consent (Lot 3) must purge the
             // offline content caches immediately AND stop the service
             // worker writing to them again before the next page load —

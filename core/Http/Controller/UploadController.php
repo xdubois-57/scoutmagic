@@ -89,9 +89,8 @@ class UploadController extends AbstractController
      */
     public function store(Request $request, array $params): Response
     {
-        $csrf = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return (new Response('', 403))->setBody('Forbidden: invalid CSRF token.');
+        if (($guard = $this->guardCsrf($request, SafeRedirect::internalPath((string) $request->getBody('return_url', '/')))) !== null) {
+            return $guard;
         }
 
         $context = (string) $request->getBody('context', '');
@@ -123,7 +122,7 @@ class UploadController extends AbstractController
             // files) or can't run (JS disabled, non-browser client).
             $maxSize = 10 * 1024 * 1024;
 
-            // unit_logo (Configuration avancée's "Paramètres généraux"
+            // unit_logo (Installation & serveur's "Paramètres généraux"
             // logo upload — feeds the favicon, the installed-app icons,
             // and the footer logo) is deliberately never handed to
             // UploadHandler::handle() at all: it never becomes a `files`
@@ -381,7 +380,7 @@ class UploadController extends AbstractController
             return Role::fromString(AuthSession::getRole())->hasAccess(Role::SUPERADMIN);
         }
 
-        // unit_logo (Configuration > Paramètres généraux's logo upload) —
+        // unit_logo (Installation & serveur > Paramètres généraux's logo upload) —
         // same direct role check as age_branch_logo above: its own admin
         // page is already superadmin-gated, not the front-end
         // configuration-mode overlay, so there's no session flag to

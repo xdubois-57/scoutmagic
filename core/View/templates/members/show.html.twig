@@ -35,14 +35,17 @@
                 <div class="card-body">
                     <h2 class="h5 mb-3">Informations essentielles</h2>
                     {% if not section_info %}
-                        <p class="text-body-secondary small mb-0">Aucune section connue pour ce membre.</p>
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucune section connue pour ce membre.',
+                            compact: true,
+                        } only %}
                     {% else %}
                         <div class="mb-3">
                             <span class="text-body-secondary d-block small">Section</span>
                             {{ section_info.section.name ?? section_info.section.desk_code }}
                             {% if section_info.section.email %}
                                 <div class="small">
-                                    <i class="bi bi-envelope text-body-secondary"></i>
+                                    <i class="bi bi-envelope text-body-secondary" aria-hidden="true"></i>
                                     <a href="mailto:{{ section_info.section.email }}">{{ section_info.section.email }}</a>
                                 </div>
                             {% endif %}
@@ -103,12 +106,12 @@
                             <div class="d-flex flex-wrap gap-2 mt-3">
                                 {% if trombinoscope_enabled %}
                                     <a href="/trombinoscope?section={{ section_info.section.id }}" class="btn btn-sm btn-outline-secondary">
-                                        <i class="bi bi-people"></i> Trombinoscope de la section
+                                        <i class="bi bi-people" aria-hidden="true"></i> Trombinoscope de la section
                                     </a>
                                 {% endif %}
                                 {% if calendar_enabled %}
                                     <a href="/calendar?section={{ section_info.section.id }}" class="btn btn-sm btn-outline-secondary">
-                                        <i class="bi bi-calendar3"></i> Calendrier de la section
+                                        <i class="bi bi-calendar3" aria-hidden="true"></i> Calendrier de la section
                                     </a>
                                 {% endif %}
                             </div>
@@ -134,7 +137,10 @@
                                 {% endfor %}
                             </ul>
                         {% else %}
-                            <p class="text-body-secondary small mb-0">Aucune communication pour le moment.</p>
+                            {% include 'partials/empty_state.html.twig' with {
+                                message: 'Aucune communication pour le moment.',
+                                compact: true,
+                            } only %}
                         {% endif %}
                     </div>
                 </div>
@@ -152,14 +158,17 @@
                                 {% for document in member_documents %}
                                     <li class="d-flex justify-content-between border-bottom py-2">
                                         <a href="{{ file_url(document.fileId) }}" class="text-decoration-none">
-                                            <i class="bi bi-file-earmark-lock"></i> {{ document.title }}
+                                            <i class="bi bi-file-earmark-lock" aria-hidden="true"></i> {{ document.title }}
                                         </a>
                                         <span class="text-body-secondary">{{ document.createdAt|french_date }}</span>
                                     </li>
                                 {% endfor %}
                             </ul>
                         {% else %}
-                            <p class="text-body-secondary small mb-0">Aucun document privé pour le moment.</p>
+                            {% include 'partials/empty_state.html.twig' with {
+                                message: 'Aucun document privé pour le moment.',
+                                compact: true,
+                            } only %}
                         {% endif %}
                     </div>
                 </div>
@@ -186,7 +195,7 @@
                                     {% for document in year_block.documents %}
                                         <li class="d-flex justify-content-between border-bottom py-2">
                                             <a href="{{ file_url(document.fileId) }}" class="text-decoration-none" target="_blank" rel="noopener">
-                                                <i class="bi bi-file-earmark-arrow-down"></i> {{ document.title }}
+                                                <i class="bi bi-file-earmark-arrow-down" aria-hidden="true"></i> {{ document.title }}
                                                 {% if document.description %}
                                                     <span class="text-body-secondary">— {{ document.description }}</span>
                                                 {% endif %}
@@ -218,11 +227,11 @@
                                            third-party album URL verbatim). #}
                                         <a href="{{ album.url }}" class="text-decoration-none text-body"
                                            {% if album.url starts with 'http' %}target="_blank" rel="noopener noreferrer"{% endif %}>
-                                            <div class="bg-light rounded d-flex align-items-center justify-content-center" style="aspect-ratio:1/1;overflow:hidden;">
+                                            <div class="bg-body-tertiary rounded d-flex align-items-center justify-content-center" style="aspect-ratio:1/1;overflow:hidden;">
                                                 {% if album.cover_url %}
                                                     <img src="{{ album.cover_url }}" alt="" class="w-100 h-100" style="object-fit:cover;">
                                                 {% else %}
-                                                    <i class="bi bi-images text-muted"></i>
+                                                    <i class="bi bi-images text-body-secondary" aria-hidden="true"></i>
                                                 {% endif %}
                                             </div>
                                             <p class="small mb-0 mt-1 text-truncate">{{ album.title }}</p>
@@ -231,7 +240,10 @@
                                 {% endfor %}
                             </div>
                         {% else %}
-                            <p class="text-body-secondary small mb-0">Aucune galerie pour le moment.</p>
+                            {% include 'partials/empty_state.html.twig' with {
+                                message: 'Aucune galerie pour le moment.',
+                                compact: true,
+                            } only %}
                         {% endif %}
                     </div>
                 </div>
@@ -254,11 +266,11 @@
                                     <div>
                                         {{ row.email }}
                                         {% if row.status == 'valid' %}
-                                            <span class="badge bg-success">Valide</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'confirmed', label: 'Valide' } only %}
                                         {% elseif row.status == 'pending' %}
-                                            <span class="badge bg-warning text-dark">En attente de confirmation</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente de confirmation' } only %}
                                         {% else %}
-                                            <span class="badge bg-secondary">Inactif</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'Inactif' } only %}
                                         {% endif %}
                                     </div>
                                     {% if row.source == 'desk' %}
@@ -343,7 +355,7 @@
                             {% if member.birthDate %}
                                 <div class="col-6 col-md-4">
                                     <span class="text-body-secondary d-block">Date de naissance</span>
-                                    {{ member.birthDate|date('d/m/Y') }}
+                                    {{ member.birthDate|date_fr }}
                                 </div>
                             {% endif %}
                             {% if member.gender %}
@@ -382,7 +394,7 @@
                                 <span class="text-body-secondary d-block small">Adresse(s)</span>
                                 {% for address in member.addresses %}
                                     <div class="small {% if not loop.last %}mb-2{% endif %}">
-                                        <span class="badge bg-secondary-subtle text-secondary-emphasis mb-1">{{ address.type }}</span>
+                                        <span class="badge text-bg-secondary mb-1">{{ address.type }}</span>
                                         <div>{{ address.format()|normalize_address }}</div>
                                     </div>
                                 {% endfor %}
@@ -410,7 +422,7 @@
                             {% endif %}
                             <h2 class="h6 mb-2">{{ branch_card.label }}</h2>
                             <a href="{{ branch_card.explanation_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
-                                En savoir plus <i class="bi bi-box-arrow-up-right"></i>
+                                En savoir plus <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
                             </a>
                         </div>
                     </div>
@@ -422,7 +434,7 @@
                             <h2 class="h6 mb-2">Staff {{ section_info.section.name ?? section_info.section.desk_code }}</h2>
                             {{ section_photo(section_info.section.id, section_info.section.name ?? section_info.section.desk_code) }}
                             <a href="/trombinoscope?section={{ section_info.section.id }}" class="btn btn-sm btn-outline-primary mt-2">
-                                Voir dans le trombinoscope <i class="bi bi-box-arrow-up-right"></i>
+                                Voir dans le trombinoscope <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
                             </a>
                         </div>
                     </div>

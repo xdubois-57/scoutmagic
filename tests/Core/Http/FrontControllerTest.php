@@ -184,7 +184,7 @@ class FrontControllerTest extends TestCase
         $router = new Router();
         $router->addRoute('GET', '/public-page', StubController::class, 'index', 'public', [
             'label' => 'Staffs',
-            'parents' => ['Espace chefs'],
+            'parents' => ['Espace animateurs'],
         ]);
 
         $fc = new FrontController($router, $this->twig, $this->config);
@@ -197,7 +197,7 @@ class FrontControllerTest extends TestCase
         $html = $this->twig->createTemplate(
             '{{ route_breadcrumb.label }}|{{ route_breadcrumb.parents|join(",") }}'
         )->render();
-        $this->assertSame('Staffs|Espace chefs', $html);
+        $this->assertSame('Staffs|Espace animateurs', $html);
     }
 
     public function testBreadcrumbGlobalIsNullForRouteWithoutBreadcrumb(): void

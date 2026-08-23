@@ -10,6 +10,7 @@ namespace Modules\MassMail\Controller;
 
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
@@ -147,6 +148,28 @@ class MassMailController extends AbstractController
     }
 
     /**
+     * GET /mass-mail/{id}/recipient-count — how many people this would
+     * reach if sent right now.
+     *
+     * Its own request rather than a field of show(): the list behind an
+     * email is live, and the point of the number is that it is true at the
+     * moment the manager is asked to confirm, not at the moment they
+     * opened the dialog.
+     *
+     * @param array<string, string> $params
+     */
+    public function recipientCount(Request $request, array $params): Response
+    {
+        try {
+            $estimate = $this->massMailService->estimateRecipientCount((int) $params['id']);
+        } catch (MassMailException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 404);
+        }
+
+        return $this->json(['success' => true] + $estimate);
+    }
+
+    /**
      * POST /mass-mail — create a draft.
      *
      * @param array<string, string> $params
@@ -224,8 +247,8 @@ class MassMailController extends AbstractController
     public function importAudience(Request $request, array $params): Response
     {
         $csrf = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         $uploadedFile = $request->getFile('file');
@@ -356,7 +379,18 @@ class MassMailController extends AbstractController
         } catch (MassMailException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         } catch (MailException $e) {
-            return $this->json(['success' => false, 'error' => 'Échec de l\'envoi : ' . $e->getMessage()], 500);
+            // Core\Mail\MailException is built from PHPMailer's ErrorInfo
+            // (Core\Mail\MailService::send()) — raw SMTP English, every
+            // time, which is why it is not a Core\Exception\UserFacingException
+            // and why this goes through the helper rather than being
+            // concatenated.
+            return $this->json([
+                'success' => false,
+                'error' => UserFacingMessage::from(
+                    $e,
+                    "L'email de test n'a pas pu être envoyé — vérifiez la configuration d'envoi du site (Configuration > Email), puis réessayez."
+                ),
+            ], 500);
         }
 
         return $this->json(['success' => true]);
@@ -370,8 +404,8 @@ class MassMailController extends AbstractController
     public function uploadAttachment(Request $request, array $params): Response
     {
         $csrf = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         $emailId = (int) $params['id'];
@@ -435,6 +469,9 @@ class MassMailController extends AbstractController
         }
 
         return $this->render('@mass_mail/tracking.html.twig', [
+            'breadcrumb_trail' => [
+                ['label' => 'Envoi de mails', 'url' => '/mass-mail'],
+            ],
             'email' => $data['email'],
             'counts' => $data['counts'],
             'recipients' => $data['recipients'],

@@ -64,6 +64,12 @@ class MemberSearchControllerTest extends TestCase
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
+        // The shared French format filters (core/View/TwigFactory.php) used by
+        // the templates under test - same rendering as the shipped ones.
+        $twig->addFilter(new \Twig\TwigFilter('date_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y')));
+        $twig->addFilter(new \Twig\TwigFilter('datetime_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y à H:i')));
+        $twig->addFilter(new \Twig\TwigFilter('money', fn($a) => $a === null || $a === '' ? '' : number_format((float) $a, 2, ',', ' ') . ' €'));
+        $twig->addFilter(new \Twig\TwigFilter('money_cents', fn($c) => $c === null || $c === '' ? '' : number_format(((int) $c) / 100, 2, ',', ' ') . ' €'));
         $twig->addExtension(new TextNormalizerExtension());
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
@@ -238,7 +244,7 @@ class MemberSearchControllerTest extends TestCase
         $this->assertStringContainsString('#639922', $body);
         // No offset set yet → "Normal" is the active segment.
         $this->assertMatchesRegularExpression(
-            '/offset-btn active"\s+style="min-height:44px;" data-offset="0"/',
+            '/offset-btn active"\s+data-offset="0"/',
             $body
         );
     }

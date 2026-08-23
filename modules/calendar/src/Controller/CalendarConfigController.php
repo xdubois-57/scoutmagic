@@ -10,6 +10,7 @@ namespace Modules\Calendar\Controller;
 
 use Core\Config\SettingException;
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -105,7 +106,24 @@ class CalendarConfigController extends AbstractController
             try {
                 $this->settingService->set($key, (string) $data[$key], 'calendar');
             } catch (SettingException $e) {
-                return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+                $this->journalService->log(
+                    'calendar',
+                    'defaults_update_failed',
+                    'info',
+                    'Échec de l\'enregistrement d\'une valeur par défaut du calendrier',
+                    ['setting_key' => $key, 'error' => $e->getMessage()],
+                    AuthSession::getUserAccountId()
+                );
+
+                // Core\Config\SettingException is being made user-facing
+                // separately; the helper makes this line correct either way.
+                return $this->json([
+                    'success' => false,
+                    'error' => UserFacingMessage::from(
+                        $e,
+                        "Cette valeur par défaut n'a pas pu être enregistrée — vérifiez la valeur saisie, puis réessayez."
+                    ),
+                ], 400);
             }
         }
 
@@ -336,8 +354,8 @@ class CalendarConfigController extends AbstractController
         }
 
         $csrf = (string) ($data['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         return $data;

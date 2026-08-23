@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, publipostage depuis un fichier Excel avec variables personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -12,7 +12,8 @@
       "action": "show",
       "menu": "espace_animes",
       "role_min": "identified",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Email reçu", "parents": ["Espace membres"] }
     },
     {
       "path": "/mass-mail/unsubscribe/{id}",
@@ -21,7 +22,8 @@
       "action": "show",
       "menu": "notre_unite",
       "role_min": "public",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Désinscription", "parents": ["Notre unité"] }
     },
     {
       "path": "/mass-mail/unsubscribe/{id}",
@@ -41,7 +43,7 @@
       "role_min": "chief",
       "label": "Envoi de mails",
       "menu_icon": "bi-send",
-      "breadcrumb": { "label": "Envoi de mails", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Envoi de mails", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/mass-mail",
@@ -84,6 +86,15 @@
       "method": "GET",
       "controller": "Modules\\MassMail\\Controller\\MassMailController",
       "action": "show",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/{id}/recipient-count",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "recipientCount",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""
@@ -140,7 +151,8 @@
       "action": "tracking",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Suivi de l'envoi", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/mass-mail/recipients/{id}/resend",

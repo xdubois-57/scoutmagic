@@ -3,7 +3,9 @@
 {% block title %}Conformité — {{ asset.name }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-1">Conformité — {{ asset.name }}</h1>
+{% include 'partials/page_header.html.twig' with {
+    title: 'Conformité — ' ~ asset.name,
+} only %}
 
 {% include '@rental/management/_nav.html.twig' %}
 
@@ -30,11 +32,10 @@
         <h2 class="h5 mb-3">Documents et échéances</h2>
 
         {% if items is empty %}
-            <p class="text-body-secondary mb-0">
-                Rien n'est encore inscrit pour ce bien. Ajoutez ci-dessous ce qui a une date
-                d'expiration — extincteurs, chaudière, assurance, contrôle électrique — pour
-                être prévenu avant qu'elle ne tombe.
-            </p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Rien n'est encore inscrit pour ce bien. Ajoutez ci-dessous ce qui a une date d'expiration — extincteurs, chaudière, assurance, contrôle électrique — pour être prévenu avant qu'elle ne tombe.",
+                compact: true,
+            } only %}
         {% else %}
             <div class="table-responsive">
                 <table class="table align-middle">
@@ -61,7 +62,7 @@
                                 </td>
                                 <td>
                                     {% if item.expiresOn %}
-                                        {{ item.expiresOn|date('d/m/Y') }}
+                                        {{ item.expiresOn|date_fr }}
                                         {# A statement about a date, never a verdict about
                                            the asset: the unit may have renewed the paper
                                            and not typed it in yet. #}
@@ -78,12 +79,12 @@
                                 </td>
                                 <td>{{ item.remark ?? '—' }}</td>
                                 <td class="text-end">
-                                    <form method="post" action="/mes-locations/conformite-supprimer" class="d-inline">
+                                    <form method="post" action="/mes-locations/conformite-supprimer" class="d-inline"
+                                          data-confirm="Supprimer « {{ item.label }} » du registre ?">
                                         {{ csrf_field()|raw }}
                                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                         <input type="hidden" name="item_id" value="{{ item.id }}">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger"
-                                                data-confirm="Supprimer « {{ item.label }} » du registre ?">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">
                                             Supprimer
                                         </button>
                                     </form>
@@ -167,14 +168,17 @@
             </div>
 
             <div class="col-6 col-md-2">
-                <label class="form-label" for="new-expires">Échéance</label>
-                <input type="date" class="form-control" id="new-expires" name="expires_on">
-                <div class="form-text">Facultative.</div>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'new-expires', field_name: 'expires_on', type: 'date',
+                    label: 'Échéance', help: 'Facultative.',
+                } only %}
             </div>
 
             <div class="col-12 col-md-3">
-                <label class="form-label" for="new-remark">Remarque</label>
-                <input type="text" class="form-control" id="new-remark" name="remark">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'new-remark', field_name: 'remark',
+                    label: 'Remarque',
+                } only %}
             </div>
 
             <div class="col-12 col-md-3">

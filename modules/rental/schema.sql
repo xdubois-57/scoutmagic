@@ -522,10 +522,24 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     billing_reference_encrypted BLOB NULL,
 
     -- ── Renter tracking token (§13 of the conventions) ───────────────
-    -- A sensitive capability token: cryptographically random, stored ONLY
-    -- as a hash (password_hash, same technique as the registration module's
-    -- tracking token), never logged, revocable by regenerating it.
-    tracking_token_hash VARCHAR(255) NOT NULL,
+    -- A sensitive capability token: cryptographically random, never logged,
+    -- revocable by regenerating it — and ENCRYPTED rather than hashed.
+    --
+    -- It was a password_hash() until the module started writing to the
+    -- renter itself. A hash can only ever answer "is this the token?", and
+    -- every email a manager's decision sends has to ASK a different
+    -- question: "what is this booking's link?". A renter with no account
+    -- has exactly one way back to their booking, and a confirmation that
+    -- cannot carry it is a confirmation that tells them to go and find the
+    -- acknowledgement from three weeks ago.
+    --
+    -- The cost is real and is the reason for this note: a hash survives a
+    -- database copy, this does not — it survives a database copy taken
+    -- WITHOUT the application key, which is the threat SECURITY.md §5 is
+    -- written against and where every other identity column in this table
+    -- already stands. Verification is a decrypt and a hash_equals(),
+    -- constant-time, so nothing is guessable one character at a time.
+    tracking_token_encrypted BLOB NOT NULL,
 
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

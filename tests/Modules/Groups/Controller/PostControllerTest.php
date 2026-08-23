@@ -335,7 +335,11 @@ class PostControllerTest extends TestCase
 
         $response = $this->controller([$this->memberId])->create($this->request(), $this->params());
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
     }
 
@@ -529,6 +533,11 @@ class PostControllerTest extends TestCase
         $response = $this->controller([$this->memberId])->linkPreview($this->linkPreviewRequest(), $this->params());
 
         $this->assertSame(403, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            $decoded['error'] ?? null
+        );
     }
 
     public function testLinkPreviewIs404ForANonMemberRatherThan403(): void
@@ -718,7 +727,11 @@ class PostControllerTest extends TestCase
 
         $response = $this->controller([$this->memberId])->edit($this->request(), $this->params($postId));
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertSame('Bonjour', $this->postRepo->findById($postId)->body);
     }
 
@@ -800,7 +813,8 @@ class PostControllerTest extends TestCase
         $postId = $this->seedPost();
         $_POST = [];
 
-        $this->assertSame(403, $this->controller([$this->memberId])->delete($this->request(), $this->params($postId))->getStatusCode());
+        $this->assertSame(302, $this->controller([$this->memberId])->delete($this->request(), $this->params($postId))->getStatusCode());
+        \Core\Http\FlashMessage::get();
         $this->assertNotNull($this->postRepo->findById($postId));
     }
 
@@ -893,7 +907,8 @@ class PostControllerTest extends TestCase
         $postId = $this->seedPost();
         $_POST = [];
 
-        $this->assertSame(403, $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)->pin($this->request(), $this->params($postId))->getStatusCode());
+        $this->assertSame(302, $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)->pin($this->request(), $this->params($postId))->getStatusCode());
+        \Core\Http\FlashMessage::get();
         $this->assertFalse($this->postRepo->findById($postId)->isPinned);
     }
 
@@ -1046,7 +1061,11 @@ class PostControllerTest extends TestCase
         $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
             ->vote($this->request(), $this->params($postId));
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
     }
 
     public function testVotingIs404ForANonMember(): void

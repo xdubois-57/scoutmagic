@@ -85,6 +85,12 @@ class DashboardControllerTest extends TestCase
         $loader = new FilesystemLoader($templateDir);
         $loader->addPath($moduleViews, 'finance');
         $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        // The shared French format filters (core/View/TwigFactory.php) used by
+        // the templates under test - same rendering as the shipped ones.
+        $twig->addFilter(new \Twig\TwigFilter('date_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y')));
+        $twig->addFilter(new \Twig\TwigFilter('datetime_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y à H:i')));
+        $twig->addFilter(new \Twig\TwigFilter('money', fn($a) => $a === null || $a === '' ? '' : number_format((float) $a, 2, ',', ' ') . ' €'));
+        $twig->addFilter(new \Twig\TwigFilter('money_cents', fn($c) => $c === null || $c === '' ? '' : number_format(((int) $c) / 100, 2, ',', ' ') . ' €'));
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'intendant');
@@ -92,7 +98,7 @@ class DashboardControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/finance');
-        $twig->addGlobal('route_breadcrumb', ['label' => 'Finances', 'parents' => ['Espace chefs']]);
+        $twig->addGlobal('route_breadcrumb', ['label' => 'Finances', 'parents' => ['Espace animateurs']]);
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
         $twig->addFunction(new TwigFunction('get_flash', fn() => null));
@@ -461,7 +467,9 @@ class DashboardControllerTest extends TestCase
         $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId], [], [], []), []);
         $body = $response->getBody();
 
-        $this->assertStringContainsString('/finance/movements?account_id=' . $accountId . '&fiscal_year_id=all', $body);
+        // The tile links are built as Twig strings (stat_tiles partial),
+        // so the & separator is HTML-escaped in the rendered attribute.
+        $this->assertStringContainsString('/finance/movements?account_id=' . $accountId . '&amp;fiscal_year_id=all', $body);
         $this->assertStringContainsString('/finance/receipts?account_id=' . $accountId, $body);
     }
 

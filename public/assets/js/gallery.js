@@ -7,32 +7,21 @@
 // batch upload + media reorder/delete/cover (album_form.html.twig). Pure JS,
 // no external library — same IIFE/var/fetch style as list-editor.js.
 (function () {
-    function csrf() {
-        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
-        return meta ? meta.content : '';
-    }
-
-    // Always resolves: every caller below branches on data.success, so a
-    // dropped connection or a non-JSON error page has to come back as a
-    // failure object rather than an unhandled rejection that silently does
-    // nothing at all.
+    // The local postJson() copy this file carried resolved straight to the
+    // parsed body, substituting {success:false, error:'…'} on transport
+    // failures. Requests now go through the shared
+    // window.ScoutMagicApi.postJson envelope ({ok, status, data}) — this
+    // maps a response back to the body every call site below branches on,
+    // keeping the exact failure messages the local copy produced.
     /**
-     * @param {string} url
-     * @param {Object} body
-     * @returns {Promise<Object>}
+     * @param {{ok: boolean, status: number, data: any}} res
+     * @returns {Object}
      */
-    function postJson(url, body) {
-        return fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(Object.assign({}, body, { _csrf_token: csrf() }))
-        }).then(function (res) {
-            return res.json().catch(function () {
-                return { success: false, error: 'Réponse inattendue du serveur.' };
-            });
-        }).catch(function () {
-            return { success: false, error: 'Erreur réseau.' };
-        });
+    function envelopeData(res) {
+        if (res.data === null) {
+            return { success: false, error: res.status === 0 ? 'Erreur réseau.' : 'Réponse inattendue du serveur.' };
+        }
+        return res.data;
     }
 
     // ------------------------------------------------------------------
@@ -184,7 +173,7 @@
             var chunker = window.ScoutMagicChunkedUpload;
             if (chunker && file.size > chunker.CHUNK_THRESHOLD) {
                 return chunker.uploadInChunks(file, uploadUrl, {
-                    csrfToken: csrf(),
+                    csrfToken: window.ScoutMagicApi.csrfToken(),
                     lastFields: { name: file.name || 'media' }
                 }).then(function (result) {
                     return { file: file, success: true, media_id: result.data.media_id };
@@ -196,7 +185,7 @@
                 var xhr = new XMLHttpRequest();
                 var formData = new FormData();
                 formData.append('file', file);
-                formData.append('_csrf_token', csrf());
+                formData.append('_csrf_token', window.ScoutMagicApi.csrfToken());
                 xhr.open('POST', uploadUrl, true);
                 xhr.onload = function () {
                     var data = {};
@@ -239,7 +228,9 @@
             for (var i = 0; i < Math.min(CONCURRENCY, total); i++) workers.push(worker());
 
             return Promise.all(workers).then(function () {
-                if (errors.length) alert('Certains fichiers n\'ont pas pu être envoyés :\n' + errors.join('\n'));
+                if (errors.length) {
+                    window.ScoutMagicToast.show('Certains fichiers n\'ont pas pu être envoyés :\n' + errors.join('\n'), { variant: 'error' });
+                }
                 window.location.reload();
             });
         }
@@ -281,8 +272,11 @@
             var ids = Array.from(grid.querySelectorAll('.gallery-media-item')).map(/** @param {HTMLElement} el */ function (el) {
                 return parseInt(el.dataset.mediaId, 10);
             });
-            postJson(reorderUrl, { ordered_ids: ids }).then(function (data) {
-                if (!data.success) alert(data.error || 'Erreur lors de la réorganisation.');
+            window.ScoutMagicApi.postJson(reorderUrl, { ordered_ids: ids }).then(function (res) {
+                var data = envelopeData(res);
+                if (!data.success) {
+                    window.ScoutMagicToast.show(data.error || 'Erreur lors de la réorganisation.', { variant: 'error' });
+                }
             });
         }
 
@@ -306,14 +300,19 @@
         });
 
         grid.querySelectorAll('.gallery-media-delete').forEach(/** @param {HTMLElement} btn */ function (btn) {
-            btn.addEventListener('click', function () {
-                if (!confirm('Supprimer ce média ?')) return;
+            btn.addEventListener('click', async function () {
+                var confirmed = await window.ScoutMagicConfirm.ask({
+                    message: 'Supprimer ce média ?',
+                    confirmLabel: 'Supprimer'
+                });
+                if (!confirmed) return;
                 var item = btn.closest('.gallery-media-item');
-                postJson(btn.dataset.url, {}).then(function (data) {
+                window.ScoutMagicApi.postJson(btn.dataset.url, {}).then(function (res) {
+                    var data = envelopeData(res);
                     if (data.success) {
                         item.remove();
                     } else {
-                        alert(data.error || 'Erreur lors de la suppression.');
+                        window.ScoutMagicToast.show(data.error || 'Erreur lors de la suppression.', { variant: 'error' });
                     }
                 });
             });
@@ -321,11 +320,12 @@
 
         grid.querySelectorAll('.gallery-media-set-cover').forEach(/** @param {HTMLElement} btn */ function (btn) {
             btn.addEventListener('click', function () {
-                postJson(btn.dataset.url, { media_id: parseInt(btn.dataset.mediaId, 10) }).then(function (data) {
+                window.ScoutMagicApi.postJson(btn.dataset.url, { media_id: parseInt(btn.dataset.mediaId, 10) }).then(function (res) {
+                    var data = envelopeData(res);
                     if (data.success) {
                         window.location.reload();
                     } else {
-                        alert(data.error || 'Erreur.');
+                        window.ScoutMagicToast.show(data.error || 'Erreur.', { variant: 'error' });
                     }
                 });
             });
@@ -340,12 +340,13 @@
         if (!btn) return;
         btn.addEventListener('click', function () {
             btn.disabled = true;
-            postJson(btn.dataset.url, {}).then(function (data) {
+            window.ScoutMagicApi.postJson(btn.dataset.url, {}).then(function (res) {
+                var data = envelopeData(res);
                 btn.disabled = false;
                 if (data.success) {
                     window.location.reload();
                 } else {
-                    alert(data.error || 'Erreur lors de la récupération des métadonnées.');
+                    window.ScoutMagicToast.show(data.error || 'Erreur lors de la récupération des métadonnées.', { variant: 'error' });
                 }
             });
         });
@@ -387,13 +388,18 @@
     (function initDeleteAlbum() {
         var btn = document.getElementById('gallery-delete-album');
         if (!btn) return;
-        btn.addEventListener('click', function () {
-            if (!confirm('Supprimer définitivement cet album et tous ses médias ?')) return;
-            postJson(btn.dataset.url, {}).then(function (data) {
+        btn.addEventListener('click', async function () {
+            var confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Supprimer définitivement cet album et tous ses médias ?',
+                confirmLabel: 'Supprimer'
+            });
+            if (!confirmed) return;
+            window.ScoutMagicApi.postJson(btn.dataset.url, {}).then(function (res) {
+                var data = envelopeData(res);
                 if (data.success) {
                     window.location.href = '/gallery/manage';
                 } else {
-                    alert(data.error || 'Erreur lors de la suppression.');
+                    window.ScoutMagicToast.show(data.error || 'Erreur lors de la suppression.', { variant: 'error' });
                 }
             });
         });

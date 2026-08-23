@@ -277,8 +277,12 @@
     }
 
     if (btnEmptyWithoutBackup) {
-        btnEmptyWithoutBackup.addEventListener('click', function() {
-            if (!window.confirm('Vider la base de données SANS sauvegarde ? Les données actuellement en base seront définitivement perdues.')) {
+        btnEmptyWithoutBackup.addEventListener('click', async function() {
+            var confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Vider la base de données SANS sauvegarde ? Les données actuellement en base seront définitivement perdues.',
+                confirmLabel: 'Vider sans sauvegarde'
+            });
+            if (!confirmed) {
                 return;
             }
             runBackupAndEmpty(true);
@@ -362,7 +366,7 @@
                         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     var html = '<p class="mb-2 small">Cl\u00e9 DKIM g\u00e9n\u00e9r\u00e9e. S\u00e9lecteur : <strong>' + selector + '</strong>.</p>';
                     html += '<div class="mb-2">';
-                    html += '<small class="text-muted">Cl\u00e9 publique (pour l\'enregistrement DNS) :</small>';
+                    html += '<small class="text-body-secondary">Cl\u00e9 publique (pour l\'enregistrement DNS) :</small>';
                     html += '<div class="input-group input-group-sm mt-1">';
                     html += '<input type="text" class="form-control font-monospace" value="' + json.public_key + '" readonly id="dkim-pubkey-display">';
                     html += '<button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="dkim-pubkey-display">Copier</button>';
@@ -410,13 +414,13 @@
                     { key: 'dkim', label: 'DKIM', name: selector + '._domainkey', host: selector + '._domainkey.' + domain, type: 'TXT' },
                     { key: 'dmarc', label: 'DMARC', name: '_dmarc', host: '_dmarc.' + domain, type: 'TXT' }
                 ];
-                var html = '<p class="text-muted small mb-2">Chez la plupart des h\u00e9bergeurs, la zone DNS demande un <strong>Type</strong>, un <strong>Nom</strong> (parfois appel\u00e9 \u00ab\u00a0Enregistrement\u00a0\u00bb ou \u00ab\u00a0H\u00f4te\u00a0\u00bb) et une <strong>Valeur</strong>. Utilisez le nom court ci-dessous (\u00ab\u00a0@\u00a0\u00bb d\u00e9signe la racine du domaine)\u00a0; si l\'interface de votre h\u00e9bergeur demande le nom complet plut\u00f4t que le nom court, utilisez celui indiqu\u00e9 en bas de chaque bloc.</p>';
+                var html = '<p class="text-body-secondary small mb-2">Chez la plupart des h\u00e9bergeurs, la zone DNS demande un <strong>Type</strong>, un <strong>Nom</strong> (parfois appel\u00e9 \u00ab\u00a0Enregistrement\u00a0\u00bb ou \u00ab\u00a0H\u00f4te\u00a0\u00bb) et une <strong>Valeur</strong>. Utilisez le nom court ci-dessous (\u00ab\u00a0@\u00a0\u00bb d\u00e9signe la racine du domaine)\u00a0; si l\'interface de votre h\u00e9bergeur demande le nom complet plut\u00f4t que le nom court, utilisez celui indiqu\u00e9 en bas de chaque bloc.</p>';
                 records.forEach(function(rec) {
                     var data = json[rec.key];
                     html += '<div class="mb-3 small border-bottom pb-2">';
 
                     if (data.key_missing) {
-                        html += '<strong>' + rec.label + '</strong> <span class="badge bg-warning text-dark">Cl\u00e9 DKIM requise</span><br>';
+                        html += '<strong>' + rec.label + '</strong> <span class="badge text-bg-warning">Cl\u00e9 DKIM requise</span><br>';
                         html += '<span class="text-warning">G\u00e9n\u00e9rez d\'abord la cl\u00e9 DKIM (section \u00ab\u00a0Cl\u00e9 DKIM\u00a0\u00bb ci-dessus), puis relancez cette v\u00e9rification.</span>';
                         html += '</div>';
                         return;
@@ -428,9 +432,9 @@
                         // there's nothing to suggest changing \u2014 don't push
                         // an edit the operator didn't ask for.
                         html += '<strong>' + rec.label + '</strong> <span class="badge bg-secondary">Optionnel</span><br>';
-                        html += '<span class="text-muted">Aucune adresse de rapport DMARC renseign\u00e9e \u2014 aucune modification de votre DNS n\'est n\u00e9cessaire pour cela. Renseignez une adresse dans le champ \u00ab\u00a0Email rapports DMARC\u00a0\u00bb ci-dessus si vous souhaitez recevoir des rapports.</span>';
+                        html += '<span class="text-body-secondary">Aucune adresse de rapport DMARC renseign\u00e9e \u2014 aucune modification de votre DNS n\'est n\u00e9cessaire pour cela. Renseignez une adresse dans le champ \u00ab\u00a0Email rapports DMARC\u00a0\u00bb ci-dessus si vous souhaitez recevoir des rapports.</span>';
                         if (data.actual) {
-                            html += '<br><span class="text-muted">Enregistrement DMARC actuel :</span> <code class="text-break">' + escapeHtml(data.actual) + '</code>';
+                            html += '<br><span class="text-body-secondary">Enregistrement DMARC actuel :</span> <code class="text-break">' + escapeHtml(data.actual) + '</code>';
                         }
                         html += '</div>';
                         return;
@@ -438,24 +442,24 @@
 
                     var badge = data.exists
                         ? '<span class="badge bg-success">OK</span>'
-                        : '<span class="badge bg-warning text-dark">Manquant</span>';
+                        : '<span class="badge text-bg-warning">Manquant</span>';
                     var expectedLabel = data.actual ? 'Valeur sugg\u00e9r\u00e9e (remplace l\'actuelle)' : 'Valeur attendue';
                     html += '<strong>' + rec.label + '</strong> ' + badge + '<br>';
-                    html += '<span class="text-muted">Type :</span> <code>' + rec.type + '</code><br>';
-                    html += '<span class="text-muted">Nom :</span> ';
+                    html += '<span class="text-body-secondary">Type :</span> <code>' + rec.type + '</code><br>';
+                    html += '<span class="text-body-secondary">Nom :</span> ';
                     html += '<div class="input-group input-group-sm mt-1 mb-1">';
                     html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + escapeAttr(rec.name) + '" readonly>';
                     html += '<button type="button" class="btn btn-outline-secondary btn-sm btn-copy-value">Copier</button>';
                     html += '</div>';
-                    html += '<span class="text-muted">' + expectedLabel + ' :</span> ';
+                    html += '<span class="text-body-secondary">' + expectedLabel + ' :</span> ';
                     html += '<div class="input-group input-group-sm mt-1 mb-1">';
                     html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + escapeAttr(data.expected) + '" readonly>';
                     html += '<button type="button" class="btn btn-outline-secondary btn-sm btn-copy-value">Copier</button>';
                     html += '</div>';
                     if (data.actual) {
-                        html += '<span class="text-muted">Valeur actuelle :</span> <code class="text-break">' + escapeHtml(data.actual) + '</code><br>';
+                        html += '<span class="text-body-secondary">Valeur actuelle :</span> <code class="text-break">' + escapeHtml(data.actual) + '</code><br>';
                     }
-                    html += '<span class="text-muted">Nom complet (si votre h\u00e9bergeur le demande \u00e0 la place du nom court) :</span> <code class="text-break">' + escapeHtml(rec.host) + '</code>';
+                    html += '<span class="text-body-secondary">Nom complet (si votre h\u00e9bergeur le demande \u00e0 la place du nom court) :</span> <code class="text-break">' + escapeHtml(rec.host) + '</code>';
                     html += '</div>';
                 });
                 dnsRecords.innerHTML = html;

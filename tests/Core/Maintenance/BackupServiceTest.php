@@ -215,6 +215,48 @@ class BackupServiceTest extends TestCase
         return $zipPath;
     }
 
+    /**
+     * Core\Maintenance\BackupException is marked
+     * Core\Exception\UserFacingException, which is a claim about EVERY
+     * message it is constructed with. These two wrap sites used to build
+     * theirs as a French sentence PLUS '(' . $e->getMessage() . ')' — so a
+     * PDO/ZipArchive/filesystem error was appended to a string the display
+     * sites then showed verbatim. The cause now travels as $previous.
+     */
+    public function testAFailedDumpSaysNothingTheDatabaseDriverSaid(): void
+    {
+        // $this->service points at nonexistent_db / nobody — the dump fails
+        // at connection time, with a PDOException full of driver detail.
+        try {
+            $this->service->createDatabaseDump();
+            $this->fail('The dump was expected to fail against bogus credentials');
+        } catch (BackupException $e) {
+            $this->assertStringNotContainsString('SQLSTATE', $e->getMessage());
+            $this->assertStringNotContainsString('nonexistent_db', $e->getMessage());
+            $this->assertStringNotContainsString('nobody', $e->getMessage());
+            $this->assertStringContainsString('journal des événements', $e->getMessage());
+            // Not lost — the cause is still attached for the stack trace.
+            $this->assertNotNull($e->getPrevious());
+            $this->assertStringContainsString('SQLSTATE', (string) $e->getPrevious()?->getMessage());
+        }
+    }
+
+    public function testAFailedRestoreSaysNothingTheDatabaseDriverSaidEither(): void
+    {
+        $dumpPath = $this->storagePath . '/temp/fake-dump.sql';
+        @mkdir(dirname($dumpPath), 0755, true);
+        file_put_contents($dumpPath, "SELECT 1;\n");
+
+        try {
+            $this->service->restoreDatabase($dumpPath);
+            $this->fail('The restore was expected to fail against bogus credentials');
+        } catch (BackupException $e) {
+            $this->assertStringNotContainsString('SQLSTATE', $e->getMessage());
+            $this->assertStringNotContainsString('nonexistent_db', $e->getMessage());
+            $this->assertNotNull($e->getPrevious());
+        }
+    }
+
     public function testCreateDatabaseDumpProducesANonEmptySqlFile(): void
     {
         $service = $this->realDbService();

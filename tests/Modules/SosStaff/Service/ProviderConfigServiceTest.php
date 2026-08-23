@@ -97,9 +97,16 @@ class ProviderConfigServiceTest extends TestCase
         $service = $this->serviceWithTransport(fn() => ['status' => 400, 'body' => '{"message":"Invalid key"}']);
         $service->saveOvhCredentials('AK123', 'AS456');
 
-        $this->expectException(ProviderException::class);
-        $this->expectExceptionMessage('Invalid key');
-        $service->generateConsumerKey();
+        try {
+            $service->generateConsumerKey();
+            self::fail('Expected a ProviderException.');
+        } catch (ProviderException $e) {
+            // OVH's own "Invalid key" is a $detail on the cause, never part
+            // of the sentence the admin reads.
+            self::assertStringNotContainsString('Invalid key', $e->getMessage());
+            self::assertStringContainsString('HTTP 400', $e->getMessage());
+            self::assertSame('Invalid key', $e->getPrevious()?->detail);
+        }
     }
 
     public function testValidateConsumerKeyMarksConfigValidatedOnSuccess(): void
@@ -125,8 +132,17 @@ class ProviderConfigServiceTest extends TestCase
         $service->saveOvhCredentials('AK123', 'AS456');
         $this->repository->save('ovh', array_merge($service->getOvhCredential()->config, ['consumer_key' => 'CK789']));
 
-        $this->expectException(ProviderException::class);
-        $service->validateConsumerKey();
+        try {
+            $service->validateConsumerKey();
+            self::fail('Expected a ProviderException.');
+        } catch (ProviderException $e) {
+            // The whole value of this site is its own sentence ("approve it
+            // on OVH's site, then re-check") — OVH's English used to be
+            // appended to it and shown on the configuration page.
+            self::assertStringNotContainsString('Not validated yet', $e->getMessage());
+            self::assertStringContainsString('approuvez-la sur le site d\'OVH', $e->getMessage());
+            self::assertSame('Not validated yet', $e->getPrevious()?->detail);
+        }
     }
 
     public function testListOvhLinesRequiresValidatedConsumerKey(): void

@@ -2,8 +2,10 @@
 {% block title %}Mon compte — {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-narrow">
-    <h1>Mon compte</h1>
-    <p class="text-body-secondary mb-4">{{ current_user_email }}</p>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Mon compte',
+        subtitle: current_user_email,
+    } only %}
 
     {#
       The photo of this LOGIN — the shared avatar (person_avatar(),
@@ -28,7 +30,7 @@
                     <form method="post" action="/account/photo/delete" class="m-0"
                           data-confirm="Retirer votre photo ? Vos initiales seront affichées à la place.">
                         {{ csrf_field() }}
-                        <button type="submit" class="btn btn-sm btn-outline-secondary" style="min-height:44px;">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">
                             Retirer la photo
                         </button>
                     </form>
@@ -45,14 +47,16 @@
                 {{ csrf_field() }}
                 <div class="row g-3 mb-3">
                     <div class="col-12 col-sm-6">
-                        <label class="form-label" for="account-first-name">Prénom</label>
-                        <input type="text" name="first_name" id="account-first-name" class="form-control"
-                               value="{{ account.firstName }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'account-first-name', field_name: 'first_name',
+                            label: 'Prénom', value: account.firstName,
+                        } only %}
                     </div>
                     <div class="col-12 col-sm-6">
-                        <label class="form-label" for="account-last-name">Nom</label>
-                        <input type="text" name="last_name" id="account-last-name" class="form-control"
-                               value="{{ account.lastName }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'account-last-name', field_name: 'last_name',
+                            label: 'Nom', value: account.lastName,
+                        } only %}
                     </div>
                 </div>
                 <button type="submit" class="btn btn-primary">Enregistrer</button>
@@ -70,7 +74,7 @@
                 </p>
                 {% if password_changed_at %}
                     <p class="text-body-secondary small mb-3">
-                        Dernière modification : {{ password_changed_at|date('d/m/Y à H:i') }}
+                        Dernière modification : {{ password_changed_at|datetime_fr }}
                     </p>
                 {% endif %}
                 <form method="post" action="/account/password" id="account-password-form">
@@ -111,32 +115,42 @@
         <div class="card-body">
             <h2 class="h5 mb-3">Clés numériques</h2>
 
+            {# Filled by the delete handler on a refused or failed
+               deletion — role="alert" so a screen reader hears the one
+               message on this page that must never be missed. #}
+            <div id="passkey-error" class="alert alert-danger d-none" role="alert"></div>
+
             <div id="passkey-list">
                 {% for key in passkeys %}
                     <div class="d-flex align-items-center justify-content-between border rounded p-2 mb-2"
                          data-passkey-id="{{ key.id }}">
                         <div class="d-flex align-items-center gap-2">
-                            <i class="bi bi-fingerprint text-body-secondary"></i>
+                            <i class="bi bi-fingerprint text-body-secondary" aria-hidden="true"></i>
                             <div>
                                 <span class="small">{{ key.device_label ?? 'Clé sans nom' }}</span>
                                 {% if key.last_used_at %}
                                     <span class="text-body-secondary d-block"
                                           style="font-size:0.75rem;">
                                         Dernière utilisation :
-                                        {{ key.last_used_at|date('d/m/Y') }}
+                                        {{ key.last_used_at|date_fr }}
                                     </span>
                                 {% endif %}
                             </div>
                         </div>
                         <button type="button" class="btn btn-sm btn-outline-danger passkey-delete-btn"
-                                data-id="{{ key.id }}" title="Supprimer">
-                            <i class="bi bi-trash"></i>
+                                data-id="{{ key.id }}" title="Supprimer" aria-label="Supprimer">
+                            <i class="bi bi-trash" aria-hidden="true"></i>
                         </button>
                     </div>
                 {% else %}
-                    <p class="text-body-secondary small" id="no-passkeys-msg">
-                        Aucune clé enregistrée.
-                    </p>
+                    {# The id is what the delete handler un-hides after the
+                       last key is removed — it wraps the shared empty state. #}
+                    <div id="no-passkeys-msg">
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucune clé enregistrée.',
+                            compact: true,
+                        } only %}
+                    </div>
                 {% endfor %}
             </div>
 
@@ -146,12 +160,12 @@
                     <input type="text" id="passkey-device-label" class="form-control form-control-sm"
                            placeholder="ex. iPhone de Jean" maxlength="100">
                 </div>
-                <button type="button" class="btn btn-outline-primary w-100" id="passkey-add-btn">
-                    <i class="bi bi-plus"></i> Ajouter une clé
+                <button type="button" class="btn btn-outline-primary w-100 w-sm-auto" id="passkey-add-btn">
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter une clé
                 </button>
             </div>
 
-            <div id="passkey-unsupported-notice" class="text-warning small mt-2 d-none">
+            <div id="passkey-unsupported-notice" class="text-warning small mt-2 d-none" role="status">
                 Votre navigateur ne supporte pas les clés numériques.
             </div>
         </div>
@@ -172,13 +186,13 @@
             <p class="text-body-secondary small mb-0">
                 Activer cette option demandera la permission de votre navigateur.
             </p>
-            <p class="text-warning small mb-0 mt-2 d-none" id="push-denied-notice">
+            <p class="text-warning small mb-0 mt-2 d-none" id="push-denied-notice" role="status">
                 Votre navigateur a refusé les notifications. Vous pouvez modifier ce choix dans les paramètres de votre navigateur.
             </p>
-            <p class="text-warning small mb-0 mt-2 d-none" id="push-unsupported-notice">
+            <p class="text-warning small mb-0 mt-2 d-none" id="push-unsupported-notice" role="status">
                 Votre navigateur ne supporte pas les notifications push.
             </p>
-            <p class="text-danger small mb-0 mt-2 d-none" id="push-error-notice">
+            <p class="text-danger small mb-0 mt-2 d-none" id="push-error-notice" role="alert">
                 Une erreur est survenue. Veuillez réessayer.
             </p>
         </div>
@@ -289,22 +303,45 @@
         });
     }
 
-    // Delete passkey
+    // Delete passkey. The row only disappears on a CONFIRMED deletion:
+    // res.ok is not that — the endpoint answers HTTP 200 with
+    // {success:false, error} on a business refusal ("Clé introuvable."),
+    // and this handler used to read res.ok as success, remove the row,
+    // and let the owner of a lost device believe a still-valid key had
+    // been revoked. Authentication is the one place the UI must never
+    // claim more than the server did.
     document.querySelectorAll('.passkey-delete-btn').forEach(function(btn) {
         btn.addEventListener('click', async function() {
-            if (!confirm('Supprimer cette clé ?')) return;
+            if (!confirm('Supprimer cette clé ? Vous ne pourrez plus vous connecter avec.')) return;
             var id = btn.dataset.id;
-            var res = await fetch('/account/passkey/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
-                body: JSON.stringify({ id: parseInt(id) })
-            });
-            if (res.ok) {
-                btn.closest('[data-passkey-id]').remove();
-                if (document.querySelectorAll('[data-passkey-id]').length === 0) {
-                    var msg = document.getElementById('no-passkeys-msg');
-                    if (msg) msg.classList.remove('d-none');
+            var errorBox = document.getElementById('passkey-error');
+            if (errorBox) { errorBox.classList.add('d-none'); errorBox.textContent = ''; }
+            var failure = 'La clé n\'a pas pu être supprimée. Rechargez la page et réessayez.';
+            try {
+                var res = await fetch('/account/passkey/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+                    body: JSON.stringify({ id: parseInt(id) })
+                });
+                var data = await res.json();
+                if (!res.ok || !data.success) {
+                    if (errorBox) {
+                        errorBox.textContent = data.error || failure;
+                        errorBox.classList.remove('d-none');
+                    }
+                    return;
                 }
+            } catch (e) {
+                if (errorBox) {
+                    errorBox.textContent = failure;
+                    errorBox.classList.remove('d-none');
+                }
+                return;
+            }
+            btn.closest('[data-passkey-id]').remove();
+            if (document.querySelectorAll('[data-passkey-id]').length === 0) {
+                var msg = document.getElementById('no-passkeys-msg');
+                if (msg) msg.classList.remove('d-none');
             }
         });
     });

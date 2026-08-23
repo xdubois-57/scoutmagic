@@ -3,15 +3,14 @@
 {% block title %}Résultat de l'import — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Finances</h1>
+    {% include 'partials/page_header.html.twig' with { title: "Résultat de l'import" } only %}
 
     {% include '@finance/_nav.html.twig' %}
 
-    <h2 class="h5 mb-3">Résultat de l'import</h2>
-
     {% if error %}
+        {# The way back to the import form is the breadcrumb trail
+           (design.md §7.3) — no « Retour » button here. #}
         <div class="alert alert-danger">{{ error }}</div>
-        <a href="/finance/import" class="btn btn-sm btn-outline-secondary">Retour</a>
     {% else %}
         <div class="alert alert-success">
             {{ result.linesTotal }} ligne(s) lue(s), {{ result.linesNew }} nouvelle(s), {{ result.linesDuplicate }} déjà présente(s) (ignorée(s)).
@@ -20,7 +19,7 @@
         {% if balance_discrepancy is not null %}
             <div class="alert alert-warning">
                 Écart détecté entre le solde fourni et le solde calculé à partir du dernier solde de référence et des mouvements :
-                <strong>{{ balance_discrepancy > 0 ? '+' : '' }}{{ balance_discrepancy|number_format(2, ',', ' ') }} €</strong>.
+                <strong>{{ balance_discrepancy > 0 ? '+' : '' }}{{ balance_discrepancy|money }}</strong>.
                 Vérifiez qu'aucun mouvement n'a été oublié.
             </div>
         {% endif %}

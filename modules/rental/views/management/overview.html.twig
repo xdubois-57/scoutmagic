@@ -7,13 +7,17 @@
   today. Everything else is one chip away.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 900px;">
-        <h1 class="h3 mb-1">{{ asset.name }}</h1>
-        <p class="text-body-secondary small mb-3">
-            {{ asset.assetType }}
-            {% if asset.isArchived %}<span class="badge bg-secondary ms-1">Archivé</span>{% endif %}
-            {% if not asset.isPublic %}<span class="badge bg-light text-dark border ms-1">Non public</span>{% endif %}
-        </p>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: asset.name,
+            subtitle: asset.assetType,
+        } only %}
+        {% if asset.isArchived or not asset.isPublic %}
+            <p class="mb-3">
+                {% if asset.isArchived %}{% include 'partials/status_badge.html.twig' with { status: 'archived', label: 'Archivé' } only %}{% endif %}
+                {% if not asset.isPublic %}<span class="badge text-bg-light border">Non public</span>{% endif %}
+            </p>
+        {% endif %}
 
         {% include '@rental/management/_nav.html.twig' %}
 
@@ -50,39 +54,24 @@
               behind — otherwise the year's revenue would drop to zero on the
               morning the purge ran, and nobody would know why.
             #}
-            <div class="row g-3 mb-4">
-                <div class="col-4">
-                    <div class="card h-100">
-                        <div class="card-body text-center">
-                            <div class="h4 mb-0">{{ statistics.pending }}</div>
-                            <div class="form-text">Demandes en attente</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-4">
-                    <div class="card h-100">
-                        <div class="card-body text-center">
-                            <div class="h4 mb-0">{{ statistics.occupied_days }}</div>
-                            <div class="form-text">Jours loués cette année</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-4">
-                    <div class="card h-100">
-                        <div class="card-body text-center">
-                            <div class="h4 mb-0">{{ (statistics.revenue_cents / 100)|number_format(2, ',', ' ') }} €</div>
-                            <div class="form-text">Revenu de l'année</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            {% include 'partials/stat_tiles.html.twig' with {
+                tiles: [
+                    { label: 'Demandes en attente', value: statistics.pending, icon: 'bi-hourglass-split', tone: 'warning' },
+                    { label: 'Jours loués cette année', value: statistics.occupied_days, icon: 'bi-calendar-check', tone: 'primary' },
+                    { label: "Revenu de l'année", value: statistics.revenue_cents|money_cents, icon: 'bi-cash-coin', tone: 'success' },
+                ],
+                columns: 3,
+            } only %}
         {% endif %}
 
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">À traiter</h2>
                 {% if needs_attention is empty %}
-                    <p class="text-body-secondary mb-0">Rien en attente. Tout est à jour.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Rien en attente. Tout est à jour.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <div class="list-group list-group-flush">
                         {% for booking in needs_attention %}
@@ -95,7 +84,7 @@
                                             du {{ booking.arrivalDate }} au {{ booking.departureDate }}
                                         </span>
                                     </span>
-                                    <span class="badge bg-warning text-dark">{{ booking.status.label }}</span>
+                                    {% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}
                                 </div>
                             </a>
                         {% endfor %}
@@ -135,10 +124,13 @@
                     pourquoi.
                 </p>
                 {% if upcoming_blocks is empty %}
-                    <p class="text-body-secondary mb-0">
-                        Aucune période réservée à venir. Vous pouvez en poser une depuis
-                        <a href="/mes-locations/{{ asset.slug }}/calendrier">le calendrier</a>.
-                    </p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune période réservée à venir.',
+                        compact: true,
+                        action_label: 'En poser une depuis le calendrier',
+                        action_url: '/mes-locations/' ~ asset.slug ~ '/calendrier',
+                        icon: 'bi-calendar-plus',
+                    } only %}
                 {% else %}
                     <ul class="list-unstyled mb-0">
                         {% for block in upcoming_blocks %}

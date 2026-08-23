@@ -8,6 +8,15 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Service;
 
-class RegistrationException extends \RuntimeException
+use Core\Exception\UserFacingException;
+
+/**
+ * A refused registration-request operation. Marked {@see UserFacingException}:
+ * every message is a French sentence written for the chief handling the
+ * request. Service\RequestEmailService's mail failure is the one that had to
+ * be rewritten first — it used to append Core\Mail\MailException's raw SMTP
+ * English to this class's message.
+ */
+class RegistrationException extends \RuntimeException implements UserFacingException
 {
 }

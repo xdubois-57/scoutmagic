@@ -1,49 +1,40 @@
 // Isolated JavaScript unit test — jsdom DOM only, no PHP/DB/network.
 //
-// modules/calendar/views/chief.html.twig's openEditModal() populates and
-// reveals event-retro-link-wrap/event-retro-link when an event has a linked
+// calendar-chief.js's openEditModal() populates and reveals
+// event-retro-link-wrap/event-retro-link when an event has a linked
 // rétrospective. A prior version called
 // retroLinkWrap.classList.remove('d-none') BEFORE setting the anchor's
 // href/textContent, briefly exposing an empty, non-navigable link to a
 // screen reader (SonarCloud accessibility remediation, Iteration 4). This
-// test extracts the REAL openEditModal() out of the template source
-// (never reimplemented here — same technique as
-// tests/js/escape-html-attribute-safety.test.js) and proves the anchor is
-// always fully populated by the moment the wrap becomes visible.
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const templatePath = resolve(here, '../../modules/calendar/views/chief.html.twig');
-const source = readFileSync(templatePath, 'utf8');
-
-function extract(pattern, label) {
-    const match = source.match(pattern);
-    if (match === null) {
-        throw new Error(`Could not find ${label} in ${templatePath} — has the script been restructured?`);
-    }
-    return match[0];
-}
-
-// The top-level `const xxxInput = document.getElementById(...)` block —
-// plain JS, no Twig interpolation, unlike defaultTitle/defaultStartTime/etc.
-// just below it.
-const constDeclarations = extract(
-    /const eventModalEl[\s\S]*?const retroLinkAnchor = document\.getElementById\('event-retro-link'\);/,
-    'the eventModalEl..retroLinkAnchor const block'
-);
-
-const openEditModalFn = extract(/function openEditModal\(dataset\) \{[\s\S]*?\n\}/, 'openEditModal()');
+// test proves the anchor is always fully populated by the moment the wrap
+// becomes visible.
+//
+// It used to extract openEditModal() out of the inline <script> of
+// modules/calendar/views/chief.html.twig with a regex and rebuild it
+// through new Function(), because a template's script is reachable no other
+// way. That script now lives in public/assets/js/calendar-chief.js, so the
+// REAL production file is imported instead and driven the way a chief
+// drives it: by clicking an event bar in the month grid. The instrumented
+// classList.remove() is installed on the live element after import, so it
+// still observes the exact moment of the reveal.
+//
+// The rest of that file's behaviour (create/update/delete, the
+// confirmation, the error surface) is covered by
+// tests/js/calendar-chief.test.js.
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 function buildDom() {
+    document.head.innerHTML = '<meta name="csrf-token" content="tok">';
     document.body.innerHTML = `
+        <div class="calendar-week">
+            <button type="button" class="calendar-event-bar calendar-event-bar--clickable">Camp</button>
+        </div>
+
         <div class="modal fade" id="eventModal" tabindex="-1">
             <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title" id="event-modal-title">Ajouter un évènement</h5>
+                        <h5 class="modal-title" id="eventModal-title">Ajouter un évènement</h5>
                     </div>
                     <form id="event-form">
                         <div class="modal-body">
@@ -76,50 +67,57 @@ function buildDom() {
 }
 
 /**
- * Builds a fresh openEditModal() bound to the current DOM, with `bootstrap`
- * stubbed out (chief.html.twig relies on the real Bootstrap bundle, not
- * under test here) and instrumented so the test can observe the anchor's
- * state at the exact moment event-retro-link-wrap loses d-none.
+ * Imports the real calendar-chief.js against a fresh fixture and returns a
+ * function that opens the edit dialog on one event — plus the anchor's
+ * state as it was at the instant event-retro-link-wrap lost `d-none`.
+ *
+ * `bootstrap` is deliberately absent (the vendored bundle does not exist
+ * under jsdom); calendar-chief.js shows the dialog by hand in that case.
  */
-function loadOpenEditModal() {
+async function loadEditDialog() {
+    buildDom();
+    vi.resetModules();
+    await import('../../public/assets/js/api.js');
+    await import('../../public/assets/js/calendar-chief.js');
+
     let hrefWhenRevealed;
     let textWhenRevealed;
 
-    const factory = new Function(
-        'bootstrap',
-        'onRevealRetroLink',
-        `
-        ${constDeclarations}
-        const originalRemove = retroLinkWrap.classList.remove.bind(retroLinkWrap.classList);
-        retroLinkWrap.classList.remove = function (...args) {
-            if (args.includes('d-none')) {
-                onRevealRetroLink(retroLinkAnchor.href, retroLinkAnchor.textContent);
-            }
-            return originalRemove(...args);
-        };
-        ${openEditModalFn}
-        return openEditModal;
-        `
-    );
+    const retroLinkWrap = document.getElementById('event-retro-link-wrap');
+    const retroLinkAnchor = document.getElementById('event-retro-link');
+    const originalRemove = retroLinkWrap.classList.remove.bind(retroLinkWrap.classList);
+    retroLinkWrap.classList.remove = function (...args) {
+        if (args.includes('d-none')) {
+            hrefWhenRevealed = retroLinkAnchor.href;
+            textWhenRevealed = retroLinkAnchor.textContent;
+        }
+        return originalRemove(...args);
+    };
 
-    const shownModals = [];
-    const stubBootstrap = { Modal: function (el) { this.show = () => shownModals.push(el); } };
-    const openEditModal = factory(stubBootstrap, (href, text) => {
-        hrefWhenRevealed = href;
-        textWhenRevealed = text;
-    });
+    const bar = document.querySelector('.calendar-event-bar--clickable');
 
     return {
-        openEditModal,
-        shownModals,
+        /** @param {Object.<string, string>} dataset */
+        openEditModal(dataset) {
+            Object.assign(bar.dataset, dataset);
+            bar.dispatchEvent(new Event('click', { bubbles: true }));
+        },
         getStateWhenRevealed: () => ({ href: hrefWhenRevealed, text: textWhenRevealed }),
     };
 }
 
-describe('chief.html.twig openEditModal() — retro link populate-before-reveal order', () => {
-    it('sets href and textContent on the retro link BEFORE revealing its wrapper', () => {
-        buildDom();
-        const { openEditModal, getStateWhenRevealed } = loadOpenEditModal();
+beforeEach(() => {
+    vi.resetModules();
+    global.fetch = vi.fn();
+    window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
+    window.ScoutMagicToast = { show: vi.fn() };
+    delete window.bootstrap;
+    delete window.calendarChiefData;
+});
+
+describe('calendar-chief.js openEditModal() — retro link populate-before-reveal order', () => {
+    it('sets href and textContent on the retro link BEFORE revealing its wrapper', async () => {
+        const { openEditModal, getStateWhenRevealed } = await loadEditDialog();
 
         openEditModal({
             id: '5', calendarId: '1', title: 'Camp', startDate: '2026-07-01', endDate: '2026-07-08',
@@ -138,9 +136,8 @@ describe('chief.html.twig openEditModal() — retro link populate-before-reveal 
         expect(document.getElementById('event-retro-link-wrap').classList.contains('d-none')).toBe(false);
     });
 
-    it('falls back to the raw link as the visible text when no title is given', () => {
-        buildDom();
-        const { openEditModal } = loadOpenEditModal();
+    it('falls back to the raw link as the visible text when no title is given', async () => {
+        const { openEditModal } = await loadEditDialog();
 
         openEditModal({
             id: '5', calendarId: '1', title: 'Camp', startDate: '2026-07-01', endDate: '',
@@ -152,9 +149,8 @@ describe('chief.html.twig openEditModal() — retro link populate-before-reveal 
         expect(document.getElementById('event-retro-link').textContent).toBe('/retro/9');
     });
 
-    it('hides the wrapper and leaves the link untouched when the event has no linked rétrospective', () => {
-        buildDom();
-        const { openEditModal } = loadOpenEditModal();
+    it('hides the wrapper and leaves the link untouched when the event has no linked rétrospective', async () => {
+        const { openEditModal } = await loadEditDialog();
 
         openEditModal({
             id: '5', calendarId: '1', title: 'Camp', startDate: '2026-07-01', endDate: '',

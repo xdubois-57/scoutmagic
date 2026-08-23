@@ -104,8 +104,8 @@ class PassageController extends AbstractController
         if ($data === null) {
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
-        if (!CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Session expirée.'], 403);
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         $requestId = (int) ($params['id'] ?? 0);
@@ -147,8 +147,8 @@ class PassageController extends AbstractController
         if ($data === null) {
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
-        if (!CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Session expirée.'], 403);
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         $memberId = (int) ($params['id'] ?? 0);

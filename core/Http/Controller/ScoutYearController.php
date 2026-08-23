@@ -115,8 +115,8 @@ class ScoutYearController extends AbstractController
      */
     public function preview(Request $request, array $params): Response
     {
-        if (!$this->validCsrf($request)) {
-            return $this->forbidden();
+        if (($guard = $this->guardCsrf($request, '/admin/scout-year')) !== null) {
+            return $guard;
         }
 
         $yearId = (int) $request->getBody('scout_year_id', '0');
@@ -138,8 +138,8 @@ class ScoutYearController extends AbstractController
      */
     public function clearPreview(Request $request, array $params): Response
     {
-        if (!$this->validCsrf($request)) {
-            return $this->forbidden();
+        if (($guard = $this->guardCsrf($request, '/admin/scout-year')) !== null) {
+            return $guard;
         }
 
         ScoutYearSession::clear();
@@ -155,8 +155,8 @@ class ScoutYearController extends AbstractController
      */
     public function activateStaff(Request $request, array $params): Response
     {
-        if (!$this->validCsrf($request)) {
-            return $this->forbidden();
+        if (($guard = $this->guardCsrf($request, '/admin/scout-year')) !== null) {
+            return $guard;
         }
 
         $yearId = (int) $request->getBody('scout_year_id', '0');
@@ -187,8 +187,8 @@ class ScoutYearController extends AbstractController
      */
     public function deactivateStaff(Request $request, array $params): Response
     {
-        if (!$this->validCsrf($request)) {
-            return $this->forbidden();
+        if (($guard = $this->guardCsrf($request, '/admin/scout-year')) !== null) {
+            return $guard;
         }
 
         $this->adminService->deactivateStaffYear();
@@ -212,8 +212,8 @@ class ScoutYearController extends AbstractController
      */
     public function activatePublic(Request $request, array $params): Response
     {
-        if (!$this->validCsrf($request)) {
-            return $this->forbidden();
+        if (($guard = $this->guardCsrf($request, '/admin/scout-year')) !== null) {
+            return $guard;
         }
 
         $yearId = (int) $request->getBody('scout_year_id', '0');
@@ -272,8 +272,8 @@ class ScoutYearController extends AbstractController
      */
     public function toggleStep(Request $request, array $params): Response
     {
-        if (!$this->validCsrf($request)) {
-            return $this->forbidden();
+        if (($guard = $this->guardCsrf($request, '/admin/scout-year')) !== null) {
+            return $guard;
         }
 
         $stepKey = (string) $request->getBody('step_key', '');
@@ -313,15 +313,5 @@ class ScoutYearController extends AbstractController
     protected function now(): \DateTimeImmutable
     {
         return new \DateTimeImmutable();
-    }
-
-    private function validCsrf(Request $request): bool
-    {
-        return CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''));
-    }
-
-    private function forbidden(): Response
-    {
-        return (new Response('', 403))->setBody('Forbidden: invalid CSRF token.');
     }
 }

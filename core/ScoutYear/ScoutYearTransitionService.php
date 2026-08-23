@@ -372,7 +372,7 @@ class ScoutYearTransitionService
                 'key' => 'activate_staff',
                 'phase' => self::PHASE_SITE,
                 'title' => "Activer l'année {$targetLabel} pour les staffs",
-                'description' => "Les chefs et intendants verront {$targetLabel} dès leur prochaine connexion, tandis que les animés et les visiteurs restent sur l'année courante ({$publicLabel}).",
+                'description' => "Les animateurs et intendants verront {$targetLabel} dès leur prochaine connexion, tandis que les animés et les visiteurs restent sur l'année courante ({$publicLabel}).",
                 'auto_done' => $staffYearId === $target,
                 'warning' => $memberCount === 0
                     ? "Aucun membre n'a encore été importé pour {$targetLabel} : les staffs verraient une année vide. Rien ne vous empêche d'activer quand même, mais l'import est normalement fait d'abord."

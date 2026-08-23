@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var options = [];
             try { options = JSON.parse(row.dataset.options || '[]'); } catch(e) {}
 
-            document.getElementById('settingEditTitle').textContent = label;
+            document.getElementById('settingEditModal-title').textContent = label;
             document.getElementById('settingEditDescription').textContent = description;
             document.getElementById('settingEditLabel').textContent = 'Valeur';
             document.getElementById('settingEditType').textContent = 'Type : ' + type;
@@ -37,30 +37,27 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('settingEditSave').addEventListener('click', async function() {
         var input = /** @type {HTMLInputElement} */ (document.querySelector('#settingEditInputContainer input, #settingEditInputContainer select, #settingEditInputContainer textarea'));
         var value = input.type === 'checkbox' ? (input.checked ? '1' : '0') : input.value;
-        var csrf = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
-        var csrfValue = csrf ? csrf.content : '';
 
-        var res = await fetch('/config/settings/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                module_id: currentModuleId || null,
-                key: currentKey,
-                value: value,
-                _csrf_token: csrfValue
-            })
+        var res = await window.ScoutMagicApi.postJson('/config/settings/update', {
+            module_id: currentModuleId || null,
+            key: currentKey,
+            value: value
         });
-        var data = await res.json();
 
-        if (data.success) {
+        if (res.data && res.data.success) {
             modal.hide();
             window.location.reload();
         } else {
-            document.getElementById('settingEditError').textContent = data.error;
+            document.getElementById('settingEditError').textContent = (res.data && res.data.error) || 'Erreur réseau.';
             document.getElementById('settingEditError').classList.remove('d-none');
         }
     });
 
+    // window.ScoutMagicApi.escapeHtml is attribute-safe (it escapes both
+    // quote styles on top of & < >), so it serves both roles the local
+    // escapeHtml/escapeAttr pair used to split: text-node content AND
+    // values interpolated inside double-quoted HTML attributes
+    // (value="...", pattern="...").
     /**
      * @param {string} type
      * @param {string} value
@@ -69,7 +66,8 @@ document.addEventListener('DOMContentLoaded', function() {
      * @returns {string}
      */
     function buildInput(type, value, regex, options) {
-        var pattern = regex ? ' pattern="' + escapeAttr(regex) + '"' : '';
+        var esc = window.ScoutMagicApi.escapeHtml;
+        var pattern = regex ? ' pattern="' + esc(regex) + '"' : '';
         switch (type) {
             case 'boolean':
                 return '<div class="form-check form-switch">' +
@@ -77,31 +75,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     '</div>';
             case 'select':
                 return '<select class="form-select">' +
-                    options.map(function(o) { return '<option value="' + escapeAttr(o) + '"' + (o === value ? ' selected' : '') + '>' + escapeHtml(o) + '</option>'; }).join('') +
+                    options.map(function(o) { return '<option value="' + esc(o) + '"' + (o === value ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') +
                     '</select>';
             case 'textarea':
-                return '<textarea class="form-control" rows="4"' + pattern + '>' + escapeHtml(value) + '</textarea>';
+                return '<textarea class="form-control" rows="4"' + pattern + '>' + esc(value) + '</textarea>';
             case 'color':
-                return '<input type="color" class="form-control form-control-color" value="' + escapeAttr(value) + '">';
+                return '<input type="color" class="form-control form-control-color" value="' + esc(value) + '">';
             default:
-                return '<input type="' + type + '" class="form-control" value="' + escapeAttr(value) + '"' + pattern + '>';
+                return '<input type="' + type + '" class="form-control" value="' + esc(value) + '"' + pattern + '>';
         }
-    }
-
-    function escapeHtml(text) {
-        var div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    // escapeHtml alone doesn't escape quotes (not required in text-node
-    // context), so any value interpolated inside a double-quoted HTML
-    // attribute (value="...", pattern="...") needs this instead.
-    function escapeAttr(text) {
-        return String(text == null ? '' : text)
-            .replace(/&/g, '&amp;')
-            .replace(/"/g, '&quot;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
     }
 });

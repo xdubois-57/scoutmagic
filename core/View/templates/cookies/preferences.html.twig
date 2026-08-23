@@ -1,12 +1,10 @@
 {% extends 'base.html.twig' %}
 {% block title %}Préférences cookies — {{ site_name }}{% endblock %}
 {% block content %}
-    <h1>Préférences cookies</h1>
-    <p class="text-body-secondary">
-        Choisissez les catégories de cookies que vous acceptez. Les cookies strictement nécessaires
-        ne peuvent pas être désactivés car ils sont indispensables au fonctionnement du site.
-        Vous pouvez modifier vos choix à tout moment depuis cette page.
-    </p>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Préférences cookies',
+        subtitle: 'Choisissez les catégories de cookies que vous acceptez. Les cookies strictement nécessaires ne peuvent pas être désactivés car ils sont indispensables au fonctionnement du site. Vous pouvez modifier vos choix à tout moment depuis cette page.',
+    } only %}
 
     <form method="post" action="/cookies/save">
         {{ csrf_field()|raw }}
@@ -15,13 +13,14 @@
             <div class="card mb-3">
                 <div class="card-body">
                     <div class="d-flex align-items-center justify-content-between mb-2">
-                        <h2 class="h5 mb-0">{{ category.label }}</h2>
+                        <h2 class="h5 mb-0" id="cookie-category-{{ category_id }}-label">{{ category.label }}</h2>
                         {% if category_id == 'necessary' %}
-                            <span class="badge bg-secondary">Toujours actif</span>
+                            {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Toujours actif' } only %}
                         {% else %}
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox"
+                                <input class="form-check-input" type="checkbox" role="switch"
                                        name="{{ category_id }}" id="cookie-{{ category_id }}"
+                                       aria-labelledby="cookie-category-{{ category_id }}-label"
                                        {% if category.accepted %}checked{% endif %}>
                             </div>
                         {% endif %}
@@ -29,6 +28,7 @@
                     <p class="text-body-secondary small mb-3">{{ category.description }}</p>
 
                     {% if category.cookies|length > 0 %}
+                        <div class="table-responsive">
                         <table class="table table-sm small mb-0">
                             <thead>
                                 <tr>
@@ -47,10 +47,12 @@
                                 {% endfor %}
                             </tbody>
                         </table>
+                        </div>
                     {% else %}
-                        <p class="text-body-secondary small fst-italic mb-0">
-                            Aucun cookie dans cette catégorie actuellement.
-                        </p>
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucun cookie dans cette catégorie actuellement.',
+                            compact: true,
+                        } only %}
                     {% endif %}
                 </div>
             </div>

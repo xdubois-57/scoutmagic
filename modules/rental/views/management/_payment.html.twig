@@ -29,15 +29,15 @@
                 <dt class="col-sm-5">Total de la location</dt>
                 <dd class="col-sm-7">
                     {% if payment.total_cents is not null %}
-                        {{ (payment.total_cents / 100)|number_format(2, ',', ' ') }} €
+                        {{ payment.total_cents|money_cents }}
                     {% else %}
                         —
                     {% endif %}
                 </dd>
                 <dt class="col-sm-5">Reçu</dt>
-                <dd class="col-sm-7">{{ (payment.received_cents / 100)|number_format(2, ',', ' ') }} €</dd>
+                <dd class="col-sm-7">{{ payment.received_cents|money_cents }}</dd>
                 <dt class="col-sm-5">Restant dû</dt>
-                <dd class="col-sm-7">{{ (payment.remaining_cents / 100)|number_format(2, ',', ' ') }} €</dd>
+                <dd class="col-sm-7">{{ payment.remaining_cents|money_cents }}</dd>
                 {% if payment.communication %}
                     <dt class="col-sm-5">Communication</dt>
                     <dd class="col-sm-7"><code>{{ payment.communication }}</code></dd>
@@ -49,11 +49,12 @@
                     {# A threshold on the one receivable, compared live —
                        never a stored "deposit paid" flag that would spend
                        part of its life disagreeing with the account. #}
-                    <span class="badge {{ payment.deposit_received ? 'bg-success' : 'bg-secondary' }}">
-                        Acompte {{ payment.deposit_received ? 'reçu' : 'en attente' }}
-                    </span>
+                    {% include 'partials/status_badge.html.twig' with {
+                        status: payment.deposit_received ? 'done' : 'pending',
+                        label: payment.deposit_received ? 'Acompte reçu' : 'Acompte en attente',
+                    } only %}
                     <span class="text-body-secondary small">
-                        seuil de {{ (payment.deposit_cents / 100)|number_format(2, ',', ' ') }} €
+                        seuil de {{ payment.deposit_cents|money_cents }}
                         {% if payment.deposit_due_date %}, attendu pour le {{ payment.deposit_due_date }}{% endif %}
                         — même communication que le solde
                     </span>
@@ -61,7 +62,7 @@
             {% endif %}
 
             {% if payment.fully_paid %}
-                <p class="mb-3"><span class="badge bg-success">Location intégralement payée</span></p>
+                <p class="mb-3">{% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Location intégralement payée' } only %}</p>
             {% elseif payment.balance_due_date %}
                 <p class="text-body-secondary small mb-3">Solde attendu pour le {{ payment.balance_due_date }}.</p>
             {% endif %}
@@ -76,15 +77,15 @@
                 <dl class="row mb-3">
                     <dt class="col-sm-5">État</dt>
                     <dd class="col-sm-7">
-                        <span class="badge bg-secondary">{{ payment.security_deposit.status.label }}</span>
+                        <span class="badge text-bg-secondary">{{ payment.security_deposit.status.label }}</span>
                     </dd>
                     <dt class="col-sm-5">Montant</dt>
                     <dd class="col-sm-7">
-                        {{ (payment.security_deposit.amount_cents / 100)|number_format(2, ',', ' ') }} €
+                        {{ payment.security_deposit.amount_cents|money_cents }}
                     </dd>
                     <dt class="col-sm-5">Reçu</dt>
                     <dd class="col-sm-7">
-                        {{ (payment.security_deposit.received_cents / 100)|number_format(2, ',', ' ') }} €
+                        {{ payment.security_deposit.received_cents|money_cents }}
                     </dd>
                     {% if payment.security_deposit.communication %}
                         <dt class="col-sm-5">Communication</dt>
@@ -94,9 +95,9 @@
                         <dt class="col-sm-5">Restituée le</dt>
                         <dd class="col-sm-7">
                             {{ payment.security_deposit.returned_at }} —
-                            {{ (payment.security_deposit.returned_cents / 100)|number_format(2, ',', ' ') }} €
+                            {{ payment.security_deposit.returned_cents|money_cents }}
                             {% if payment.security_deposit.withheld_cents %}
-                                (retenu {{ (payment.security_deposit.withheld_cents / 100)|number_format(2, ',', ' ') }} €)
+                                (retenu {{ payment.security_deposit.withheld_cents|money_cents }})
                             {% endif %}
                         </dd>
                     {% endif %}

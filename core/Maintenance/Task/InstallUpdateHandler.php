@@ -12,6 +12,7 @@ use Core\Database\MigrationRunner;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
+use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
@@ -197,7 +198,17 @@ class InstallUpdateHandler implements TaskHandlerInterface
         } catch (\Throwable $e) {
             // The safety backup itself failed — nothing was changed yet, so
             // there is nothing to roll back.
-            $updateHistoryRepository->markFailed($historyId, $e->getMessage());
+            //
+            // update_history.error_message is written here and rendered much
+            // later as a title="" tooltip on Configuration > Maintenance, so
+            // it goes through the gate: \Throwable is caught, and a
+            // ZipArchive/PDO/filesystem message must not reach that page.
+            // The journal entry immediately below keeps the real text.
+            $updateHistoryRepository->markFailed($historyId, UserFacingMessage::from(
+                $e,
+                'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée. '
+                . 'Vérifiez l\'espace disque et les droits d\'écriture sur storage/, puis relancez la mise à jour.'
+            ));
             $context->journal->log(
                 'core',
                 'update_failed',
@@ -273,7 +284,11 @@ class InstallUpdateHandler implements TaskHandlerInterface
             if ($dbDumpFile === null || $filesZipFile === null) {
                 $updateHistoryRepository->markFailed(
                     $historyId,
-                    'Échec de la migration et sauvegarde de sécurité introuvable pour restauration automatique : ' . $migrationError->getMessage()
+                    'Échec de la migration, et la sauvegarde de sécurité est introuvable pour une restauration '
+                    . 'automatique. ' . UserFacingMessage::from(
+                        $migrationError,
+                        'Consultez le journal des événements pour le détail — une intervention manuelle est nécessaire.'
+                    )
                 );
                 $context->journal->log(
                     'core',
@@ -392,7 +407,13 @@ class InstallUpdateHandler implements TaskHandlerInterface
         try {
             $backupService->restoreDatabase($dbDumpPath);
             $backupService->restoreFiles($filesZipPath);
-            $updateHistoryRepository->markRolledBack($historyId, $error->getMessage());
+            // Same write-site rule as markFailed() above: this string is
+            // rendered as a title="" tooltip on the maintenance page.
+            $updateHistoryRepository->markRolledBack($historyId, UserFacingMessage::from(
+                $error,
+                'L\'installation de la mise à jour a échoué — la version précédente a été restaurée '
+                . 'automatiquement. Le détail est dans le journal des événements.'
+            ));
             $context->journal->log(
                 'core',
                 'update_rolled_back',
@@ -406,7 +427,10 @@ class InstallUpdateHandler implements TaskHandlerInterface
         } catch (\Throwable $rollbackError) {
             $updateHistoryRepository->markFailed(
                 $historyId,
-                'Échec de la mise à jour et de la restauration automatique : ' . $rollbackError->getMessage()
+                'Échec de la mise à jour et de la restauration automatique. ' . UserFacingMessage::from(
+                    $rollbackError,
+                    'Consultez le journal des événements pour le détail — une intervention manuelle est nécessaire.'
+                )
             );
             $context->journal->log(
                 'core',
@@ -613,7 +637,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
             if ($entry === '.' || $entry === '..' || in_array($entry, $excludedTopLevel, true)) {
                 continue;
             }
-            $this->copyRecursive($sourceDir . '/' . $entry, $destDir . '/' . $entry);
+            $this->copyRecursive($sourceDir . '/' . $entry, $destDir . '/' . $entry, $destDir);
         }
     }
 
@@ -680,40 +704,54 @@ class InstallUpdateHandler implements TaskHandlerInterface
      *
      * @throws UpdateException on the first file or directory that cannot be written
      */
-    private function copyRecursive(string $source, string $dest): void
+    private function copyRecursive(string $source, string $dest, string $root): void
     {
         if (is_dir($source)) {
             // The is_dir() re-check covers the harmless race where a
             // concurrent mkdir() of the same path won.
             if (!is_dir($dest) && !@mkdir($dest, 0755, true) && !is_dir($dest)) {
-                throw new UpdateException(self::writeFailureMessage('créer le répertoire', $dest));
+                throw new UpdateException(self::writeFailureMessage('créer le répertoire', $dest, $root));
             }
             foreach (scandir($source) ?: [] as $entry) {
                 if ($entry === '.' || $entry === '..') {
                     continue;
                 }
-                $this->copyRecursive($source . '/' . $entry, $dest . '/' . $entry);
+                $this->copyRecursive($source . '/' . $entry, $dest . '/' . $entry, $root);
             }
         } elseif (!@copy($source, $dest)) {
-            throw new UpdateException(self::writeFailureMessage('remplacer le fichier', $dest));
+            throw new UpdateException(self::writeFailureMessage('remplacer le fichier', $dest, $root));
         }
     }
 
     /**
-     * The PHP-level diagnostic is suppressed at the call site and folded
-     * into the exception instead: mid-update, a raw warning can end up in
-     * the response body on a host with display_errors on, and the reason
-     * ("Permission denied", "Disk quota exceeded", …) is exactly what the
-     * admin needs in the journal entry to fix their hosting.
+     * Which file the update stopped on, said to the admin who has to go
+     * and fix it.
+     *
+     * The path is what makes this actionable — an interrupted update with
+     * no name in it leaves an admin with a broken site and nowhere to
+     * start. It is given RELATIVE to the install root
+     * (`core/View/TwigFactory.php`, not
+     * `/var/www/vhosts/unite.be/httpdocs/core/View/TwigFactory.php`)
+     * because the absolute prefix is the part that is both useless to
+     * them — they know where their own site lives — and the part worth
+     * not printing onto a page: it names the hosting account and often
+     * the customer id above it.
+     *
+     * `error_get_last()` used to be folded in for the reason
+     * ("Permission denied", "Disk quota exceeded"). It is gone: the last
+     * PHP warning at this point is not reliably the one from the
+     * suppressed call just above — anything in between with its own
+     * suppressed warning wins — so it was as likely to name an unrelated
+     * failure as the real one, and it is raw English either way. What is
+     * certain is which file, and that is what this now says.
      */
-    private static function writeFailureMessage(string $action, string $path): string
+    private static function writeFailureMessage(string $action, string $path, string $root): string
     {
-        $reason = error_get_last()['message'] ?? '';
+        $relative = str_starts_with($path, $root . '/') ? substr($path, strlen($root) + 1) : basename($path);
 
-        return "La mise à jour n'a pas pu {$action} « {$path} »"
-            . ($reason !== '' ? " ({$reason})" : '')
-            . ' — installation interrompue pour ne pas laisser le site avec une mise à jour '
-            . 'partiellement appliquée.';
+        return "La mise à jour n'a pas pu {$action} « {$relative} » — vérifiez les droits d'écriture "
+            . 'et l\'espace disque sur le serveur. L\'installation a été interrompue pour ne pas laisser '
+            . 'le site avec une mise à jour partiellement appliquée.';
     }
 
     private function removeDirectory(string $dir): void

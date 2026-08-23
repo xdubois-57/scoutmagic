@@ -100,8 +100,8 @@ class SettingsController extends AbstractController
         }
 
         $csrfToken = $data['_csrf_token'] ?? '';
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $key = $data['key'] ?? '';
@@ -165,8 +165,8 @@ class SettingsController extends AbstractController
         }
 
         $csrfToken = $data['_csrf_token'] ?? '';
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $this->unitLogoService->deleteUploadedLogo();
@@ -207,8 +207,8 @@ class SettingsController extends AbstractController
         }
 
         $csrfToken = $data['_csrf_token'] ?? '';
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         if (!$this->unitLogoService->hasCustomLogo()) {

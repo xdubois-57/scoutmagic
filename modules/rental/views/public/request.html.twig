@@ -12,8 +12,10 @@
   booking, and calling it consent would misrepresent the legal basis.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 720px;">
-        <h1 class="h3 mb-3">Demande de location — {{ asset.name }}</h1>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Demande de location — ' ~ asset.name,
+        } only %}
 
         {% for error in errors %}
             <div class="alert alert-danger">{{ error }}</div>
@@ -26,38 +28,47 @@
                 <legend class="h5">Votre séjour</legend>
                 <div class="row g-3">
                     <div class="col-6">
-                        <label class="form-label" for="arrival">Arrivée</label>
-                        <input type="date" class="form-control" id="arrival" name="arrival"
-                               value="{{ submitted.arrival }}" required>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'arrival', field_name: 'arrival', type: 'date',
+                            label: 'Arrivée', required: true,
+                            value: submitted.arrival,
+                        } only %}
                     </div>
                     <div class="col-6">
-                        <label class="form-label" for="departure">Départ</label>
-                        <input type="date" class="form-control" id="departure" name="departure"
-                               value="{{ submitted.departure }}" required>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'departure', field_name: 'departure', type: 'date',
+                            label: 'Départ', required: true,
+                            value: submitted.departure,
+                        } only %}
                     </div>
                     <div class="col-6">
-                        <label class="form-label" for="persons">Nombre de participants</label>
-                        <input type="number" min="1" class="form-control" id="persons" name="persons"
-                               value="{{ submitted.persons }}">
-                        <div class="form-text">Une estimation suffit à ce stade.</div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'persons', field_name: 'persons', type: 'number',
+                            label: 'Nombre de participants', min: 1, inputmode: 'numeric',
+                            help: 'Une estimation suffit à ce stade.',
+                            value: submitted.persons,
+                        } only %}
                     </div>
                     {% if asset.isStock %}
                         <div class="col-6">
-                            <label class="form-label" for="units">Quantité</label>
-                            <input type="number" min="1" max="{{ asset.quantity }}" class="form-control"
-                                   id="units" name="units" value="{{ submitted.units ?: 1 }}">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'units', field_name: 'units', type: 'number',
+                                label: 'Quantité', min: 1, max: asset.quantity, inputmode: 'numeric',
+                                value: submitted.units ?: 1,
+                            } only %}
                         </div>
                     {% endif %}
                     {% if categories is not empty %}
                         <div class="col-6">
-                            <label class="form-label" for="category">Vous êtes</label>
-                            <select class="form-select" id="category" name="category">
-                                <option value="">—</option>
-                                {% for category in categories %}
-                                    <option value="{{ category.id }}"
-                                            {{ submitted.category == category.id ? 'selected' : '' }}>{{ category.label }}</option>
-                                {% endfor %}
-                            </select>
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'category', field_name: 'category', type: 'select',
+                                label: 'Vous êtes',
+                                options: [{ value: '', label: '—' }]|merge(categories|map(c => {
+                                    value: c.id,
+                                    label: c.label,
+                                    selected: submitted.category == c.id,
+                                })),
+                            } only %}
                         </div>
                     {% endif %}
                 </div>
@@ -67,33 +78,46 @@
                 <legend class="h5">Vos coordonnées</legend>
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
-                        <label class="form-label" for="name">Nom</label>
-                        <input type="text" class="form-control" id="name" name="name"
-                               value="{{ submitted.name }}" required autocomplete="name">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'name', field_name: 'name',
+                            label: 'Nom', required: true, autocomplete: 'name',
+                            value: submitted.name,
+                        } only %}
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label" for="email">Email</label>
-                        <input type="email" class="form-control" id="email" name="email"
-                               value="{{ submitted.email }}" required autocomplete="email">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'email', field_name: 'email', type: 'email',
+                            label: 'Email', required: true, autocomplete: 'email',
+                            value: submitted.email,
+                        } only %}
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label" for="phone">Téléphone</label>
-                        <input type="tel" class="form-control" id="phone" name="phone"
-                               value="{{ submitted.phone }}" autocomplete="tel">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'phone', field_name: 'phone', type: 'tel',
+                            label: 'Téléphone', autocomplete: 'tel',
+                            value: submitted.phone,
+                        } only %}
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label" for="organisation">Organisation</label>
-                        <input type="text" class="form-control" id="organisation" name="organisation"
-                               value="{{ submitted.organisation }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'organisation', field_name: 'organisation',
+                            label: 'Organisation',
+                            value: submitted.organisation,
+                        } only %}
                     </div>
                     <div class="col-12">
-                        <label class="form-label" for="purpose">Objet de la location</label>
-                        <input type="text" class="form-control" id="purpose" name="purpose"
-                               value="{{ submitted.purpose }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'purpose', field_name: 'purpose',
+                            label: 'Objet de la location',
+                            value: submitted.purpose,
+                        } only %}
                     </div>
                     <div class="col-12">
-                        <label class="form-label" for="comment">Commentaire</label>
-                        <textarea class="form-control" id="comment" name="comment" rows="3">{{ submitted.comment }}</textarea>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'comment', field_name: 'comment', type: 'textarea',
+                            label: 'Commentaire', rows: 3,
+                            value: submitted.comment,
+                        } only %}
                     </div>
                 </div>
             </fieldset>

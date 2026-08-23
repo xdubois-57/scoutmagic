@@ -18,9 +18,10 @@ function jsonResponse(data) {
 }
 
 async function settle() {
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    // A macrotask hop drains the whole microtask queue first — the
+    // ScoutMagicApi envelope adds promise layers a fixed number of
+    // Promise.resolve() awaits kept undercounting. Requires real timers.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function buildDom() {
@@ -39,6 +40,12 @@ function buildDom() {
 async function boot() {
     buildDom();
     vi.resetModules();
+    // The real toolboxes — finance-receipts.js aliases
+    // window.ScoutMagicApi.escapeHtml at import time and fetches/toasts
+    // through the shared globals (base.html.twig guarantees this load
+    // order in production).
+    await import('../../public/assets/js/api.js');
+    await import('../../public/assets/js/toast.js');
     await import('../../public/assets/js/finance-receipts.js');
 }
 
@@ -72,6 +79,10 @@ beforeEach(() => {
     meta.content = 'tok';
     document.head.appendChild(meta);
     global.fetch = vi.fn();
+    // The shared confirmation, stubbed: this suite pins that it is ASKED
+    // and awaited before anything is deleted — the dialog itself is
+    // tests/js/confirm.test.js's subject.
+    window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
     delete window.bootstrap;
 });
 
@@ -100,7 +111,7 @@ describe('finance-receipts.js: live search', () => {
 
         vi.advanceTimersByTime(300);
         expect(fetch).toHaveBeenCalledTimes(1);
-        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=tic&pending=0&page=1');
+        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=tic&pending=0&page=1', expect.anything());
     });
 
     it('renders the cards from JSON, with quotes in the filename escaped out of the attributes', async () => {
@@ -116,7 +127,7 @@ describe('finance-receipts.js: live search', () => {
         document.getElementById('receipts-pending-only').dispatchEvent(new Event('change'));
         await settle();
 
-        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=1&page=1');
+        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=1&page=1', expect.anything());
 
         const card = document.querySelector('#receipts-grid [data-receipt-id="31"]');
         expect(card).not.toBeNull();
@@ -145,14 +156,18 @@ describe('finance-receipts.js: live search', () => {
         document.getElementById('receipts-filter-btn').click();
         await settle();
 
-        const links = document.querySelectorAll('#receipts-grid .page-link');
-        expect(links).toHaveLength(3);
+        // Same skeleton as partials/pagination.html.twig (AJAX mode):
+        // prev chevron, the three pages, next chevron.
+        const links = document.querySelectorAll('#receipts-grid .page-link[data-page]');
+        expect(links).toHaveLength(5);
+        expect(links[0].getAttribute('aria-label')).toBe('Précédent');
+        expect(links[4].getAttribute('aria-label')).toBe('Suivant');
 
         fetch.mockClear();
         fetch.mockReturnValue(jsonResponse({ success: true, receipts: [], page: 2, total_pages: 3 }));
-        links[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        links[2].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         await settle();
-        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=0&page=2');
+        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=0&page=2', expect.anything());
     });
 
     it('reset clears the query and the pending filter, then refetches page 1', async () => {
@@ -166,7 +181,7 @@ describe('finance-receipts.js: live search', () => {
 
         expect(document.getElementById('receipts-search').value).toBe('');
         expect(document.getElementById('receipts-pending-only').checked).toBe(false);
-        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=0&page=1');
+        expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=0&page=1', expect.anything());
     });
 });
 
@@ -189,7 +204,7 @@ describe('finance-receipts.js: association dialog', () => {
         document.querySelector('.associate-btn').click();
         await settle();
 
-        expect(fetch).toHaveBeenCalledWith('/finance/movements/search?q=&account_id=7&near_date=2026-07-01');
+        expect(fetch).toHaveBeenCalledWith('/finance/movements/search?q=&account_id=7&near_date=2026-07-01', expect.anything());
         expect(document.getElementById('associate-results').textContent).toContain('Aucun résultat.');
     });
 
@@ -212,7 +227,7 @@ describe('finance-receipts.js: association dialog', () => {
         vi.useRealTimers();
         await settle();
 
-        expect(fetch).toHaveBeenCalledWith('/finance/movements/search?q=Courses&account_id=7');
+        expect(fetch).toHaveBeenCalledWith('/finance/movements/search?q=Courses&account_id=7', expect.anything());
         const choice = document.querySelector('#associate-results button');
         expect(choice.textContent).toBe('01/07/2026 — Courses camp — -45.90 €');
 
@@ -232,19 +247,20 @@ describe('finance-receipts.js: association dialog', () => {
 });
 
 describe('finance-receipts.js: delete', () => {
-    it('asks confirm() and sends nothing on refusal; deletes with the CSRF token on acceptance', async () => {
+    it('asks the shared confirmation and sends nothing on refusal; deletes with the CSRF token on acceptance', async () => {
         await boot();
         fetch.mockReturnValueOnce(jsonResponse({ success: true, page: 1, total_pages: 1, receipts: [receipt()] }));
         document.getElementById('receipts-filter-btn').click();
         await settle();
         fetch.mockClear();
 
-        vi.spyOn(window, 'confirm').mockReturnValue(false);
+        window.ScoutMagicConfirm.ask.mockResolvedValue(false);
         document.querySelector('.delete-btn').click();
         await settle();
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled();
         expect(fetch).not.toHaveBeenCalled();
 
-        window.confirm.mockReturnValue(true);
+        window.ScoutMagicConfirm.ask.mockResolvedValue(true);
         fetch
             .mockReturnValueOnce(jsonResponse({ success: true }))
             .mockReturnValueOnce(jsonResponse({ success: true, receipts: [], page: 1, total_pages: 1 }));
@@ -254,6 +270,31 @@ describe('finance-receipts.js: delete', () => {
         expect(fetch.mock.calls[0][0]).toBe('/finance/receipts/31');
         expect(fetch.mock.calls[0][1]).toMatchObject({ method: 'DELETE' });
         expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ _csrf_token: 'tok' });
+    });
+
+    it('never calls the native confirm(), and names the action on its button', async () => {
+        const nativeConfirm = vi.fn(() => true);
+        window.confirm = nativeConfirm;
+        await boot();
+        fetch.mockReturnValueOnce(jsonResponse({ success: true, page: 1, total_pages: 1, receipts: [receipt()] }));
+        document.getElementById('receipts-filter-btn').click();
+        await settle();
+        fetch.mockClear();
+        fetch
+            .mockReturnValueOnce(jsonResponse({ success: true }))
+            .mockReturnValueOnce(jsonResponse({ success: true, receipts: [], page: 1, total_pages: 1 }));
+
+        document.querySelector('.delete-btn').click();
+        await settle();
+
+        expect(nativeConfirm).not.toHaveBeenCalled();
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'Supprimer ce reçu ?',
+            confirmLabel: 'Supprimer',
+        }));
+        // The question comes before the DELETE, never after it.
+        expect(window.ScoutMagicConfirm.ask.mock.invocationCallOrder[0])
+            .toBeLessThan(fetch.mock.invocationCallOrder[0]);
     });
 });
 
@@ -275,7 +316,7 @@ describe('finance-receipts.js: linked movements dialog', () => {
         document.querySelector('.movements-btn').click();
         await settle();
 
-        expect(fetch).toHaveBeenCalledWith('/finance/receipts/31/movements');
+        expect(fetch).toHaveBeenCalledWith('/finance/receipts/31/movements', expect.anything());
         const row = document.querySelector('#movements-list .unlink-movement-btn');
         expect(row).not.toBeNull();
 

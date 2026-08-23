@@ -30,9 +30,10 @@
         </p>
 
         {% if messages is empty %}
-            <p class="text-body-secondary mb-0">
-                Aucun message n'a encore été rattaché à cette réservation.
-            </p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Aucun message n'a encore été rattaché à cette réservation.",
+                compact: true,
+            } only %}
         {% else %}
             {% for message in messages %}
                 <div class="border rounded p-3 mb-3">
@@ -40,7 +41,7 @@
                         <div>
                             <strong>{{ message.displayFrom }}</strong>
                             <div class="form-text mb-0">
-                                {{ message.sentAt|date('d/m/Y H:i') }}
+                                {{ message.sentAt|datetime_fr }}
                                 {% if message.toEmails is not empty %}
                                     · à {{ message.toEmails|join(', ') }}
                                 {% endif %}
@@ -98,7 +99,7 @@
 
                     <div class="d-flex flex-wrap gap-2">
                         <form method="post" action="/mes-locations/message/detacher"
-                              onsubmit="return confirm('Détacher ce message ? Il sera supprimé, ainsi que ses pièces jointes non reclassées.');">
+                              data-confirm="Détacher ce message ? Il sera supprimé, ainsi que ses pièces jointes non reclassées.">
                             {{ csrf_field()|raw }}
                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                             <input type="hidden" name="booking_id" value="{{ booking.id }}">

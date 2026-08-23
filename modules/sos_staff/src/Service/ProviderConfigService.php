@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\SosStaff\Service;
 
+use Core\Exception\UserFacingMessage;
 use Modules\SosStaff\Provider\Ovh\OvhApiClient;
 use Modules\SosStaff\Provider\Ovh\OvhApiException;
 use Modules\SosStaff\Provider\Ovh\OvhTelephonyProvider;
@@ -116,7 +117,17 @@ class ProviderConfigService
         try {
             $result = $client->requestConsumerKey(OvhTelephonyProvider::ACCESS_RULES);
         } catch (OvhApiException $e) {
-            throw new ProviderException($e->getMessage(), 0, $e);
+            // Same reasoning as OvhTelephonyProvider::requestOrFail(): the
+            // sentence is forwarded only because OvhApiException claims it
+            // is fit for a visitor, and the fallback covers the day it stops.
+            throw new ProviderException(
+                UserFacingMessage::from(
+                    $e,
+                    'La demande de Consumer Key auprès d\'OVH a échoué — vérifiez l\'Application Key et l\'Application Secret, puis réessayez.'
+                ),
+                0,
+                $e
+            );
         }
 
         $this->mergeAndSave([
@@ -146,7 +157,13 @@ class ProviderConfigService
         try {
             $client->get('/telephony');
         } catch (OvhApiException $e) {
-            throw new ProviderException("La Consumer Key n'est pas (encore) validée : {$e->getMessage()}", 0, $e);
+            // The prefix is the whole point of this call site — what OVH
+            // answered is a detail on $e, not a suffix on the sentence.
+            throw new ProviderException(
+                'La Consumer Key n\'est pas (encore) validée — approuvez-la sur le site d\'OVH, puis relancez la vérification.',
+                0,
+                $e
+            );
         }
 
         $this->mergeAndSave(['consumer_key_validated' => true]);

@@ -9,7 +9,7 @@
 {% block content %}
     <div class="mx-auto" style="max-width: 640px;">
         <div class="text-center mb-4">
-            <div style="font-size: 3rem; color: #198754;"><i class="bi bi-check-circle"></i></div>
+            <div style="font-size: 3rem; color: #198754;"><i class="bi bi-check-circle" aria-hidden="true"></i></div>
             <h1 class="h3">Votre réponse a été enregistrée</h1>
         </div>
 
@@ -25,7 +25,7 @@
         {% if payment %}
             <div class="card mb-3 border-primary">
                 <div class="card-body">
-                    <p class="fw-bold fs-5">Montant à payer : {{ payment.total|number_format(2, ',', ' ') }} €</p>
+                    <p class="fw-bold fs-5">Montant à payer : {{ payment.total|money }}</p>
                     <p class="mb-1">Compte : {{ payment.beneficiary }}</p>
                     <p class="mb-1">IBAN : {{ payment.iban }}</p>
                     <p class="mb-3">Communication structurée : <strong>{{ payment.communication }}</strong></p>
@@ -43,7 +43,7 @@
             {% if edit_url %}
                 <a href="{{ edit_url }}" class="btn btn-outline-primary">Modifier mes réponses</a>
             {% endif %}
-            <a href="/news/{{ article.id }}" class="btn btn-secondary">Retour à l'article</a>
+            <a href="/news/{{ article.id }}" class="btn btn-outline-secondary">Voir l'article</a>
         </div>
     </div>
 {% endblock %}

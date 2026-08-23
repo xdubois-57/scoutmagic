@@ -52,6 +52,9 @@ class ConfigAccountController extends AbstractController
         }
 
         return $this->render('@finance/config/accounts.html.twig', [
+            'breadcrumb_trail' => [
+                ['label' => 'Finances', 'url' => '/config/finance'],
+            ],
             'accounts' => $this->financeService->getAllAccountsForConfig(),
             'sections_by_id' => $sectionsById,
             'account_types' => [Account::TYPE_BANK => 'Compte bancaire', Account::TYPE_CASH => 'Caisse'],
@@ -145,8 +148,8 @@ class ConfigAccountController extends AbstractController
         }
 
         $csrf = (string) ($data['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         return $data;

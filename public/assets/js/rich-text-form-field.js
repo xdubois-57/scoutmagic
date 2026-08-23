@@ -188,11 +188,14 @@ export function wireField(root) {
         button.addEventListener('click', function () {
             const command = /** @type {HTMLElement} */ (button).dataset.command;
             if (command === 'createLink') {
-                const url = prompt('URL du lien :');
-                if (url) {
-                    document.execCommand(command, false, url);
-                }
-            } else if (command === 'formatBlock') {
+                // Shared: captures the selection, asks, normalizes the URL
+                // and gives focus back. See rich-text-link.js. sync() runs
+                // after the dialog, not before it, or the inserted link
+                // would never reach the hidden field.
+                window.ScoutMagicRichText.insertLink(surface).then(sync);
+                return;
+            }
+            if (command === 'formatBlock') {
                 document.execCommand(command, false, '<' + /** @type {HTMLElement} */ (button).dataset.value + '>');
             } else {
                 document.execCommand(command, false, null);

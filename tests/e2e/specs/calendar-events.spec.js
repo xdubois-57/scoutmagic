@@ -25,6 +25,7 @@
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
+import { autoConfirm } from '../support/confirm-dialog.js';
 import { expectRendersAsAnEventCalendar } from '../support/calendar.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 
@@ -42,7 +43,11 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
             serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
         }
     });
-    page.on('dialog', (dialog) => dialog.accept());
+    // The chief's "Supprimer" asks through the site's own modal
+    // (public/assets/js/calendar-chief.js → window.ScoutMagicConfirm);
+    // installed here, before the first navigation, because the observer
+    // rides in on an init script.
+    await autoConfirm(page);
 
     await loginAsAdmin(page);
     await answerCookieBanner(page);
@@ -121,9 +126,15 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
         await visitorPage.locator('.calendar-event-bar--clickable', { hasText: EVENT_TITLE_EDITED }).click();
         const details = visitorPage.locator('#eventDetailsModal');
         await expect(details).toBeVisible();
-        await expect(details.locator('#event-details-title')).toHaveText(EVENT_TITLE_EDITED);
+        // The shared modal embed names its own title '{id}-title', which is
+        // the id public.html.twig's showEventDetails() fills in.
+        await expect(details.locator('#eventDetailsModal-title')).toHaveText(EVENT_TITLE_EDITED);
         await expect(details.getByText('14:00', { exact: false })).toBeVisible();
-        await details.getByRole('button', { name: 'Fermer' }).click();
+        // Scoped to the footer: partials/modal.html.twig also gives the
+        // header a ✕ whose aria-label is « Fermer », so the name alone now
+        // matches two controls. The footer's is the one the dialog offers
+        // as its own action.
+        await details.locator('.modal-footer').getByRole('button', { name: 'Fermer' }).click();
         await expect(details).toBeHidden();
     } finally {
         await anonymousVisitor.close();

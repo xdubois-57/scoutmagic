@@ -73,7 +73,18 @@ class ImageProcessingService
         try {
             \Core\Image\ImageDimensionGuard::assertWithinCeilingFromString($contents);
         } catch (\Core\Image\ImageDimensionException $e) {
-            throw new GalleryException($e->getMessage());
+            // The guard's own sentence names the ceiling in megapixels,
+            // which is the only actionable thing anyone can say here — kept
+            // only for as long as ImageDimensionException claims it is fit
+            // for a visitor. $e stays as $previous either way.
+            throw new GalleryException(
+                \Core\Exception\UserFacingMessage::from(
+                    $e,
+                    'Cette image est trop grande pour être traitée — réduisez sa définition, puis réessayez.'
+                ),
+                0,
+                $e
+            );
         }
 
         // imagecreatefromstring() sniffs the format itself; the match is

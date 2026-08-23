@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Http\Controller;
 
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
@@ -77,8 +78,8 @@ class RgpdConfigController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
-        if (!CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         $mode = (string) ($data['mode'] ?? 'default');
@@ -125,8 +126,8 @@ class RgpdConfigController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
-        if (!CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         $prompt = (string) ($data['prompt'] ?? '');
@@ -186,9 +187,20 @@ class RgpdConfigController extends AbstractController
                 $userId
             );
 
+            // Core\View\RgpdGenerationException's three messages (service
+            // unavailable, answer still truncated, generated text not naming
+            // the unit as data controller) are written for this admin and
+            // survive. Everything else — the regex failures in
+            // sanitizeHtmlOutput(), a PDO error from the auto-save — gets
+            // the sentence below instead. Detail is in the journal entry
+            // just above, stack trace included.
             return $this->json([
                 'success' => false,
-                'error' => 'Échec de génération : ' . $e->getMessage(),
+                'error' => 'Échec de génération : ' . UserFacingMessage::from(
+                    $e,
+                    'le texte produit n\'a pas pu être traité et n\'a pas été enregistré. Réessayez, ou '
+                    . 'simplifiez les instructions personnalisées.'
+                ),
             ], 500);
         }
 
@@ -219,8 +231,8 @@ class RgpdConfigController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
-        if (!CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         $defaultContent = $this->rgpdContentService->getDefaultContent();

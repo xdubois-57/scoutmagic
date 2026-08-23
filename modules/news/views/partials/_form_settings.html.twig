@@ -37,7 +37,7 @@
     <p class="form-text d-none" id="news-access-public-help">
         En visibilité Public ou Lien direct, impossible de rattacher une réponse à un compte (pas de connexion requise). La limite est donc illimitée.
     </p>
-    <p class="form-text text-warning d-none" id="news-access-members-warning">
+    <p class="form-text text-warning d-none" id="news-access-members-warning" role="status">
         Attention : un ou plusieurs champs utilisent « Membres liés au compte », qui ne fonctionne pas sans connexion (visibilité Public ou Lien direct).
         Ces champs afficheront un message d'erreur tant que leur source n'est pas changée.
     </p>
@@ -79,7 +79,7 @@
         <input type="radio" class="btn-check" name="form_response_role_min" id="resp-role-intendant" value="intendant" {{ form and form.responseRoleMin == 'intendant' ? 'checked' : '' }}>
         <label class="btn btn-outline-primary" for="resp-role-intendant">Intendant+</label>
         <input type="radio" class="btn-check" name="form_response_role_min" id="resp-role-chief" value="chief" {{ not form or form.responseRoleMin == 'chief' ? 'checked' : '' }}>
-        <label class="btn btn-outline-primary" for="resp-role-chief">Chef+</label>
+        <label class="btn btn-outline-primary" for="resp-role-chief">Animateur+</label>
         <input type="radio" class="btn-check" name="form_response_role_min" id="resp-role-admin" value="admin" {{ form and form.responseRoleMin == 'admin' ? 'checked' : '' }}>
         <label class="btn btn-outline-primary" for="resp-role-admin">Chef d'Unité+</label>
     </div>

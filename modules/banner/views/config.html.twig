@@ -3,12 +3,12 @@
 {% block title %}Bannière — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Bannière</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Bannière' } only %}
     <p class="text-body-secondary small mb-3">
         À chaque chargement de la page d'accueil, une bannière est choisie aléatoirement parmi celles
         actives et visibles par le visiteur ci-dessous. Si aucune ne correspond, rien ne s'affiche.
         La visibilité (Public / Identifiés / Chefs) détermine qui peut voir une bannière — un visiteur
-        non connecté ne voit jamais une bannière réservée aux identifiés ou aux chefs. L'ordre ci-dessous
+        non connecté ne voit jamais une bannière réservée aux identifiés ou aux animateurs. L'ordre ci-dessous
         n'a aucun effet sur l'affichage — il sert uniquement à organiser cette liste.
     </p>
 
@@ -38,7 +38,7 @@
                     data-id="{{ item.id }}" title="Visibilité minimale" aria-label="Visibilité minimale">
                 <option value="public" {{ item.role_min == 'public' ? 'selected' : '' }}>Public</option>
                 <option value="identified" {{ item.role_min == 'identified' ? 'selected' : '' }}>Identifiés</option>
-                <option value="chief" {{ item.role_min == 'chief' ? 'selected' : '' }}>Chefs</option>
+                <option value="chief" {{ item.role_min == 'chief' ? 'selected' : '' }}>Animateurs</option>
             </select>
         {% endblock %}
     {% endembed %}

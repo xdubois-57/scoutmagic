@@ -24,8 +24,10 @@
   (EditableContentService, SECURITY.md §7).
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 900px;">
-        <h1 class="h3 mb-3">Gabarits — {{ asset.name }}</h1>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Gabarits — ' ~ asset.name,
+        } only %}
 
         {% include '@rental/management/_nav.html.twig' %}
 
@@ -114,22 +116,21 @@
                         } %}
 
                         {% if template.type.value == 'invoice' %}
-                            <div class="mb-3">
-                                <label class="form-label" for="vat-note">
-                                    Phrase à imprimer à la place d'une ligne de TVA
-                                </label>
-                                <input type="text" class="form-control" id="vat-note" name="vat_exemption_note"
-                                       maxlength="255" value="{{ vat_note }}"
-                                       placeholder="Non assujetti à la TVA — article 44 du Code de la TVA">
-                                <div class="form-text">
-                                    ScoutMagic ne calcule <strong>jamais</strong> de TVA : le prix affiché est
-                                    celui que le locataire paie, point. Une unité scoute n'est en principe pas
-                                    assujettie, mais une facture belge sans TVA doit dire pourquoi — c'est cette
-                                    phrase-là, reprise telle quelle en bas de la facture. Laissez vide si votre
-                                    unité n'émet pas de facture ou n'a pas besoin de cette mention. Elle est
-                                    aussi disponible comme champ <code>{{ '{{ mention_tva }}' }}</code>.
-                                </div>
-                            </div>
+                            {# The help text is plain prose here: the shared partial
+                               escapes it, so the emphasis and the <code> span are
+                               carried by the wording instead of by markup. #}
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'vat-note', field_name: 'vat_exemption_note',
+                                label: 'Phrase à imprimer à la place d\'une ligne de TVA',
+                                maxlength: 255, value: vat_note,
+                                placeholder: 'Non assujetti à la TVA — article 44 du Code de la TVA',
+                                help: 'ScoutMagic ne calcule jamais de TVA : le prix affiché est
+                                       celui que le locataire paie, point. Une unité scoute n\'est en principe pas
+                                       assujettie, mais une facture belge sans TVA doit dire pourquoi — c\'est cette
+                                       phrase-là, reprise telle quelle en bas de la facture. Laissez vide si votre
+                                       unité n\'émet pas de facture ou n\'a pas besoin de cette mention. Elle est
+                                       aussi disponible comme champ {{ mention_tva }}.',
+                            } only %}
                         {% endif %}
 
                         <button type="submit" class="btn btn-primary">Enregistrer le gabarit</button>
@@ -255,7 +256,10 @@
                 </p>
 
                 {% if meters is empty %}
-                    <p class="text-body-secondary">Aucun compteur.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun compteur.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <ul class="list-unstyled">
                         {% for meter in meters %}
@@ -268,13 +272,13 @@
                                         {% if meter.feeId is null %}· non facturé{% endif %}
                                     </span>
                                 </span>
-                                <form method="post" action="/mes-locations/compteur">
+                                <form method="post" action="/mes-locations/compteur"
+                                      data-confirm="Retirer « {{ meter.label }} » ? Les relevés déjà pris sont conservés.">
                                     {{ csrf_field()|raw }}
                                     <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                     <input type="hidden" name="meter_id" value="{{ meter.id }}">
                                     <input type="hidden" name="meter_action" value="retire">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger"
-                                            data-confirm="Retirer « {{ meter.label }} » ? Les relevés déjà pris sont conservés.">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
                                         Retirer
                                     </button>
                                 </form>
@@ -343,7 +347,10 @@
                 </p>
 
                 {% if inventory_template is empty %}
-                    <p class="text-body-secondary">Aucun élément.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun élément.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <ul class="list-unstyled">
                         {% for item in inventory_template %}

@@ -22,7 +22,7 @@ use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
 
 /**
- * RBAC boundary for /chiefs/stats (Espace chefs, role_min chief):
+ * RBAC boundary for /chiefs/stats (Espace animateurs, role_min chief):
  * chief → 200 (renders), intendant → 403, identified → 403.
  * The real controller + real module template are exercised for the chief case.
  */
@@ -143,7 +143,9 @@ class MemberStatsControllerTest extends TestCase
         $response = $this->buildFrontController()->handle(new Request('GET', '/chiefs/stats', [], [], [], []));
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Statistiques des membres', $response->getBody());
+        // The h1 now follows the page's <title> and breadcrumb label
+        // (design.md §7.6); the detail lives in the page_header subtitle.
+        $this->assertStringContainsString('Répartition des animés par branche', $response->getBody());
     }
 
     public function testIntendantIsDenied(): void

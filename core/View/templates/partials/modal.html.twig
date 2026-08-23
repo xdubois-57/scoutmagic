@@ -1,0 +1,61 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The modal skeleton, once (design.md §7.6 companion).
+
+  Eighteen modals used to copy the same six-element Bootstrap frame, and
+  the copies drifted exactly where a reader can't see it: 3/18 had
+  aria-labelledby (a screen reader announced "dialogue" with no name),
+  4/18 named their close button, 15/18 titled themselves with a real <h5>
+  that broke the page's heading hierarchy, and 12/18 didn't go
+  full-screen on a phone. This embed generates all four correctly from
+  just an id and a title.
+
+  Usage:
+  {% embed 'partials/modal.html.twig' with { id: 'rename-modal', title: 'Renommer l\'album' } only %}
+      {% block body %}
+          … the dialog's content …
+      {% endblock %}
+      {% block footer %}
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+      {% endblock %}
+  {% endembed %}
+
+  Options (all optional):
+      fullscreen_sm: false   -- default true: full-screen below the sm
+                                breakpoint, a phone never gets a floating
+                                strip with 8px margins
+      scrollable: true       -- .modal-dialog-scrollable; careful with a
+                                <form> spanning body+footer (the reason
+                                finance/categories documents at length)
+      size: 'lg'             -- '', 'sm', 'lg', 'xl'
+      static_backdrop: true  -- data-bs-backdrop="static"
+
+  The title id is always '{{ id }}-title' — JS that needs to address the
+  title can rely on that. Omit the footer block entirely for a modal with
+  none (the wrapper div is skipped, not left empty).
+#}
+<div class="modal fade" id="{{ id }}" tabindex="-1" aria-labelledby="{{ id }}-title" aria-hidden="true"
+     {% if static_backdrop|default(false) %}data-bs-backdrop="static"{% endif %}>
+    <div class="modal-dialog{{ (fullscreen_sm is defined ? fullscreen_sm : true) ? ' modal-fullscreen-sm-down' : '' }}{{ scrollable|default(false) ? ' modal-dialog-scrollable' : '' }}{{ size|default('') ? ' modal-' ~ size : '' }}">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5" id="{{ id }}-title">{{ title }}</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+            </div>
+            <div class="modal-body">
+                {% block body %}{% endblock %}
+            </div>
+            {# Rendered first, wrapped only when non-empty: the skeleton
+               declares the block, so `is defined` would always be true —
+               what decides is whether the caller put anything in it. #}
+            {% set _footer = block('footer') is defined ? block('footer') : '' %}
+            {% if _footer|trim is not empty %}
+                <div class="modal-footer">{{ _footer|raw }}</div>
+            {% endif %}
+        </div>
+    </div>
+</div>

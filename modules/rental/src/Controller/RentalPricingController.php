@@ -72,7 +72,7 @@ class RentalPricingController extends AbstractController
      */
     public function savePricing(Request $request, array $params): Response
     {
-        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
+        return $this->guarded($request, $params, 'tarification', function (RentalAsset $asset) use ($request): string {
             // The minimum is one field with a mode, not two independent
             // ones: the spec says amount OR persons, and offering both as
             // free-standing inputs is how an operator ends up with both set
@@ -105,7 +105,7 @@ class RentalPricingController extends AbstractController
      */
     public function addPeriod(Request $request, array $params): Response
     {
-        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
+        return $this->guarded($request, $params, 'tarification', function (RentalAsset $asset) use ($request): string {
             $this->pricingService->addPeriod(
                 $asset->id,
                 (string) $request->getBody('label', ''),
@@ -125,7 +125,7 @@ class RentalPricingController extends AbstractController
      */
     public function deletePeriod(Request $request, array $params): Response
     {
-        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
+        return $this->guarded($request, $params, 'tarification', function (RentalAsset $asset) use ($request): string {
             $this->pricingService->deletePeriod($asset->id, (int) $request->getBody('period_id', 0));
 
             return 'La période a été supprimée.';
@@ -139,7 +139,7 @@ class RentalPricingController extends AbstractController
      */
     public function addCategory(Request $request, array $params): Response
     {
-        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
+        return $this->guarded($request, $params, 'tarification', function (RentalAsset $asset) use ($request): string {
             $this->pricingService->addCategory(
                 $asset->id,
                 (string) $request->getBody('label', ''),
@@ -157,7 +157,7 @@ class RentalPricingController extends AbstractController
      */
     public function deleteCategory(Request $request, array $params): Response
     {
-        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
+        return $this->guarded($request, $params, 'tarification', function (RentalAsset $asset) use ($request): string {
             $this->pricingService->deleteCategory($asset->id, (int) $request->getBody('category_id', 0));
 
             return 'La catégorie a été supprimée.';
@@ -171,7 +171,7 @@ class RentalPricingController extends AbstractController
      */
     public function saveGrid(Request $request, array $params): Response
     {
-        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
+        return $this->guarded($request, $params, 'tarification', function (RentalAsset $asset) use ($request): string {
             $submitted = $request->getBody('grid', []);
             $cells = [];
 
@@ -200,7 +200,7 @@ class RentalPricingController extends AbstractController
      */
     public function addFee(Request $request, array $params): Response
     {
-        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
+        return $this->guarded($request, $params, 'tarification', function (RentalAsset $asset) use ($request): string {
             $amount = RentalPricingService::parseAmountToCents((string) $request->getBody('amount', ''));
 
             $this->pricingService->addFee(
@@ -222,7 +222,7 @@ class RentalPricingController extends AbstractController
      */
     public function deleteFee(Request $request, array $params): Response
     {
-        return $this->guarded($params, 'tarification', function (RentalAsset $asset) use ($request): string {
+        return $this->guarded($request, $params, 'tarification', function (RentalAsset $asset) use ($request): string {
             $this->pricingService->deleteFee($asset->id, (int) $request->getBody('fee_id', 0));
 
             return 'Le frais a été supprimé.';
@@ -241,7 +241,7 @@ class RentalPricingController extends AbstractController
      */
     public function saveConstraints(Request $request, array $params): Response
     {
-        return $this->guarded($params, 'regles', function (RentalAsset $asset) use ($request): string {
+        return $this->guarded($request, $params, 'regles', function (RentalAsset $asset) use ($request): string {
             $weekdays = $request->getBody('allowed_arrival_weekdays', []);
 
             $this->availabilityService->saveConstraints(
@@ -274,7 +274,7 @@ class RentalPricingController extends AbstractController
      */
     public function savePayments(Request $request, array $params): Response
     {
-        return $this->guarded($params, 'paiements', function (RentalAsset $asset) use ($request): string {
+        return $this->guarded($request, $params, 'paiements', function (RentalAsset $asset) use ($request): string {
             if ($this->paymentService === null) {
                 throw new RentalException(
                     'Le module Finances n\'est pas actif : la configuration des paiements est indisponible.'
@@ -316,10 +316,10 @@ class RentalPricingController extends AbstractController
      * @param array<string, string> $params
      * @param callable(RentalAsset): string $operation Returns the success message.
      */
-    private function guarded(array $params, string $anchor, callable $operation): Response
+    private function guarded(Request $request, array $params, string $anchor, callable $operation): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations/' . rawurlencode((string) ($params['slug'] ?? '')) . '/reglages#' . $anchor)) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAsset($params);

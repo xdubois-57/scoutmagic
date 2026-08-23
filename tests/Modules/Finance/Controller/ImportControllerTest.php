@@ -103,6 +103,12 @@ class ImportControllerTest extends TestCase
         $loader = new FilesystemLoader($templateDir);
         $loader->addPath($moduleViews, 'finance');
         $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        // The shared French format filters (core/View/TwigFactory.php) used by
+        // the templates under test - same rendering as the shipped ones.
+        $twig->addFilter(new \Twig\TwigFilter('date_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y')));
+        $twig->addFilter(new \Twig\TwigFilter('datetime_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y à H:i')));
+        $twig->addFilter(new \Twig\TwigFilter('money', fn($a) => $a === null || $a === '' ? '' : number_format((float) $a, 2, ',', ' ') . ' €'));
+        $twig->addFilter(new \Twig\TwigFilter('money_cents', fn($c) => $c === null || $c === '' ? '' : number_format(((int) $c) / 100, 2, ',', ' ') . ' €'));
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'intendant');
@@ -232,7 +238,7 @@ class ImportControllerTest extends TestCase
 
         $response = $this->controller->upload($request, []);
 
-        $this->assertStringContainsString('CSRF', $response->getBody());
+        $this->assertStringContainsString('Votre session a expiré', $response->getBody());
         $this->assertSame(0, $this->countTransactions(), 'no movement may be imported without a valid token');
     }
 
@@ -244,7 +250,7 @@ class ImportControllerTest extends TestCase
 
         $response = $this->controller->upload($request, []);
 
-        $this->assertStringContainsString('CSRF', $response->getBody());
+        $this->assertStringContainsString('Votre session a expiré', $response->getBody());
         $this->assertSame(0, $this->countTransactions());
     }
 

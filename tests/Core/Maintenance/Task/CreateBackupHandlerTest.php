@@ -129,6 +129,15 @@ class CreateBackupHandlerTest extends TestCase
         $backup = $this->backupRepository->findById($id);
         $this->assertSame('failed', $backup->status);
         $this->assertNotNull($backup->errorMessage);
+        // backups.error_message is rendered as a title="" tooltip on
+        // Configuration > Maintenance, so this write site goes through
+        // Core\Exception\UserFacingMessage: the handler catches \Throwable,
+        // and an unmarked exception's own words must not reach that page.
+        $this->assertStringContainsString(
+            'La sauvegarde n\'a pas pu être générée',
+            (string) $backup->errorMessage
+        );
+        $this->assertStringNotContainsString('Mot de passe de sauvegarde illisible', (string) $backup->errorMessage);
     }
 
     public function testHandleNotifiesRequesterOnFailure(): void

@@ -33,9 +33,15 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
     beforeAll(async () => {
         // base.html.twig ships ONE delegated confirmation handler for the
         // whole site — every form carrying data-confirm goes through it,
-        // and a cancelled answer calls preventDefault(). groups.js reads
-        // that verdict rather than asking again (it used to ask again, and
-        // prompted twice).
+        // and groups.js reads its verdict rather than asking again (it
+        // used to ask again, and prompted twice).
+        //
+        // Reproduced here byte-for-byte in behaviour, because groups.js's
+        // own listener is written against it: the dialog is asynchronous,
+        // so this handler stops EVERY data-confirm submit and replays it
+        // (data-confirmed="1", requestSubmit so the submitter and the
+        // native validation survive) once the visitor has confirmed. The
+        // replayed submit is the only one groups.js ever acts on.
         //
         // Registered BEFORE the import, because that is the order
         // production guarantees: base.html.twig's is an inline classic
@@ -44,19 +50,51 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         // that registered these the other way round would be exercising an
         // ordering no browser produces.
         document.addEventListener('submit', function (event) {
-            var form = /** @type {HTMLElement} */ (event.target).closest('form[data-confirm]');
-            if (form && !confirm(form.dataset.confirm)) {
-                event.preventDefault();
+            var form = /** @type {HTMLFormElement} */ (
+                /** @type {HTMLElement} */ (event.target).closest('form[data-confirm]')
+            );
+            if (!form || form.dataset.confirmed === '1') {
+                return;
             }
+            event.preventDefault();
+            var submitter = /** @type {any} */ (event).submitter;
+            window.ScoutMagicConfirm.ask({
+                message: form.dataset.confirm,
+                confirmLabel: form.dataset.confirmLabel || 'Confirmer'
+            }).then(function (confirmed) {
+                if (!confirmed) {
+                    return;
+                }
+                form.dataset.confirmed = '1';
+                if (form.requestSubmit) {
+                    form.requestSubmit(submitter);
+                } else {
+                    form.submit();
+                }
+            });
         });
 
+        // The real toast toolbox — groups.js reports a server refusal
+        // through window.ScoutMagicToast, and base.html.twig loads it
+        // before every page script.
+        await import('../../public/assets/js/toast.js');
         await import('../../public/assets/js/groups.js');
     });
 
     beforeEach(() => {
         vi.restoreAllMocks();
         document.body.innerHTML = '';
+        // The site's confirmation dialog, stubbed: what these tests own is
+        // that data-confirm forms are gated by it and act only on its
+        // "yes" — the dialog's own rendering is tests/js/confirm.test.js.
+        window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
     });
+
+    /** The text of the last toast currently shown, or null when there is none. */
+    function lastToastText() {
+        const bodies = document.querySelectorAll('.toast-body');
+        return bodies.length ? bodies[bodies.length - 1].textContent : null;
+    }
 
     it('"Charger plus" fetches the next page and replaces its wrapper with the response', async () => {
         document.body.innerHTML = `
@@ -316,7 +354,7 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         document.body.innerHTML = `
             <button type="button" class="groups-seen-by" data-url="/groups/1/posts/9/seen-by" data-dialog-title="Vu par"></button>
             <div class="modal" id="groups-detail-modal"></div>
-            <h2 id="groups-detail-modal-label">Réactions</h2>
+            <h2 id="groups-detail-modal-title">Réactions</h2>
             <div id="groups-detail-modal-body"></div>
         `;
         global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => ({ show: vi.fn() })) } };
@@ -331,7 +369,7 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         // The dialog is shared with the reaction tallies, so the title has
         // to follow the trigger or a "vu par" list would open under
         // "Réactions".
-        expect(document.getElementById('groups-detail-modal-label').textContent).toBe('Vu par');
+        expect(document.getElementById('groups-detail-modal-title').textContent).toBe('Vu par');
         expect(fetch).toHaveBeenCalledWith(
             '/groups/1/posts/9/seen-by',
             { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
@@ -713,8 +751,7 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
                 </article>
             `;
             global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
-            vi.spyOn(window, 'confirm').mockReturnValue(true);
-
+    
             document.querySelector('.groups-reply-delete-form button').click();
             await vi.waitFor(() => expect(document.getElementById('reply-3')).toBeNull());
 
@@ -734,8 +771,7 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
                 </article>
             `;
             global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
-            vi.spyOn(window, 'confirm').mockReturnValue(true);
-
+    
             document.querySelector('.groups-post-delete-form button').click();
             await vi.waitFor(() => expect(document.getElementById('post-9')).toBeNull());
 
@@ -778,10 +814,15 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             </article>
         `;
         global.fetch = vi.fn();
-        vi.spyOn(window, 'confirm').mockReturnValue(false);
+        window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
 
         document.querySelector('.groups-post-delete-form button').click();
+        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+        await Promise.resolve();
 
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'Supprimer ?',
+        }));
         expect(fetch).not.toHaveBeenCalled();
         expect(document.getElementById('post-9')).not.toBeNull();
     });
@@ -802,12 +843,11 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             </article>
         `;
         global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
         document.querySelector('.groups-post-delete-form button').click();
         await vi.waitFor(() => expect(document.getElementById('post-9')).toBeNull());
 
-        expect(confirmSpy).toHaveBeenCalledTimes(1);
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledTimes(1);
     });
 
     it('sends nothing at all when the one confirmation is declined', async () => {
@@ -819,12 +859,13 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             </article>
         `;
         global.fetch = vi.fn();
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
 
         document.querySelector('.groups-post-delete-form button').click();
+        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
         await Promise.resolve();
 
-        expect(confirmSpy).toHaveBeenCalledTimes(1);
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledTimes(1);
         expect(fetch).not.toHaveBeenCalled();
         expect(document.getElementById('post-9')).not.toBeNull();
     });
@@ -838,7 +879,6 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             </article>
         `;
         global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
 
         document.querySelector('.groups-post-delete-form button').click();
         await vi.waitFor(() => expect(document.getElementById('post-9')).toBeNull());
@@ -869,19 +909,25 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         }
     });
 
-    it('falls back to a prompt when the clipboard API is unavailable, never silently doing nothing', async () => {
+    it('shows the link when the clipboard API is unavailable, never silently doing nothing', async () => {
         document.body.innerHTML =
             '<button class="groups-copy-link" data-url="/groups/1/posts/9">Copier le lien</button>';
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
-        const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue(null);
+        const nativePrompt = vi.spyOn(window, 'prompt').mockReturnValue(null);
+        const dialog = vi.fn(() => Promise.resolve(null));
+        window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)), prompt: dialog };
 
         document.querySelector('.groups-copy-link').click();
-        await vi.waitFor(() => expect(promptSpy).toHaveBeenCalled());
+        await vi.waitFor(() => expect(dialog).toHaveBeenCalled());
 
-        expect(promptSpy).toHaveBeenCalledWith(
-            'Copiez le lien de ce message :',
-            window.location.origin + '/groups/1/posts/9'
-        );
+        // The site's own dialog, not the native box: read-only and
+        // pre-selected, so the member can copy the link by hand.
+        expect(nativePrompt).not.toHaveBeenCalled();
+        expect(dialog.mock.calls[0][0]).toMatchObject({
+            message: 'Copiez le lien de ce message :',
+            value: window.location.origin + '/groups/1/posts/9',
+            readonly: true,
+        });
     });
 
     it('deleting a reply removes its own .groups-reply, not the whole post', async () => {
@@ -895,7 +941,6 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             </article>
         `;
         global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
 
         document.querySelector('.groups-reply-delete-form button').click();
         await vi.waitFor(() => expect(document.getElementById('reply-3')).toBeNull());
@@ -983,7 +1028,6 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             </div>
         `;
         global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
 
         document.querySelector('.groups-post-delete-form button').click();
         await vi.waitFor(() => expect(document.getElementById('post-9')).toBeNull());
@@ -1006,7 +1050,6 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             </div>
         `;
         global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
 
         document.querySelector('.groups-post-delete-form button').click();
         await vi.waitFor(() => expect(document.getElementById('post-9')).toBeNull());
@@ -1031,7 +1074,6 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             </div>
         `;
         global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
 
         document.querySelector('.groups-reply-delete-form button').click();
         await vi.waitFor(() => expect(document.getElementById('reply-3')).toBeNull());
@@ -1057,8 +1099,7 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
                     <p class="groups-report-confirmation d-none"></p>
                 </article>
             `;
-            vi.spyOn(window, 'confirm').mockReturnValue(true);
-        }
+            }
 
         it('shows the server confirmation on the card and takes the entry out of the menu', async () => {
             cardWithReportEntry();
@@ -1080,10 +1121,11 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
 
         it('nothing happens at all when the confirmation is declined', async () => {
             cardWithReportEntry();
-            vi.spyOn(window, 'confirm').mockReturnValue(false);
+            window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
             global.fetch = vi.fn();
 
             document.querySelector('.groups-report-form button').click();
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
             await Promise.resolve();
 
             expect(fetch).not.toHaveBeenCalled();
@@ -1139,7 +1181,8 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         // content they wrote themselves. It has to be read, not swallowed.
         it('shows the refusal when a moderator tries to restore their own content', async () => {
             hiddenCard();
-            const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+            const nativeAlert = vi.fn();
+            window.alert = nativeAlert;
             global.fetch = vi.fn(() => Promise.resolve({
                 ok: false,
                 json: () => Promise.resolve({ error: 'Vous ne pouvez pas rétablir un contenu que vous avez écrit.' })
@@ -1147,9 +1190,11 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
 
             document.querySelector('.groups-restore-form button').click();
 
-            await vi.waitFor(() => expect(alertSpy).toHaveBeenCalledWith(
+            await vi.waitFor(() => expect(lastToastText()).toBe(
                 'Vous ne pouvez pas rétablir un contenu que vous avez écrit.'
             ));
+            expect(document.querySelector('.toast').className).toContain('text-bg-danger');
+            expect(nativeAlert).not.toHaveBeenCalled();
             expect(document.querySelector('.groups-hidden-banner')).not.toBeNull();
         });
     });
@@ -1208,14 +1253,16 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
                 </form>
             </article>
         `;
-        const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+        const nativeAlert = vi.fn();
+        window.alert = nativeAlert;
         global.fetch = vi.fn(() => Promise.resolve({
             ok: false,
             json: () => Promise.resolve({ error: 'Ce message a été refusé.', type: 'offensive' })
         }));
 
         document.querySelector('.groups-edit-form button').click();
-        await vi.waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Ce message a été refusé.'));
+        await vi.waitFor(() => expect(lastToastText()).toBe('Ce message a été refusé.'));
+        expect(nativeAlert).not.toHaveBeenCalled();
 
         expect(document.getElementById('post-body-9').textContent).toBe('Ancien texte');
         expect(document.getElementById('post-edit-9').classList.contains('d-none')).toBe(false);
@@ -1232,7 +1279,6 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         const form = document.querySelector('.groups-post-delete-form');
         form.submit = vi.fn();
         global.fetch = vi.fn(() => Promise.resolve({ ok: false }));
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
 
         document.querySelector('.groups-post-delete-form button').click();
         await vi.waitFor(() => expect(form.submit).toHaveBeenCalled());

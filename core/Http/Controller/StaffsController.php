@@ -164,8 +164,8 @@ class StaffsController extends AbstractController
         }
 
         $csrf = (string) ($data['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         $memberYearId = isset($data['member_year_id']) ? (int) $data['member_year_id'] : 0;

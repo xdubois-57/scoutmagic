@@ -107,6 +107,94 @@ class GroupListServiceTest extends TestCase
         $this->assertSame([], $this->listService->findArchived($context));
     }
 
+    // ── The headcount on the card ───────────────────────────────────────
+
+    /** @param GroupListItem[] $items */
+    private function headcountOf(array $items, string $name): int
+    {
+        foreach ($items as $item) {
+            if ($item->group->name === $name) {
+                return $item->memberCount;
+            }
+        }
+        self::fail("No group named {$name} in the list.");
+    }
+
+    public function testASectionGroupCountsTheWholeSectionNotItsInvitedRows(): void
+    {
+        // The failure this exists to prevent: discussion_group_members on
+        // a section group holds its moderator and almost nobody else, so
+        // the row count would print « 1 membre » next to a group of four.
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'C10', $this->sectionId, $this->currentYearId);
+        $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M10', $this->sectionId, $this->currentYearId);
+        GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M11', $this->sectionId, $this->currentYearId);
+        GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M12', $this->sectionId, $this->currentYearId);
+
+        $items = $this->listService->findCurrent($this->context([$creator]));
+
+        $this->assertSame(4, $this->headcountOf($items, 'Louveteaux'));
+    }
+
+    public function testSomebodyBothInvitedAndInTheSectionIsCountedOnce(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'C11', $this->sectionId, $this->currentYearId);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $both = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M13', $this->sectionId, $this->currentYearId);
+        (new GroupMemberRepository($this->pdo))->add($groupId, $both);
+
+        $this->assertSame(2, $this->headcountOf($this->listService->findCurrent($this->context([$creator])), 'Louveteaux'));
+    }
+
+    public function testAnInvitationGroupCountsThePeopleInvitedToIt(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C12');
+        $groupId = $this->groupService->createInvitationGroup('Coordination du camp', null, $creator);
+        $repo = new GroupMemberRepository($this->pdo);
+        $repo->add($groupId, GroupsTestHelper::createMember($this->pdo, 'M14'));
+        $repo->add($groupId, GroupsTestHelper::createMember($this->pdo, 'M15'));
+
+        $this->assertSame(
+            3,
+            $this->headcountOf($this->listService->findCurrent($this->context([$creator])), 'Coordination du camp')
+        );
+    }
+
+    public function testAPastYearGroupKeepsTheHeadcountItHadThatYear(): void
+    {
+        // Not this year's roster: an archived group is a record of who was
+        // there, and resolving its sections against the current year would
+        // quietly rewrite that.
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'C13', $this->sectionId, $this->pastYearId);
+        $this->groupService->createSectionGroup('Louveteaux 24-25', $this->sectionId, $this->pastYearId, $creator);
+        GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M16', $this->sectionId, $this->pastYearId);
+        // Three newcomers, this year only. They were never in that group.
+        foreach (['M17', 'M18', 'M19'] as $deskId) {
+            GroupsTestHelper::createMemberWithPeriod($this->pdo, $deskId, $this->sectionId, $this->currentYearId);
+        }
+
+        $items = $this->listService->findArchived($this->context([$creator]));
+
+        $this->assertSame(2, $this->headcountOf($items, 'Louveteaux 24-25'));
+    }
+
+    public function testAGroupNobodyIsInCountsZeroRatherThanFailing(): void
+    {
+        // A site admin sees every group, including one whose section has
+        // nobody in it yet — a section group created the day the section
+        // was, before the first Desk import.
+        $admin = GroupsTestHelper::createMember($this->pdo, 'A1');
+        // Straight through the repositories: createSectionGroup() would
+        // add its creator as the first moderator, which is exactly the
+        // one member this test needs there not to be.
+        $groupId = $this->groupRepo->create('Éclaireurs', $this->currentYearId, $this->otherSectionId, null);
+        (new GroupSectionRepository($this->pdo))->add($groupId, $this->otherSectionId);
+
+        $items = $this->listService->findCurrent($this->context([$admin], 'superadmin'));
+
+        $this->assertSame(0, $this->headcountOf($items, 'Éclaireurs'));
+    }
+
     public function testTheModeratorFlagIsResolvedForTheList(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'C4');

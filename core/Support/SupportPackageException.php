@@ -8,6 +8,12 @@ declare(strict_types=1);
 
 namespace Core\Support;
 
-class SupportPackageException extends \RuntimeException
+/**
+ * A support package that could not be generated, stated in French for the
+ * admin who asked for it.
+ *
+ * Marked {@see \Core\Exception\UserFacingException}.
+ */
+class SupportPackageException extends \RuntimeException implements \Core\Exception\UserFacingException
 {
 }

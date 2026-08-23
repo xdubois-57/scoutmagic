@@ -55,7 +55,14 @@ class SeoKeywordService
         try {
             $response = $this->llmConnector->complete($request);
         } catch (LlmException $e) {
-            throw new NewsException('Échec de la génération des mots-clés : ' . $e->getMessage());
+            // Never append the connector's message: Api\LlmException carries
+            // the provider's HTTP failure, and this string is rendered in
+            // the article editor.
+            throw new NewsException(
+                'Les mots-clés n\'ont pas pu être générés par l\'IA — réessayez, ou saisissez-les vous-même.',
+                0,
+                $e
+            );
         }
 
         return trim($response->content);
@@ -92,7 +99,11 @@ class SeoKeywordService
         try {
             $response = $this->llmConnector->complete($request);
         } catch (LlmException $e) {
-            throw new NewsException('Échec de la génération du résumé : ' . $e->getMessage());
+            throw new NewsException(
+                'Le résumé n\'a pas pu être généré par l\'IA — réessayez, ou rédigez-le vous-même.',
+                0,
+                $e
+            );
         }
 
         return mb_substr(trim($response->content), 0, 300);

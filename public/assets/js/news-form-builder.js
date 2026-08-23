@@ -9,23 +9,11 @@
 // most of it only ever runs together on the editor page; the payment
 // calculator section also runs alone on the article detail page.
 (function () {
-    function csrf() {
-        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
-        return meta ? meta.content : '';
-    }
-
-    /**
-     * @param {string} url
-     * @param {Object} body
-     * @returns {Promise<Object>}
-     */
-    function postJson(url, body) {
-        return fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(Object.assign({}, body, { _csrf_token: csrf() }))
-        }).then(function (res) { return res.json(); });
-    }
+    // CSRF token and JSON requests go through the site-wide toolbox
+    // (window.ScoutMagicApi, loaded by base.html.twig before this file).
+    // postJson resolves to the {ok, status, data} envelope — never a
+    // rejection — so each call site reads `res.data || {}` and branches on
+    // data.success as before.
 
     // Article content now lives in the form's "bloc de texte"/confirmation
     // fields rather than a separate body editor (usability review) — this
@@ -238,9 +226,12 @@
             btn.addEventListener('click', function () {
                 editable.focus();
                 if (cmd.command === 'createLink') {
-                    var url = prompt('URL du lien :');
-                    if (url) document.execCommand('createLink', false, url);
-                } else if (cmd.command === 'insertImage') {
+                    // Shared: captures the selection, asks, normalizes the
+                    // URL and gives focus back. See rich-text-link.js.
+                    window.ScoutMagicRichText.insertLink(editable);
+                    return;
+                }
+                if (cmd.command === 'insertImage') {
                     imageInput.click();
                 } else {
                     document.execCommand(cmd.command, false, cmd.value || null);
@@ -259,14 +250,14 @@
 
             var formData = new FormData();
             formData.append('image', file);
-            formData.append('_csrf_token', csrf());
+            formData.append('_csrf_token', window.ScoutMagicApi.csrfToken());
 
             fetch('/news/images/upload', { method: 'POST', body: formData })
                 .then(function (res) { return res.json(); })
                 .then(function (data) {
                     imageInput.value = '';
                     if (!data.success) {
-                        alert(data.error || "Erreur lors de l'envoi de l'image.");
+                        window.ScoutMagicToast.show(data.error || "Erreur lors de l'envoi de l'image.", { variant: 'error' });
                         return;
                     }
 
@@ -359,7 +350,7 @@
 
             processFeaturedImage(file, FEATURED_IMAGE_MAX_DIMENSION, function (blob) {
                 if (!blob) {
-                    alert("Impossible de traiter cette image.");
+                    window.ScoutMagicToast.show("Impossible de traiter cette image.", { variant: 'error' });
                     featuredImageInput.value = '';
                     return;
                 }
@@ -452,14 +443,15 @@
             aiSummaryBtn.disabled = true;
             aiSummaryBtn.textContent = 'Génération…';
 
-            postJson('/news/seo/generate-summary', { title: title, body_html: bodyHtml })
-                .then(function (data) {
+            window.ScoutMagicApi.postJson('/news/seo/generate-summary', { title: title, body_html: bodyHtml })
+                .then(function (res) {
+                    var data = res.data || {};
                     aiSummaryBtn.textContent = "Générer avec l'IA";
                     updateAiButtonsState();
                     if (data.success) {
                         /** @type {HTMLInputElement} */ (document.getElementById('summary')).value = data.summary;
                     } else {
-                        alert(data.error || 'Erreur lors de la génération.');
+                        window.ScoutMagicToast.show(data.error || 'Erreur lors de la génération.', { variant: 'error' });
                     }
                 });
         });
@@ -473,14 +465,15 @@
             aiKeywordsBtn.disabled = true;
             aiKeywordsBtn.textContent = 'Génération…';
 
-            postJson('/news/seo/generate-keywords', { title: title, body_html: bodyHtml })
-                .then(function (data) {
+            window.ScoutMagicApi.postJson('/news/seo/generate-keywords', { title: title, body_html: bodyHtml })
+                .then(function (res) {
+                    var data = res.data || {};
                     aiKeywordsBtn.textContent = "Générer avec l'IA";
                     updateAiButtonsState();
                     if (data.success) {
                         /** @type {HTMLInputElement} */ (document.getElementById('seo_keywords')).value = data.keywords;
                     } else {
-                        alert(data.error || 'Erreur lors de la génération.');
+                        window.ScoutMagicToast.show(data.error || 'Erreur lors de la génération.', { variant: 'error' });
                     }
                 });
         });
@@ -666,7 +659,7 @@
             var articleId = /** @type {any} */ (window).NEWS_EDITOR_DATA.articleId;
             var ids = fieldState.filter(function (f) { return f.id; }).map(function (f) { return f.id; });
             if (!articleId || ids.length !== fieldState.length) return;
-            postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids });
+            window.ScoutMagicApi.postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids });
         }
 
         function fieldIcon(type) {
@@ -1191,15 +1184,12 @@
     if (deleteConfirmBtn) {
         deleteConfirmBtn.addEventListener('click', function () {
             var id = deleteConfirmBtn.dataset.id;
-            fetch('/news/' + id, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ _csrf_token: csrf() })
-            }).then(function (res) { return res.json(); }).then(function (data) {
+            window.ScoutMagicApi.postJson('/news/' + id, {}, { method: 'DELETE' }).then(function (res) {
+                var data = res.data || {};
                 if (data.success) {
                     window.location.href = '/news/manage';
                 } else {
-                    alert(data.error || 'Erreur lors de la suppression.');
+                    window.ScoutMagicToast.show(data.error || 'Erreur lors de la suppression.', { variant: 'error' });
                 }
             });
         });

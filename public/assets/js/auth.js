@@ -61,8 +61,13 @@
     var emailInput = /** @type {HTMLInputElement} */ (document.getElementById('email'));
     var emailError = document.getElementById('email-error');
     var sentEmailSpan = document.getElementById('sent-email');
+    var waitingPending = document.getElementById('waiting-pending');
+    var waitingExpired = document.getElementById('waiting-expired');
+    var resendBtn = /** @type {HTMLButtonElement} */ (document.getElementById('resend-magic-link'));
+    var resendError = document.getElementById('resend-error');
     var pollingInterval = null;
     var visibilityHandler = null;
+    var expiryTimeout = null;
 
     function stopPolling() {
         if (pollingInterval) {
@@ -73,6 +78,25 @@
             document.removeEventListener('visibilitychange', visibilityHandler);
             visibilityHandler = null;
         }
+        // Clear the 15-minute expiry timer too — an abandoned attempt's
+        // timer must never mark a later attempt as expired.
+        if (expiryTimeout) {
+            clearTimeout(expiryTimeout);
+            expiryTimeout = null;
+        }
+    }
+
+    // Toggles the waiting card between "spinner + waiting" and "link
+    // expired" inside the aria-live region, so the switch is announced.
+    function setWaitingExpired(expired) {
+        waitingPending.classList.toggle('d-none', expired);
+        waitingExpired.classList.toggle('d-none', !expired);
+    }
+
+    function magicLinkBody(email) {
+        return 'email=' + encodeURIComponent(email)
+            + '&_csrf_token=' + encodeURIComponent(getCsrf())
+            + '&rgpd_consent=1' + humanCheckParams();
     }
 
     function showState(state) {
@@ -94,7 +118,6 @@
     sendBtn.addEventListener('click', function() {
         hideError();
         var email = emailInput.value.trim();
-        var csrf = getCsrf();
 
         if (!hasRgpdConsent('magic-link')) {
             return;
@@ -111,7 +134,7 @@
         fetch('/login/magic-link', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'email=' + encodeURIComponent(email) + '&_csrf_token=' + encodeURIComponent(csrf) + '&rgpd_consent=1' + humanCheckParams()
+            body: magicLinkBody(email)
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
@@ -120,6 +143,8 @@
 
             if (data.success) {
                 sentEmailSpan.textContent = email;
+                setWaitingExpired(false);
+                resendError.classList.add('d-none');
                 showState(stateWaiting);
                 startPolling(data.poll_id);
             } else {
@@ -177,10 +202,57 @@
 
         pollingInterval = setInterval(checkOnce, 3000);
 
-        setTimeout(function() {
+        // Magic links expire after 15 minutes: stop polling AND tell the
+        // user, instead of leaving the spinner running forever (which
+        // stranded addresses not yet registered in the unit — the copy is
+        // identical for everyone, so enumeration stays impossible).
+        expiryTimeout = setTimeout(function() {
             stopPolling();
+            setWaitingExpired(true);
         }, 15 * 60 * 1000);
     }
+
+    // --- "Renvoyer le lien" (waiting screen) ---
+    // Reuses the exact same endpoint as the initial send, so server-side
+    // throttling and the uniform anti-enumeration response both apply.
+    resendBtn.addEventListener('click', function() {
+        resendError.classList.add('d-none');
+        var email = emailInput.value.trim();
+        if (!email) {
+            stopPolling();
+            showState(stateEmail);
+            return;
+        }
+
+        resendBtn.disabled = true;
+        resendBtn.textContent = 'Envoi en cours…';
+
+        fetch('/login/magic-link', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: magicLinkBody(email)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            resendBtn.disabled = false;
+            resendBtn.textContent = 'Renvoyer le lien';
+
+            if (data.success) {
+                stopPolling();
+                setWaitingExpired(false);
+                startPolling(data.poll_id);
+            } else {
+                resendError.textContent = data.error || 'Une erreur est survenue.';
+                resendError.classList.remove('d-none');
+            }
+        })
+        .catch(function() {
+            resendBtn.disabled = false;
+            resendBtn.textContent = 'Renvoyer le lien';
+            resendError.textContent = 'Erreur réseau. Veuillez réessayer.';
+            resendError.classList.remove('d-none');
+        });
+    });
 
     // --- Password login ---
     var passwordBtn = document.getElementById('password-login-btn');

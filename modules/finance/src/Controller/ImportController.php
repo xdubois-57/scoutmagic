@@ -59,7 +59,7 @@ class ImportController extends AbstractController
     public function upload(Request $request, array $params): Response
     {
         if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->render('@finance/import/result.html.twig', ['error' => 'Jeton CSRF invalide.']);
+            return $this->renderResult(['error' => self::SESSION_EXPIRED_MESSAGE]);
         }
 
         $account = $this->financeService->getAccount((int) $request->getBody('account_id', 0));
@@ -69,7 +69,7 @@ class ImportController extends AbstractController
         $balance = $balanceRaw !== '' ? (float) str_replace(',', '.', $balanceRaw) : null;
 
         if ($account === null) {
-            return $this->render('@finance/import/result.html.twig', ['error' => 'Compte introuvable.']);
+            return $this->renderResult(['error' => 'Compte introuvable.']);
         }
         // The route's own role_min ('intendant') is only the module floor —
         // each account carries its own role_min_view on top of it, and
@@ -79,10 +79,10 @@ class ImportController extends AbstractController
         // caller is not allowed to see at all.
         $role = Role::fromString(AuthSession::getRole());
         if (!$role->hasAccess(Role::fromString($account->roleMinView))) {
-            return $this->render('@finance/import/result.html.twig', ['error' => 'Accès refusé.']);
+            return $this->renderResult(['error' => 'Accès refusé.']);
         }
         if ($file === null || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            return $this->render('@finance/import/result.html.twig', ['error' => 'Aucun fichier fourni ou erreur lors du téléversement.']);
+            return $this->renderResult(['error' => 'Aucun fichier fourni ou erreur lors du téléversement.']);
         }
 
         try {
@@ -95,13 +95,29 @@ class ImportController extends AbstractController
                 AuthSession::getUserAccountId()
             );
         } catch (FinanceException $e) {
-            return $this->render('@finance/import/result.html.twig', ['error' => $e->getMessage()]);
+            return $this->renderResult(['error' => $e->getMessage()]);
         }
 
-        return $this->render('@finance/import/result.html.twig', [
+        return $this->renderResult([
             'result' => $result->statementImport,
             'balance_discrepancy' => $result->balanceDiscrepancy,
             'account' => $account,
+        ]);
+    }
+    /**
+     * Every outcome of upload() — error or success — renders the same
+     * result page; the breadcrumb trail back to the import form is added
+     * here once so no branch can forget it (design.md §7.3 — the trail
+     * replaced the page's own « Retour » button).
+     *
+     * @param array<string, mixed> $context
+     */
+    private function renderResult(array $context): Response
+    {
+        return $this->render('@finance/import/result.html.twig', $context + [
+            'breadcrumb_trail' => [
+                ['label' => 'Importer', 'url' => '/finance/import'],
+            ],
         ]);
     }
 }

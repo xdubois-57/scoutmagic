@@ -34,38 +34,50 @@
         <form method="get" class="row g-2 align-items-end mb-3">
             <input type="hidden" name="month" value="{{ calendar_month }}">
             <input type="hidden" name="estimate" value="1">
+            {# rental-calendar.js reads input[name="arrival"], input[name="departure"]
+               and input[name="persons"] out of this fragment after swapping it in,
+               so these names and ids are load-bearing — they must not drift. #}
             <div class="col-6 col-md-3">
-                <label class="form-label" for="arrival">Arrivée</label>
-                <input type="date" class="form-control" id="arrival" name="arrival"
-                       value="{{ selection ? selection[0] : '' }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'arrival', field_name: 'arrival', type: 'date',
+                    label: 'Arrivée',
+                    value: selection ? selection[0] : '',
+                } only %}
             </div>
             <div class="col-6 col-md-3">
-                <label class="form-label" for="departure">Départ</label>
-                <input type="date" class="form-control" id="departure" name="departure"
-                       value="{{ selection and selection[1] ? selection[1] : '' }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'departure', field_name: 'departure', type: 'date',
+                    label: 'Départ',
+                    value: selection and selection[1] ? selection[1] : '',
+                } only %}
             </div>
             <div class="col-4 col-md-2">
-                <label class="form-label" for="persons">Participants</label>
-                <input type="number" min="0" class="form-control" id="persons" name="persons"
-                       value="{{ form_persons }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'persons', field_name: 'persons', type: 'number',
+                    label: 'Participants', min: 0, inputmode: 'numeric',
+                    value: form_persons,
+                } only %}
             </div>
             {% if asset.isStock %}
                 <div class="col-4 col-md-2">
-                    <label class="form-label" for="units">Quantité</label>
-                    <input type="number" min="1" max="{{ asset.quantity }}" class="form-control"
-                           id="units" name="units" value="{{ form_units }}">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'units', field_name: 'units', type: 'number',
+                        label: 'Quantité', min: 1, max: asset.quantity, inputmode: 'numeric',
+                        value: form_units,
+                    } only %}
                 </div>
             {% endif %}
             {% if categories is not empty %}
                 <div class="col-4 col-md-2">
-                    <label class="form-label" for="category">Vous êtes</label>
-                    <select class="form-select" id="category" name="category">
-                        <option value="">—</option>
-                        {% for category in categories %}
-                            <option value="{{ category.id }}"
-                                    {{ form_category == category.id ? 'selected' : '' }}>{{ category.label }}</option>
-                        {% endfor %}
-                    </select>
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'category', field_name: 'category', type: 'select',
+                        label: 'Vous êtes',
+                        options: [{ value: '', label: '—' }]|merge(categories|map(c => {
+                            value: c.id,
+                            label: c.label,
+                            selected: form_category == c.id,
+                        })),
+                    } only %}
                 </div>
             {% endif %}
             <div class="col-12 col-md-2">
@@ -99,6 +111,7 @@
             <a class="btn btn-primary" href="{{ request_url }}">Introduire une demande</a>
         {% elseif estimate %}
             {% set quote = estimate.quote %}
+            <div class="table-responsive">
             <table class="table table-sm">
                 <caption class="visually-hidden">Détail du prix estimé</caption>
                 <thead>
@@ -120,22 +133,22 @@
                                 {% if line.isInformational and line.unitPriceCents is not null %}
                                     <span class="small d-block">
                                         Facturé après le séjour selon relevé —
-                                        {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} €{{ line.meta.meter_unit is defined and line.meta.meter_unit ? ' / ' ~ line.meta.meter_unit : '' }}
+                                        {{ line.unitPriceCents|money_cents }}{{ line.meta.meter_unit is defined and line.meta.meter_unit ? ' / ' ~ line.meta.meter_unit : '' }}
                                     </span>
                                 {% elseif line.rule == 'base' and line.unitPriceCents is not null %}
                                     <span class="small text-body-secondary d-block">
-                                        {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} € {{ quote.billingUnit.pricePhrase }}
+                                        {{ line.unitPriceCents|money_cents }} {{ quote.billingUnit.pricePhrase }}
                                     </span>
                                 {% elseif line.rule == 'fee_per_person' and line.unitPriceCents is not null %}
                                     <span class="small text-body-secondary d-block">
-                                        {{ line.quantity }} pers. × {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} €
+                                        {{ line.quantity }} pers. × {{ line.unitPriceCents|money_cents }}
                                     </span>
                                 {% endif %}
                             </td>
                             <td class="text-end">
                                 {{ line.isInformational
                                     ? 'Selon relevé'
-                                    : (line.amountCents / 100)|number_format(2, ',', ' ') ~ ' €' }}
+                                    : line.amountCents|money_cents }}
                             </td>
                         </tr>
                     {% endfor %}
@@ -148,10 +161,11 @@
                                to walk back (§6.7). #}
                             {{ quote.isComplete ? 'Total estimé' : 'Dès' }}
                         </th>
-                        <td class="text-end">{{ (quote.totalCents / 100)|number_format(2, ',', ' ') }} €</td>
+                        <td class="text-end">{{ quote.totalCents|money_cents }}</td>
                     </tr>
                 </tfoot>
             </table>
+            </div>
 
             {% for warning in quote.warnings %}
                 <p class="small text-body-secondary mb-1">{{ warning }}</p>
@@ -177,7 +191,7 @@
                   not obvious, and this is the moment to teach it.
                 #}
                 <p class="text-body-secondary mb-2">
-                    Arrivée le <strong>{{ selection[0]|date('d/m/Y') }}</strong> — touchez maintenant
+                    Arrivée le <strong>{{ selection[0]|date_fr }}</strong> — touchez maintenant
                     votre jour de départ dans le calendrier, ou indiquez-le ci-dessus.
                 </p>
             {% elseif estimate_requested %}

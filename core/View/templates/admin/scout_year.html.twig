@@ -24,11 +24,10 @@
 #}
 {% block title %}Année scoute — {{ param('site_name') }}{% endblock %}
 {% block content %}
-    <h1>Année scoute</h1>
-    <p class="text-body-secondary">
-        Gérez l'année scoute affichée par le site : préparez la prochaine avec les staffs, encodez-la dans Desk,
-        importez-la, puis basculez tout le monde le moment venu.
-    </p>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Année scoute',
+        subtitle: "Gérez l'année scoute affichée par le site : préparez la prochaine avec les staffs, encodez-la dans Desk, importez-la, puis basculez tout le monde le moment venu.",
+    } only %}
 
     {% if public_year_ended %}
     <div class="alert alert-warning d-flex align-items-center gap-2" role="alert">
@@ -46,7 +45,7 @@
         <div class="card-body">
             <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
                 <h2 class="h5 mb-0">Année publique</h2>
-                <span class="badge bg-success-subtle text-success-emphasis">Active</span>
+                {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Active' } only %}
             </div>
             <p class="fs-5 fw-semibold mb-0">{{ public_year.label }}</p>
             <p class="text-body-secondary small mb-0">Année vue par tout le monde.</p>
@@ -59,10 +58,10 @@
         <div class="card-body">
             <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
                 <h2 class="h5 mb-0">Année du staff</h2>
-                <span class="badge bg-info-subtle text-info-emphasis">Staff</span>
+                <span class="badge text-bg-info">Staff</span>
             </div>
             <p class="fs-5 fw-semibold mb-1">{{ staff_year.label }}</p>
-            <p class="text-body-secondary small mb-3">Vue par les chefs et intendants uniquement.</p>
+            <p class="text-body-secondary small mb-3">Vue par les animateurs et intendants uniquement.</p>
             <form method="post" action="/admin/scout-year/deactivate-staff">
                 {{ csrf_field()|raw }}
                 <button type="submit" class="btn btn-outline-secondary btn-sm">Désactiver l'année du staff</button>
@@ -71,25 +70,14 @@
     </div>
     {% endif %}
 
-    {# Status cards for the year currently in effect for you #}
-    <div class="row g-3 mb-4">
-        <div class="col-6">
-            <div class="card h-100">
-                <div class="card-body text-center">
-                    <div class="fs-3 fw-bold">{{ member_count }}</div>
-                    <div class="text-body-secondary small">membre(s) — {{ effective_year.label }}</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6">
-            <div class="card h-100">
-                <div class="card-body text-center">
-                    <div class="fs-3 fw-bold">{{ section_count }}</div>
-                    <div class="text-body-secondary small">section(s) configurée(s)</div>
-                </div>
-            </div>
-        </div>
-    </div>
+    {# Status tiles for the year currently in effect for you #}
+    {% include 'partials/stat_tiles.html.twig' with {
+        tiles: [
+            { label: 'Membre(s) — ' ~ effective_year.label, value: member_count, icon: 'bi-people-fill' },
+            { label: 'Section(s) configurée(s)', value: section_count, icon: 'bi-flag-fill' },
+        ],
+        columns: 2,
+    } only %}
 
     {# Transition workflow — phased, stepped guide toward the next year #}
     <div class="card mb-3">
@@ -106,7 +94,7 @@
                 <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
                     <h3 class="h6 mb-0">{{ phase.title }}</h3>
                     {% if phase.current %}
-                        <span class="badge bg-primary-subtle text-primary-emphasis">Période en cours</span>
+                        <span class="badge text-bg-primary">Période en cours</span>
                     {% endif %}
                 </div>
                 {% if phase.subtitle %}
@@ -127,7 +115,7 @@
                         <div class="step-item__marker flex-shrink-0">
                             <span class="step-circle {{ step.done ? 'step-circle--done' : 'step-circle--pending' }}"
                                   aria-hidden="true">
-                                {% if step.done %}<i class="bi bi-check-lg"></i>{% else %}{{ step.number }}{% endif %}
+                                {% if step.done %}<i class="bi bi-check-lg" aria-hidden="true"></i>{% else %}{{ step.number }}{% endif %}
                             </span>
                         </div>
                         <div class="flex-grow-1 pt-1">

@@ -49,7 +49,11 @@ class ReportControllerTest extends GroupsControllerTestCase
 
         $response = $this->controller([$this->memberId])->reportPost($this->request(), $this->params($this->postId));
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertSame(0, $this->postReportCount());
     }
 
@@ -319,7 +323,11 @@ class ReportControllerTest extends GroupsControllerTestCase
 
         $response = $this->controller([$this->moderatorMemberId])->restorePost($this->request(), $this->params($this->postId));
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertTrue($this->postRepo->findById($this->postId)->isHidden());
     }
 
@@ -605,7 +613,11 @@ class ReportControllerTest extends GroupsControllerTestCase
         $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
             ->hidePost($this->request(), $this->params($this->postId));
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertFalse($this->postRepo->findById($this->postId)->isHidden());
     }
 

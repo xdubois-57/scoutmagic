@@ -78,10 +78,19 @@ class RedirectService
                 throw new ProviderException("La redirection n'a pas été appliquée correctement (état non confirmé).");
             }
         } catch (ProviderException $e) {
-            $message = "Échec du changement de redirection : {$e->getMessage()}";
-            $this->logOutcome('failure', $message, $newMemberId);
-            $this->sendAdminAlert($message);
-            throw new SosException($message, 0, $e);
+            // Two different audiences, deliberately two different strings.
+            // The journal entry and the alert mail are read by someone
+            // debugging the telephony provider, so they keep the provider's
+            // own account of the failure; the exception carries only what a
+            // page may render, with $e as $previous so nothing is lost.
+            $detailed = "Échec du changement de redirection : {$e->getMessage()}";
+            $this->logOutcome('failure', $detailed, $newMemberId);
+            $this->sendAdminAlert($detailed);
+            throw new SosException(
+                'Le changement de redirection du numéro SOS a échoué — vérifiez la configuration du fournisseur de téléphonie, puis réessayez.',
+                0,
+                $e
+            );
         }
 
         $this->logOutcome('success', "Redirection changée vers {$targetNumber}.", $newMemberId);

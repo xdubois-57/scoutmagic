@@ -37,8 +37,12 @@ class TouchTargetCssTest extends TestCase
 
     private function revertBlock(): string
     {
-        preg_match('/@media \(min-width: 992px\) \{(.*?)\n\}/s', $this->css, $m);
-        $this->assertNotEmpty($m, 'Could not locate the @media (min-width: 992px) revert block');
+        // The restore is keyed on the pointer, not a width breakpoint,
+        // since design.md §7.2: a 10" touch tablet wider than 992px keeps
+        // its touch targets, a narrow desktop window with a mouse loses
+        // them.
+        preg_match('/@media \(pointer: fine\) \{(.*?)\n\}/s', $this->css, $m);
+        $this->assertNotEmpty($m, 'Could not locate the @media (pointer: fine) revert block');
         return $m[1];
     }
 

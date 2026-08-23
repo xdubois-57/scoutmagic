@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Gallery\Service;
 
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Core\Scheduler\SchedulerService;
@@ -151,7 +152,21 @@ class MediaService
                 $album->ownerType, $album->ownerId
             );
         } catch (UploadException $e) {
-            throw new GalleryException($e->getMessage());
+            // Core\File\UploadException is a Core\Exception\UserFacingException
+            // — « Le fichier dépasse la taille maximale de 30 Mo. » is
+            // precisely what the chief needs and would be a shame to
+            // replace with a generic sentence. Routing it through the helper
+            // makes that a checked claim instead of an assumption: the day
+            // UploadException stops being marked, this fallback is what
+            // reaches the page.
+            throw new GalleryException(
+                UserFacingMessage::from(
+                    $e,
+                    'Ce fichier n\'a pas pu être envoyé — vérifiez son format et sa taille, puis réessayez.'
+                ),
+                0,
+                $e
+            );
         }
 
         $sortOrder = $this->mediaRepository->nextSortOrder($album->id);

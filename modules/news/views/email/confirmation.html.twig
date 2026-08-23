@@ -14,7 +14,7 @@
 
     {% if payment %}
         <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin:20px 0;background-color:#f8f9fa;">
-            <p style="margin:0 0 8px;font-weight:bold;font-size:16px;">Montant à payer : {{ payment.total|number_format(2, ',', ' ') }} €</p>
+            <p style="margin:0 0 8px;font-weight:bold;font-size:16px;">Montant à payer : {{ payment.total|money }}</p>
             <p style="margin:0 0 4px;">Compte : {{ payment.beneficiary }}</p>
             <p style="margin:0 0 4px;">IBAN : {{ payment.iban }}</p>
             <p style="margin:0 0 12px;">Communication structurée : <strong>{{ payment.communication }}</strong></p>

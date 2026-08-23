@@ -3,7 +3,7 @@
 {% block title %}{{ article ? 'Éditer' : 'Nouvel article' }} — Actualités — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="h4 mb-3">{{ article ? 'Éditer l\'article' : 'Nouvel article' }}</h1>
+    {% include 'partials/page_header.html.twig' with { title: article ? 'Éditer l\'article' : 'Nouvel article' } only %}
 
     {% include '@news/partials/_form_tabs.html.twig' with {article_id: article ? article.id : null, active: preview is defined and preview ? 'preview' : 'edit', can_view_responses: form is not null} %}
 
@@ -24,12 +24,12 @@
                             <div class="d-flex align-items-center gap-2 mb-2">
                                 <label for="image" class="editable-image d-inline-block flex-shrink-0" style="cursor:pointer;max-width:140px;" aria-label="Modifier l'image de l'article">
                                     <div class="editable-overlay">
-                                        <i class="bi bi-camera text-white fs-4"></i>
+                                        <i class="bi bi-camera text-white fs-4" aria-hidden="true"></i>
                                     </div>
                                     <img id="news-image-preview" src="{{ (article and article.imageFileId) ? file_url(article.imageFileId) : '' }}" alt=""
                                          class="rounded d-block {{ (article and article.imageFileId) ? '' : 'd-none' }}" style="max-width:140px;max-height:140px;width:auto;height:auto;">
-                                    <div id="news-image-placeholder" class="d-flex align-items-center justify-content-center bg-light rounded {{ (article and article.imageFileId) ? 'd-none' : '' }}" style="width:110px;height:110px;">
-                                        <i class="bi bi-image text-muted" style="font-size:1.5rem;"></i>
+                                    <div id="news-image-placeholder" class="d-flex align-items-center justify-content-center bg-body-tertiary rounded {{ (article and article.imageFileId) ? 'd-none' : '' }}" style="width:110px;height:110px;">
+                                        <i class="bi bi-image text-body-secondary" style="font-size:1.5rem;" aria-hidden="true"></i>
                                     </div>
                                 </label>
                                 <span id="news-image-label" class="fw-medium {{ (article and article.imageFileId) ? 'd-none' : '' }}">Image <span class="text-danger">*</span></span>
@@ -73,7 +73,7 @@
                         <input type="radio" class="btn-check" name="visibility" id="vis-public" value="public" {{ visibility_value == 'public' ? 'checked' : '' }}>
                         <label class="btn btn-outline-primary" for="vis-public">Public</label>
                         <input type="radio" class="btn-check" name="visibility" id="vis-chief" value="chief" {{ visibility_value == 'chief' ? 'checked' : '' }}>
-                        <label class="btn btn-outline-primary" for="vis-chief">Chefs</label>
+                        <label class="btn btn-outline-primary" for="vis-chief">Animateurs</label>
                         <input type="radio" class="btn-check" name="visibility" id="vis-admin" value="admin" {{ visibility_value == 'admin' ? 'checked' : '' }}>
                         <label class="btn btn-outline-primary" for="vis-admin">Chefs d'Unité</label>
                         <input type="radio" class="btn-check" name="visibility" id="vis-direct_link" value="direct_link" {{ visibility_value == 'direct_link' ? 'checked' : '' }}>
@@ -109,7 +109,6 @@
                     <h2 class="h6">Référencement</h2>
                     <div class="form-check form-switch mb-2">
                         <input class="form-check-input" type="checkbox" role="switch" name="is_indexed" id="is_indexed" value="1"
-                               {{ is_indexed_value ? 'checked' : '' }}
                                aria-checked="{{ is_indexed_value ? 'true' : 'false' }}">
                         <label class="form-check-label" for="is_indexed">Indexer cette page dans les moteurs de recherche</label>
                     </div>
@@ -138,7 +137,7 @@
                         {% if short_url %}
                             <p class="mb-2">Affiche A4 avec QR code vers {{ short_url }}</p>
                             <a href="/news/{{ article.id }}/poster" class="btn btn-outline-secondary">
-                                <i class="bi bi-file-earmark-pdf"></i> Télécharger le PDF
+                                <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Télécharger le PDF
                             </a>
                         {% else %}
                             <p class="text-body-secondary mb-0">Enregistrez l'article pour générer le lien court.</p>
@@ -156,23 +155,17 @@
         </form>
 
         {% if article %}
-            <div class="modal fade" id="news-delete-modal" tabindex="-1">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">Confirmer la suppression</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            Supprimer cet article et son formulaire ? Cette action est irréversible.
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
-                            <button type="button" class="btn btn-danger" id="news-delete-confirm-btn" data-id="{{ article.id }}">Supprimer</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            {# article_id rides along in the embed context: with `only`, the
+               blocks below no longer see this template's own variables. #}
+            {% embed 'partials/modal.html.twig' with { id: 'news-delete-modal', title: 'Confirmer la suppression', article_id: article.id } only %}
+                {% block body %}
+                    Supprimer cet article et son formulaire ? Cette action est irréversible.
+                {% endblock %}
+                {% block footer %}
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <button type="button" class="btn btn-danger" id="news-delete-confirm-btn" data-id="{{ article_id }}">Supprimer</button>
+                {% endblock %}
+            {% endembed %}
         {% endif %}
     {% endif %}
 {% endblock %}

@@ -139,7 +139,14 @@ class ModerationService
         try {
             $response = $this->llmConnector->complete($request);
         } catch (LlmException $e) {
-            throw new RetroException('Échec du raccourcissement : ' . $e->getMessage());
+            // Same leak as SummaryService::generate(): the provider's own
+            // words must not be appended to a sentence the author reads.
+            throw new RetroException(
+                'Le raccourcissement par l\'IA a échoué — réessayez, ou raccourcissez le message vous-même.',
+                RetroException::TYPE_GENERIC,
+                null,
+                $e
+            );
         }
 
         return trim($response->content);

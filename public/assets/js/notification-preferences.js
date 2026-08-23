@@ -13,11 +13,6 @@
     var root = document.getElementById('notification-preferences');
     if (!root) return;
 
-    function csrf() {
-        var meta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
-        return meta ? meta.content : '';
-    }
-
     // public/assets/js/nav.js's delegated 'change' listener already syncs
     // aria-checked for a real user click; the two reverts below flip
     // .checked back programmatically after a failed save, which fires no
@@ -42,26 +37,18 @@
     channelToggles.forEach(function (toggle) {
         toggle.addEventListener('change', function () {
             var value = toggle.checked ? 'on' : 'off';
-            fetch('/notifications/preferences', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    type_id: toggle.dataset.typeId,
-                    channel: toggle.dataset.channel,
-                    value: value,
-                    _csrf_token: csrf()
-                })
+            window.ScoutMagicApi.postJson('/notifications/preferences', {
+                type_id: toggle.dataset.typeId,
+                channel: toggle.dataset.channel,
+                value: value
             })
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
-                    if (!data.success) {
+                .then(function (res) {
+                    // A network failure or an HTTP error page arrives as a
+                    // data-less envelope — same revert as a refused save.
+                    if (!res.data || !res.data.success) {
                         toggle.checked = !toggle.checked;
                         syncAriaChecked(toggle);
                     }
-                })
-                .catch(function () {
-                    toggle.checked = !toggle.checked;
-                    syncAriaChecked(toggle);
                 });
         });
     });
@@ -70,24 +57,16 @@
     var startInput = /** @type {HTMLInputElement | null} */ (document.getElementById('quiet-hours-start'));
     var endInput = /** @type {HTMLInputElement | null} */ (document.getElementById('quiet-hours-end'));
     var discretionToggle = /** @type {HTMLInputElement | null} */ (document.getElementById('notification-discretion'));
-    var savedNotice = document.getElementById('account-settings-saved-notice');
 
     function saveAccountSettings() {
-        fetch('/notifications/quiet-hours', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                quiet_hours_start: startInput.value,
-                quiet_hours_end: endInput.value,
-                discretion: discretionToggle.checked,
-                _csrf_token: csrf()
-            })
+        window.ScoutMagicApi.postJson('/notifications/quiet-hours', {
+            quiet_hours_start: startInput.value,
+            quiet_hours_end: endInput.value,
+            discretion: discretionToggle.checked
         })
-            .then(function (res) { return res.json(); })
-            .then(function (data) {
-                if (data.success && savedNotice) {
-                    savedNotice.classList.remove('d-none');
-                    setTimeout(function () { savedNotice.classList.add('d-none'); }, 2000);
+            .then(function (res) {
+                if (res.data && res.data.success) {
+                    window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                 }
             });
     }

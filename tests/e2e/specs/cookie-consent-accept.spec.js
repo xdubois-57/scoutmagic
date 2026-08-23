@@ -92,9 +92,12 @@ test('the preferences page grants a category and later takes its cookies back', 
         }
     });
 
-    // "Personnaliser" on the banner is the documented path to /cookies.
+    // "Personnaliser" on the banner is the documented path to /cookies. A
+    // link, not a button: partials/cookie_banner.html.twig makes it an <a
+    // href="/cookies"> so it works with the script absent — the .btn class
+    // styles it, it does not change its role.
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: 'Personnaliser' }).click();
+    await page.getByRole('link', { name: 'Personnaliser' }).click();
     await page.waitForURL('**/cookies', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { level: 1, name: 'Préférences cookies' })).toBeVisible();
 

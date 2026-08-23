@@ -48,7 +48,7 @@ class ScalewayProvider implements LlmProviderInterface
         $response = $this->http->getJson($url, $this->headers(), self::DEFAULT_TIMEOUT);
 
         if (!isset($response['data']) || !is_array($response['data'])) {
-            throw LlmException::apiError('Invalid response from models endpoint.');
+            throw LlmException::apiError('Invalid response from the Scaleway models endpoint.');
         }
 
         $models = [];

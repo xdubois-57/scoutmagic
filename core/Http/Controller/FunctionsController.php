@@ -9,11 +9,13 @@ declare(strict_types=1);
 namespace Core\Http\Controller;
 
 use Core\Badge\BadgeService;
+use Core\Exception\UserFacingMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Import\AgeBranchRepository;
 use Core\Import\FunctionRepository;
 use Core\Journal\JournalService;
+use Core\Member\SectionException;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Module\FunctionFlagsProvider;
@@ -28,11 +30,11 @@ class FunctionsController extends AbstractController
 {
     /** @var array<int, array{value: string, label: string, badge_class: string}> */
     private const ROLE_DEFINITIONS = [
-        ['value' => 'public', 'label' => 'Public', 'badge_class' => 'bg-secondary-subtle text-secondary-emphasis'],
-        ['value' => 'identified', 'label' => 'Animé', 'badge_class' => 'bg-info-subtle text-info-emphasis'],
-        ['value' => 'intendant', 'label' => 'Intendant', 'badge_class' => 'bg-primary-subtle text-primary-emphasis'],
-        ['value' => 'chief', 'label' => 'Chef', 'badge_class' => 'bg-success-subtle text-success-emphasis'],
-        ['value' => 'admin', 'label' => 'Chef d\'Unité', 'badge_class' => 'bg-danger-subtle text-danger-emphasis'],
+        ['value' => 'public', 'label' => 'Public', 'badge_class' => 'text-bg-secondary'],
+        ['value' => 'identified', 'label' => 'Animé', 'badge_class' => 'text-bg-info'],
+        ['value' => 'intendant', 'label' => 'Intendant', 'badge_class' => 'text-bg-primary'],
+        ['value' => 'chief', 'label' => 'Chef', 'badge_class' => 'text-bg-success'],
+        ['value' => 'admin', 'label' => 'Chef d\'Unité', 'badge_class' => 'text-bg-danger'],
     ];
 
     public function __construct(
@@ -130,8 +132,8 @@ class FunctionsController extends AbstractController
 
         // CSRF validation
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $functionId = isset($json['function_id']) ? (int) $json['function_id'] : 0;
@@ -214,8 +216,8 @@ class FunctionsController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $functionId = isset($json['function_id']) ? (int) $json['function_id'] : 0;
@@ -255,8 +257,8 @@ class FunctionsController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $sectionId = isset($json['section_id']) ? (int) $json['section_id'] : 0;
@@ -299,8 +301,8 @@ class FunctionsController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $sectionId = isset($json['section_id']) ? (int) $json['section_id'] : 0;
@@ -338,8 +340,8 @@ class FunctionsController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $sectionId = isset($json['section_id']) ? (int) $json['section_id'] : 0;
@@ -383,8 +385,8 @@ class FunctionsController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $sectionId = isset($json['section_id']) ? (int) $json['section_id'] : 0;
@@ -396,8 +398,15 @@ class FunctionsController extends AbstractController
         $color = isset($json['color']) ? (string) $json['color'] : null;
         try {
             $this->sectionService->updateSectionColor($sectionId, $color);
-        } catch (\InvalidArgumentException $e) {
-            return $this->json(['success' => false, 'error' => $e->getMessage()]);
+        } catch (SectionException $e) {
+            // Was catch (\InvalidArgumentException) — too wide to display
+            // from: the colour-format sentence and whatever an unrelated
+            // library throws arrived through the same variable.
+            return $this->json(['success' => false, 'error' => UserFacingMessage::from(
+                $e,
+                'La couleur de cette section n\'a pas pu être modifiée — indiquez une couleur au format '
+                . 'hexadécimal (ex : #378ADD).'
+            )]);
         }
 
         $this->journalService->log(
@@ -432,8 +441,8 @@ class FunctionsController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $branchId = isset($json['branch_id']) ? (int) $json['branch_id'] : 0;

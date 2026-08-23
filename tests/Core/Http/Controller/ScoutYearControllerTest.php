@@ -101,7 +101,11 @@ class ScoutYearControllerTest extends TestCase
         $request = $this->post('/admin/scout-year/preview', ['_csrf_token' => 'wrong', 'scout_year_id' => $this->yearB]);
         $response = $this->controller->preview($request, []);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertNull(ScoutYearSession::getPreviewId());
     }
 
@@ -170,7 +174,11 @@ class ScoutYearControllerTest extends TestCase
         $request = $this->post('/admin/scout-year/activate-staff', ['_csrf_token' => 'wrong', 'scout_year_id' => $this->yearB]);
         $response = $this->controller->activateStaff($request, []);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertSame('0', $this->settingService->get(ScoutYearResolver::SETTING_STAFF_YEAR));
     }
 
@@ -362,7 +370,11 @@ class ScoutYearControllerTest extends TestCase
         $request = $this->post('/admin/scout-year/step', ['_csrf_token' => 'wrong', 'step_key' => 'fees', 'done' => '1']);
         $response = $this->controller->toggleStep($request, []);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertNull($this->firstStepMark());
     }
 

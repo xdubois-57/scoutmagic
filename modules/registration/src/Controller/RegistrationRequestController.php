@@ -132,9 +132,8 @@ class RegistrationRequestController extends AbstractController
         if ($registrationRequest === null) {
             return new Response('Not Found', 404);
         }
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirectToFiche($registrationRequest->id);
+        if (($guard = $this->guardCsrf($request, '/config/inscriptions/demandes/' . $registrationRequest->id)) !== null) {
+            return $guard;
         }
 
         $submitted = (int) $request->getBody('intended_section_id', '0');
@@ -157,9 +156,8 @@ class RegistrationRequestController extends AbstractController
         if ($registrationRequest === null) {
             return new Response('Not Found', 404);
         }
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirectToFiche($registrationRequest->id);
+        if (($guard = $this->guardCsrf($request, '/config/inscriptions/demandes/' . $registrationRequest->id)) !== null) {
+            return $guard;
         }
 
         $submitted = (int) $request->getBody('fee_category_id', '0');
@@ -193,9 +191,8 @@ class RegistrationRequestController extends AbstractController
         if ($registrationRequest === null) {
             return new Response('Not Found', 404);
         }
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirectToFiche($registrationRequest->id);
+        if (($guard = $this->guardCsrf($request, '/config/inscriptions/demandes/' . $registrationRequest->id)) !== null) {
+            return $guard;
         }
 
         $notes = trim((string) $request->getBody('internal_notes', ''));
@@ -221,9 +218,8 @@ class RegistrationRequestController extends AbstractController
         if ($registrationRequest === null) {
             return new Response('Not Found', 404);
         }
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirectToFiche($registrationRequest->id);
+        if (($guard = $this->guardCsrf($request, '/config/inscriptions/demandes/' . $registrationRequest->id)) !== null) {
+            return $guard;
         }
 
         $deskId = trim((string) $request->getBody('desk_id', ''));
@@ -272,9 +268,8 @@ class RegistrationRequestController extends AbstractController
         if ($registrationRequest === null) {
             return new Response('Not Found', 404);
         }
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirectToFiche($registrationRequest->id);
+        if (($guard = $this->guardCsrf($request, '/config/inscriptions/demandes/' . $registrationRequest->id)) !== null) {
+            return $guard;
         }
 
         $scoutYear = $this->scoutYearService->findById($registrationRequest->scoutYearId);
@@ -300,9 +295,8 @@ class RegistrationRequestController extends AbstractController
         if ($registrationRequest === null) {
             return new Response('Not Found', 404);
         }
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirectToFiche($registrationRequest->id);
+        if (($guard = $this->guardCsrf($request, '/config/inscriptions/demandes/' . $registrationRequest->id)) !== null) {
+            return $guard;
         }
 
         try {
@@ -367,6 +361,12 @@ class RegistrationRequestController extends AbstractController
 
         return [
             'r' => $registrationRequest,
+            // The child's name is already decrypted on the entity — no
+            // extra decryption for the breadcrumb title.
+            'breadcrumb_current' => trim($registrationRequest->childFirstName . ' ' . $registrationRequest->childLastName),
+            'breadcrumb_trail' => [
+                ['label' => 'Inscriptions', 'url' => '/config/inscriptions?year=' . $registrationRequest->scoutYearId],
+            ],
             'scout_year_label' => $scoutYearLabel,
             'slot_label' => $this->slotLabel($brackets, $slot),
             'desired_section_label' => $registrationRequest->desiredSectionId !== null

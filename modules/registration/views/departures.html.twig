@@ -4,17 +4,20 @@
 <link rel="stylesheet" href="/assets/css/components.css">
 {% endblock %}
 {% block content %}
-    <div class="container py-4" style="max-width: 900px;">
-        <h1 class="h3 mb-1">Départs</h1>
-        <p class="text-body-secondary small mb-4">
-            Marque les animés qui <strong>ne seront plus là l'année scoute prochaine</strong>. Ce marquage porte
-            uniquement sur l'année scoute {{ scout_year_label }} : il se réinitialise de lui-même à chaque nouvelle
-            année (nouvel import Desk), il n'a donc jamais besoin d'être retiré manuellement d'une année sur l'autre.
-            L'enregistrement est automatique — il n'y a pas de bouton « Enregistrer ».
-        </p>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Départs',
+            subtitle: "Marque les animés qui ne seront plus là l'année scoute prochaine. Ce marquage porte
+                uniquement sur l'année scoute " ~ scout_year_label ~ " : il se réinitialise de lui-même à chaque nouvelle
+                année (nouvel import Desk), il n'a donc jamais besoin d'être retiré manuellement d'une année sur l'autre.
+                L'enregistrement est automatique — il n'y a pas de bouton « Enregistrer ».",
+        } only %}
 
         {% if sections is empty %}
-            <div class="alert alert-info">Vous n'êtes animateur d'aucune section.</div>
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Vous n'êtes animateur d'aucune section.",
+                icon: 'bi-people',
+            } only %}
         {% else %}
             {% if sections|length > 1 %}
                 <div class="mb-4">
@@ -54,7 +57,11 @@
                                 </td>
                             </tr>
                         {% else %}
-                            <tr><td colspan="3" class="text-body-secondary text-center py-3">Aucun animé dans cette section pour cette année.</td></tr>
+                            {% include 'partials/empty_state.html.twig' with {
+                                message: 'Aucun animé dans cette section pour cette année.',
+                                compact: true,
+                                colspan: 3,
+                            } only %}
                         {% endfor %}
                     </tbody>
                 </table>

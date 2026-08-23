@@ -15,7 +15,7 @@
       "label": "Trombinoscope",
       "menu_icon": "bi-person-badge",
       "menu_order": 5,
-      "breadcrumb": { "label": "Trombinoscope", "parents": ["Espace animés"] }
+      "breadcrumb": { "label": "Trombinoscope", "parents": ["Espace membres"] }
     }
   ],
   "settings": [],

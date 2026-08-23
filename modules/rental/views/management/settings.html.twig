@@ -16,9 +16,11 @@
   renders, so Ctrl-F and a printed page keep working.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 1100px;">
-        <h1 class="h3 mb-1">{{ asset.name }}</h1>
-        <p class="text-body-secondary small mb-3">Réglages du bien</p>
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: asset.name,
+            subtitle: 'Réglages du bien',
+        } only %}
 
         {% include '@rental/management/_nav.html.twig' %}
 

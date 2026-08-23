@@ -18,12 +18,12 @@
                 {% if board.status == 'open' and can_vote %}
                     {% if board.voteMode == 'unlimited' %}
                         <button type="button" class="btn btn-sm py-0 px-2 retro-vote-like {{ comment.youVoted ? 'btn-danger' : 'btn-outline-danger' }}"
-                                data-comment-id="{{ comment.id }}" title="J'aime">
-                            <i class="bi bi-heart{{ comment.youVoted ? '-fill' : '' }}"></i>
+                                data-comment-id="{{ comment.id }}" title="J'aime" aria-label="J'aime">
+                            <i class="bi bi-heart{{ comment.youVoted ? '-fill' : '' }}" aria-hidden="true"></i>
                         </button>
                     {% else %}
-                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 retro-vote-remove" data-comment-id="{{ comment.id }}" title="Retirer un point">−</button>
-                        <button type="button" class="btn btn-sm btn-outline-success py-0 px-2 retro-vote-add" data-comment-id="{{ comment.id }}" title="Ajouter un point">+</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 retro-vote-remove" data-comment-id="{{ comment.id }}" title="Retirer un point" aria-label="Retirer un point">−</button>
+                        <button type="button" class="btn btn-sm btn-outline-success py-0 px-2 retro-vote-add" data-comment-id="{{ comment.id }}" title="Ajouter un point" aria-label="Ajouter un point">+</button>
                     {% endif %}
                 {% endif %}
                 <span class="small text-body-secondary" data-comment-votes>{{ comment.votes is null ? '—' : comment.votes }}</span>
@@ -31,7 +31,7 @@
             {% if is_unit_chief %}
                 <button type="button" class="btn btn-sm {{ comment.hidden ? 'btn-outline-success' : 'btn-outline-warning' }} {{ comment.hidden ? 'retro-unhide' : 'retro-hide' }}"
                         data-comment-id="{{ comment.id }}">
-                    <i class="bi bi-{{ comment.hidden ? 'eye' : 'eye-slash' }}"></i> {{ comment.hidden ? 'Réafficher' : 'Masquer' }}
+                    <i class="bi bi-{{ comment.hidden ? 'eye' : 'eye-slash' }}" aria-hidden="true"></i> {{ comment.hidden ? 'Réafficher' : 'Masquer' }}
                 </button>
             {% endif %}
         </div>

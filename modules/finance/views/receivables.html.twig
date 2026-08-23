@@ -3,12 +3,15 @@
 {% block title %}Paiements attendus — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Paiements attendus</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Paiements attendus' } only %}
 
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
     {% if overview is empty %}
-        <p class="text-body-secondary fst-italic">Aucun paiement attendu pour le moment.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun paiement attendu pour le moment.',
+            icon: 'bi-cash-coin',
+        } only %}
     {% else %}
         <div class="accordion" id="receivables-accordion">
             {% for source in overview %}
@@ -20,7 +23,7 @@
                                 aria-expanded="{{ source_open ? 'true' : 'false' }}">
                             <span class="flex-grow-1">{{ source.source_label }}</span>
                             <span class="text-body-secondary small me-3">
-                                {{ (source.amount_received / 100)|number_format(2, ',', ' ') }} € / {{ (source.amount_due / 100)|number_format(2, ',', ' ') }} € reçus
+                                {{ source.amount_received|money_cents }} / {{ source.amount_due|money_cents }} reçus
                             </span>
                         </button>
                     </h2>
@@ -37,7 +40,7 @@
                                                     aria-expanded="{{ instance_open ? 'true' : 'false' }}">
                                                 <span class="flex-grow-1">{{ instance.instance_label }}</span>
                                                 <span class="text-body-secondary small me-3">
-                                                    {{ (instance.amount_received / 100)|number_format(2, ',', ' ') }} € / {{ (instance.amount_due / 100)|number_format(2, ',', ' ') }} €
+                                                    {{ instance.amount_received|money_cents }} / {{ instance.amount_due|money_cents }}
                                                 </span>
                                             </button>
                                         </h3>
@@ -58,17 +61,14 @@
                                                             {% for row in instance.receivables %}
                                                                 <tr>
                                                                     <td>{{ row.label ?? '—' }}</td>
-                                                                    <td class="text-end">{{ (row.amount_due / 100)|number_format(2, ',', ' ') }} €</td>
-                                                                    <td class="text-end">{{ (row.amount_received / 100)|number_format(2, ',', ' ') }} €</td>
+                                                                    <td class="text-end">{{ row.amount_due|money_cents }}</td>
+                                                                    <td class="text-end">{{ row.amount_received|money_cents }}</td>
                                                                     <td class="font-monospace small">{{ row.communication }}</td>
                                                                     <td>
-                                                                        {% if row.status == 'paid' %}
-                                                                            <span class="badge text-bg-success">Payé</span>
-                                                                        {% elseif row.status == 'partial' %}
-                                                                            <span class="badge text-bg-warning">Partiel</span>
-                                                                        {% else %}
-                                                                            <span class="badge text-bg-secondary">Non payé</span>
-                                                                        {% endif %}
+                                                                        {% include 'partials/status_badge.html.twig' with {
+                                                                            status: row.status == 'paid' ? 'done' : (row.status == 'partial' ? 'in_progress' : 'neutral'),
+                                                                            label: row.status == 'paid' ? 'Payé' : (row.status == 'partial' ? 'Partiel' : 'Non payé'),
+                                                                        } only %}
                                                                     </td>
                                                                 </tr>
                                                             {% endfor %}
@@ -81,16 +81,13 @@
                                                         <div class="border rounded-3 p-2">
                                                             <div class="d-flex justify-content-between">
                                                                 <span>{{ row.label ?? '—' }}</span>
-                                                                {% if row.status == 'paid' %}
-                                                                    <span class="badge text-bg-success">Payé</span>
-                                                                {% elseif row.status == 'partial' %}
-                                                                    <span class="badge text-bg-warning">Partiel</span>
-                                                                {% else %}
-                                                                    <span class="badge text-bg-secondary">Non payé</span>
-                                                                {% endif %}
+                                                                {% include 'partials/status_badge.html.twig' with {
+                                                                    status: row.status == 'paid' ? 'done' : (row.status == 'partial' ? 'in_progress' : 'neutral'),
+                                                                    label: row.status == 'paid' ? 'Payé' : (row.status == 'partial' ? 'Partiel' : 'Non payé'),
+                                                                } only %}
                                                             </div>
                                                             <div class="text-body-secondary small">
-                                                                {{ (row.amount_received / 100)|number_format(2, ',', ' ') }} € reçu / {{ (row.amount_due / 100)|number_format(2, ',', ' ') }} € attendu
+                                                                {{ row.amount_received|money_cents }} reçu / {{ row.amount_due|money_cents }} attendu
                                                             </div>
                                                             <div class="font-monospace small text-body-secondary">{{ row.communication }}</div>
                                                         </div>

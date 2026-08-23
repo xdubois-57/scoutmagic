@@ -4,42 +4,30 @@
   markup can never drift between the two.
 #}
 {% if planned_transitions is empty %}
-    <p class="text-body-secondary fst-italic mb-4">Aucune redirection planifiée ce mois-ci.</p>
+    <div class="mb-4">
+        {% include 'partials/empty_state.html.twig' with { message: 'Aucune redirection planifiée ce mois-ci.', compact: true } only %}
+    </div>
 {% else %}
     <ul class="list-group mb-2">
         {% for transition in planned_transitions %}
-            <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-1{{ transition.is_next ? ' sos-next-transition' : '' }}" style="min-height:44px;">
+            <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-1{{ transition.is_next ? ' sos-next-transition' : '' }}">
                 <div>
                     <span class="fw-semibold">{{ transition.run_at }}</span> — {{ transition.label }}
-                    {% if transition.is_next %}<span class="badge bg-warning text-dark ms-2">Prochain changement</span>{% endif %}
+                    {% if transition.is_next %}<span class="badge text-bg-warning ms-2">Prochain changement</span>{% endif %}
                 </div>
-                <span class="badge {{ transition.status == 'actif' ? 'bg-success' : (transition.status == 'à venir' ? 'bg-primary-subtle text-primary-emphasis' : 'bg-secondary-subtle text-secondary-emphasis') }}">
-                    {{ transition.status }}
-                </span>
+                {% include 'partials/status_badge.html.twig' with {
+                    status: transition.status == 'actif' ? 'active' : (transition.status == 'à venir' ? 'scheduled' : 'archived'),
+                    label: transition.status,
+                } only %}
             </li>
         {% endfor %}
     </ul>
-    {% if planned_transitions_total_pages > 1 %}
-        <nav aria-label="Pagination des redirections planifiées" class="mb-4">
-            <ul class="pagination pagination-sm">
-                <li class="page-item {{ planned_transitions_page <= 1 ? 'disabled' : '' }}">
-                    <a class="page-link" href="#" data-transitions-page="{{ planned_transitions_page - 1 }}" aria-label="Précédent"><i class="bi bi-chevron-left"></i></a>
-                </li>
-                {% for p in 1..planned_transitions_total_pages %}
-                    {% if p == 1 or p == planned_transitions_total_pages or (p >= planned_transitions_page - 2 and p <= planned_transitions_page + 2) %}
-                        <li class="page-item {{ p == planned_transitions_page ? 'active' : '' }}">
-                            <a class="page-link" href="#" data-transitions-page="{{ p }}">{{ p }}</a>
-                        </li>
-                    {% elseif p == planned_transitions_page - 3 or p == planned_transitions_page + 3 %}
-                        <li class="page-item disabled"><span class="page-link">…</span></li>
-                    {% endif %}
-                {% endfor %}
-                <li class="page-item {{ planned_transitions_page >= planned_transitions_total_pages ? 'disabled' : '' }}">
-                    <a class="page-link" href="#" data-transitions-page="{{ planned_transitions_page + 1 }}" aria-label="Suivant"><i class="bi bi-chevron-right"></i></a>
-                </li>
-            </ul>
-        </nav>
-    {% else %}
-        <div class="mb-4"></div>
-    {% endif %}
+    <div class="mb-4">
+        {% include 'partials/pagination.html.twig' with {
+            page: planned_transitions_page,
+            total_pages: planned_transitions_total_pages,
+            data_attr: 'data-transitions-page',
+            label: 'Pagination des redirections planifiées',
+        } only %}
+    </div>
 {% endif %}

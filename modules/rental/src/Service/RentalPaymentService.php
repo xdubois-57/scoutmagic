@@ -8,6 +8,9 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Service;
 
+use Core\Exception\UserFacingMessage;
+
+
 use Core\Journal\JournalService;
 use Modules\Finance\Api\ExpectedReceivableInterface;
 use Modules\Finance\Api\FinanceAccountInterface;
@@ -236,7 +239,27 @@ class RentalPaymentService
         try {
             $this->receivables->updateReceivableAmount($receivableId, $totalCents, $allowOverpayment);
         } catch (\Throwable $e) {
-            throw new RentalException($e->getMessage(), 0, $e);
+            // Finance's own refusals are written for the person in front of
+            // this booking — « Le nouveau montant (…) est inférieur à ce qui
+            // a déjà été reçu (…). Cela créerait un trop-perçu à rembourser »
+            // — and that sentence is the only thing that explains the
+            // refusal, so it must survive. Anything else Finance throws is
+            // about its internals (a repository, a column, a PDO driver) and
+            // has nothing to say here.
+            //
+            // UserFacingMessage decides which of the two this is, from the
+            // class alone — no catch on Finance\Service\FinanceException,
+            // which would reach past that module's Api namespace into its
+            // internals (ARCHITECTURE.md §7.5).
+            throw new RentalException(
+                UserFacingMessage::from(
+                    $e,
+                    "Le montant à percevoir n'a pas pu être mis à jour dans les Finances — "
+                    . 'vérifiez le compte financier configuré pour les locations, puis réessayez.'
+                ),
+                0,
+                $e
+            );
         }
 
         $this->paymentRepository->linkRentalReceivable(
@@ -567,7 +590,17 @@ class RentalPaymentService
                 $booking->reference . ' — ' . $booking->renterName
             );
         } catch (\Throwable $e) {
-            throw new RentalException($e->getMessage(), 0, $e);
+            // Same rule as updateReceivable() above: Finance's own refusal
+            // survives, its internals do not.
+            throw new RentalException(
+                UserFacingMessage::from(
+                    $e,
+                    "La créance de cette location n'a pas pu être créée dans les Finances — "
+                    . 'vérifiez le compte financier configuré pour les locations, puis réessayez.'
+                ),
+                0,
+                $e
+            );
         }
 
         if ($receivableId === null) {
@@ -632,7 +665,16 @@ class RentalPaymentService
                 'Caution ' . $booking->reference . ' — ' . $booking->renterName
             );
         } catch (\Throwable $e) {
-            throw new RentalException($e->getMessage(), 0, $e);
+            // Same rule again.
+            throw new RentalException(
+                UserFacingMessage::from(
+                    $e,
+                    "La créance de caution n'a pas pu être créée dans les Finances — "
+                    . 'vérifiez le compte financier configuré pour les locations, puis réessayez.'
+                ),
+                0,
+                $e
+            );
         }
 
         if ($receivableId === null) {

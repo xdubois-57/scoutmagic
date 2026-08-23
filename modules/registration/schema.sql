@@ -98,7 +98,7 @@ CREATE TABLE registration_requests (
     accepted_email_sent_at DATETIME NULL,
     refused_email_sent_at DATETIME NULL,
     -- The moment status entered a FINAL state (encoded/refused/withdrawn)
-    -- — both retention settings (Espace animés disappearance, permanent
+    -- — both retention settings (Espace membres disappearance, permanent
     -- deletion) count from here, never from received_at, and this is the
     -- one column Task\PurgeRegistrationRequestsHandler filters on. Reset
     -- to NULL if a chief reverts a final state back to pending (module

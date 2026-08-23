@@ -51,14 +51,13 @@
                 </div>
 
                 <div class="col-12 col-md-6">
-                    <label class="form-label" for="default-unit-price">Tarif par défaut (€)</label>
-                    <input type="text" inputmode="decimal" class="form-control" id="default-unit-price"
-                           name="default_unit_price"
-                           value="{{ pricing.defaultUnitPriceCents is not null ? (pricing.defaultUnitPriceCents / 100)|number_format(2, ',', ' ') : '' }}">
-                    <div class="form-text">
-                        Utilisé quand la grille ci-dessous n'a pas de case pour la période et la
-                        catégorie concernées. Laissez vide si toute la grille est remplie.
-                    </div>
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'default-unit-price', field_name: 'default_unit_price',
+                        label: 'Tarif par défaut (€)', inputmode: 'decimal',
+                        help: 'Utilisé quand la grille ci-dessous n\'a pas de case pour la période et la
+                               catégorie concernées. Laissez vide si toute la grille est remplie.',
+                        value: pricing.defaultUnitPriceCents is not null ? (pricing.defaultUnitPriceCents / 100)|number_format(2, ',', ' ') : '',
+                    } only %}
                 </div>
             </div>
 
@@ -86,7 +85,7 @@
                     <input class="form-check-input" type="radio" name="minimum_mode" id="minimum-persons-mode"
                            value="persons" {{ pricing.minimumPersons is not null ? 'checked' : '' }}>
                     <label class="form-check-label" for="minimum-persons-mode">Nombre de personnes minimum</label>
-                    <input type="number" min="1" class="form-control mt-1" name="minimum_persons"
+                    <input type="number" inputmode="numeric" min="1" class="form-control mt-1" name="minimum_persons"
                            aria-label="Nombre de personnes minimum"
                            value="{{ pricing.minimumPersons ?? '' }}">
                     <div class="form-text">
@@ -130,16 +129,22 @@
         <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/periode" class="row g-2 align-items-end mb-4">
             {{ csrf_field()|raw }}
             <div class="col-12 col-md-4">
-                <label class="form-label" for="period-label">Nom</label>
-                <input type="text" class="form-control" id="period-label" name="label" required>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'period-label', field_name: 'label',
+                    label: 'Nom', required: true,
+                } only %}
             </div>
             <div class="col-6 col-md-3">
-                <label class="form-label" for="period-start">Début</label>
-                <input type="date" class="form-control" id="period-start" name="start_date" required>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'period-start', field_name: 'start_date', type: 'date',
+                    label: 'Début', required: true,
+                } only %}
             </div>
             <div class="col-6 col-md-3">
-                <label class="form-label" for="period-end">Fin</label>
-                <input type="date" class="form-control" id="period-end" name="end_date" required>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'period-end', field_name: 'end_date', type: 'date',
+                    label: 'Fin', required: true,
+                } only %}
             </div>
             <div class="col-12 col-md-2">
                 <div class="form-check mb-2">
@@ -162,7 +167,7 @@
                         <span>
                             {{ category.label }}
                             {% if category.isDefault %}
-                                <span class="badge bg-secondary">Proposée par défaut</span>
+                                <span class="badge text-bg-secondary">Proposée par défaut</span>
                             {% endif %}
                         </span>
                         <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/categorie-supprimer"
@@ -178,8 +183,10 @@
         <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/categorie" class="row g-2 align-items-end mb-4">
             {{ csrf_field()|raw }}
             <div class="col-12 col-md-6">
-                <label class="form-label" for="category-label">Nom</label>
-                <input type="text" class="form-control" id="category-label" name="label" required>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'category-label', field_name: 'label',
+                    label: 'Nom', required: true,
+                } only %}
             </div>
             <div class="col-12 col-md-4">
                 <div class="form-check mb-2">
@@ -257,7 +264,7 @@
                             <span class="fw-semibold">{{ fee.label }}</span>
                             <span class="text-body-secondary small d-block">
                                 {{ fee.natureLabel }} ·
-                                {{ (fee.amountCents / 100)|number_format(2, ',', ' ') }} €{{ fee.meterUnit ? ' / ' ~ fee.meterUnit : '' }}
+                                {{ fee.amountCents|money_cents }}{{ fee.meterUnit ? ' / ' ~ fee.meterUnit : '' }}
                             </span>
                         </span>
                         <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/frais-supprimer">
@@ -272,25 +279,34 @@
         <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/frais" class="row g-2 align-items-end mb-4">
             {{ csrf_field()|raw }}
             <div class="col-12 col-md-4">
-                <label class="form-label" for="fee-label">Libellé</label>
-                <input type="text" class="form-control" id="fee-label" name="label" required>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'fee-label', field_name: 'label',
+                    label: 'Libellé', required: true,
+                } only %}
             </div>
             <div class="col-6 col-md-3">
-                <label class="form-label" for="fee-nature">Nature</label>
-                <select class="form-select" id="fee-nature" name="nature">
-                    <option value="fixed">Montant fixe</option>
-                    <option value="per_person">Montant par personne</option>
-                    <option value="meter">Relevé de compteur</option>
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'fee-nature', field_name: 'nature', type: 'select',
+                    label: 'Nature',
+                    options: [
+                        { value: 'fixed', label: 'Montant fixe' },
+                        { value: 'per_person', label: 'Montant par personne' },
+                        { value: 'meter', label: 'Relevé de compteur' },
+                    ],
+                } only %}
             </div>
             <div class="col-6 col-md-2">
-                <label class="form-label" for="fee-amount">Montant (€)</label>
-                <input type="text" inputmode="decimal" class="form-control" id="fee-amount" name="amount" required>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'fee-amount', field_name: 'amount',
+                    label: 'Montant (€)', inputmode: 'decimal', required: true,
+                } only %}
             </div>
             <div class="col-6 col-md-2">
-                <label class="form-label" for="fee-meter-unit">Unité</label>
-                <input type="text" class="form-control" id="fee-meter-unit" name="meter_unit" placeholder="kWh">
-                <div class="form-text">Compteur uniquement.</div>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'fee-meter-unit', field_name: 'meter_unit',
+                    label: 'Unité', placeholder: 'kWh',
+                    help: 'Compteur uniquement.',
+                } only %}
             </div>
             <div class="col-6 col-md-1">
                 <button type="submit" class="btn btn-outline-primary w-100">Ajouter</button>
@@ -307,31 +323,38 @@
         </p>
         <form method="get" action="/mes-locations/{{ asset.slug }}/reglages" class="row g-2 align-items-end mb-3">
             <div class="col-6 col-md-3">
-                <label class="form-label" for="sim-arrival">Arrivée</label>
-                <input type="date" class="form-control" id="sim-arrival" name="sim_arrival"
-                       value="{{ simulation ? simulation.request.arrivalDate : '' }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'sim-arrival', field_name: 'sim_arrival', type: 'date',
+                    label: 'Arrivée',
+                    value: simulation ? simulation.request.arrivalDate : '',
+                } only %}
             </div>
             <div class="col-6 col-md-3">
-                <label class="form-label" for="sim-departure">Départ</label>
-                <input type="date" class="form-control" id="sim-departure" name="sim_departure"
-                       value="{{ simulation ? simulation.request.departureDate : '' }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'sim-departure', field_name: 'sim_departure', type: 'date',
+                    label: 'Départ',
+                    value: simulation ? simulation.request.departureDate : '',
+                } only %}
             </div>
             <div class="col-4 col-md-2">
-                <label class="form-label" for="sim-persons">Participants</label>
-                <input type="number" min="0" class="form-control" id="sim-persons" name="sim_persons"
-                       value="{{ simulation ? simulation.request.persons : '' }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'sim-persons', field_name: 'sim_persons', type: 'number',
+                    label: 'Participants', min: 0, inputmode: 'numeric',
+                    value: simulation ? simulation.request.persons : '',
+                } only %}
             </div>
             <div class="col-4 col-md-2">
-                <label class="form-label" for="sim-category">Catégorie</label>
-                <select class="form-select" id="sim-category" name="sim_category">
-                    <option value="">—</option>
-                    {% for category in pricing.categories %}
-                        <option value="{{ category.id }}"
-                                {{ simulation and simulation.request.renterCategoryId == category.id ? 'selected' : '' }}>
-                            {{ category.label }}
-                        </option>
-                    {% endfor %}
-                </select>
+                {# The empty option is the "no category" choice, not a
+                   placeholder: the simulator legitimately prices without one. #}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'sim-category', field_name: 'sim_category', type: 'select',
+                    label: 'Catégorie',
+                    options: [{ value: '', label: '—' }]|merge(pricing.categories|map(c => {
+                        value: c.id,
+                        label: c.label,
+                        selected: simulation and simulation.request.renterCategoryId == c.id,
+                    })),
+                } only %}
             </div>
             <div class="col-4 col-md-2">
                 <button type="submit" class="btn btn-outline-primary w-100">Calculer</button>
@@ -346,6 +369,7 @@
                         <div class="alert alert-warning py-2 small mb-2">{{ warning }}</div>
                     {% endfor %}
 
+                    <div class="table-responsive">
                     <table class="table table-sm mb-2">
                         <caption class="visually-hidden">Détail du prix simulé</caption>
                         <thead>
@@ -363,26 +387,31 @@
                                     <td class="text-end">{{ line.isInformational ? '—' : line.quantity }}</td>
                                     <td class="text-end">
                                         {{ line.unitPriceCents is not null
-                                            ? (line.unitPriceCents / 100)|number_format(2, ',', ' ') ~ ' €'
+                                            ? line.unitPriceCents|money_cents
                                             : '—' }}
                                     </td>
                                     <td class="text-end">
                                         {{ line.isInformational
                                             ? 'Selon relevé'
-                                            : (line.amountCents / 100)|number_format(2, ',', ' ') ~ ' €' }}
+                                            : line.amountCents|money_cents }}
                                     </td>
                                 </tr>
                             {% else %}
-                                <tr><td colspan="4" class="text-body-secondary fst-italic">Aucune ligne calculable.</td></tr>
+                                {% include 'partials/empty_state.html.twig' with {
+                                    message: 'Aucune ligne calculable.',
+                                    compact: true,
+                                    colspan: 4,
+                                } only %}
                             {% endfor %}
                         </tbody>
                         <tfoot>
                             <tr class="fw-semibold">
                                 <th scope="row" colspan="3" class="text-end">Total</th>
-                                <td class="text-end">{{ (quote.totalCents / 100)|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end">{{ quote.totalCents|money_cents }}</td>
                             </tr>
                         </tfoot>
                     </table>
+                    </div>
 
                     <p class="small text-body-secondary mb-0">
                         {{ quote.nights }} nuit{{ quote.nights > 1 ? 's' : '' }} ·

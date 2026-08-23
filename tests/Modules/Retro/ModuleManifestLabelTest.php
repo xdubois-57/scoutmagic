@@ -9,7 +9,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * modules/retro/module.json's menu label for its Espace chefs d'U config
  * page — renamed from "Rétrospectives — Config" to "Rétrospective". The
- * separate, unrelated "Rétrospectives" (plural) entry on Espace chefs is
+ * separate, unrelated "Rétrospectives" (plural) entry on Espace animateurs is
  * untouched.
  */
 class ModuleManifestLabelTest extends TestCase

@@ -25,7 +25,7 @@
       "role_min": "chief",
       "label": "Actualités",
       "menu_icon": "bi-pencil-square",
-      "breadcrumb": { "label": "Actualités", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Actualités", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/news/create",
@@ -35,7 +35,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Nouvel article", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Nouvel article", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/news/seo/generate-keywords",
@@ -72,7 +72,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Nouvel article", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Nouvel article", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/news/{id}",
@@ -92,7 +92,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Modifier l'article", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Modifier l'article", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/news/{id}",
@@ -102,7 +102,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Modifier l'article", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Modifier l'article", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/news/{id}",
@@ -140,7 +140,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Réponses au formulaire", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Réponses au formulaire", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/news/{id}/form/responses/export",

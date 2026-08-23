@@ -149,6 +149,72 @@ class SendBatchHandlerTest extends TestCase
     }
 
     /**
+     * The stored value is rendered, much later and with no catch block in
+     * between, by views/tracking.html.twig — so the sanitising has to happen
+     * at the WRITE. It used to store Core\Mail\MailException's message
+     * verbatim, i.e. PHPMailer's ErrorInfo: raw SMTP English, on a page a
+     * chief reads.
+     */
+    public function testASendFailureStoresAFrenchSentenceRatherThanThePhpMailerText(): void
+    {
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('send')->willThrowException(new MailException(
+            'SMTP Error: data not accepted. SMTP server error: 554 5.7.1 <x@test.be>: Relay access denied'
+        ));
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContext($mailService));
+
+        $errored = array_values(array_filter(
+            $this->recipientRepository->findByEmailId($this->emailId),
+            fn(Recipient $r) => $r->status === Recipient::STATUS_ERROR
+        ));
+        $this->assertNotEmpty($errored);
+        foreach ($errored as $recipient) {
+            $stored = (string) $recipient->errorMessage;
+            $this->assertStringNotContainsString('SMTP', $stored);
+            $this->assertStringNotContainsString('Relay access denied', $stored);
+            $this->assertStringNotContainsString('5.7.1', $stored);
+            $this->assertSame("Échec de l'envoi — voir le journal pour le détail technique.", $stored);
+        }
+
+    }
+
+    /**
+     * The other half of the same rule: sanitising the stored value must not
+     * lose the transport error, which is the only thing that tells an admin
+     * why nothing went out.
+     */
+    public function testASendFailureStillJournalsTheRealTransportError(): void
+    {
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('send')->willThrowException(new MailException('554 5.7.1 Relay access denied'));
+
+        $journal = $this->createMock(JournalService::class);
+        $logged = [];
+        $journal->method('log')->willReturnCallback(
+            function (string $category, string $type, string $level, string $description, array $context = [], ?int $userId = null) use (&$logged): void {
+                $logged[] = ['type' => $type, 'context' => $context];
+            }
+        );
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], new TaskContext(
+            Connection::withPdo($this->pdo),
+            $this->encryption,
+            $mailService,
+            $journal,
+            new SettingService(new SettingRepository($this->pdo)),
+            $this->userAccountRepository,
+            sys_get_temp_dir()
+        ));
+
+        $failures = array_values(array_filter($logged, fn(array $e) => $e['type'] === 'recipient_send_failed'));
+        $this->assertNotEmpty($failures);
+        $this->assertSame('554 5.7.1 Relay access denied', $failures[0]['context']['mail_error']);
+    }
+
+    /**
      * Module addendum (RFC 8058 one-click unsubscribe): every send must
      * carry both headers plus a human-facing footer link, and the
      * recipient row must end up with a verifiable token — never a bare

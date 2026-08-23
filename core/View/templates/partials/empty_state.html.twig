@@ -1,0 +1,64 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The one way this site says "there is nothing here yet" (design.md §7.7).
+
+  An empty state is the first screen every freshly-installed unit sees —
+  no articles, no albums, no movements — which made its divergence the
+  most visible one on the site: ~100 hand-rolled "Aucun…" paragraphs in
+  five different dressings (italic-left, centered, alert-info, table
+  cell, plain), of which six offered the reader anything to do next.
+  Rendered identically everywhere, an empty state reads as a state; each
+  one styled differently reads as a rendering defect.
+
+  Usage:
+  {% include 'partials/empty_state.html.twig' with {
+      message: 'Aucune actualité pour le moment.',
+      action_label: 'Nouvel article',       -- optional, with action_url
+      action_url: '/news/new',              -- optional; renders a button
+      icon: 'bi-newspaper',                 -- optional decorative icon
+      compact: true,                        -- optional: one italic line,
+                                            -- for inside cards/lists
+      colspan: 5,                           -- optional: renders a whole
+                                            -- <tr><td colspan> table row
+  } only %}
+
+  Offer the action whenever the visitor has the right to create the
+  missing thing ("Créez le premier album !") — the caller decides, since
+  only it knows the visitor's rights. The variant without an action is
+  for visitors who genuinely cannot act, never a default.
+
+  `compact` is the in-flow variant (a card body, a list tail): a single
+  muted italic line, no vertical padding block. `colspan` wraps the whole
+  thing in a table row so the two views of a dual table/card page can
+  share one declaration.
+#}
+{% set _inner %}
+    {% if compact|default(false) %}
+        <p class="text-body-secondary fst-italic mb-0">{{ message }}</p>
+        {% if action_label|default('') and action_url|default('') %}
+            <a href="{{ action_url }}" class="btn btn-sm btn-outline-primary mt-2">
+                {% if icon|default('') %}<i class="bi {{ icon }}" aria-hidden="true"></i> {% endif %}{{ action_label }}
+            </a>
+        {% endif %}
+    {% else %}
+        <div class="text-center text-body-secondary py-5 empty-state">
+            {% if icon|default('') %}
+                <i class="bi {{ icon }} fs-2 d-block mb-2" aria-hidden="true"></i>
+            {% endif %}
+            <p class="mb-0">{{ message }}</p>
+            {% if action_label|default('') and action_url|default('') %}
+                <a href="{{ action_url }}" class="btn btn-primary mt-3">
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i> {{ action_label }}
+                </a>
+            {% endif %}
+        </div>
+    {% endif %}
+{% endset %}
+{% if colspan|default(0) > 0 %}
+    <tr><td colspan="{{ colspan }}">{{ _inner }}</td></tr>
+{% else %}
+    {{ _inner }}
+{% endif %}

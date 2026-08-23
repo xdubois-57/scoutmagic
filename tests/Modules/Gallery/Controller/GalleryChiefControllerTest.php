@@ -136,7 +136,7 @@ class GalleryChiefControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/gallery/create');
-        $twig->addGlobal('route_breadcrumb', ['label' => 'Nouvel album', 'parents' => ["Espace chefs"]]);
+        $twig->addGlobal('route_breadcrumb', ['label' => 'Nouvel album', 'parents' => ["Espace animateurs"]]);
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
         $twig->addFunction(new TwigFunction('get_flash', fn() => null));
@@ -245,7 +245,11 @@ class GalleryChiefControllerTest extends TestCase
 
         $response = $this->controller->store($request, []);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
     }
 
     public function testStoreCreatesLocalAlbumAndRedirects(): void

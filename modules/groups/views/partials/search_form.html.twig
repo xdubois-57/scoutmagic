@@ -9,12 +9,12 @@
 #}
 <form method="get" action="/groups/{{ group.id }}/search" class="d-flex gap-2 mb-3" role="search">
     <label class="visually-hidden" for="group-search-q">Rechercher dans ce groupe</label>
-    <input type="search" class="form-control" id="group-search-q" name="q" style="min-height:44px;"
+    <input type="search" class="form-control" id="group-search-q" name="q"
            maxlength="{{ constant('Modules\\Groups\\Support\\SearchTerm::MAX_LENGTH') }}"
            placeholder="Rechercher dans ce groupe…" value="{{ query|default('') }}">
-    <button type="submit" class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;"
+    <button type="submit" class="btn btn-outline-secondary d-flex align-items-center"
             aria-label="Lancer la recherche">
-        <i class="bi bi-search"></i>
+        <i class="bi bi-search" aria-hidden="true"></i>
     </button>
     {#
       The way back to the whole group, spelled out rather than left to
@@ -24,7 +24,6 @@
       to come back from. A plain link, so it works with no JavaScript.
     #}
     {% if query|default('') is not empty %}
-        <a href="/groups/{{ group.id }}" class="btn btn-outline-secondary d-flex align-items-center"
-           style="min-height:44px;">Tout afficher</a>
+        <a href="/groups/{{ group.id }}" class="btn btn-outline-secondary d-flex align-items-center">Tout afficher</a>
     {% endif %}
 </form>

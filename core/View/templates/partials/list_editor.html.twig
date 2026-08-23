@@ -74,15 +74,15 @@
             #}
             <div class="list-editor-item border rounded-3 p-3 d-flex align-items-start gap-2 flex-wrap" draggable="true" data-id="{{ item.id }}">
                 <span class="list-editor-drag-handle text-body-secondary d-none d-lg-inline" title="Glisser pour réordonner" style="cursor:grab;">
-                    <i class="bi bi-grip-vertical"></i>
+                    <i class="bi bi-grip-vertical" aria-hidden="true"></i>
                 </span>
                 {# Touch reorder: move up/down buttons visible only on coarse pointer / below lg #}
                 <span class="list-editor-move-btns d-lg-none d-inline-flex flex-column gap-0 flex-shrink-0">
                     <button type="button" class="btn btn-sm btn-link text-body-secondary p-0 list-editor-move-up" data-id="{{ item.id }}" aria-label="Monter"{% if loop.first %} disabled{% endif %}>
-                        <i class="bi bi-chevron-up"></i>
+                        <i class="bi bi-chevron-up" aria-hidden="true"></i>
                     </button>
                     <button type="button" class="btn btn-sm btn-link text-body-secondary p-0 list-editor-move-down" data-id="{{ item.id }}" aria-label="Descendre"{% if loop.last %} disabled{% endif %}>
-                        <i class="bi bi-chevron-down"></i>
+                        <i class="bi bi-chevron-down" aria-hidden="true"></i>
                     </button>
                 </span>
                 <div class="list-editor-item-content flex-grow-1">
@@ -95,7 +95,7 @@
                                 data-id="{{ item.id }}" data-active="{{ item.is_active ? '1' : '0' }}"
                                 aria-label="{{ item.is_active ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}"
                                 title="{{ item.is_active ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
-                            <i class="bi {{ item.is_active ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
+                            <i class="bi {{ item.is_active ? 'bi-toggle-on' : 'bi-toggle-off' }}" aria-hidden="true"></i>
                         </button>
                     {% endif %}
                     {% if delete_url is defined and delete_url %}
@@ -103,7 +103,7 @@
                                 {{ can_delete ? '' : 'disabled' }}
                                 aria-label="{{ can_delete ? 'Supprimer' : item.delete_blocked_reason|default('Suppression impossible.') }}"
                                 title="{{ can_delete ? 'Supprimer' : item.delete_blocked_reason|default('Suppression impossible.') }}">
-                            <i class="bi bi-trash"></i>
+                            <i class="bi bi-trash" aria-hidden="true"></i>
                         </button>
                     {% endif %}
                 </div>
@@ -114,7 +114,7 @@
     </div>
     {% if add_url is defined and add_url %}
         <button type="button" class="btn btn-sm btn-primary list-editor-add-btn" data-url="{{ add_url }}">
-            <i class="bi bi-plus-lg"></i> {{ add_label|default('Ajouter') }}
+            <i class="bi bi-plus-lg" aria-hidden="true"></i> {{ add_label|default('Ajouter') }}
         </button>
     {% endif %}
 </div>

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Http\Controller;
 
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -198,7 +199,14 @@ class MaintenanceController extends AbstractController
         try {
             $commit = $this->releaseClient()->getLatestCommit($branch);
         } catch (UpdateException $e) {
-            return $this->json(['success' => false, 'error' => $e->getMessage()], 502);
+            // Still through UserFacingMessage::from() rather than
+            // getMessage() directly: the class is marked now, so its own
+            // French sentence survives, and the fallback is what a
+            // \Throwable rethrown as one from somewhere else would get.
+            return $this->json(['success' => false, 'error' => UserFacingMessage::from(
+                $e,
+                "La dernière version n'a pas pu être récupérée depuis GitHub — vérifiez la connexion du serveur et les paramètres du dépôt."
+            )], 502);
         }
 
         if ($commit === null) {
@@ -306,7 +314,11 @@ class MaintenanceController extends AbstractController
                 'url' => $release->htmlUrl,
             ]);
         } catch (UpdateException $e) {
-            return $this->json(['success' => false, 'error' => $e->getMessage()], 502);
+            // Same reasoning as installDevBranchUpdate() above.
+            return $this->json(['success' => false, 'error' => UserFacingMessage::from(
+                $e,
+                "La dernière version n'a pas pu être récupérée depuis GitHub — vérifiez la connexion du serveur et les paramètres du dépôt."
+            )], 502);
         }
     }
 
@@ -351,9 +363,8 @@ class MaintenanceController extends AbstractController
      */
     public function createDatabaseBackup(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/config/maintenance');
+        if (($guard = $this->guardCsrf($request, '/config/maintenance')) !== null) {
+            return $guard;
         }
 
         $userId = AuthSession::getUserAccountId();
@@ -380,12 +391,22 @@ class MaintenanceController extends AbstractController
             );
             FlashMessage::set('success', 'Sauvegarde de la base de données générée.');
         } catch (BackupException $e) {
-            $this->backupRepository->markFailed($backupId, substr($e->getMessage(), 0, 500));
+            // BackupException is marked UserFacingException, so its own
+            // sentence survives — the gate stands here for the empty-message
+            // case (which would render as a blank flash and a blank tooltip:
+            // a failure that looks like a success) and so this write site
+            // reads the same as every other one.
+            $message = UserFacingMessage::from(
+                $e,
+                'La sauvegarde de la base de données n\'a pas pu être générée — vérifiez l\'espace disque et '
+                . 'les droits d\'écriture sur storage/, puis réessayez.'
+            );
+            $this->backupRepository->markFailed($backupId, substr($message, 0, 500));
             $this->journalService->log(
                 'core', 'backup_failed', 'info', 'Échec de la génération d\'une sauvegarde de base de données',
                 ['backup_id' => $backupId, 'error' => $e->getMessage()], $userId
             );
-            FlashMessage::set('error', $e->getMessage());
+            FlashMessage::set('error', $message);
         }
 
         return $this->redirect('/config/maintenance');
@@ -565,9 +586,8 @@ class MaintenanceController extends AbstractController
      */
     public function restoreBackup(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/config/maintenance');
+        if (($guard = $this->guardCsrf($request, '/config/maintenance')) !== null) {
+            return $guard;
         }
         if ((string) $request->getBody('confirm_keyword', '') !== self::KEYWORD_RESTORE) {
             FlashMessage::set('error', 'Mot de confirmation incorrect.');
@@ -661,8 +681,8 @@ class MaintenanceController extends AbstractController
      */
     public function restoreUploadChunk(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request)) !== null) {
+            return $guard;
         }
 
         $uploadId = (string) $request->getBody('upload_id', '');
@@ -691,7 +711,17 @@ class MaintenanceController extends AbstractController
             } catch (\Core\File\UploadException) {
                 $received = 0;
             }
-            return $this->json(['success' => false, 'error' => $e->getMessage(), 'received' => $received], 409);
+            // UploadException is marked UserFacingException — its sentence
+            // survives; the gate covers the empty-message case.
+            return $this->json([
+                'success' => false,
+                'error' => UserFacingMessage::from(
+                    $e,
+                    'Ce fragment de l\'archive n\'a pas pu être enregistré — relancez l\'envoi du fichier de '
+                    . 'sauvegarde.'
+                ),
+                'received' => $received,
+            ], 409);
         }
 
         return $this->json(['success' => true, 'received' => $store->receivedBytes($uploadId, session_id())]);

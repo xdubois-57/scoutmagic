@@ -3,7 +3,7 @@
 {% block title %}Catégories — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Finances</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Catégories' } only %}
 
     {% include '@finance/config/_nav.html.twig' %}
 
@@ -50,56 +50,52 @@
                 </button>
             </div>
         {% else %}
-            <p class="text-body-secondary fst-italic mb-0">Aucune catégorie.</p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucune catégorie.',
+                compact: true,
+            } only %}
         {% endfor %}
     </div>
 
-    <div class="modal fade" id="category-modal" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="category-form-title">Nouvelle catégorie</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                {# Real bug, found and fixed while building modules/calendar's
-                   event dialog: .modal-dialog-scrollable needs .modal-body/
-                   .modal-footer as direct flex children of .modal-content for
-                   .modal-body's own overflow-y:auto to have a bounded height
-                   — wrapping both in a <form> without d-flex flex-column +
-                   min-height:0 breaks that (a plain <form> has no `overflow`
-                   of its own, so its automatic flex minimum is its content
-                   size, not 0 — it never shrinks, and the footer/save button
-                   end up pushed below the viewport on mobile). #}
-                <form id="category-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">
-                    <div class="modal-body">
-                        <input type="hidden" id="category-id" value="">
-                        <label class="form-label small" for="category-name">Nom</label>
-                        <input type="text" class="form-control form-control-sm" id="category-name" required>
-                        {% if recent_ai_suggestions %}
-                            <div class="mt-2" id="category-suggestions">
-                                <div class="text-body-secondary small mb-1">Suggestions récentes de l'IA :</div>
-                                <div class="d-flex flex-wrap gap-1">
-                                    {% for suggestion in recent_ai_suggestions %}
-                                        <button type="button" class="btn btn-sm btn-outline-secondary category-suggestion-btn" data-name="{{ suggestion }}">{{ suggestion }}</button>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        {% endif %}
-                        <div class="mt-2">
-                            <label class="form-label small" for="category-description">Description</label>
-                            <textarea class="form-control form-control-sm" id="category-description" rows="2" required
-                                      placeholder="Ce à quoi sert cette catégorie — envoyé à l'IA pour choisir entre les catégories."></textarea>
+    {# The scrollable-modal <form>-spanning-body-and-footer trap this
+       template used to document at length is gone: the form now lives
+       entirely inside the embed's body block, and the footer's submit
+       button is associated through form="category-form". The title id is
+       the embed's convention, {id}-title. #}
+    {% embed 'partials/modal.html.twig' with {
+        id: 'category-modal',
+        title: 'Nouvelle catégorie',
+        scrollable: true,
+        recent_ai_suggestions: recent_ai_suggestions,
+    } only %}
+        {% block body %}
+            <form id="category-form">
+                <input type="hidden" id="category-id" value="">
+                <label class="form-label small" for="category-name">Nom</label>
+                <input type="text" class="form-control form-control-sm" id="category-name" required>
+                {% if recent_ai_suggestions %}
+                    <div class="mt-2" id="category-suggestions">
+                        <div class="text-body-secondary small mb-1">Suggestions récentes de l'IA :</div>
+                        <div class="d-flex flex-wrap gap-1">
+                            {% for suggestion in recent_ai_suggestions %}
+                                <button type="button" class="btn btn-sm btn-outline-secondary category-suggestion-btn" data-name="{{ suggestion }}">{{ suggestion }}</button>
+                            {% endfor %}
                         </div>
-                        <div class="text-danger small mt-2 d-none" id="category-form-error"></div>
                     </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
-                        <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
+                {% endif %}
+                <div class="mt-2">
+                    <label class="form-label small" for="category-description">Description</label>
+                    <textarea class="form-control form-control-sm" id="category-description" rows="2" required
+                              placeholder="Ce à quoi sert cette catégorie — envoyé à l'IA pour choisir entre les catégories."></textarea>
+                </div>
+                <div class="text-danger small mt-2 d-none" id="category-form-error"></div>
+            </form>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" class="btn btn-sm btn-primary" form="category-form">Enregistrer</button>
+        {% endblock %}
+    {% endembed %}
 
     <hr class="my-4">
 
@@ -115,6 +111,10 @@
             <button type="button" class="btn btn-sm btn-primary" id="new-rule-btn">Nouvelle règle</button>
         </div>
     </div>
+    {# The last background run's summary — filled by finance-categories.js
+       when a run completes and left on the page so the numbers can be
+       re-read (a transient alert() used to carry them and vanish). #}
+    <div class="alert alert-info small d-none" id="run-rules-result" role="status"></div>
     <p class="text-body-secondary small mb-2">
         Les règles sont évaluées dans l'ordre ci-dessous (glisser-déposer pour réordonner) ; la première qui
         correspond entièrement détermine la catégorie.
@@ -190,7 +190,10 @@
                 {% endif %}
             </div>
         {% else %}
-            <p class="text-body-secondary fst-italic mb-0">Aucune règle configurée.</p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucune règle configurée.',
+                compact: true,
+            } only %}
         {% endfor %}
     </div>
 
@@ -209,17 +212,16 @@
         </div>
     {% endif %}
 
-    <div class="modal fade" id="rule-modal" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="rule-form-title">Nouvelle règle</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <form id="rule-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">
-                    <div class="modal-body">
-                        <input type="hidden" id="rule-id" value="">
-                        <div class="row g-2">
+    {% embed 'partials/modal.html.twig' with {
+        id: 'rule-modal',
+        title: 'Nouvelle règle',
+        scrollable: true,
+        active_categories: active_categories,
+    } only %}
+        {% block body %}
+            <form id="rule-form">
+                <input type="hidden" id="rule-id" value="">
+                <div class="row g-2">
                             <div class="col-12 col-md-6">
                                 <label class="form-label small" for="rule-keyword-pattern">Mot-clé / expression régulière (libellé)</label>
                                 <input type="text" class="form-control form-control-sm" id="rule-keyword-pattern" placeholder="ex. delhaize ou ^VIR.*DUPONT$">
@@ -240,421 +242,21 @@
                                     {% endfor %}
                                 </select>
                             </div>
-                            <div class="col-12">
-                                <button type="button" class="btn btn-sm btn-outline-primary" id="test-rule-btn">Tester</button>
-                                <div class="mt-2 small" id="test-rule-result"></div>
-                            </div>
-                        </div>
-                        <div class="text-danger small mt-2 d-none" id="rule-form-error"></div>
+                    <div class="col-12">
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="test-rule-btn">Tester</button>
+                        <div class="mt-2 small" id="test-rule-result"></div>
                     </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
-                        <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
+                </div>
+                <div class="text-danger small mt-2 d-none" id="rule-form-error"></div>
+            </form>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" class="btn btn-sm btn-primary" form="rule-form">Enregistrer</button>
+        {% endblock %}
+    {% endembed %}
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-
-// --- Categories ---
-const categoryModalEl = document.getElementById('category-modal');
-const categoryModal = window.bootstrap ? new window.bootstrap.Modal(categoryModalEl) : null;
-const categoryErrorBox = document.getElementById('category-form-error');
-
-function showCategoryModal(title) {
-    document.getElementById('category-form-title').textContent = title;
-    categoryErrorBox.classList.add('d-none');
-    categoryModal ? categoryModal.show() : categoryModalEl.classList.add('show');
-}
-
-document.getElementById('new-category-btn').addEventListener('click', () => {
-    document.getElementById('category-id').value = '';
-    document.getElementById('category-name').value = '';
-    document.getElementById('category-description').value = '';
-    showCategoryModal('Nouvelle catégorie');
-});
-
-document.querySelectorAll('.edit-category-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.getElementById('category-id').value = btn.dataset.id;
-        document.getElementById('category-name').value = btn.dataset.name;
-        document.getElementById('category-description').value = btn.dataset.description;
-        showCategoryModal('Modifier la catégorie');
-    });
-});
-
-document.querySelectorAll('.category-suggestion-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.getElementById('category-name').value = btn.dataset.name;
-    });
-});
-
-document.getElementById('category-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const id = document.getElementById('category-id').value;
-    const payload = {
-        action: id ? 'update' : 'create',
-        name: document.getElementById('category-name').value,
-        description: document.getElementById('category-description').value,
-        _csrf_token: csrf()
-    };
-    if (id) payload.id = parseInt(id, 10);
-
-    const res = await fetch('/config/finance/categories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        categoryErrorBox.textContent = data.error;
-        categoryErrorBox.classList.remove('d-none');
-    }
-});
-
-async function postCategoryAction(action, id) {
-    const res = await fetch('/config/finance/categories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: action, id: id, _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        alert(data.error);
-    }
-}
-
-document.querySelectorAll('.toggle-category-btn').forEach(btn => {
-    btn.addEventListener('click', () => postCategoryAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', parseInt(btn.dataset.id, 10)));
-});
-
-document.querySelectorAll('.delete-category-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        if (confirm('Supprimer cette catégorie ?')) {
-            postCategoryAction('delete', parseInt(btn.dataset.id, 10));
-        }
-    });
-});
-
-document.getElementById('reset-default-categories-btn').addEventListener('click', async () => {
-    if (!confirm('Recréer les catégories par défaut qui auraient été supprimées ? Les catégories existantes ne sont pas modifiées.')) {
-        return;
-    }
-    const res = await fetch('/config/finance/categories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reset_defaults', _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        alert(data.error);
-    }
-});
-
-// --- Categorization rules ---
-const ruleModalEl = document.getElementById('rule-modal');
-const ruleModal = window.bootstrap ? new window.bootstrap.Modal(ruleModalEl) : null;
-const ruleErrorBox = document.getElementById('rule-form-error');
-
-function showRuleModal(title) {
-    document.getElementById('rule-form-title').textContent = title;
-    ruleErrorBox.classList.add('d-none');
-    ruleModal ? ruleModal.show() : ruleModalEl.classList.add('show');
-}
-
-document.getElementById('new-rule-btn').addEventListener('click', () => {
-    document.getElementById('rule-form').reset();
-    document.getElementById('rule-id').value = '';
-    document.getElementById('test-rule-result').textContent = '';
-    showRuleModal('Nouvelle règle');
-});
-
-document.getElementById('reset-default-rules-btn').addEventListener('click', async () => {
-    if (!confirm("Réinitialiser les règles par défaut ? Toute modification apportée aux règles marquées « Par défaut » sera perdue. Vos propres règles ne seront pas touchées.")) {
-        return;
-    }
-    const res = await fetch('/config/finance/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reset_defaults', _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        alert(data.error);
-    }
-});
-
-const runRulesBtn = document.getElementById('run-rules-btn');
-const runRulesStatus = document.getElementById('run-rules-status');
-let runRulesPollTimer = null;
-
-function setRunRulesRunning(running) {
-    runRulesBtn.disabled = running;
-    runRulesStatus.classList.toggle('d-none', !running);
-}
-
-async function pollRunRulesStatus() {
-    const res = await fetch('/config/finance/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'run_status', _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (!data.success) {
-        return;
-    }
-
-    setRunRulesRunning(data.running);
-
-    if (data.running) {
-        runRulesPollTimer = setTimeout(pollRunRulesStatus, 3000);
-        return;
-    }
-
-    if (runRulesPollTimer !== null) {
-        // Only true right after a run just completed (not on the initial
-        // page-load check) — reload then, to reflect any newly-created
-        // "nouvelle catégorie" suggestions and keep the movements page's
-        // own numbers in sync next time it's opened.
-        clearTimeout(runRulesPollTimer);
-        runRulesPollTimer = null;
-        if (data.last_result) {
-            alert(
-                data.last_result.categorized_by_rules + ' mouvement(s) catégorisé(s) par les règles, '
-                + data.last_result.categorized_by_ai + ' par l\'IA, '
-                + data.last_result.still_uncategorized + ' toujours non catégorisé(s).'
-            );
-        }
-    }
-}
-
-document.getElementById('run-rules-btn').addEventListener('click', async () => {
-    if (!confirm("Appliquer les règles de catégorisation à tous les mouvements non catégorisés ? Cette opération se déroule en arrière-plan.")) {
-        return;
-    }
-
-    const res = await fetch('/config/finance/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'run_on_uncategorized', _csrf_token: csrf() })
-    });
-    const data = await res.json();
-
-    if (data.success) {
-        setRunRulesRunning(true);
-        runRulesPollTimer = setTimeout(pollRunRulesStatus, 3000);
-    } else {
-        alert(data.error);
-    }
-});
-
-// Reflect an already-in-progress run on page load (e.g. the admin
-// navigated away and back while it was still running).
-(async () => {
-    const res = await fetch('/config/finance/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'run_status', _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (data.success && data.running) {
-        setRunRulesRunning(true);
-        runRulesPollTimer = setTimeout(pollRunRulesStatus, 3000);
-    }
-})();
-
-document.querySelectorAll('.edit-rule-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.getElementById('rule-id').value = btn.dataset.id;
-        document.getElementById('rule-keyword-pattern').value = btn.dataset.keywordPattern;
-        document.getElementById('rule-counterparty-account-pattern').value = btn.dataset.counterpartyAccountPattern;
-        document.getElementById('rule-amount-range').value = btn.dataset.amountRange;
-        document.getElementById('rule-category').value = btn.dataset.categoryId;
-        document.getElementById('test-rule-result').textContent = '';
-        showRuleModal('Modifier la règle');
-    });
-});
-
-function ruleConditionsPayload() {
-    return {
-        keyword_pattern: document.getElementById('rule-keyword-pattern').value,
-        counterparty_account_pattern: document.getElementById('rule-counterparty-account-pattern').value,
-        amount_range: document.getElementById('rule-amount-range').value
-    };
-}
-
-document.getElementById('test-rule-btn').addEventListener('click', async () => {
-    const res = await fetch('/config/finance/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.assign({ action: 'test', _csrf_token: csrf() }, ruleConditionsPayload()))
-    });
-    const data = await res.json();
-    const resultBox = document.getElementById('test-rule-result');
-    if (data.success) {
-        resultBox.textContent = data.count + ' mouvement(s) existant(s) correspondent.';
-    } else {
-        resultBox.textContent = data.error;
-    }
-});
-
-document.getElementById('rule-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const id = document.getElementById('rule-id').value;
-    const payload = Object.assign({
-        action: id ? 'update' : 'create',
-        category_id: parseInt(document.getElementById('rule-category').value, 10),
-        _csrf_token: csrf()
-    }, ruleConditionsPayload());
-    if (id) payload.id = parseInt(id, 10);
-
-    const res = await fetch('/config/finance/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        ruleErrorBox.textContent = data.error;
-        ruleErrorBox.classList.remove('d-none');
-    }
-});
-
-async function postRuleAction(action, extra) {
-    const res = await fetch('/config/finance/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.assign({ action: action, _csrf_token: csrf() }, extra))
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        alert(data.error);
-    }
-}
-
-document.querySelectorAll('.toggle-rule-btn').forEach(btn => {
-    btn.addEventListener('click', () => postRuleAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', { id: parseInt(btn.dataset.id, 10) }));
-});
-
-document.getElementById('toggle-ai-rule-btn')?.addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    const res = await fetch('/config/finance/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'set_ai_enabled', enabled: btn.dataset.active !== '1', _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        alert(data.error);
-    }
-});
-
-document.querySelectorAll('.delete-rule-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        if (confirm('Supprimer cette règle ?')) {
-            postRuleAction('delete', { id: parseInt(btn.dataset.id, 10) });
-        }
-    });
-});
-
-// --- Drag-and-drop reordering ---
-const rulesList = document.getElementById('rules-list');
-let draggedRow = null;
-
-rulesList.querySelectorAll('div[data-id]').forEach(row => {
-    row.addEventListener('dragstart', () => {
-        draggedRow = row;
-        row.classList.add('opacity-50');
-    });
-    row.addEventListener('dragend', () => {
-        row.classList.remove('opacity-50');
-        draggedRow = null;
-    });
-    row.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        if (!draggedRow || draggedRow === row) {
-            return;
-        }
-        const rect = row.getBoundingClientRect();
-        const before = (e.clientY - rect.top) < rect.height / 2;
-        row.parentNode.insertBefore(draggedRow, before ? row : row.nextSibling);
-    });
-    row.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        const ids = Array.from(rulesList.querySelectorAll('div[data-id]')).map(r => parseInt(r.dataset.id, 10));
-        const res = await fetch('/config/finance/rules', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'reorder', ordered_ids: ids, _csrf_token: csrf() })
-        });
-        const data = await res.json();
-        if (!data.success) {
-            alert(data.error);
-            window.location.reload();
-        }
-        // On success the list is already visually reordered by the
-        // drag-and-drop handlers above — no reload needed.
-    });
-});
-
-// --- Move up/down (touch-friendly alternative to drag-and-drop for rules) ---
-function persistRuleOrder() {
-    const ids = Array.from(rulesList.querySelectorAll('div[data-id]')).map(r => parseInt(r.dataset.id, 10));
-    fetch('/config/finance/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reorder', ordered_ids: ids, _csrf_token: csrf() })
-    }).then(r => r.json()).then(d => { if (!d.success) alert(d.error); });
-}
-function updateRuleMoveButtons() {
-    const items = Array.from(rulesList.querySelectorAll('.rule-item'));
-    items.forEach((item, i) => {
-        const up = item.querySelector('.rule-move-up');
-        const down = item.querySelector('.rule-move-down');
-        if (up) up.disabled = (i === 0);
-        if (down) down.disabled = (i === items.length - 1);
-    });
-}
-rulesList.querySelectorAll('.rule-move-up').forEach(btn => {
-    btn.addEventListener('click', () => {
-        const item = btn.closest('.rule-item');
-        const prev = item.previousElementSibling;
-        if (prev && prev.classList.contains('rule-item')) {
-            rulesList.insertBefore(item, prev);
-            persistRuleOrder();
-            updateRuleMoveButtons();
-        }
-    });
-});
-rulesList.querySelectorAll('.rule-move-down').forEach(btn => {
-    btn.addEventListener('click', () => {
-        const item = btn.closest('.rule-item');
-        const next = item.nextElementSibling;
-        if (next && next.classList.contains('rule-item')) {
-            rulesList.insertBefore(next, item);
-            persistRuleOrder();
-            updateRuleMoveButtons();
-        }
-    });
-});
-</script>
+<script src="/assets/js/finance-categories.js" defer></script>
 {% endblock %}

@@ -3,7 +3,7 @@
 {% block title %}Protection des données — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Protection des données</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Protection des données' } only %}
 
     {{ rgpd_content|raw }}
 {% endblock %}

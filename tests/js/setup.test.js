@@ -97,6 +97,9 @@ beforeEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = '';
     global.fetch = vi.fn();
+    // The shared confirmation, stubbed: the installer's one destructive
+    // button must ask before it empties anything.
+    window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
 });
 
 describe('setup.js: SMTP fields visibility', () => {
@@ -231,22 +234,30 @@ describe('setup.js: non-empty database barrier', () => {
         expect(/** @type {HTMLButtonElement} */ (emptyAnyway).disabled).toBe(false);
     });
 
-    it('the destructive "empty without backup" asks confirm() first, and a refusal sends nothing', async () => {
+    it('the destructive "empty without backup" asks the shared confirmation first, and a refusal sends nothing', async () => {
         await boot();
         document.getElementById('btn-empty-without-backup').classList.remove('d-none');
 
-        vi.spyOn(window, 'confirm').mockReturnValue(false);
+        window.ScoutMagicConfirm.ask.mockResolvedValue(false);
         document.getElementById('btn-empty-without-backup').click();
+        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
         await settle();
         expect(fetch).not.toHaveBeenCalled();
 
-        window.confirm.mockReturnValue(true);
+        window.ScoutMagicConfirm.ask.mockResolvedValue(true);
         fetch
             .mockReturnValueOnce(jsonResponse({ success: true, backup_skipped: true, table_count: 12 }))
             .mockReturnValueOnce(jsonResponse({ success: true }));
         document.getElementById('btn-empty-without-backup').click();
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
         await settle();
 
+        // Asked in French, with a button naming what it does, and asked
+        // BEFORE the request that empties the database.
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenLastCalledWith(expect.objectContaining({
+            message: 'Vider la base de données SANS sauvegarde ? Les données actuellement en base seront définitivement perdues.',
+            confirmLabel: 'Vider sans sauvegarde',
+        }));
         const body = /** @type {FormData} */ (fetch.mock.calls[0][1].body);
         expect(body.get('force_without_backup')).toBe('1');
         expect(document.getElementById('backup-empty-result').textContent).toContain('SANS sauvegarde');

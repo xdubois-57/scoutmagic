@@ -237,7 +237,7 @@ test('a passkey registered from the account page then signs in on its own, and i
     await page.goto('/login', { waitUntil: 'domcontentloaded' });
     const passwordTab = page.locator('#tab-password');
     await page.getByRole('tab', { name: 'Mot de passe' }).click();
-    await passwordTab.getByLabel('Adresse email', { exact: true }).fill(adminEmail);
+    await passwordTab.getByLabel(/^Adresse email \*$/).fill(adminEmail);
     await passwordTab.getByLabel('Mot de passe', { exact: true }).fill(adminPassword);
     await passwordTab.getByRole('checkbox').check();
     await passwordTab.getByRole('button', { name: 'Se connecter' }).click();
@@ -324,7 +324,7 @@ test('a password login refuses what it must, then works — and signing out real
     const passwordTab = page.locator('#tab-password');
     // exact: the "forgot password" sub-form in this same panel is labelled
     // "Adresse email du compte", which a substring match would also hit.
-    const emailField = passwordTab.getByLabel('Adresse email', { exact: true });
+    const emailField = passwordTab.getByLabel(/^Adresse email \*$/);
     const passwordField = passwordTab.getByLabel('Mot de passe', { exact: true });
     const submit = passwordTab.getByRole('button', { name: 'Se connecter' });
 

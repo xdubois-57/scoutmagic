@@ -16,7 +16,7 @@ use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
 /**
- * RBAC boundaries introduced by the "Configuration générale" split: the
+ * RBAC boundaries introduced by the "Édition du site" split: the
  * Modules/Badges pages stay superadmin-only (unchanged), while the
  * remaining configuration-mode toggle page (still /config/general, moved
  * to "Espace chefs d'U" in the menu) and the /config-mode/* routes it

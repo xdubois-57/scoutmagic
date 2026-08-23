@@ -4,9 +4,10 @@
 
 {% block content %}
 <div class="text-center py-5">
-    <h1 class="display-1 text-muted">404</h1>
-    <h2>Page non trouvée</h2>
-    <p class="lead text-muted">La page que vous recherchez n'existe pas ou a été déplacée.</p>
+    {# The status code is decoration; the words are the heading. #}
+    <p class="display-1 text-body-secondary mb-0" aria-hidden="true">404</p>
+    <h1>Page non trouvée</h1>
+    <p class="lead text-body-secondary">La page que vous recherchez n'existe pas ou a été déplacée.</p>
     <a href="/" class="btn btn-primary mt-3">Retour à l'accueil</a>
 </div>
 {% endblock %}

@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Full-page render of core/View/templates/members/show.html.twig (the
- * "Espace animés" member page) against the real filesystem loader —
+ * "Espace membres" member page) against the real filesystem loader —
  * unlike MemberPhotoFunctionTest (which renders member_photo() in
  * isolation via an ArrayLoader), this catches page-composition bugs that
  * only exist once the template is assembled through base.html.twig, such

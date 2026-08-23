@@ -7,6 +7,7 @@ namespace Tests\Core\View;
 use Core\Config\SettingService;
 use Core\Module\ModuleManager;
 use Core\View\RgpdContentService;
+use Core\View\RgpdGenerationException;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmRequest;
 use Modules\LlmConnector\Api\LlmResponse;
@@ -96,7 +97,10 @@ class RgpdContentServiceTest extends TestCase
 
         $service = new RgpdContentService($this->moduleManager, $this->settingService, $llmConnector);
 
-        $this->expectException(\RuntimeException::class);
+        // RgpdGenerationException, not a plain \RuntimeException: this
+        // sentence is meant to reach the admin (see that class, and
+        // Tests\Core\Http\Controller\RgpdConfigControllerErrorMessagesTest).
+        $this->expectException(RgpdGenerationException::class);
         $this->expectExceptionMessageMatches('/tronquée/');
         $service->generateWithAi('Instructions');
     }
@@ -105,7 +109,7 @@ class RgpdContentServiceTest extends TestCase
     {
         $service = new RgpdContentService($this->moduleManager, $this->settingService, null);
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RgpdGenerationException::class);
         $service->generateWithAi('Instructions');
     }
 
@@ -125,7 +129,7 @@ class RgpdContentServiceTest extends TestCase
 
         $service = new RgpdContentService($this->moduleManager, $settingService, $llmConnector);
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RgpdGenerationException::class);
         $this->expectExceptionMessageMatches('/responsable du traitement/');
         $service->generateWithAi('Instructions');
     }

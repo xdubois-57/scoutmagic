@@ -3,9 +3,12 @@
 {% block title %}Envoi de mails — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="mb-0">Envoi de mails</h1>
-        <button type="button" class="btn btn-primary" id="mm-new-btn"><i class="bi bi-plus-lg"></i> Nouvel email</button>
+    {% include 'partials/page_header.html.twig' with { title: 'Envoi de mails' } only %}
+
+    {# The creation action opens the compose dialog (JS), so it cannot ride
+       the page_header's link action — it keeps its own right-aligned row. #}
+    <div class="d-flex justify-content-end mb-3">
+        <button type="button" class="btn btn-primary w-100 w-sm-auto" id="mm-new-btn"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nouvel email</button>
     </div>
 
     <form method="get" action="/mass-mail" class="row g-2 align-items-end mb-3">
@@ -32,7 +35,9 @@
             </select>
         </div>
         <div class="col-12 col-md-2">
-            <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
+            {# The page's one primary action is « Nouvel email » above
+               (design.md §7.4) — the filter button is neutral. #}
+            <button type="submit" class="btn btn-sm btn-outline-secondary">Filtrer</button>
             <a href="/mass-mail" class="btn btn-sm btn-outline-secondary">Réinitialiser</a>
         </div>
     </form>
@@ -58,7 +63,7 @@
                         <td>{{ sections_by_id[email.sectionId] ?? '—' }}</td>
                         <td>
                             {% if email.listType == 'default_active_members' %}Membres actifs
-                            {% elseif email.listType == 'default_chiefs' %}Chefs uniquement
+                            {% elseif email.listType == 'default_chiefs' %}Animateurs uniquement
                             {% elseif email.listType == 'default_section' %}Section - {{ sections_by_id[email.listSectionId] ?? '?' }}
                             {% elseif email.listType == 'mail_merge' %}Publipostage
                             {% else %}{{ custom_lists_by_id[email.listId] ?? 'Liste personnalisée' }}
@@ -66,13 +71,13 @@
                         </td>
                         <td>{{ email.listType == 'mail_merge' ? '—' : email.scoutYearIds|map(yid => scout_years_by_id[yid] ?? '?')|join(', ') }}</td>
                         <td>
-                            {% set badgeClass = email.status == 'draft' ? 'text-bg-secondary' : (email.status == 'test' ? 'text-bg-warning' : (email.status == 'sending' ? 'text-bg-info' : 'text-bg-success')) %}
-                            <span class="badge {{ badgeClass }}">
-                                {{ email.status == 'draft' ? 'Brouillon' : (email.status == 'test' ? 'Test' : (email.status == 'sending' ? 'Envoi en cours' : 'Envoyé')) }}
-                            </span>
+                            {% include 'partials/status_badge.html.twig' with {
+                                status: email.status == 'draft' ? 'draft' : (email.status == 'test' ? 'pending' : (email.status == 'sending' ? 'in_progress' : 'done')),
+                                label: email.status == 'draft' ? 'Brouillon' : (email.status == 'test' ? 'Test' : (email.status == 'sending' ? 'Envoi en cours' : 'Envoyé')),
+                            } only %}
                         </td>
                         <td class="text-end">{{ recipient_counts[email.id] ?? 0 }}</td>
-                        <td>{{ email.createdAt|date('d/m/Y') }}</td>
+                        <td>{{ email.createdAt|date_fr }}</td>
                         <td class="text-end text-nowrap">
                             <button type="button" class="btn btn-sm btn-outline-secondary mm-open-btn" data-id="{{ email.id }}" title="Ouvrir"><i class="bi bi-eye"></i></button>
                             {% if email.status in ['sending', 'sent'] %}
@@ -81,650 +86,48 @@
                         </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="8" class="text-body-secondary fst-italic">Aucun email.</td></tr>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun email.',
+                        colspan: 8,
+                        icon: 'bi-envelope',
+                    } only %}
                 {% endfor %}
             </tbody>
         </table>
     </div>
 
-    {% if total_pages > 1 %}
-        <nav>
-            <ul class="pagination pagination-sm">
-                {% for p in 1..total_pages %}
-                    <li class="page-item {{ p == page ? 'active' : '' }}">
-                        <a class="page-link" href="?page={{ p }}{% if search %}&search={{ search }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if section_id %}&section_id={{ section_id }}{% endif %}">{{ p }}</a>
-                    </li>
-                {% endfor %}
-            </ul>
-        </nav>
-    {% endif %}
+    {% include 'partials/pagination.html.twig' with {
+        page: page,
+        total_pages: total_pages,
+        base_url: '?'
+            ~ (search ? 'search=' ~ search|url_encode ~ '&' : '')
+            ~ (status ? 'status=' ~ status|url_encode ~ '&' : '')
+            ~ (section_id ? 'section_id=' ~ section_id ~ '&' : '')
+            ~ 'page=',
+        label: 'Pagination des emails',
+    } only %}
 
     {% include '@mass_mail/_compose_dialog.html.twig' %}
 {% endblock %}
 
 {% block scripts %}
+<script src="/assets/js/mass-mail-list.js" defer></script>
 <script nonce="{{ csp_nonce }}">
-const MM_DATA = {
-    sections: {{ sections|json_encode|raw }},
-    defaultLists: {{ default_lists|json_encode|raw }},
-    customLists: {{ custom_lists|map(l => {id: l.id, name: l.name, description: l.description})|json_encode|raw }},
-    scoutYears: {{ scout_years|json_encode|raw }},
-    currentUserEmail: {{ current_user_email|json_encode|raw }},
-    unrestricted: {{ unrestricted|json_encode|raw }},
-    userSectionIds: {{ user_section_ids|json_encode|raw }},
-    forcedSectionId: {{ forced_section_id|json_encode|raw }},
-    previousYearCutoff: {{ previous_year_cutoff|json_encode|raw }}
+{# Server data handed to mass-mail-list.js — the support_dashboard
+   pattern (window.supportDashboardCharts). JSON_HEX_TAG/JSON_HEX_AMP:
+   list names/descriptions are user-entered text, so a value containing
+   tag-closing characters must not break out of this script block. #}
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+window.massMailListData = {
+    sections: {{ sections|json_encode(json_flags)|raw }},
+    defaultLists: {{ default_lists|json_encode(json_flags)|raw }},
+    customLists: {{ custom_lists|map(l => {id: l.id, name: l.name, description: l.description})|json_encode(json_flags)|raw }},
+    scoutYears: {{ scout_years|json_encode(json_flags)|raw }},
+    currentUserEmail: {{ current_user_email|json_encode(json_flags)|raw }},
+    unrestricted: {{ unrestricted|json_encode(json_flags)|raw }},
+    userSectionIds: {{ user_section_ids|json_encode(json_flags)|raw }},
+    forcedSectionId: {{ forced_section_id|json_encode(json_flags)|raw }},
+    previousYearCutoff: {{ previous_year_cutoff|json_encode(json_flags)|raw }}
 };
-const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-const statusLabel = (s) => ({ draft: 'Brouillon', test: 'Test', sending: 'Envoi en cours', sent: 'Envoyé' })[s] || s;
-const statusBadgeClass = (s) => ({ draft: 'text-bg-secondary', test: 'text-bg-warning', sending: 'text-bg-info', sent: 'text-bg-success' })[s] || 'text-bg-secondary';
-
-function escapeHtml(value) {
-    // Quotes are escaped too (textContent->innerHTML does not) because the
-    // result is interpolated into title="..." attributes below — a list
-    // description containing a quote would otherwise break out of the
-    // attribute (audit M16).
-    const div = document.createElement('div');
-    div.textContent = value == null ? '' : String(value);
-    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-const mmModalEl = document.getElementById('mm-modal');
-const mmModal = window.bootstrap ? new window.bootstrap.Modal(mmModalEl) : null;
-let mmCurrentId = null;
-let mmCurrentStatus = null;
-let mmSelectedYearIds = [];
-// Mail-merge state: the imported audience ({id, filename, sheet_name,
-// columns, row_count} + sample values), the previewed row offset, and
-// where a picked variable should be inserted (subject vs body).
-let mmAudience = null;
-let mmAudienceSample = {};
-let mmMergeOffset = 0;
-let mmInsertTarget = 'body';
-
-// Except for a chef d'unité (or above), the sender section is locked to
-// the account's own (highest-role) section — not a free choice.
-function populateSectionSelect(currentSectionId) {
-    const select = document.getElementById('mm-section');
-    if (MM_DATA.unrestricted) {
-        select.innerHTML = MM_DATA.sections.map(s => '<option value="' + s.id + '">' + escapeHtml(s.name) + '</option>').join('');
-        select.disabled = false;
-        return;
-    }
-
-    const forced = MM_DATA.forcedSectionId;
-    const options = new Map();
-    if (forced !== null) {
-        const forcedSection = MM_DATA.sections.find(s => s.id === forced);
-        options.set(forced, forcedSection ? forcedSection.name : ('Section #' + forced));
-    }
-    // A draft created (e.g. by a chef d'unité) targeting a different
-    // section is still shown correctly when reopened — the select stays
-    // fully locked either way, this only avoids silently switching the
-    // section away from what's actually stored on save.
-    if (currentSectionId != null && !options.has(currentSectionId)) {
-        const currentSection = MM_DATA.sections.find(s => s.id === currentSectionId);
-        options.set(currentSectionId, currentSection ? currentSection.name : ('Section #' + currentSectionId));
-    }
-
-    select.innerHTML = Array.from(options.entries())
-        .map(([id, name]) => '<option value="' + id + '">' + escapeHtml(name) + '</option>')
-        .join('');
-    select.disabled = true;
-}
-
-function isListAllowed(listType, listSectionId) {
-    if (MM_DATA.unrestricted) return true;
-    if (listType === 'default_chiefs') return true;
-    if (listType === 'default_section') return MM_DATA.userSectionIds.includes(listSectionId);
-    // Mail-merge is open to every chief — the uploaded file names the
-    // recipients, not a section list (server-side rule mirrored here).
-    if (listType === 'mail_merge') return true;
-    return false; // "Membres actifs" and every custom list
-}
-
-function populateListSelect() {
-    const select = document.getElementById('mm-list');
-    let html = '';
-    MM_DATA.defaultLists.forEach(l => {
-        const disabled = !isListAllowed(l.list_type, l.list_section_id) ? 'disabled' : '';
-        html += '<option value="' + l.list_type + ':' + (l.list_section_id ?? '') + '" data-type="' + l.list_type + '" '
-            + 'data-list-section-id="' + (l.list_section_id ?? '') + '" title="' + escapeHtml(l.description) + '" ' + disabled + '>'
-            + escapeHtml(l.label) + '</option>';
-    });
-    MM_DATA.customLists.forEach(l => {
-        const disabled = !isListAllowed('custom', null) ? 'disabled' : '';
-        html += '<option value="custom:' + l.id + '" data-type="custom" data-list-id="' + l.id + '" '
-            + 'title="' + escapeHtml(l.description) + '" ' + disabled + '>' + escapeHtml(l.name) + '</option>';
-    });
-    html += '<option value="mail_merge:" data-type="mail_merge" '
-        + 'title="Un fichier Excel importé définit les destinataires : un email par ligne, avec des variables par colonne.">'
-        + 'Publipostage — fichier Excel</option>';
-    select.innerHTML = html;
-}
-
-// Multi-select (module addendum) — several years can be checked at once;
-// their lists are merged/deduplicated server-side at send time
-// (Service\MailingListService::resolveMembersForYears()). Defaults to
-// "current" only.
-function populateScoutYearCheckboxes() {
-    const group = document.getElementById('mm-scout-year-group');
-    const entries = [
-        { key: 'previous', label: MM_DATA.scoutYears.previous.label, id: MM_DATA.scoutYears.previous.id, available: MM_DATA.scoutYears.previous.available },
-        { key: 'current', label: MM_DATA.scoutYears.current.label, id: MM_DATA.scoutYears.current.id, available: MM_DATA.scoutYears.current.available },
-        { key: 'next', label: MM_DATA.scoutYears.next.label, id: MM_DATA.scoutYears.next.id, available: MM_DATA.scoutYears.next.available },
-    ];
-    // "available: false" (module addendum — next year needs a Desk import
-    // first) is a permanent lock, independent from setFieldsEditable()'s
-    // temporary read-only lock — unlike a disabled *button*, a disabled
-    // *checkbox* still shows its checked state clearly, so no extra
-    // pointer-events workaround is needed for the read-only case below.
-    group.innerHTML = entries.map(e => (
-        '<div class="form-check form-check-inline">'
-        + '<input class="form-check-input mm-year-checkbox" type="checkbox" value="' + e.id + '" id="mm-year-' + e.key + '" '
-        + (e.available ? '' : 'disabled title="Desk n\'a pas encore été importé pour cette année scoute."') + '>'
-        + '<label class="form-check-label" for="mm-year-' + e.key + '">' + escapeHtml(e.label) + '</label>'
-        + '</div>'
-    )).join('');
-    selectScoutYears([MM_DATA.scoutYears.current.id]);
-
-    const [cutoffMonth, cutoffDay] = MM_DATA.previousYearCutoff.split('-');
-    document.getElementById('mm-previous-year-note').textContent =
-        'Année précédente (' + MM_DATA.scoutYears.previous.label + ') : les personnes actives lors du dernier import '
-        + 'Desk de cette année scoute (généralement autour du ' + cutoffDay + '/' + cutoffMonth + ', ajustable dans '
-        + 'Configuration > Réglages).';
-}
-
-function selectScoutYears(yearIds) {
-    mmSelectedYearIds = yearIds;
-    document.querySelectorAll('#mm-scout-year-group .mm-year-checkbox').forEach(cb => {
-        cb.checked = yearIds.includes(parseInt(cb.value, 10));
-    });
-}
-
-// Delegated (checkboxes are rebuilt on every populateScoutYearCheckboxes() call).
-document.getElementById('mm-scout-year-group').addEventListener('change', (e) => {
-    if (!e.target.classList.contains('mm-year-checkbox')) return;
-    mmSelectedYearIds = Array.from(document.querySelectorAll('#mm-scout-year-group .mm-year-checkbox:checked'))
-        .map(cb => parseInt(cb.value, 10));
-});
-
-// Rich text toolbar — same execCommand engine as partials/rich_text_editor.html.twig.
-document.querySelectorAll('#mm-body-toolbar [data-command]').forEach(btn => {
-    btn.addEventListener('click', () => {
-        const cmd = btn.dataset.command;
-        const bodyContent = document.getElementById('mm-body-content');
-        if (cmd === 'createLink') {
-            const url = prompt('URL du lien :');
-            if (url) document.execCommand(cmd, false, url);
-        } else if (cmd === 'formatBlock') {
-            document.execCommand(cmd, false, '<' + btn.dataset.value + '>');
-        } else {
-            document.execCommand(cmd, false, null);
-        }
-        bodyContent.focus();
-    });
-});
-
-function currentListType() {
-    const option = document.getElementById('mm-list').selectedOptions[0];
-    return option ? option.dataset.type : null;
-}
-
-// Shows/hides the mail-merge zone vs the scout-year block depending on
-// the selected list type — a mail-merge email's recipients come from the
-// file, never from a scout year.
-function updateListTypeUi() {
-    const isMerge = currentListType() === 'mail_merge';
-    document.getElementById('mm-merge-zone').classList.toggle('d-none', !isMerge);
-    document.getElementById('mm-merge-list-note').classList.toggle('d-none', !isMerge);
-    document.getElementById('mm-scout-year-zone').classList.toggle('d-none', isMerge);
-    updateVariableDropdown();
-}
-
-function renderMergeAudience() {
-    const uploadState = document.getElementById('mm-merge-upload-state');
-    const infoState = document.getElementById('mm-merge-info-state');
-    if (!mmAudience) {
-        uploadState.classList.remove('d-none');
-        infoState.classList.add('d-none');
-        updateVariableDropdown();
-        return;
-    }
-
-    uploadState.classList.add('d-none');
-    infoState.classList.remove('d-none');
-    document.getElementById('mm-merge-filename').textContent = mmAudience.filename;
-    document.getElementById('mm-merge-meta').textContent =
-        mmAudience.row_count + ' ligne' + (mmAudience.row_count > 1 ? 's' : '') + ' · feuille « ' + mmAudience.sheet_name + ' »';
-    document.getElementById('mm-merge-columns').innerHTML =
-        '<span class="form-text small mt-0 me-1">Colonnes :</span>'
-        + mmAudience.columns.map(c => '<span class="badge text-bg-light border">' + escapeHtml(c) + '</span>').join(' ');
-    document.getElementById('mm-merge-replace-btn').classList.toggle('d-none', mmCurrentStatus !== null && mmCurrentStatus !== 'draft');
-    updateVariableDropdown();
-}
-
-function showMergeWarnings(warnings) {
-    const box = document.getElementById('mm-merge-warnings');
-    if (!warnings || !warnings.length) {
-        box.classList.add('d-none');
-        return;
-    }
-    box.innerHTML = warnings.map(w => '<div>' + escapeHtml(w) + '</div>').join('');
-    box.classList.remove('d-none');
-}
-
-// The "{ } Variable" toolbar dropdown — one entry per audience column,
-// with the first row's value as a sample hint. Visible only while a
-// mail-merge draft with an imported audience is being edited.
-function updateVariableDropdown() {
-    const dropdown = document.getElementById('mm-variable-dropdown');
-    const editable = mmCurrentStatus === null || mmCurrentStatus === 'draft';
-    const visible = currentListType() === 'mail_merge' && !!mmAudience && editable;
-    dropdown.classList.toggle('d-none', !visible);
-    if (!visible) return;
-
-    document.getElementById('mm-variable-menu').innerHTML = mmAudience.columns.map(c => {
-        const sample = (mmAudienceSample[c] ?? '') !== '' ? mmAudienceSample[c] : '—';
-        return '<li><button type="button" class="dropdown-item d-flex justify-content-between gap-3 mm-variable-item" data-column="' + escapeHtml(c) + '">'
-            + '<span>' + escapeHtml(c) + '</span>'
-            + '<span class="text-body-secondary small text-truncate" style="max-width: 10rem;">« ' + escapeHtml(sample) + ' »</span>'
-            + '</button></li>';
-    }).join('');
-
-    document.querySelectorAll('.mm-variable-item').forEach(item => {
-        item.addEventListener('click', () => insertVariable(item.dataset.column));
-    });
-}
-
-// Inserted where the chief last had their cursor — the subject input or
-// the rich-text body (default).
-function insertVariable(column) {
-    // The braces are split ('{'+'{') so Twig, which renders this inline
-    // script, never sees a literal {{ … }} to evaluate — with them joined
-    // it silently swallowed the token and inserted garbage text (caught
-    // by tests/e2e/specs/mass-mail-merge.spec.js).
-    const token = '{' + '{' + column + '}' + '}';
-    if (mmInsertTarget === 'subject') {
-        const input = document.getElementById('mm-subject');
-        const start = input.selectionStart ?? input.value.length;
-        const end = input.selectionEnd ?? input.value.length;
-        input.value = input.value.slice(0, start) + token + input.value.slice(end);
-        input.focus();
-        input.setSelectionRange(start + token.length, start + token.length);
-        return;
-    }
-    const body = document.getElementById('mm-body-content');
-    body.focus();
-    document.execCommand('insertText', false, token);
-}
-
-document.getElementById('mm-subject').addEventListener('focus', () => { mmInsertTarget = 'subject'; });
-document.getElementById('mm-body-content').addEventListener('focus', () => { mmInsertTarget = 'body'; });
-
-document.getElementById('mm-list').addEventListener('change', updateListTypeUi);
-
-document.getElementById('mm-merge-import-btn').addEventListener('click', async () => {
-    const input = document.getElementById('mm-merge-file');
-    if (!input.files.length) {
-        showError('Choisissez d\'abord un fichier Excel (.xlsx).');
-        return;
-    }
-
-    const formData = new FormData();
-    formData.append('file', input.files[0]);
-    formData.append('_csrf_token', csrf());
-
-    const res = await fetch('/mass-mail/audiences', { method: 'POST', body: formData });
-    const data = await res.json();
-    if (!data.success) {
-        showErrorList('Le fichier n\'a pas été accepté :', data.errors || [data.error || 'Erreur.']);
-        return;
-    }
-    document.getElementById('mm-error').classList.add('d-none');
-    input.value = '';
-    mmAudience = data.audience;
-    mmAudienceSample = {};
-    fetchAudienceSample(mmAudience.id);
-    renderMergeAudience();
-    showMergeWarnings(data.warnings);
-});
-
-async function fetchAudienceSample(audienceId) {
-    const res = await fetch('/mass-mail/audiences/' + audienceId);
-    const data = await res.json();
-    if (data.success) {
-        mmAudience = data.audience;
-        mmAudienceSample = data.sample || {};
-        renderMergeAudience();
-    }
-}
-
-document.getElementById('mm-merge-replace-btn').addEventListener('click', () => {
-    // Back to the upload state — the current audience stays attached
-    // until a new import actually succeeds.
-    document.getElementById('mm-merge-upload-state').classList.remove('d-none');
-    document.getElementById('mm-merge-info-state').classList.add('d-none');
-});
-
-async function loadMergePreview(offset) {
-    const res = await fetch('/mass-mail/' + mmCurrentId + '/merge-preview?offset=' + offset);
-    const data = await res.json();
-    if (!data.success) {
-        showError(data.error || 'Erreur.');
-        return;
-    }
-    const p = data.preview;
-    mmMergeOffset = p.offset;
-    document.getElementById('mm-merge-preview-position').textContent = 'Ligne ' + (p.offset + 1) + ' / ' + p.total;
-    document.getElementById('mm-merge-preview-recipient').textContent = 'Destinataire : ' + p.recipient_label + ' (ligne ' + p.row_index + ' du fichier)';
-    document.getElementById('mm-merge-preview-subject').textContent = p.subject;
-    // Server-rendered: the body was sanitized at save time and every
-    // substituted value is HTML-escaped server-side.
-    document.getElementById('mm-merge-preview-body').innerHTML = p.body_html;
-    document.getElementById('mm-merge-prev-btn').disabled = p.offset <= 0;
-    document.getElementById('mm-merge-next-btn').disabled = p.offset >= p.total - 1;
-
-    const warnings = [];
-    if (p.unknown_tokens.length) {
-        // Braces split for the same Twig-evaluation reason as insertVariable().
-        warnings.push('Variable(s) inconnue(s) dans le message : ' + p.unknown_tokens.map(t => '{' + '{' + t + '}' + '}').join(', ') + ' — vérifiez l\'orthographe des colonnes.');
-    }
-    if (p.missing_values.length) {
-        warnings.push('Cette ligne n\'a pas de valeur pour : ' + p.missing_values.join(', ') + ' (remplacée par du vide).');
-    }
-    const box = document.getElementById('mm-merge-preview-warnings');
-    box.classList.toggle('d-none', !warnings.length);
-    box.innerHTML = warnings.map(w => '<div>' + escapeHtml(w) + '</div>').join('');
-}
-
-document.getElementById('mm-merge-prev-btn').addEventListener('click', () => loadMergePreview(Math.max(0, mmMergeOffset - 1)));
-document.getElementById('mm-merge-next-btn').addEventListener('click', () => loadMergePreview(mmMergeOffset + 1));
-
-function setFieldsEditable(editable) {
-    // The sender section select stays permanently disabled for a
-    // restricted (non chef d'unité) account — populateSectionSelect()
-    // already locked it; never re-enable it here.
-    document.getElementById('mm-section').disabled = MM_DATA.unrestricted ? !editable : true;
-    document.getElementById('mm-list').disabled = !editable;
-    document.getElementById('mm-subject').disabled = !editable;
-    document.getElementById('mm-body-content').setAttribute('contenteditable', editable ? 'true' : 'false');
-    // A checkbox's checked state stays clearly visible even when disabled
-    // (unlike a button's ".active" highlight), so read-only mode can just
-    // disable it directly — except a year already permanently unavailable
-    // (no Desk import yet) stays disabled regardless of editable.
-    document.querySelectorAll('#mm-scout-year-group .mm-year-checkbox').forEach(cb => {
-        if (!editable) {
-            cb.disabled = true;
-        } else {
-            const entry = [MM_DATA.scoutYears.previous, MM_DATA.scoutYears.current, MM_DATA.scoutYears.next]
-                .find(y => y.id === parseInt(cb.value, 10));
-            cb.disabled = entry ? !entry.available : false;
-        }
-    });
-    document.getElementById('mm-body-toolbar').classList.toggle('d-none', !editable);
-    document.getElementById('mm-merge-file').disabled = !editable;
-    document.getElementById('mm-merge-import-btn').disabled = !editable;
-    document.getElementById('mm-merge-replace-btn').classList.toggle('d-none', !editable);
-}
-
-function renderAttachments(attachments) {
-    const list = document.getElementById('mm-attachments-list');
-    if (!attachments.length) {
-        list.innerHTML = '<p class="text-body-secondary fst-italic small mb-0">Aucune pièce jointe.</p>';
-        return;
-    }
-    list.innerHTML = attachments.map(a =>
-        '<div class="d-flex justify-content-between align-items-center border rounded px-2 py-1">'
-        + '<a href="/files/' + a.file_id + '" target="_blank" rel="noopener">' + escapeHtml(a.name) + '</a>'
-        + '<button type="button" class="btn btn-sm btn-outline-danger mm-attachment-delete-btn" data-id="' + a.id + '"><i class="bi bi-trash"></i></button>'
-        + '</div>'
-    ).join('');
-    list.querySelectorAll('.mm-attachment-delete-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            await fetch('/mass-mail/attachments/' + btn.dataset.id, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ _csrf_token: csrf() })
-            });
-            openEmail(mmCurrentId);
-        });
-    });
-}
-
-function applyStatusUi(status) {
-    mmCurrentStatus = status;
-    const badge = document.getElementById('mm-status-badge');
-    badge.textContent = statusLabel(status);
-    badge.className = 'badge ms-2 ' + statusBadgeClass(status);
-    badge.classList.toggle('d-none', status === null);
-
-    const isDraft = status === null || status === 'draft';
-    const isTest = status === 'test';
-    const isSendingOrSent = status === 'sending' || status === 'sent';
-
-    setFieldsEditable(isDraft);
-
-    document.getElementById('mm-save-btn').classList.toggle('d-none', !isDraft);
-    document.getElementById('mm-to-test-btn').classList.toggle('d-none', !isDraft || mmCurrentId === null);
-    document.getElementById('mm-to-draft-btn').classList.toggle('d-none', !isTest);
-    document.getElementById('mm-start-sending-btn').classList.toggle('d-none', !isTest);
-    document.getElementById('mm-test-send-zone').classList.toggle('d-none', !isTest);
-    document.getElementById('mm-progress-zone').classList.toggle('d-none', !isSendingOrSent);
-
-    // Mail-merge: per-recipient preview in test mode, and the test send
-    // note explaining which row's values the test carries.
-    const isMerge = currentListType() === 'mail_merge';
-    document.getElementById('mm-merge-preview-zone').classList.toggle('d-none', !isTest || !isMerge);
-    document.getElementById('mm-test-send-merge-note').classList.toggle('d-none', !isTest || !isMerge);
-    if (isTest && isMerge && mmCurrentId !== null) {
-        loadMergePreview(0);
-    }
-    updateListTypeUi();
-    document.getElementById('mm-attachment-upload-zone').classList.toggle('d-none', !isDraft || mmCurrentId === null);
-    document.getElementById('mm-attachment-hint').classList.toggle('d-none', mmCurrentId !== null || !isDraft);
-
-    if (isSendingOrSent) {
-        document.getElementById('mm-tracking-link').href = '/mass-mail/' + mmCurrentId + '/tracking';
-    }
-}
-
-function renderProgress(counts) {
-    if (!counts || !counts.total) {
-        document.getElementById('mm-progress-text').textContent = 'Aucun destinataire.';
-        return;
-    }
-    const pct = (n) => (n / counts.total * 100).toFixed(1) + '%';
-    document.getElementById('mm-progress-sent').style.width = pct(counts.sent);
-    document.getElementById('mm-progress-error').style.width = pct(counts.error);
-    document.getElementById('mm-progress-pending').style.width = pct(counts.pending);
-    document.getElementById('mm-progress-text').textContent =
-        counts.sent + ' envoyés · ' + counts.error + ' erreurs · ' + counts.pending + ' en attente — ' + counts.total + ' au total';
-}
-
-function resetModal() {
-    mmCurrentId = null;
-    mmAudience = null;
-    mmAudienceSample = {};
-    mmMergeOffset = 0;
-    document.getElementById('mm-modal-title').textContent = 'Nouvel email';
-    document.getElementById('mm-error').classList.add('d-none');
-    document.getElementById('mm-subject').value = '';
-    document.getElementById('mm-body-content').innerHTML = '';
-    document.getElementById('mm-test-send-email').value = MM_DATA.currentUserEmail;
-    showMergeWarnings([]);
-    renderMergeAudience();
-    populateSectionSelect(null);
-    populateListSelect();
-    // A restricted account's first list option isn't necessarily an
-    // allowed one (browsers don't reliably skip a disabled first option
-    // for the implicit default selection) — force it explicitly.
-    if (!MM_DATA.unrestricted) {
-        const firstAllowed = document.querySelector('#mm-list option:not([disabled])');
-        if (firstAllowed) document.getElementById('mm-list').value = firstAllowed.value;
-    }
-    populateScoutYearCheckboxes();
-    renderAttachments([]);
-    applyStatusUi(null);
-}
-
-async function openEmail(id) {
-    const res = await fetch('/mass-mail/' + id);
-    const data = await res.json();
-    if (!data.success) {
-        alert(data.error || 'Email introuvable.');
-        return;
-    }
-    mmCurrentId = data.email.id;
-    mmAudience = null;
-    mmAudienceSample = {};
-    mmMergeOffset = 0;
-    document.getElementById('mm-modal-title').textContent = data.email.subject;
-    document.getElementById('mm-error').classList.add('d-none');
-    showMergeWarnings([]);
-    populateSectionSelect(data.email.section_id);
-    populateListSelect();
-    populateScoutYearCheckboxes();
-    document.getElementById('mm-section').value = data.email.section_id;
-    document.getElementById('mm-list').value = data.email.list_type + ':' + (data.email.list_type === 'custom' ? data.email.list_id : (data.email.list_section_id ?? ''));
-    selectScoutYears(data.email.scout_year_ids);
-    renderMergeAudience();
-    if (data.email.list_type === 'mail_merge' && data.email.audience_id) {
-        mmAudience = { id: data.email.audience_id, filename: '…', sheet_name: '', columns: [], row_count: 0 };
-        await fetchAudienceSample(data.email.audience_id);
-    }
-    document.getElementById('mm-subject').value = data.email.subject;
-    document.getElementById('mm-body-content').innerHTML = data.email.body_html;
-    document.getElementById('mm-test-send-email').value = MM_DATA.currentUserEmail;
-    renderAttachments(data.attachments);
-    renderProgress(data.counts);
-    applyStatusUi(data.email.status);
-    mmModal ? mmModal.show() : mmModalEl.classList.add('show');
-}
-
-document.getElementById('mm-new-btn').addEventListener('click', () => {
-    resetModal();
-    mmModal ? mmModal.show() : mmModalEl.classList.add('show');
-});
-
-document.querySelectorAll('.mm-open-btn').forEach(btn => {
-    btn.addEventListener('click', () => openEmail(btn.dataset.id));
-});
-
-function showError(message) {
-    const box = document.getElementById('mm-error');
-    box.textContent = message;
-    box.classList.remove('d-none');
-}
-
-// A refused mail-merge import reports every offending line at once —
-// rendered as a titled list rather than one flattened sentence.
-function showErrorList(title, messages) {
-    const box = document.getElementById('mm-error');
-    box.innerHTML = '<div class="fw-semibold">' + escapeHtml(title) + '</div>'
-        + '<ul class="mb-0 mt-1">' + messages.map(m => '<li>' + escapeHtml(m) + '</li>').join('') + '</ul>'
-        + '<div class="small mt-1">Corrigez le fichier puis réimportez-le — aucune ligne n\'a été conservée.</div>';
-    box.classList.remove('d-none');
-}
-
-function currentListSelection() {
-    const option = document.getElementById('mm-list').selectedOptions[0];
-    if (!option) return { list_type: null, list_id: null, list_section_id: null };
-    return {
-        list_type: option.dataset.type,
-        list_id: option.dataset.listId ? parseInt(option.dataset.listId, 10) : null,
-        list_section_id: option.dataset.listSectionId ? parseInt(option.dataset.listSectionId, 10) : null,
-    };
-}
-
-document.getElementById('mm-save-btn').addEventListener('click', async () => {
-    const listSelection = currentListSelection();
-    const isMerge = listSelection.list_type === 'mail_merge';
-    const payload = {
-        subject: document.getElementById('mm-subject').value,
-        body_html: document.getElementById('mm-body-content').innerHTML,
-        section_id: parseInt(document.getElementById('mm-section').value, 10),
-        list_type: listSelection.list_type,
-        list_id: listSelection.list_id,
-        list_section_id: listSelection.list_section_id,
-        audience_id: isMerge && mmAudience ? mmAudience.id : null,
-        scout_year_ids: isMerge ? [] : mmSelectedYearIds,
-        _csrf_token: csrf()
-    };
-
-    if (isMerge && !mmAudience) {
-        showError('Importez d\'abord un fichier Excel pour le publipostage.');
-        return;
-    }
-    if (!isMerge && mmSelectedYearIds.length === 0) {
-        showError('Au moins une année scoute doit être sélectionnée.');
-        return;
-    }
-
-    const url = mmCurrentId ? '/mass-mail/' + mmCurrentId : '/mass-mail';
-    const method = mmCurrentId ? 'PATCH' : 'POST';
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    const data = await res.json();
-    if (!data.success) {
-        showError(data.error || 'Erreur.');
-        return;
-    }
-    window.location.reload();
-});
-
-// Refreshes the dialog in place (never a full page reload/close) — the
-// underlying list table catches up next time the page itself reloads.
-async function postStatusAction(action, confirmMessage) {
-    if (confirmMessage && !confirm(confirmMessage)) return;
-    const res = await fetch('/mass-mail/' + mmCurrentId + '/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (!data.success) {
-        showError(data.error || 'Erreur.');
-        return;
-    }
-    await openEmail(mmCurrentId);
-}
-
-document.getElementById('mm-to-test-btn').addEventListener('click', () => postStatusAction('to_test'));
-document.getElementById('mm-to-draft-btn').addEventListener('click', () => postStatusAction('to_draft'));
-document.getElementById('mm-start-sending-btn').addEventListener('click', () =>
-    postStatusAction('start_sending', 'Lancer l\'envoi ? La liste des destinataires sera figée et l\'envoi ne pourra plus être annulé.')
-);
-
-document.getElementById('mm-test-send-btn').addEventListener('click', async () => {
-    const res = await fetch('/mass-mail/' + mmCurrentId + '/test-send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: document.getElementById('mm-test-send-email').value, merge_offset: mmMergeOffset, _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (!data.success) {
-        showError(data.error || 'Erreur.');
-        return;
-    }
-    alert('Email de test envoyé.');
-});
-
-document.getElementById('mm-attachment-upload-btn').addEventListener('click', async () => {
-    const input = document.getElementById('mm-attachment-file');
-    if (!input.files.length || !mmCurrentId) return;
-
-    const formData = new FormData();
-    formData.append('file', input.files[0]);
-    formData.append('_csrf_token', csrf());
-
-    const res = await fetch('/mass-mail/' + mmCurrentId + '/attachments', { method: 'POST', body: formData });
-    const data = await res.json();
-    if (!data.success) {
-        showError(data.error || 'Erreur.');
-        return;
-    }
-    input.value = '';
-    openEmail(mmCurrentId);
-});
 </script>
 {% endblock %}

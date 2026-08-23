@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Parcours d'inscription complet : page publique avec places disponibles, formulaire de demande, accusés de réception par email, page de suivi pour les familles, gestion des demandes côté staff (acceptation, refus, rapprochement automatique à l'import Desk, rétention), préparation de l'année suivante (départs, passage entre sections, prévisions d'effectifs), veto sur la bascule d'année scoute tant que des demandes restent ouvertes, et liste de diffusion pour le module d'envoi de mails.",
-  "version": "6.1.0",
+  "version": "6.2.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -31,6 +31,21 @@
       "label": ""
     },
     {
+      "path": "/inscriptions/envoyee",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\PublicRegistrationController",
+      "action": "submitted",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": {
+        "label": "Demande envoyée",
+        "parents": [
+          "Notre unité"
+        ]
+      }
+    },
+    {
       "path": "/inscriptions/code",
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\PublicRegistrationController",
@@ -46,7 +61,8 @@
       "action": "showLinked",
       "menu": "espace_animes",
       "role_min": "identified",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Ma demande", "parents": ["Espace membres"] }
     },
     {
       "path": "/inscriptions/suivi/{id}/{token}",
@@ -55,7 +71,8 @@
       "action": "showByToken",
       "menu": "notre_unite",
       "role_min": "public",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Suivi de la demande", "parents": ["Notre unité"] }
     },
     {
       "path": "/inscriptions/suivi/demande/{id}/emails",
@@ -82,7 +99,8 @@
       "action": "confirmEmail",
       "menu": "notre_unite",
       "role_min": "public",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Confirmation d'adresse", "parents": ["Notre unité"] }
     },
     {
       "path": "/inscriptions/suivi/emails/confirm/{id}",
@@ -179,7 +197,8 @@
       "action": "show",
       "menu": "espace_admin",
       "role_min": "admin",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Demande", "parents": ["Espace chefs d'U"] }
     },
     {
       "path": "/config/inscriptions/demandes/{id}/accept",
@@ -283,7 +302,7 @@
       "breadcrumb": {
         "label": "Départs",
         "parents": [
-          "Espace chefs"
+          "Espace animateurs"
         ]
       }
     },
@@ -342,7 +361,7 @@
       "breadcrumb": {
         "label": "Prévisions",
         "parents": [
-          "Espace chefs"
+          "Espace animateurs"
         ]
       }
     }

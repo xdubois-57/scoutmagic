@@ -1,0 +1,68 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The one pagination control (design.md §7.6). Eight hand-rolled
+  implementations preceded it — three of them line-for-line copies of the
+  same prev/±2-window/ellipsis markup differing only in how they carried
+  the target page (href vs data attribute for an AJAX reload). This
+  partial renders both carriages from one skeleton.
+
+  Usage (link mode — the URL prefix already carries any filter query):
+  {% include 'partials/pagination.html.twig' with {
+      page: page,
+      total_pages: total_pages,
+      base_url: '/admin/journal?filter=x&page=',   -- page number appended
+      label: 'Pagination du journal',
+  } only %}
+
+  Usage (AJAX mode — the caller's own JS listens for clicks on the data
+  attribute and reloads its fragment; no href is rendered):
+  {% include 'partials/pagination.html.twig' with {
+      page: page,
+      total_pages: total_pages,
+      data_attr: 'data-transitions-page',
+      label: 'Pagination des transitions',
+  } only %}
+
+  Renders nothing at all for a single page — a pagination bar with one
+  disabled button is furniture, not information. `window` (default 2) is
+  how many numbers show on each side of the current page; first and last
+  are always shown, gaps collapse to an ellipsis.
+#}
+{% if total_pages|default(1) > 1 %}
+    {% set _window = window|default(2) %}
+    {% set _attr = data_attr|default('') %}
+    <nav aria-label="{{ label|default('Pagination') }}">
+        <ul class="pagination pagination-sm{{ centered|default(false) ? ' justify-content-center' : '' }}">
+            <li class="page-item {{ page <= 1 ? 'disabled' : '' }}">
+                {% if _attr %}
+                    <button type="button" class="page-link" {{ _attr }}="{{ page - 1 }}" aria-label="Précédent"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+                {% else %}
+                    <a class="page-link" href="{{ base_url }}{{ page - 1 }}" aria-label="Précédent"><i class="bi bi-chevron-left" aria-hidden="true"></i></a>
+                {% endif %}
+            </li>
+            {% for p in 1..total_pages %}
+                {% if p == 1 or p == total_pages or (p >= page - _window and p <= page + _window) %}
+                    <li class="page-item {{ p == page ? 'active' : '' }}">
+                        {% if _attr %}
+                            <button type="button" class="page-link" {{ _attr }}="{{ p }}" {{ p == page ? 'aria-current="page"' : '' }}>{{ p }}</button>
+                        {% else %}
+                            <a class="page-link" href="{{ base_url }}{{ p }}" {{ p == page ? 'aria-current="page"' : '' }}>{{ p }}</a>
+                        {% endif %}
+                    </li>
+                {% elseif p == page - _window - 1 or p == page + _window + 1 %}
+                    <li class="page-item disabled"><span class="page-link">…</span></li>
+                {% endif %}
+            {% endfor %}
+            <li class="page-item {{ page >= total_pages ? 'disabled' : '' }}">
+                {% if _attr %}
+                    <button type="button" class="page-link" {{ _attr }}="{{ page + 1 }}" aria-label="Suivant"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+                {% else %}
+                    <a class="page-link" href="{{ base_url }}{{ page + 1 }}" aria-label="Suivant"><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+                {% endif %}
+            </li>
+        </ul>
+    </nav>
+{% endif %}

@@ -3,7 +3,7 @@
 {% block title %}Comptes — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Finances</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Comptes' } only %}
 
     {% include '@finance/config/_nav.html.twig' %}
 
@@ -18,8 +18,9 @@
         (un par section) ne peuvent pas changer de nom, de type ou de section.
     </p>
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="h5 mb-0">Comptes</h2>
+    {# The creation action opens a dialog (JS), so it cannot ride the
+       page_header's link action — it keeps its own right-aligned row. #}
+    <div class="d-flex justify-content-end mb-3">
         <button type="button" class="btn btn-sm btn-primary" id="new-account-btn">Nouveau compte</button>
     </div>
 
@@ -47,9 +48,10 @@
                         <td>{{ account.sectionId and sections_by_id[account.sectionId] is defined ? (sections_by_id[account.sectionId].name ?? sections_by_id[account.sectionId].desk_code) : '—' }}</td>
                         <td>{{ account.iban ? account.iban|slice(0, 4) ~ ' •••• ' ~ account.iban|slice(-4) : '—' }}</td>
                         <td>
-                            <span class="badge {{ account.status == 'active' ? 'text-bg-success' : (account.status == 'archived' ? 'text-bg-secondary' : 'text-bg-warning') }}">
-                                {{ {'draft': 'Brouillon', 'active': 'Actif', 'archived': 'Inactif'}[account.status] ?? account.status }}
-                            </span>
+                            {% include 'partials/status_badge.html.twig' with {
+                                status: account.status == 'active' ? 'active' : (account.status == 'archived' ? 'inactive' : 'draft'),
+                                label: {'draft': 'Brouillon', 'active': 'Actif', 'archived': 'Inactif'}[account.status] ?? account.status,
+                            } only %}
                         </td>
                         <td>{{ role_min_options[account.roleMinView] ?? account.roleMinView }}</td>
                         <td class="text-end">
@@ -58,14 +60,14 @@
                                     data-section-id="{{ account.sectionId }}" data-role-min-view="{{ account.roleMinView }}"
                                     data-iban="{{ account.iban }}" data-holder="{{ account.holderName }}"
                                     data-is-default="{{ account.isDefault ? '1' : '0' }}"
-                                    title="Modifier"><i class="bi bi-pencil"></i></button>
+                                    title="Modifier" aria-label="Modifier"><i class="bi bi-pencil" aria-hidden="true"></i></button>
                             {% if account.status == 'draft' %}
                                 <span class="text-body-secondary small fst-italic">IBAN et titulaire requis pour activer</span>
                             {% else %}
                                 <button type="button" class="btn btn-sm {{ account.status == 'active' ? 'btn-outline-success' : 'btn-outline-secondary' }} toggle-account-btn"
                                         data-id="{{ account.id }}" data-active="{{ account.status == 'active' ? '1' : '0' }}"
-                                        title="{{ account.status == 'active' ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
-                                    <i class="bi {{ account.status == 'active' ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
+                                        title="{{ account.status == 'active' ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}" aria-label="{{ account.status == 'active' ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
+                                    <i class="bi {{ account.status == 'active' ? 'bi-toggle-on' : 'bi-toggle-off' }}" aria-hidden="true"></i>
                                 </button>
                             {% endif %}
                         </td>
@@ -75,15 +77,19 @@
         </table>
     </div>
 
-    <div class="modal fade" id="account-modal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="account-form-title">Nouveau compte</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
+    {# The form lives entirely in the body; the footer's submit button is
+       associated through form="account-form", so it no longer needs to
+       wrap body + footer (the modal embed owns that skeleton). The title
+       id is the embed's convention, {id}-title. #}
+    {% embed 'partials/modal.html.twig' with {
+        id: 'account-modal',
+        title: 'Nouveau compte',
+        account_types: account_types,
+        sections_by_id: sections_by_id,
+        role_min_options: role_min_options,
+    } only %}
+        {% block body %}
                 <form id="account-form">
-                    <div class="modal-body">
                         <input type="hidden" id="account-id" value="">
                         <div class="row g-2">
                             <div class="col-12">
@@ -124,129 +130,21 @@
                                 </select>
                             </div>
                         </div>
-                        <div class="text-danger small mt-2 d-none" id="account-form-error"></div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
-                        <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
-                    </div>
+                        <div class="text-danger small mt-2 d-none" id="account-form-error" role="alert"></div>
                 </form>
-            </div>
-        </div>
-    </div>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" class="btn btn-sm btn-primary" form="account-form">Enregistrer</button>
+        {% endblock %}
+    {% endembed %}
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-const accountModalEl = document.getElementById('account-modal');
-const accountModal = window.bootstrap ? new window.bootstrap.Modal(accountModalEl) : null;
-const errorBox = document.getElementById('account-form-error');
-
-function showModal(title) {
-    document.getElementById('account-form-title').textContent = title;
-    errorBox.classList.add('d-none');
-    accountModal ? accountModal.show() : accountModalEl.classList.add('show');
-}
-
-const accountTypeSelect = document.getElementById('account-type');
-const accountIbanInput = document.getElementById('account-iban');
-const accountHolderInput = document.getElementById('account-holder');
-const accountNameInput = document.getElementById('account-name');
-const accountSectionSelect = document.getElementById('account-section');
-
-function updateBankFieldsAvailability() {
-    const isCash = accountTypeSelect.value === 'cash';
-    accountIbanInput.disabled = isCash;
-    accountHolderInput.disabled = isCash;
-    if (isCash) {
-        accountIbanInput.value = '';
-        accountHolderInput.value = '';
-    }
-}
-
-function updateIdentityFieldsAvailability(isDefault) {
-    // A default (one-per-section) account's name/type/section are fixed
-    // — Service\FinanceService::updateAccount() ignores any change to
-    // them for such an account anyway; disabling here just keeps the
-    // form honest about what will actually happen.
-    accountNameInput.disabled = isDefault;
-    accountTypeSelect.disabled = isDefault;
-    accountSectionSelect.disabled = isDefault;
-}
-
-accountTypeSelect.addEventListener('change', updateBankFieldsAvailability);
-
-document.getElementById('new-account-btn').addEventListener('click', () => {
-    document.getElementById('account-form').reset();
-    document.getElementById('account-id').value = '';
-    updateBankFieldsAvailability();
-    updateIdentityFieldsAvailability(false);
-    showModal('Nouveau compte');
-});
-
-document.querySelectorAll('.edit-account-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.getElementById('account-id').value = btn.dataset.id;
-        document.getElementById('account-name').value = btn.dataset.name;
-        document.getElementById('account-type').value = btn.dataset.accountType;
-        document.getElementById('account-section').value = btn.dataset.sectionId || '';
-        document.getElementById('account-role-min-view').value = btn.dataset.roleMinView;
-        document.getElementById('account-iban').value = btn.dataset.iban || '';
-        document.getElementById('account-holder').value = btn.dataset.holder || '';
-        updateBankFieldsAvailability();
-        updateIdentityFieldsAvailability(btn.dataset.isDefault === '1');
-        showModal('Modifier le compte');
-    });
-});
-
-document.getElementById('account-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const id = document.getElementById('account-id').value;
-    const payload = {
-        action: id ? 'update' : 'create',
-        name: document.getElementById('account-name').value,
-        account_type: document.getElementById('account-type').value,
-        section_id: document.getElementById('account-section').value,
-        iban: document.getElementById('account-iban').value,
-        holder_name: document.getElementById('account-holder').value,
-        role_min_view: document.getElementById('account-role-min-view').value,
-        _csrf_token: csrf()
-    };
-    if (id) payload.id = parseInt(id, 10);
-
-    const res = await fetch('/config/finance/accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        errorBox.textContent = data.error;
-        errorBox.classList.remove('d-none');
-    }
-});
-
-async function postAccountAction(action, id) {
-    const res = await fetch('/config/finance/accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: action, id: id, _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        alert(data.error);
-    }
-}
-
-document.querySelectorAll('.toggle-account-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        postAccountAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', parseInt(btn.dataset.id, 10));
-    });
-});
-</script>
+{# The page's behaviour — the account dialog and the activate/deactivate
+   toggle — lives in public/assets/js/finance-accounts.js (extracted from an
+   inline block so tests/js/finance-accounts.test.js can exercise the
+   production code directly). Every value it needs rides the row buttons'
+   data-* attributes, so there is nothing to interpolate here. #}
+<script src="/assets/js/finance-accounts.js" defer></script>
 {% endblock %}

@@ -44,7 +44,10 @@
         </div>
 
         {% if documents is empty %}
-            <p class="text-body-secondary">Aucun document.</p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucun document.',
+                compact: true,
+            } only %}
         {% else %}
             <div class="table-responsive">
                 <table class="table table-sm align-middle">
@@ -63,17 +66,17 @@
                                 <td>
                                     {{ document.label }}
                                     {% if document.isForRenter %}
-                                        <span class="badge bg-light text-dark border ms-1"
+                                        <span class="badge text-bg-light border ms-1"
                                               title="Sera joint à un email — jamais téléchargeable par le locataire">
                                             Destiné au locataire
                                         </span>
                                     {% endif %}
                                     <span class="text-body-secondary small d-block">{{ document.originalName }}</span>
                                 </td>
-                                <td class="small">{{ document.createdAt|date('d/m/Y') }}</td>
+                                <td class="small">{{ document.createdAt|date_fr }}</td>
                                 <td class="small">
                                     {% if document.hasBeenSent %}
-                                        Envoyé le {{ document.sentAt|date('d/m/Y') }}
+                                        Envoyé le {{ document.sentAt|date_fr }}
                                     {% else %}
                                         <span class="text-body-secondary">Jamais</span>
                                     {% endif %}
@@ -133,13 +136,13 @@
                                                 </button>
                                             </form>
                                         {% endif %}
-                                        <form method="post" action="/mes-locations/document-supprimer" class="d-inline">
+                                        <form method="post" action="/mes-locations/document-supprimer" class="d-inline"
+                                              data-confirm="Supprimer « {{ document.label }} » ?">
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                             <input type="hidden" name="document_id" value="{{ document.id }}">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger"
-                                                    data-confirm="Supprimer « {{ document.label }} » ?">Supprimer</button>
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer</button>
                                         </form>
                                     </div>
                                 </td>

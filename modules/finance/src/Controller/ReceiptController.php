@@ -202,6 +202,9 @@ class ReceiptController extends AbstractController
 
         return $this->render('@finance/receipts/form.html.twig', [
             'accounts' => $accounts,
+            'breadcrumb_trail' => [
+                ['label' => 'Reçus', 'url' => '/finance/receipts'],
+            ],
             'selected_account' => $account,
             'replace_id' => $replaceId !== null ? (int) $replaceId : null,
         ]);
@@ -220,7 +223,7 @@ class ReceiptController extends AbstractController
     public function upload(Request $request, array $params): Response
     {
         if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->render('@finance/receipts/form.html.twig', ['error' => 'Jeton CSRF invalide.']);
+            return $this->render('@finance/receipts/form.html.twig', ['error' => self::SESSION_EXPIRED_MESSAGE]);
         }
 
         $role = Role::fromString(AuthSession::getRole());
@@ -410,7 +413,7 @@ class ReceiptController extends AbstractController
         $id = (int) ($params['id'] ?? 0);
 
         if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->render('@finance/receipts/form.html.twig', ['error' => 'Jeton CSRF invalide.', 'replace_id' => $id]);
+            return $this->render('@finance/receipts/form.html.twig', ['error' => self::SESSION_EXPIRED_MESSAGE, 'replace_id' => $id]);
         }
 
         $attachment = $this->requireVisibleAttachment($id);
@@ -548,8 +551,8 @@ class ReceiptController extends AbstractController
         }
 
         $csrf = (string) ($data['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         return $data;

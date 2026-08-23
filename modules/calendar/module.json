@@ -61,7 +61,7 @@
       "role_min": "chief",
       "label": "Calendrier",
       "menu_icon": "bi-calendar-week",
-      "breadcrumb": { "label": "Calendrier", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Calendrier", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/chefs/calendar/event-create",

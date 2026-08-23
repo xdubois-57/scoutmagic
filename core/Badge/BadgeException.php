@@ -8,6 +8,13 @@ declare(strict_types=1);
 
 namespace Core\Badge;
 
-class BadgeException extends \RuntimeException
+/**
+ * A refused badge operation, stated in French for the chef who attempted
+ * it (« Ce badge est déjà attribué à un membre — désactivez-le au lieu de
+ * le supprimer. »).
+ *
+ * Marked {@see \Core\Exception\UserFacingException}.
+ */
+class BadgeException extends \RuntimeException implements \Core\Exception\UserFacingException
 {
 }

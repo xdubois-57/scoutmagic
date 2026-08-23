@@ -10,41 +10,32 @@
 // same pattern the single-location config page used to own before
 // multi-location support).
 (function () {
-    function csrf() {
-        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
-        return meta ? meta.content : '';
+    // Attribute-safe (quotes included) — several call sites below
+    // interpolate into a title="..." attribute. The shared helper covers
+    // exactly that (see api.js).
+    var escapeHtml = window.ScoutMagicApi.escapeHtml;
+
+    // The local postJson() copy this file carried resolved to the parsed
+    // body, substituting {success:false, error:'Réponse inattendue du
+    // serveur.'} when the body wasn't JSON, and REJECTED on a network
+    // failure — each call site keeps its own handling for that case.
+    // Requests now go through the shared window.ScoutMagicApi.postJson
+    // envelope ({ok, status, data}), which never rejects; these two helpers
+    // map it back to those exact semantics.
+    /**
+     * @param {{ok: boolean, status: number, data: any}} res
+     * @returns {boolean}
+     */
+    function isNetworkFailure(res) {
+        return res.status === 0 && res.data === null;
     }
 
-    // textContent -> innerHTML escapes &, < and > but NOT quotes, and several
-    // call sites below interpolate into a title="..." attribute — a provider
-    // error message containing a double quote could break out of it. Quotes
-    // are escaped explicitly so the helper is safe in both text and attribute
-    // position.
     /**
-     * @param {string} str
-     * @returns {string}
+     * @param {{ok: boolean, status: number, data: any}} res
+     * @returns {Object}
      */
-    function escapeHtml(str) {
-        var div = document.createElement('div');
-        div.textContent = str === null || str === undefined ? '' : String(str);
-        return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    }
-
-    /**
-     * @param {string} url
-     * @param {Object} body
-     * @returns {Promise<Object>}
-     */
-    function postJson(url, body) {
-        return fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(Object.assign({}, body, { _csrf_token: csrf() }))
-        }).then(function (res) {
-            return res.json().catch(function () {
-                return { success: false, error: 'Réponse inattendue du serveur.' };
-            });
-        });
+    function envelopeData(res) {
+        return res.data === null ? { success: false, error: 'Réponse inattendue du serveur.' } : res.data;
     }
 
     // ------------------------------------------------------------------
@@ -55,8 +46,10 @@
         button.addEventListener('click', function () {
             var cell = document.querySelector('.gallery-location-status[data-location-id="' + button.dataset.id + '"]');
             button.disabled = true;
-            postJson('/config/gallery/locations/' + button.dataset.id + '/test', {}).then(function (data) {
+            window.ScoutMagicApi.postJson('/config/gallery/locations/' + button.dataset.id + '/test', {}).then(function (res) {
                 button.disabled = false;
+                if (isNetworkFailure(res)) return;
+                var data = envelopeData(res);
                 if (!cell) return;
                 if (data.success && data.ok) {
                     cell.innerHTML = '<span class="badge text-bg-success">Disponible</span>';
@@ -65,8 +58,6 @@
                 } else {
                     cell.innerHTML = '<span class="badge text-bg-danger">' + escapeHtml(data.error || 'Erreur') + '</span>';
                 }
-            }).catch(function () {
-                button.disabled = false;
             });
         });
     });
@@ -75,15 +66,18 @@
         var button = /** @type {HTMLButtonElement} */ (btn);
         button.addEventListener('click', function () {
             button.disabled = true;
-            postJson('/config/gallery/locations/' + button.dataset.id + '/default', {}).then(function (data) {
+            window.ScoutMagicApi.postJson('/config/gallery/locations/' + button.dataset.id + '/default', {}).then(function (res) {
+                if (isNetworkFailure(res)) {
+                    button.disabled = false;
+                    return;
+                }
+                var data = envelopeData(res);
                 if (data.success) {
                     window.location.reload();
                 } else {
                     button.disabled = false;
-                    alert(data.error || 'Impossible de définir cet emplacement par défaut.');
+                    window.ScoutMagicToast.show(data.error || 'Impossible de définir cet emplacement par défaut.', { variant: 'error' });
                 }
-            }).catch(function () {
-                button.disabled = false;
             });
         });
     });
@@ -93,39 +87,56 @@
     // ------------------------------------------------------------------
     document.querySelectorAll('.gallery-migrate-start').forEach(function (btn) {
         var button = /** @type {HTMLButtonElement} */ (btn);
-        button.addEventListener('click', function () {
+        button.addEventListener('click', async function () {
             var select = /** @type {HTMLSelectElement} */ (document.querySelector('.gallery-migrate-target[data-album-id="' + button.dataset.albumId + '"]'));
             if (!select) return;
-            if (!confirm('Démarrer la migration de cet album vers cet autre emplacement ? L\'album sera indisponible pour les membres pendant l\'opération.')) return;
+            // Not destructive: the album is copied to the other location,
+            // only unavailable while it moves — 'primary', not 'danger'.
+            var confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Démarrer la migration de cet album vers cet autre emplacement ? L\'album sera indisponible pour les membres pendant l\'opération.',
+                confirmLabel: 'Migrer',
+                variant: 'primary'
+            });
+            if (!confirmed) return;
             button.disabled = true;
-            postJson(button.dataset.url, { target_location_id: parseInt(select.value, 10) }).then(function (data) {
+            window.ScoutMagicApi.postJson(button.dataset.url, { target_location_id: parseInt(select.value, 10) }).then(function (res) {
+                if (isNetworkFailure(res)) {
+                    button.disabled = false;
+                    return;
+                }
+                var data = envelopeData(res);
                 if (data.success) {
                     window.location.reload();
                 } else {
                     button.disabled = false;
-                    alert(data.error || 'Erreur lors du démarrage de la migration.');
+                    window.ScoutMagicToast.show(data.error || 'Erreur lors du démarrage de la migration.', { variant: 'error' });
                 }
-            }).catch(function () {
-                button.disabled = false;
             });
         });
     });
 
     document.querySelectorAll('.gallery-location-delete').forEach(function (btn) {
         var button = /** @type {HTMLButtonElement} */ (btn);
-        button.addEventListener('click', function () {
+        button.addEventListener('click', async function () {
             if (button.disabled) return;
-            if (!confirm('Supprimer cet emplacement de stockage ?')) return;
+            var confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Supprimer cet emplacement de stockage ?',
+                confirmLabel: 'Supprimer'
+            });
+            if (!confirmed) return;
             button.disabled = true;
-            postJson('/config/gallery/locations/' + button.dataset.id + '/delete', {}).then(function (data) {
+            window.ScoutMagicApi.postJson('/config/gallery/locations/' + button.dataset.id + '/delete', {}).then(function (res) {
+                if (isNetworkFailure(res)) {
+                    button.disabled = false;
+                    return;
+                }
+                var data = envelopeData(res);
                 if (data.success) {
                     window.location.reload();
                 } else {
                     button.disabled = false;
-                    alert(data.error || 'Suppression impossible.');
+                    window.ScoutMagicToast.show(data.error || 'Suppression impossible.', { variant: 'error' });
                 }
-            }).catch(function () {
-                button.disabled = false;
             });
         });
     });
@@ -165,7 +176,6 @@
     var explainWrap = document.getElementById('s3-explain-wrap');
     var explainBtn = /** @type {HTMLButtonElement} */ (document.getElementById('s3-explain-ai'));
     var explainResult = document.getElementById('s3-explain-result');
-    var lastError = '';
 
     if (testBtn) {
         testBtn.addEventListener('click', function () {
@@ -179,25 +189,26 @@
             // deliberately left blank ("laisser vide pour conserver la clé
             // actuelle"), so testing an existing location otherwise sent an
             // empty secret and could only ever fail on authentication.
-            postJson('/config/gallery/test-connection', {
+            window.ScoutMagicApi.postJson('/config/gallery/test-connection', {
                 location_id: parseInt(testBtn.dataset.locationId || '0', 10) || 0,
                 endpoint: /** @type {HTMLInputElement} */ (document.getElementById('s3-endpoint')).value,
                 region: /** @type {HTMLInputElement} */ (document.getElementById('s3-region')).value,
                 bucket: /** @type {HTMLInputElement} */ (document.getElementById('s3-bucket')).value,
                 access_key: /** @type {HTMLInputElement} */ (document.getElementById('s3-access-key')).value,
                 secret_key: /** @type {HTMLInputElement} */ (document.getElementById('s3-secret-key')).value
-            }).then(function (data) {
+            }).then(function (res) {
                 testBtn.disabled = false;
+                if (isNetworkFailure(res)) {
+                    testResult.innerHTML = '<div class="alert alert-danger mb-0 py-2">Erreur réseau.</div>';
+                    return;
+                }
+                var data = envelopeData(res);
                 if (data.success) {
                     testResult.innerHTML = '<div class="alert alert-success mb-0 py-2">Connexion réussie.</div>';
                 } else {
                     testResult.innerHTML = '<div class="alert alert-danger mb-0 py-2">' + escapeHtml(data.error || 'Échec de la connexion.') + '</div>';
-                    lastError = data.error || 'Échec de la connexion.';
                     if (explainWrap) explainWrap.classList.remove('d-none');
                 }
-            }).catch(function () {
-                testBtn.disabled = false;
-                testResult.innerHTML = '<div class="alert alert-danger mb-0 py-2">Erreur réseau.</div>';
             });
         });
     }
@@ -209,24 +220,31 @@
 
             var secretKey = /** @type {HTMLInputElement} */ (document.getElementById('s3-secret-key')).value;
 
-            postJson('/config/gallery/explain-s3-error', {
+            window.ScoutMagicApi.postJson('/config/gallery/explain-s3-error', {
                 provider: /** @type {HTMLSelectElement} */ (document.getElementById('s3-provider')).value,
                 endpoint: /** @type {HTMLInputElement} */ (document.getElementById('s3-endpoint')).value,
                 region: /** @type {HTMLInputElement} */ (document.getElementById('s3-region')).value,
                 bucket: /** @type {HTMLInputElement} */ (document.getElementById('s3-bucket')).value,
                 access_key: /** @type {HTMLInputElement} */ (document.getElementById('s3-access-key')).value,
-                secret_key_length: secretKey.length,
-                error: lastError
-            }).then(function (data) {
+                secret_key_length: secretKey.length
+                // The error itself is deliberately NOT sent. The browser
+                // only ever had the French summary, which says « vérifiez
+                // vos identifiants » for half a dozen distinct mistakes;
+                // the provider's own words are what diagnose it, and they
+                // stay server-side (Service\S3TestFailure) rather than
+                // being handed to the page and handed back.
+            }).then(function (res) {
                 explainBtn.disabled = false;
+                if (isNetworkFailure(res)) {
+                    explainResult.innerHTML = '<div class="alert alert-danger mb-0 py-2">Erreur réseau.</div>';
+                    return;
+                }
+                var data = envelopeData(res);
                 if (data.success) {
                     explainResult.innerHTML = '<div class="alert alert-light border mb-0 py-2">' + escapeHtml(data.explanation).replace(/\n/g, '<br>') + '</div>';
                 } else {
                     explainResult.innerHTML = '<div class="alert alert-danger mb-0 py-2">' + escapeHtml(data.error || 'Échec de l\'analyse.') + '</div>';
                 }
-            }).catch(function () {
-                explainBtn.disabled = false;
-                explainResult.innerHTML = '<div class="alert alert-danger mb-0 py-2">Erreur réseau.</div>';
             });
         });
     }

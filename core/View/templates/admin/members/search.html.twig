@@ -1,8 +1,10 @@
 {% extends 'base.html.twig' %}
 {% block title %}Membres — {{ param('site_name') }}{% endblock %}
 {% block content %}
-    <h1>Membres</h1>
-    <p class="text-body-secondary small">Recherche parmi les membres de l'année {{ year_label }}.</p>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Membres',
+        subtitle: "Recherche parmi les membres de l'année " ~ year_label ~ '.',
+    } only %}
 
     <form method="get" action="/admin/members" class="mb-4">
         <div class="input-group">
@@ -17,9 +19,10 @@
             Entrez un nom, prénom, email ou téléphone pour rechercher un membre.
         </p>
     {% elseif results is empty %}
-        <p class="text-body-secondary fst-italic">
-            Aucun membre trouvé pour « {{ query }} ».
-        </p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun membre trouvé pour « ' ~ query ~ ' ».',
+            compact: true,
+        } only %}
     {% else %}
         {# The whole result list lives inside the export form: the rows'
            selected[] checkboxes feed « Exporter la sélection » without any
@@ -30,21 +33,21 @@
         <form method="get" action="/admin/members/export" id="member-export-form">
             <input type="hidden" name="q" value="{{ query }}">
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                <label class="d-flex align-items-center gap-2 m-0 small text-body-secondary" style="min-height:44px;cursor:pointer;">
+                <label class="d-flex align-items-center gap-2 m-0 small text-body-secondary tap-target" style="cursor:pointer;">
                     <input class="form-check-input m-0" type="checkbox" id="member-export-select-all" style="width:1.25rem;height:1.25rem;">
                     Tout sélectionner
                 </label>
                 <span class="small text-body-secondary ms-1">{{ results|length }} résultat{{ results|length > 1 ? 's' : '' }}</span>
                 <div class="d-flex flex-wrap gap-2 ms-auto">
                     <a href="/admin/members/export?q={{ query|url_encode }}" class="btn btn-sm btn-outline-primary">
-                        <i class="bi bi-file-earmark-spreadsheet"></i> Exporter les résultats
+                        <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Exporter les résultats
                     </a>
                     {# Not disabled in the markup: without JS the form still
                        submits (an empty selection falls back server-side to
                        "all results of ?q="); the script only adds the
                        disabled state and the live count. #}
                     <button type="submit" class="btn btn-sm btn-outline-primary" id="member-export-selection-btn">
-                        <i class="bi bi-file-earmark-spreadsheet"></i> Exporter la sélection<span id="member-export-selection-count"></span>
+                        <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Exporter la sélection<span id="member-export-selection-count"></span>
                     </button>
                 </div>
             </div>
@@ -66,111 +69,11 @@
 {% endblock %}
 
 {% block scripts %}
-{% if results is not empty %}
-<script nonce="{{ csp_nonce }}">
-// Export-selection conveniences — the form itself works without any of
-// this (plain selected[] checkboxes in a GET form); this only keeps the
-// submit button honest (disabled with nothing checked, live count) and
-// wires the "Tout sélectionner" master checkbox.
-(() => {
-    const checkboxes = Array.from(document.querySelectorAll('.member-export-checkbox'));
-    const selectAll = document.getElementById('member-export-select-all');
-    const submitBtn = document.getElementById('member-export-selection-btn');
-    const countSpan = document.getElementById('member-export-selection-count');
-    if (!selectAll || !submitBtn) return;
-
-    function refresh() {
-        const checked = checkboxes.filter(cb => cb.checked).length;
-        submitBtn.disabled = checked === 0;
-        countSpan.textContent = checked > 0 ? ' (' + checked + ')' : '';
-        selectAll.checked = checked === checkboxes.length && checked > 0;
-        selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
-    }
-
-    selectAll.addEventListener('change', () => {
-        checkboxes.forEach(cb => { cb.checked = selectAll.checked; });
-        refresh();
-    });
-    checkboxes.forEach(cb => cb.addEventListener('change', refresh));
-    refresh();
-})();
-</script>
-{% endif %}
-{% if detail %}
-<script nonce="{{ csp_nonce }}">
-document.getElementById('member-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-(() => {
-    const card = document.getElementById('scout-year-offset-card');
-    if (!card) return;
-
-    const memberYearId = card.dataset.memberYearId;
-    const buttons = card.querySelectorAll('.offset-btn');
-    const dot = document.getElementById('scout-year-offset-dot');
-    const label = document.getElementById('scout-year-offset-label');
-    const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-
-    buttons.forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const offset = parseInt(btn.dataset.offset, 10);
-
-            buttons.forEach(b => b.disabled = true);
-            try {
-                const res = await fetch(`/members/${memberYearId}/scout-year-offset`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ offset, _csrf_token: csrf })
-                });
-                const data = await res.json();
-
-                if (data.success) {
-                    buttons.forEach(b => b.classList.toggle('active', parseInt(b.dataset.offset, 10) === offset));
-                    label.textContent = data.branch_year_label || '—';
-                    if (data.branch_color) {
-                        dot.style.backgroundColor = data.branch_color;
-                    }
-                } else {
-                    alert(data.error);
-                }
-            } finally {
-                buttons.forEach(b => b.disabled = false);
-            }
-        });
-    });
-})();
-
-(() => {
-    const card = document.getElementById('departure-card');
-    if (!card) return;
-
-    const memberYearId = card.dataset.memberYearId;
-    const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-    const checkbox = document.getElementById('departure-checkbox');
-    const commentRow = document.getElementById('departure-comment-row');
-    const comment = document.getElementById('departure-comment');
-
-    function save(payload) {
-        fetch(`/members/${memberYearId}/departure`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(Object.assign({ _csrf_token: csrf }, payload))
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (!data.success) alert(data.error || 'Erreur lors de l\'enregistrement.');
-        })
-        .catch(() => alert('Erreur réseau.'));
-    }
-
-    checkbox.addEventListener('change', () => {
-        commentRow.style.display = checkbox.checked ? '' : 'none';
-        save({ leaving: checkbox.checked });
-    });
-
-    comment.addEventListener('blur', () => {
-        save({ comment: comment.value });
-    });
-})();
-</script>
+{# Export-selection conveniences on the result list, and the detail card's
+   scroll-into-view, scout-year offset buttons and departure controls —
+   public/assets/js/member-search.js, which guards each of those four
+   sections on its own anchor in the DOM. #}
+{% if results is not empty or detail %}
+<script src="/assets/js/member-search.js" defer></script>
 {% endif %}
 {% endblock %}

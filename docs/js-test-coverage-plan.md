@@ -1,6 +1,8 @@
 # JavaScript unit test coverage — gap analysis and implementation plan
 
-**Status:** steps 0, 1, 2 and P1.1 implemented — see §0 below. Remainder still plan.
+**Status:** steps 0, 1, 2 and P1.1 implemented, and most of the remainder overtaken by the
+UX convergence work — see §0 and §0.2 below. Only P1.3/P1.4 (`retro-board.js`) are still
+open as written.
 **Revision:** §3 and §7 rewritten after a challenge to the original "don't test DOM wiring"
 position. That position was wrong; §7 now carries the measurement that settles it.
 **Scope:** first-party browser JavaScript (`public/assets/js/*.js` + `public/sw.js`).
@@ -27,6 +29,30 @@ Statement coverage understates the change here. Branch coverage went 46 % → 73
 the work targeted decision-dense code; and the denominator grew when `sw.js` entered the
 measurement, so the 1.83 % → 15.17 % move is against a *larger* codebase than the baseline
 number described.
+
+### 0.2 Superseded by the UX convergence work (branch `claude/refactor-ux-analysis-dc4itj`)
+
+The numbers above are the state this plan was written against; they are kept as the
+baseline they describe, not as current fact. The convergence chantier moved most of
+`public/assets/js/` for its own reasons (extracting inline template scripts so they
+could be tested at all, and putting every script on the shared `api.js`/`toast.js`/
+`confirm.js` toolboxes), and wrote a spec for each file it touched.
+
+**Measured after that work:** ~60 spec files, **1 100+ tests**, JS **78 %** statements /
+**86 %** branch / **84 %** functions.
+
+That closes P1.5 (the CSRF/endpoint contract sweep) as a side effect: every migrated
+script now goes through `ScoutMagicApi.postJson`, which is the contract, and each spec
+asserts the token and the URL. **P1.3/P1.4 (`retro-board.js`) remain open** — it is at
+42 % and was never in the chantier's path. The other files still under 50 % are
+`news-form-builder.js` (26 %, its sanitizer is covered but its builder is not) and
+`offline-prefetch.js` (0 %, structurally tested from PHP instead by
+`tests/Core/View/OfflinePrefetchScriptTest.php`).
+
+The remaining coverage lever is no longer this plan: it is the **814 lines of JavaScript
+still living inside 26 Twig templates**, which no coverage tool can even see. Each one
+becomes testable the moment it is extracted, and
+`tests/Core/View/UxConventionsTest::NATIVE_DIALOG_ALLOWLIST` tracks the worst of them.
 
 ### 0.1 Practice worth carrying into the remaining steps: mutation-check security tests
 

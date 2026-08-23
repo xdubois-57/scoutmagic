@@ -3,8 +3,8 @@
 {% block title %}Confirmation d'adresse email — {{ site_name }}{% endblock %}
 
 {% block content %}
-<div class="container py-4" style="max-width: 480px;">
-    <h1 class="h4 mb-4 text-center">Confirmation d'adresse email</h1>
+<div class="page-narrow">
+    {% include 'partials/page_header.html.twig' with { title: "Confirmation d'adresse email" } only %}
 
     <div class="card">
         <div class="card-body text-center py-4">
@@ -18,11 +18,11 @@
                     <button type="submit" class="btn btn-primary">Confirmer mon adresse email</button>
                 </form>
             {% elseif state == 'done' %}
-                <p class="text-success mb-3"><i class="bi bi-check-circle"></i> Votre adresse email a bien été confirmée.</p>
-                <a href="/inscriptions" class="btn btn-outline-secondary">Retour à la page d'inscriptions</a>
+                <p class="text-success mb-3"><i class="bi bi-check-circle" aria-hidden="true"></i> Votre adresse email a bien été confirmée.</p>
+                <a href="/inscriptions" class="btn btn-outline-secondary">Voir la page d'inscriptions</a>
             {% else %}
                 <p class="text-danger mb-3">Ce lien de confirmation n'est plus valide (expiré, déjà utilisé, ou incorrect).</p>
-                <a href="/inscriptions" class="btn btn-outline-secondary">Retour à la page d'inscriptions</a>
+                <a href="/inscriptions" class="btn btn-outline-secondary">Voir la page d'inscriptions</a>
             {% endif %}
         </div>
     </div>

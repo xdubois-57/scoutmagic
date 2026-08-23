@@ -383,6 +383,53 @@ class MassMailService
     }
 
     /**
+     * How many people this email would reach if it were sent right now.
+     *
+     * Asked just before the confirmation dialog, because « Lancer
+     * l'envoi ? » on its own is a question about an unknown quantity. The
+     * difference between forty-two and four hundred is the difference
+     * between a section and the whole unit, and a wrong list selection
+     * looks exactly like a right one until the mail is out — at which
+     * point nothing can be recalled.
+     *
+     * Counts people, not addresses. A member with three valid addresses
+     * receives one email at each, so the frozen row count is larger; but
+     * the question a manager is answering is "who is this going to?", and
+     * inflating the number with the mechanics of secondary addresses would
+     * make it harder to recognise a wrong list, not easier.
+     *
+     * Deliberately re-resolved rather than cached with the email: the list
+     * behind it is live, and a count from when the dialog's page was
+     * opened is a count from before somebody else edited that list.
+     *
+     * @return array{count: int, kind: string} kind: 'members' | 'rows'
+     * @throws MassMailException when the email doesn't exist
+     */
+    public function estimateRecipientCount(int $id): array
+    {
+        $email = $this->requireEmail($id);
+
+        if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
+            return [
+                'count' => $email->audienceId !== null
+                    ? count($this->audienceRepository->findRowsByAudience($email->audienceId))
+                    : 0,
+                'kind' => 'rows',
+            ];
+        }
+
+        return [
+            'count' => count($this->mailingListService->resolveMembersForYears(
+                $email->listType,
+                $email->listId,
+                $email->listSectionId,
+                $this->orderYearsMostRecentFirst($email->scoutYearIds)
+            )),
+            'kind' => 'members',
+        ];
+    }
+
+    /**
      * test → sending. Freezes the recipient list right now (module spec:
      * "le système fige la liste des destinataires") — every member the
      * list resolves to at this exact instant is expanded into ALL of

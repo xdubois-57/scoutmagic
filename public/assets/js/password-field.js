@@ -84,7 +84,7 @@ export function wirePasswordField(block) {
         return;
     }
 
-    const confirmId = block.dataset.confirm || '';
+    const confirmId = block.dataset.confirmField || '';
     const confirmInput = confirmId
         ? /** @type {HTMLInputElement|null} */ (document.getElementById(confirmId))
         : null;

@@ -60,9 +60,8 @@ class CookieController extends AbstractController
      */
     public function save(Request $request, array $params): Response
     {
-        $csrf = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return (new Response('', 403))->setBody('Forbidden: invalid CSRF token.');
+        if (($guard = $this->guardCsrf($request, '/cookies')) !== null) {
+            return $guard;
         }
 
         $choices = [
@@ -86,8 +85,8 @@ class CookieController extends AbstractController
      */
     public function acceptAll(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return $this->json(['success' => false, 'error' => 'Session expirée.'], 403);
+        if (($guard = $this->guardCsrfJson($request)) !== null) {
+            return $guard;
         }
 
         $this->cookieConsentService->acceptAll();
@@ -102,8 +101,8 @@ class CookieController extends AbstractController
      */
     public function rejectAll(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return $this->json(['success' => false, 'error' => 'Session expirée.'], 403);
+        if (($guard = $this->guardCsrfJson($request)) !== null) {
+            return $guard;
         }
 
         $this->cookieConsentService->rejectAll();

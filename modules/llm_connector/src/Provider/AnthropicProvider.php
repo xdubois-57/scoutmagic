@@ -66,7 +66,7 @@ class AnthropicProvider implements LlmProviderInterface
             $response = $this->http->getJson($url, $this->headers(), self::DEFAULT_TIMEOUT);
 
             if (!isset($response['data']) || !is_array($response['data'])) {
-                throw LlmException::apiError('Invalid response from models endpoint.');
+                throw LlmException::apiError('Invalid response from the Anthropic models endpoint.');
             }
 
             foreach ($response['data'] as $model) {

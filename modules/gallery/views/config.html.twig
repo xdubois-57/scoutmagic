@@ -3,7 +3,7 @@
 {% block title %}Galerie photos et vidéos — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="h3 mb-4">Galerie photos et vidéos</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Galerie photos et vidéos' } only %}
 
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>
@@ -51,7 +51,7 @@
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h2 class="h6 mb-0">Emplacements de stockage</h2>
                     <a href="/config/gallery/locations/new" class="btn btn-sm btn-outline-primary">
-                        <i class="bi bi-plus-lg"></i> Ajouter un emplacement
+                        <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter un emplacement
                     </a>
                 </div>
                 <p class="small text-body-secondary">
@@ -59,7 +59,10 @@
                     reste rattaché à l'emplacement où il a été créé, même si l'emplacement « actif » par défaut change ensuite.
                 </p>
                 {% if locations is empty %}
-                    <p class="text-body-secondary mb-0">Aucun emplacement configuré.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun emplacement configuré.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <div class="table-responsive">
                         <table class="table table-sm align-middle">
@@ -89,28 +92,28 @@
                                         </td>
                                         <td>
                                             {% if location.isDefault %}
-                                                <span class="badge text-bg-primary"><i class="bi bi-star-fill"></i> Défaut</span>
+                                                <span class="badge text-bg-primary"><i class="bi bi-star-fill" aria-hidden="true"></i> Défaut</span>
                                             {% else %}
                                                 <button type="button" class="btn btn-sm btn-outline-secondary gallery-location-set-default" data-id="{{ location.id }}" title="Définir par défaut">
-                                                    <i class="bi bi-star"></i> Définir par défaut
+                                                    <i class="bi bi-star" aria-hidden="true"></i> Définir par défaut
                                                 </button>
                                             {% endif %}
                                         </td>
                                         <td>{{ location_album_counts[location.id] ?? 0 }}</td>
                                         <td class="text-end">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary gallery-location-test" data-id="{{ location.id }}" title="Tester la connexion">
-                                                <i class="bi bi-plug"></i>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary gallery-location-test" data-id="{{ location.id }}" title="Tester la connexion" aria-label="Tester la connexion">
+                                                <i class="bi bi-plug" aria-hidden="true"></i>
                                             </button>
-                                            <a href="/config/gallery/locations/{{ location.id }}/edit" class="btn btn-sm btn-outline-secondary" title="Modifier">
-                                                <i class="bi bi-pencil"></i>
+                                            <a href="/config/gallery/locations/{{ location.id }}/edit" class="btn btn-sm btn-outline-secondary" title="Modifier" aria-label="Modifier">
+                                                <i class="bi bi-pencil" aria-hidden="true"></i>
                                             </a>
                                             {% set location_in_use = (location_album_counts[location.id] ?? 0) > 0 %}
                                             {# Real attributes, not an emitted attribute string: autoescaping
                                                would turn the quotes into &quot; and mangle the markup. #}
                                             <button type="button" class="btn btn-sm btn-outline-danger gallery-location-delete" data-id="{{ location.id }}"
                                                     {% if location_in_use %}disabled{% endif %}
-                                                    title="{{ location_in_use ? 'Encore utilisé par au moins un album — non supprimable.' : 'Supprimer' }}">
-                                                <i class="bi bi-trash"></i>
+                                                    title="{{ location_in_use ? 'Encore utilisé par au moins un album — non supprimable.' : 'Supprimer' }}" aria-label="{{ location_in_use ? 'Encore utilisé par au moins un album — non supprimable.' : 'Supprimer' }}">
+                                                <i class="bi bi-trash" aria-hidden="true"></i>
                                             </button>
                                         </td>
                                     </tr>
@@ -146,7 +149,10 @@
                 {% endfor %}
 
                 {% if migratable is empty %}
-                    <p class="text-body-secondary mb-0">Aucun album local.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun album local.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <div class="table-responsive">
                         <table class="table table-sm align-middle">
@@ -176,9 +182,9 @@
                                         <td>
                                             {{ entry.label }}
                                             {% if entry.owner %}
-                                                <span class="badge rounded-pill bg-light text-dark border ms-1"
+                                                <span class="badge rounded-pill text-bg-light border ms-1"
                                                       title="Album géré par un autre module : son contenu et ses accès ne se configurent pas ici.">
-                                                    <i class="bi bi-box-arrow-in-right"></i> Album délégué
+                                                    <i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> Album délégué
                                                 </span>
                                             {% endif %}
                                         </td>
@@ -207,7 +213,7 @@
                                                     </select>
                                                     <button type="button" class="btn btn-sm btn-outline-primary gallery-migrate-start"
                                                             data-album-id="{{ album.id }}" data-url="/config/gallery/albums/{{ album.id }}/migrate">
-                                                        <i class="bi bi-arrow-left-right"></i> {{ album.migrationStatus == 'failed' ? 'Réessayer' : 'Migrer' }}
+                                                        <i class="bi bi-arrow-left-right" aria-hidden="true"></i> {{ album.migrationStatus == 'failed' ? 'Réessayer' : 'Migrer' }}
                                                     </button>
                                                 </div>
                                             {% endif %}

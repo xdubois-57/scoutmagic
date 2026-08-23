@@ -106,6 +106,58 @@ class SettingServiceTest extends TestCase
         $this->service->set('readonly_key', 'changed');
     }
 
+    /**
+     * SettingException is marked Core\Exception\UserFacingException, and
+     * Core\Http\Controller\SettingsController::update() renders its
+     * message straight into the settings dialog. It used to say
+     * "Setting 'x' is not editable." there — English, to a French-speaking
+     * chef d'unité, in violation of AGENTS.md § Language.
+     */
+    public function testEverySettingRefusalIsAFrenchSentenceNamingTheSetting(): void
+    {
+        $this->service->register('readonly_key', 'val', 'text', 'L', 'D', null, null, null, false);
+        $this->service->register('email_key', '', 'email', 'L', 'D');
+        $this->service->clearCache();
+
+        $messages = [];
+        foreach ([
+            ['unknown_key', 'whatever'],
+            ['readonly_key', 'changed'],
+            ['email_key', 'not-an-email'],
+        ] as [$key, $value]) {
+            try {
+                $this->service->set($key, $value);
+                $this->fail("set('{$key}') was expected to be refused");
+            } catch (SettingException $e) {
+                $messages[$key] = $e->getMessage();
+            }
+        }
+
+        foreach ($messages as $key => $message) {
+            $this->assertStringNotContainsString('Setting', $message);
+            $this->assertStringNotContainsString('not editable', $message);
+            $this->assertStringNotContainsString('Invalid value', $message);
+            // The key stays visible: it is the label the chef just clicked.
+            $this->assertStringContainsString($key, $message);
+            $this->assertStringEndsWith('.', $message);
+        }
+
+        $this->assertStringContainsString('introuvable', $messages['unknown_key']);
+        $this->assertStringContainsString('modifiable', $messages['readonly_key']);
+        $this->assertStringContainsString('invalide', $messages['email_key']);
+    }
+
+    /**
+     * setInternal() bypasses the `editable` guard, not the message rule —
+     * its refusals reach the same dialog through the same class.
+     */
+    public function testSetInternalRefusalsAreFrenchToo(): void
+    {
+        $this->expectException(SettingException::class);
+        $this->expectExceptionMessage('Le réglage « no_such_key » est introuvable');
+        $this->service->setInternal('no_such_key', 'value');
+    }
+
     public function testValidateEmail(): void
     {
         $this->service->register('email_key', '', 'email', 'L', 'D');

@@ -2,8 +2,14 @@
 
 {% block title %}Mouvements — Finances — {{ site_name }}{% endblock %}
 
+{% block stylesheets %}
+<style nonce="{{ csp_nonce }}">
+    .movement-row { cursor: pointer; }
+</style>
+{% endblock %}
+
 {% block content %}
-    <h1 class="mb-4">Finances</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Mouvements' } only %}
 
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
@@ -14,9 +20,12 @@
     </p>
 
     {% if no_accounts %}
-        <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun compte visible pour votre rôle.',
+            icon: 'bi-wallet2',
+        } only %}
     {% else %}
-    <h2 class="h5 mb-3">Mouvements — {{ selected_account.name }}</h2>
+    <h2 class="h5 mb-3">{{ selected_account.name }}</h2>
 
     <form method="get" action="/finance/movements" class="row g-2 align-items-end mb-3">
         <div class="col-6 col-md-3">
@@ -61,7 +70,7 @@
         {% for row in rows %}
             {% set movement = row.movement %}
             <div class="border rounded-3 p-3 movement-row {{ movement.categoryId is null ? 'bg-warning-subtle' : '' }}"
-                 style="cursor:pointer;"
+                 role="button" tabindex="0"
                  data-id="{{ movement.id }}"
                  data-date="{{ movement.transactionDate }}"
                  data-label="{{ movement.label }}"
@@ -78,7 +87,7 @@
                 <div class="d-flex justify-content-between align-items-start mb-1">
                     <span class="text-body-secondary small">{{ movement.transactionDate }}</span>
                     <span class="fw-semibold {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
-                        {{ movement.amount|number_format(2, ',', ' ') }} €
+                        {{ movement.amount|money }}
                     </span>
                 </div>
                 <div class="fw-semibold small text-truncate">{{ row.counterparty ?: row.description }}</div>
@@ -95,7 +104,10 @@
                 </div>
             </div>
         {% else %}
-            <p class="text-body-secondary fst-italic">Aucun mouvement.</p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucun mouvement.',
+                compact: true,
+            } only %}
         {% endfor %}
     </div>
 
@@ -128,7 +140,7 @@
                         data-counterparty-name="{{ movement.counterpartyName }}"
                         data-counterparty-account="{{ movement.counterpartyAccount }}"
                         data-extra-details="{{ movement.extraDetails }}"
-                        class="movement-row {{ movement.categoryId is null ? 'table-warning' : '' }}" style="cursor: pointer;">
+                        class="movement-row {{ movement.categoryId is null ? 'table-warning' : '' }}">
                         <td>{{ movement.transactionDate }}</td>
                         <td>
                             {{ movement.categoryId and categories_by_id[movement.categoryId] is defined ? categories_by_id[movement.categoryId].name : 'À catégoriser' }}
@@ -139,7 +151,7 @@
                         <td>{{ row.counterparty }}</td>
                         <td>{{ row.description }}</td>
                         <td class="text-end {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
-                            {{ movement.amount|number_format(2, ',', ' ') }} €
+                            {{ movement.amount|money }}
                         </td>
                         <td class="text-center">
                             <button type="button" class="btn btn-sm btn-link p-0 attachment-btn" data-id="{{ movement.id }}" title="Reçus">
@@ -154,7 +166,10 @@
                         </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="6" class="text-body-secondary fst-italic">Aucun mouvement.</td></tr>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun mouvement.',
+                        colspan: 6,
+                    } only %}
                 {% endfor %}
             </tbody>
         </table>
@@ -176,318 +191,95 @@
         <i class="bi bi-file-earmark-spreadsheet"></i> Exporter en XLSX
     </a>
 
-    {% if total_pages > 1 %}
-        {% set page_url = filters_query %}
-        <nav aria-label="Pagination des mouvements">
-            <ul class="pagination pagination-sm">
-                <li class="page-item {{ page <= 1 ? 'disabled' : '' }}">
-                    <a class="page-link" href="{{ page_url }}&page={{ page - 1 }}" aria-label="Précédent"><i class="bi bi-chevron-left"></i></a>
-                </li>
-                {% for p in 1..total_pages %}
-                    {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-                        <li class="page-item {{ p == page ? 'active' : '' }}">
-                            <a class="page-link" href="{{ page_url }}&page={{ p }}">{{ p }}</a>
-                        </li>
-                    {% elseif p == page - 3 or p == page + 3 %}
-                        <li class="page-item disabled"><span class="page-link">…</span></li>
-                    {% endif %}
-                {% endfor %}
-                <li class="page-item {{ page >= total_pages ? 'disabled' : '' }}">
-                    <a class="page-link" href="{{ page_url }}&page={{ page + 1 }}" aria-label="Suivant"><i class="bi bi-chevron-right"></i></a>
-                </li>
-            </ul>
-        </nav>
-    {% endif %}
+    {% include 'partials/pagination.html.twig' with {
+        page: page,
+        total_pages: total_pages,
+        base_url: filters_query ~ '&page=',
+        label: 'Pagination des mouvements',
+    } only %}
 
-    <div class="modal fade" id="attachments-modal" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Reçus associés</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div id="attachments-list" class="d-flex flex-column gap-2 mb-3"></div>
-                    <div class="d-flex gap-2 mb-2">
-                        <label class="visually-hidden" for="attachments-add-select">Associer un reçu en attente</label>
-                        <select class="form-select form-select-sm" id="attachments-add-select">
-                            <option value="">Associer un reçu en attente…</option>
-                            {% for receipt in pending_receipts %}
-                                <option value="{{ receipt.id }}">
-                                    {{ receipt.originalFilename }}{% if receipt.suggestedDate %} — {{ receipt.suggestedDate }}{% endif %}{% if receipt.suggestedLabel %} — {{ receipt.suggestedLabel }}{% endif %}{% if receipt.suggestedAmount %} — {{ receipt.suggestedAmount|number_format(2, ',', ' ') }} €{% endif %}
-                                </option>
-                            {% endfor %}
-                        </select>
-                        <button type="button" class="btn btn-sm btn-primary" id="attachments-add-btn">Associer</button>
-                    </div>
-                    <div class="text-body-secondary small text-center mb-2">— ou —</div>
-                    <div class="d-flex gap-2">
-                        <input type="file" class="form-control form-control-sm" id="attachments-upload-input" accept=".pdf,.jpg,.jpeg,.png" aria-label="Téléverser un reçu">
-                        <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="attachments-upload-btn">Téléverser et associer</button>
-                    </div>
-                    <div class="text-danger small mt-2 d-none" id="attachments-upload-error"></div>
-                </div>
+    {# `only` isolates the embed's scope — the variables its blocks use
+       are passed through explicitly alongside the modal's own options. #}
+    {% embed 'partials/modal.html.twig' with {
+        id: 'attachments-modal',
+        title: 'Reçus associés',
+        scrollable: true,
+        pending_receipts: pending_receipts,
+    } only %}
+        {% block body %}
+            <div id="attachments-list" class="d-flex flex-column gap-2 mb-3"></div>
+            <div class="d-flex gap-2 mb-2">
+                <label class="visually-hidden" for="attachments-add-select">Associer un reçu en attente</label>
+                <select class="form-select form-select-sm" id="attachments-add-select">
+                    <option value="">Associer un reçu en attente…</option>
+                    {% for receipt in pending_receipts %}
+                        <option value="{{ receipt.id }}">
+                            {{ receipt.originalFilename }}{% if receipt.suggestedDate %} — {{ receipt.suggestedDate }}{% endif %}{% if receipt.suggestedLabel %} — {{ receipt.suggestedLabel }}{% endif %}{% if receipt.suggestedAmount %} — {{ receipt.suggestedAmount|money }}{% endif %}
+                        </option>
+                    {% endfor %}
+                </select>
+                <button type="button" class="btn btn-sm btn-primary" id="attachments-add-btn">Associer</button>
             </div>
-        </div>
-    </div>
+            <div class="text-body-secondary small text-center mb-2">— ou —</div>
+            <div class="d-flex gap-2">
+                <input type="file" class="form-control form-control-sm" id="attachments-upload-input" accept=".pdf,.jpg,.jpeg,.png" aria-label="Téléverser un reçu">
+                <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="attachments-upload-btn">Téléverser et associer</button>
+            </div>
+            <div class="text-danger small mt-2 d-none" id="attachments-upload-error"></div>
+        {% endblock %}
+    {% endembed %}
 
-    <div class="modal fade" id="movement-details-modal" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Détails du mouvement</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <dl class="row small mb-3">
-                        <dt class="col-4">Date</dt><dd class="col-8" id="md-date"></dd>
-                        <dt class="col-4">Libellé</dt><dd class="col-8" id="md-label"></dd>
-                        <dt class="col-4">Référence bancaire</dt><dd class="col-8" id="md-bank-reference"></dd>
-                        <dt class="col-4">Montant</dt><dd class="col-8" id="md-amount"></dd>
-                        <dt class="col-4">Origine</dt><dd class="col-8" id="md-source"></dd>
-                        <dt class="col-4">Contrepartie</dt><dd class="col-8" id="md-counterparty-name"></dd>
-                        <dt class="col-4">Compte contrepartie</dt><dd class="col-8" id="md-counterparty-account"></dd>
-                        <dt class="col-4">Autres informations</dt><dd class="col-8" id="md-extra-details"></dd>
-                    </dl>
-                    <div class="mb-2">
-                        <label class="form-label small" for="md-category">Catégorie</label>
-                        <select class="form-select form-select-sm" id="md-category">
-                            <option value="">À catégoriser</option>
-                            {% for category in categories %}
-                                <option value="{{ category.id }}">{{ category.name }}</option>
-                            {% endfor %}
-                        </select>
-                        <div class="form-text small d-none" id="md-category-auto">Catégorie attribuée automatiquement (règle ou IA). Changer la catégorie ici la rendra manuelle.</div>
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label small" for="md-comment">Commentaire</label>
-                        <input type="text" class="form-control form-control-sm" id="md-comment">
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label small" for="md-fiscal-year">Exercice</label>
-                        <select class="form-select form-select-sm" id="md-fiscal-year">
-                            {% for fiscalYear in fiscal_years %}
-                                <option value="{{ fiscalYear.id }}">{{ fiscalYear.label }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Annuler</button>
-                    <button type="button" class="btn btn-sm btn-primary" id="md-save-btn">Enregistrer</button>
-                </div>
+    {% embed 'partials/modal.html.twig' with {
+        id: 'movement-details-modal',
+        title: 'Détails du mouvement',
+        scrollable: true,
+        categories: categories,
+        fiscal_years: fiscal_years,
+    } only %}
+        {% block body %}
+            <dl class="row small mb-3">
+                <dt class="col-4">Date</dt><dd class="col-8" id="md-date"></dd>
+                <dt class="col-4">Libellé</dt><dd class="col-8" id="md-label"></dd>
+                <dt class="col-4">Référence bancaire</dt><dd class="col-8" id="md-bank-reference"></dd>
+                <dt class="col-4">Montant</dt><dd class="col-8" id="md-amount"></dd>
+                <dt class="col-4">Origine</dt><dd class="col-8" id="md-source"></dd>
+                <dt class="col-4">Contrepartie</dt><dd class="col-8" id="md-counterparty-name"></dd>
+                <dt class="col-4">Compte contrepartie</dt><dd class="col-8" id="md-counterparty-account"></dd>
+                <dt class="col-4">Autres informations</dt><dd class="col-8" id="md-extra-details"></dd>
+            </dl>
+            <div class="mb-2">
+                <label class="form-label small" for="md-category">Catégorie</label>
+                <select class="form-select form-select-sm" id="md-category">
+                    <option value="">À catégoriser</option>
+                    {% for category in categories %}
+                        <option value="{{ category.id }}">{{ category.name }}</option>
+                    {% endfor %}
+                </select>
+                <div class="form-text small d-none" id="md-category-auto">Catégorie attribuée automatiquement (règle ou IA). Changer la catégorie ici la rendra manuelle.</div>
             </div>
-        </div>
-    </div>
+            <div class="mb-2">
+                <label class="form-label small" for="md-comment">Commentaire</label>
+                <input type="text" class="form-control form-control-sm" id="md-comment">
+            </div>
+            <div class="mb-2">
+                <label class="form-label small" for="md-fiscal-year">Exercice</label>
+                <select class="form-select form-select-sm" id="md-fiscal-year">
+                    {% for fiscalYear in fiscal_years %}
+                        <option value="{{ fiscalYear.id }}">{{ fiscalYear.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="button" class="btn btn-sm btn-primary" id="md-save-btn">Enregistrer</button>
+        {% endblock %}
+    {% endembed %}
     {% endif %}
 {% endblock %}
 
 {% block scripts %}
 {% if not no_accounts %}
-<script nonce="{{ csp_nonce }}">
-const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-
-function formatAmountEur(amount) {
-    return Number(amount).toLocaleString('fr-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-}
-
-const movementDetailsModalEl = document.getElementById('movement-details-modal');
-const movementDetailsModal = window.bootstrap ? new window.bootstrap.Modal(movementDetailsModalEl) : null;
-let currentDetailsMovementId = null;
-
-function setDetailRow(ddId, value) {
-    const dd = document.getElementById(ddId);
-    const dt = dd.previousElementSibling;
-    const hasValue = value !== undefined && value !== null && value !== '';
-    dd.textContent = hasValue ? value : '';
-    dd.classList.toggle('d-none', !hasValue);
-    dt.classList.toggle('d-none', !hasValue);
-}
-
-document.querySelectorAll('tr.movement-row').forEach(row => {
-    row.addEventListener('click', (e) => {
-        if (e.target.closest('.attachment-btn, .suggest-associate-btn')) {
-            return;
-        }
-        currentDetailsMovementId = row.dataset.id;
-        document.getElementById('md-date').textContent = row.dataset.date;
-        document.getElementById('md-label').textContent = row.dataset.label;
-        document.getElementById('md-bank-reference').textContent = row.dataset.bankReference || '—';
-        document.getElementById('md-amount').textContent = formatAmountEur(row.dataset.amount);
-        document.getElementById('md-source').textContent = row.dataset.source === 'import' ? 'Import bancaire' : 'Manuel';
-        setDetailRow('md-counterparty-name', row.dataset.counterpartyName);
-        setDetailRow('md-counterparty-account', row.dataset.counterpartyAccount);
-        setDetailRow('md-extra-details', row.dataset.extraDetails);
-        document.getElementById('md-category').value = row.dataset.categoryId || '';
-        document.getElementById('md-category-auto').classList.toggle('d-none', row.dataset.categorySource !== 'auto');
-        document.getElementById('md-comment').value = row.dataset.comment || '';
-        document.getElementById('md-fiscal-year').value = row.dataset.fiscalYearId;
-        movementDetailsModal ? movementDetailsModal.show() : movementDetailsModalEl.classList.add('show');
-    });
-});
-
-document.getElementById('md-save-btn').addEventListener('click', async () => {
-    const categoryVal = document.getElementById('md-category').value;
-    const res = await fetch('/finance/movements/' + currentDetailsMovementId, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            category_id: categoryVal !== '' ? parseInt(categoryVal, 10) : null,
-            comment: document.getElementById('md-comment').value,
-            fiscal_year_id: parseInt(document.getElementById('md-fiscal-year').value, 10),
-            _csrf_token: csrf()
-        })
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        alert(data.error);
-    }
-});
-
-let currentMovementId = null;
-const attachmentsModalEl = document.getElementById('attachments-modal');
-const attachmentsModal = window.bootstrap ? new window.bootstrap.Modal(attachmentsModalEl) : null;
-
-function escapeHtml(value) {
-    const div = document.createElement('div');
-    div.textContent = value == null ? '' : String(value);
-    return div.innerHTML;
-}
-
-function attachmentThumbnailHtml(a) {
-    if (a.mime_type.startsWith('image/')) {
-        return '<img src="/files/' + a.file_id + '" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
-    }
-    if (a.mime_type === 'application/pdf') {
-        return '<img src="/files/' + a.file_id + '/thumbnail" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
-    }
-    return '<div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="width:64px;height:64px;"><i class="bi bi-file-earmark fs-4"></i></div>';
-}
-
-async function loadAttachments(movementId) {
-    currentMovementId = movementId;
-    const res = await fetch('/finance/movements/' + movementId + '/attachments');
-    const data = await res.json();
-    const list = document.getElementById('attachments-list');
-    list.innerHTML = '';
-    if (!data.success || data.attachments.length === 0) {
-        list.innerHTML = '<p class="text-body-secondary fst-italic mb-0">Aucun reçu associé.</p>';
-    } else {
-        data.attachments.forEach(a => {
-            const row = document.createElement('div');
-            row.className = 'd-flex align-items-center gap-2 border rounded p-2';
-            let info = '<a href="/files/' + a.file_id + '" target="_blank" rel="noopener" class="fw-semibold">' + escapeHtml(a.original_filename) + '</a>';
-            if (a.suggested_amount || a.suggested_date || a.suggested_label) {
-                info += '<div class="small">'
-                    + (a.suggested_amount ? Number(a.suggested_amount).toLocaleString('fr-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '')
-                    + (a.suggested_date ? ((a.suggested_amount ? ' — ' : '') + escapeHtml(a.suggested_date)) : '')
-                    + (a.suggested_label ? ((a.suggested_amount || a.suggested_date ? ' — ' : '') + escapeHtml(a.suggested_label)) : '')
-                    + '</div>';
-            }
-            if (a.suggested_description) {
-                info += '<div class="small text-body-secondary fst-italic">' + escapeHtml(a.suggested_description) + '</div>';
-            }
-            row.innerHTML = attachmentThumbnailHtml(a) + '<div class="flex-grow-1">' + info + '</div>'
-                + '<button type="button" class="btn btn-sm btn-outline-danger dissociate-btn" data-attachment-id="' + a.id + '">Dissocier</button>';
-            list.appendChild(row);
-        });
-        list.querySelectorAll('img.pdf-thumbnail').forEach(img => {
-            img.addEventListener('error', () => {
-                const fallback = document.createElement('div');
-                fallback.className = 'd-flex align-items-center justify-content-center bg-body-secondary rounded';
-                fallback.style.width = '64px';
-                fallback.style.height = '64px';
-                fallback.innerHTML = '<i class="bi bi-file-earmark-pdf fs-4"></i>';
-                img.replaceWith(fallback);
-            }, { once: true });
-        });
-        list.querySelectorAll('.dissociate-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                if (!confirm('Délier ce reçu de ce mouvement ?')) {
-                    return;
-                }
-                await fetch('/finance/receipts/' + btn.dataset.attachmentId + '/dissociate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ transaction_id: currentMovementId, _csrf_token: csrf() })
-                });
-                loadAttachments(currentMovementId);
-                window.location.reload();
-            });
-        });
-    }
-}
-
-document.querySelectorAll('.attachment-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        loadAttachments(btn.dataset.id);
-        attachmentsModal ? attachmentsModal.show() : attachmentsModalEl.classList.add('show');
-    });
-});
-
-document.getElementById('attachments-add-btn').addEventListener('click', async () => {
-    const select = document.getElementById('attachments-add-select');
-    if (!select.value || !currentMovementId) {
-        return;
-    }
-    await fetch('/finance/receipts/' + select.value + '/associate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transaction_ids: [currentMovementId], _csrf_token: csrf() })
-    });
-    window.location.reload();
-});
-
-document.getElementById('attachments-upload-btn').addEventListener('click', async () => {
-    const input = document.getElementById('attachments-upload-input');
-    const errorBox = document.getElementById('attachments-upload-error');
-    errorBox.classList.add('d-none');
-    if (!input.files.length || !currentMovementId) {
-        return;
-    }
-
-    const formData = new FormData();
-    formData.append('receipt', input.files[0]);
-    formData.append('_csrf_token', csrf());
-
-    const btn = document.getElementById('attachments-upload-btn');
-    btn.disabled = true;
-    try {
-        const res = await fetch('/finance/movements/' + currentMovementId + '/attachments', {
-            method: 'POST',
-            body: formData
-        });
-        const data = await res.json();
-        if (data.success) {
-            window.location.reload();
-        } else {
-            errorBox.textContent = data.error;
-            errorBox.classList.remove('d-none');
-        }
-    } finally {
-        btn.disabled = false;
-    }
-});
-
-async function associateSuggestion(movementId, attachmentId) {
-    const res = await fetch('/finance/receipts/' + attachmentId + '/associate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transaction_ids: [movementId], _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        alert(data.error);
-    }
-}
-
-document.querySelectorAll('.suggest-associate-btn').forEach(btn => {
-    btn.addEventListener('click', () => associateSuggestion(btn.dataset.movementId, btn.dataset.attachmentId));
-});
-</script>
+<script src="/assets/js/finance-movements.js" defer></script>
 {% endif %}
 {% endblock %}

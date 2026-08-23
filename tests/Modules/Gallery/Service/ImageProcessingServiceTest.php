@@ -44,6 +44,28 @@ class ImageProcessingServiceTest extends TestCase
         $this->service->process($bomb, 'image/png', 3000);
     }
 
+    /**
+     * GalleryException is a Core\Exception\UserFacingException, so what it
+     * is constructed with is what the page shows. The guard's own sentence
+     * survives only because Core\Image\ImageDimensionException claims to be
+     * user-facing too — and the cause is chained either way, so the trace
+     * still names the guard.
+     */
+    public function testTheDimensionGuardsCauseIsChainedOntoTheGalleryException(): void
+    {
+        $bomb = "\x89PNG\r\n\x1a\n"
+            . pack('N', 13) . 'IHDR'
+            . pack('N', 40000) . pack('N', 40000)
+            . "\x08\x02\x00\x00\x00\x00\x00\x00\x00";
+
+        try {
+            $this->service->process($bomb, 'image/png', 3000);
+            $this->fail('Expected a GalleryException.');
+        } catch (GalleryException $e) {
+            $this->assertInstanceOf(\Core\Image\ImageDimensionException::class, $e->getPrevious());
+        }
+    }
+
     public function testProcessReturnsThreeSizesAndDimensions(): void
     {
         $result = $this->service->process($this->fakeJpeg(2000, 1000), 'image/jpeg', 3000);

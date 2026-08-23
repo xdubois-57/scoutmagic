@@ -23,11 +23,16 @@ function appendAll(...nodes) { nodes.forEach((n) => document.body.appendChild(n)
 
 async function boot() {
     vi.resetModules();
+    // The real toolboxes, never stubs — maintenance.js reaches
+    // window.ScoutMagicApi/window.ScoutMagicToast at event time, and
+    // base.html.twig guarantees this load order in production.
+    await import('../../public/assets/js/api.js');
+    await import('../../public/assets/js/toast.js');
     await import('../../public/assets/js/maintenance.js');
 }
 
-function jsonResponse(data) {
-    return Promise.resolve({ json: () => Promise.resolve(data) });
+function jsonResponse(data, status = 200) {
+    return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(data) });
 }
 
 beforeEach(() => {
@@ -39,13 +44,16 @@ beforeEach(() => {
     meta.content = 'tok';
     document.head.innerHTML = '';
     document.head.appendChild(meta);
+    // The shared confirmation, stubbed: this suite pins that the two
+    // irreversible operations ASK before they start, and that a refusal
+    // sends nothing — the dialog itself is tests/js/confirm.test.js's.
+    window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
 });
 
 describe('maintenance.js: auto-backup-frequency select', () => {
     function buildDom() {
         appendAll(
             el('<select id="auto-backup-frequency"><option value="daily">daily</option><option value="weekly">weekly</option></select>'),
-            el('<span id="auto-backup-frequency-saved" class="d-none"></span>'),
             el('<input type="hidden" name="_csrf_token" value="form-tok">'),
         );
     }
@@ -56,7 +64,7 @@ describe('maintenance.js: auto-backup-frequency select', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
-    it('POSTs the new frequency and the form-level CSRF token on change', async () => {
+    it('POSTs the new frequency with the site-wide CSRF token on change', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
         await boot();
@@ -67,31 +75,30 @@ describe('maintenance.js: auto-backup-frequency select', () => {
 
         expect(fetch).toHaveBeenCalledWith('/config/maintenance/backup/auto-frequency', expect.objectContaining({
             method: 'POST',
-            body: JSON.stringify({ frequency: 'weekly', _csrf_token: 'form-tok' }),
+            body: JSON.stringify({ frequency: 'weekly', _csrf_token: 'tok' }),
         }));
     });
 
-    it('reveals the "saved" indicator on success, then hides it again after 1.5s', async () => {
+    it('shows an "Enregistré." success toast on a successful save', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
         await boot();
-        vi.useFakeTimers();
 
         document.getElementById('auto-backup-frequency').dispatchEvent(new Event('change'));
-        await vi.waitFor(() => expect(document.getElementById('auto-backup-frequency-saved').classList.contains('d-none')).toBe(false));
-
-        await vi.advanceTimersByTimeAsync(1500);
-        expect(document.getElementById('auto-backup-frequency-saved').classList.contains('d-none')).toBe(true);
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
+        expect(document.querySelector('.toast-body').textContent).toBe('Enregistré.');
+        expect(document.querySelector('.toast').className).toContain('text-bg-success');
     });
 
-    it('does not reveal the "saved" indicator when the save fails', async () => {
+    it('shows no toast when the save fails', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: false }));
         await boot();
 
         document.getElementById('auto-backup-frequency').dispatchEvent(new Event('change'));
         await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-        expect(document.getElementById('auto-backup-frequency-saved').classList.contains('d-none')).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 0)); // let the response chain settle
+        expect(document.querySelector('.toast-body')).toBeNull();
     });
 });
 
@@ -175,7 +182,7 @@ describe('maintenance.js: full-backup-form + its poller', () => {
         await submit();
         await vi.advanceTimersByTimeAsync(3000);
 
-        expect(fetch).toHaveBeenNthCalledWith(2, '/api/maintenance/backup-status/42');
+        expect(fetch).toHaveBeenNthCalledWith(2, '/api/maintenance/backup-status/42', expect.anything());
         expect(window.location.reload).toHaveBeenCalled();
     });
 
@@ -250,13 +257,13 @@ describe('maintenance.js: wireInstallForm() — wired for both update forms', ()
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith('/config/maintenance/update/install', expect.anything()));
     });
 
-    it('POSTs the CSRF token found inside the submitted form itself, not a page-level one', async () => {
+    it('POSTs the site-wide CSRF token from the meta tag (the toolbox reads no form-level token)', async () => {
         buildDom('update-install-form');
         global.fetch = vi.fn(() => jsonResponse({}));
         await boot();
         document.getElementById('update-install-form').dispatchEvent(new Event('submit', { cancelable: true }));
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith('/config/maintenance/update/install', expect.objectContaining({
-            body: JSON.stringify({ _csrf_token: 'form-tok' }),
+            body: JSON.stringify({ _csrf_token: 'tok' }),
         })));
     });
 
@@ -281,7 +288,7 @@ describe('maintenance.js: wireInstallForm() — wired for both update forms', ()
         document.getElementById('update-install-form').dispatchEvent(new Event('submit', { cancelable: true }));
         await vi.advanceTimersByTimeAsync(3000);
 
-        expect(fetch).toHaveBeenNthCalledWith(2, '/api/maintenance/update-status/7');
+        expect(fetch).toHaveBeenNthCalledWith(2, '/api/maintenance/update-status/7', expect.anything());
         expect(window.location.reload).toHaveBeenCalled();
     });
 
@@ -353,13 +360,13 @@ describe('maintenance.js: "Vérifier maintenant" (update-check-now)', () => {
         expect(document.getElementById('update-check-now-progress').classList.contains('d-none')).toBe(false);
     });
 
-    it('alerts "already up to date" and never opens the dialog when no update is available', async () => {
+    it('toasts "already up to date" and never opens the dialog when no update is available', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: true, update_available: false }));
-        window.alert = vi.fn();
         await boot();
         click();
-        await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith('Le site est déjà à jour.'));
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
+        expect(document.querySelector('.toast-body').textContent).toBe('Le site est déjà à jour.');
         expect(document.getElementById('update-check-now-dialog').classList.contains('d-none')).toBe(true);
         expect(/** @type {HTMLButtonElement} */ (document.getElementById('update-check-now')).disabled).toBe(false);
     });
@@ -532,15 +539,14 @@ describe('maintenance.js: auto-update settings', () => {
         })));
     });
 
-    it('shows the "saved" indicator on success, then hides it after 1.5s', async () => {
+    it('shows an "Enregistré." success toast on a successful save', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
-        vi.useFakeTimers();
         await boot();
         document.getElementById('auto-update-save').dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(document.getElementById('auto-update-saved').classList.contains('d-none')).toBe(false));
-        await vi.advanceTimersByTimeAsync(1500);
-        expect(document.getElementById('auto-update-saved').classList.contains('d-none')).toBe(true);
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
+        expect(document.querySelector('.toast-body').textContent).toBe('Enregistré.');
+        expect(document.querySelector('.toast').className).toContain('text-bg-success');
     });
 
     it('shows the server error on a failed save', async () => {
@@ -576,24 +582,25 @@ describe('maintenance.js: auto-update settings', () => {
         expect(document.querySelector('#webhook-generate-secret i').classList.contains('bi-arrow-repeat')).toBe(true);
     });
 
-    it('re-enables the button and alerts on a failed secret generation', async () => {
+    it('re-enables the button and toasts the server error on a failed secret generation', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Session expirée.' }));
-        window.alert = vi.fn();
         await boot();
         document.getElementById('webhook-generate-secret').dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith('Session expirée.'));
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
+        expect(document.querySelector('.toast-body').textContent).toBe('Session expirée.');
+        expect(document.querySelector('.toast').className).toContain('text-bg-danger');
         expect(/** @type {HTMLButtonElement} */ (document.getElementById('webhook-generate-secret')).disabled).toBe(false);
         expect(document.getElementById('webhook-secret-display').classList.contains('d-none')).toBe(true);
     });
 
-    it('re-enables the button and alerts a generic message on a network failure', async () => {
+    it('re-enables the button and toasts a generic message on a network failure', async () => {
         buildDom();
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
-        window.alert = vi.fn();
         await boot();
         document.getElementById('webhook-generate-secret').dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith('Erreur réseau.'));
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
+        expect(document.querySelector('.toast-body').textContent).toBe('Erreur réseau.');
         expect(/** @type {HTMLButtonElement} */ (document.getElementById('webhook-generate-secret')).disabled).toBe(false);
     });
 });
@@ -748,7 +755,7 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             await submitReady();
             global.fetch = vi.fn()
                 .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, action_id: 1 }) })
-                .mockResolvedValueOnce({ status: 404 });
+                .mockResolvedValueOnce({ ok: false, status: 404, json: () => Promise.resolve({}) });
             Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
             vi.useFakeTimers();
             await boot();
@@ -794,32 +801,53 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
         });
     });
 
-    describe('full-reset-form submit — window.confirm() gate', () => {
-        it('never calls fetch when the user declines the confirm() dialog', async () => {
+    describe('full-reset-form submit — the confirmation gate', () => {
+        it('never calls fetch when the visitor declines the confirmation', async () => {
             buildFullReset();
             const checkbox = /** @type {HTMLInputElement} */ (document.getElementById('full-reset-checkbox'));
             checkbox.checked = true;
             checkbox.dispatchEvent(new Event('change'));
             type(document.getElementById('full-reset-keyword'), 'EFFACER');
             global.fetch = vi.fn();
-            window.confirm = vi.fn(() => false);
+            window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
             await boot();
             checkbox.checked = true; checkbox.dispatchEvent(new Event('change'));
             type(document.getElementById('full-reset-keyword'), 'EFFACER');
             const evt = new Event('submit', { cancelable: true });
             document.getElementById('full-reset-form').dispatchEvent(evt);
-            expect(window.confirm).toHaveBeenCalled();
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+            await Promise.resolve();
             expect(fetch).not.toHaveBeenCalled();
+        });
+
+        it('asks the site dialog — never the native box — before wiping everything', async () => {
+            buildFullReset();
+            const nativeConfirm = vi.fn(() => true);
+            window.confirm = nativeConfirm;
+            global.fetch = vi.fn(() => jsonResponse({ success: true, action_id: 1 }));
+            await boot();
+            const checkbox = /** @type {HTMLInputElement} */ (document.getElementById('full-reset-checkbox'));
+            checkbox.checked = true; checkbox.dispatchEvent(new Event('change'));
+            type(document.getElementById('full-reset-keyword'), 'EFFACER');
+            document.getElementById('full-reset-form').dispatchEvent(new Event('submit', { cancelable: true }));
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(nativeConfirm).not.toHaveBeenCalled();
+            expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+                message: 'Cette action est irréversible : toutes les données du site seront définitivement supprimées. Continuer ?',
+                confirmLabel: 'Tout supprimer',
+            }));
+            expect(window.ScoutMagicConfirm.ask.mock.invocationCallOrder[0])
+                .toBeLessThan(fetch.mock.invocationCallOrder[0]);
         });
 
         it('redirects to "/" both when the reset completes and when the status poll 404s (both mean everything, including the tracking row, is gone)', async () => {
             buildFullReset();
             const checkbox = /** @type {HTMLInputElement} */ (document.getElementById('full-reset-checkbox'));
-            window.confirm = vi.fn(() => true);
             Object.defineProperty(window, 'location', { configurable: true, value: { href: '' } });
             global.fetch = vi.fn()
                 .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, action_id: 1 }) })
-                .mockResolvedValueOnce({ status: 404 });
+                .mockResolvedValueOnce({ ok: false, status: 404, json: () => Promise.resolve({}) });
             vi.useFakeTimers();
             await boot();
             checkbox.checked = true; checkbox.dispatchEvent(new Event('change'));
@@ -830,24 +858,38 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
         });
     });
 
-    describe('restore-backup-form submit — window.confirm() gate + classic multipart submit', () => {
-        it('declining confirm() prevents the default form submission', async () => {
+    // The dialog is asynchronous, so the submit event itself is ALWAYS
+    // stopped and the confirmed restore is re-sent by hand with
+    // form.submit() (which bypasses the listener — one confirmation, one
+    // pass). That native call is what these tests watch for.
+    describe('restore-backup-form submit — the confirmation gate + classic multipart submit', () => {
+        it('declining the confirmation submits nothing and leaves the button usable', async () => {
             buildRestoreBackup();
-            window.confirm = vi.fn(() => false);
+            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
+            window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
             await boot();
             const evt = new Event('submit', { cancelable: true });
             document.getElementById('restore-backup-form').dispatchEvent(evt);
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+            await Promise.resolve();
+
             expect(evt.defaultPrevented).toBe(true);
+            expect(nativeSubmit).not.toHaveBeenCalled();
             expect(/** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit')).disabled).toBe(false);
         });
 
-        it('accepting confirm() disables the submit button and lets the native multipart submission proceed', async () => {
+        it('accepting the confirmation disables the submit button and re-sends the multipart form itself', async () => {
             buildRestoreBackup();
-            window.confirm = vi.fn(() => true);
+            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
             await boot();
             const evt = new Event('submit', { cancelable: true });
             document.getElementById('restore-backup-form').dispatchEvent(evt);
-            expect(evt.defaultPrevented).toBe(false);
+            await vi.waitFor(() => expect(nativeSubmit).toHaveBeenCalledTimes(1));
+
+            expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+                message: 'Cette action va remplacer les données actuelles par celles de la sauvegarde sélectionnée. Continuer ?',
+                confirmLabel: 'Restaurer',
+            }));
             expect(/** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit')).disabled).toBe(true);
         });
 
@@ -895,10 +937,6 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             return evt;
         }
 
-        beforeEach(() => {
-            window.confirm = vi.fn(() => true);
-        });
-
         it('intercepts the submit for a large file: chunks first, then re-submits with upload_id and no file', async () => {
             buildChunkedRestore();
             selectFile(100 * 1024 * 1024);
@@ -911,11 +949,14 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             await boot();
 
             const evt = submitForm();
+            await vi.waitFor(() => expect(window.ScoutMagicChunkedUpload.uploadInChunks).toHaveBeenCalled());
 
             expect(evt.defaultPrevented).toBe(true);
             expect(window.ScoutMagicChunkedUpload.uploadInChunks).toHaveBeenCalledWith(
                 expect.anything(), '/config/maintenance/restore-upload-chunk',
-                expect.objectContaining({ csrfToken: 'form-tok' }),
+                // The chunker's token now comes from ScoutMagicApi.csrfToken()
+                // (the page-level meta tag), not the form's hidden input.
+                expect.objectContaining({ csrfToken: 'tok' }),
             );
             expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(false);
 
@@ -924,22 +965,23 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
 
             expect(document.getElementById('restore-upload-id').value).toBe('f'.repeat(32));
             expect(nativeSubmit).toHaveBeenCalledTimes(1);
-            // .submit() bypasses the handler — one confirm(), one chunk pass.
-            expect(window.confirm).toHaveBeenCalledTimes(1);
+            // .submit() bypasses the listener — one confirmation, one chunk pass.
+            expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledTimes(1);
         });
 
         it('lets a small file ride the classic multipart POST untouched', async () => {
             buildChunkedRestore();
             selectFile(1024);
+            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
             window.ScoutMagicChunkedUpload = {
                 CHUNK_THRESHOLD: 24 * 1024 * 1024,
                 uploadInChunks: vi.fn(),
             };
             await boot();
 
-            const evt = submitForm();
+            submitForm();
+            await vi.waitFor(() => expect(nativeSubmit).toHaveBeenCalledTimes(1));
 
-            expect(evt.defaultPrevented).toBe(false);
             expect(window.ScoutMagicChunkedUpload.uploadInChunks).not.toHaveBeenCalled();
         });
 
@@ -948,15 +990,16 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             selectFile(100 * 1024 * 1024);
             document.getElementById('restore-source-upload').checked = false;
             document.getElementById('restore-source-server').checked = true;
+            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
             window.ScoutMagicChunkedUpload = {
                 CHUNK_THRESHOLD: 24 * 1024 * 1024,
                 uploadInChunks: vi.fn(),
             };
             await boot();
 
-            const evt = submitForm();
+            submitForm();
+            await vi.waitFor(() => expect(nativeSubmit).toHaveBeenCalledTimes(1));
 
-            expect(evt.defaultPrevented).toBe(false);
             expect(window.ScoutMagicChunkedUpload.uploadInChunks).not.toHaveBeenCalled();
         });
 
@@ -970,10 +1013,9 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             await boot();
 
             submitForm();
-            await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
-
             const errorEl = document.getElementById('restore-backup-error');
-            expect(errorEl.classList.contains('d-none')).toBe(false);
+            await vi.waitFor(() => expect(errorEl.classList.contains('d-none')).toBe(false));
+
             expect(errorEl.textContent).toBe('Le fichier dépasse la taille maximale autorisée (500 Mo).');
             expect(/** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit')).disabled).toBe(false);
             expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(true);
@@ -1000,7 +1042,7 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             await boot();
             expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(false);
             await vi.advanceTimersByTimeAsync(3000);
-            expect(fetch).toHaveBeenCalledWith('/api/maintenance/reset-status/99');
+            expect(fetch).toHaveBeenCalledWith('/api/maintenance/reset-status/99', expect.anything());
             expect(window.location.href).toBe('/config/maintenance');
         });
 

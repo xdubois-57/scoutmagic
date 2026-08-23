@@ -55,11 +55,12 @@
         btn.addEventListener('click', function () {
             var cmd = /** @type {HTMLElement} */ (btn).dataset.command;
             if (cmd === 'createLink') {
-                var url = prompt('URL du lien :');
-                if (url) document.execCommand(cmd, false, url);
-            } else {
-                document.execCommand(cmd, false, null);
+                // Shared: captures the selection, asks, normalizes the URL
+                // and gives focus back. See rich-text-link.js.
+                window.ScoutMagicRichText.insertLink(editorContent);
+                return;
             }
+            document.execCommand(cmd, false, null);
             editorContent.focus();
         });
     });
@@ -106,11 +107,11 @@
                 if (overlay) currentElement.prepend(overlay);
                 modal.hide();
             } else {
-                alert(json.error || 'Erreur lors de l\'enregistrement.');
+                window.ScoutMagicToast.show(json.error || 'Erreur lors de l\'enregistrement.', { variant: 'error' });
             }
         })
         .catch(function () {
-            alert('Erreur réseau.');
+            window.ScoutMagicToast.show('Erreur réseau.', { variant: 'error' });
         });
     });
 })();

@@ -14,24 +14,9 @@
 // and persists silently in the background, since that's the whole point
 // of drag-and-drop feeling instant.
 (function () {
-    function csrf() {
-        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
-        return meta ? meta.content : '';
-    }
-
-    /**
-     * @param {string} url
-     * @param {Object} body
-     * @returns {Promise<Object>}
-     */
-    function postJson(url, body) {
-        return fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(Object.assign({}, body, { _csrf_token: csrf() }))
-        }).then(function (res) { return res.json(); });
-    }
-
+    // Requests go through the shared window.ScoutMagicApi.postJson envelope
+    // ({ok, status, data} — never a rejection); each call site below reads
+    // `res.data || {}` and branches on data.success as before.
     document.querySelectorAll('.list-editor').forEach(
         /** @param {HTMLElement} container */
         function (container) {
@@ -74,8 +59,11 @@
                 function (el) {
                 return el.dataset.id;
             });
-            postJson(reorderUrl, { ids: ids }).then(function (data) {
-                if (!data.success) alert(data.error || 'Erreur lors de la réorganisation.');
+            window.ScoutMagicApi.postJson(reorderUrl, { ids: ids }).then(function (res) {
+                var data = res.data || {};
+                if (!data.success) {
+                    window.ScoutMagicToast.show(data.error || 'Erreur lors de la réorganisation.', { variant: 'error' });
+                }
             });
         }
 
@@ -121,8 +109,9 @@
                 if (!activeUrl) return;
                 var nextActive = toggle.dataset.active !== '1';
                 toggle.disabled = true;
-                postJson(activeUrl, { id: parseInt(toggle.dataset.id, 10), active: nextActive })
-                    .then(function (data) {
+                window.ScoutMagicApi.postJson(activeUrl, { id: parseInt(toggle.dataset.id, 10), active: nextActive })
+                    .then(function (res) {
+                        var data = res.data || {};
                         toggle.disabled = false;
                         if (data.success) {
                             toggle.dataset.active = nextActive ? '1' : '0';
@@ -133,7 +122,7 @@
                             icon.classList.toggle('bi-toggle-on', nextActive);
                             icon.classList.toggle('bi-toggle-off', !nextActive);
                         } else {
-                            alert(data.error || 'Erreur.');
+                            window.ScoutMagicToast.show(data.error || 'Erreur.', { variant: 'error' });
                         }
                     });
             });
@@ -143,14 +132,19 @@
         itemsEl.querySelectorAll('.list-editor-delete-btn').forEach(
             /** @param {HTMLButtonElement} btn */
             function (btn) {
-            btn.addEventListener('click', function () {
+            btn.addEventListener('click', async function () {
                 if (btn.disabled) return;
-                if (!confirm('Supprimer définitivement cet élément ?')) return;
-                postJson(deleteUrl, { id: parseInt(btn.dataset.id, 10) }).then(function (data) {
+                var confirmed = await window.ScoutMagicConfirm.ask({
+                    message: 'Supprimer définitivement cet élément ?',
+                    confirmLabel: 'Supprimer'
+                });
+                if (!confirmed) return;
+                window.ScoutMagicApi.postJson(deleteUrl, { id: parseInt(btn.dataset.id, 10) }).then(function (res) {
+                    var data = res.data || {};
                     if (data.success) {
                         window.location.reload();
                     } else {
-                        alert(data.error || 'Erreur lors de la suppression.');
+                        window.ScoutMagicToast.show(data.error || 'Erreur lors de la suppression.', { variant: 'error' });
                     }
                 });
             });
@@ -161,11 +155,12 @@
         // collect content in a dialog before anything is created)
         if (addBtn && container.dataset.addMode !== 'custom') {
             addBtn.addEventListener('click', function () {
-                postJson(addBtn.dataset.url, {}).then(function (data) {
+                window.ScoutMagicApi.postJson(addBtn.dataset.url, {}).then(function (res) {
+                    var data = res.data || {};
                     if (data.success) {
                         window.location.reload();
                     } else {
-                        alert(data.error || "Erreur lors de l'ajout.");
+                        window.ScoutMagicToast.show(data.error || "Erreur lors de l'ajout.", { variant: 'error' });
                     }
                 });
             });

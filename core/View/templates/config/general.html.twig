@@ -1,9 +1,9 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Configuration générale — {{ site_name }}{% endblock %}
+{% block title %}Édition du site — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Configuration générale</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Édition du site' } only %}
 
     {# Config mode section — the only thing left on this page since the
        module registry and badges moved to their own pages (Configuration >

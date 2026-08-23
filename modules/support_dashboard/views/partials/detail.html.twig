@@ -37,7 +37,10 @@
         {% for moduleId, module in installation.modules %}
             <li>
                 <code>{{ moduleId }}</code>
-                {% if module.enabled %}<span class="badge text-bg-success">activé</span>{% else %}<span class="badge text-bg-secondary">désactivé</span>{% endif %}
+                {% include 'partials/status_badge.html.twig' with {
+                    status: module.enabled ? 'active' : 'inactive',
+                    label: module.enabled ? 'activé' : 'désactivé',
+                } only %}
                 {% if module.version %}<span class="text-body-secondary">{{ module.version }}</span>{% endif %}
             </li>
         {% endfor %}

@@ -1,13 +1,11 @@
 {#
-  Shared across the three "Finances" chef-facing pages (dashboard,
-  movements, receipts — only /finance carries the espace_chefs menu
-  label, the other two are sub-pages of it) — same component/style as
-  partials/section_picker.html.twig and
-  @calendar/partials/calendar_picker.html.twig: a thin mapping layer over
-  partials/chip_picker.html.twig (mode: single), replacing what used to
-  be a raw overflow-x-auto/flex-nowrap horizontal-scroll row (no scroll
-  affordance, poor mobile ergonomics — the exact pattern chip_picker
-  exists to replace, see ARCHITECTURE.md §8.30).
+  Shared across the "Finances" chef-facing pages (dashboard, movements,
+  receipts, import, receivables — only /finance carries the espace_chefs
+  menu label, the others are sub-pages of it). The page layer is the
+  shared partials/page_picker.html.twig (the pages[] → chip_picker
+  mapping written once — this file used to carry its own copy of that
+  layer); the account layer below stays a direct chip_picker include
+  because its items are dynamic accounts, not pages.
 
   Requires `accounts` and `current_path` in scope; `selected_account` is
   optional (its absence just means no chip is highlighted/no account
@@ -16,32 +14,19 @@
   (dashboard/movements/receipts filter forms, import's own form field),
   so showing both would be redundant.
 #}
-{% set finance_pages = [
-    {'url': '/finance', 'label': 'Tableau de bord'},
-    {'url': '/finance/movements', 'label': 'Mouvements'},
-    {'url': '/finance/receipts', 'label': 'Reçus'},
-    {'url': '/finance/import', 'label': 'Importer'},
-    {'url': '/finance/receivables', 'label': 'Paiements attendus'},
-] %}
-{% set finance_page_items = [] %}
-{% for page in finance_pages %}
-    {% set finance_page_items = finance_page_items|merge([{
-        id: page.url,
-        label: page.label,
-        selected: current_path == page.url,
-    }]) %}
-{% endfor %}
-<div class="finance-page-picker mb-2">
-    {% include 'partials/chip_picker.html.twig' with {
-        picker_id: 'finance-page-picker',
-        items: finance_page_items,
-        mode: 'single',
-        base_url: '',
-        extra_query: selected_account is defined and selected_account ? '?account_id=' ~ selected_account.id : '',
-        sheet_title: 'Choisir une page',
-        empty_text: 'Aucune page disponible.',
-    } %}
-</div>
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'finance-page-picker',
+    pages: [
+        {'url': '/finance', 'label': 'Tableau de bord'},
+        {'url': '/finance/movements', 'label': 'Mouvements'},
+        {'url': '/finance/receipts', 'label': 'Reçus'},
+        {'url': '/finance/import', 'label': 'Importer'},
+        {'url': '/finance/receivables', 'label': 'Paiements attendus'},
+    ],
+    current_path: current_path,
+    extra_query: selected_account is defined and selected_account ? '?account_id=' ~ selected_account.id : '',
+    sheet_title: 'Choisir une page',
+} only %}
 
 {% if accounts and not (hide_account_picker is defined and hide_account_picker) %}
     {% set finance_account_items = [] %}

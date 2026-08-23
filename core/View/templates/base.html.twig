@@ -27,6 +27,25 @@
     {% endif %}
     <meta name="theme-color" content="{{ pwa_theme_color|default('#0d6efd') }}">
     {% block head_meta %}{% endblock %}
+    {# Color scheme (design.md §7.8) — deliberately inline AND before the
+       stylesheets: Bootstrap 5.3 themes entirely off `data-bs-theme` on
+       the root element, and applying the stored preference only after
+       /assets/js/theme.js loads would paint one white frame first (the
+       classic dark-mode flash). This block is the minimal read-and-apply
+       duplicate of theme.js's own resolve logic; everything else (the
+       toggle cycle, consent-gated persistence, live media-query follow-up)
+       lives in theme.js below. Reading localStorage here is a read only —
+       the functional-consent gate applies to WRITING the preference
+       (theme.js), and a value present means it was written with consent. #}
+    <script nonce="{{ csp_nonce }}">
+    (function () {
+        var pref = null;
+        try { pref = localStorage.getItem('theme_preference'); } catch (e) { /* storage disabled */ }
+        var dark = pref === 'dark' || (pref !== 'light'
+            && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+    })();
+    </script>
     <link rel="stylesheet" href="/assets/vendor/bootstrap/css/bootstrap.min.css">
     <link rel="stylesheet" href="/assets/vendor/bootstrap-icons/bootstrap-icons.min.css">
     <link rel="stylesheet" href="/assets/css/app.css">
@@ -40,6 +59,7 @@
     {% block stylesheets %}{% endblock %}
 </head>
 <body>
+    <a class="visually-hidden-focusable" href="#main-content">Aller au contenu</a>
     {#
       Revealed by offline-nav.js the moment the browser reports itself
       offline, and hidden again when the connection returns. Server-
@@ -72,7 +92,7 @@
 
     {% if config_mode is defined and config_mode %}
     <div class="alert alert-warning d-flex align-items-center gap-2 rounded-0 mb-0 border-start-0 border-end-0" role="alert">
-        <i class="bi bi-exclamation-triangle"></i>
+        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
         <span>Mode configuration actif — les textes et images du site sont éditables.</span>
         <form method="post" action="/config-mode/deactivate" class="ms-auto">
             {{ csrf_field()|raw }}
@@ -83,7 +103,7 @@
 
     {% if temporary_member_name is defined and temporary_member_name %}
     <div class="alert alert-danger d-flex align-items-center gap-2 rounded-0 mb-0 border-start-0 border-end-0" role="alert">
-        <i class="bi bi-person-badge"></i>
+        <i class="bi bi-person-badge" aria-hidden="true"></i>
         <span>Vous agissez au nom de {{ temporary_member_name }} (session uniquement).</span>
         <form method="post" action="/admin/members/temporary-access/remove" class="ms-auto">
             {{ csrf_field()|raw }}
@@ -94,7 +114,7 @@
 
     {% if year_override_type is defined and year_override_type == 'session' %}
     <div class="alert alert-warning d-flex align-items-center gap-2 rounded-0 mb-0 border-start-0 border-end-0" role="alert">
-        <i class="bi bi-clock-history"></i>
+        <i class="bi bi-clock-history" aria-hidden="true"></i>
         <span>Vous visualisez le site en {{ effective_scout_year }} (session uniquement).</span>
         <form method="post" action="/admin/scout-year/clear-preview" class="ms-auto">
             {{ csrf_field()|raw }}
@@ -103,12 +123,12 @@
     </div>
     {% elseif year_override_type is defined and year_override_type == 'staff' %}
     <div class="alert alert-info d-flex align-items-center gap-2 rounded-0 mb-0 border-start-0 border-end-0" role="alert">
-        <i class="bi bi-info-circle"></i>
+        <i class="bi bi-info-circle" aria-hidden="true"></i>
         <span>Le staff voit actuellement l'année {{ effective_scout_year }}.</span>
     </div>
     {% endif %}
 
-    <main class="container py-3">
+    <main class="container py-3" id="main-content">
         {% set flash = get_flash() %}
         {% if flash %}
         <div class="alert alert-{{ flash.type == 'error' ? 'danger' : flash.type }} alert-dismissible fade show" role="alert">
@@ -146,6 +166,20 @@
     {% endblock %}
 
     <script src="/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    {# The two site-wide toolboxes, loaded before every page script so
+       both classic scripts and ES modules can rely on the globals:
+       window.ScoutMagicApi (csrf token, the {ok,status,data} fetch
+       envelope, debounce/poll/escapeHtml) and window.ScoutMagicToast
+       (the non-blocking replacement for alert()). See each file's
+       header for what divergence it exists to end. #}
+    <script src="/assets/js/api.js"></script>
+    <script src="/assets/js/toast.js"></script>
+    <script src="/assets/js/confirm.js"></script>
+    <script src="/assets/js/rich-text-link.js"></script>
+    {# Everything the inline head block above does not: the
+       [data-theme-toggle] cycle buttons (partials/theme_toggle.html.twig),
+       consent-gated persistence, live prefers-color-scheme follow-up. #}
+    <script src="/assets/js/theme.js"></script>
     <script src="/assets/js/nav.js"></script>
     {# partials/breadcrumb_bar.html.twig's parent buttons — opens the
        matching menu section rather than navigating. Loads unconditionally
@@ -224,7 +258,7 @@
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="offline-dialog-label"><i class="bi bi-wifi-off"></i> Hors ligne</h5>
+                    <h5 class="modal-title" id="offline-dialog-label"><i class="bi bi-wifi-off" aria-hidden="true"></i> Hors ligne</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
                 </div>
                 <div class="modal-body">
@@ -238,32 +272,22 @@
     </div>
     {% block scripts %}{% endblock %}
 
-    {# Confirmation prompt for any form carrying data-confirm, delegated once
-       for the whole site. Inline onsubmit="return confirm(...)" is blocked by
-       the CSP (script-src has no 'unsafe-inline', and a nonce never covers an
-       on* attribute — see core/Http/Response.php), so this handler is what
-       makes data-confirm work at all. It lived as an identical copy in three
-       page templates and was simply missing from a fourth, where the
-       confirmation therefore never appeared; one place instead of four also
-       means the next page to use data-confirm gets it for free.
+    {# The confirmation behind every form carrying data-confirm lives in
+       /assets/js/confirm.js (loaded above), delegated on `document` once
+       for the whole site — including for forms a module's own JS inserts
+       after load. Inline onsubmit="return confirm(...)" is blocked by the
+       CSP (script-src has no 'unsafe-inline', and a nonce never covers an
+       on* attribute — see core/Http/Response.php), so that handler is what
+       makes data-confirm work at all. #}
 
-       Delegated on `document`, not attached per-form at page load: a form
-       inserted later by a module's own dynamic JS (groups.js inserting a
-       new post/reply, or "Charger plus"/"Voir plus" appending a page of
-       them) carries data-confirm markup identical to what was there on
-       load, but querySelectorAll() at load time can never see it — the
-       confirmation would silently never fire for anything added after the
-       page rendered. #}
-    <script nonce="{{ csp_nonce }}">
-    document.addEventListener('submit', function (e) {
-        var form = e.target.closest('form[data-confirm]');
-        if (form && !confirm(form.dataset.confirm)) {
-            e.preventDefault();
-        }
-    });
-    </script>
-
-    {% if cookie_consent_given is defined and not cookie_consent_given %}
+    {# Server-side decision, not CSS: the banner is never included on the
+       /cookies route. It is a fixed-bottom overlay (~300px tall on mobile)
+       that was covering the very page its own "Personnaliser" action leads
+       to — the category toggles and the "Enregistrer mes choix" button were
+       unreachable. Everywhere else app.css compensates the banner's height
+       with a body:has(> #cookie-banner) padding so the bottom of the page
+       stays reachable (see "COOKIE BANNER HEIGHT COMPENSATION" there). #}
+    {% if cookie_consent_given is defined and not cookie_consent_given and current_path|default('') != '/cookies' %}
         {% include 'partials/cookie_banner.html.twig' %}
     {% endif %}
 </body>

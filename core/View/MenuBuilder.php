@@ -35,8 +35,8 @@ class MenuBuilder
     /** @var array<array{id: string, label: string, icon: string, role_min: string}> */
     private const MENUS = [
         ['id' => self::MENU_NOTRE_UNITE,   'label' => 'Notre unité',       'icon' => 'bi-house',    'role_min' => 'public'],
-        ['id' => self::MENU_ESPACE_ANIMES, 'label' => 'Espace animés',     'icon' => 'bi-people',   'role_min' => 'identified'],
-        ['id' => self::MENU_ESPACE_CHEFS,  'label' => 'Espace chefs',      'icon' => 'bi-star',     'role_min' => 'intendant'],
+        ['id' => self::MENU_ESPACE_ANIMES, 'label' => 'Espace membres',     'icon' => 'bi-people',   'role_min' => 'identified'],
+        ['id' => self::MENU_ESPACE_CHEFS,  'label' => 'Espace animateurs',      'icon' => 'bi-star',     'role_min' => 'intendant'],
         ['id' => self::MENU_ESPACE_ADMIN,  'label' => "Espace chefs d'U",  'icon' => 'bi-gear',     'role_min' => 'admin'],
         ['id' => self::MENU_CONFIGURATION, 'label' => 'Configuration',     'icon' => 'bi-sliders',  'role_min' => 'superadmin'],
     ];

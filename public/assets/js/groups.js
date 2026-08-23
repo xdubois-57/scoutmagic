@@ -604,6 +604,9 @@
                 errorBox.textContent = '';
                 errorBox.classList.add('d-none');
             }
+            // A stale suggestion goes with the stale error: the next
+            // refusal brings its own, or none.
+            clearModerationSuggestion(form);
         }
 
         function resetComposer() {
@@ -682,6 +685,9 @@
                     // past the UI) — shown inline, draft left untouched so
                     // the member can revise and resend.
                     showComposerError(result.data.error === 'empty' ? 'Un message ne peut pas être vide.' : result.data.error);
+                    // And when the moderation offered a rewording, the
+                    // panel the reload path has always had.
+                    showModerationSuggestion(form, textarea, result.data.suggestion);
                 } else {
                     // Not JSON at all (a stale CSRF token's plain-text
                     // 403, or anything else unexpected) — fall back to
@@ -1426,7 +1432,7 @@
                 // A refusal the server actually returned (the moderation
                 // layer, most often) — the edit form stays open with the
                 // member's text in it so they can revise and resend.
-                window.alert(result.data.error);
+                window.ScoutMagicToast.show(result.data.error, { variant: 'error' });
             } else {
                 form.submit();
             }
@@ -1515,13 +1521,85 @@
                 // A moderator trying to restore their own reported content
                 // — the one refusal this endpoint has, and one the member
                 // has to actually read.
-                window.alert(result.data.error);
+                window.ScoutMagicToast.show(result.data.error, { variant: 'error' });
             } else {
                 form.submit();
             }
         }).catch(function () {
             form.submit();
         });
+    }
+
+    // The AI moderation's proposed rewording, shown where the refusal
+    // happened. The server sends it alongside the refusal itself
+    // (PostController::refuse() / ReplyController's JSON shape:
+    // {error, type, suggestion}), and the no-JS path already renders it
+    // as a panel above the composer (show.html.twig's rejected_draft
+    // block, Support\RejectedDraft) — this is the same panel, same
+    // classes, built for the fetch() path that never reloads. The
+    // suggestion is a remote model's output over a minor's own words:
+    // textContent throughout, never innerHTML, exactly like the link
+    // preview's og: fields above.
+    /**
+     * @param {HTMLFormElement} form the composer or reply form the refusal answered
+     * @param {HTMLTextAreaElement|HTMLInputElement} field where "Reprendre cette formulation" writes the suggestion
+     * @param {*} suggestion the server's `suggestion` value — ignored unless a non-empty string
+     */
+    function showModerationSuggestion(form, field, suggestion) {
+        clearModerationSuggestion(form);
+        if (!field || typeof suggestion !== 'string' || suggestion === '') {
+            return;
+        }
+
+        var panel = document.createElement('div');
+        panel.className = 'alert alert-warning mt-2 mb-0 groups-moderation-suggestion';
+        panel.setAttribute('role', 'alert');
+
+        var intro = document.createElement('p');
+        intro.className = 'mb-1 small';
+        intro.textContent = 'Voici une reformulation possible, que vous pouvez reprendre telle quelle :';
+        panel.appendChild(intro);
+
+        var text = document.createElement('p');
+        text.className = 'mb-2 fst-italic groups-rejected-suggestion';
+        text.textContent = suggestion;
+        panel.appendChild(text);
+
+        var take = document.createElement('button');
+        // type="button": the panel lives inside the form, and this
+        // button must never re-submit the refused text it replaces.
+        take.type = 'button';
+        take.className = 'btn btn-sm btn-outline-secondary groups-suggestion-take';
+        take.textContent = 'Reprendre cette formulation';
+        take.addEventListener('click', function () {
+            field.value = suggestion;
+            // The same event typing would fire, so the submit button's
+            // enabled state and the draft cache follow the new text.
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            panel.remove();
+            field.focus();
+        });
+        panel.appendChild(take);
+
+        // Right under the form's own error line when it has one (the
+        // refusal the panel answers is printed there), at the end of the
+        // form otherwise.
+        var anchor = form.querySelector('#groups-post-error, .groups-reply-error');
+        if (anchor) {
+            anchor.insertAdjacentElement('afterend', panel);
+        } else {
+            form.appendChild(panel);
+        }
+    }
+
+    /**
+     * @param {HTMLFormElement} form
+     */
+    function clearModerationSuggestion(form) {
+        var panel = form.querySelector('.groups-moderation-suggestion');
+        if (panel) {
+            panel.remove();
+        }
     }
 
     // Replying to a post still posts and redirects with no JS at all —
@@ -1541,6 +1619,7 @@
             replyError.textContent = '';
             replyError.classList.add('d-none');
         }
+        clearModerationSuggestion(form);
         // Snapshotted before anything in the form is disabled, for the
         // same reason the composer's own submit does it in that order: a
         // disabled control contributes nothing to a form's data set (see
@@ -1582,6 +1661,9 @@
             } else if (result.data && typeof result.data.error === 'string' && replyError) {
                 replyError.textContent = result.data.error === 'empty' ? 'Une réponse ne peut pas être vide.' : result.data.error;
                 replyError.classList.remove('d-none');
+                // Same rewording panel as the composer's, under this
+                // reply's own error line.
+                showModerationSuggestion(form, /** @type {HTMLInputElement} */ (form.querySelector('input[name="body"]')), result.data.suggestion);
             } else if (!result.data) {
                 form.submit();
             }
@@ -1632,15 +1714,17 @@
 
         // The "êtes-vous sûr ?" behind data-confirm is asked ONCE, by
         // base.html.twig's site-wide handler, and this listener only reads
-        // its verdict.
+        // its verdict — preventDefault() means "not answered yes (yet)".
+        //
+        // That handler shows ScoutMagicConfirm, which is asynchronous, so
+        // it stops the submit it sees and replays it (requestSubmit, with
+        // data-confirmed="1") once the member has actually confirmed. The
+        // replayed submit is the one that reaches the code below.
         //
         // The ordering is a guarantee, not a coincidence: base.html.twig's
         // handler is an inline classic script, and this file is loaded
         // with `defer`, which the HTML standard runs after every inline
         // script in the document — whatever order the two tags appear in.
-        // So by the time anything below runs, the member has already
-        // answered, and a cancelled confirmation has already called
-        // preventDefault() for us.
         //
         // This file used to call confirm() itself as well, on the belief
         // that it ran first and could stopImmediatePropagation() the other
@@ -1796,7 +1880,7 @@
             return Promise.resolve(true);
         }
 
-        var label = document.getElementById('groups-detail-modal-label');
+        var label = document.getElementById('groups-detail-modal-title');
         if (label) {
             label.textContent = 'Vous répondez pour';
         }
@@ -1870,7 +1954,7 @@
             return Promise.resolve(true);
         }
 
-        var label = document.getElementById('groups-detail-modal-label');
+        var label = document.getElementById('groups-detail-modal-title');
         if (label) {
             label.textContent = 'Épingler ce message';
         }
@@ -1949,7 +2033,7 @@
         if (!url || !modalEl || !modalBody || typeof bootstrap === 'undefined') {
             return;
         }
-        var label = document.getElementById('groups-detail-modal-label');
+        var label = document.getElementById('groups-detail-modal-title');
         if (label && title) {
             label.textContent = title;
         }
@@ -2049,9 +2133,12 @@
     // pasted anywhere — a bare "/groups/3/posts/12" would not.
     //
     // navigator.clipboard needs a secure context (https, or localhost) and
-    // is simply absent otherwise; window.prompt with the URL pre-selected
-    // is the honest fallback — the member can still copy it by hand,
-    // rather than the entry silently doing nothing.
+    // is simply absent otherwise; showing the URL, pre-selected, is the
+    // honest fallback — the member can still copy it by hand, rather than
+    // the entry silently doing nothing. The dialog is the site's own
+    // (design.md §7.5): window.prompt renders the origin above the
+    // sentence and labels its buttons in the browser's language, which for
+    // a "here, copy this" moment is pure noise.
     async function copyMessageLink(button) {
         var url = new URL(button.dataset.url, window.location.origin).href;
         var original = button.textContent;
@@ -2064,7 +2151,14 @@
             button.textContent = 'Lien copié';
             setTimeout(function () { button.textContent = original; }, 2000);
         } catch (e) {
-            window.prompt('Copiez le lien de ce message :', url);
+            await window.ScoutMagicConfirm.prompt({
+                message: 'Copiez le lien de ce message :',
+                title: 'Lien du message',
+                value: url,
+                readonly: true,
+                inputType: 'url',
+                confirmLabel: 'Fermer',
+            });
         }
     }
 

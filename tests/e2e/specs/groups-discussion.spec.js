@@ -64,6 +64,7 @@
 // .groups-reactions, .groups-reply-bubble).
 import { expect, test } from '@playwright/test';
 
+import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 // Shared with specs/groups-management.spec.js — see support/groups.js.
 import { openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
@@ -94,6 +95,11 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
             serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
         }
     });
+    // The deletions in step 7 stand behind the site's own confirmation
+    // modal (base.html.twig's data-confirm handler → window.ScoutMagicConfirm).
+    // Installed here rather than where it is needed, because the observer
+    // rides in on an init script and must precede the first navigation.
+    await autoConfirm(page);
 
     await loginAsAdmin(page);
 
@@ -334,7 +340,6 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     // so it has to be put back by the same code that took it away — a
     // group that says nothing at all after its last message is deleted is
     // how it used to read until the next reload.
-    page.on('dialog', (dialog) => dialog.accept());
     const emptyLine = page.getByText('Aucun message dans ce groupe pour le moment.');
     await expect(emptyLine).toBeHidden();
 
@@ -379,6 +384,10 @@ test('a comment from somebody else is announced as new, and can be reported with
             serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
         }
     });
+    // « Signaler » asks first, through the site's own confirmation modal
+    // (public/assets/js/groups.js → window.ScoutMagicConfirm). Installed
+    // before the first navigation: the observer is an init script.
+    await autoConfirm(page);
 
     // --- The section's group, and one announcement in it.
     await loginAsAdmin(page);
@@ -450,7 +459,6 @@ test('a comment from somebody else is announced as new, and can be reported with
     // --- Reporting it. Offered at all only because somebody else wrote it,
     // and answered where the reader is looking instead of by reloading the
     // whole group for one line of reassurance.
-    page.once('dialog', (dialog) => dialog.accept());
     const reply = page.locator('.groups-reply').first();
     await reply.getByRole('button', { name: 'Actions sur cette réponse' }).click();
     await reply.getByRole('button', { name: 'Signaler' }).click();

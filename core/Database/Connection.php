@@ -78,7 +78,20 @@ class Connection
     }
 
     /**
-     * Test the connection. Returns true on success, error message string on failure.
+     * Test the connection. Returns `true` on success, or — on failure — a
+     * short FRENCH sentence naming what the operator should check.
+     *
+     * The contract used to be "the PDOException's own message", which every
+     * caller displayed as-is: Core\Http\Controller\SetupController shows it
+     * in two JSON responses and one flash message. That put the DSN, the
+     * MySQL driver's English text and the account name it tried straight
+     * onto the setup page. The cut is made here rather than at the three
+     * display sites so there is one place to get it right, and so a fourth
+     * caller cannot reintroduce the leak by simply echoing the return value.
+     *
+     * The raw driver message is not lost — it goes to the PHP error log.
+     * The journal is deliberately not used: there is usually no working
+     * database to write it to at the moment this fails.
      */
     public function testConnection(): bool|string
     {
@@ -87,7 +100,35 @@ class Connection
             return true;
         } catch (\PDOException $e) {
             $this->pdo = null;
-            return $e->getMessage();
+            error_log('ScoutMagic database connection test failed: ' . $e->getMessage());
+
+            return self::describeConnectionFailure($e);
         }
+    }
+
+    /**
+     * Turns a PDO connection failure into the French sentence the operator
+     * sees. The three cases below cover what an operator typing database
+     * credentials into the setup form actually gets wrong; anything else
+     * falls through to the generic sentence rather than being guessed at.
+     */
+    private static function describeConnectionFailure(\PDOException $e): string
+    {
+        // getCode() is the SQLSTATE for a connection failure; the driver
+        // code (1045, 1049, 2002…) is only in errorInfo[1], which is null
+        // for some failures — hence matching on both, defensively.
+        $driverCode = is_array($e->errorInfo ?? null) ? ($e->errorInfo[1] ?? null) : null;
+
+        return match (true) {
+            $driverCode === 1045 || (string) $e->getCode() === '28000'
+                => 'Identifiant ou mot de passe de base de données refusé par le serveur.',
+            $driverCode === 1049
+                => 'La base de données indiquée n\'existe pas sur ce serveur — créez-la, ou corrigez son nom.',
+            $driverCode === 2002 || $driverCode === 2005
+                => 'Le serveur de base de données est injoignable — vérifiez l\'hôte et le port.',
+            default
+                => 'La connexion à la base de données a échoué — vérifiez l\'hôte, le port, le nom de la base '
+                    . 'et les identifiants.',
+        };
     }
 }

@@ -205,4 +205,40 @@ class ReactionRepository
 
         return $own;
     }
+
+    /**
+     * How many reactions landed in this group after $since, other
+     * people's only — the other half of the homepage's "réactions ou
+     * réponses" counter. The join back to the post (direct for the posts
+     * variant, through the reply for the replies one) is what scopes an
+     * item-keyed table to a group, and is also what excludes reactions
+     * sitting on content a moderator has since hidden.
+     *
+     * @param int[] $excludeMemberIds
+     */
+    public function countNewerForGroup(int $groupId, string $since, array $excludeMemberIds = []): int
+    {
+        $join = $this->itemColumn === 'post_id'
+            ? "INNER JOIN discussion_group_posts p ON p.id = x.post_id AND p.hidden_at IS NULL"
+            : "INNER JOIN discussion_group_replies r ON r.id = x.reply_id AND r.hidden_at IS NULL
+               INNER JOIN discussion_group_posts p ON p.id = r.post_id AND p.hidden_at IS NULL";
+
+        if ($excludeMemberIds === []) {
+            $stmt = $this->pdo->prepare(
+                "SELECT COUNT(*) FROM {$this->table} x {$join}
+                 WHERE p.group_id = ? AND x.created_at > ?"
+            );
+            $stmt->execute([$groupId, $since]);
+        } else {
+            $memberPlaceholders = implode(',', array_fill(0, count($excludeMemberIds), '?'));
+            $stmt = $this->pdo->prepare(
+                "SELECT COUNT(*) FROM {$this->table} x {$join}
+                 WHERE p.group_id = ? AND x.created_at > ?
+                   AND x.member_id NOT IN ({$memberPlaceholders})"
+            );
+            $stmt->execute([$groupId, $since, ...array_values($excludeMemberIds)]);
+        }
+
+        return (int) $stmt->fetchColumn();
+    }
 }

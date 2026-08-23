@@ -10,22 +10,20 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     deleteBtn.addEventListener('click', async function() {
-        if (!confirm('Supprimer le logo personnalisé ? Le favicon, les icônes de l\'application et le logo du pied de page reviendront aux icônes par défaut.')) {
+        var confirmed = await window.ScoutMagicConfirm.ask({
+            message: 'Supprimer le logo personnalisé ? Le favicon, les icônes de l\'application et le logo du pied de page reviendront aux icônes par défaut.',
+            confirmLabel: 'Supprimer'
+        });
+        if (!confirmed) {
             return;
         }
 
-        var csrf = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
-        var res = await fetch('/config/settings/logo-delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ _csrf_token: csrf ? csrf.content : '' })
-        });
-        var data = await res.json();
+        var res = await window.ScoutMagicApi.postJson('/config/settings/logo-delete', {});
 
-        if (data.success) {
+        if (res.data && res.data.success) {
             window.location.reload();
         } else {
-            alert(data.error || 'Une erreur est survenue.');
+            window.ScoutMagicToast.show((res.data && res.data.error) || 'Une erreur est survenue.', { variant: 'error' });
         }
     });
 });

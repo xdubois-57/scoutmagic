@@ -23,6 +23,7 @@ use Core\View\MonthGrid\DayStateGridBuilder;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
@@ -371,8 +372,8 @@ class RentalManagementController extends AbstractController
      */
     private function complianceAction(Request $request, callable $work): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -383,7 +384,7 @@ class RentalManagementController extends AbstractController
         try {
             $work($asset);
         } catch (RentalException | UploadException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/conformite');
@@ -572,6 +573,10 @@ class RentalManagementController extends AbstractController
             'breadcrumb_trail' => $this->bookingTrail($asset),
             'milestones' => BookingMilestones::for($booking, $now),
             'allowed_transitions' => BookingTransition::allowedFrom($booking->status),
+            // Keyed by status value so the template can ask "does this
+            // button write to the renter?" without knowing which statuses
+            // do — that answer belongs to Booking\RenterDecision alone.
+            'renter_decisions' => self::renterDecisionPrompts(BookingTransition::allowedFrom($booking->status)),
             'can_confirm' => BookingTransition::isAllowed($booking->status, BookingStatus::CONFIRMED),
             'quote' => $this->operationsService->workingQuote($booking, $asset),
             'price_is_agreed' => $booking->priceHasBeenAgreed(),
@@ -890,7 +895,15 @@ class RentalManagementController extends AbstractController
                     RentalDocumentService::OWNER_TYPE,
                     $booking->id
                 );
-            } catch (\Throwable $e) {
+            } catch (UploadException $e) {
+                // Narrow on purpose. UploadException's messages are French
+                // and user-facing (« Le fichier dépasse la taille maximale
+                // autorisée (10 Mo). »), so forwarding one is the point —
+                // it is the only thing that tells the manager what to do.
+                // A \Throwable from anywhere else has nothing to say to
+                // them and must not be dressed up as if it did; it now
+                // reaches the error handler instead. This method's callers
+                // catch RentalException, hence the re-throw.
                 throw new RentalException($e->getMessage(), 0, $e);
             }
 
@@ -1248,8 +1261,8 @@ class RentalManagementController extends AbstractController
      */
     private function assetSetupAction(Request $request, callable $work): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1260,7 +1273,7 @@ class RentalManagementController extends AbstractController
         try {
             $work($asset);
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
@@ -1274,8 +1287,8 @@ class RentalManagementController extends AbstractController
      */
     public function saveCalendarPublication(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1301,7 +1314,7 @@ class RentalManagementController extends AbstractController
         if ($enabled && $calendarIds === []) {
             // Half-configured is worse than off: an asset that says
             // "publish" but has nowhere to publish to looks like it works.
-            FlashMessage::set('danger', 'Choisissez au moins un calendrier sur lequel publier cette occupation.');
+            FlashMessage::set('error', 'Choisissez au moins un calendrier sur lequel publier cette occupation.');
 
             return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
         }
@@ -1330,8 +1343,8 @@ class RentalManagementController extends AbstractController
      */
     public function saveTemplate(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1463,7 +1476,9 @@ class RentalManagementController extends AbstractController
                         RentalDocumentService::OWNER_TYPE,
                         $booking->id
                     );
-                } catch (\Throwable $e) {
+                } catch (UploadException $e) {
+                    // Narrow on purpose — see the identical catch in
+                    // uploadDocument() above.
                     throw new RentalException($e->getMessage(), 0, $e);
                 }
             }
@@ -1533,7 +1548,9 @@ class RentalManagementController extends AbstractController
                         RentalDocumentService::OWNER_TYPE,
                         $booking->id
                     );
-                } catch (\Throwable $e) {
+                } catch (UploadException $e) {
+                    // Narrow on purpose — see the identical catch in
+                    // uploadDocument() above.
                     throw new RentalException($e->getMessage(), 0, $e);
                 }
             }
@@ -1640,15 +1657,25 @@ class RentalManagementController extends AbstractController
             }
 
             $now = new \DateTimeImmutable();
+            $word = self::optionalString($request->getBody('message'));
+
             if ($target === BookingStatus::CONFIRMED) {
                 $this->operationsService->confirm($booking, $asset, $this->actorMemberId(), $now);
-                FlashMessage::set('success', 'Réservation confirmée.');
+                FlashMessage::set(
+                    'success',
+                    'Réservation confirmée.'
+                    . $this->tellRenter($booking, $asset, RenterDecision::CONFIRMED, $word)
+                );
 
                 return;
             }
 
             $this->operationsService->changeStatus($booking, $target, $this->actorMemberId(), $now);
-            FlashMessage::set('success', 'Réservation « ' . $target->label() . ' ».');
+            FlashMessage::set(
+                'success',
+                'Réservation « ' . $target->label() . ' ».'
+                . $this->tellRenter($booking, $asset, RenterDecision::forStatus($target), $word)
+            );
         });
     }
 
@@ -1756,7 +1783,7 @@ class RentalManagementController extends AbstractController
      */
     public function propose(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
             $kind = ChangeRequestKind::tryFrom((string) $request->getBody('kind', ''));
             if ($kind === null) {
                 throw new RentalException("Ce type de proposition n'existe pas.");
@@ -1775,9 +1802,17 @@ class RentalManagementController extends AbstractController
                 $this->actorMemberId()
             );
 
+            // The flash used to say « Proposition envoyée » while nothing
+            // had been sent to anyone. It now says what actually left.
             FlashMessage::set(
                 'success',
-                'Proposition envoyée. Elle ne change rien tant que le locataire ne l\'a pas acceptée.'
+                'Proposition enregistrée. Elle ne change rien tant que le locataire ne l\'a pas acceptée.'
+                . $this->tellRenter(
+                    $booking,
+                    $asset,
+                    RenterDecision::PROPOSED,
+                    self::optionalString($request->getBody('message'))
+                )
             );
         });
     }
@@ -1795,6 +1830,8 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("Cette demande n'existe pas.");
             }
 
+            $word = self::optionalString($request->getBody('message'));
+
             if ((string) $request->getBody('decision', '') === 'accept') {
                 $this->operationsService->acceptChange(
                     $changeRequest,
@@ -1804,13 +1841,26 @@ class RentalManagementController extends AbstractController
                     $this->actorMemberId(),
                     new \DateTimeImmutable()
                 );
-                FlashMessage::set('success', 'Demande acceptée et appliquée.');
+                // Re-read: accepting a change rewrites the dates, and the
+                // copy in hand is from before that — the email has to
+                // quote the booking the renter now has, not the one they
+                // asked to leave behind.
+                $updated = $this->bookingRepository->findById($booking->id) ?? $booking;
+                FlashMessage::set(
+                    'success',
+                    'Demande acceptée et appliquée.'
+                    . $this->tellRenter($updated, $asset, RenterDecision::CHANGE_ACCEPTED, $word)
+                );
 
                 return;
             }
 
             $this->operationsService->refuseChange($changeRequest, ChangeRequestOrigin::MANAGER, $this->actorMemberId());
-            FlashMessage::set('success', 'Demande refusée. La réservation est inchangée.');
+            FlashMessage::set(
+                'success',
+                'Demande refusée. La réservation est inchangée.'
+                . $this->tellRenter($booking, $asset, RenterDecision::CHANGE_REFUSED, $word)
+            );
         });
     }
 
@@ -1821,8 +1871,8 @@ class RentalManagementController extends AbstractController
      */
     public function createBlock(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1858,7 +1908,7 @@ class RentalManagementController extends AbstractController
                         . 'Les deux coexistent — traitez chaque réservation individuellement.'
             );
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/calendrier');
@@ -1871,8 +1921,8 @@ class RentalManagementController extends AbstractController
      */
     public function deleteBlock(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1884,13 +1934,81 @@ class RentalManagementController extends AbstractController
             $this->blockService->delete($asset->id, (int) $request->getBody('block_id', 0));
             FlashMessage::set('success', 'Blocage supprimé.');
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/calendrier');
     }
 
     // ── Internals ───────────────────────────────────────────────────────
+
+    /**
+     * For each transition offered, the question and the note label of the
+     * email it would send — or nothing at all for the ones that write to
+     * nobody.
+     *
+     * @param list<BookingStatus> $targets
+     * @return array<string, array{question: string, note_label: string}>
+     */
+    private static function renterDecisionPrompts(array $targets): array
+    {
+        $prompts = [];
+        foreach ($targets as $target) {
+            $decision = RenterDecision::forStatus($target);
+            if ($decision !== null) {
+                $prompts[$target->value] = [
+                    'question' => $decision->question(),
+                    'note_label' => $decision->noteLabel(),
+                ];
+            }
+        }
+
+        return $prompts;
+    }
+
+
+    /**
+     * Tells the renter what was just decided, and says so in the flash.
+     *
+     * Returns the sentence to append to the manager's own confirmation —
+     * « … Le locataire a été prévenu par email. » — because the manager
+     * needs to know whether the message left. Silence would leave them
+     * guessing, and guessing here ends with a second phone call.
+     *
+     * A null decision means nothing was decided that the renter should
+     * hear about (a booking moved to « en cours d'examen », a hold that
+     * lapsed) — see RenterDecision::forStatus(). Nothing is sent and
+     * nothing is added to the flash.
+     *
+     * Never throws. A decision is already recorded by the time this runs,
+     * and an SMTP timeout must not turn a confirmed booking into a red
+     * error page suggesting it failed.
+     */
+    private function tellRenter(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        ?RenterDecision $decision,
+        ?string $managerWord
+    ): string {
+        if ($decision === null || $this->mailService === null) {
+            return '';
+        }
+
+        $sent = $this->mailService->sendDecision(
+            $booking,
+            $asset,
+            $decision,
+            $decision->carriesTheTrackingLink()
+                ? $this->bookingRepository->trackingTokenOf($booking->id)
+                : null,
+            $managerWord
+        );
+
+        return $sent
+            ? ' Le locataire a été prévenu par email.'
+            : " L'email au locataire n'a pas pu partir : prévenez-le autrement.";
+    }
+
 
     /**
      * The shared shape of every booking write: CSRF, authorisation, the
@@ -1904,8 +2022,8 @@ class RentalManagementController extends AbstractController
      */
     private function bookingAction(Request $request, callable $work): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1921,7 +2039,7 @@ class RentalManagementController extends AbstractController
         try {
             $work($booking, $asset);
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect($this->bookingUrl($asset, $booking));
@@ -1937,8 +2055,8 @@ class RentalManagementController extends AbstractController
      */
     private function stayAction(Request $request, callable $work): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1954,7 +2072,7 @@ class RentalManagementController extends AbstractController
         try {
             $work($booking, $asset);
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect(

@@ -3,7 +3,7 @@
 {% block title %}Modules — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Modules</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Modules' } only %}
 
     <p class="text-body-secondary small mb-3">
         Activez ou désactivez les fonctionnalités du site. Les pages et paramètres d'un module
@@ -22,19 +22,21 @@
             <div class="d-flex align-items-center gap-2 flex-wrap">
                 <span class="fw-semibold">{{ item.info.manifest.name }}</span>
                 {% if item.info.enabled %}
-                    <span class="badge bg-success-subtle text-success-emphasis">Actif</span>
+                    {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Actif' } only %}
                 {% else %}
-                    <span class="badge bg-secondary-subtle text-secondary-emphasis">Inactif</span>
+                    {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'Inactif' } only %}
                 {% endif %}
                 <span class="text-body-tertiary" style="font-size:0.75rem;">
                     v{{ item.info.manifest.version }}
                 </span>
                 {% if item.info.validationError %}
-                    <span class="badge bg-danger-subtle text-danger-emphasis"
+                    {# Keeps its title tooltip (the validation error text),
+                       which the shared status_badge cannot carry. #}
+                    <span class="badge text-bg-danger"
                           title="{{ item.info.validationError }}">Erreur</span>
                 {% endif %}
                 {% if not item.info.presentOnDisk %}
-                    <span class="badge bg-warning-subtle text-warning-emphasis">Manquant</span>
+                    <span class="badge text-bg-warning">Manquant</span>
                 {% endif %}
             </div>
             {% if item.info.manifest.description %}

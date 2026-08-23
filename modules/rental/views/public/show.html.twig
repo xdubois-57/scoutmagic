@@ -30,19 +30,21 @@
   mechanism as the banner module.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 900px;">
-        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-            <div>
-                <h1 class="h3 mb-1">{{ asset.name }}</h1>
-                <p class="text-body-secondary mb-0">{{ asset.assetType }}</p>
-            </div>
-            {% if can_manage %}
-                {# Straight to THIS asset's managed space — landing on the
-                   list and having to find the asset again was a detour the
-                   button's own label promised not to take. #}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: asset.name,
+            subtitle: asset.assetType,
+        } only %}
+        {% if can_manage %}
+            {# Straight to THIS asset's managed space — landing on the
+               list and having to find the asset again was a detour the
+               button's own label promised not to take. Outline, not the
+               page's primary: the visitor-facing estimate/request flow
+               keeps the one btn-primary of this screen. #}
+            <p class="mb-3">
                 <a href="/mes-locations/{{ asset.slug }}" class="btn btn-outline-primary">Gérer ce bien</a>
-            {% endif %}
-        </div>
+            </p>
+        {% endif %}
 
         {% if not asset.isPubliclyVisible %}
             <div class="alert alert-warning">

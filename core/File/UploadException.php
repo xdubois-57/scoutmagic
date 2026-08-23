@@ -8,6 +8,14 @@ declare(strict_types=1);
 
 namespace Core\File;
 
-class UploadException extends \RuntimeException
+/**
+ * A refused upload, stated in French for the visitor who made it — a
+ * missing file, a type that is not accepted, a file over the size limit,
+ * an image too large to decode safely.
+ *
+ * Marked {@see \Core\Exception\UserFacingException}: every message this
+ * class is constructed with is written for the person uploading.
+ */
+class UploadException extends \RuntimeException implements \Core\Exception\UserFacingException
 {
 }

@@ -3,7 +3,7 @@
 {% block title %}Contact — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Contact</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Contact' } only %}
 
     {{ editable('contact.text', '<p>Contactez-nous pour toute question concernant notre unité scoute.</p>') }}
 
@@ -27,7 +27,7 @@
             {% if staffdu_staff|length > 0 %}
             <div class="card mb-4">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-people"></i> Staff d'Unité</h5>
+                    <h5 class="card-title"><i class="bi bi-people" aria-hidden="true"></i> Staff d'Unité</h5>
                     <ul class="list-unstyled mb-0">
                         {% for member in staffdu_staff %}
                             <li>
@@ -45,7 +45,7 @@
             {% if param('contact_email') %}
             <div class="card mb-4">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-envelope"></i> Email</h5>
+                    <h5 class="card-title"><i class="bi bi-envelope" aria-hidden="true"></i> Email</h5>
                     <p class="card-text"><a href="mailto:{{ param('contact_email') }}">{{ param('contact_email') }}</a></p>
                 </div>
             </div>

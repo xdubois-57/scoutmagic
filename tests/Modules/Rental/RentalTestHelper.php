@@ -182,7 +182,7 @@ class RentalTestHelper
             privacy_version TEXT,
             privacy_hash TEXT,
             privacy_acknowledged_at TEXT,
-            tracking_token_hash TEXT NOT NULL,
+            tracking_token_encrypted BLOB NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE

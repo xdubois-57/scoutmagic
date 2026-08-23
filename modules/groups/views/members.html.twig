@@ -3,17 +3,33 @@
 {% block title %}Membres — {{ group_label|default(group.name) }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {% include '@groups/partials/group_header.html.twig' with { badges: { is_invitation: group.sectionId is null, section_names: derived_sections, is_archived: false, is_moderator: can_moderate } } %}
+    {#
+      `only`, and exactly the variables the header needs here: this page's
+      own context carries `can_moderate` (it gates the invite and removal
+      controls below), and letting it leak into the partial used to render
+      the Clôturer/Rouvrir buttons on the members page — plus, `can_reopen`
+      never being passed, the "il ne peut plus être rouvert" line on ANY
+      closed group, current year included. Those belong to the group's own
+      page (GroupController::show()), the only caller that resolves them.
+    #}
+    {% include '@groups/partials/group_header.html.twig' with {
+        group: group,
+        group_label: group_label,
+        badges: { is_invitation: group.sectionId is null, section_names: derived_sections, is_archived: false, is_moderator: can_moderate }
+    } only %}
 
     <div class="card mb-3">
         <div class="card-body">
             <h2 class="h6 mb-2">Sections</h2>
             {% if derived_sections is empty %}
-                <p class="small text-body-secondary mb-0">Aucune section liée : ce groupe fonctionne uniquement sur invitation.</p>
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucune section liée : ce groupe fonctionne uniquement sur invitation.',
+                    compact: true,
+                } only %}
             {% else %}
                 <div class="d-flex flex-wrap gap-2 mb-2">
                     {% for name in derived_sections %}
-                        <span class="badge bg-info-subtle text-info-emphasis">{{ name }}</span>
+                        <span class="badge text-bg-info">{{ name }}</span>
                     {% endfor %}
                 </div>
                 <p class="small text-body-secondary mb-0">
@@ -27,14 +43,14 @@
                     {{ csrf_field()|raw }}
                     <div class="col-12 col-md-8">
                         <label class="form-label small mb-1" for="invite-section">Ajouter une section</label>
-                        <select class="form-select" id="invite-section" name="section_id" style="min-height:44px;">
+                        <select class="form-select" id="invite-section" name="section_id">
                             {% for section in sections %}
                                 <option value="{{ section.id }}">{{ section.name ?? section.desk_code }}</option>
                             {% endfor %}
                         </select>
                     </div>
                     <div class="col-12 col-md-4 d-flex align-items-end">
-                        <button type="submit" class="btn btn-outline-primary w-100" style="min-height:44px;">Ajouter</button>
+                        <button type="submit" class="btn btn-outline-primary w-100">Ajouter</button>
                     </div>
                 </form>
             {% endif %}
@@ -45,7 +61,10 @@
         <div class="card-body">
             <h2 class="h6 mb-2">Membres invités</h2>
             {% if explicit_members is empty %}
-                <p class="small text-body-secondary mb-0">Aucun membre invité individuellement.</p>
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun membre invité individuellement.',
+                    compact: true,
+                } only %}
             {% else %}
                 <div class="list-group list-group-flush">
                     {% for row in explicit_members %}
@@ -59,10 +78,10 @@
                                     <span class="fw-semibold">Membre #{{ row.member_id }}</span>
                                 {% endif %}
                                 {% if row.is_moderator %}
-                                    <span class="badge bg-primary-subtle text-primary-emphasis">Modérateur</span>
+                                    <span class="badge text-bg-primary">Modérateur</span>
                                 {% endif %}
                                 {% if row.moderation_unbound|default(false) %}
-                                    <span class="badge bg-warning-subtle text-warning-emphasis">Modération à réattribuer</span>
+                                    {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Modération à réattribuer' } only %}
                                 {% endif %}
                             </div>
                             {% if can_moderate %}
@@ -86,15 +105,29 @@
                                         </span>
                                     {% else %}
                                         <div class="d-flex flex-column gap-1">
+                                            {#
+                                              How the confirmation below names the person: the account when
+                                              one is known (the same name the row itself shows), the member
+                                              number otherwise — never nothing.
+                                            #}
+                                            {% set member_display_name = row.identity and row.identity.account_name
+                                                ? row.identity.account_name
+                                                : 'Membre #' ~ row.member_id %}
                                             {% for login in row.logins %}
+                                                {#
+                                                  data-confirm on the revoke only (base.html.twig's site-wide
+                                                  handler): granting is reversible in the same click it took,
+                                                  while revoking strips a power — and on the last moderator the
+                                                  server refuses it outright (GroupService::setModerator).
+                                                #}
                                                 <form method="post" action="/groups/{{ group.id }}/moderator"
-                                                      class="d-flex align-items-center gap-2">
+                                                      class="d-flex align-items-center gap-2"
+                                                      {% if login.is_moderator %}data-confirm="Retirer la modération à {{ member_display_name }} ?"{% endif %}>
                                                     {{ csrf_field()|raw }}
                                                     <input type="hidden" name="member_id" value="{{ row.member_id }}">
                                                     <input type="hidden" name="user_account_id" value="{{ login.id }}">
                                                     <input type="hidden" name="is_moderator" value="{{ login.is_moderator ? '0' : '1' }}">
-                                                    <button type="submit" class="btn btn-sm {{ login.is_moderator ? 'btn-outline-primary' : 'btn-outline-secondary' }} d-flex align-items-center"
-                                                            style="min-height:44px;">
+                                                    <button type="submit" class="btn btn-sm {{ login.is_moderator ? 'btn-outline-primary' : 'btn-outline-secondary' }} d-flex align-items-center">
                                                         {{ login.is_moderator ? 'Retirer la modération' : 'Nommer modérateur' }}
                                                     </button>
                                                     <span class="small text-body-secondary text-break">{{ login.email }}</span>
@@ -106,8 +139,8 @@
                                           data-confirm="Retirer ce membre du groupe ?">
                                         {{ csrf_field()|raw }}
                                         <input type="hidden" name="member_id" value="{{ row.member_id }}">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger d-flex align-items-center" style="min-height:44px;">
-                                            <i class="bi bi-x-lg"></i><span class="visually-hidden">Retirer</span>
+                                        <button type="submit" class="btn btn-sm btn-outline-danger d-flex align-items-center">
+                                            <i class="bi bi-x-lg" aria-hidden="true"></i><span class="visually-hidden">Retirer</span>
                                         </button>
                                     </form>
                                 </div>
@@ -145,7 +178,7 @@
                                autocomplete="off" placeholder="Rechercher par nom, prénom ou totem…">
                         <ul class="list-group mt-1 d-none position-absolute w-100" style="z-index:5;" id="invite-member-results"></ul>
                         <label class="visually-hidden" for="invite-member">Membre à inviter</label>
-                        <select class="form-select" id="invite-member" name="member_id" style="min-height:44px;">
+                        <select class="form-select" id="invite-member" name="member_id">
                             <option value="" selected>— Choisir —</option>
                             {% for group_option in invite_candidates %}
                                 <optgroup label="{{ group_option.section }}">
@@ -157,7 +190,7 @@
                         </select>
                     </div>
                     <div class="col-12 col-md-4 d-flex align-items-end">
-                        <button type="submit" class="btn btn-primary w-100" style="min-height:44px;">Inviter</button>
+                        <button type="submit" class="btn btn-primary w-100">Inviter</button>
                     </div>
                     {#
                       Off by default, deliberately: a moderator filling a
@@ -169,10 +202,10 @@
                       other checkbox in this codebase.
                     #}
                     <div class="col-12">
-                        <div class="form-check d-flex align-items-center gap-2 mb-0" style="min-height:44px;">
+                        <div class="form-check d-flex align-items-center gap-2 mb-0">
                             <input class="form-check-input mt-0" type="checkbox" value="1" id="invite-notify" name="notify">
                             <label class="form-check-label small text-body-secondary d-flex align-items-center"
-                                   for="invite-notify" style="min-height:44px;">
+                                   for="invite-notify">
                                 Prévenir cette personne qu'elle a été invitée
                             </label>
                         </div>
@@ -193,8 +226,8 @@
                 <form method="post" action="/groups/{{ group.id }}/leave"
                       data-confirm="Quitter ce groupe ? Vous perdrez l'accès à ses messages, et il faudra une nouvelle invitation pour y revenir.">
                     {{ csrf_field()|raw }}
-                    <button type="submit" class="btn btn-outline-danger d-flex align-items-center" style="min-height:44px;">
-                        <i class="bi bi-box-arrow-right me-1"></i> Quitter ce groupe
+                    <button type="submit" class="btn btn-outline-danger d-flex align-items-center">
+                        <i class="bi bi-box-arrow-right me-1" aria-hidden="true"></i> Quitter ce groupe
                     </button>
                     <p class="small text-body-secondary mt-2 mb-0">
                         Vos messages et vos réponses restent dans le groupe.

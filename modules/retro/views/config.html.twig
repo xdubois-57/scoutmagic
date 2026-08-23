@@ -1,29 +1,42 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ board ? 'Modifier' : 'Nouvelle' }} rétrospective — {{ param('site_name') }}{% endblock %}
 {% block content %}
-    <div class="container py-4" style="max-width: 640px;">
-        <h1 class="h3 mb-1">{{ board ? 'Modifier la rétrospective' : 'Nouvelle rétrospective' }}</h1>
-        <p class="text-body-secondary small mb-4">
-            {{ board ? 'Ces réglages s\'appliquent tant que le board est ouvert.' : 'Le lien et le QR code sont générés à la création.' }}
-        </p>
+    <div class="page-narrow">
+        {% include 'partials/page_header.html.twig' with {
+            title: board ? 'Modifier la rétrospective' : 'Nouvelle rétrospective',
+            subtitle: board ? "Ces réglages s'appliquent tant que le board est ouvert." : 'Le lien et le QR code sont générés à la création.',
+        } only %}
 
         <form method="post" action="{{ board ? '/retro/' ~ board.id : '/retro' }}" class="card">
             <div class="card-body d-flex flex-column gap-3">
                 {{ csrf_field()|raw }}
 
                 <div>
-                    <label class="form-label small fw-semibold" for="retro-title">Titre</label>
-                    <input type="text" class="form-control" id="retro-title" name="title" required maxlength="150"
-                           value="{{ board ? board.title : '' }}" {{ (board and board.calendarEventId) ? 'disabled' : '' }}>
-                    <div class="form-text">Si un événement est lié, le titre est généré automatiquement à partir de son nom et ne peut plus être modifié ici.</div>
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'retro-title',
+                        field_name: 'title',
+                        label: 'Titre',
+                        value: board ? board.title : '',
+                        maxlength: 150,
+                        required: true,
+                        disabled: board and board.calendarEventId,
+                        help: "Si un événement est lié, le titre est généré automatiquement à partir de son nom et ne peut plus être modifié ici.",
+                        size: 'sm',
+                    } only %}
                 </div>
 
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
-                        <label class="form-label small fw-semibold" for="retro-date">Date</label>
-                        <input type="date" class="form-control" id="retro-date" name="board_date"
-                               value="{{ board ? board.boardDate : '' }}" {{ (board and board.calendarEventId) ? 'disabled' : '' }}>
-                        <div class="form-text">Si un événement est lié, la date se cale automatiquement sur sa date de fin et ne peut plus être modifiée ici.</div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'retro-date',
+                            field_name: 'board_date',
+                            label: 'Date',
+                            type: 'date',
+                            value: board ? board.boardDate : '',
+                            disabled: board and board.calendarEventId,
+                            help: "Si un événement est lié, la date se cale automatiquement sur sa date de fin et ne peut plus être modifiée ici.",
+                            size: 'sm',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-6">
                         <label class="form-label small fw-semibold" for="retro-event">Événement lié</label>
@@ -149,26 +162,26 @@
                             <option value="{{ option.value }}" {{ (board ? board.linkVisibility : 'chief') == option.value ? 'selected' : '' }}>{{ option.label }}</option>
                         {% endfor %}
                     </select>
-                    <div class="form-text">Quand un événement est lié, seule l'audience minimale choisie ici verra le lien vers cette rétrospective dans le calendrier et dans le flux ICS personnel — « Chef » par défaut.</div>
+                    <div class="form-text">Quand un événement est lié, seule l'audience minimale choisie ici verra le lien vers cette rétrospective dans le calendrier et dans le flux ICS personnel — « Animateur » par défaut.</div>
                 </div>
             </div>
-            <div class="card-footer d-flex gap-2 bg-white">
+            <div class="card-footer d-flex gap-2 bg-body">
                 <a href="/retro" class="btn btn-outline-secondary flex-fill">Annuler</a>
-                <button type="submit" class="btn btn-success flex-fill">
+                <button type="submit" class="btn btn-primary flex-fill">
                     {{ board ? 'Enregistrer' : 'Créer la rétrospective' }}
                 </button>
             </div>
         </form>
 
         {% if board %}
-            <div class="d-flex align-items-center gap-2 bg-white border rounded px-3 py-2 mt-3 flex-wrap">
+            <div class="d-flex align-items-center gap-2 bg-body border rounded px-3 py-2 mt-3 flex-wrap">
                 <span class="small fw-semibold">Lien de participation :</span>
                 <span class="small text-body-secondary text-break flex-grow-1">{{ public_url }}</span>
                 <form method="post" action="/retro/{{ board.id }}/regenerate-link" class="m-0"
-                      onsubmit="return confirm('Générer un nouveau lien rend immédiatement l\'ancien inaccessible pour tout le monde, y compris ceux qui l\'ont déjà reçu ou scanné. Les mots et votes déjà publiés sont conservés. Continuer ?');">
+                      data-confirm="Générer un nouveau lien rend immédiatement l'ancien inaccessible pour tout le monde, y compris ceux qui l'ont déjà reçu ou scanné. Les mots et votes déjà publiés sont conservés. Continuer ?">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-outline-secondary btn-sm text-nowrap">
-                        <i class="bi bi-arrow-repeat"></i> Régénérer le lien
+                        <i class="bi bi-arrow-repeat" aria-hidden="true"></i> Régénérer le lien
                     </button>
                 </form>
             </div>
@@ -176,31 +189,31 @@
             <div class="mt-2 d-flex gap-2">
                 {% if board.status == 'open' %}
                     <form method="post" action="/retro/{{ board.id }}/close"
-                          onsubmit="return confirm('Clôturer cette rétrospective ? Plus aucun mot ni vote ne sera accepté après.');">
+                          data-confirm="Clôturer cette rétrospective ? Plus aucun mot ni vote ne sera accepté après.">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-danger btn-sm">
-                            <i class="bi bi-lock"></i> Clôturer maintenant
+                            <i class="bi bi-lock" aria-hidden="true"></i> Clôturer maintenant
                         </button>
                     </form>
                 {% elseif board.status == 'closed' %}
                     <form method="post" action="/retro/{{ board.id }}/reopen"
-                          onsubmit="return confirm('Réouvrir cette rétrospective ? Les participants pourront à nouveau ajouter des mots et voter.');">
+                          data-confirm="Réouvrir cette rétrospective ? Les participants pourront à nouveau ajouter des mots et voter.">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-success btn-sm">
-                            <i class="bi bi-unlock"></i> Réouvrir
+                            <i class="bi bi-unlock" aria-hidden="true"></i> Réouvrir
                         </button>
                     </form>
                     <form method="post" action="/retro/{{ board.id }}/archive">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-archive"></i> Archiver
+                            <i class="bi bi-archive" aria-hidden="true"></i> Archiver
                         </button>
                     </form>
                 {% elseif board.status == 'archived' %}
                     <form method="post" action="/retro/{{ board.id }}/unarchive">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-box-arrow-up"></i> Désarchiver
+                            <i class="bi bi-box-arrow-up" aria-hidden="true"></i> Désarchiver
                         </button>
                     </form>
                 {% endif %}

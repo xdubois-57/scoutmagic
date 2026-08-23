@@ -1,0 +1,39 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The site's status vocabulary, in one place (design.md §7.4 companion).
+
+  Status badges are the densest visual vocabulary on the site (~250 of
+  them) and used to be drawn in three concurrent Bootstrap generations
+  (bg-*, bg-*-subtle, text-bg-*) with the same business state coloured
+  four different ways across pages — « En attente » was blue here, orange
+  there. A colour code nobody can learn protects nothing. One severity →
+  one colour, everywhere:
+
+      pending / waiting / scheduled  → warning  (amber: needs someone)
+      active / confirmed / done      → success  (green: all is well)
+      refused / failed / blocked     → danger   (red: went wrong)
+      closed / inactive / neutral    → secondary (grey: nothing to do)
+      draft / info                   → info     (teal: informational)
+
+  Usage:
+  {% include 'partials/status_badge.html.twig' with {
+      status: 'pending',            -- semantic key, table below
+      label: "En attente d'examen", -- the words, domain-specific
+  } only %}
+
+  `status` accepts the exact keys listed in _tones below; anything else
+  renders secondary — an unknown state is a grey fact, never a silent
+  green. text-bg-* (Bootstrap 5.3) guarantees the text contrast on every
+  tone, which neither bg-* nor bg-*-subtle did.
+#}
+{% set _tones = {
+    'pending': 'warning', 'waiting': 'warning', 'scheduled': 'warning', 'in_progress': 'warning',
+    'active': 'success', 'confirmed': 'success', 'accepted': 'success', 'done': 'success', 'success': 'success', 'encoded': 'success',
+    'refused': 'danger', 'failed': 'danger', 'error': 'danger', 'blocked': 'danger', 'expired': 'danger',
+    'closed': 'secondary', 'inactive': 'secondary', 'cancelled': 'secondary', 'withdrawn': 'secondary', 'archived': 'secondary', 'neutral': 'secondary',
+    'draft': 'info', 'info': 'info',
+} %}
+<span class="badge text-bg-{{ _tones[status|default('neutral')]|default('secondary') }}">{{ label }}</span>

@@ -51,6 +51,9 @@ class MailSandboxController extends AbstractController
         );
 
         return $this->render('@test_tools/mail_sandbox.html.twig', [
+            'breadcrumb_trail' => [
+                ['label' => 'Outils de test', 'url' => '/test-tools'],
+            ],
             'armed' => $this->sandboxService->armed(),
             'filters' => $filters,
             'emails' => $this->sandboxService->page(
@@ -86,6 +89,10 @@ class MailSandboxController extends AbstractController
         }
 
         return $this->render('@test_tools/mail_detail.html.twig', [
+            'breadcrumb_trail' => [
+                ['label' => 'Outils de test', 'url' => '/test-tools'],
+                ['label' => 'Bac à sable e-mail', 'url' => '/test-tools/mail-sandbox'],
+            ],
             'email' => $email,
             'html_body' => $this->sandboxService->htmlBody($email),
             'text_body' => $this->sandboxService->textBody($email),
@@ -108,8 +115,8 @@ class MailSandboxController extends AbstractController
      */
     public function empty(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton de sécurité invalide.', 400);
+        if (($guard = $this->guardCsrf($request, '/test-tools/mail-sandbox')) !== null) {
+            return $guard;
         }
 
         if ((string) $request->getBody('confirmation', '') !== MailSandboxService::CONFIRMATION_WORD) {
@@ -131,8 +138,8 @@ class MailSandboxController extends AbstractController
      */
     public function toggleCapture(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton de sécurité invalide.', 400);
+        if (($guard = $this->guardCsrf($request, '/test-tools/mail-sandbox')) !== null) {
+            return $guard;
         }
 
         $this->sandboxService->setArmed(

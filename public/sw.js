@@ -122,6 +122,18 @@ const APP_SHELL_BASE_URLS = [
     '/assets/css/app.css',
     '/assets/css/editable.css',
     '/assets/css/components.css',
+    // The four toolboxes base.html.twig loads on every page, ahead of any
+    // page's own scripts. They were missing here until a test started
+    // comparing this list against base.html.twig: offline, the shell
+    // rendered without window.ScoutMagicApi (every fetch helper gone),
+    // without ScoutMagicToast and ScoutMagicConfirm (every confirmation
+    // silently inert — a « Supprimer » that does nothing at all), and
+    // without theme.js, which repaints the saved dark theme.
+    '/assets/js/api.js',
+    '/assets/js/toast.js',
+    '/assets/js/confirm.js',
+    '/assets/js/rich-text-link.js',
+    '/assets/js/theme.js',
     '/assets/js/nav.js',
     '/assets/js/editable.js',
     '/assets/js/cookie-consent.js',

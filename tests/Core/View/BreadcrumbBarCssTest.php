@@ -46,4 +46,43 @@ class BreadcrumbBarCssTest extends TestCase
             $this->css
         );
     }
+
+    /**
+     * The « / » between two crumbs must sit on the text's baseline, not
+     * float to the top of the tallest crumb in the row.
+     *
+     * Bootstrap floats it. That is invisible while every crumb is plain
+     * text of the same height — and wrong the moment one is not. A
+     * `parents` entry matching a menu renders as a real <button>
+     * (partials/breadcrumb_bar.html.twig), and app.css's touch baseline
+     * gives every .btn `min-height: 44px` under `(pointer: coarse)`. So
+     * on a phone that crumb's <li> is 44px tall next to 24px neighbours,
+     * and the separator floated ten pixels above the words it separates.
+     *
+     * Only a coarse pointer shows it, which is why a desktop review pass
+     * and every screenshot taken with a mouse missed it — reported from
+     * a real phone instead.
+     */
+    public function testTheSeparatorDoesNotFloatAboveATallerCrumb(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/\.breadcrumb-bar \.breadcrumb-item \+ \.breadcrumb-item::before \{\s*float: none;/',
+            $this->css,
+            'Bootstrap floats the breadcrumb separator; inside this bar it has to stay in the line box.'
+        );
+    }
+
+    /**
+     * The condition the rule above exists to survive. If the touch
+     * baseline ever stops inflating .btn, the separator is no longer at
+     * risk — but while it does, the two belong together, and a reader of
+     * either should find the other.
+     */
+    public function testTheTouchBaselineStillInflatesButtons(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/@media \(pointer: coarse\) \{.*?\.btn \{\s*min-height: 44px;/s',
+            $this->css
+        );
+    }
 }

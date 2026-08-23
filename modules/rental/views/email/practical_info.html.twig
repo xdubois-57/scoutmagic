@@ -14,7 +14,7 @@
 
 <p>
     Votre séjour à <strong>{{ asset.name }}</strong> approche : arrivée le
-    {{ booking.arrivalDate|date('d/m/Y') }}, départ le {{ booking.departureDate|date('d/m/Y') }}.
+    {{ booking.arrivalDate|date_fr }}, départ le {{ booking.departureDate|date_fr }}.
 </p>
 
 {% if asset.arrivalTime or asset.departureTime %}

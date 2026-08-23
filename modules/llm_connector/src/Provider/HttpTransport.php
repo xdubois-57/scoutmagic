@@ -37,9 +37,10 @@ use Modules\LlmConnector\Api\LlmException;
 final class HttpTransport
 {
     /**
-     * Longest provider error body kept in an exception message — enough to
-     * carry the provider's own explanation, short enough not to dump a full
-     * HTML error page into the journal.
+     * Longest provider error body kept in an exception's `detail` — enough
+     * to carry the provider's own explanation to the journal, short enough
+     * not to dump a full HTML error page into it. It is never part of the
+     * exception's own message (see Api\LlmException).
      */
     private const MAX_ERROR_BODY_CHARS = 500;
 
@@ -66,8 +67,8 @@ final class HttpTransport
     {
         $jsonBody = json_encode($body, JSON_UNESCAPED_UNICODE);
         if ($jsonBody === false) {
-            throw LlmException::apiError(
-                'Encodage JSON de la requête impossible : ' . json_last_error_msg()
+            throw LlmException::invalidRequest(
+                'json_encode() failed: ' . json_last_error_msg()
             );
         }
 
@@ -111,12 +112,15 @@ final class HttpTransport
         // somewhere other than an HTTP response (a file:// URL, a stub in a
         // test). Nothing to reject on, so it is left to the JSON check below.
         if ($status !== 0 && ($status < 200 || $status >= 300)) {
-            throw LlmException::apiError("HTTP {$status} — " . $this->shorten($body));
+            // The body is the provider's own English prose (often a whole
+            // HTML error page) — it goes to the journal via
+            // LlmException::$detail, never into the sentence a chief reads.
+            throw LlmException::apiError($this->shorten($body), $status);
         }
 
         $decoded = json_decode($body, true);
         if (!is_array($decoded)) {
-            throw LlmException::apiError('Invalid JSON response from provider.');
+            throw LlmException::apiError('Invalid JSON response from provider: ' . $this->shorten($body));
         }
 
         return $decoded;

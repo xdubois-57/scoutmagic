@@ -10,6 +10,7 @@ namespace Modules\News\Controller;
 
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
@@ -189,8 +190,8 @@ class NewsController extends AbstractController
     public function uploadBodyImage(Request $request, array $params): Response
     {
         $csrf = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         $uploadedFile = $request->getFile('image');
@@ -218,8 +219,8 @@ class NewsController extends AbstractController
      */
     public function store(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/news/create')) !== null) {
+            return $guard;
         }
 
         $accountId = (int) AuthSession::getUserAccountId();
@@ -286,8 +287,8 @@ class NewsController extends AbstractController
      */
     public function update(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/news/' . (int) ($params['id'] ?? 0) . '/edit')) !== null) {
+            return $guard;
         }
 
         $article = $this->articleService->findById((int) $params['id']);
@@ -618,7 +619,18 @@ class NewsController extends AbstractController
                 $uploadedFile, 'news/images', self::IMAGE_ALLOWED_MIMES, self::IMAGE_MAX_SIZE_BYTES, $roleMin, 'news', $accountId
             );
         } catch (UploadException $e) {
-            throw new NewsException($e->getMessage());
+            // Same reasoning as Gallery\Service\MediaService::store(): the
+            // upload handler's own sentence is worth keeping, but only
+            // because Core\File\UploadException claims it is fit for a
+            // visitor — the helper is what checks that claim.
+            throw new NewsException(
+                UserFacingMessage::from(
+                    $e,
+                    "L'image n'a pas pu être envoyée — vérifiez son format et sa taille, puis réessayez."
+                ),
+                0,
+                $e
+            );
         }
     }
 

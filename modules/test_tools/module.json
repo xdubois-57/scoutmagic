@@ -33,13 +33,7 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": {
-        "label": "Bac à sable e-mail",
-        "parents": [
-          "Configuration",
-          "Outils de test"
-        ]
-      }
+      "breadcrumb": { "label": "Bac à sable e-mail", "parents": ["Configuration"] }
     },
     {
       "path": "/test-tools/mail-sandbox/capture",
@@ -67,14 +61,7 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": {
-        "label": "Message capturé",
-        "parents": [
-          "Configuration",
-          "Outils de test",
-          "Bac à sable e-mail"
-        ]
-      }
+      "breadcrumb": { "label": "Message capturé", "parents": ["Configuration"] }
     }
   ],
   "settings": [

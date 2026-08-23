@@ -532,6 +532,31 @@ class GroupControllerTest extends TestCase
         $this->assertStringNotContainsString('Éclaireurs', $body);
     }
 
+    public function testTheListCardCarriesTheGroupsHeadcount(): void
+    {
+        // « Louveteaux » next to « Louveteaux (2025-2026) » says nothing
+        // about which one is the live group. The number does, and it was
+        // two clicks away on the members page.
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'C20', $this->sectionId, $this->currentYearId);
+        $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
+        GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M20', $this->sectionId, $this->currentYearId);
+
+        $body = $this->controller([$creator])->index(new Request('GET', '/groups', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('2 membres', $body);
+    }
+
+    public function testAGroupOfOneIsWrittenInTheSingular(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C21');
+        $this->groupService->createInvitationGroup('Coordination', null, $creator, 1);
+
+        $body = $this->controller([$creator])->index(new Request('GET', '/groups', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('1 membre', $body);
+        $this->assertStringNotContainsString('1 membres', $body);
+    }
+
     public function testShowReturns404ForANonMemberRatherThan403(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'C2');
@@ -606,7 +631,7 @@ class GroupControllerTest extends TestCase
         $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MBC1', $this->sectionId, $this->currentYearId);
 
-        $body = $this->controller([$member], 'identified', true, null, ['label' => 'Groupe', 'parents' => ['Espace animés']])
+        $body = $this->controller([$member], 'identified', true, null, ['label' => 'Groupe', 'parents' => ['Espace membres']])
             ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
             ->getBody();
 
@@ -1026,7 +1051,11 @@ class GroupControllerTest extends TestCase
 
         $response = $this->controller([$chiefMember], 'chief')->create($this->postRequest(), []);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertSame([], $this->groupRepo->findAll());
     }
 
@@ -1130,7 +1159,7 @@ class GroupControllerTest extends TestCase
         $manager = $this->createMock(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([]);
 
-        $body = $this->controller([$member], 'identified', true, $manager, ['label' => 'Galerie du groupe', 'parents' => ['Espace animés']])
+        $body = $this->controller([$member], 'identified', true, $manager, ['label' => 'Galerie du groupe', 'parents' => ['Espace membres']])
             ->gallery(new Request('GET', '/groups/' . $groupId . '/gallery', [], [], [], []), ['id' => (string) $groupId])
             ->getBody();
 

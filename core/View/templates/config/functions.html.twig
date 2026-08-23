@@ -1,7 +1,7 @@
 {% extends 'base.html.twig' %}
 {% block title %}Config Desk — {{ site_name }}{% endblock %}
 {% block content %}
-    <h1>Config Desk</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Config Desk' } only %}
 
     <h2 class="h4">Fonctions</h2>
     <p class="text-body-secondary mb-4">
@@ -17,7 +17,7 @@
     {% if unconfirmed|length > 0 %}
         <div class="alert alert-warning mb-4">
             <h2 class="h6 mb-2">
-                <i class="bi bi-exclamation-triangle"></i>
+                <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                 {{ unconfirmed|length }} fonction(s) à confirmer
             </h2>
             <p class="small mb-0">
@@ -32,7 +32,7 @@
                      data-id="{{ func.id }}">
                     <div>
                         <span class="fw-semibold">{{ func.desk_code }}</span>
-                        <span class="badge bg-warning-subtle text-warning-emphasis ms-2">Non confirmée</span>
+                        <span class="ms-2">{% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Non confirmée' } only %}</span>
                     </div>
                     <label class="visually-hidden" for="unconfirmed-role-{{ func.id }}">Rôle pour {{ func.desk_code }}</label>
                     <select class="form-select form-select-sm w-auto role-select" id="unconfirmed-role-{{ func.id }}" data-id="{{ func.id }}">
@@ -93,15 +93,16 @@
 
     {% if function_flags is not null %}
         <p class="text-body-secondary small">
-            <i class="bi bi-info-circle"></i> {{ function_flags.section_label }} :
+            <i class="bi bi-info-circle" aria-hidden="true"></i> {{ function_flags.section_label }} :
             « {{ function_flags.lead_label }} » s'applique aux fonctions Chef et Chef d'Unité ci-dessus.
         </p>
     {% endif %}
 
     {% if unconfirmed is empty and confirmed_by_role is empty %}
-        <p class="text-body-secondary fst-italic">
-            Aucune fonction importée. Les fonctions apparaîtront après le premier import Desk.
-        </p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune fonction importée. Les fonctions apparaîtront après le premier import Desk.',
+            compact: true,
+        } only %}
     {% endif %}
 
     <hr class="my-4">
@@ -113,7 +114,7 @@
         masquez-la des sélecteurs de section du site (Staffs, Trombinoscope,
         calendrier, statistiques, page publique Sections). Par défaut, la couleur suit
         la branche d'âge (Baladins, Louveteaux, Éclaireurs, Pionniers) ou
-        est celle du Staff d'U ; le bouton <i class="bi bi-arrow-counterclockwise"></i>
+        est celle du Staff d'U ; le bouton <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
         efface une couleur personnalisée et revient à cette valeur par
         défaut. Une section sans aucun membre à l'import Desk devient
         automatiquement inactive et disparaît de partout, y compris de
@@ -144,7 +145,7 @@
                                        data-has-override="{{ section.color ? '1' : '0' }}">
                                 <button type="button" class="btn btn-sm btn-outline-secondary section-color-reset"
                                         title="Revenir à la couleur par défaut" aria-label="Revenir à la couleur par défaut" {{ section.color ? '' : 'disabled' }}>
-                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                    <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
                                 </button>
                             </div>
                             <div class="form-check form-switch ms-auto text-nowrap">
@@ -160,9 +161,10 @@
             </div>
         {% endfor %}
     {% else %}
-        <p class="text-body-secondary fst-italic">
-            Aucune section importée. Les sections apparaîtront après le premier import Desk.
-        </p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune section importée. Les sections apparaîtront après le premier import Desk.',
+            compact: true,
+        } only %}
     {% endif %}
 
     <hr class="my-4">
@@ -186,8 +188,8 @@
                         {% elseif branch.default_logo %}
                             <img src="/assets/img/branches/{{ branch.default_logo }}" alt="{{ branch.label }}" class="rounded" style="width:48px;height:48px;object-fit:contain;">
                         {% else %}
-                            <div class="d-flex align-items-center justify-content-center bg-light rounded" style="width:48px;height:48px;">
-                                <i class="bi bi-image text-muted"></i>
+                            <div class="d-flex align-items-center justify-content-center bg-body-tertiary rounded" style="width:48px;height:48px;">
+                                <i class="bi bi-image text-body-secondary" aria-hidden="true"></i>
                             </div>
                         {% endif %}
                         <a class="btn btn-sm btn-outline-secondary" href="/upload?context=age_branch_logo&key={{ branch.id }}&return=/config/functions">
@@ -203,160 +205,13 @@
             {% endfor %}
         </div>
     {% else %}
-        <p class="text-body-secondary fst-italic">
-            Aucune branche d'âge importée. Les branches apparaîtront après le premier import Desk.
-        </p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: "Aucune branche d'âge importée. Les branches apparaîtront après le premier import Desk.",
+            compact: true,
+        } only %}
     {% endif %}
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-document.querySelectorAll('.role-select').forEach(select => {
-    select.addEventListener('change', async () => {
-        const functionId = select.dataset.id;
-        const role = select.value;
-        const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-
-        select.disabled = true;
-        const res = await fetch('/config/functions/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ function_id: parseInt(functionId), role, _csrf_token: csrf })
-        });
-        const data = await res.json();
-        select.disabled = false;
-
-        if (data.success) {
-            // Remove "Non confirmée" badge if present
-            const row = select.closest('.function-row');
-            row.querySelector('.badge.bg-warning-subtle')?.remove();
-            // Brief visual feedback
-            row.style.backgroundColor = 'var(--bs-success-bg-subtle)';
-            setTimeout(() => row.style.backgroundColor = '', 1000);
-        } else {
-            alert(data.error);
-        }
-    });
-});
-
-document.querySelectorAll('.flags-group').forEach(group => {
-    const functionId = group.dataset.id;
-    const leadInput = group.querySelector('.flag-lead');
-
-    leadInput.addEventListener('change', async () => {
-        const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-        leadInput.disabled = true;
-
-        const res = await fetch('/config/functions/flags', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                function_id: parseInt(functionId),
-                lead: leadInput.checked,
-                _csrf_token: csrf
-            })
-        });
-        const data = await res.json();
-        leadInput.disabled = false;
-
-        if (!data.success) {
-            alert(data.error);
-        }
-    });
-});
-
-document.querySelectorAll('.section-row').forEach(row => {
-    const sectionId = row.dataset.id;
-    const nameInput = row.querySelector('.section-name-input');
-    const emailInput = row.querySelector('.section-email-input');
-    const visibleInput = row.querySelector('.section-visible-input');
-    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-
-    nameInput.addEventListener('blur', async () => {
-        nameInput.disabled = true;
-        const res = await fetch('/config/functions/section-name', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ section_id: parseInt(sectionId), name: nameInput.value, _csrf_token: csrf() })
-        });
-        const data = await res.json();
-        nameInput.disabled = false;
-        if (!data.success) {
-            alert(data.error);
-        }
-    });
-
-    emailInput.addEventListener('blur', async () => {
-        emailInput.disabled = true;
-        const res = await fetch('/config/functions/section-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ section_id: parseInt(sectionId), email: emailInput.value, _csrf_token: csrf() })
-        });
-        const data = await res.json();
-        emailInput.disabled = false;
-        if (!data.success) {
-            alert(data.error);
-        }
-    });
-
-    visibleInput.addEventListener('change', async () => {
-        visibleInput.disabled = true;
-        const res = await fetch('/config/functions/section-visibility', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ section_id: parseInt(sectionId), visible: visibleInput.checked, _csrf_token: csrf() })
-        });
-        const data = await res.json();
-        visibleInput.disabled = false;
-        if (!data.success) {
-            alert(data.error);
-        }
-    });
-
-    const colorInput = row.querySelector('.section-color-input');
-    const colorReset = row.querySelector('.section-color-reset');
-
-    async function saveColor(color) {
-        colorInput.disabled = true;
-        const res = await fetch('/config/functions/section-color', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ section_id: parseInt(sectionId), color, _csrf_token: csrf() })
-        });
-        const data = await res.json();
-        colorInput.disabled = false;
-        if (!data.success) {
-            alert(data.error);
-            return;
-        }
-        colorInput.value = data.color;
-        colorInput.dataset.hasOverride = color ? '1' : '0';
-        colorReset.disabled = !color;
-    }
-
-    colorInput.addEventListener('change', () => saveColor(colorInput.value));
-    colorReset.addEventListener('click', () => saveColor(null));
-});
-
-document.querySelectorAll('.branch-row').forEach(row => {
-    const branchId = row.dataset.id;
-    const urlInput = row.querySelector('.branch-url-input');
-    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-
-    urlInput.addEventListener('blur', async () => {
-        urlInput.disabled = true;
-        const res = await fetch('/config/functions/branch-url', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ branch_id: parseInt(branchId), url: urlInput.value, _csrf_token: csrf() })
-        });
-        const data = await res.json();
-        urlInput.disabled = false;
-        if (!data.success) {
-            alert(data.error);
-        }
-    });
-});
-</script>
+<script src="/assets/js/config-functions.js" defer></script>
 {% endblock %}

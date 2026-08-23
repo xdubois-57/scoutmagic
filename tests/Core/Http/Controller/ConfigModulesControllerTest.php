@@ -306,7 +306,17 @@ class ConfigModulesControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
+        // A refusal, not a failure: Module\ModuleRefusalException IS a
+        // Core\Exception\UserFacingException, so the sentence survives —
+        // and with it the one thing that makes it actionable, the NAME of
+        // the module standing in the way. The generic fallback would have
+        // said "vérifiez que les modules dont il dépend sont activés",
+        // leaving the admin to work out which.
+        $this->assertStringContainsString('nécessite le module', $decoded['error']);
         $this->assertStringContainsString('Module de test valide', $decoded['error']);
+        // Still no developer text: no manifest path, no English.
+        $this->assertStringNotContainsString('manifest', $decoded['error']);
+        $this->assertStringNotContainsString('/', $decoded['error']);
         $this->assertNull($this->registryRepo->findByModuleId('dependent_module'));
     }
 
@@ -331,8 +341,75 @@ class ConfigModulesControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
+        // Same rule the other way round: the refusal names the dependent.
+        $this->assertStringContainsString('est requis par le module', $decoded['error']);
         $this->assertStringContainsString('Module dépendant', $decoded['error']);
+        $this->assertStringNotContainsString('/', $decoded['error']);
         $this->assertTrue($this->registryRepo->findByModuleId('valid_module')['enabled']);
+    }
+
+    /**
+     * The leak this whole gate exists for: ModuleManifest::fromFile()
+     * reports a missing manifest as "Module manifest not found:
+     * /var/www/html/modules/x/module.json", and that string used to be
+     * returned verbatim as the JSON `error` of this endpoint. A server
+     * filesystem path is not something a chef d'unité's browser gets to
+     * see — Core\Exception\UserFacingMessage substitutes the sentence the
+     * controller wrote instead.
+     */
+    public function testToggleModuleNeverReturnsAFilesystemPathWhenTheManifestIsMissing(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $request = $this->createJsonRequest([
+            'module_id' => 'no_such_module_on_disk',
+            'enabled' => true,
+            '_csrf_token' => $token,
+        ]);
+        $response = $this->controller->toggleModule($request, []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+
+        $error = (string) $decoded['error'];
+        $this->assertStringNotContainsString('module.json', $error);
+        $this->assertStringNotContainsString('/', $error, 'No path separator may appear in a displayed message');
+        $this->assertStringNotContainsString('Module manifest', $error);
+        $this->assertStringContainsString('n\'a pas pu être activé', $error);
+    }
+
+    /**
+     * The detail is not lost — it moves to the journal, where AGENTS.md
+     * § Security checklist still governs it.
+     */
+    public function testToggleModuleJournalsTheRealReasonItRefusedToDisplay(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $request = $this->createJsonRequest([
+            'module_id' => 'no_such_module_on_disk',
+            'enabled' => true,
+            '_csrf_token' => $token,
+        ]);
+        $this->controller->toggleModule($request, []);
+
+        $entry = $this->pdo->query(
+            "SELECT * FROM event_log WHERE event_type = 'module_activation_failed' ORDER BY id DESC LIMIT 1"
+        )->fetch();
+
+        $this->assertNotFalse($entry, 'The refusal must leave a journal entry');
+        $this->assertStringContainsString('Module manifest not found', (string) $entry['context']);
     }
 
     private function toggleTagFor(string $body, string $moduleId): string

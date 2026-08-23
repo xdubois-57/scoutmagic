@@ -10,6 +10,7 @@ namespace Modules\MassMail\Controller;
 
 use Core\Config\SettingException;
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -183,7 +184,17 @@ class ConfigController extends AbstractController
             $this->settingService->set(self::SETTING_BATCH_SIZE, (string) $batchSize, 'mass_mail');
             $this->settingService->set(self::SETTING_BATCH_INTERVAL_MINUTES, (string) $intervalMinutes, 'mass_mail');
         } catch (SettingException $e) {
-            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+            // Core\Config\SettingException is being made user-facing
+            // separately; routing through the helper means this line is
+            // correct either way — its message if it is marked, this
+            // sentence if it is not.
+            return $this->json([
+                'success' => false,
+                'error' => UserFacingMessage::from(
+                    $e,
+                    "La vitesse d'envoi n'a pas pu être enregistrée — réessayez, ou modifiez ces deux réglages depuis Configuration > Réglages."
+                ),
+            ], 422);
         }
 
         return $this->json(['success' => true]);

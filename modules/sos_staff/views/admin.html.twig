@@ -29,7 +29,7 @@
 {% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">SOS Staff d'U</h1>
+    {% include 'partials/page_header.html.twig' with { title: "SOS Staff d'U" } only %}
 
     <div class="border rounded-3 p-3 mb-3">
         <div class="row g-3">
@@ -38,20 +38,20 @@
                 {% if sos_number %}
                     <div class="h5 mb-0">{{ sos_number }}</div>
                 {% else %}
-                    <div class="text-danger small"><i class="bi bi-exclamation-triangle"></i> Aucun fournisseur configuré (voir Configuration &gt; SOS Staff d'U).</div>
+                    <div class="text-danger small"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Aucun fournisseur configuré (voir Configuration &gt; SOS Staff d'U).</div>
                 {% endif %}
             </div>
             <div class="col-12 col-md-6">
                 <div class="text-body-secondary small">État actuel de la redirection</div>
                 {% if live_state.error %}
-                    <div class="text-danger small"><i class="bi bi-exclamation-triangle"></i> {{ live_state.error }}</div>
+                    <div class="text-danger small"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> {{ live_state.error }}</div>
                 {% elseif live_state.active %}
                     <div class="text-success">
-                        <i class="bi bi-telephone-forward"></i> Active vers {{ live_state.number }}
+                        <i class="bi bi-telephone-forward" aria-hidden="true"></i> Active vers {{ live_state.number }}
                         {% if live_state.label %}({{ live_state.label }}){% endif %}
                     </div>
                 {% else %}
-                    <div class="text-body-secondary"><i class="bi bi-telephone-x"></i> Inactive</div>
+                    <div class="text-body-secondary"><i class="bi bi-telephone-x" aria-hidden="true"></i> Inactive</div>
                 {% endif %}
             </div>
         </div>
@@ -63,25 +63,40 @@
                 <label class="form-label small" for="default-number-member">Numéro par défaut</label>
                 {% if staff_options is empty %}
                     <p class="text-danger small mb-0">
-                        <i class="bi bi-exclamation-triangle"></i>
+                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                         Aucun membre du Staff d'U n'a de numéro de mobile enregistré — impossible de définir un numéro par défaut.
                         Complétez un numéro de mobile pour au moins un membre du Staff d'U.
                     </p>
                 {% else %}
+                    {#
+                      An explicit button, unlike the two controls beside
+                      it. This select decides which phone the unit's SOS
+                      number rings on every day nobody is on duty, and it
+                      used to save on `change` — so a mis-click, or an
+                      arrow key on a focused select, re-routed the unit's
+                      emergency line with nothing to confirm and nothing
+                      to cancel. The button is disabled until the value
+                      actually differs from what is stored, which is also
+                      what makes an accidental change visible.
+                    #}
                     <div class="d-flex gap-2">
-                        <select class="form-select form-select-sm" id="default-number-member">
+                        <select class="form-select form-select-sm" id="default-number-member"
+                                data-saved-value="{{ default_number_selection_member_id }}">
                             {% for option in staff_options %}
                                 <option value="{{ option.member_id }}" {{ default_number_selection_member_id == option.member_id ? 'selected' : '' }}>
                                     {{ option.label }} ({{ option.mobile }})
                                 </option>
                             {% endfor %}
                         </select>
+                        <button type="button" class="btn btn-sm btn-primary text-nowrap" id="default-number-save" disabled>
+                            Enregistrer
+                        </button>
                     </div>
                     <p class="text-body-secondary small mt-1 mb-0">
                         Numéro utilisé les jours sans garde explicite. Il doit toujours s'agir d'un membre du Staff d'U —
                         par défaut, le/la responsable de la section Staff d'U ; choisissez un autre membre ci-dessus pour l'imposer explicitement.
                     </p>
-                    <div class="text-danger small mt-1 d-none" id="default-number-error"></div>
+                    <div class="text-danger small mt-1 d-none" id="default-number-error" role="alert"></div>
                 {% endif %}
             </div>
             <div class="col-6 col-md-3">
@@ -99,11 +114,11 @@
 
     <div class="d-flex align-items-center justify-content-between mb-3">
         <a href="/admin/sos?month={{ prev_month_param }}" class="btn btn-sm btn-outline-secondary" aria-label="Mois précédent">
-            <i class="bi bi-chevron-left"></i>
+            <i class="bi bi-chevron-left" aria-hidden="true"></i>
         </a>
         <h2 class="h5 mb-0">{{ month_label }}</h2>
         <a href="/admin/sos?month={{ next_month_param }}" class="btn btn-sm btn-outline-secondary" aria-label="Mois suivant">
-            <i class="bi bi-chevron-right"></i>
+            <i class="bi bi-chevron-right" aria-hidden="true"></i>
         </a>
     </div>
 
@@ -127,8 +142,7 @@
                         {% set state = states[day.date][option.member_id] ?? null %}
                         <button type="button"
                                 class="btn btn-sm {{ state == 'oncall' ? 'btn-success' : (state == 'unavailable' ? 'btn-danger' : 'btn-outline-secondary') }} sos-oncall-cell"
-                                data-member-id="{{ option.member_id }}" data-date="{{ day.date }}"
-                                style="min-width:44px;min-height:44px;">
+                                data-member-id="{{ option.member_id }}" data-date="{{ day.date }}">
                             <span class="d-block small" style="font-size:0.65rem;">{{ option.label|split(' ')|first }}</span>
                             <span>{{ state == 'oncall' ? '✓' : (state == 'unavailable' ? '✗' : '—') }}</span>
                         </button>
@@ -181,109 +195,18 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/assets/js/sos-admin.js" defer></script>
 <script nonce="{{ csp_nonce }}">
-const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-const currentYear = {{ year }};
-const currentMonth = {{ month }};
-const cellStates = {{ states|json_encode|raw }};
-
-async function postJson(url, body) {
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, _csrf_token: csrf() })
-    });
-    return res.json();
-}
-
-// --- Default number / settings (auto-save) ---
-document.getElementById('default-number-member')?.addEventListener('change', async (e) => {
-    const errorBox = document.getElementById('default-number-error');
-    errorBox.classList.add('d-none');
-    const data = await postJson('/admin/sos/default-number', { member_id: parseInt(e.target.value) });
-    if (!data.success) {
-        errorBox.textContent = data.error;
-        errorBox.classList.remove('d-none');
-    }
-});
-
-document.getElementById('transition-hour').addEventListener('change', async (e) => {
-    await postJson('/admin/sos/settings', { transition_hour: e.target.value });
-});
-
-document.getElementById('email-notifications-toggle').addEventListener('change', async (e) => {
-    await postJson('/admin/sos/settings', { email_notifications_enabled: e.target.checked });
-});
-
-// --- Duty grid (3-state click-cycle, full-month auto-save) ---
-function cycle(state) {
-    if (state === 'oncall') return 'unavailable';
-    if (state === 'unavailable') return null;
-    return 'oncall';
-}
-
-async function saveOnCall() {
-    const cells = [];
-    Object.keys(cellStates).forEach(date => {
-        Object.keys(cellStates[date]).forEach(memberId => {
-            cells.push({ member_id: parseInt(memberId), date, state: cellStates[date][memberId] });
-        });
-    });
-
-    const status = document.getElementById('oncall-save-status');
-    status.textContent = 'Enregistrement…';
-    const data = await postJson('/admin/sos/oncall', { year: currentYear, month: currentMonth, cells });
-    status.textContent = data.success ? 'Enregistré.' : ('Erreur : ' + data.error);
-}
-
-document.querySelectorAll('.sos-oncall-cell').forEach(cell => {
-    cell.addEventListener('click', () => {
-        const date = cell.dataset.date;
-        const memberId = cell.dataset.memberId;
-        const current = (cellStates[date] && cellStates[date][memberId]) || null;
-        const next = cycle(current);
-
-        if (!cellStates[date]) cellStates[date] = {};
-        if (next === null) {
-            delete cellStates[date][memberId];
-        } else {
-            cellStates[date][memberId] = next;
-        }
-
-        // Update all matching cells/buttons (mobile + desktop share same class)
-        document.querySelectorAll('.sos-oncall-cell[data-date="'+date+'"][data-member-id="'+memberId+'"]').forEach(el => {
-            el.classList.remove('state-oncall', 'state-unavailable', 'btn-success', 'btn-danger', 'btn-outline-secondary');
-            if (el.tagName === 'TD') {
-                el.textContent = '';
-                if (next === 'oncall') { el.classList.add('state-oncall'); el.textContent = '✓'; }
-                else if (next === 'unavailable') { el.classList.add('state-unavailable'); el.textContent = '✗'; }
-            } else {
-                const label = el.querySelector('.d-block');
-                const stateSpan = el.lastElementChild !== label ? el.lastElementChild : null;
-                if (next === 'oncall') { el.classList.add('btn-success'); if (stateSpan) stateSpan.textContent = '✓'; }
-                else if (next === 'unavailable') { el.classList.add('btn-danger'); if (stateSpan) stateSpan.textContent = '✗'; }
-                else { el.classList.add('btn-outline-secondary'); if (stateSpan) stateSpan.textContent = '—'; }
-            }
-        });
-
-        saveOnCall();
-    });
-});
-
-// --- Planned redirections list (AJAX pagination, no page reload) ---
-const transitionsList = document.getElementById('planned-transitions-list');
-
-async function loadTransitionsPage(page) {
-    const params = new URLSearchParams({ month: '{{ month_param }}', transitions_page: page });
-    const res = await fetch('/admin/sos/transitions?' + params.toString());
-    transitionsList.innerHTML = await res.text();
-}
-
-transitionsList.addEventListener('click', (e) => {
-    const link = e.target.closest('[data-transitions-page]');
-    if (!link) return;
-    e.preventDefault();
-    loadTransitionsPage(link.dataset.transitionsPage);
-});
+{# Server data handed to sos-admin.js — the window.llmConfigData pattern.
+   JSON_HEX_TAG/JSON_HEX_AMP so no value can break out of this block; the
+   payload is dates, member ids and duty states only — never a phone
+   number (AGENTS.md § Security checklist). #}
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+window.sosAdminData = {
+    year: {{ year }},
+    month: {{ month }},
+    monthParam: {{ month_param|json_encode(json_flags)|raw }},
+    states: {{ states|json_encode(json_flags)|raw }}
+};
 </script>
 {% endblock %}

@@ -29,10 +29,10 @@
 
 {% block content %}
     <div>
-        <h1 class="mb-1">{{ article.title }}</h1>
-        <p class="text-body-secondary small mb-4">
-            {{ article.createdAt|french_date }}{% if author_name %} · {{ author_name }}{% endif %}
-        </p>
+        {% include 'partials/page_header.html.twig' with {
+            title: article.title,
+            subtitle: article.createdAt|french_date ~ (author_name ? ' · ' ~ author_name : ''),
+        } only %}
 
         {% if article.imageFileId %}
             <img src="{{ file_url(article.imageFileId) }}" alt="" class="rounded mb-4 w-100" style="max-height:400px;object-fit:cover;">
@@ -86,15 +86,18 @@
                                 <select class="form-select" id="member_year_id" name="member_year_id" required>
                                     <option value="">Choisissez…</option>
                                     {% for member_id, member_name in member_options %}
-                                        <option value="{{ member_id }}">{{ member_name }}</option>
+                                        <option value="{{ member_id }}" {{ (member_year_id_selected|default('')) == member_id ? 'selected' : '' }}>{{ member_name }}</option>
                                     {% endfor %}
                                 </select>
                             </div>
                         {% endif %}
 
+                        {# submitted_answers only exists on the error re-render
+                           (Controller\FormController::rerenderFormWithError) —
+                           the visitor's posted values, so nothing is lost. #}
                         {% for row in fields %}
                             {% if not row.field.isNonInput() %}
-                                {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity} %}
+                                {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity, value: submitted_answers[row.field.id] ?? ''} %}
                             {% endif %}
                         {% endfor %}
 

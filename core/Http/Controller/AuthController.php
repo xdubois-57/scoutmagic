@@ -94,8 +94,8 @@ class AuthController extends AbstractController
     {
         // Validate CSRF
         $csrfToken = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Session expirée. Veuillez recharger la page.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         if (!$this->hasRgpdConsent($request)) {
@@ -271,8 +271,8 @@ class AuthController extends AbstractController
 
         // Validate CSRF
         $csrfToken = (string) ($body['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Session expirée. Veuillez recharger la page.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         if (!$this->hasRgpdConsent($request, $body)) {
@@ -381,8 +381,8 @@ class AuthController extends AbstractController
     {
         // Validate CSRF
         $csrfToken = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->redirect('/');
+        if (($guard = $this->guardCsrf($request, '/', $csrfToken)) !== null) {
+            return $guard;
         }
 
         AuthSession::logout();

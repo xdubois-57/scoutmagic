@@ -1,9 +1,9 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Finances — {{ site_name }}{% endblock %}
+{% block title %}Tableau de bord — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Finances</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Tableau de bord' } only %}
 
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
@@ -14,9 +14,12 @@
     </p>
 
     {% if no_accounts %}
-        <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun compte visible pour votre rôle.',
+            icon: 'bi-wallet2',
+        } only %}
     {% else %}
-        <h2 class="h5 mb-3">Tableau de bord — {{ selected_account.name }}</h2>
+        <h2 class="h5 mb-3">{{ selected_account.name }}</h2>
 
         <form method="get" action="/finance" class="row g-2 align-items-end mb-3">
             <div class="col-6 col-md-3">
@@ -58,61 +61,49 @@
         {% if uncategorized_count > 0 or pending_receipts_count > 0 %}
             <div class="alert alert-warning d-flex flex-wrap gap-3">
                 {% if uncategorized_count > 0 %}
-                    <span><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ uncategorized_count }} mouvement(s) non catégorisé(s)</span>
+                    <span><i class="bi bi-exclamation-triangle-fill me-1" aria-hidden="true"></i>{{ uncategorized_count }} mouvement(s) non catégorisé(s)</span>
                 {% endif %}
                 {% if pending_receipts_count > 0 %}
-                    <span><i class="bi bi-receipt me-1"></i>{{ pending_receipts_count }} reçu(s) en attente d'association</span>
+                    <span><i class="bi bi-receipt me-1" aria-hidden="true"></i>{{ pending_receipts_count }} reçu(s) en attente d'association</span>
                 {% endif %}
             </div>
         {% endif %}
 
-        <div class="row g-3 mb-3">
-            <div class="col-12 col-md-4">
-                <div class="border rounded-3 p-3 h-100">
-                    <div class="text-body-secondary small">Solde actuel</div>
-                    <div class="fs-3 fw-semibold">
-                        {{ balance is not null ? balance|number_format(2, ',', ' ') ~ ' €' : 'Solde inconnu' }}
-                    </div>
-                </div>
-            </div>
-            <div class="col-12 col-md-4">
-                <div class="border rounded-3 p-3 h-100">
-                    <div class="text-body-secondary small">Solde le plus bas (18 derniers mois)</div>
-                    <div class="fs-3 fw-semibold">
-                        {{ lowest_balance_18_months is not null ? lowest_balance_18_months|number_format(2, ',', ' ') ~ ' €' : 'Inconnu' }}
-                    </div>
-                </div>
-            </div>
-            <div class="col-12 col-md-4 d-flex flex-column justify-content-center gap-2">
-                <a href="/finance/import?account_id={{ selected_account.id }}" class="btn btn-outline-primary">Importer un extrait bancaire →</a>
-                <a href="/finance/receipts/new?account_id={{ selected_account.id }}" class="btn btn-outline-primary">Ajouter un reçu →</a>
-            </div>
-        </div>
+        {% include 'partials/stat_tiles.html.twig' with {
+            tiles: [
+                {
+                    label: 'Solde actuel',
+                    value: balance is not null ? balance|money : 'Solde inconnu',
+                },
+                {
+                    label: 'Solde le plus bas',
+                    value: lowest_balance_18_months is not null ? lowest_balance_18_months|money : 'Inconnu',
+                    sublabel: '18 derniers mois',
+                },
+                {
+                    label: 'Dernier extrait importé',
+                    value: last_import ? last_import.importedAt|date_fr : 'Aucun import',
+                    link_label: 'Importer →',
+                    link_url: '/finance/import?account_id=' ~ selected_account.id,
+                },
+                {
+                    label: 'Mouvements',
+                    value: movements_count,
+                    link_label: 'Voir les mouvements →',
+                    link_url: '/finance/movements?account_id=' ~ selected_account.id ~ '&fiscal_year_id=all',
+                },
+                {
+                    label: 'Reçus',
+                    value: receipts_count,
+                    link_label: 'Voir les reçus →',
+                    link_url: '/finance/receipts?account_id=' ~ selected_account.id,
+                },
+            ],
+        } only %}
 
-        <div class="row g-3 mb-4">
-            <div class="col-12 col-md-4">
-                <div class="border rounded-3 p-3 h-100">
-                    <div class="text-body-secondary small">Dernier extrait importé</div>
-                    <div class="fs-5 fw-semibold">
-                        {{ last_import ? last_import.importedAt|date('d/m/Y') : 'Aucun import' }}
-                    </div>
-                    <a href="/finance/import?account_id={{ selected_account.id }}" class="small">Importer →</a>
-                </div>
-            </div>
-            <div class="col-12 col-md-4">
-                <div class="border rounded-3 p-3 h-100">
-                    <div class="text-body-secondary small">Mouvements</div>
-                    <div class="fs-5 fw-semibold">{{ movements_count }}</div>
-                    <a href="/finance/movements?account_id={{ selected_account.id }}&fiscal_year_id=all" class="small">Voir les mouvements →</a>
-                </div>
-            </div>
-            <div class="col-12 col-md-4">
-                <div class="border rounded-3 p-3 h-100">
-                    <div class="text-body-secondary small">Reçus</div>
-                    <div class="fs-5 fw-semibold">{{ receipts_count }}</div>
-                    <a href="/finance/receipts?account_id={{ selected_account.id }}" class="small">Voir les reçus →</a>
-                </div>
-            </div>
+        <div class="d-flex flex-column flex-sm-row gap-2 mb-4">
+            <a href="/finance/import?account_id={{ selected_account.id }}" class="btn btn-outline-primary">Importer un extrait bancaire →</a>
+            <a href="/finance/receipts/new?account_id={{ selected_account.id }}" class="btn btn-outline-primary">Ajouter un reçu →</a>
         </div>
 
         {% if selected_fiscal_year and category_summary %}
@@ -166,21 +157,24 @@
                                         {{ row.category_name ?? 'Non catégorisé' }}
                                     </a>
                                 </td>
-                                <td class="text-end text-success">{{ row.income|number_format(2, ',', ' ') }} €</td>
-                                <td class="text-end text-danger">{{ row.expense|number_format(2, ',', ' ') }} €</td>
-                                <td class="text-end">{{ row.total|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end text-success">{{ row.income|money }}</td>
+                                <td class="text-end text-danger">{{ row.expense|money }}</td>
+                                <td class="text-end">{{ row.total|money }}</td>
                             </tr>
                         {% else %}
-                            <tr><td colspan="4" class="text-body-secondary fst-italic">Aucun mouvement pour cet exercice.</td></tr>
+                            {% include 'partials/empty_state.html.twig' with {
+                                message: 'Aucun mouvement pour cet exercice.',
+                                colspan: 4,
+                            } only %}
                         {% endfor %}
                     </tbody>
                     {% if category_summary %}
                         <tfoot>
                             <tr class="fw-bold">
                                 <td>Bilan</td>
-                                <td class="text-end text-success">{{ bilan.income|number_format(2, ',', ' ') }} €</td>
-                                <td class="text-end text-danger">{{ bilan.expense|number_format(2, ',', ' ') }} €</td>
-                                <td class="text-end">{{ bilan.total|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end text-success">{{ bilan.income|money }}</td>
+                                <td class="text-end text-danger">{{ bilan.expense|money }}</td>
+                                <td class="text-end">{{ bilan.total|money }}</td>
                             </tr>
                         </tfoot>
                     {% endif %}
@@ -203,7 +197,7 @@
                                 <img src="/files/{{ attachment.fileId }}/thumbnail" alt="{{ attachment.originalFilename }}" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">
                             {% else %}
                                 <div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">
-                                    <i class="bi bi-file-earmark-word fs-1"></i>
+                                    <i class="bi bi-file-earmark-word fs-1" aria-hidden="true"></i>
                                 </div>
                             {% endif %}
                         </a>
@@ -211,7 +205,7 @@
                         <div class="text-body-secondary small">{{ attachment.uploadedAt }}</div>
                         {% if attachment.suggestedAmount or attachment.suggestedDate or attachment.suggestedLabel %}
                             <div class="small">
-                                {% if attachment.suggestedAmount %}{{ attachment.suggestedAmount|number_format(2, ',', ' ') }} €{% endif %}
+                                {% if attachment.suggestedAmount %}{{ attachment.suggestedAmount|money }}{% endif %}
                                 {% if attachment.suggestedDate %} — {{ attachment.suggestedDate }}{% endif %}
                                 {% if attachment.suggestedSource == 'ai' %}<span class="badge text-bg-info">IA</span>{% endif %}
                                 {% if attachment.suggestedLabel %}<div class="text-body-secondary">{{ attachment.suggestedLabel }}</div>{% endif %}
@@ -223,7 +217,10 @@
                 </div>
             {% else %}
                 <div class="col-12">
-                    <p class="text-body-secondary fst-italic">Aucun reçu en attente.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun reçu en attente.',
+                        compact: true,
+                    } only %}
                 </div>
             {% endfor %}
         </div>
@@ -264,7 +261,7 @@
                             <td>{{ row.counterparty }}</td>
                             <td>{{ row.description }}</td>
                             <td class="text-end {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
-                                {{ movement.amount|number_format(2, ',', ' ') }} €
+                                {{ movement.amount|money }}
                             </td>
                             <td class="text-center">
                                 {% set attachment_count = recent_movements_attachment_counts[movement.id] ?? 0 %}
@@ -272,7 +269,10 @@
                             </td>
                         </tr>
                     {% else %}
-                        <tr><td colspan="6" class="text-body-secondary fst-italic">Aucun mouvement.</td></tr>
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucun mouvement.',
+                            colspan: 6,
+                        } only %}
                     {% endfor %}
                 </tbody>
             </table>

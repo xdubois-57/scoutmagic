@@ -51,9 +51,8 @@ class MemberEmailAddressController extends AbstractController
             return new Response('Forbidden', 403);
         }
 
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/members/' . $memberYearId);
+        if (($guard = $this->guardCsrf($request, '/members/' . $memberYearId)) !== null) {
+            return $guard;
         }
 
         try {
@@ -81,9 +80,8 @@ class MemberEmailAddressController extends AbstractController
             return new Response('Forbidden', 403);
         }
 
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/members/' . $memberYearId);
+        if (($guard = $this->guardCsrf($request, '/members/' . $memberYearId)) !== null) {
+            return $guard;
         }
 
         try {
@@ -111,9 +109,8 @@ class MemberEmailAddressController extends AbstractController
             return new Response('Forbidden', 403);
         }
 
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/members/' . $memberYearId);
+        if (($guard = $this->guardCsrf($request, '/members/' . $memberYearId)) !== null) {
+            return $guard;
         }
 
         try {
@@ -139,9 +136,8 @@ class MemberEmailAddressController extends AbstractController
             return new Response('Forbidden', 403);
         }
 
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/members/' . $memberYearId);
+        if (($guard = $this->guardCsrf($request, '/members/' . $memberYearId)) !== null) {
+            return $guard;
         }
 
         try {

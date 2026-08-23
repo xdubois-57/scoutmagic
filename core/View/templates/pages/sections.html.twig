@@ -3,13 +3,14 @@
 {% block title %}Sections — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Sections</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Sections' } only %}
         {{ editable('sections.intro', '<p>Voici les sections de notre unité.</p>') }}
 
         {% if section_groups is empty %}
-        <div class="alert alert-info mt-4">
-            <i class="bi bi-info-circle"></i> Les sections apparaîtront ici après le premier import depuis Desk.
-        </div>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune section pour le moment. Les sections apparaîtront ici après le premier import depuis Desk.',
+            icon: 'bi-flag',
+        } only %}
         {% else %}
             {% for group in section_groups %}
             <h3 class="mt-4 mb-3">{{ group.branch_label }}</h3>
@@ -19,12 +20,12 @@
                     <div class="card h-100">
                         {{ section_photo(section.id, section.name ?? section.desk_code, 'w-100 card-img-top') }}
                         <div class="card-body">
-                            <h5 class="card-title"><i class="bi bi-flag-fill"></i> {{ section.name ?? section.desk_code }}</h5>
+                            <h5 class="card-title"><i class="bi bi-flag-fill" aria-hidden="true"></i> {{ section.name ?? section.desk_code }}</h5>
                             {% if section.responsable %}
                             <p class="card-text small mb-1">{{ section.responsable|display_name|normalize_name }}</p>
                             {% endif %}
                             {% if section.email %}
-                            <p class="card-text small"><i class="bi bi-envelope"></i> <a href="mailto:{{ section.email }}">{{ section.email }}</a></p>
+                            <p class="card-text small"><i class="bi bi-envelope" aria-hidden="true"></i> <a href="mailto:{{ section.email }}">{{ section.email }}</a></p>
                             {% endif %}
                             <div class="small">
                                 {{ editable('section.' ~ section.desk_code ~ '.text', '') }}

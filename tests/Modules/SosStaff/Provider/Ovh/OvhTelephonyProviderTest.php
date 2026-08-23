@@ -6,6 +6,7 @@ namespace Tests\Modules\SosStaff\Provider\Ovh;
 
 use Modules\SosStaff\Provider\ForwardingState;
 use Modules\SosStaff\Provider\Ovh\OvhApiClient;
+use Modules\SosStaff\Provider\Ovh\OvhApiException;
 use Modules\SosStaff\Provider\Ovh\OvhTelephonyProvider;
 use Modules\SosStaff\Provider\PhoneLine;
 use Modules\SosStaff\Provider\ProviderException;
@@ -83,9 +84,18 @@ class OvhTelephonyProviderTest extends TestCase
         $client = $this->clientWithTransport(fn() => ['status' => 403, 'body' => '{"message":"Invalid Application Key"}']);
         $provider = new OvhTelephonyProvider($client, 'ba-123', '0033100000000');
 
-        $this->expectException(ProviderException::class);
-        $this->expectExceptionMessage('Invalid Application Key');
-        $provider->testConnection();
+        try {
+            $provider->testConnection();
+            self::fail('Expected a ProviderException.');
+        } catch (ProviderException $e) {
+            // ProviderException is a Core\Exception\UserFacingException:
+            // OVH's own English must not survive the wrap, and the cause
+            // must still be reachable from the trace.
+            self::assertStringNotContainsString('Invalid Application Key', $e->getMessage());
+            self::assertStringContainsString('HTTP 403', $e->getMessage());
+            self::assertInstanceOf(OvhApiException::class, $e->getPrevious());
+            self::assertSame('Invalid Application Key', $e->getPrevious()->detail);
+        }
     }
 
     public function testListLinesFetchesEveryBillingAccountsLines(): void
@@ -119,8 +129,14 @@ class OvhTelephonyProviderTest extends TestCase
         $client = $this->clientWithTransport(fn() => ['status' => 500, 'body' => '{"message":"OVH internal error"}']);
         $provider = new OvhTelephonyProvider($client, 'ba-123', '0033100000000');
 
-        $this->expectException(ProviderException::class);
-        $this->expectExceptionMessage('OVH internal error');
-        $provider->readForwardingState();
+        try {
+            $provider->readForwardingState();
+            self::fail('Expected a ProviderException.');
+        } catch (ProviderException $e) {
+            self::assertStringNotContainsString('OVH internal error', $e->getMessage());
+            self::assertStringContainsString('HTTP 500', $e->getMessage());
+            self::assertInstanceOf(OvhApiException::class, $e->getPrevious());
+            self::assertSame('OVH internal error', $e->getPrevious()->detail);
+        }
     }
 }

@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -109,7 +109,7 @@
       "breadcrumb": {
         "label": "Mes locations",
         "parents": [
-          "Espace animés"
+          "Espace membres"
         ]
       }
     },
@@ -403,7 +403,7 @@
       "breadcrumb": {
         "label": "Gestion",
         "parents": [
-          "Espace animés",
+          "Espace membres",
           "Mes locations"
         ]
       }
@@ -419,7 +419,7 @@
       "breadcrumb": {
         "label": "Gabarits",
         "parents": [
-          "Espace animés",
+          "Espace membres",
           "Mes locations"
         ]
       }
@@ -435,7 +435,7 @@
       "breadcrumb": {
         "label": "Réglages",
         "parents": [
-          "Espace animés",
+          "Espace membres",
           "Mes locations"
         ]
       }
@@ -451,7 +451,7 @@
       "breadcrumb": {
         "label": "Séjour",
         "parents": [
-          "Espace animés",
+          "Espace membres",
           "Mes locations"
         ]
       }
@@ -467,7 +467,7 @@
       "breadcrumb": {
         "label": "Document",
         "parents": [
-          "Espace animés",
+          "Espace membres",
           "Mes locations"
         ]
       }
@@ -483,7 +483,7 @@
       "breadcrumb": {
         "label": "Calendrier",
         "parents": [
-          "Espace animés",
+          "Espace membres",
           "Mes locations"
         ]
       }
@@ -499,7 +499,7 @@
       "breadcrumb": {
         "label": "Réservations",
         "parents": [
-          "Espace animés",
+          "Espace membres",
           "Mes locations"
         ]
       }
@@ -515,7 +515,7 @@
       "breadcrumb": {
         "label": "Réservation",
         "parents": [
-          "Espace animés",
+          "Espace membres",
           "Mes locations"
         ]
       }

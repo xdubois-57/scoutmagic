@@ -1,8 +1,8 @@
 {% extends 'base.html.twig' %}
 {% block title %}Inscriptions — {{ site_name }}{% endblock %}
 {% block content %}
-    <div class="container py-4" style="max-width: 720px;">
-        <h1 class="h3 mb-3">Inscriptions</h1>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with { title: 'Inscriptions' } only %}
 
         <div class="mb-4">
             {{ editable('registration_intro', '<p>Bienvenue sur la page d\'inscription de l\'unité. Retrouvez ci-dessous le parcours scout et les places disponibles pour l\'année ' ~ target_year_label ~ '.</p>') }}
@@ -32,11 +32,11 @@
                                         {{ year }}
                                         {% if waitlist_enabled %}
                                             {% if year in waitlist_tiers.limited|default([]) %}
-                                                <span class="badge bg-warning text-dark ms-1">Limitée</span>
+                                                <span class="badge text-bg-warning ms-1">Limitée</span>
                                             {% elseif year in waitlist_tiers.heavy|default([]) %}
-                                                <span class="badge bg-danger ms-1">Complet</span>
+                                                <span class="badge text-bg-danger ms-1">Complet</span>
                                             {% else %}
-                                                <span class="badge bg-success ms-1">Disponible</span>
+                                                <span class="badge text-bg-success ms-1">Disponible</span>
                                             {% endif %}
                                         {% endif %}
                                     </li>
@@ -78,71 +78,103 @@
                     {% include 'partials/human_check_fields.html.twig' with { human_check: human_check } %}
 
                     <h3 class="h6 mb-2">Parent</h3>
-                    <div class="mb-3">
-                        <label class="form-label" for="parent_name">Nom et prénom du parent <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="parent_name" name="parent_name" required maxlength="150" value="{{ sticky.parent_name|default('') }}">
-                    </div>
-                    <div class="row g-3 mb-3">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'parent_name', field_name: 'parent_name',
+                        label: 'Nom et prénom du parent', required: true,
+                        maxlength: 150, value: sticky.parent_name|default(''),
+                    } only %}
+                    <div class="row gx-3">
                         <div class="col-12 col-sm-6">
-                            <label class="form-label" for="email">Email <span class="text-danger">*</span></label>
-                            <input type="email" class="form-control" id="email" name="email" required maxlength="190" value="{{ sticky.email|default('') }}">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'email', field_name: 'email', type: 'email',
+                                label: 'Email', required: true,
+                                maxlength: 190, value: sticky.email|default(''),
+                            } only %}
                         </div>
                         <div class="col-12 col-sm-6">
-                            <label class="form-label" for="phone1">Téléphone <span class="text-danger">*</span></label>
-                            <input type="tel" class="form-control" id="phone1" name="phone1" required maxlength="30" value="{{ sticky.phone1|default('') }}">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'phone1', field_name: 'phone1', type: 'tel',
+                                label: 'Téléphone', required: true,
+                                maxlength: 30, value: sticky.phone1|default(''),
+                            } only %}
                         </div>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label" for="phone2">Téléphone (2, facultatif)</label>
-                        <input type="tel" class="form-control" id="phone2" name="phone2" maxlength="30" value="{{ sticky.phone2|default('') }}">
-                    </div>
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'phone2', field_name: 'phone2', type: 'tel',
+                        label: 'Téléphone (2, facultatif)',
+                        maxlength: 30, value: sticky.phone2|default(''),
+                    } only %}
 
-                    <div class="row g-3 mb-3">
+                    <div class="row gx-3">
                         <div class="col-12 col-sm-3">
-                            <label class="form-label" for="number">N° <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="number" name="number" required maxlength="20" value="{{ sticky.number|default('') }}">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'number', field_name: 'number',
+                                label: 'N°', required: true,
+                                maxlength: 20, value: sticky.number|default(''),
+                            } only %}
                         </div>
                         <div class="col-12 col-sm-9">
-                            <label class="form-label" for="street">Rue <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="street" name="street" required maxlength="150" value="{{ sticky.street|default('') }}">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'street', field_name: 'street',
+                                label: 'Rue', required: true,
+                                maxlength: 150, value: sticky.street|default(''),
+                            } only %}
                         </div>
                     </div>
-                    <div class="row g-3 mb-4">
+                    <div class="row gx-3">
                         <div class="col-12 col-sm-4">
-                            <label class="form-label" for="postal_code">Code postal <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="postal_code" name="postal_code" required maxlength="20" value="{{ sticky.postal_code|default('') }}">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'postal_code', field_name: 'postal_code',
+                                label: 'Code postal', required: true,
+                                maxlength: 20, value: sticky.postal_code|default(''),
+                            } only %}
                         </div>
                         <div class="col-12 col-sm-8">
-                            <label class="form-label" for="city">Ville <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="city" name="city" required maxlength="100" value="{{ sticky.city|default('') }}">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'city', field_name: 'city',
+                                label: 'Ville', required: true,
+                                maxlength: 100, value: sticky.city|default(''),
+                            } only %}
                         </div>
                     </div>
 
                     <h3 class="h6 mb-2">Enfant</h3>
-                    <div class="row g-3 mb-3">
+                    <div class="row gx-3">
                         <div class="col-12 col-sm-6">
-                            <label class="form-label" for="child_first_name">Prénom <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="child_first_name" name="child_first_name" required maxlength="100" value="{{ sticky.child_first_name|default('') }}">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'child_first_name', field_name: 'child_first_name',
+                                label: 'Prénom', required: true,
+                                maxlength: 100, value: sticky.child_first_name|default(''),
+                            } only %}
                         </div>
                         <div class="col-12 col-sm-6">
-                            <label class="form-label" for="child_last_name">Nom <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="child_last_name" name="child_last_name" required maxlength="100" value="{{ sticky.child_last_name|default('') }}">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'child_last_name', field_name: 'child_last_name',
+                                label: 'Nom', required: true,
+                                maxlength: 100, value: sticky.child_last_name|default(''),
+                            } only %}
                         </div>
                     </div>
                     <div class="row g-3 mb-3">
                         <div class="col-12 col-sm-6">
-                            <label class="form-label" for="birth_date">Date de naissance <span class="text-danger">*</span></label>
-                            <input type="date" class="form-control" id="birth_date" name="birth_date" required value="{{ sticky.birth_date|default('') }}">
+                            {# Not migrated to partials/form_field.html.twig: the hint
+                               below is a JS-managed element (inline script fills
+                               #birth-date-branch-hint from #birth_date). #}
+                            <label class="form-label" for="birth_date">Date de naissance <span class="text-danger" aria-hidden="true">*</span></label>
+                            <input type="date" class="form-control" id="birth_date" name="birth_date" required value="{{ sticky.birth_date|default('') }}" aria-describedby="birth-date-branch-hint">
                             <div class="form-text" id="birth-date-branch-hint"></div>
                         </div>
                         <div class="col-12 col-sm-6">
-                            <label class="form-label" for="gender">Genre <span class="text-danger">*</span></label>
-                            <select class="form-select" id="gender" name="gender" required>
-                                <option value="">Choisissez…</option>
-                                <option value="F" {{ sticky.gender|default('') == 'F' ? 'selected' : '' }}>Fille</option>
-                                <option value="M" {{ sticky.gender|default('') == 'M' ? 'selected' : '' }}>Garçon</option>
-                                <option value="X" {{ sticky.gender|default('') == 'X' ? 'selected' : '' }}>Autre / préfère ne pas préciser</option>
-                            </select>
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'gender', field_name: 'gender', type: 'select',
+                                label: 'Genre', required: true,
+                                options: [
+                                    { value: '', label: 'Choisissez…' },
+                                    { value: 'F', label: 'Fille', selected: sticky.gender|default('') == 'F' },
+                                    { value: 'M', label: 'Garçon', selected: sticky.gender|default('') == 'M' },
+                                    { value: 'X', label: 'Autre / préfère ne pas préciser', selected: sticky.gender|default('') == 'X' },
+                                ],
+                            } only %}
                         </div>
                     </div>
 
@@ -169,10 +201,11 @@
                         </div>
                     {% endif %}
 
-                    <div class="mb-4">
-                        <label class="form-label" for="remarks">Remarques (facultatif)</label>
-                        <textarea class="form-control" id="remarks" name="remarks" rows="3" maxlength="2000">{{ sticky.remarks|default('') }}</textarea>
-                    </div>
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'remarks', field_name: 'remarks', type: 'textarea',
+                        label: 'Remarques (facultatif)', rows: 3,
+                        maxlength: 2000, value: sticky.remarks|default(''),
+                    } only %}
 
                     {% if form_open %}
                         <div class="mb-4">
@@ -180,8 +213,12 @@
                                 J'ai un code d'inscription en cours d'année
                             </button>
                             <div class="collapse mt-2" id="year-code-collapse">
-                                <label class="form-label" for="year_code">Code d'inscription</label>
-                                <input type="text" class="form-control" id="year_code" name="year_code" maxlength="20" placeholder="ex. 4KX9-7QRM" value="{{ sticky.year_code|default('') }}">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'year_code', field_name: 'year_code',
+                                    label: "Code d'inscription",
+                                    maxlength: 20, placeholder: 'ex. 4KX9-7QRM',
+                                    value: sticky.year_code|default(''),
+                                } only %}
                             </div>
                         </div>
                     {% endif %}
@@ -213,7 +250,7 @@
     var waitlistEnabled = {{ waitlist_enabled ? 'true' : 'false' }};
     var tierLabels = {
         available: { text: 'Disponible', badge: 'bg-success' },
-        limited: { text: 'Limitée', badge: 'bg-warning text-dark' },
+        limited: { text: 'Limitée', badge: 'text-bg-warning' },
         heavy: { text: 'Complet', badge: 'bg-danger' }
     };
 

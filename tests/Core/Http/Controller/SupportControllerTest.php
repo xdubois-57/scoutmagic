@@ -103,6 +103,7 @@ class SupportControllerTest extends TestCase
     protected function tearDown(): void
     {
         AuthSession::logout();
+        $_POST = [];
         self::removeTree($this->projectRoot);
     }
 
@@ -456,7 +457,9 @@ class SupportControllerTest extends TestCase
 
         $response = $this->controller->generatePackage($request, []);
 
-        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(403, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertSame(\Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE, $decoded['error'] ?? null);
         $stmt = $this->pdo->query('SELECT COUNT(*) FROM scheduled_actions');
         $this->assertSame(0, (int) ($stmt !== false ? $stmt->fetchColumn() : 1));
     }

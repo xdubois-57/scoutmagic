@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Client;
 
+use Core\Exception\UserFacingException;
+
 /**
  * A mailbox could not be reached or read.
  *
@@ -16,6 +18,6 @@ namespace Modules\InboundMail\Client;
  * interpolating a library's own exception text, which routinely contains
  * the account name and, on some servers, the credential that was rejected.
  */
-class MailboxConnectionException extends \RuntimeException
+class MailboxConnectionException extends \RuntimeException implements UserFacingException
 {
 }

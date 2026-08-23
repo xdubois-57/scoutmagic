@@ -6,63 +6,42 @@
 {% block content %}
 {% import _self as display %}
 
-<h1 class="mb-4">Tableau de bord support</h1>
+{% include 'partials/page_header.html.twig' with { title: 'Tableau de bord support' } only %}
 
 {# ---------------------------------------------------------------- #}
-{# Indicator cards — always recomputed on the currently filtered set. #}
+{# Indicator tiles — always recomputed on the currently filtered set. #}
 {# ---------------------------------------------------------------- #}
-<div class="row row-cols-2 row-cols-lg-5 g-3 mb-4">
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <p class="text-body-secondary small mb-1">Installations actives</p>
-                <p class="h4 mb-0">{{ view.indicators.active_installations }}</p>
-            </div>
-        </div>
-    </div>
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <p class="text-body-secondary small mb-1">Total membres actifs</p>
-                <p class="h4 mb-0">{{ display.value_or_missing(view.indicators.total_active_members) }}</p>
-            </div>
-        </div>
-    </div>
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <p class="text-body-secondary small mb-1">Total sections actives</p>
-                <p class="h4 mb-0">{{ display.value_or_missing(view.indicators.total_active_sections) }}</p>
-            </div>
-        </div>
-    </div>
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <p class="text-body-secondary small mb-1">Version la plus répandue</p>
-                <p class="h4 mb-0">{{ display.value_or_missing(view.indicators.most_common_version) }}</p>
-                {% if view.indicators.most_common_version_count %}
-                    <p class="small text-body-secondary mb-0">{{ view.indicators.most_common_version_count }} installation(s)</p>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <p class="text-body-secondary small mb-1">Mises à jour automatiques</p>
-                <p class="h4 mb-0">
-                    {% if view.indicators.auto_update_percentage is null %}
-                        <span class="text-body-secondary">Non renseigné</span>
-                    {% else %}{{ view.indicators.auto_update_percentage }} %{% endif %}
-                </p>
-                {% if view.indicators.auto_update_known_count %}
-                    <p class="small text-body-secondary mb-0">sur {{ view.indicators.auto_update_known_count }} renseignée(s)</p>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-</div>
+{% include 'partials/stat_tiles.html.twig' with {
+    tiles: [
+        {
+            label: 'Installations actives',
+            value: view.indicators.active_installations,
+        },
+        {
+            label: 'Total membres actifs',
+            value: display.value_or_missing(view.indicators.total_active_members),
+        },
+        {
+            label: 'Total sections actives',
+            value: display.value_or_missing(view.indicators.total_active_sections),
+        },
+        {
+            label: 'Version la plus répandue',
+            value: display.value_or_missing(view.indicators.most_common_version),
+            sublabel: view.indicators.most_common_version_count
+                ? view.indicators.most_common_version_count ~ ' installation(s)' : '',
+        },
+        {
+            label: 'Mises à jour automatiques',
+            value: view.indicators.auto_update_percentage is null
+                ? display.value_or_missing(null)
+                : view.indicators.auto_update_percentage ~ ' %',
+            sublabel: view.indicators.auto_update_known_count
+                ? 'sur ' ~ view.indicators.auto_update_known_count ~ ' renseignée(s)' : '',
+        },
+    ],
+    columns: 5,
+} only %}
 
 {# ---------------------------------------------------------------- #}
 {# Filters and search — plain GET form, so the whole view state is    #}
@@ -72,67 +51,85 @@
     <div class="card-body">
         <div class="row g-3">
             <div class="col-12 col-lg-4">
-                <label for="filter-q" class="form-label">Recherche</label>
-                <input type="search" class="form-control" id="filter-q" name="q" value="{{ filters.search }}"
-                       placeholder="URL, identifiant, version, année scoute">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-q', field_name: 'q', type: 'search',
+                    label: 'Recherche', value: filters.search,
+                    placeholder: 'URL, identifiant, version, année scoute',
+                } only %}
             </div>
 
             <div class="col-6 col-lg-2">
-                <label for="filter-status" class="form-label">Statut</label>
-                <select class="form-select" id="filter-status" name="status">
-                    <option value="active" {{ filters.status == 'active' ? 'selected' : '' }}>Actives</option>
-                    <option value="stale" {{ filters.status == 'stale' ? 'selected' : '' }}>Obsolètes</option>
-                    <option value="all" {{ filters.status == 'all' ? 'selected' : '' }}>Toutes</option>
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-status', field_name: 'status', type: 'select',
+                    label: 'Statut',
+                    options: [
+                        { value: 'active', label: 'Actives', selected: filters.status == 'active' },
+                        { value: 'stale', label: 'Obsolètes', selected: filters.status == 'stale' },
+                        { value: 'all', label: 'Toutes', selected: filters.status == 'all' },
+                    ],
+                } only %}
             </div>
 
             <div class="col-6 col-lg-2">
-                <label for="filter-version" class="form-label">Version / build</label>
-                <select class="form-select" id="filter-version" name="version">
-                    <option value="">Toutes</option>
-                    {% for version in view.available.versions %}
-                        <option value="{{ version }}" {{ filters.version == version ? 'selected' : '' }}>{{ version }}</option>
-                    {% endfor %}
-                </select>
+                {# The looped options are built just above each include so the
+                   placeholder entry and the selected state stay side by side. #}
+                {% set _version_options = [{ value: '', label: 'Toutes' }]|merge(
+                    view.available.versions|map(version => {
+                        value: version, label: version, selected: filters.version == version,
+                    })
+                ) %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-version', field_name: 'version', type: 'select',
+                    label: 'Version / build', options: _version_options,
+                } only %}
             </div>
 
             <div class="col-6 col-lg-2">
-                <label for="filter-method" class="form-label">Méthode d'installation</label>
-                <select class="form-select" id="filter-method" name="installation_method">
-                    <option value="">Toutes</option>
-                    {% for method in view.available.installation_methods %}
-                        <option value="{{ method }}" {{ filters.installationMethod == method ? 'selected' : '' }}>{{ method }}</option>
-                    {% endfor %}
-                </select>
+                {% set _method_options = [{ value: '', label: 'Toutes' }]|merge(
+                    view.available.installation_methods|map(method => {
+                        value: method, label: method, selected: filters.installationMethod == method,
+                    })
+                ) %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-method', field_name: 'installation_method', type: 'select',
+                    label: "Méthode d'installation", options: _method_options,
+                } only %}
             </div>
 
             <div class="col-6 col-lg-2">
-                <label for="filter-auto-update" class="form-label">Mise à jour automatique</label>
-                <select class="form-select" id="filter-auto-update" name="auto_update">
-                    <option value="">Toutes</option>
-                    {% for level in view.available.auto_update_levels %}
-                        <option value="{{ level.key }}" {{ filters.autoUpdate == level.key ? 'selected' : '' }}>{{ level.label }}</option>
-                    {% endfor %}
-                </select>
+                {% set _auto_update_options = [{ value: '', label: 'Toutes' }]|merge(
+                    view.available.auto_update_levels|map(level => {
+                        value: level.key, label: level.label, selected: filters.autoUpdate == level.key,
+                    })
+                ) %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-auto-update', field_name: 'auto_update', type: 'select',
+                    label: 'Mise à jour automatique', options: _auto_update_options,
+                } only %}
             </div>
 
             <div class="col-6 col-lg-3">
-                <label for="filter-module" class="form-label">Module</label>
-                <select class="form-select" id="filter-module" name="module">
-                    <option value="">Tous</option>
-                    {% for moduleId in view.available.modules %}
-                        <option value="{{ moduleId }}" {{ filters.moduleId == moduleId ? 'selected' : '' }}>{{ moduleId }}</option>
-                    {% endfor %}
-                </select>
+                {% set _module_options = [{ value: '', label: 'Tous' }]|merge(
+                    view.available.modules|map(moduleId => {
+                        value: moduleId, label: moduleId, selected: filters.moduleId == moduleId,
+                    })
+                ) %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-module', field_name: 'module', type: 'select',
+                    label: 'Module', options: _module_options,
+                } only %}
             </div>
 
             <div class="col-6 col-lg-3">
-                <label for="filter-module-state" class="form-label">État du module</label>
-                <select class="form-select" id="filter-module-state" name="module_state">
-                    <option value="">Peu importe</option>
-                    <option value="enabled" {{ filters.moduleEnabled is same as(true) ? 'selected' : '' }}>Activé</option>
-                    <option value="disabled" {{ filters.moduleEnabled is same as(false) ? 'selected' : '' }}>Désactivé</option>
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-module-state', field_name: 'module_state', type: 'select',
+                    label: 'État du module',
+                    options: [
+                        { value: '', label: 'Peu importe' },
+                        { value: 'enabled', label: 'Activé', selected: filters.moduleEnabled is same as(true) },
+                        { value: 'disabled', label: 'Désactivé', selected: filters.moduleEnabled is same as(false) },
+                    ],
+                } only %}
             </div>
 
             {# Every sortable field is reachable here, including the two the
@@ -141,22 +138,28 @@
                shortcut onto the same query parameters, never a second,
                narrower vocabulary. #}
             <div class="col-6 col-lg-3">
-                <label for="filter-sort" class="form-label">Trier par</label>
-                <select class="form-select" id="filter-sort" name="sort">
-                    <option value="last_received" {{ filters.sort == 'last_received' ? 'selected' : '' }}>Dernière réception</option>
-                    <option value="active_members" {{ filters.sort == 'active_members' ? 'selected' : '' }}>Membres actifs</option>
-                    <option value="version" {{ filters.sort == 'version' ? 'selected' : '' }}>Version / build</option>
-                    <option value="installed_at" {{ filters.sort == 'installed_at' ? 'selected' : '' }}>Date d'installation</option>
-                    <option value="instance_url" {{ filters.sort == 'instance_url' ? 'selected' : '' }}>URL d'instance</option>
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-sort', field_name: 'sort', type: 'select',
+                    label: 'Trier par',
+                    options: [
+                        { value: 'last_received', label: 'Dernière réception', selected: filters.sort == 'last_received' },
+                        { value: 'active_members', label: 'Membres actifs', selected: filters.sort == 'active_members' },
+                        { value: 'version', label: 'Version / build', selected: filters.sort == 'version' },
+                        { value: 'installed_at', label: "Date d'installation", selected: filters.sort == 'installed_at' },
+                        { value: 'instance_url', label: "URL d'instance", selected: filters.sort == 'instance_url' },
+                    ],
+                } only %}
             </div>
 
             <div class="col-6 col-lg-3">
-                <label for="filter-dir" class="form-label">Sens</label>
-                <select class="form-select" id="filter-dir" name="dir">
-                    <option value="desc" {{ filters.descending ? 'selected' : '' }}>Décroissant</option>
-                    <option value="asc" {{ filters.descending ? '' : 'selected' }}>Croissant</option>
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-dir', field_name: 'dir', type: 'select',
+                    label: 'Sens',
+                    options: [
+                        { value: 'desc', label: 'Décroissant', selected: filters.descending },
+                        { value: 'asc', label: 'Croissant', selected: not filters.descending },
+                    ],
+                } only %}
             </div>
 
             <div class="col-12 col-lg-6 d-flex align-items-end gap-2">
@@ -207,23 +210,31 @@
             </div>
             <form method="get" action="/support-dashboard" class="d-flex align-items-center gap-2">
                 <label for="history-period" class="form-label mb-0 small">Période</label>
-                <select class="form-select form-select-sm w-auto" id="history-period" name="history"
-                        onchange="this.form.submit()">
+                {# Submission on change is wired in support-dashboard.js —
+                   an inline onchange= would be silently blocked by the CSP
+                   (script-src carries no 'unsafe-inline', and a nonce never
+                   covers an on* attribute), which is exactly how this
+                   selector shipped dead once. The button stays visible for
+                   everyone rather than <noscript>-only: with JS active it
+                   is redundant but harmless, without it it is the only way
+                   to apply the choice. #}
+                <select class="form-select form-select-sm w-auto" id="history-period" name="history">
                     {% for months in history_choices %}
                         <option value="{{ months }}" {{ history.period.value == months ~ '' ? 'selected' : '' }}>{{ months }} mois</option>
                     {% endfor %}
                     <option value="all" {{ history.period.value == 'all' ? 'selected' : '' }}>Tout l'historique</option>
                 </select>
-                <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Afficher</button></noscript>
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Afficher</button>
             </form>
         </div>
 
         {% if history.has_data %}
             <div class="support-chart"><canvas id="chart-history"></canvas></div>
         {% else %}
-            <p class="small text-body-secondary mb-0">
-                Aucun mois n'est encore finalisé. Un mois est finalisé peu après sa fin.
-            </p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Aucun mois n'est encore finalisé. Un mois est finalisé peu après sa fin.",
+                compact: true,
+            } only %}
         {% endif %}
     </div>
 </div>
@@ -286,11 +297,10 @@
                             </td>
                             <td>{{ display.value_or_missing(row.last_upgraded_at) }}</td>
                             <td class="d-none d-md-table-cell">
-                                {% if row.is_active %}
-                                    <span class="badge text-bg-success">Active</span>
-                                {% else %}
-                                    <span class="badge text-bg-secondary">Obsolète</span>
-                                {% endif %}
+                                {% include 'partials/status_badge.html.twig' with {
+                                    status: row.is_active ? 'active' : 'inactive',
+                                    label: row.is_active ? 'Active' : 'Obsolète',
+                                } only %}
                             </td>
                             <td class="d-none d-md-table-cell">{{ display.value_or_missing(row.last_received_at) }}</td>
                             <td class="d-none d-lg-table-cell">{{ display.value_or_missing(row.active_members) }}</td>
@@ -311,39 +321,42 @@
                             </td>
                         </tr>
                     {% else %}
-                        <tr><td colspan="10" class="text-center text-body-secondary">Aucune installation ne correspond aux critères.</td></tr>
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucune installation ne correspond aux critères.',
+                            colspan: 10,
+                        } only %}
                     {% endfor %}
                 </tbody>
             </table>
         </div>
 
-        {% if view.page_count > 1 %}
-            <nav aria-label="Pagination des installations">
-                <ul class="pagination pagination-sm mb-0">
-                    {% for pageNumber in 1..view.page_count %}
-                        <li class="page-item {{ pageNumber == view.page ? 'active' : '' }}">
-                            <a class="page-link" href="/support-dashboard{{ filters.queryString({'page': pageNumber}) }}">{{ pageNumber }}</a>
-                        </li>
-                    {% endfor %}
-                </ul>
-            </nav>
-        {% endif %}
+        {# The shared partial appends the page number to base_url — the
+           filter query (page dropped) is rebuilt in front of it so no link
+           silently loses the filters the user is looking at. #}
+        {% set _pager_query = filters.queryString({'page': null}) %}
+        {% include 'partials/pagination.html.twig' with {
+            page: view.page,
+            total_pages: view.page_count,
+            base_url: '/support-dashboard' ~ _pager_query ~ (_pager_query ? '&' : '?') ~ 'page=',
+            label: 'Pagination des installations',
+        } only %}
     </div>
 </div>
 
-<div class="modal fade" id="support-detail-modal" tabindex="-1" aria-labelledby="support-detail-title" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 class="modal-title h5" id="support-detail-title">Détail de l'installation</h2>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
-            </div>
-            <div class="modal-body" id="support-detail-body">
-                <p class="text-body-secondary mb-0">Chargement…</p>
-            </div>
+{# The inner #support-detail-body div is the fragment target
+   support-dashboard.js fills — the embed owns the .modal-body itself. #}
+{% embed 'partials/modal.html.twig' with {
+    id: 'support-detail-modal',
+    title: "Détail de l'installation",
+    size: 'lg',
+    scrollable: true,
+} only %}
+    {% block body %}
+        <div id="support-detail-body">
+            <p class="text-body-secondary mb-0">Chargement…</p>
         </div>
-    </div>
-</div>
+    {% endblock %}
+{% endembed %}
 {% endblock %}
 
 {% block scripts %}

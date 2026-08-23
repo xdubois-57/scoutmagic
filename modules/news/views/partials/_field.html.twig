@@ -14,7 +14,7 @@
     {% if not field.isNonInput() %}
         <label class="form-label" for="{{ input_name }}">
             {{ field.label }}{% if field.isRequired %} <span class="text-danger">*</span>{% endif %}
-            {% if field.isPriced %}<span class="text-body-secondary small">({{ field.pricePerUnit|number_format(2, ',', ' ') }}€/unité)</span>{% endif %}
+            {% if field.isPriced %}<span class="text-body-secondary small">({{ field.pricePerUnit|money }}/unité)</span>{% endif %}
         </label>
     {% endif %}
 
@@ -26,21 +26,28 @@
 
     {% elseif field.fieldType == 'number' %}
         {% set full = remaining_capacity is not null and remaining_capacity <= 0 %}
-        {# The whole attribute has to be written as markup, never built as a
-           string and interpolated: Twig's autoescaping turns the quotes of
-           an interpolated `max="3"` into character references, which the
-           HTML parser then reads back as the VALUE — the browser ends up
-           with max='"3"', not a number, and silently enforces no cap at
-           all. Caught end to end (tests/e2e/specs/news-form-payment.spec.js)
-           and pinned in Tests\Modules\News\Controller\NewsIntegrationTest. #}
-        <input type="number" inputmode="numeric" step="1" min="0" {% if remaining_capacity is not null %}max="{{ remaining_capacity }}"{% endif %}
-               class="form-control news-number-field" id="{{ input_name }}" name="{{ input_name }}"
-               value="{{ full ? 0 : value }}" data-price="{{ field.pricePerUnit ?? '' }}" data-label="{{ field.label }}"
-               {{ field.isRequired ? 'required' : '' }} {{ (disabled or full) ? 'disabled' : '' }}>
-        {% if remaining_capacity is not null %}
-            {% if full %}
-                <div class="form-text text-warning">Il n'y a plus de places disponibles.</div>
-            {% else %}
+        {% if full %}
+            {# No input at all — the label stays, the widget doesn't. A
+               disabled input is never submitted by the browser, so a
+               disabled+required one used to make the WHOLE form
+               unsubmittable (the server saw the required answer as empty
+               and refused every submission once one quota ran out).
+               Service\ResponseService mirrors this by not enforcing
+               "required" on an exhausted-capacity field. #}
+            <div class="form-text text-warning mb-0">Complet — cette option n'est plus proposée.</div>
+        {% else %}
+            {# The whole attribute has to be written as markup, never built as a
+               string and interpolated: Twig's autoescaping turns the quotes of
+               an interpolated `max="3"` into character references, which the
+               HTML parser then reads back as the VALUE — the browser ends up
+               with max='"3"', not a number, and silently enforces no cap at
+               all. Caught end to end (tests/e2e/specs/news-form-payment.spec.js)
+               and pinned in Tests\Modules\News\Controller\NewsIntegrationTest. #}
+            <input type="number" inputmode="numeric" step="1" min="0" {% if remaining_capacity is not null %}max="{{ remaining_capacity }}"{% endif %}
+                   class="form-control news-number-field" id="{{ input_name }}" name="{{ input_name }}"
+                   value="{{ value }}" data-price="{{ field.pricePerUnit ?? '' }}" data-label="{{ field.label }}"
+                   {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
+            {% if remaining_capacity is not null %}
                 <div class="form-text">Il reste {{ remaining_capacity }} place{{ remaining_capacity > 1 ? 's' : '' }}</div>
             {% endif %}
         {% endif %}

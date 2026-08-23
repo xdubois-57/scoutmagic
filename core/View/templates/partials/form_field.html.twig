@@ -1,0 +1,117 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  One form field — label, control, help text, required marker — wired the
+  way 356 hand-written copies mostly weren't (design.md §7 companion).
+
+  What the copies got wrong, counted: fourteen different label class
+  combinations; 136 help texts of which exactly one was connected to its
+  field with aria-describedby (a screen reader announced the label and
+  nothing else — the format hint, the constraint, all invisible to the
+  reader who needs them most); 96 required fields signalled by 19
+  asterisks in one convention and nothing anywhere else. This partial
+  renders the trio once, correctly: the help text carries
+  `id="{field_id}-help"`, the control points at it, and `required` both
+  sets the attribute and shows the one marker.
+
+  Usage:
+  {% include 'partials/form_field.html.twig' with {
+      field_id: 'asset-name',
+      field_name: 'name',
+      label: 'Nom du bien',
+      type: 'text',                -- text|email|url|tel|number|date|time|
+                                   -- textarea|select (default text)
+      value: asset.name,           -- optional
+      help: 'Affiché publiquement.', -- optional, ARIA-wired
+      required: true,              -- default false
+      placeholder: '…',            -- optional
+      maxlength: 100,              -- optional
+      min: 0, max: 20, step: 1,    -- optional (number)
+      inputmode: 'decimal',        -- optional
+      rows: 4,                     -- textarea only
+      options: [                   -- select only
+          { value: 'a', label: 'A', selected: true, disabled: false },
+      ],
+      autocomplete: 'name',        -- optional
+      size: 'sm',                  -- optional: the site's ONE compact
+                                   -- variant (form-label small +
+                                   -- form-control-sm/form-select-sm)
+      disabled: true,              -- optional
+      readonly: true,              -- optional
+      pattern: '[0-9]{4}',         -- optional
+      autofocus: true,             -- optional
+      list: 'suggestions',         -- optional, id of a <datalist>
+      describedby_extra: 'x-error',-- optional, id of an error/hint node
+                                   -- rendered OUTSIDE this partial
+  } only %}
+
+  On `size`: the survey that preceded this partial's second pass found 34
+  templates it could not serve, all for the same reason — their labels
+  carried `small`, `fw-semibold`, `mb-1` or a combination, and their
+  controls `form-control-sm`. Fourteen label variants is the disease, but
+  "one size only" was too tight a cure: a dense settings table legitimately
+  wants a compact field. So there are exactly two sizes, and `sm` is the
+  only compact one. Anything reaching for a third belongs in design.md
+  first.
+
+  Passwords keep their own partial (password_field.html.twig — checklist,
+  confirmation); rich text keeps rich_text_form_field.html.twig. This one
+  is for everything simpler, which is most of the site.
+#}
+{% set _type = type|default('text') %}
+{% set _required = required|default(false) %}
+{% set _small = size|default('') == 'sm' %}
+{% set _help_id = field_id ~ '-help' %}
+{% set _described = [help|default('') ? _help_id : null, describedby_extra|default(null)]|filter(v => v)|join(' ') %}
+{% set _control_class = (_type == 'select' ? 'form-select' : 'form-control') ~ (_small ? (_type == 'select' ? ' form-select-sm' : ' form-control-sm') : '') %}
+<div class="mb-3">
+    <label class="form-label{{ _small ? ' small' : '' }}" for="{{ field_id }}">
+        {{- label -}}
+        {%- if _required %} <span class="text-danger" aria-hidden="true">*</span>{% endif -%}
+    </label>
+    {% if _type == 'textarea' %}
+        <textarea class="{{ _control_class }}" id="{{ field_id }}" name="{{ field_name }}"
+                  rows="{{ rows|default(4) }}"
+                  {%- if _required %} required{% endif %}
+                  {%- if disabled|default(false) %} disabled{% endif %}
+                  {%- if readonly|default(false) %} readonly{% endif %}
+                  {%- if autofocus|default(false) %} autofocus{% endif %}
+                  {%- if maxlength|default(0) %} maxlength="{{ maxlength }}"{% endif %}
+                  {%- if placeholder|default('') %} placeholder="{{ placeholder }}"{% endif %}
+                  {%- if _described %} aria-describedby="{{ _described }}"{% endif %}>{{ value|default('') }}</textarea>
+    {% elseif _type == 'select' %}
+        <select class="{{ _control_class }}" id="{{ field_id }}" name="{{ field_name }}"
+                {%- if _required %} required{% endif %}
+                {%- if disabled|default(false) %} disabled{% endif %}
+                {%- if autofocus|default(false) %} autofocus{% endif %}
+                {%- if _described %} aria-describedby="{{ _described }}"{% endif %}>
+            {% for option in options|default([]) %}
+                <option value="{{ option.value }}"
+                        {{- option.selected|default(false) ? ' selected' : '' }}
+                        {{- option.disabled|default(false) ? ' disabled' : '' }}>{{ option.label }}</option>
+            {% endfor %}
+        </select>
+    {% else %}
+        <input type="{{ _type }}" class="{{ _control_class }}" id="{{ field_id }}" name="{{ field_name }}"
+               value="{{ value|default('') }}"
+               {%- if _required %} required{% endif %}
+               {%- if disabled|default(false) %} disabled{% endif %}
+               {%- if readonly|default(false) %} readonly{% endif %}
+               {%- if autofocus|default(false) %} autofocus{% endif %}
+               {%- if maxlength|default(0) %} maxlength="{{ maxlength }}"{% endif %}
+               {%- if min is defined %} min="{{ min }}"{% endif %}
+               {%- if max is defined %} max="{{ max }}"{% endif %}
+               {%- if step is defined %} step="{{ step }}"{% endif %}
+               {%- if pattern|default('') %} pattern="{{ pattern }}"{% endif %}
+               {%- if list|default('') %} list="{{ list }}"{% endif %}
+               {%- if inputmode|default('') %} inputmode="{{ inputmode }}"{% endif %}
+               {%- if placeholder|default('') %} placeholder="{{ placeholder }}"{% endif %}
+               {%- if autocomplete|default('') %} autocomplete="{{ autocomplete }}"{% endif %}
+               {%- if _described %} aria-describedby="{{ _described }}"{% endif %}>
+    {% endif %}
+    {% if help|default('') %}
+        <div class="form-text" id="{{ _help_id }}">{{ help }}</div>
+    {% endif %}
+</div>

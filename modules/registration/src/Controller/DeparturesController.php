@@ -113,8 +113,8 @@ class DeparturesController extends AbstractController
         if (!is_array($data)) {
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
-        if (!CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Session expirée.'], 403);
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         $memberYearId = (int) ($params['member_year_id'] ?? 0);

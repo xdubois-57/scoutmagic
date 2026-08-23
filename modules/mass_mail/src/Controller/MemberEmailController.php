@@ -72,6 +72,12 @@ class MemberEmailController extends AbstractController
         return $this->render('members/email_detail.html.twig', [
             'member' => $profile,
             'email' => $detail,
+            // Real ancestor page: the member's own page this email was
+            // listed on — a breadcrumb_trail, not a `parents` menu label
+            // (design.md §7.3).
+            'breadcrumb_trail' => [
+                ['label' => $profile->getDisplayName(), 'url' => '/members/' . $profile->memberYearId],
+            ],
         ]);
     }
 }

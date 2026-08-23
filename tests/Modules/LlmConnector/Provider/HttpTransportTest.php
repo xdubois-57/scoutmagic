@@ -51,7 +51,13 @@ class HttpTransportTest extends TestCase
         (new HttpTransport())->getJson($this->server->baseUrl() . '/x', [], 5);
     }
 
-    public function testCarriesTheProviderExplanationIntoTheExceptionMessage(): void
+    /**
+     * The provider's explanation is still carried — on $detail, for the
+     * journal — and deliberately NOT in the message, which is rendered to a
+     * chief. Api\LlmException is a Core\Exception\UserFacingException, so
+     * whatever is in its message reaches a page verbatim.
+     */
+    public function testCarriesTheProviderExplanationAsADetailAndNotInTheMessage(): void
     {
         $this->server = StubHttpServer::start([
             ['status' => 400, 'body' => '{"message":"model not found: bogus-model"}'],
@@ -61,7 +67,9 @@ class HttpTransportTest extends TestCase
             (new HttpTransport())->postJson($this->server->baseUrl() . '/x', [], ['a' => 1], 5);
             self::fail('Expected an LlmException.');
         } catch (LlmException $e) {
-            self::assertStringContainsString('model not found: bogus-model', $e->getMessage());
+            self::assertStringContainsString('model not found: bogus-model', (string) $e->detail);
+            self::assertStringNotContainsString('model not found', $e->getMessage());
+            self::assertStringContainsString('HTTP 400', $e->getMessage());
         }
     }
 
@@ -73,6 +81,27 @@ class HttpTransportTest extends TestCase
         $this->expectExceptionCode(LlmException::RATE_LIMITED);
 
         (new HttpTransport())->postJson($this->server->baseUrl() . '/x', [], ['a' => 1], 5);
+    }
+
+    /**
+     * 429 has the same rule as any other non-2xx: the provider's body is a
+     * $detail, never part of the sentence a member sees.
+     */
+    public function testTheRateLimitBodyIsADetailAndNotPartOfTheMessage(): void
+    {
+        $this->server = StubHttpServer::start([
+            ['status' => 429, 'body' => '{"message":"rate_limit_exceeded for org-abc, retry in 12s"}'],
+        ]);
+
+        try {
+            (new HttpTransport())->postJson($this->server->baseUrl() . '/x', [], ['a' => 1], 5);
+            self::fail('Expected an LlmException.');
+        } catch (LlmException $e) {
+            self::assertSame(LlmException::RATE_LIMITED, $e->getCode());
+            self::assertStringContainsString('org-abc', (string) $e->detail);
+            self::assertStringNotContainsString('org-abc', $e->getMessage());
+            self::assertStringNotContainsString('rate_limit_exceeded', $e->getMessage());
+        }
     }
 
     public function testRejectsAServerErrorThatIsNotEvenJson(): void
@@ -95,7 +124,7 @@ class HttpTransportTest extends TestCase
             (new HttpTransport())->getJson($this->server->baseUrl() . '/x', [], 5);
             self::fail('Expected an LlmException.');
         } catch (LlmException $e) {
-            self::assertLessThan(700, strlen($e->getMessage()));
+            self::assertLessThan(700, strlen((string) $e->detail));
         }
     }
 
@@ -103,10 +132,13 @@ class HttpTransportTest extends TestCase
     {
         $this->server = StubHttpServer::start([['status' => 200, 'body' => 'not json at all']]);
 
-        $this->expectException(LlmException::class);
-        $this->expectExceptionMessageMatches('/Invalid JSON/');
-
-        (new HttpTransport())->getJson($this->server->baseUrl() . '/x', [], 5);
+        try {
+            (new HttpTransport())->getJson($this->server->baseUrl() . '/x', [], 5);
+            self::fail('Expected an LlmException.');
+        } catch (LlmException $e) {
+            self::assertStringContainsString('Invalid JSON', (string) $e->detail);
+            self::assertStringNotContainsString('Invalid JSON', $e->getMessage());
+        }
     }
 
     /**
@@ -119,7 +151,7 @@ class HttpTransportTest extends TestCase
         $this->server = StubHttpServer::start([['status' => 200, 'body' => '{}']]);
 
         $this->expectException(LlmException::class);
-        $this->expectExceptionMessageMatches('/Encodage JSON/');
+        $this->expectExceptionMessageMatches('/caractères illisibles/');
 
         (new HttpTransport())->postJson(
             $this->server->baseUrl() . '/x',

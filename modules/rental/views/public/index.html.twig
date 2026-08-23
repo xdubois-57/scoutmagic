@@ -9,11 +9,14 @@
   renter or booking, no price actually paid, no document (§6.6).
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 900px;">
-        <h1 class="h3 mb-4">Locations</h1>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with { title: 'Locations' } only %}
 
         {% if assets is empty %}
-            <p class="text-body-secondary fst-italic">Aucun bien n'est proposé à la location pour le moment.</p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Aucun bien n'est proposé à la location pour le moment.",
+                icon: 'bi-house',
+            } only %}
         {% else %}
             <div class="row g-3">
                 {% for asset in assets %}

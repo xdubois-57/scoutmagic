@@ -3,18 +3,17 @@
 {% block title %}Groupes — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="h4 mb-3">Groupes</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Groupes' } only %}
 
-    <ul class="nav nav-pills mb-3 gap-1">
-        <li class="nav-item">
-            <a class="nav-link {{ is_archive_tab ? '' : 'active' }} px-3 d-flex align-items-center" style="min-height:44px;" href="/groups">Mes groupes</a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link {{ is_archive_tab ? 'active' : '' }} px-3 d-flex align-items-center" style="min-height:44px;" href="/groups/archives">
-                Archives{% if archived_count > 0 %} <span class="badge bg-secondary-subtle text-secondary-emphasis ms-2">{{ archived_count }}</span>{% endif %}
-            </a>
-        </li>
-    </ul>
+    {% include 'partials/page_picker.html.twig' with {
+        picker_id: 'groups-page-picker',
+        pages: [
+            { url: '/groups', label: 'Mes groupes' },
+            { url: '/groups/archives', label: archived_count > 0 ? 'Archives (' ~ archived_count ~ ')' : 'Archives' },
+        ],
+        current_path: is_archive_tab ? '/groups/archives' : '/groups',
+        sheet_title: 'Choisir une page',
+    } only %}
 
     {% if can_create %}
         {#
@@ -25,7 +24,7 @@
           own state with no JavaScript at all.
         #}
         <details class="card mb-3 groups-create">
-            <summary class="card-body py-3 d-flex align-items-center gap-2" style="min-height:44px;cursor:pointer;">
+            <summary class="card-body py-3 d-flex align-items-center gap-2 tap-target" style="cursor:pointer;">
                 <i class="bi bi-plus-circle" aria-hidden="true"></i>
                 <span class="h6 mb-0">Créer un groupe</span>
             </summary>
@@ -35,11 +34,11 @@
                     <div class="col-12 col-md-5">
                         <label class="form-label small mb-1" for="group-name">Nom du groupe</label>
                         <input type="text" class="form-control" id="group-name" name="name" maxlength="150" required
-                               style="min-height:44px;" placeholder="Ex. : Louveteaux 2025-2026">
+                               placeholder="Ex. : Louveteaux 2025-2026">
                     </div>
                     <div class="col-12 col-md-4">
                         <label class="form-label small mb-1" for="group-section">Section</label>
-                        <select class="form-select" id="group-section" name="section_id" style="min-height:44px;">
+                        <select class="form-select" id="group-section" name="section_id">
                             <option value="0">Sur invitation (sans section)</option>
                             {% for section in sections %}
                                 <option value="{{ section.id }}">{{ section.name ?? section.desk_code }}</option>
@@ -47,13 +46,13 @@
                         </select>
                     </div>
                     <div class="col-12 col-md-3 d-flex align-items-end">
-                        <button type="submit" class="btn btn-primary w-100" style="min-height:44px;">Créer</button>
+                        <button type="submit" class="btn btn-primary w-100">Créer</button>
                     </div>
                     <div class="col-12">
                         {# The whole row is the tap target (44px), not the 16px box itself. #}
-                        <div class="form-check d-flex align-items-center gap-2 mb-0" style="min-height:44px;">
+                        <div class="form-check d-flex align-items-center gap-2 mb-0">
                             <input class="form-check-input mt-0" type="checkbox" value="1" id="group-tie-year" name="tie_to_year">
-                            <label class="form-check-label small text-body-secondary d-flex align-items-center" for="group-tie-year" style="min-height:44px;">
+                            <label class="form-check-label small text-body-secondary d-flex align-items-center" for="group-tie-year">
                                 Limiter ce groupe sur invitation à l'année scoute en cours
                             </label>
                         </div>
@@ -64,13 +63,10 @@
     {% endif %}
 
     {% if items is empty %}
-        <p class="text-body-secondary text-center py-5">
-            {% if is_archive_tab %}
-                Aucun groupe archivé.
-            {% else %}
-                Vous ne faites partie d'aucun groupe pour le moment.
-            {% endif %}
-        </p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: is_archive_tab ? 'Aucun groupe archivé.' : "Vous ne faites partie d'aucun groupe pour le moment.",
+            icon: 'bi-people',
+        } only %}
     {% else %}
         <div class="list-group">
             {% for item in items %}
@@ -80,23 +76,23 @@
                   rather than merely badged, so the distinction survives
                   for someone who cannot rely on the badge's colour alone.
                 #}
-                <a class="list-group-item list-group-item-action py-3" href="/groups/{{ item.group.id }}" style="min-height:44px;">
+                <a class="list-group-item list-group-item-action py-3" href="/groups/{{ item.group.id }}">
                     <div class="d-flex align-items-center gap-2 flex-wrap">
                         {# The current year's groups carry it in their name here too —
                            this list is exactly where two years of the same section sit
                            side by side (Support\GroupLabel). #}
                         <span class="{{ item.has_unread ? 'fw-bold' : 'fw-semibold' }}">{{ item.label|default(item.group.name) }}</span>
                         {% if item.has_unread %}
-                            <span class="badge bg-danger">Nouveau</span>
+                            <span class="badge text-bg-danger">Nouveau</span>
                         {% endif %}
                         {% if item.is_moderator %}
-                            <span class="badge bg-primary-subtle text-primary-emphasis">Modérateur</span>
+                            <span class="badge text-bg-primary">Modérateur</span>
                         {% endif %}
                         {% if item.is_archived %}
-                            <span class="badge bg-secondary-subtle text-secondary-emphasis">Archivé</span>
+                            {% include 'partials/status_badge.html.twig' with { status: 'archived', label: 'Archivé' } only %}
                         {% endif %}
                         {% if item.group.isClosed %}
-                            <span class="badge bg-warning-subtle text-warning-emphasis">Clôturé</span>
+                            {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'Clôturé' } only %}
                         {% endif %}
                     </div>
                     {#
@@ -108,8 +104,20 @@
                     {% if item.group.description %}
                         <p class="small text-body-secondary mb-0 mt-1">{{ item.group.description }}</p>
                     {% endif %}
+                    {#
+                      The headcount belongs on the card rather than two
+                      clicks away on the members page: « Louveteaux » next
+                      to « Louveteaux (2025-2026) » tells you nothing about
+                      which one is the live group, and the number does.
+                      It counts PEOPLE — invited and section-derived
+                      together, each once (Service\GroupListService) —
+                      never the rows of discussion_group_members, which on
+                      a section group is usually just the moderator.
+                    #}
                     <p class="small text-body-secondary mb-0 mt-1 d-flex flex-wrap gap-2">
                         <span>{{ item.section_names is not empty ? item.section_names|join(', ') : 'Sur invitation' }}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{{ item.member_count }} {{ item.member_count > 1 ? 'membres' : 'membre' }}</span>
                         <span aria-hidden="true">·</span>
                         <span>Activité {{ item.group.lastActivityAt|relative_date }}</span>
                     </p>

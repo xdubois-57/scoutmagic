@@ -63,9 +63,8 @@ class ImportController extends AbstractController
      */
     public function import(Request $request, array $params): Response
     {
-        $csrf = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return (new Response('', 403))->setBody('Forbidden: invalid CSRF token.');
+        if (($guard = $this->guardCsrf($request, '/admin/import')) !== null) {
+            return $guard;
         }
 
         $scoutYearId = (int) $request->getBody('scout_year_id', '0');

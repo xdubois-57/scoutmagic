@@ -422,7 +422,11 @@ class RentalRequestControllerTest extends TestCase
         $body = $this->validBody();
         $body['_csrf_token'] = 'forged';
 
-        $this->assertSame(403, $this->submit($body)->getStatusCode());
+        $this->assertSame(302, $this->submit($body)->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertSame(0, $this->bookingCount());
     }
 
@@ -922,7 +926,11 @@ class RentalRequestControllerTest extends TestCase
             'kind' => 'cancellation',
         ]);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertSame([], $this->changeRequestRepository->findForBooking($bookingId));
     }
 

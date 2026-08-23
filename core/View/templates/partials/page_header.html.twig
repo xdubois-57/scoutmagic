@@ -1,0 +1,43 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The page's title block: one <h1>, at one size, with the page's primary
+  action beside it (design.md §7.6).
+
+  Before this partial the site's 106 <h1> used twenty different class
+  combinations across three sizes, and the fourteen title-plus-action
+  headers used four different flex skeletons — two neighbouring pages
+  never gave their own name the same weight. The size chosen here (h3 on
+  desktop via .h3, full width action stacking on mobile) is now the only
+  one.
+
+  Usage:
+  {% include 'partials/page_header.html.twig' with {
+      title: 'Mouvements',
+      subtitle: 'Tous les mouvements du compte sélectionné.',  -- optional
+      action_label: 'Nouvel article',   -- optional, with action_url
+      action_url: '/news/new',          -- optional
+      action_icon: 'bi-plus-lg',        -- optional, defaults to bi-plus-lg
+  } only %}
+
+  The action is the page's PRIMARY action — btn-primary, at most one per
+  screen (design.md §7.4); creation actions always live here, never as a
+  full-width band under the title and never in green. A page needing a
+  second control next to its title probably needs a toolbar below it, not
+  a second primary.
+#}
+<div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mb-4 page-header">
+    <div>
+        <h1 class="h3 mb-0">{{ title }}</h1>
+        {% if subtitle|default('') %}
+            <p class="text-body-secondary small mb-0 mt-1">{{ subtitle }}</p>
+        {% endif %}
+    </div>
+    {% if action_label|default('') and action_url|default('') %}
+        <a href="{{ action_url }}" class="btn btn-primary w-100 w-sm-auto flex-shrink-0">
+            <i class="bi {{ action_icon|default('bi-plus-lg') }}" aria-hidden="true"></i> {{ action_label }}
+        </a>
+    {% endif %}
+</div>

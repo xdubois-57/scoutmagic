@@ -237,7 +237,7 @@ class FunctionsControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
-        $this->assertSame('Jeton CSRF invalide.', $decoded['error']);
+        $this->assertSame(\Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE, $decoded['error']);
     }
 
     public function testUpdateLogsJournalEntryOnRoleChange(): void
@@ -689,6 +689,42 @@ class FunctionsControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
+        // Core\Member\SectionException is marked
+        // Core\Exception\UserFacingException, so the service's own French
+        // sentence — the one naming the expected format — is what the chef
+        // reads, rather than the controller's generic fallback.
+        $this->assertSame('Couleur invalide — format hexadécimal attendu (ex : #378ADD).', $decoded['error']);
+        $this->assertNull($this->sectionService->getSection($sectionId)['color']);
+    }
+
+    /**
+     * The catch used to be on \InvalidArgumentException, which PHP itself
+     * and every library also throw — so an unrelated failure inside
+     * updateSectionColor() arrived through the same variable and was
+     * displayed as if it were the colour-format message. Narrowing it to
+     * Core\Member\SectionException means anything else propagates to
+     * Core\Http\ErrorHandler instead of being shown.
+     */
+    public function testUpdateSectionColorDoesNotDisplayAnUnrelatedInvalidArgumentException(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $sectionId = $this->createSection('BAL01', 'Baladins', 'Renards');
+
+        $sectionService = $this->createMock(\Core\Member\SectionService::class);
+        $sectionService->method('getSection')->willReturn(['id' => $sectionId, 'desk_code' => 'BAL01', 'branch_sort_order' => 10, 'color' => null]);
+        $sectionService->method('updateSectionColor')
+            ->willThrowException(new \InvalidArgumentException('json_decode(): Argument #1 must be of type string'));
+
+        $controller = $this->controllerWithSectionService($sectionService);
+        $request = $this->createJsonRequest(['section_id' => $sectionId, 'color' => '#123456', '_csrf_token' => $token]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $controller->updateSectionColor($request, []);
     }
 
     public function testUpdateSectionColorWithInvalidCsrfReturnsError(): void
@@ -700,6 +736,20 @@ class FunctionsControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
+    }
+
+    private function controllerWithSectionService(\Core\Member\SectionService $sectionService): FunctionsController
+    {
+        return new FunctionsController(
+            $this->twig,
+            $this->functionRepo,
+            new JournalService($this->journalRepo),
+            $sectionService,
+            $this->unitStaffSectionService,
+            $this->scoutYearResolver,
+            $this->badgeService,
+            new AgeBranchRepository($this->pdo)
+        );
     }
 
     private function createSection(string $deskCode, string $branchLabel, ?string $name = null): int

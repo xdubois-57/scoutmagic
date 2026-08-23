@@ -83,9 +83,8 @@ class AccountController extends AbstractController
             return $this->redirect('/login');
         }
 
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Session expirée. Veuillez réessayer.');
-            return $this->redirect('/account');
+        if (($guard = $this->guardCsrf($request, '/account')) !== null) {
+            return $guard;
         }
 
         $this->accountPhotoService?->removePhoto($userId);
@@ -106,9 +105,8 @@ class AccountController extends AbstractController
             return $this->redirect('/login');
         }
 
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Session expirée. Veuillez réessayer.');
-            return $this->redirect('/account');
+        if (($guard = $this->guardCsrf($request, '/account')) !== null) {
+            return $guard;
         }
 
         $firstName = trim((string) $request->getBody('first_name', ''));
@@ -136,9 +134,8 @@ class AccountController extends AbstractController
             return $this->redirect('/login');
         }
 
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Session expirée. Veuillez réessayer.');
-            return $this->redirect('/account');
+        if (($guard = $this->guardCsrf($request, '/account')) !== null) {
+            return $guard;
         }
 
         $hasPassword = $this->userAccountRepo->hasPassword($userId);
@@ -214,8 +211,8 @@ class AccountController extends AbstractController
 
         // CSRF: the client sends the token in the X-CSRF-Token header (fallback to body).
         $csrfToken = (string) ($request->getServer('HTTP_X_CSRF_TOKEN', '') ?: ($body['_csrf_token'] ?? ''));
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $deviceLabel = trim((string) ($body['device_label'] ?? 'Clé sans nom'));
@@ -250,8 +247,8 @@ class AccountController extends AbstractController
 
         // CSRF: the client sends the token in the X-CSRF-Token header (fallback to body).
         $csrfToken = (string) ($request->getServer('HTTP_X_CSRF_TOKEN', '') ?: ($body['_csrf_token'] ?? ''));
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $id = (int) ($body['id'] ?? 0);

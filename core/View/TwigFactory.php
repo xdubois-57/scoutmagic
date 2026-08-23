@@ -41,8 +41,40 @@ class TwigFactory
         $environment = new Environment($loader, [
             'cache' => $debug ? false : $cacheDir,
             'debug' => $debug,
-            'auto_reload' => $debug,
-            'autoescape' => 'html',
+            // ALWAYS on, deliberately — not `$debug`, which is what it was.
+            //
+            // Without it Twig never re-reads a template it has already
+            // compiled: it loads the cached class and does not so much as
+            // stat the source. The compiled files are namespaced by
+            // VERSION (see cacheDirectory()), so a numbered release does
+            // get a fresh directory — but VersionFile::read() falls back
+            // to the constant 'dev' when there is no VERSION file, which
+            // is exactly what a site deployed from a checkout has. On
+            // such an install the namespace NEVER changes, so every
+            // deploy after the first served the previous deploy's
+            // templates: new controllers passing new variables into old
+            // compiled markup, for as long as storage/temp survived.
+            // That is a deployment defect, not a caching trade-off.
+            //
+            // The cost is one filemtime() per template actually used by
+            // the request — a handful — against a page that already opens
+            // a database connection and runs the schema-hash check. The
+            // version namespace stays: it still isolates releases and
+            // still lets the updater wipe one cleanly
+            // (Task\InstallUpdateHandler::clearCompiledTemplateCache()).
+            'auto_reload' => true,
+            // HTML everywhere, EXCEPT the plain-text half of an email.
+            //
+            // Escaping is right for every page and for the HTML body of a
+            // message; in a text/plain part it is simply wrong, and
+            // silently so — nothing renders it back. A renter called
+            // O'Brien read « Bonjour O&#039;Brien », and « c&#039;est
+            // votre seul accès » sat in the acknowledgement of every
+            // rental request. The templates cannot fix it one variable at
+            // a time either: |raw on each of them is the same decision
+            // made repeatedly, and forgotten once.
+            'autoescape' => static fn (string $name): string|false
+                => str_ends_with($name, '.text.twig') ? false : 'html',
         ]);
 
         // Register csrf_field() function
@@ -386,6 +418,49 @@ class TwigFactory
             }
 
             return 'le ' . $environment->getFilter('french_date')->getCallable()($then);
+        }));
+
+        // Short French date/time formats. Two filters instead of 30-odd
+        // hand-written |date('d/m/Y…') calls that had drifted into five
+        // variants ('d/m/Y', 'd/m/Y H:i', 'd/m/Y à H:i', 'd/m/Y à H\hi'):
+        // one canonical rendering each, so two adjacent pages stop
+        // disagreeing about what a timestamp looks like. french_date
+        // above stays the long form ("12 juillet 2026") for prose.
+        $environment->addFilter(new TwigFilter('date_fr', function ($date) {
+            if ($date === null || $date === '') {
+                return '';
+            }
+            $dateTime = $date instanceof \DateTimeInterface ? $date : new \DateTimeImmutable((string) $date);
+
+            return $dateTime->format('d/m/Y');
+        }));
+        $environment->addFilter(new TwigFilter('datetime_fr', function ($date) {
+            if ($date === null || $date === '') {
+                return '';
+            }
+            $dateTime = $date instanceof \DateTimeInterface ? $date : new \DateTimeImmutable((string) $date);
+
+            return $dateTime->format('d/m/Y à H:i');
+        }));
+
+        // Belgian-French money rendering — "1 234,56 €". One filter
+        // instead of ~75 hand-written number_format(2, ',', ' ') ~ ' €'
+        // chains; |money_cents is the same thing for integer cents (the
+        // rental module stores cents and used to divide inline at every
+        // call site). Null renders empty — an absent amount is not 0,00 €.
+        $environment->addFilter(new TwigFilter('money', function ($amount) {
+            if ($amount === null || $amount === '') {
+                return '';
+            }
+
+            return number_format((float) $amount, 2, ',', ' ') . ' €';
+        }));
+        $environment->addFilter(new TwigFilter('money_cents', function ($cents) {
+            if ($cents === null || $cents === '') {
+                return '';
+            }
+
+            return number_format(((int) $cents) / 100, 2, ',', ' ') . ' €';
         }));
 
         // Register markdown filter — renders release/commit notes (see

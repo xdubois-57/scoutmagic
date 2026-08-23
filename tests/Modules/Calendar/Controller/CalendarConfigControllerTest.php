@@ -6,9 +6,11 @@ namespace Tests\Modules\Calendar\Controller;
 
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\AppConfig;
+use Core\Config\SettingException;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\Exception\UserFacingMessage;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
@@ -193,6 +195,50 @@ class CalendarConfigControllerTest extends TestCase
         $decoded = json_decode($response->getBody(), true);
         $this->assertTrue($decoded['success']);
         $this->assertSame('Activité', $this->settingService->get('event_default_title', 'calendar'));
+    }
+
+    /**
+     * Core\Config\SettingException is being made French and user-facing in a
+     * separate change, so this pins the ROUTING rather than one of the two
+     * outcomes: whatever the JSON says must be what
+     * Core\Exception\UserFacingMessage decides — the exception's own message
+     * once it is marked, the sentence written here while it is not. The one
+     * thing it can never be is `$e->getMessage()` unconditionally.
+     */
+    public function testUpdateDefaultsShowsAFailureOnlyThroughTheUserFacingHelper(): void
+    {
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $failure = new SettingException("Setting 'event_default_title' is not editable.");
+        $settingService = $this->createMock(SettingService::class);
+        $settingService->method('set')->willThrowException($failure);
+        $controller = new CalendarConfigController(
+            $this->twig, $this->calendarService, $this->sectionService,
+            $settingService, $this->journalService, $this->notificationService
+        );
+
+        $response = $controller->updateDefaults(
+            $this->createJsonRequest(['event_default_title' => 'X', '_csrf_token' => $token]),
+            []
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame(
+            UserFacingMessage::from(
+                $failure,
+                "Cette valeur par défaut n'a pas pu être enregistrée — vérifiez la valeur saisie, puis réessayez."
+            ),
+            $decoded['error']
+        );
+
+        // And, whichever side of the marker it lands on, the technical text
+        // is never the thing shown unless someone claimed it was fit to be.
+        if (!$failure instanceof \Core\Exception\UserFacingException) {
+            $this->assertStringNotContainsString('not editable', $decoded['error']);
+        }
     }
 
     public function testUpdateDefaultsValidatesCsrf(): void

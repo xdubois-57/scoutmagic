@@ -56,15 +56,21 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     // ---------------------------------------------------------------
     // The auto-backup frequency select saves on change — no button.
     // ---------------------------------------------------------------
+    // The acknowledgement is a toast now (public/assets/js/maintenance.js
+    // → window.ScoutMagicToast, design.md §7.5), not the inline
+    // « Enregistré » span this used to reveal. Same promise, said in the
+    // site's one notification surface: the select answers for itself.
+    const savedToast = page.locator('.toast-body', { hasText: 'Enregistré.' });
+
     const frequency = page.locator('#auto-backup-frequency');
     await frequency.selectOption('weekly');
-    await expect(page.locator('#auto-backup-frequency-saved')).toBeVisible();
+    await expect(savedToast).toBeVisible();
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.locator('#auto-backup-frequency')).toHaveValue('weekly');
 
     await page.locator('#auto-backup-frequency').selectOption('none');
-    await expect(page.locator('#auto-backup-frequency-saved')).toBeVisible();
+    await expect(savedToast).toBeVisible();
 
     // ---------------------------------------------------------------
     // Database-only backup: a plain synchronous POST whose proof is the

@@ -11,9 +11,11 @@
 {% set p = field_prefix|default('edit') %}
 <div class="row g-3 mb-3">
     <div class="col-12 col-md-6">
-        <label class="form-label" for="{{ p }}-name">Nom du bien</label>
-        <input type="text" class="form-control" id="{{ p }}-name" name="name"
-               value="{{ asset ? asset.name : '' }}" required maxlength="150">
+        {% include 'partials/form_field.html.twig' with {
+            field_id: p ~ '-name', field_name: 'name',
+            label: 'Nom du bien', required: true, maxlength: 150,
+            value: asset ? asset.name : '',
+        } only %}
     </div>
     <div class="col-12 col-md-6">
         {# A closed list, not a free field. The type is what the public index
@@ -48,26 +50,35 @@
     </div>
 
     <div class="col-6 col-md-3">
-        <label class="form-label" for="{{ p }}-capacity">Capacité</label>
-        <input type="number" class="form-control" id="{{ p }}-capacity" name="capacity"
-               value="{{ asset and asset.capacity is not null ? asset.capacity : '' }}" min="1">
-        <div class="form-text">Nombre de personnes. Vide si sans objet.</div>
+        {% include 'partials/form_field.html.twig' with {
+            field_id: p ~ '-capacity', field_name: 'capacity', type: 'number',
+            min: 1, inputmode: 'numeric',
+            label: 'Capacité', help: 'Nombre de personnes. Vide si sans objet.',
+            value: asset and asset.capacity is not null ? asset.capacity : '',
+        } only %}
     </div>
     <div class="col-6 col-md-3">
-        <label class="form-label" for="{{ p }}-quantity">Quantité</label>
-        <input type="number" class="form-control" id="{{ p }}-quantity" name="quantity"
-               value="{{ asset ? asset.quantity : 1 }}" min="1" required>
-        <div class="form-text">1 = bien unique. Plus de 1 = stock louable séparément.</div>
+        {% include 'partials/form_field.html.twig' with {
+            field_id: p ~ '-quantity', field_name: 'quantity', type: 'number',
+            min: 1, inputmode: 'numeric',
+            label: 'Quantité', required: true,
+            help: '1 = bien unique. Plus de 1 = stock louable séparément.',
+            value: asset ? asset.quantity : 1,
+        } only %}
     </div>
     <div class="col-6 col-md-3">
-        <label class="form-label" for="{{ p }}-arrival-time">Heure d'arrivée</label>
-        <input type="time" class="form-control" id="{{ p }}-arrival-time" name="arrival_time"
-               value="{{ asset and asset.arrivalTime ? asset.arrivalTime : '' }}">
+        {% include 'partials/form_field.html.twig' with {
+            field_id: p ~ '-arrival-time', field_name: 'arrival_time', type: 'time',
+            label: "Heure d'arrivée",
+            value: asset and asset.arrivalTime ? asset.arrivalTime : '',
+        } only %}
     </div>
     <div class="col-6 col-md-3">
-        <label class="form-label" for="{{ p }}-departure-time">Heure de départ</label>
-        <input type="time" class="form-control" id="{{ p }}-departure-time" name="departure_time"
-               value="{{ asset and asset.departureTime ? asset.departureTime : '' }}">
+        {% include 'partials/form_field.html.twig' with {
+            field_id: p ~ '-departure-time', field_name: 'departure_time', type: 'time',
+            label: 'Heure de départ',
+            value: asset and asset.departureTime ? asset.departureTime : '',
+        } only %}
     </div>
 
     {% if asset is null %}
@@ -109,12 +120,12 @@
     {% endif %}
 
     <div class="col-12 col-md-6">
-        <label class="form-label" for="{{ p }}-emergency-phone">Téléphone d'urgence</label>
-        <input type="tel" class="form-control" id="{{ p }}-emergency-phone" name="emergency_phone"
-               value="{{ asset and asset.emergencyPhone ? asset.emergencyPhone : '' }}">
-        <div class="form-text">
-            Communiqué uniquement au locataire sur sa page de suivi. Jamais affiché publiquement.
-        </div>
+        {% include 'partials/form_field.html.twig' with {
+            field_id: p ~ '-emergency-phone', field_name: 'emergency_phone', type: 'tel',
+            label: "Téléphone d'urgence",
+            help: 'Communiqué uniquement au locataire sur sa page de suivi. Jamais affiché publiquement.',
+            value: asset and asset.emergencyPhone ? asset.emergencyPhone : '',
+        } only %}
     </div>
 </div>
 

@@ -91,8 +91,8 @@ class GalleryChiefController extends AbstractController
      */
     public function store(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/gallery/create')) !== null) {
+            return $guard;
         }
 
         [$role, $email] = $this->currentIdentity();
@@ -153,8 +153,8 @@ class GalleryChiefController extends AbstractController
      */
     public function update(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/gallery/' . (int) ($params['id'] ?? 0) . '/edit')) !== null) {
+            return $guard;
         }
 
         $album = $this->albumService->findById((int) $params['id']);
@@ -215,8 +215,8 @@ class GalleryChiefController extends AbstractController
     public function uploadMedia(Request $request, array $params): Response
     {
         $csrf = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         $album = $this->albumService->findById((int) $params['id']);

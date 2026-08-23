@@ -13,12 +13,14 @@
   unreachable box reads as outstanding work.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 900px;">
-        <h1 class="h3 mb-1">{{ booking.reference }}</h1>
-        <p class="text-body-secondary small mb-3">
-            {{ asset.name }} · du {{ booking.arrivalDate }} au {{ booking.departureDate }}
-            {% if is_in_progress %}<span class="badge bg-success ms-1">En cours</span>{% endif %}
-        </p>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: booking.reference,
+            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate ~ ' au ' ~ booking.departureDate,
+        } only %}
+        {% if is_in_progress %}
+            <p class="mb-3">{% include 'partials/status_badge.html.twig' with { status: 'active', label: 'En cours' } only %}</p>
+        {% endif %}
 
         {% include '@rental/management/_nav.html.twig' %}
 
@@ -86,7 +88,7 @@
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">État</h2>
-                <p class="mb-3"><span class="badge bg-secondary">{{ booking.status.label }}</span></p>
+                <p class="mb-3">{% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}</p>
 
                 {% if allowed_transitions is empty %}
                     <p class="text-body-secondary mb-0">
@@ -94,23 +96,46 @@
                         Une nouvelle demande est nécessaire.
                     </p>
                 {% else %}
+                    {#
+                      Every transition the renter hears about asks first, and
+                      the dialog carries the free-text box the manager's word
+                      goes in (base.html.twig's data-confirm-note, handled in
+                      /assets/js/confirm.js). Which ones those are comes from
+                      Booking\RenterDecision::forStatus(), never re-derived
+                      here — a status added to that enum must not need this
+                      template edited to stop being silent.
+
+                      The rest — « en cours d'examen », a closure — send
+                      nothing and ask nothing: they are bookkeeping, and a
+                      dialog in front of bookkeeping is a dialog nobody reads.
+                    #}
                     <div class="d-flex flex-wrap gap-2">
                         {% for target in allowed_transitions %}
-                            <form method="post" action="/mes-locations/statut" class="d-inline">
+                            {% set decision = renter_decisions[target.value]|default(null) %}
+                            <form method="post" action="/mes-locations/statut" class="d-inline"
+                                  {% if decision %}
+                                      data-confirm="{{ decision.question }}"
+                                      data-confirm-label="{{ target.label }}"
+                                      data-confirm-note="{{ decision.note_label }}"
+                                      data-confirm-note-name="message"
+                                  {% elseif target.value in ['refused', 'cancelled'] %}
+                                      data-confirm="Confirmer le passage à « {{ target.label }} » ? Les dates seront libérées."
+                                  {% endif %}>
                                 {{ csrf_field()|raw }}
                                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                 <input type="hidden" name="status" value="{{ target.value }}">
                                 <button type="submit"
-                                        class="btn btn-sm {{ target.value == 'confirmed' ? 'btn-success' : 'btn-outline-secondary' }}"
-                                        {% if target.value in ['refused', 'cancelled'] %}
-                                            data-confirm="Confirmer le passage à « {{ target.label }} » ? Les dates seront libérées."
-                                        {% endif %}>
+                                        class="btn btn-sm {{ target.value == 'confirmed' ? 'btn-primary' : 'btn-outline-secondary' }}">
                                     {{ target.label }}
                                 </button>
                             </form>
                         {% endfor %}
                     </div>
+                    <p class="text-body-secondary small mb-0 mt-2">
+                        Le locataire est prévenu par email d'une confirmation, d'un refus,
+                        d'une annulation, d'une proposition ou d'une demande de précision.
+                    </p>
                 {% endif %}
             </div>
         </div>
@@ -129,10 +154,12 @@
                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
                         <input type="hidden" name="booking_id" value="{{ booking.id }}">
                         <div class="col-12 col-sm-7">
-                            <label class="form-label" for="option-until">Option jusqu'au</label>
-                            <input type="datetime-local" class="form-control" id="option-until" name="until"
-                                   value="{{ booking.holdUntil ? booking.holdUntil|date('Y-m-d\\TH:i') : '' }}">
-                            <div class="form-text">Laisser vide et enregistrer lève le blocage.</div>
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'option-until', field_name: 'until', type: 'datetime-local',
+                                label: 'Option jusqu\'au',
+                                help: 'Laisser vide et enregistrer lève le blocage.',
+                                value: booking.holdUntil ? booking.holdUntil|date('Y-m-d\\TH:i') : '',
+                            } only %}
                         </div>
                         <div class="col-12 col-sm-5">
                             <button type="submit" class="btn btn-outline-primary w-100">Enregistrer l'option</button>
@@ -175,7 +202,7 @@
                                     <td>
                                         {{ line.label }}
                                         {% if line.isManual %}
-                                            <span class="badge bg-info text-dark ms-1"
+                                            <span class="badge text-bg-info ms-1"
                                                   title="Cette ligne ne sera plus recalculée">Modifiée à la main</span>
                                         {% endif %}
                                         {% if line.isInformational %}
@@ -185,16 +212,16 @@
                                         {% endif %}
                                     </td>
                                     <td class="text-end">{{ line.quantity }}</td>
-                                    <td class="text-end">{{ (line.amountCents / 100)|number_format(2, ',', ' ') }} €</td>
+                                    <td class="text-end">{{ line.amountCents|money_cents }}</td>
                                     <td class="text-end">
-                                        <form method="post" action="/mes-locations/ligne" class="d-inline">
+                                        <form method="post" action="/mes-locations/ligne" class="d-inline"
+                                              data-confirm="Supprimer la ligne « {{ line.label }} » ?">
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                             <input type="hidden" name="line_action" value="remove">
                                             <input type="hidden" name="index" value="{{ loop.index0 }}">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger"
-                                                    data-confirm="Supprimer la ligne « {{ line.label }} » ?">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">
                                                 Supprimer
                                             </button>
                                         </form>
@@ -215,7 +242,7 @@
                                             </div>
                                             <div class="col-6 col-md-2">
                                                 <label class="form-label visually-hidden" for="qty-{{ loop.index0 }}">Quantité</label>
-                                                <input type="number" min="1" class="form-control form-control-sm"
+                                                <input type="number" inputmode="numeric" min="1" class="form-control form-control-sm"
                                                        id="qty-{{ loop.index0 }}" name="quantity" value="{{ line.quantity }}">
                                             </div>
                                             <div class="col-6 col-md-3">
@@ -236,7 +263,7 @@
                         <tfoot>
                             <tr class="fw-semibold">
                                 <td colspan="2">Total</td>
-                                <td class="text-end">{{ (quote.totalCents / 100)|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end">{{ quote.totalCents|money_cents }}</td>
                                 <td></td>
                             </tr>
                         </tfoot>
@@ -255,7 +282,7 @@
                     </div>
                     <div class="col-6 col-md-2">
                         <label class="form-label" for="new-quantity">Quantité</label>
-                        <input type="number" min="1" class="form-control form-control-sm" id="new-quantity"
+                        <input type="number" inputmode="numeric" min="1" class="form-control form-control-sm" id="new-quantity"
                                name="quantity" value="1">
                     </div>
                     <div class="col-6 col-md-3">
@@ -314,7 +341,10 @@
                 </p>
 
                 {% if change_requests is empty %}
-                    <p class="text-body-secondary">Aucune demande.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune demande.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <ul class="list-unstyled">
                         {% for change in change_requests %}
@@ -328,11 +358,15 @@
                                             <span class="small d-block">{{ change.message|nl2br }}</span>
                                         {% endif %}
                                     </span>
-                                    <span class="badge bg-secondary">{{ change.status.label }}</span>
+                                    {% include 'partials/status_badge.html.twig' with { status: change.status.value, label: change.status.label } only %}
                                 </div>
                                 {% if change.isPending and change.origin.value == 'renter' %}
                                     <div class="d-flex gap-2 mt-2">
-                                        <form method="post" action="/mes-locations/demande">
+                                        <form method="post" action="/mes-locations/demande"
+                                              data-confirm="Accepter cette demande ? Elle sera appliquée à la réservation, et le locataire en sera informé."
+                                              data-confirm-label="Accepter"
+                                              data-confirm-note="Un mot au locataire (facultatif)"
+                                              data-confirm-note-name="message">
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
@@ -340,7 +374,11 @@
                                             <input type="hidden" name="decision" value="accept">
                                             <button type="submit" class="btn btn-sm btn-outline-success">Accepter</button>
                                         </form>
-                                        <form method="post" action="/mes-locations/demande">
+                                        <form method="post" action="/mes-locations/demande"
+                                              data-confirm="Refuser cette demande ? La réservation reste inchangée, et le locataire en sera informé."
+                                              data-confirm-label="Refuser"
+                                              data-confirm-note="Dire pourquoi, si vous le souhaitez (facultatif)"
+                                              data-confirm-note-name="message">
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
@@ -370,8 +408,10 @@
                             <input type="date" class="form-control form-control-sm" id="propose-departure" name="departure">
                         </div>
                         <div class="col-12 col-md-4">
-                            <label class="form-label" for="propose-message">Message</label>
-                            <input type="text" class="form-control form-control-sm" id="propose-message" name="message">
+                            <label class="form-label" for="propose-message">Message au locataire</label>
+                            <input type="text" class="form-control form-control-sm" id="propose-message" name="message"
+                                   aria-describedby="propose-message-help">
+                            <div class="form-text" id="propose-message-help">Envoyé avec la proposition.</div>
                         </div>
                         <div class="col-12 col-md-2">
                             <button type="submit" class="btn btn-sm btn-outline-primary w-100">Proposer</button>
@@ -390,14 +430,17 @@
                 </p>
 
                 {% if comments is empty %}
-                    <p class="text-body-secondary">Aucun commentaire.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun commentaire.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <ul class="list-unstyled">
                         {% for comment in comments %}
                             <li class="border-bottom py-2">
                                 <div class="small text-body-secondary">
                                     {{ comment.author_name ?: 'Auteur inconnu' }} —
-                                    {{ comment.created_at|date('d/m/Y à H\\hi') }}
+                                    {{ comment.created_at|datetime_fr }}
                                 </div>
                                 {{ comment.body|nl2br }}
                             </li>
@@ -421,12 +464,15 @@
             <div class="card-body">
                 <h2 class="h5 mb-2">Historique</h2>
                 {% if history is empty %}
-                    <p class="text-body-secondary mb-0">Rien encore.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Rien encore.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <ul class="list-unstyled mb-0 small">
                         {% for entry in history %}
                             <li class="mb-1">
-                                <span class="text-body-secondary">{{ entry.created_at|date('d/m/Y H:i') }}</span>
+                                <span class="text-body-secondary">{{ entry.created_at|datetime_fr }}</span>
                                 — {{ entry.summary ?: entry.event_type }}
                                 {% if entry.from_value or entry.to_value %}
                                     <span class="text-body-secondary">

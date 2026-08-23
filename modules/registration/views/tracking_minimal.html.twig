@@ -1,8 +1,8 @@
 {% extends 'base.html.twig' %}
 {% block title %}Suivi de votre demande — {{ site_name }}{% endblock %}
 {% block content %}
-    <div class="container py-4" style="max-width: 560px;">
-        <h1 class="h4 mb-3">Suivi de votre demande</h1>
+    <div class="page-narrow">
+        {% include 'partials/page_header.html.twig' with { title: 'Suivi de votre demande' } only %}
         <div class="card">
             <div class="card-body">
                 <p class="mb-1"><span class="text-body-secondary small">Enfant</span><br><strong>{{ registration_request.childFirstName }}</strong></p>

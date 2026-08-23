@@ -127,4 +127,16 @@
                 modalBody.textContent = 'Impossible de charger le détail de cette installation.';
             });
     });
+
+    // The monthly-history period selector applies itself on change. This
+    // used to be an inline onchange= attribute, which the CSP silently
+    // blocks (script-src has no 'unsafe-inline', and a nonce never covers
+    // an on* attribute) — the selector shipped dead. The template keeps a
+    // visible "Afficher" submit button as the no-JS path.
+    var historyPeriod = /** @type {HTMLSelectElement|null} */ (document.getElementById('history-period'));
+    if (historyPeriod && historyPeriod.form) {
+        historyPeriod.addEventListener('change', function () {
+            historyPeriod.form.submit();
+        });
+    }
 })();

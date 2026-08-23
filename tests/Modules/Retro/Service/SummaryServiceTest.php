@@ -66,4 +66,28 @@ class SummaryServiceTest extends TestCase
         $this->expectException(RetroException::class);
         $service->generate([$this->comment('good', 'Text')]);
     }
+
+    /**
+     * RetroException is a Core\Exception\UserFacingException, so its message
+     * reaches the board page verbatim. It used to be built by appending the
+     * connector's own — which carried the AI provider's HTTP response body.
+     */
+    public function testTheLlmFailuresTextNeverReachesTheRetroExceptionsOwnMessage(): void
+    {
+        $technical = new LlmException('HTTP 401 — {"error":{"message":"invalid x-api-key"}}');
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('complete')->willThrowException($technical);
+        $service = new SummaryService($llmConnector);
+
+        try {
+            $service->generate([$this->comment('good', 'Text')]);
+            self::fail('Expected a RetroException.');
+        } catch (RetroException $e) {
+            self::assertStringNotContainsString('x-api-key', $e->getMessage());
+            self::assertStringNotContainsString('HTTP 401', $e->getMessage());
+            self::assertStringContainsString('synthèse', $e->getMessage());
+            self::assertSame($technical, $e->getPrevious());
+        }
+    }
 }

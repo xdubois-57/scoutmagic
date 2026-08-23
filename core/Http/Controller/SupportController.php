@@ -110,8 +110,8 @@ class SupportController extends AbstractController
             ? (string) ($data['_csrf_token'] ?? '')
             : (string) $request->getBody('_csrf_token', '');
 
-        if (!CsrfGuard::validateToken($token)) {
-            return $this->json(['success' => false, 'error' => 'Jeton de sécurité invalide.'], 400);
+        if (($guard = $this->guardCsrfJson($request, $token)) !== null) {
+            return $guard;
         }
 
         $actionId = $this->schedulerService->scheduleAfter(
@@ -163,9 +163,8 @@ class SupportController extends AbstractController
      */
     public function saveStatistics(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton de sécurité invalide. Merci de réessayer.');
-            return $this->redirect('/config/support');
+        if (($guard = $this->guardCsrf($request, '/config/support')) !== null) {
+            return $guard;
         }
 
         $wasEnabled = $this->settingService->get('statistics_enabled') === '1';

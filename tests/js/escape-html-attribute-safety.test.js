@@ -22,10 +22,11 @@ const here = dirname(fileURLToPath(import.meta.url));
  */
 function loadEscapeHtml(relativePath) {
     const source = readFileSync(resolve(here, '../../', relativePath), 'utf8');
-    // \n *\} rather than \n\}: mass_mail's copy sits unindented at the
-    // template's <script> top level, but finance-receipts.js's is nested
-    // one level inside that file's own wrapping IIFE.
-    const match = source.match(/function escapeHtml\s*\([^)]*\)\s*\{[\s\S]*?\n *\}/);
+    // The closing brace may be indented (the definition lives inside
+    // api.js's IIFE) — \s* accepts that; the lazy body match still stops
+    // at the first line holding nothing but a brace, which is the
+    // function's own end since escapeHtml has no nested blocks.
+    const match = source.match(/function escapeHtml\s*\([^)]*\)\s*\{[\s\S]*?\n\s*\}/);
     if (match === null) {
         throw new Error(`No escapeHtml() found in ${relativePath}`);
     }
@@ -33,13 +34,22 @@ function loadEscapeHtml(relativePath) {
     return new Function(`${match[0]}\nreturn escapeHtml;`)();
 }
 
+// The receipts page's escaper moved twice: template inline <script> →
+// public/assets/js/finance-receipts.js → the shared toolbox in
+// public/assets/js/api.js (finance-receipts.js now aliases
+// window.ScoutMagicApi.escapeHtml). This list follows the definition,
+// wherever it lives, because the point is to exercise the shipped source.
+// The suite failing to LOAD counts as nobody noticing the move:
+// loadEscapeHtml() throws before a single `it` runs, which is exactly
+// what happened when the receipts template stopped carrying the function.
 const templates = {
-    // Extracted from the template's inline <script> into its own file
-    // (public/assets/js/finance-receipts.js) so tests/js/finance-receipts
-    // .test.js could exercise the production code directly — escapeHtml()
-    // moved with it.
-    'finance receipts list': 'public/assets/js/finance-receipts.js',
-    'mass_mail list': 'modules/mass_mail/views/list.html.twig',
+    // One entry, not the three this list has carried in turn: the two
+    // former call sites (finance-receipts.js and mass_mail's template)
+    // no longer DEFINE escapeHtml at all — they call the toolbox's. A
+    // list still naming them would throw « No escapeHtml() found »
+    // before a single `it` ran, which is the failure mode this file was
+    // written to have when a definition moves unnoticed.
+    'ScoutMagicApi toolbox (used by finance receipts + mass-mail lists)': 'public/assets/js/api.js',
 };
 
 describe('inline escapeHtml() in attribute-building templates', () => {

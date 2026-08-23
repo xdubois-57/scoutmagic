@@ -98,6 +98,35 @@ class ModuleManagerTest extends TestCase
         $this->assertTrue($invalid->presentOnDisk);
     }
 
+    /**
+     * ModuleInfo->validationError is rendered as a title="" tooltip on
+     * Configuration > Modules (config/modules.html.twig), a page any chef
+     * d'unité can open. ModuleManifest's own text names the manifest's
+     * absolute path — so the gate substitutes the French sentence
+     * discoverModules() wrote, and the path stays in the error log.
+     */
+    public function testTheValidationErrorShownOnThePageNamesNoFilesystemPath(): void
+    {
+        $invalid = null;
+        foreach ($this->manager->discoverModules() as $m) {
+            if ($m->manifest->id === 'invalid_module') {
+                $invalid = $m;
+                break;
+            }
+        }
+
+        $this->assertNotNull($invalid);
+        $error = (string) $invalid->validationError;
+
+        // "module.json" as a bare filename is fine — it names what the
+        // admin has to go and fix. What must never appear is where it
+        // lives on the server, nor ModuleManifest's English.
+        $this->assertStringNotContainsString($this->fixturesDir, $error);
+        $this->assertStringNotContainsString('/', $error, 'No path separator may appear in a displayed message');
+        $this->assertStringNotContainsString('missing or invalid', $error);
+        $this->assertStringContainsString('Ce module est invalide', $error);
+    }
+
     public function testDiscoverModulesDetectsModulesMissingFromDisk(): void
     {
         // Add a registry entry for a module not on disk

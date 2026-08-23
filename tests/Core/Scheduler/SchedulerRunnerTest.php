@@ -133,7 +133,77 @@ class SchedulerRunnerTest extends TestCase
         $this->assertSame(0, $processed); // failed tasks don't count as processed
         $action = $this->repo->findById($id);
         $this->assertSame('failed', $action['status']);
-        $this->assertStringContainsString('Handler error', $action['last_error']);
+        // last_error is rendered inside a <pre> on Configuration > Actions
+        // planifiées, so a raw \Throwable message must not reach it — see
+        // Core\Exception\UserFacingMessage.
+        $this->assertStringNotContainsString('Handler error', $action['last_error']);
+        $this->assertStringContainsString('bad_task', $action['last_error']);
+    }
+
+    /**
+     * The shape the write-site gate exists to stop: a handler that lets a
+     * library's own words escape. scheduled_actions.last_error is rendered
+     * inside a <pre> on Configuration > Actions planifiées, so a SQL error
+     * naming a table, or an SMTP transcript, would land on a config page
+     * long after the request that produced it.
+     */
+    public function testProcessOverdueNeverStoresALibraryMessageAsTheDisplayedError(): void
+    {
+        $handler = new class implements TaskHandlerInterface {
+            public function handle(array $payload, TaskContext $context): void
+            {
+                throw new \PDOException(
+                    "SQLSTATE[42S22]: Column not found: 1054 Unknown column 'foo' in 'member_years'"
+                );
+            }
+        };
+
+        $this->runner->registerHandler('core', 'leaky_task', $handler);
+        $pastTime = (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s');
+        $id = $this->repo->create('core', 'leaky_task', $pastTime, null, null);
+
+        $this->runner->processOverdue();
+
+        $lastError = (string) $this->repo->findById($id)['last_error'];
+        $this->assertStringNotContainsString('SQLSTATE', $lastError);
+        $this->assertStringNotContainsString('member_years', $lastError);
+        $this->assertStringContainsString('leaky_task', $lastError);
+        $this->assertStringContainsString('journal des événements', $lastError);
+
+        // Not lost, just moved: the journal keeps the real text.
+        $entry = $this->pdo->query(
+            "SELECT description FROM event_log WHERE event_type = 'scheduler_task_failed' ORDER BY id DESC LIMIT 1"
+        )->fetch();
+        $this->assertStringContainsString('SQLSTATE', (string) $entry['description']);
+    }
+
+    /**
+     * The other half of the rule: a handler that throws an exception
+     * written FOR the admin (marked Core\Exception\UserFacingException)
+     * still gets its own sentence on the page — the gate substitutes, it
+     * does not blanket-replace.
+     */
+    public function testProcessOverdueKeepsAMessageWrittenForTheAdmin(): void
+    {
+        $handler = new class implements TaskHandlerInterface {
+            public function handle(array $payload, TaskContext $context): void
+            {
+                throw new \Core\File\UploadException(
+                    'Le fichier dépasse la taille maximale autorisée (20 Mo).'
+                );
+            }
+        };
+
+        $this->runner->registerHandler('core', 'speaking_task', $handler);
+        $pastTime = (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s');
+        $id = $this->repo->create('core', 'speaking_task', $pastTime, null, null);
+
+        $this->runner->processOverdue();
+
+        $this->assertSame(
+            'Le fichier dépasse la taille maximale autorisée (20 Mo).',
+            $this->repo->findById($id)['last_error']
+        );
     }
 
     public function testProcessOverdueFailsWithNoHandler(): void

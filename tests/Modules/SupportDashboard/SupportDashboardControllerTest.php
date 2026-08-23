@@ -244,7 +244,11 @@ class SupportDashboardControllerTest extends TestCase
             new Request('POST', '/x', [], ['_csrf_token' => 'wrong'], [], []),
             ['id' => (string) $this->installationId]
         );
-        $this->assertSame(400, $withoutToken->getStatusCode());
+        $this->assertSame(302, $withoutToken->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
 
         // Still there: a refused CSRF check must not have deleted anything.
         $this->assertNotNull(

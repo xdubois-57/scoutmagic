@@ -69,4 +69,26 @@ class S3ErrorExplainerServiceTest extends TestCase
         $this->expectException(GalleryException::class);
         $service->explain('custom', 'https://example.com', '', 'bucket', 'AK', 10, 'error');
     }
+
+    /**
+     * One third party's error text explaining another's: this used to append
+     * the AI provider's own HTTP body onto the gallery configuration page.
+     */
+    public function testTheLlmFailuresTextNeverReachesTheGalleryExceptionsOwnMessage(): void
+    {
+        $technical = new LlmException('HTTP 429 — {"error":{"message":"rate_limit_exceeded for org-abc"}}');
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('complete')->willThrowException($technical);
+        $service = new S3ErrorExplainerService($llmConnector);
+
+        try {
+            $service->explain('custom', 'https://example.com', '', 'bucket', 'AK', 10, 'error');
+            self::fail('Expected a GalleryException.');
+        } catch (GalleryException $e) {
+            self::assertStringNotContainsString('rate_limit_exceeded', $e->getMessage());
+            self::assertStringNotContainsString('HTTP 429', $e->getMessage());
+            self::assertSame($technical, $e->getPrevious());
+        }
+    }
 }

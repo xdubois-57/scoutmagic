@@ -111,6 +111,8 @@ class GroupListService
             $context->linkedMemberIds
         ) ?? [];
 
+        $headcounts = $this->headcounts($readable, $context);
+
         $items = [];
         foreach ($readable as [$group, $sectionIds, $isModerator]) {
             $items[] = new GroupListItem(
@@ -118,11 +120,76 @@ class GroupListService
                 $isModerator,
                 $group->scoutYearId !== null && $group->scoutYearId !== $context->effectiveScoutYearId,
                 $sectionIds,
-                $this->hasUnread($group, $lastRead)
+                $this->hasUnread($group, $lastRead),
+                $headcounts[$group->id] ?? 0
             );
         }
 
         return $items;
+    }
+
+    /**
+     * How many people each group actually holds.
+     *
+     * The two kinds of membership added together and counted ONCE: the
+     * people explicitly invited (discussion_group_members) and the people
+     * a section group derives from its sections. Either on its own is
+     * wrong in a way that is worse than no number at all — the invited
+     * rows of a section group are usually just its moderator, which would
+     * print « 1 membre » next to a group of forty; and the sections of an
+     * invitation group are empty, which would print « 0 ».
+     *
+     * Two queries for the whole page, not two per card: the section
+     * lookups are batched by section and the explicit rows by group, the
+     * same rule the rest of this method already follows.
+     *
+     * The year a section group resolves against is its OWN when it has
+     * one — that is what keeps a past-year group's headcount the one it
+     * had that year rather than this year's roster.
+     *
+     * @param list<array{0: DiscussionGroup, 1: int[], 2: bool}> $readable
+     * @return array<int, int> group id => people
+     */
+    private function headcounts(array $readable, GroupSessionContext $context): array
+    {
+        $explicitByGroup = $this->memberRepository->findMemberIdsByGroups(
+            array_map(fn(array $row) => $row[0]->id, $readable)
+        );
+
+        // Grouped by the year they resolve against: two groups on the same
+        // section but different years have genuinely different membership.
+        $sectionIdsByYear = [];
+        foreach ($readable as [$group, $sectionIds]) {
+            $year = $group->scoutYearId ?? $context->effectiveScoutYearId;
+            foreach ($sectionIds as $sectionId) {
+                $sectionIdsByYear[$year][$sectionId] = true;
+            }
+        }
+
+        $membersBySectionAndYear = [];
+        foreach ($sectionIdsByYear as $year => $sectionIds) {
+            $membersBySectionAndYear[$year] = $this->membershipRepository->findMemberIdsBySection(
+                array_keys($sectionIds),
+                (int) $year
+            );
+        }
+
+        $counts = [];
+        foreach ($readable as [$group, $sectionIds]) {
+            $year = $group->scoutYearId ?? $context->effectiveScoutYearId;
+            $seen = [];
+            foreach ($explicitByGroup[$group->id] ?? [] as $memberId) {
+                $seen[$memberId] = true;
+            }
+            foreach ($sectionIds as $sectionId) {
+                foreach ($membersBySectionAndYear[$year][$sectionId] ?? [] as $memberId) {
+                    $seen[$memberId] = true;
+                }
+            }
+            $counts[$group->id] = count($seen);
+        }
+
+        return $counts;
     }
 
     /**

@@ -63,6 +63,12 @@ class ImportControllerTest extends TestCase
             'autoescape' => 'html',
         ]);
         $twig->addGlobal('site_name', 'Test');
+        // The shared French format filters (core/View/TwigFactory.php) used by
+        // the templates under test - same rendering as the shipped ones.
+        $twig->addFilter(new \Twig\TwigFilter('date_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y')));
+        $twig->addFilter(new \Twig\TwigFilter('datetime_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y à H:i')));
+        $twig->addFilter(new \Twig\TwigFilter('money', fn($a) => $a === null || $a === '' ? '' : number_format((float) $a, 2, ',', ' ') . ' €'));
+        $twig->addFilter(new \Twig\TwigFilter('money_cents', fn($c) => $c === null || $c === '' ? '' : number_format(((int) $c) / 100, 2, ',', ' ') . ' €'));
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_email', 'admin@test.com');
         $twig->addGlobal('current_user_role', 'chief');
@@ -157,6 +163,10 @@ class ImportControllerTest extends TestCase
         $request = new Request('POST', '/admin/import', [], ['_csrf_token' => 'invalid'], [], []);
         $response = $this->controller->import($request, []);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
     }
 }

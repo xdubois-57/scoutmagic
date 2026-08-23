@@ -1,7 +1,7 @@
 {#
   The renter's acknowledgement. It carries the tracking link, which is their
-  ONLY way back to their booking — the raw token is stored hashed and exists
-  nowhere else. That is why this email cannot be switched off (§6.28).
+  ONLY way back to their booking — they have no account to log into. That is
+  why this email cannot be switched off (§6.28).
 #}
 <p>Bonjour {{ booking.renterName }},</p>
 
@@ -22,7 +22,7 @@
 {% if booking.holdUntil %}
     <p>
         Nous bloquons ces dates jusqu'au
-        <strong>{{ booking.holdUntil|date('d/m/Y') }}</strong>, le temps de vous répondre.
+        <strong>{{ booking.holdUntil|date_fr }}</strong>, le temps de vous répondre.
     </p>
 {% endif %}
 

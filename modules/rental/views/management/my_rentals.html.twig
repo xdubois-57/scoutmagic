@@ -9,15 +9,13 @@
   refuses outright otherwise, rather than rendering an empty page.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 900px;">
-        <h1 class="h3 mb-1">Mes locations</h1>
-        <p class="text-body-secondary small mb-4">
-            {% if is_unit_staff %}
-                En tant que membre du Staff d'U, vous gérez tous les biens de l'unité.
-            {% else %}
-                Les biens dont vous êtes gestionnaire.
-            {% endif %}
-        </p>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Mes locations',
+            subtitle: is_unit_staff
+                ? "En tant que membre du Staff d'U, vous gérez tous les biens de l'unité."
+                : 'Les biens dont vous êtes gestionnaire.',
+        } only %}
 
         {% if pending_bookings is not empty %}
             <div class="card mb-4">
@@ -35,7 +33,7 @@
                                             {{ booking_asset.name }} · du {{ booking.arrivalDate }} au {{ booking.departureDate }}
                                         </span>
                                     </span>
-                                    <span class="badge bg-warning text-dark">{{ booking.status.label }}</span>
+                                    {% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}
                                 </div>
                             </a>
                         {% endfor %}
@@ -55,14 +53,14 @@
                         </span>
                         <span>
                             {% if pending_counts[asset.id] is defined %}
-                                <span class="badge bg-warning text-dark">
+                                <span class="badge text-bg-warning">
                                     {{ pending_counts[asset.id] }} à traiter
                                 </span>
                             {% endif %}
                             {% if asset.isArchived %}
-                                <span class="badge bg-secondary">Archivé</span>
+                                {% include 'partials/status_badge.html.twig' with { status: 'archived', label: 'Archivé' } only %}
                             {% elseif not asset.isPublic %}
-                                <span class="badge bg-light text-dark border">Non public</span>
+                                <span class="badge text-bg-light border">Non public</span>
                             {% endif %}
                         </span>
                     </div>

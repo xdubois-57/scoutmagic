@@ -114,7 +114,7 @@ async function tryPasswordLogin(page, email, password) {
     await page.goto('/login', { waitUntil: 'domcontentloaded' });
     const passwordTab = page.locator('#tab-password');
     await page.getByRole('tab', { name: 'Mot de passe' }).click();
-    await passwordTab.getByLabel('Adresse email', { exact: true }).fill(email);
+    await passwordTab.getByLabel(/^Adresse email \*$/).fill(email);
     await passwordTab.getByLabel('Mot de passe', { exact: true }).fill(password);
     await passwordTab.getByRole('checkbox').check();
     await passwordTab.getByRole('button', { name: 'Se connecter' }).click();

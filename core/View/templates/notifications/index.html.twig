@@ -2,8 +2,20 @@
 {% block title %}Notifications — {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-narrow">
+    {% include 'partials/page_header.html.twig' with { title: 'Notifications' } only %}
+
+    {#
+      Above the list, not at the foot of it: the preferences are what
+      somebody comes to this page to change after reading one
+      notification too many, and hunting for the link past a screenful of
+      them is exactly the moment they give up. « Tout marquer comme lu »
+      is a POST form, which page_header's link action cannot carry — it
+      sits in this toolbar row instead.
+    #}
     <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
-        <h1 class="mb-0">Notifications</h1>
+        <a href="/notifications/preferences" class="text-decoration-none">
+            <i class="bi bi-sliders me-1" aria-hidden="true"></i> Préférences de notification
+        </a>
         {% if unread_count > 0 %}
             <form method="post" action="/notifications/mark-all-read">
                 {{ csrf_field() }}
@@ -12,27 +24,18 @@
         {% endif %}
     </div>
 
-    {#
-      Above the list, not at the foot of it: the preferences are what
-      somebody comes to this page to change after reading one
-      notification too many, and hunting for the link past a screenful of
-      them is exactly the moment they give up.
-    #}
-    <p class="mb-4">
-        <a href="/notifications/preferences" class="text-decoration-none">
-            <i class="bi bi-sliders me-1" aria-hidden="true"></i> Préférences de notification
-        </a>
-    </p>
-
     {% if day_groups|length == 0 %}
-        <p class="text-body-secondary">Aucune notification pour le moment.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune notification pour le moment.',
+            icon: 'bi-bell',
+        } only %}
     {% endif %}
 
     {% for group in day_groups %}
         <h2 class="h6 text-body-secondary text-uppercase mb-2 mt-4">{{ group.label }}</h2>
         <div class="list-group mb-3">
             {% for notification in group.notifications %}
-                <form method="post" action="/notifications/{{ notification.id }}/read" class="list-group-item list-group-item-action p-0 border-0 mb-2 rounded {% if not notification.isRead %}bg-primary-subtle{% else %}bg-white border{% endif %}">
+                <form method="post" action="/notifications/{{ notification.id }}/read" class="list-group-item list-group-item-action p-0 border-0 mb-2 rounded {% if not notification.isRead %}bg-primary-subtle{% else %}bg-body border{% endif %}">
                     {{ csrf_field() }}
                     <button type="submit" class="btn btn-link text-decoration-none text-start text-body w-100 p-3 d-flex gap-2 align-items-start">
                         <span class="d-inline-block rounded-circle{% if not notification.isRead %} bg-primary{% endif %}" style="width:8px;height:8px;margin-top:6px;flex-shrink:0;" aria-hidden="true"></span>

@@ -1,7 +1,7 @@
 Bonjour {{ booking.renterName }},
 
 Votre séjour à {{ asset.name }} approche : arrivée le
-{{ booking.arrivalDate|date('d/m/Y') }}, départ le {{ booking.departureDate|date('d/m/Y') }}.
+{{ booking.arrivalDate|date_fr }}, départ le {{ booking.departureDate|date_fr }}.
 {% if asset.arrivalTime %}
 Arrivée à partir de {{ asset.arrivalTime }}.
 {% endif %}

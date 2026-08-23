@@ -5,49 +5,50 @@
     <div class="card-body">
         <div class="d-flex align-items-start justify-content-between gap-2">
             <h2 class="h6 mb-0">{{ board.title }}</h2>
-            <span class="badge {{ board.status == 'open' ? 'text-bg-success' : (board.status == 'closed' ? 'text-bg-secondary' : 'text-bg-dark') }}">
-                {{ board.status == 'open' ? 'Ouvert' : (board.status == 'closed' ? 'Clôturé' : 'Archivé') }}
-            </span>
+            {% include 'partials/status_badge.html.twig' with {
+                status: board.status == 'open' ? 'active' : (board.status == 'closed' ? 'closed' : 'archived'),
+                label: board.status == 'open' ? 'Ouvert' : (board.status == 'closed' ? 'Clôturé' : 'Archivé'),
+            } only %}
         </div>
         <p class="text-body-secondary small mb-2">{{ board.boardDate }}</p>
         <div class="d-flex flex-wrap gap-2 small text-body-secondary mb-3">
             <span class="badge text-bg-light border">
-                <i class="bi bi-{{ board.listed ? 'people' : 'lock' }}"></i>
+                <i class="bi bi-{{ board.listed ? 'people' : 'lock' }}" aria-hidden="true"></i>
                 {{ board.listed ? 'Espace membres' : 'Lien seul' }}
             </span>
             {% if board.status == 'open' and board.autoCloseAt %}
                 <span class="badge text-bg-light border">
-                    <i class="bi bi-clock"></i> Clôture auto le {{ board.autoCloseAt }}
+                    <i class="bi bi-clock" aria-hidden="true"></i> Clôture auto le {{ board.autoCloseAt }}
                 </span>
             {% endif %}
         </div>
         <div class="d-flex flex-wrap gap-2 pt-2 border-top">
             <a href="{{ entry.public_url }}" class="btn btn-outline-secondary btn-sm flex-fill">
-                <i class="bi bi-eye"></i> Voir le board
+                <i class="bi bi-eye" aria-hidden="true"></i> Voir le board
             </a>
             <a href="/retro/{{ board.id }}/edit" class="btn btn-outline-secondary btn-sm flex-fill">
-                <i class="bi bi-gear"></i> Configurer
+                <i class="bi bi-gear" aria-hidden="true"></i> Configurer
             </a>
             {% if can_close %}
                 {% if board.status == 'closed' %}
                     <form method="post" action="/retro/{{ board.id }}/reopen"
-                          onsubmit="return confirm('Réouvrir cette rétrospective ? Les participants pourront à nouveau ajouter des mots et voter.');">
+                          data-confirm="Réouvrir cette rétrospective ? Les participants pourront à nouveau ajouter des mots et voter.">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-success btn-sm">
-                            <i class="bi bi-unlock"></i> Réouvrir
+                            <i class="bi bi-unlock" aria-hidden="true"></i> Réouvrir
                         </button>
                     </form>
                     <form method="post" action="/retro/{{ board.id }}/archive">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-archive"></i> Archiver
+                            <i class="bi bi-archive" aria-hidden="true"></i> Archiver
                         </button>
                     </form>
                 {% elseif board.status == 'archived' %}
                     <form method="post" action="/retro/{{ board.id }}/unarchive">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-box-arrow-up"></i> Désarchiver
+                            <i class="bi bi-box-arrow-up" aria-hidden="true"></i> Désarchiver
                         </button>
                     </form>
                 {% endif %}

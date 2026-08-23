@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Scheduler;
 
 use Core\Debug\RequestTimeline;
+use Core\Exception\UserFacingMessage;
 use Core\Journal\JournalService;
 use Core\Module\ModuleManager;
 
@@ -111,7 +112,18 @@ class SchedulerRunner
                     ['task_id' => $task['id'], 'module_id' => $task['module_id'], 'duration_ms' => $durationMs]
                 );
             } catch (\Throwable $e) {
-                $this->repository->markFailed((int) $task['id'], $e->getMessage());
+                // scheduled_actions.last_error is written here and rendered
+                // much later, inside a <pre>, on Configuration > Actions
+                // planifiées (config/scheduled.html.twig). This is a
+                // background handler catching \Throwable, so without the
+                // gate any library's own English — a PDO error naming a
+                // column, an SMTP transcript — lands on that page. The
+                // journal entry below still carries the real text.
+                $this->repository->markFailed((int) $task['id'], UserFacingMessage::from(
+                    $e,
+                    "La tâche « {$task['task_key']} » a échoué. Le détail technique est dans le journal des "
+                    . 'événements (Configuration > Journal).'
+                ));
                 $durationMs = (int) round((microtime(true) - $taskStart) * 1000);
                 RequestTimeline::mark('scheduler_task_failed:' . $handlerKey, ['task_id' => $task['id'], 'duration_ms' => $durationMs]);
                 $this->journal->log(

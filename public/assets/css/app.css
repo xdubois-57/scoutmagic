@@ -6,6 +6,8 @@
 :root {
     --page-max-width: 1200px;
     --page-narrow-width: 560px;
+    --page-medium-width: 720px;
+    --page-wide-width: 960px;
 }
 
 /* Unify the main content container at a single width on large screens,
@@ -17,6 +19,18 @@
 /* Centered narrow column for form-centric pages, inside the shared container. */
 .page-narrow {
     max-width: var(--page-narrow-width);
+    margin-inline: auto;
+}
+/* Same idea, two wider tiers (design.md §7.6): medium for detail/config
+   pages, wide for dense management screens. Views use one of these three
+   classes instead of nesting a second .container or writing an inline
+   max-width. */
+.page-medium {
+    max-width: var(--page-medium-width);
+    margin-inline: auto;
+}
+.page-wide {
+    max-width: var(--page-wide-width);
     margin-inline: auto;
 }
 
@@ -59,12 +73,22 @@
 
 /* ============================================================
    MOBILE TOUCH-TARGET BASELINE
-   Enforces AGENTS.md 44px minimum on coarse-pointer devices.
-   Restored to compact at lg (≥992px) where mouse usage is expected.
+   Enforces the design.md §7.2 44px comfort goal on coarse-pointer
+   devices. Restored to compact under `pointer: fine` (a real mouse/
+   trackpad) — NOT at a width breakpoint: a 10" touch tablet is wider
+   than 992px yet still needs its touch targets, and conversely a
+   narrow desktop window still has a mouse.
    ============================================================ */
 
 @media (pointer: coarse) {
-    /* Buttons */
+    /* Buttons — standard .btn included, not just .btn-sm: covering only
+       the -sm variants made a "small" control render TALLER than a
+       normal one (44px vs Bootstrap's 38px), which is what bred the
+       inline min-height:44px patches in templates. The bump on .btn is
+       modest (38 → 44px) and only affects height, never padding. */
+    .btn {
+        min-height: 44px;
+    }
     .btn-sm {
         min-height: 44px;
         min-width: 44px;
@@ -72,7 +96,13 @@
         padding-bottom: 0.5rem;
     }
 
-    /* Form controls */
+    /* Form controls — min-height only on the standard sizes (38 → 44px);
+       deliberately no line-height/padding inflation beyond 44px
+       (design.md §7.2: never lengthen forms for zero gain). */
+    .form-control,
+    .form-select {
+        min-height: 44px;
+    }
     .form-control-sm,
     .form-select-sm {
         min-height: 44px;
@@ -130,6 +160,16 @@
         min-height: 44px;
     }
 
+    /* Generic tappable zone for interactive elements that are neither
+       .btn, form controls, nor .list-group-item-action (e.g. a plain
+       <a> row, a dropdown item, a clickable area). Replaces the former
+       template-level style="min-height:44px" patches — inline styles
+       beat every stylesheet rule, including the pointer:fine restore
+       below, which is why they are banned (design.md §7.2). */
+    .tap-target {
+        min-height: 44px;
+    }
+
     /* Icon-only buttons (ensure square minimum) */
     .btn-sm:has(> i:only-child),
     .btn-sm:has(> .bi:only-child) {
@@ -139,12 +179,19 @@
     }
 }
 
-/* Restore compact sizes on large screens (mouse/trackpad assumed) */
-@media (min-width: 992px) {
+/* Restore compact sizes where a real mouse/trackpad is the primary
+   pointer. Keyed on `pointer: fine`, not a width breakpoint: the old
+   `min-width: 992px` restore stripped the 44px targets from wide TOUCH
+   devices (a 10" tablet in landscape), while this leaves them intact
+   there and still compacts any desktop, whatever its window width. */
+@media (pointer: fine) {
+    .btn,
     .btn-sm {
         min-height: revert;
         min-width: revert;
     }
+    .form-control,
+    .form-select,
     .form-control-sm,
     .form-select-sm {
         min-height: revert;
@@ -161,15 +208,9 @@
         align-items: revert;
         min-height: revert;
     }
-}
-
-/* ============================================================
-   SAFE OVERFLOW FOR LONG CONTENT
-   Prevents horizontal overflow from IBANs, filenames, URLs, etc.
-   ============================================================ */
-.overflow-wrap-anywhere {
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    .tap-target {
+        min-height: revert;
+    }
 }
 
 /* Code blocks in tables/cards: prevent blow-out */
@@ -206,15 +247,37 @@ td code,
 }
 
 /* ============================================================
-   UTILITY: full-width stacking for action bar buttons on mobile
+   COOKIE BANNER HEIGHT COMPENSATION
+   The consent banner (partials/cookie_banner.html.twig) is fixed-bottom
+   and overlays the page; without compensation the end of every page
+   (footer, last form buttons) sits underneath it and can be unreachable,
+   especially on mobile where the banner is ~300px tall.
+   Chosen approach: pure CSS via body:has(), rather than a body class set
+   by the template or a JS height measurement, because
+   - the padding appears with the banner and disappears the instant
+     cookie-consent.js removes it from the DOM — no stale body class to
+     clean up and no change needed in cookie-consent.js;
+   - :has() is supported by every browser we target (all evergreen
+     browsers since 2023); where it is not, the fallback is exactly
+     today's behavior (no padding), never something worse.
+   The paddings bracket the banner's real rendered height at the banner's
+   own breakpoints (checked at 360, 768 and 1280px wide), slightly
+   oversized so the bottom of the page always clears it.
    ============================================================ */
-@media (max-width: 575.98px) {
-    .action-bar-wrap {
-        flex-wrap: wrap;
+body:has(> #cookie-banner) {
+    /* <576px: text block + three stacked full-width actions (~280px) */
+    padding-bottom: 20rem;
+}
+@media (min-width: 576px) {
+    body:has(> #cookie-banner) {
+        /* 576-991px: text block above a single row of actions (~150px) */
+        padding-bottom: 12rem;
     }
-    .action-bar-wrap > .btn,
-    .action-bar-wrap > a.btn {
-        flex: 1 1 100%;
+}
+@media (min-width: 992px) {
+    body:has(> #cookie-banner) {
+        /* >=992px: text and actions side by side (~100px) */
+        padding-bottom: 8rem;
     }
 }
 
@@ -223,6 +286,18 @@ td code,
    ============================================================ */
 @media (min-width: 576px) {
     .w-sm-auto { width: auto !important; }
+}
+
+/* ============================================================
+   UTILITY: dashed border for drop zones (upload, receipts, gallery).
+   Bootstrap 5 has border-* color/width utilities but no border-style
+   one — the templates already used this class name, which silently
+   rendered as a SOLID border until it was defined here. !important
+   matches Bootstrap's own border-utility convention so it wins over
+   .border's shorthand wherever the two are combined.
+   ============================================================ */
+.border-dashed {
+    border-style: dashed !important;
 }
 
 /* ============================================================
@@ -314,6 +389,61 @@ td code,
    all. See partials/breadcrumb_bar.html.twig. */
 .breadcrumb-bar--has-trail {
     display: flex;
+}
+
+/* The separator belongs to the text it separates, not to the tallest
+   crumb in the row.
+
+   Bootstrap renders it as a floated `::before` on each crumb after the
+   first. A float is placed at the top of its containing block, which is
+   invisible as long as every crumb is the same height — plain text. One
+   crumb here is not: a `parents` entry that matches a menu renders as a
+   real <button> (partials/breadcrumb_bar.html.twig), and the touch
+   baseline above gives every .btn `min-height: 44px` on a coarse
+   pointer. On a phone that crumb's <li> is therefore 44px tall while its
+   neighbours are 24px, and the « / » in front of it floats to the top of
+   those 44px — roughly ten pixels above the words it sits between.
+   Reported from a real phone; a mouse-driven browser never shows it,
+   which is why it survived the review.
+
+   float: none puts the separator back in the crumb's own line box, on
+   the same baseline as the text, whatever height the crumb ends up
+   with. Nothing else about the bar changes: the tap target stays 44px,
+   and `padding-left` on the crumb keeps the spacing Bootstrap intends. */
+.breadcrumb-bar .breadcrumb-item + .breadcrumb-item::before {
+    float: none;
+}
+
+/* A toast announces something; it must never intercept a click meant for
+   the page.
+
+   public/assets/js/toast.js parks every message in a
+   `.toast-container.position-fixed.bottom-0.end-0` — the bottom-right
+   corner, which is exactly where a modal's footer buttons and most
+   primary actions sit. For the four seconds a success toast lives (eight
+   for an error), that corner was dead: the visitor pressed « Envoyer un
+   test », then pressed « Lancer l'envoi » and nothing happened, because
+   the toast was on top of it.
+
+   Bootstrap already sets `pointer-events: none` on the CONTAINER — it
+   knows the problem. What it then does is set `pointer-events: auto`
+   back on `.toast` itself, so the box the visitor can actually see is
+   the box that swallows the click. That is the declaration overridden
+   here; the close button gets it back, so a toast can still be dismissed
+   by hand.
+
+   Caught by the end-to-end suite, whose click on that very button was
+   refused with « <div class="toast-body"> … subtree intercepts pointer
+   events ». It had passed locally for weeks: a faster machine let the
+   toast expire before the next click. Nothing changes visually — the
+   toast simply stops being in the way. No caller treats one as
+   clickable: show() returns the element, and none of the 61 call sites
+   binds anything to it. */
+.toast-container .toast {
+    pointer-events: none;
+}
+.toast-container .toast .btn-close {
+    pointer-events: auto;
 }
 
 /* Core\Security\HumanCheck — partials/human_check_fields.html.twig's
@@ -419,4 +549,32 @@ td code,
         width: 100%;
         justify-content: flex-end;
     }
+}
+
+/* ============================================================
+   DESKTOP NAV — level one reads as tabs, level two as pills.
+   The two rows used to be identical grey outline pills: two
+   different hierarchy levels (menus, then the active menu's pages)
+   with zero visual difference between them. The menu row is now
+   quiet text with a primary underline on the active menu — the
+   page row below keeps the pill buttons, so "where am I" reads
+   in one glance: underlined section, filled page.
+   ============================================================ */
+.desktop-menu-btn {
+    border: 0;
+    border-radius: 0;
+    color: var(--bs-secondary-color);
+    /* The underline slot is always reserved so activating a menu
+       never shifts the row's height. */
+    border-bottom: 2px solid transparent;
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+}
+.desktop-menu-btn:hover {
+    color: var(--bs-body-color);
+}
+.desktop-menu-btn.active {
+    color: var(--bs-primary);
+    border-bottom-color: var(--bs-primary);
+    font-weight: 600;
 }

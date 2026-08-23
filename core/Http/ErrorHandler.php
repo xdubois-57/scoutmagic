@@ -125,6 +125,7 @@ final class ErrorHandler
         header('Referrer-Policy: strict-origin-when-cross-origin');
 
         $detail = '';
+        // Deliberately outside the Core\Exception\UserFacingMessage policy: printing the class, message and stack trace verbatim is this block's entire purpose, and it is gated on self::$debug.
         if (self::$debug && $e !== null) {
             $detail = '<pre style="text-align:left;white-space:pre-wrap;overflow:auto;background:rgba(127,127,127,.12);padding:1rem;border-radius:.5rem;">'
                 . htmlspecialchars($e::class . ': ' . $e->getMessage() . "\n" . $e->getTraceAsString(), ENT_QUOTES)

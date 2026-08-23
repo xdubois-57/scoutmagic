@@ -3,7 +3,7 @@
 {% block title %}Courrier entrant — {{ site_name }}{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-4">Courrier entrant</h1>
+{% include 'partials/page_header.html.twig' with { title: 'Courrier entrant' } only %}
 
 <div class="card mb-4">
     <div class="card-body">
@@ -35,7 +35,7 @@
         <h2 class="h5 mb-3">Boîtes configurées</h2>
 
         {% if mailboxes is empty %}
-            <p class="text-body-secondary mb-0">Aucune boîte n'est configurée pour l'instant.</p>
+            {% include 'partials/empty_state.html.twig' with { message: "Aucune boîte n'est configurée pour l'instant.", compact: true } only %}
         {% else %}
             <div class="table-responsive">
                 <table class="table align-middle">
@@ -54,7 +54,7 @@
                                 <td>
                                     {{ mailbox.name }}
                                     {% if not mailbox.isEnabled %}
-                                        <span class="badge text-bg-secondary">désactivée</span>
+                                        {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'désactivée' } only %}
                                     {% endif %}
                                     <div class="form-text">
                                         {{ mailbox.host }}:{{ mailbox.port }} ({{ mailbox.encryption }})
@@ -62,9 +62,10 @@
                                 </td>
                                 <td>{{ mailbox.username }}</td>
                                 <td>
-                                    <span class="badge {{ mailbox.syncState.badgeClass }}">
-                                        {{ mailbox.syncState.label }}
-                                    </span>
+                                    {% include 'partials/status_badge.html.twig' with {
+                                        status: { 'never': 'neutral', 'ok': 'success', 'error': 'error' }[mailbox.syncState.value],
+                                        label: mailbox.syncState.label,
+                                    } only %}
                                     {% if mailbox.lastError %}
                                         {# The operator-facing sentence, written by
                                            MailboxErrorFormatter — never a library's own
@@ -74,7 +75,7 @@
                                 </td>
                                 <td>
                                     {% if mailbox.lastSyncedAt %}
-                                        {{ mailbox.lastSyncedAt|date('d/m/Y H:i') }}
+                                        {{ mailbox.lastSyncedAt|datetime_fr }}
                                     {% else %}
                                         —
                                     {% endif %}
@@ -100,7 +101,7 @@
                                         </form>
                                         <form method="post"
                                               action="/config/courrier-entrant/boites/{{ mailbox.id }}/suppression"
-                                              onsubmit="return confirm('Supprimer cette boîte ? Les messages déjà rattachés à un dossier sont conservés.');">
+                                              data-confirm="Supprimer cette boîte ? Les messages déjà rattachés à un dossier sont conservés.">
                                             {{ csrf_field()|raw }}
                                             <button type="submit" class="btn btn-sm btn-outline-danger">
                                                 Supprimer
@@ -126,45 +127,49 @@
             {{ csrf_field()|raw }}
 
             <div class="col-12 col-md-6">
-                <label class="form-label" for="mailbox-name">Nom</label>
-                <input type="text" class="form-control" id="mailbox-name" name="name"
-                       maxlength="150" required
-                       placeholder="Locations">
-                <div class="form-text">
-                    Le seul élément que verront les gestionnaires : ni l'hôte, ni le compte.
-                </div>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'mailbox-name', field_name: 'name',
+                    label: 'Nom', required: true,
+                    maxlength: 150, placeholder: 'Locations',
+                    help: "Le seul élément que verront les gestionnaires : ni l'hôte, ni le compte.",
+                } only %}
             </div>
 
             <div class="col-12 col-md-6">
-                <label class="form-label" for="mailbox-username">Compte</label>
-                <input type="text" class="form-control" id="mailbox-username" name="username"
-                       autocomplete="off" required
-                       placeholder="locations@unite.be">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'mailbox-username', field_name: 'username',
+                    label: 'Compte', required: true,
+                    autocomplete: 'off', placeholder: 'locations@unite.be',
+                } only %}
             </div>
 
             <div class="col-12 col-md-6">
-                <label class="form-label" for="mailbox-host">Serveur IMAP</label>
-                <input type="text" class="form-control" id="mailbox-host" name="host" required
-                       placeholder="imap.gmail.com">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'mailbox-host', field_name: 'host',
+                    label: 'Serveur IMAP', required: true,
+                    placeholder: 'imap.gmail.com',
+                } only %}
             </div>
 
             <div class="col-6 col-md-3">
-                <label class="form-label" for="mailbox-port">Port</label>
-                <input type="number" class="form-control" id="mailbox-port" name="port"
-                       value="993" min="1" max="65535" required>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'mailbox-port', field_name: 'port', type: 'number',
+                    label: 'Port', required: true,
+                    value: 993, min: 1, max: 65535,
+                } only %}
             </div>
 
             <div class="col-6 col-md-3">
-                <label class="form-label" for="mailbox-encryption">Chiffrement</label>
-                <select class="form-select" id="mailbox-encryption" name="encryption">
-                    <option value="ssl" selected>SSL</option>
-                    <option value="tls">TLS</option>
-                    <option value="starttls">STARTTLS</option>
-                </select>
-                <div class="form-text">
-                    Un certificat invalide fait échouer la connexion : il n'y a pas d'option pour
-                    l'ignorer.
-                </div>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'mailbox-encryption', field_name: 'encryption', type: 'select',
+                    label: 'Chiffrement',
+                    options: [
+                        { value: 'ssl', label: 'SSL', selected: true },
+                        { value: 'tls', label: 'TLS' },
+                        { value: 'starttls', label: 'STARTTLS' },
+                    ],
+                    help: "Un certificat invalide fait échouer la connexion : il n'y a pas d'option pour l'ignorer.",
+                } only %}
             </div>
 
             <div class="col-12 col-md-6">
@@ -178,12 +183,11 @@
             </div>
 
             <div class="col-12 col-md-6">
-                <label class="form-label" for="mailbox-folders">Dossiers surveillés</label>
-                <textarea class="form-control" id="mailbox-folders" name="folders" rows="3"
-                          placeholder="INBOX"></textarea>
-                <div class="form-text">
-                    Un par ligne, avec leur nom exact sur le serveur. Vide = INBOX.
-                </div>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'mailbox-folders', field_name: 'folders', type: 'textarea',
+                    label: 'Dossiers surveillés', rows: 3, placeholder: 'INBOX',
+                    help: 'Un par ligne, avec leur nom exact sur le serveur. Vide = INBOX.',
+                } only %}
             </div>
 
             <div class="col-12">

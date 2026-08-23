@@ -14,7 +14,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * Core\Module\MenuEntryProvider is the generalisation of what used to be
  * Core\Module\EspaceAnimesEntryProvider — a hook that could only ever reach
- * "Espace animés", and only for an authenticated visitor. These tests pin
+ * "Espace membres", and only for an authenticated visitor. These tests pin
  * both halves of what changed: any menu is now reachable, and an anonymous
  * visitor is a supported case rather than an impossible one.
  *

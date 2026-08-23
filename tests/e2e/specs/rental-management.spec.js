@@ -40,6 +40,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { expectRendersAsACalendar } from '../support/calendar.js';
+import { answerConfirmation } from '../support/confirm-dialog.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
 function isoDaysFromNow(days) {
@@ -221,9 +222,20 @@ test.describe('Rentals — running an asset', () => {
 
         await page.getByRole('button', { name: 'Confirmée' }).click();
 
+        // Confirming now asks first, and the dialog is where the manager
+        // writes the word that travels with the decision — the field
+        // exists nowhere else on the page.
+        const question = await answerConfirmation(page, {
+            note: 'Les clés sont à récupérer chez le trésorier la veille.',
+        });
+        expect(question).toContain('recevra la confirmation par email');
+
         // Confirming goes through the real transition table and the real
-        // availability re-check, both of which can refuse.
-        await expect(page.getByText(/Confirmée/).first()).toBeVisible();
+        // availability re-check, both of which can refuse. The flash is
+        // the proof it actually happened: « Confirmée » on its own also
+        // matches the button that was just pressed.
+        await expect(page.getByText('Réservation confirmée.')).toBeVisible();
+        await expect(page.getByText('Le locataire a été prévenu par email.')).toBeVisible();
 
         // ── The confirmed stay now holds its dates against everybody
         //    else, with no more reason given than the block was. ──────────

@@ -269,6 +269,63 @@ class MassMailServiceTest extends TestCase
         $this->assertSame(3, $counts['total']);
     }
 
+    // ── How many this would reach, asked before it is sent ──────────────
+
+    public function testTheRecipientCountAnswersWhoRatherThanHowManyAddresses(): void
+    {
+        // « Lancer l'envoi ? » on its own is a question about an unknown
+        // quantity, and 42 versus 400 is the difference between one
+        // section and the whole unit.
+        $this->createMemberWithEmail('un@test.be');
+        $this->createMemberWithEmail('deux@test.be');
+        $this->createMemberWithEmail('trois@test.be');
+
+        $email = $this->createDraft();
+
+        $this->assertSame(
+            ['count' => 3, 'kind' => 'members'],
+            $this->service->estimateRecipientCount($email->id)
+        );
+    }
+
+    public function testAMemberWithNoUsableAddressIsStillSomebodyTheListDesignates(): void
+    {
+        // The count answers "who is this going to?". A member the list
+        // resolves to is part of that answer whether or not the send will
+        // later find an address for them — leaving them out would make the
+        // number quietly disagree with the list the manager picked.
+        $this->createMemberWithEmail('valide@test.be');
+        $this->createMemberWithEmail(null);
+
+        $this->assertSame(2, $this->service->estimateRecipientCount($this->createDraft()->id)['count']);
+    }
+
+    public function testAnEmptyListCountsZeroRatherThanFailing(): void
+    {
+        $this->assertSame(
+            ['count' => 0, 'kind' => 'members'],
+            $this->service->estimateRecipientCount($this->createDraft()->id)
+        );
+    }
+
+    public function testTheCountIsReResolvedRatherThanFrozenWithTheEmail(): void
+    {
+        // The list behind an email is live: a count taken when the dialog
+        // was opened is a count from before somebody else edited it.
+        $email = $this->createDraft();
+        $this->assertSame(0, $this->service->estimateRecipientCount($email->id)['count']);
+
+        $this->createMemberWithEmail('tardif@test.be');
+
+        $this->assertSame(1, $this->service->estimateRecipientCount($email->id)['count']);
+    }
+
+    public function testAnUnknownEmailHasNoCount(): void
+    {
+        $this->expectException(MassMailException::class);
+        $this->service->estimateRecipientCount(9999);
+    }
+
     public function testCheckAndMarkSentIfCompleteTransitionsOnceNoPendingRemain(): void
     {
         $memberId = $this->createMemberWithEmail('valid@test.be');
@@ -625,7 +682,7 @@ class MassMailServiceTest extends TestCase
     public function testUpdateDraftRejectsSwitchingToAnOutOfScopeList(): void
     {
         $restrictedAuth = new SenderAuthorization(false, [$this->sectionId], $this->sectionId);
-        // Starts on an allowed list ("Chefs uniquement") ...
+        // Starts on an allowed list ("Animateurs uniquement") ...
         $email = $this->service->createDraft(
             'Sujet', '<p>Corps</p>', $this->sectionId, Email::LIST_TYPE_DEFAULT_CHIEFS, null, null,
             [$this->scoutYearId], null, $restrictedAuth

@@ -12,9 +12,11 @@
   is edited, silently turning a keyword into prose.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 900px;">
-        <h1 class="h3 mb-1">{{ document_type.label }} — {{ booking.reference }}</h1>
-        <p class="text-body-secondary small mb-3">{{ asset.name }}</p>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: document_type.label ~ ' — ' ~ booking.reference,
+            subtitle: asset.name,
+        } only %}
 
         <div class="alert alert-info">
             Ce texte n'appartient qu'à cette réservation. Modifier le gabarit du bien ensuite ne le

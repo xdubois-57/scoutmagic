@@ -240,8 +240,22 @@ class RentalBookingService implements OccupancyProvider
     }
 
     /**
-     * Mints a new tracking token, invalidating the old one. The raw token is
-     * returned once and stored only as a hash.
+     * A booking's tracking token, for putting into an email to the renter
+     * and nowhere else.
+     *
+     * Null when there is none to read. The caller decides what that means:
+     * a decision email skips its link rather than failing the decision —
+     * a booking that got confirmed but whose email carried no link is a
+     * problem; a confirmation that did not happen because of it is worse.
+     */
+    public function trackingTokenFor(int $bookingId): ?string
+    {
+        return $this->bookingRepository->trackingTokenOf($bookingId);
+    }
+
+    /**
+     * Mints a new tracking token, invalidating the old one. The previous
+     * link stops working immediately.
      */
     public function regenerateTrackingToken(int $bookingId): string
     {

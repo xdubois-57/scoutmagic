@@ -15,7 +15,7 @@
       "label": "Galerie",
       "menu_icon": "bi-images",
       "menu_order": 6,
-      "breadcrumb": { "label": "Galerie", "parents": ["Espace animés"] }
+      "breadcrumb": { "label": "Galerie", "parents": ["Espace membres"] }
     },
     {
       "path": "/gallery/manage",
@@ -26,7 +26,7 @@
       "role_min": "chief",
       "label": "Galerie",
       "menu_icon": "bi-image",
-      "breadcrumb": { "label": "Galerie", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Galerie", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/gallery/create",
@@ -36,7 +36,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Nouvel album", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Nouvel album", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/gallery/{id}",
@@ -45,7 +45,8 @@
       "action": "show",
       "menu": "espace_animes",
       "role_min": "identified",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Album", "parents": ["Espace membres"] }
     },
     {
       "path": "/gallery/{id}/download",
@@ -82,7 +83,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Nouvel album", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Nouvel album", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/gallery/{id}/edit",
@@ -92,7 +93,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Modifier l'album", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Modifier l'album", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/gallery/{id}",
@@ -102,7 +103,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Modifier l'album", "parents": ["Espace chefs"] }
+      "breadcrumb": { "label": "Modifier l'album", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/gallery/{id}/delete",
@@ -203,7 +204,8 @@
       "action": "create",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Nouvel emplacement", "parents": ["Configuration"] }
     },
     {
       "path": "/config/gallery/locations",
@@ -221,7 +223,8 @@
       "action": "edit",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Modifier l'emplacement", "parents": ["Configuration"] }
     },
     {
       "path": "/config/gallery/locations/{id}",

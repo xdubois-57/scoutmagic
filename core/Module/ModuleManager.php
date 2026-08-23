@@ -11,6 +11,7 @@ namespace Core\Module;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
 use Core\Database\MigrationRunner;
+use Core\Exception\UserFacingMessage;
 use Core\Http\Router;
 use Core\Journal\JournalService;
 use Core\Notification\NotificationService;
@@ -56,6 +57,29 @@ class ModuleManager
         // destination or a reference host is.
         private InstallationProfile $installationProfile = new InstallationProfile()
     ) {
+    }
+
+    /**
+     * The manifest-rejection reasons already written to the PHP error log
+     * this process, so a broken module.json produces one line rather than
+     * one per discoverModules() call. Static because discoverModules() is
+     * called several times per request through different ModuleManager
+     * consumers (ConfigModulesController, the support package collector,
+     * the statistics payload builder).
+     *
+     * @var array<string, true>
+     */
+    private static array $loggedManifestRejections = [];
+
+    private static function logRejectedManifestOnce(string $dir, string $reason): void
+    {
+        $key = $dir . '|' . $reason;
+        if (isset(self::$loggedManifestRejections[$key])) {
+            return;
+        }
+        self::$loggedManifestRejections[$key] = true;
+
+        error_log('ScoutMagic module manifest rejected (' . $dir . '): ' . $reason);
     }
 
     /**
@@ -106,7 +130,21 @@ class ModuleManager
                             throw new ModuleException("Module id '{$manifest->id}' does not match directory name '{$dir}'");
                         }
                     } catch (ModuleException $e) {
-                        $validationError = $e->getMessage();
+                        // Rendered as a title="" tooltip on the module
+                        // registry page, which any chef d'unité can open —
+                        // so it must not be ModuleManifest's own developer
+                        // text ("Module manifest not found: /var/www/…").
+                        // The detail goes to the PHP error log rather than
+                        // the journal on purpose: discoverModules() runs on
+                        // EVERY request (loadEnabledModules()), and a
+                        // journal write here would insert a row per request
+                        // for as long as the broken module sits on disk.
+                        self::logRejectedManifestOnce($dir, $e->getMessage());
+                        $validationError = UserFacingMessage::from(
+                            $e,
+                            'Ce module est invalide et ne peut pas être activé — son fichier module.json est '
+                            . 'absent, illisible ou incomplet. Réinstallez le module.'
+                        );
                         // Create a dummy manifest for display
                         $manifest = new ModuleManifest($dir, $dir, '0.0.0', [], [], [], [], []);
                     }
@@ -355,7 +393,7 @@ class ModuleManager
         $unmet = $this->unmetRequirementNames($manifest, $this->discoverModules());
         if ($unmet !== []) {
             $quoted = implode(', ', array_map(fn(string $name) => "« {$name} »", $unmet));
-            throw new ModuleException(count($unmet) > 1
+            throw new ModuleRefusalException(count($unmet) > 1
                 ? "Le module « {$manifest->name} » nécessite les modules {$quoted}. Activez-les d'abord."
                 : "Le module « {$manifest->name} » nécessite le module {$quoted}. Activez-le d'abord.");
         }
@@ -368,7 +406,7 @@ class ModuleManager
         if (file_exists($schemaPath)) {
             $migrationResult = $this->migrationRunner->migrate([$schemaPath]);
             if (!$migrationResult->complete) {
-                throw new ModuleException("La migration du schéma du module '{$moduleId}' n'a pas pu se terminer dans le temps imparti — réessayez l'activation dans un instant, elle reprendra automatiquement là où elle s'est arrêtée.");
+                throw new ModuleRefusalException("La migration du schéma du module '{$moduleId}' n'a pas pu se terminer dans le temps imparti — réessayez l'activation dans un instant, elle reprendra automatiquement là où elle s'est arrêtée.");
             }
         }
 
@@ -412,7 +450,7 @@ class ModuleManager
         $dependents = $this->findEnabledDependents($moduleId, $this->discoverModules());
         if ($dependents !== []) {
             $quoted = implode(', ', array_map(fn(ModuleInfo $m) => "« {$m->manifest->name} »", $dependents));
-            throw new ModuleException(count($dependents) > 1
+            throw new ModuleRefusalException(count($dependents) > 1
                 ? "Ce module est requis par les modules {$quoted}. Désactivez-les d'abord."
                 : "Ce module est requis par le module {$quoted}. Désactivez-le d'abord.");
         }

@@ -1,12 +1,12 @@
 {% extends 'base.html.twig' %}
 {% block title %}Passage — {{ site_name }}{% endblock %}
 {% block content %}
-    <div class="container py-4" style="max-width: 1100px;">
-        <h1 class="h3 mb-1">Passage</h1>
-        <p class="text-body-secondary small mb-4">
-            Répartit les arrivants de l'année {{ target_year_label }} entre les sections — toujours calculé sur
-            l'année {{ target_year_label }} (l'année publique + 1), quelle que soit l'année actuellement prévisualisée.
-        </p>
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Passage',
+            subtitle: "Répartit les arrivants de l'année " ~ target_year_label ~ " entre les sections — toujours calculé sur
+                l'année " ~ target_year_label ~ " (l'année publique + 1), quelle que soit l'année actuellement prévisualisée.",
+        } only %}
 
         <div class="card mb-4">
             <div class="card-body">
@@ -58,7 +58,11 @@
                                     </td>
                                 </tr>
                             {% else %}
-                                <tr><td colspan="6" class="text-body-secondary text-center py-3">Aucune inscription acceptée en attente d'affectation pour cette année.</td></tr>
+                                {% include 'partials/empty_state.html.twig' with {
+                                    message: "Aucune inscription acceptée en attente d'affectation pour cette année.",
+                                    compact: true,
+                                    colspan: 6,
+                                } only %}
                             {% endfor %}
                         </tbody>
                     </table>
@@ -72,7 +76,10 @@
                 <p class="small text-body-secondary">Seuls les animés au dernier rang de leur branche apparaissent ici (hors marqués partants, hors fin de parcours). « Même adresse » ne signifie pas « fratrie » : colocation, deux familles au même numéro, garde alternée sont possibles.</p>
 
                 {% if branch_changes is empty %}
-                    <p class="text-body-secondary fst-italic mb-0">Aucun changement de branche pour cette année.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun changement de branche pour cette année.',
+                        compact: true,
+                    } only %}
                 {% endif %}
 
                 {% for key, group in branch_changes %}

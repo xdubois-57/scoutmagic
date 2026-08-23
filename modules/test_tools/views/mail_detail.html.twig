@@ -2,17 +2,12 @@
 {% block title %}{{ email.subject }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-    <div>
-        <h1 class="h4 mb-1">{{ email.subject }}</h1>
-        <p class="small text-body-secondary mb-0">
-            Capturé le {{ email.capturedAt|date('d/m/Y à H:i') }}
-        </p>
-    </div>
-    <a href="/test-tools/mail-sandbox" class="btn btn-outline-secondary" style="min-height:44px;">
-        <i class="bi bi-arrow-left"></i> Retour au bac à sable
-    </a>
-</div>
+{# The way back to the sandbox list lives in the breadcrumb trail
+   (design.md §7.3) — no « Retour » button here. #}
+{% include 'partials/page_header.html.twig' with {
+    title: email.subject,
+    subtitle: 'Capturé le ' ~ email.capturedAt|datetime_fr,
+} only %}
 
 <dl class="row small mb-3">
     <dt class="col-4 col-lg-2">Destinataire</dt>
@@ -47,37 +42,34 @@
 {% endif %}
 
 {% if email.mimeFileId %}
-    <a href="{{ file_url(email.mimeFileId) }}" class="btn btn-outline-primary mb-3"
-       style="min-height:44px;">
-        <i class="bi bi-download"></i> Télécharger le .eml
+    <a href="{{ file_url(email.mimeFileId) }}" class="btn btn-outline-primary mb-3">
+        <i class="bi bi-download" aria-hidden="true"></i> Télécharger le .eml
     </a>
 {% endif %}
 
+{# Tabs within the page (tabbed content, not navigation between URLs) —
+   they stay nav-tabs. .tap-target: a .nav-link is neither a .btn nor a
+   form control, so the coarse-pointer sheet does not size it. #}
 <ul class="nav nav-tabs" role="tablist">
     <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="tab-html" data-bs-toggle="tab" data-bs-target="#pane-html"
-                type="button" role="tab" aria-controls="pane-html" aria-selected="true"
-                style="min-height:44px;">Aperçu HTML</button>
+        <button class="nav-link tap-target active" id="tab-html" data-bs-toggle="tab" data-bs-target="#pane-html"
+                type="button" role="tab" aria-controls="pane-html" aria-selected="true">Aperçu HTML</button>
     </li>
     <li class="nav-item" role="presentation">
-        <button class="nav-link" id="tab-text" data-bs-toggle="tab" data-bs-target="#pane-text"
-                type="button" role="tab" aria-controls="pane-text" aria-selected="false"
-                style="min-height:44px;">Texte brut</button>
+        <button class="nav-link tap-target" id="tab-text" data-bs-toggle="tab" data-bs-target="#pane-text"
+                type="button" role="tab" aria-controls="pane-text" aria-selected="false">Texte brut</button>
     </li>
     <li class="nav-item" role="presentation">
-        <button class="nav-link" id="tab-headers" data-bs-toggle="tab" data-bs-target="#pane-headers"
-                type="button" role="tab" aria-controls="pane-headers" aria-selected="false"
-                style="min-height:44px;">En-têtes</button>
+        <button class="nav-link tap-target" id="tab-headers" data-bs-toggle="tab" data-bs-target="#pane-headers"
+                type="button" role="tab" aria-controls="pane-headers" aria-selected="false">En-têtes</button>
     </li>
     <li class="nav-item" role="presentation">
-        <button class="nav-link" id="tab-source" data-bs-toggle="tab" data-bs-target="#pane-source"
-                type="button" role="tab" aria-controls="pane-source" aria-selected="false"
-                style="min-height:44px;">Source MIME</button>
+        <button class="nav-link tap-target" id="tab-source" data-bs-toggle="tab" data-bs-target="#pane-source"
+                type="button" role="tab" aria-controls="pane-source" aria-selected="false">Source MIME</button>
     </li>
     <li class="nav-item" role="presentation">
-        <button class="nav-link" id="tab-attachments" data-bs-toggle="tab" data-bs-target="#pane-attachments"
-                type="button" role="tab" aria-controls="pane-attachments" aria-selected="false"
-                style="min-height:44px;">Pièces jointes ({{ email.attachmentCount }})</button>
+        <button class="nav-link tap-target" id="tab-attachments" data-bs-toggle="tab" data-bs-target="#pane-attachments"
+                type="button" role="tab" aria-controls="pane-attachments" aria-selected="false">Pièces jointes ({{ email.attachmentCount }})</button>
     </li>
 </ul>
 
@@ -100,7 +92,7 @@
                     class="w-100 border rounded"
                     style="height:60vh;"></iframe>
         {% else %}
-            <p class="text-body-secondary mb-0">Ce message ne comporte pas de partie HTML.</p>
+            {% include 'partials/empty_state.html.twig' with { message: 'Ce message ne comporte pas de partie HTML.', compact: true } only %}
         {% endif %}
     </div>
 
@@ -108,7 +100,7 @@
         {% if text_body %}
             <pre class="mb-0 small overflow-x-auto" style="white-space:pre-wrap;">{{ text_body }}</pre>
         {% else %}
-            <p class="text-body-secondary mb-0">Ce message ne comporte pas de partie texte.</p>
+            {% include 'partials/empty_state.html.twig' with { message: 'Ce message ne comporte pas de partie texte.', compact: true } only %}
         {% endif %}
     </div>
 
@@ -118,7 +110,7 @@
                 <pre class="mb-0 small">{{ headers }}</pre>
             </div>
         {% else %}
-            <p class="text-body-secondary mb-0">Les en-têtes ne sont plus disponibles pour ce message.</p>
+            {% include 'partials/empty_state.html.twig' with { message: 'Les en-têtes ne sont plus disponibles pour ce message.', compact: true } only %}
         {% endif %}
     </div>
 
@@ -128,13 +120,13 @@
                 <pre class="mb-0 small">{{ raw_message }}</pre>
             </div>
         {% else %}
-            <p class="text-body-secondary mb-0">Le message brut n'est plus disponible.</p>
+            {% include 'partials/empty_state.html.twig' with { message: "Le message brut n'est plus disponible.", compact: true } only %}
         {% endif %}
     </div>
 
     <div class="tab-pane fade" id="pane-attachments" role="tabpanel" aria-labelledby="tab-attachments">
         {% if email.attachments is empty %}
-            <p class="text-body-secondary mb-0">Ce message ne porte aucune pièce jointe.</p>
+            {% include 'partials/empty_state.html.twig' with { message: 'Ce message ne porte aucune pièce jointe.', compact: true } only %}
         {% else %}
             <ul class="list-group list-group-flush">
                 {% for attachment in email.attachments %}
@@ -146,9 +138,8 @@
                             </span>
                         </span>
                         {% if attachment.file_id %}
-                            <a href="{{ file_url(attachment.file_id) }}" class="btn btn-sm btn-outline-secondary"
-                               style="min-height:44px;">
-                                <i class="bi bi-download"></i> Télécharger
+                            <a href="{{ file_url(attachment.file_id) }}" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-download" aria-hidden="true"></i> Télécharger
                             </a>
                         {% else %}
                             <span class="badge text-bg-warning">Contenu non conservé</span>

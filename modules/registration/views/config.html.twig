@@ -1,10 +1,10 @@
 {% extends 'base.html.twig' %}
 {% block title %}Inscriptions — {{ site_name }}{% endblock %}
 {% block content %}
-    <div class="container py-4" style="max-width: 1100px;">
-        <h1 class="h3 mb-1">Gestion des inscriptions</h1>
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with { title: 'Gestion des inscriptions' } only %}
         <p class="text-body-secondary small mb-4">
-            Les autres réglages (seuils d'affichage des places, adresse d'alerte...) se trouvent sur la page <a href="/config/settings">Paramètres</a>.
+            Les autres réglages (seuils d'affichage des places, adresse d'alerte...) se trouvent sur la page <a href="/config/settings">Réglages</a>.
         </p>
 
         <div class="card mb-4">
@@ -13,9 +13,9 @@
                 <p class="mb-3">
                     État actuel :
                     {% if registration_form_open %}
-                        <span class="badge bg-success">Ouvert</span>
+                        {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Ouvert' } only %}
                     {% else %}
-                        <span class="badge bg-secondary">Fermé</span>
+                        {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'Fermé' } only %}
                     {% endif %}
                 </p>
                 <form method="post" action="/config/inscriptions/toggle-open" class="mb-4">
@@ -31,7 +31,7 @@
                 <p class="text-body-secondary small mb-3">
                     Jour et mois (format MM-JJ, sans année) — le formulaire s'ouvre et se ferme automatiquement à ces dates chaque année scoute, sans devoir reconfigurer. Laisser un champ vide pour piloter cette bascule uniquement à la main.
                     Si la tâche planifiée n'a pas tourné le jour même, la bascule peut encore se déclencher dans les jours qui suivent :
-                    cette fenêtre de rattrapage se règle dans <a href="/config/settings">Configuration &gt; Paramètres</a>.
+                    cette fenêtre de rattrapage se règle dans <a href="/config/settings">Configuration &gt; Réglages</a>.
                 </p>
                 <form method="post" action="/config/inscriptions/schedule" class="row g-2 align-items-end">
                     {{ csrf_field()|raw }}
@@ -64,7 +64,10 @@
                     content_value: notice_content
                 } %}
                 {% if notice_content is empty %}
-                    <p class="text-body-secondary small fst-italic mb-0">Aucune note — cliquez sur le crayon pour en ajouter une (visible uniquement du staff).</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune note — cliquez sur le crayon pour en ajouter une (visible uniquement du staff).',
+                        compact: true,
+                    } only %}
                 {% endif %}
             </div>
         </div>
@@ -73,11 +76,11 @@
             <div class="card-body">
                 <h2 class="h6 mb-3">États d'une demande</h2>
                 <div class="row g-2 small">
-                    <div class="col-12 col-sm-6 col-lg-4"><span class="badge bg-info text-dark">En attente</span> reçue, pas encore examinée.</div>
-                    <div class="col-12 col-sm-6 col-lg-4"><span class="badge bg-primary">Acceptée</span> décidée, en attente de son email et/ou de rapprochement Desk.</div>
-                    <div class="col-12 col-sm-6 col-lg-4"><span class="badge bg-success">Encodée dans Desk</span> rapprochée d'un membre — la fiche membre fait foi désormais.</div>
-                    <div class="col-12 col-sm-6 col-lg-4"><span class="badge bg-danger">Refusée</span> décidée, en attente de son email.</div>
-                    <div class="col-12 col-sm-6 col-lg-4"><span class="badge bg-secondary">Retirée</span> abandonnée (par la famille ou le staff).</div>
+                    <div class="col-12 col-sm-6 col-lg-4">{% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %} reçue, pas encore examinée.</div>
+                    <div class="col-12 col-sm-6 col-lg-4">{% include 'partials/status_badge.html.twig' with { status: 'confirmed', label: 'Acceptée' } only %} décidée, en attente de son email et/ou de rapprochement Desk.</div>
+                    <div class="col-12 col-sm-6 col-lg-4">{% include 'partials/status_badge.html.twig' with { status: 'encoded', label: 'Encodée dans Desk' } only %} rapprochée d'un membre — la fiche membre fait foi désormais.</div>
+                    <div class="col-12 col-sm-6 col-lg-4">{% include 'partials/status_badge.html.twig' with { status: 'refused', label: 'Refusée' } only %} décidée, en attente de son email.</div>
+                    <div class="col-12 col-sm-6 col-lg-4">{% include 'partials/status_badge.html.twig' with { status: 'cancelled', label: 'Retirée' } only %} abandonnée (par la famille ou le staff).</div>
                 </div>
                 <p class="text-body-secondary small mt-3 mb-0">
                     Important : la page de suivi de la famille n'affiche jamais une acceptation ou un refus tant que l'email correspondant n'a pas réellement été envoyé — voir la colonne « Email » ci-dessous.
@@ -112,7 +115,7 @@
                                     {% for yearInBranch in 1..max_years_in_branch %}
                                         <td style="max-width:100px;">
                                             {% if yearInBranch <= bracket.durationYears %}
-                                                <input type="number" min="0" class="form-control form-control-sm" name="capacity[{{ bracket.ageBranchId }}][{{ yearInBranch }}]" value="{{ capacities[bracket.ageBranchId][yearInBranch] ?? '' }}" aria-label="Capacité {{ bracket.branchLabel }} — {{ yearInBranch }}e année">
+                                                <input type="number" inputmode="numeric" min="0" class="form-control form-control-sm" name="capacity[{{ bracket.ageBranchId }}][{{ yearInBranch }}]" value="{{ capacities[bracket.ageBranchId][yearInBranch] ?? '' }}" aria-label="Capacité {{ bracket.branchLabel }} — {{ yearInBranch }}e année">
                                             {% endif %}
                                         </td>
                                     {% endfor %}
@@ -133,7 +136,10 @@
                 {% elseif year_code %}
                     <p class="text-body-secondary">Dernier code (désactivé) : <span class="font-monospace">{{ year_code.code }}</span></p>
                 {% else %}
-                    <p class="text-body-secondary">Aucun code généré pour cette année.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun code généré pour cette année.',
+                        compact: true,
+                    } only %}
                 {% endif %}
                 <div class="d-flex gap-2">
                     <form method="post" action="/config/inscriptions/code/regenerate">
@@ -152,7 +158,7 @@
 
         <div class="card mb-4">
             <div class="card-body">
-                <h2 class="h5 mb-3">Demandes — année {{ selected_year.label }}{% if is_past_year %} <span class="badge bg-secondary">Consultation seule</span>{% endif %}</h2>
+                <h2 class="h5 mb-3">Demandes — année {{ selected_year.label }}{% if is_past_year %} <span class="badge text-bg-secondary">Consultation seule</span>{% endif %}</h2>
 
                 <form method="get" action="/config/inscriptions" class="row g-2 align-items-end mb-4">
                     <div class="col-12 col-sm-4 col-md-3">
@@ -210,15 +216,15 @@
                                     <td>{{ row.sibling_count > 0 ? row.sibling_count : '—' }}</td>
                                     <td>
                                         {% if r.status == 'pending' %}
-                                            <span class="badge bg-info text-dark">En attente</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %}
                                         {% elseif r.status == 'accepted' %}
-                                            <span class="badge bg-primary">Acceptée</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'confirmed', label: 'Acceptée' } only %}
                                         {% elseif r.status == 'refused' %}
-                                            <span class="badge bg-danger">Refusée</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'refused', label: 'Refusée' } only %}
                                         {% elseif r.status == 'withdrawn' %}
-                                            <span class="badge bg-secondary">Retirée</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'cancelled', label: 'Retirée' } only %}
                                         {% elseif r.status == 'encoded' %}
-                                            <span class="badge bg-success">Encodée</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'encoded', label: 'Encodée' } only %}
                                         {% endif %}
                                     </td>
                                     <td>
@@ -233,7 +239,11 @@
                                     <td><a href="/config/inscriptions/demandes/{{ r.id }}" class="btn btn-sm btn-outline-secondary">Ouvrir</a></td>
                                 </tr>
                             {% else %}
-                                <tr><td colspan="8" class="text-body-secondary text-center py-3">Aucune demande pour ces critères.</td></tr>
+                                {% include 'partials/empty_state.html.twig' with {
+                                    message: 'Aucune demande pour ces critères.',
+                                    compact: true,
+                                    colspan: 8,
+                                } only %}
                             {% endfor %}
                         </tbody>
                     </table>
@@ -283,11 +293,11 @@
                                         <td>{{ row.remaining }}</td>
                                         <td>
                                             {% if row.tier == 'available' %}
-                                                <span class="badge bg-success">Disponible</span>
+                                                <span class="badge text-bg-success">Disponible</span>
                                             {% elseif row.tier == 'limited' %}
-                                                <span class="badge bg-warning text-dark">Attente limitée</span>
+                                                <span class="badge text-bg-warning">Attente limitée</span>
                                             {% else %}
-                                                <span class="badge bg-danger">Attente importante</span>
+                                                <span class="badge text-bg-danger">Attente importante</span>
                                             {% endif %}
                                         </td>
                                     {% endif %}
@@ -303,7 +313,10 @@
             <div class="card-body">
                 <h2 class="h5 mb-3">Demandes acceptées non rapprochées</h2>
                 {% if unreconciled is empty %}
-                    <p class="text-body-secondary small mb-0">Aucune — toutes les demandes acceptées sont soit encodées dans Desk, soit en attente du prochain import.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune — toutes les demandes acceptées sont soit encodées dans Desk, soit en attente du prochain import.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <p class="small text-body-secondary">Aucun membre importé de Desk ne correspond encore à ces demandes (ou plusieurs correspondances possibles). Un rapprochement manuel est possible depuis la fiche de chaque demande.</p>
                     <ul class="list-group list-group-flush">

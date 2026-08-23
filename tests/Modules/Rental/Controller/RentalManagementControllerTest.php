@@ -88,6 +88,9 @@ class RentalManagementControllerTest extends TestCase
     private \Core\File\FileRepository $fileRepository;
     private \Modules\Rental\Service\RentalDocumentService $documentService;
     private \Modules\Rental\Service\RentalStayService $stayService;
+    /** Every decision email the controller asked for, in order. */
+    /** @var list<array{decision: string, token: ?string, word: ?string, booking_id: int}> */
+    private array $renterEmails = [];
 
     protected function setUp(): void
     {
@@ -197,7 +200,7 @@ class RentalManagementControllerTest extends TestCase
             new DayStateGridBuilder(),
             null,
             $this->documentService,
-            $this->createMock(\Modules\Rental\Service\RentalBookingMailService::class),
+            $this->recordingMailService(),
             new \Core\File\UploadHandler($this->fileRepository, $this->storagePath),
             $this->stayService
         );
@@ -210,6 +213,40 @@ class RentalManagementControllerTest extends TestCase
         }
         $_SESSION = [];
         $_POST = [];
+        $this->renterEmails = [];
+    }
+
+    /**
+     * A mail service that records the decisions it was asked to send.
+     *
+     * Recording rather than an expectation: what matters is not that
+     * sendDecision() was called some number of times, but which decision
+     * reached it, with which manager's word, and — for the ones a renter
+     * can still act on — with a token at all.
+     */
+    private function recordingMailService(): \Modules\Rental\Service\RentalBookingMailService
+    {
+        $mock = $this->createMock(\Modules\Rental\Service\RentalBookingMailService::class);
+        $mock->method('sendDecision')->willReturnCallback(
+            function (
+                \Modules\Rental\Booking\RentalBooking $booking,
+                \Modules\Rental\Repository\RentalAsset $asset,
+                \Modules\Rental\Booking\RenterDecision $decision,
+                ?string $trackingToken,
+                ?string $managerWord = null
+            ): bool {
+                $this->renterEmails[] = [
+                    'decision' => $decision->value,
+                    'token' => $trackingToken,
+                    'word' => $managerWord,
+                    'booking_id' => $booking->id,
+                ];
+
+                return true;
+            }
+        );
+
+        return $mock;
     }
 
     protected function tearDown(): void
@@ -453,7 +490,11 @@ class RentalManagementControllerTest extends TestCase
             'status' => 'reviewing',
         ]);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
     }
 
@@ -541,6 +582,153 @@ class RentalManagementControllerTest extends TestCase
         ]);
 
         $this->assertSame(BookingStatus::CANCELLED, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
+    // ── The renter is told (§6.15, §6.16) ───────────────────────────────
+
+    public function testAConfirmationTellsTheRenterAndCarriesTheirLink(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'confirmed',
+        ]);
+
+        $this->assertCount(1, $this->renterEmails);
+        $this->assertSame('confirmed', $this->renterEmails[0]['decision']);
+        $this->assertSame($booking->id, $this->renterEmails[0]['booking_id']);
+        // The link the renter has no other way of getting to.
+        $this->assertNotNull($this->renterEmails[0]['token']);
+        $this->assertStringContainsString(
+            'prévenu par email',
+            (string) (\Core\Http\FlashMessage::get()['message'] ?? '')
+        );
+    }
+
+    public function testARefusalTellsTheRenterAndCarriesNoLink(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'refused',
+        ]);
+
+        $this->assertCount(1, $this->renterEmails);
+        $this->assertSame('refused', $this->renterEmails[0]['decision']);
+        // The booking is over; re-issuing a capability inside a message
+        // nobody can act on is how a link ends up forwarded.
+        $this->assertNull($this->renterEmails[0]['token']);
+    }
+
+    public function testTheManagersOwnWordTravelsWithTheDecision(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'refused',
+            'message' => 'Le local est déjà pris ce week-end-là.',
+        ]);
+
+        $this->assertSame('Le local est déjà pris ce week-end-là.', $this->renterEmails[0]['word']);
+    }
+
+    public function testBookkeepingWritesToNobody(): void
+    {
+        // A manager opening a request moves it to « en cours d'examen ».
+        // That is not news, and an email saying so would train the renter
+        // to ignore the ones that are.
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'reviewing',
+        ]);
+
+        $this->assertSame([], $this->renterEmails);
+    }
+
+    public function testARefusedTransitionSendsNothingAtAll(): void
+    {
+        // The email must follow the decision, never precede it: a
+        // transition the state machine rejects has decided nothing.
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'cancelled',
+        ]);
+        $this->renterEmails = [];
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'confirmed',
+        ]);
+
+        $this->assertSame([], $this->renterEmails);
+    }
+
+    public function testAProposalIsActuallySentRatherThanMerelyClaimed(): void
+    {
+        // The flash used to read « Proposition envoyée » while nothing had
+        // left the building.
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/proposition', 'propose', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'kind' => 'dates',
+            'arrival' => '2027-08-20',
+            'departure' => '2027-08-23',
+            'message' => 'Ces dates-là nous arrangeraient mieux.',
+        ]);
+
+        $this->assertCount(1, $this->renterEmails);
+        $this->assertSame('proposed', $this->renterEmails[0]['decision']);
+        $this->assertSame('Ces dates-là nous arrangeraient mieux.', $this->renterEmails[0]['word']);
+        $this->assertNotNull($this->renterEmails[0]['token']);
+    }
+
+    public function testDecidingARentersChangeRequestTellsThemWhichWay(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $requestId = $this->operationsService->requestChange(
+            $booking,
+            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
+            \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            30,
+            null,
+            'Nous serons plus nombreux.'
+        );
+
+        $this->post('/mes-locations/demande', 'decideChange', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'request_id' => (string) $requestId,
+            'decision' => 'refuse',
+            'message' => 'Le local ne peut pas accueillir trente personnes.',
+        ]);
+
+        $this->assertCount(1, $this->renterEmails);
+        $this->assertSame('change_refused', $this->renterEmails[0]['decision']);
+        $this->assertSame('Le local ne peut pas accueillir trente personnes.', $this->renterEmails[0]['word']);
     }
 
     public function testAnUnknownStatusIsRefused(): void
@@ -1204,7 +1392,7 @@ class RentalManagementControllerTest extends TestCase
         ]);
 
         $flash = \Core\Http\FlashMessage::get();
-        $this->assertSame('danger', $flash['type'] ?? null);
+        $this->assertSame('error', $flash['type'] ?? null);
         $this->assertStringContainsString('déjà validé', $flash['message'] ?? '');
     }
 

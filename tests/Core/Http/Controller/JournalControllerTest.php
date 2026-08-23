@@ -58,7 +58,9 @@ class JournalControllerTest extends TestCase
         $response = $this->controller->index($request, []);
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString("Journal d'événements", $response->getBody());
+        // The page title matches the route's own label (« Journal », same as
+        // the <title> and menu entry) since the page_header migration.
+        $this->assertStringContainsString('<h1 class="h3 mb-0">Journal</h1>', $response->getBody());
         $this->assertStringContainsString('0 entrée', $response->getBody());
     }
 

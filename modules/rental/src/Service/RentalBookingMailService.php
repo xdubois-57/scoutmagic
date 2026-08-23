@@ -12,6 +12,7 @@ use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Repository\RentalAsset;
 use Twig\Environment;
 
@@ -45,10 +46,10 @@ class RentalBookingMailService
     /**
      * The renter's acknowledgement, carrying their tracking link.
      *
-     * The raw token exists only for this call — it is stored hashed — so if
-     * this email is not sent, the renter has no way to their booking at all.
-     * That is exactly why it cannot be switched off, and why a delivery
-     * failure is journaled loudly rather than swallowed.
+     * If this email is not sent, the renter has nothing: no account, no
+     * notification centre, and no link. That is exactly why it cannot be
+     * switched off, and why a delivery failure is journaled loudly rather
+     * than swallowed.
      *
      * @return string The Message-ID, for threading later replies.
      */
@@ -80,8 +81,9 @@ class RentalBookingMailService
         );
 
         // The URL contains the token, so it is NEVER journaled — a journal
-        // entry carrying it would be a plaintext copy of a credential we
-        // deliberately store only as a hash (§13 of the conventions).
+        // entry carrying one is a permanent, readable copy of a credential
+        // (§13 of the conventions), and journals are read by more people
+        // and kept for longer than the row it came from.
         $this->journal->log(
             'rental',
             'rental_acknowledgement_sent',
@@ -91,6 +93,92 @@ class RentalBookingMailService
         );
 
         return $messageId;
+    }
+
+    /**
+     * Tells the renter what a manager decided (§6.15, §6.16).
+     *
+     * None of these were sent. A booking was confirmed, refused, answered
+     * with a proposal or with a question, and the renter — who has no
+     * account, no notification centre and no reason to reload a page they
+     * saw once — was told nothing at all. `propose()` set a flash reading
+     * « Proposition envoyée » next to an outbox that had stayed empty.
+     *
+     * Automatic rather than a checkbox. A decision that reaches nobody is
+     * not a decision, and an opt-in would make "did the renter get told?"
+     * a question with two answers instead of one. What the manager DOES
+     * choose is `$managerWord`: the sentence that turns « nous ne pouvons
+     * pas donner suite » into « le gîte est déjà pris ce week-end-là ». It
+     * is optional, and its absence changes nothing structural — the email
+     * still says what happened.
+     *
+     * Returns whether it went out. A failed email must not undo a decision
+     * that is already recorded: the manager sees a warning and can resend,
+     * which is far better than a confirmation that rolls itself back
+     * because an SMTP server was briefly down.
+     *
+     * @param string|null $trackingToken null skips the link rather than
+     *        failing the email — see RentalBookingService::trackingTokenFor().
+     */
+    public function sendDecision(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        RenterDecision $decision,
+        ?string $trackingToken,
+        ?string $managerWord = null
+    ): bool {
+        $word = $managerWord !== null ? trim($managerWord) : '';
+
+        $context = [
+            'booking' => $booking,
+            'asset' => $asset,
+            'announcement' => $decision->announcement(),
+            'call_to_action' => $decision->callToAction(),
+            'manager_word' => $word !== '' ? $word : null,
+            'tracking_url' => $decision->carriesTheTrackingLink() && $trackingToken !== null && $trackingToken !== ''
+                ? $this->trackingUrl($booking, $trackingToken)
+                : null,
+            'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
+        ];
+
+        try {
+            $this->mailService->send(
+                $booking->renterEmail,
+                $this->subjectFor($booking, $decision->subject()),
+                $this->twig->render('@rental/email/decision.html.twig', $context),
+                $this->twig->render('@rental/email/decision.text.twig', $context),
+                null,
+                [],
+                null,
+                null,
+                ['Message-ID' => $this->newMessageId()]
+            );
+        } catch (\Throwable) {
+            // Not journaled with the address, which would put personal data
+            // in the journal (SECURITY.md §5), and not re-thrown: see above.
+            $this->journal->log(
+                'rental',
+                'rental_decision_email_failed',
+                'warning',
+                "L'email de décision n'a pas pu partir pour " . $booking->reference,
+                ['booking_id' => $booking->id, 'decision' => $decision->value]
+            );
+
+            return false;
+        }
+
+        // The decision and the reference. Never the manager's word, which
+        // is a message between two people, and never the URL, which
+        // contains the token.
+        $this->journal->log(
+            'rental',
+            'rental_decision_email_sent',
+            'info',
+            'Décision communiquée au locataire pour ' . $booking->reference,
+            ['booking_id' => $booking->id, 'decision' => $decision->value]
+        );
+
+        return true;
     }
 
     /**

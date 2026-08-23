@@ -26,7 +26,15 @@ class ConnectionTest extends TestCase
         $this->assertSame('test_db', $dbNameProp->getValue($connection));
     }
 
-    public function testTestConnectionReturnsErrorStringWithInvalidCredentials(): void
+    /**
+     * The contract changed with the exception-message audit: this used to
+     * return the PDOException's own message, and Core\Http\Controller\
+     * SetupController displayed it in two JSON responses and a flash — so
+     * the DSN, the driver's English and the account name it tried all
+     * reached the setup page. It now returns a short FRENCH sentence, and
+     * the raw driver text goes to the PHP error log.
+     */
+    public function testTestConnectionReturnsAFrenchReasonAndNeverTheDriverMessage(): void
     {
         $connection = new Connection('invalid.invalid.host', 9999, 'nonexistent', 'nobody', 'wrong');
 
@@ -34,6 +42,15 @@ class ConnectionTest extends TestCase
 
         $this->assertIsString($result);
         $this->assertNotEmpty($result);
+        // Nothing a MySQL driver says about the attempt may appear.
+        $this->assertStringNotContainsString('SQLSTATE', $result);
+        $this->assertStringNotContainsString('mysql:', $result);
+        $this->assertStringNotContainsString('invalid.invalid.host', $result);
+        $this->assertStringNotContainsString('nonexistent', $result);
+        $this->assertStringNotContainsString('nobody', $result);
+        // …and it is a sentence, in French, that names what to check.
+        $this->assertStringEndsWith('.', $result);
+        $this->assertMatchesRegularExpression('/vérifiez|refusé|n\'existe pas/u', $result);
     }
 
     /**

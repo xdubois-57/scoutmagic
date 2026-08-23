@@ -10,7 +10,7 @@
 
 {% if next_cursor %}
     <div class="text-center my-3 groups-load-more-wrapper">
-        <button type="button" class="btn btn-outline-secondary groups-load-more" style="min-height:44px;"
+        <button type="button" class="btn btn-outline-secondary groups-load-more"
                 data-url="/groups/{{ group.id }}/feed?cursor={{ next_cursor|url_encode }}">
             Charger plus
         </button>

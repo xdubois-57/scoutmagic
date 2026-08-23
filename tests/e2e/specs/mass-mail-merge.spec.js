@@ -46,6 +46,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
+import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { readMailbox, waitForMail } from '../support/maildrop.js';
 import { runScheduler } from '../support/scheduler.js';
@@ -78,8 +79,11 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
             serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
         }
     });
-    // "Lancer l'envoi" stands behind a window.confirm.
-    page.on('dialog', (dialog) => dialog.accept());
+    // "Lancer l'envoi" asks first — through the site's own modal now
+    // (public/assets/js/mass-mail-list.js → window.ScoutMagicConfirm),
+    // which no Playwright dialog handler can see. Installed before the
+    // first navigation because the observer is an init script.
+    await autoConfirm(page);
 
     await loginAsAdmin(page);
     await answerCookieBanner(page);
@@ -169,6 +173,10 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
     // Reopening rebuilds the dialog from the server: the stored audience
     // must come back (GET /mass-mail/audiences/{id}), not just the draft.
     // ---------------------------------------------------------------
+    // Saving reloaded the page, and mass-mail-list.js is deferred: the row
+    // is server-rendered and therefore visible BEFORE the script that
+    // makes its buttons do anything has run.
+    await page.waitForLoadState('load');
     await row.locator('.mm-open-btn').click();
     await expect(dialog).toBeVisible();
     await expect(dialog.locator('#mm-merge-info-state')).toContainText('publipostage-audience.xlsx');

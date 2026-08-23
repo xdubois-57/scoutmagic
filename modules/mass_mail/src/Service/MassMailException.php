@@ -8,6 +8,17 @@ declare(strict_types=1);
 
 namespace Modules\MassMail\Service;
 
-class MassMailException extends \RuntimeException
+use Core\Exception\UserFacingException;
+
+/**
+ * A refused mass-mail action, stated in the chief's own terms (« Seul un
+ * brouillon peut passer en mode test. »). Marked {@see UserFacingException}:
+ * every message is a French sentence written for the person on the page, and
+ * none is ever built from a caught exception's own text — the send failures
+ * that carry PHPMailer's English go through
+ * {@see \Core\Exception\UserFacingMessage::from()} at their display site
+ * instead.
+ */
+class MassMailException extends \RuntimeException implements UserFacingException
 {
 }

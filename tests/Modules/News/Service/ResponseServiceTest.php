@@ -261,6 +261,50 @@ class ResponseServiceTest extends TestCase
         $this->assertNotNull($response);
     }
 
+    public function testSubmitAcceptsAnEmptyRequiredFieldWhoseCapacityIsExhausted(): void
+    {
+        // Once a required capped field is full, the template renders it
+        // without an input at all ("Complet") — the browser submits
+        // nothing for it. The server must not reject the whole
+        // submission as « obligatoire » in that case, otherwise nobody
+        // can submit anymore once the first quota is gone.
+        $placesId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places bus', true, null, null, 5, null, null);
+        $nameId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $this->responseRepository->create($this->formId, null, null, 'x@test.com', [$placesId => '5'], null, null);
+        $fields = [$this->fieldRepository->findById($placesId), $this->fieldRepository->findById($nameId)];
+
+        $response = $this->service()->submit($this->article, $this->form(), $fields, null, null, 1, 'a@test.com', [$placesId => '', $nameId => 'Alice'], null);
+
+        $this->assertSame('Alice', $this->service()->getAnswers($response->id)[$nameId]);
+    }
+
+    public function testSubmitStillRequiresACappedFieldWithRemainingCapacity(): void
+    {
+        $placesId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places bus', true, null, null, 5, null, null);
+        $this->responseRepository->create($this->formId, null, null, 'x@test.com', [$placesId => '3'], null, null);
+        $field = $this->fieldRepository->findById($placesId);
+
+        $this->expectException(NewsException::class);
+        $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'a@test.com', [$placesId => ''], null);
+    }
+
+    public function testUpdateAcceptsAnEmptyRequiredFieldWhoseCapacityIsExhaustedByOthers(): void
+    {
+        // Editing counts against the same cap it already consumed (the
+        // response's own value is "returned to the pool"), so exhaustion
+        // is only exhaustion when OTHER responses ate the whole cap.
+        $placesId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places bus', true, null, null, 5, null, null);
+        $nameId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $this->responseRepository->create($this->formId, null, null, 'x@test.com', [$placesId => '5'], null, null);
+        $ownId = $this->responseRepository->create($this->formId, 42, null, 'me@test.com', [$nameId => 'Old'], null, null);
+        $own = $this->responseRepository->findById($ownId);
+        $fields = [$this->fieldRepository->findById($placesId), $this->fieldRepository->findById($nameId)];
+
+        $updated = $this->service()->update($own, $this->form(), $fields, 'me@test.com', [$placesId => '', $nameId => 'New'], null, 1);
+
+        $this->assertSame('New', $this->service()->getAnswers($updated->id)[$nameId]);
+    }
+
     public function testSubmitWithPaymentCreatesReceivableAndStoresCommunication(): void
     {
         $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Repas', false, null, null, null, 5.0, null);

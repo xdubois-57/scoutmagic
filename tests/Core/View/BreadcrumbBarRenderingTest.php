@@ -71,11 +71,11 @@ class BreadcrumbBarRenderingTest extends TestCase
     public function testRouteWithBreadcrumbRendersFullTrail(): void
     {
         $html = $this->render(
-            ['label' => 'Staffs', 'parents' => ['Espace chefs']],
+            ['label' => 'Staffs', 'parents' => ['Espace animateurs']],
             '/chefs/staffs'
         );
 
-        $this->assertStringContainsString('Espace chefs', $html);
+        $this->assertStringContainsString('Espace animateurs', $html);
         $this->assertStringContainsString('Staffs', $html);
         $this->assertStringContainsString('aria-current="page"', $html);
     }
@@ -95,12 +95,12 @@ class BreadcrumbBarRenderingTest extends TestCase
         // No `menus` supplied at all — nothing to open, and a parent must
         // never invent a menu id for a label that doesn't actually exist.
         $html = $this->render(
-            ['label' => 'Staffs', 'parents' => ['Espace chefs']],
+            ['label' => 'Staffs', 'parents' => ['Espace animateurs']],
             '/chefs/staffs'
         );
 
         $this->assertMatchesRegularExpression(
-            '/<li class="breadcrumb-item text-body-secondary">Espace chefs<\/li>/',
+            '/<li class="breadcrumb-item text-body-secondary">Espace animateurs<\/li>/',
             $html
         );
         $this->assertStringNotContainsString('breadcrumb-parent-btn', $html);
@@ -138,14 +138,14 @@ class BreadcrumbBarRenderingTest extends TestCase
     public function testParentButtonStillRendersWhenViewingTheOnlyPageInThatMenu(): void
     {
         $html = $this->render(
-            ['label' => 'Staffs', 'parents' => ['Espace chefs']],
+            ['label' => 'Staffs', 'parents' => ['Espace animateurs']],
             '/chefs/staffs',
             null,
-            [$this->menu('espace_chefs', 'Espace chefs')]
+            [$this->menu('espace_chefs', 'Espace animateurs')]
         );
 
         $this->assertMatchesRegularExpression(
-            '/data-open-menu="espace_chefs">Espace chefs<\/button>/',
+            '/data-open-menu="espace_chefs">Espace animateurs<\/button>/',
             $html
         );
     }
@@ -160,14 +160,14 @@ class BreadcrumbBarRenderingTest extends TestCase
     public function testParentButtonRendersRegardlessOfTheMenusPages(): void
     {
         $html = $this->render(
-            ['label' => 'Membre', 'parents' => ['Espace animés']],
+            ['label' => 'Membre', 'parents' => ['Espace membres']],
             '/members/1',
             null,
-            [$this->menu('espace_animes', 'Espace animés')]
+            [$this->menu('espace_animes', 'Espace membres')]
         );
 
         $this->assertMatchesRegularExpression(
-            '/data-open-menu="espace_animes">Espace animés<\/button>/',
+            '/data-open-menu="espace_animes">Espace membres<\/button>/',
             $html
         );
     }
@@ -188,7 +188,7 @@ class BreadcrumbBarRenderingTest extends TestCase
     public function testBreadcrumbCurrentOverridesStaticLabel(): void
     {
         $html = $this->render(
-            ['label' => 'Membre', 'parents' => ['Espace animés']],
+            ['label' => 'Membre', 'parents' => ['Espace membres']],
             '/members/42',
             'Jean Dupont'
         );
@@ -235,7 +235,7 @@ class BreadcrumbBarRenderingTest extends TestCase
     public function testBreadcrumbTrailEntriesRenderAsRealLinksBeforeTheCurrentPage(): void
     {
         $html = $this->render(
-            ['label' => 'Membres', 'parents' => ['Espace animés']],
+            ['label' => 'Membres', 'parents' => ['Espace membres']],
             '/groups/5/members',
             null,
             [],
@@ -255,7 +255,7 @@ class BreadcrumbBarRenderingTest extends TestCase
 
     public function testAbsentBreadcrumbTrailRendersNothingExtra(): void
     {
-        $html = $this->render(['label' => 'Staffs', 'parents' => ['Espace chefs']], '/chefs/staffs');
+        $html = $this->render(['label' => 'Staffs', 'parents' => ['Espace animateurs']], '/chefs/staffs');
 
         // Home icon + the one plain-text parent + the active current page
         // — no extra <li> for a trail that was never passed.
@@ -265,16 +265,16 @@ class BreadcrumbBarRenderingTest extends TestCase
     public function testMultipleParentsEachBecomeTheirOwnButtonWithTheCorrectMenuId(): void
     {
         $html = $this->render(
-            ['label' => 'Staffs', 'parents' => ['Espace chefs', 'Espace chefs d\'U']],
+            ['label' => 'Staffs', 'parents' => ['Espace animateurs', 'Espace chefs d\'U']],
             '/chefs/staffs',
             null,
             [
-                $this->menu('espace_chefs', 'Espace chefs'),
+                $this->menu('espace_chefs', 'Espace animateurs'),
                 $this->menu('espace_admin', 'Espace chefs d\'U'),
             ]
         );
 
-        $this->assertMatchesRegularExpression('/data-open-menu="espace_chefs">Espace chefs<\/button>/', $html);
+        $this->assertMatchesRegularExpression('/data-open-menu="espace_chefs">Espace animateurs<\/button>/', $html);
         $this->assertMatchesRegularExpression('/data-open-menu="espace_admin">Espace chefs d&#039;U<\/button>/', $html);
     }
 }

@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Calendrier</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Calendrier' } only %}
 
     {% include '@calendar/partials/calendar_picker.html.twig' with {
         options: calendar_options,
@@ -19,45 +19,37 @@
     <div class="d-flex align-items-center justify-content-between mb-3">
         <a href="/chefs/calendar?month={{ prev_month_param }}&calendar={{ selected_calendar_id }}"
            class="btn btn-sm btn-outline-secondary" aria-label="Mois précédent">
-            <i class="bi bi-chevron-left"></i>
+            <i class="bi bi-chevron-left" aria-hidden="true"></i>
         </a>
         <h2 class="h5 mb-0">{{ month_label }}</h2>
         <a href="/chefs/calendar?month={{ next_month_param }}&calendar={{ selected_calendar_id }}"
            class="btn btn-sm btn-outline-secondary" aria-label="Mois suivant">
-            <i class="bi bi-chevron-right"></i>
+            <i class="bi bi-chevron-right" aria-hidden="true"></i>
         </a>
     </div>
 
     <p class="text-body-secondary small mb-2">
-        <i class="bi bi-info-circle"></i> Cliquez sur un jour pour ajouter un évènement, ou sur un évènement pour le modifier.
+        <i class="bi bi-info-circle" aria-hidden="true"></i> Cliquez sur un jour pour ajouter un évènement, ou sur un évènement pour le modifier.
     </p>
 
     <div class="mb-4">
         {% include 'partials/month_grid.html.twig' with { weeks: weeks, days_clickable: true, events_clickable: true } %}
     </div>
 
-    {# Add/edit event dialog #}
-    <div class="modal fade" id="eventModal" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="event-modal-title">Ajouter un évènement</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                {# .modal-dialog-scrollable relies on .modal-header/.modal-body/
-                   .modal-footer being direct flex children of .modal-content so
-                   .modal-body's own overflow-y:auto has a bounded height to
-                   scroll within. Wrapping .modal-body + .modal-footer in a
-                   <form> (needed since the submit button lives in the footer)
-                   breaks that unless the form itself is also a flex column —
-                   without d-flex flex-column plus min-height:0 (a plain <form>
-                   has no `overflow` of its own, so per the flexbox spec its
-                   automatic minimum size is its content size, not 0 — it never
-                   shrinks to fit, .modal-body's internal scroll never engages,
-                   and the footer/save button end up pushed below the visible
-                   viewport on mobile). #}
-                <form id="event-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">
-                    <div class="modal-body">
+    {# Add/edit event dialog. The shared embed renders header/body/footer as
+       direct children of .modal-content (what .modal-dialog-scrollable
+       needs), so the form now lives entirely inside the body and the
+       footer's submit button reaches it through form="event-form". The
+       title id follows the embed's contract: eventModal-title. #}
+    {% embed 'partials/modal.html.twig' with {
+        id: 'eventModal',
+        title: 'Ajouter un évènement',
+        scrollable: true,
+        calendar_options: calendar_options,
+        retro_module_active: retro_module_active,
+    } only %}
+        {% block body %}
+                <form id="event-form">
                         <input type="hidden" id="event-id" value="">
                         <div class="row g-2 mb-2">
                             <div class="col-12 col-md-6">
@@ -111,183 +103,39 @@
                                 </div>
                             </div>
                             <div class="mb-2 d-none small" id="event-retro-link-wrap">
-                                <i class="bi bi-link-45deg"></i> Rétrospective liée :
+                                <i class="bi bi-link-45deg" aria-hidden="true"></i> Rétrospective liée :
                                 <a href="#" id="event-retro-link" target="_blank" rel="noopener"></a>
                             </div>
                         {% endif %}
-                        <div class="text-danger small d-none" id="event-form-error"></div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-outline-danger me-auto d-none" id="event-form-delete">
-                            <i class="bi bi-trash"></i> Supprimer
-                        </button>
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
-                        <button type="submit" class="btn btn-primary" id="event-form-submit">Ajouter</button>
-                    </div>
+                        <div class="text-danger small d-none" id="event-form-error" role="alert"></div>
                 </form>
-            </div>
-        </div>
-    </div>
+        {% endblock %}
+        {% block footer %}
+                <button type="button" class="btn btn-outline-danger me-auto d-none" id="event-form-delete">
+                    <i class="bi bi-trash" aria-hidden="true"></i> Supprimer
+                </button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="submit" class="btn btn-primary" form="event-form" id="event-form-submit">Ajouter</button>
+        {% endblock %}
+    {% endembed %}
 {% endblock %}
 
 {% block scripts %}
+<script src="/assets/js/calendar-chief.js" defer></script>
 <script nonce="{{ csp_nonce }}">
-const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-
-const eventModalEl = document.getElementById('eventModal');
-const eventModal = new bootstrap.Modal(eventModalEl);
-const form = document.getElementById('event-form');
-const idInput = document.getElementById('event-id');
-const titleInput = document.getElementById('event-title');
-const calendarSelect = document.getElementById('event-calendar');
-const startDateInput = document.getElementById('event-start-date');
-const endDateInput = document.getElementById('event-end-date');
-const startTimeInput = document.getElementById('event-start-time');
-const endTimeInput = document.getElementById('event-end-time');
-const locationInput = document.getElementById('event-location');
-const descriptionInput = document.getElementById('event-description');
-const modalTitle = document.getElementById('event-modal-title');
-const submitBtn = document.getElementById('event-form-submit');
-const deleteBtn = document.getElementById('event-form-delete');
-const errorBox = document.getElementById('event-form-error');
-const retroAutoCreateWrap = document.getElementById('event-retro-auto-create-wrap');
-const retroAutoCreateInput = document.getElementById('event-retro-auto-create');
-const retroLinkWrap = document.getElementById('event-retro-link-wrap');
-const retroLinkAnchor = document.getElementById('event-retro-link');
-
-const defaultTitle = {{ default_title|json_encode|raw }};
-const defaultStartTime = {{ default_start_time|json_encode|raw }};
-const defaultEndTime = {{ default_end_time|json_encode|raw }};
-const defaultLocation = {{ default_location|json_encode|raw }};
-const defaultCalendarId = {{ default_calendar_id|json_encode|raw }};
-
-function openAddModal(dateStr) {
-    idInput.value = '';
-    titleInput.value = defaultTitle;
-    if (defaultCalendarId !== null) {
-        calendarSelect.value = String(defaultCalendarId);
-    }
-    startDateInput.value = dateStr;
-    endDateInput.value = dateStr;
-    startTimeInput.value = defaultStartTime;
-    endTimeInput.value = defaultEndTime;
-    locationInput.value = defaultLocation;
-    descriptionInput.value = '';
-    modalTitle.textContent = 'Ajouter un évènement';
-    submitBtn.textContent = 'Ajouter';
-    deleteBtn.classList.add('d-none');
-    errorBox.classList.add('d-none');
-    if (retroAutoCreateWrap) {
-        retroAutoCreateWrap.classList.remove('d-none');
-        retroAutoCreateInput.checked = false;
-    }
-    if (retroLinkWrap) retroLinkWrap.classList.add('d-none');
-    eventModal.show();
-}
-
-function openEditModal(dataset) {
-    idInput.value = dataset.id;
-    calendarSelect.value = dataset.calendarId;
-    titleInput.value = dataset.title;
-    startDateInput.value = dataset.startDate;
-    endDateInput.value = dataset.endDate || '';
-    startTimeInput.value = dataset.startTime || '';
-    endTimeInput.value = dataset.endTime || '';
-    locationInput.value = dataset.location;
-    descriptionInput.value = dataset.description;
-    modalTitle.textContent = "Modifier l'évènement";
-    submitBtn.textContent = 'Enregistrer';
-    deleteBtn.classList.remove('d-none');
-    errorBox.classList.add('d-none');
-    if (retroAutoCreateWrap) {
-        var hasLinkedRetro = dataset.hasLinkedRetro === '1';
-        retroAutoCreateWrap.classList.toggle('d-none', hasLinkedRetro);
-        retroAutoCreateInput.checked = dataset.autoCreateRetro === '1';
-    }
-    if (retroLinkWrap) {
-        if (dataset.retroLink) {
-            // Populate before revealing: the wrap and the anchor inside it
-            // share no other content, so removing d-none before the href/
-            // text are set would briefly expose an empty, non-navigable
-            // link — every other populate+reveal pair in this codebase
-            // (e.g. modules/sos_staff/views/config.html.twig's
-            // consumer-key-validation-link) follows this same order.
-            retroLinkAnchor.href = dataset.retroLink;
-            retroLinkAnchor.textContent = dataset.retroLinkTitle || dataset.retroLink;
-            retroLinkWrap.classList.remove('d-none');
-        } else {
-            retroLinkWrap.classList.add('d-none');
-        }
-    }
-    eventModal.show();
-}
-
-// Both are real <button> elements (partials/month_grid.html.twig renders them
-// as buttons whenever the caller marks them clickable), so Enter and Space
-// already fire a click — no keyboard handler of our own, and none of the
-// inline onKeyDown attribute this site's CSP would refuse to run anyway.
-document.querySelectorAll('.calendar-day-cell--clickable').forEach(cell => {
-    cell.addEventListener('click', () => openAddModal(cell.dataset.date));
-});
-
-document.querySelectorAll('.calendar-event-bar--clickable').forEach(bar => {
-    bar.addEventListener('click', (e) => {
-        // The bar sits on top of the day cell in the same grid, so without
-        // this a click on a bar would also open the "add an event" modal.
-        e.stopPropagation();
-        openEditModal(bar.dataset);
-    });
-});
-
-form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const isUpdate = idInput.value !== '';
-    const payload = {
-        calendar_id: parseInt(calendarSelect.value),
-        title: titleInput.value,
-        start_date: startDateInput.value,
-        end_date: endDateInput.value,
-        start_time: startTimeInput.value,
-        end_time: endTimeInput.value,
-        location: locationInput.value,
-        description: descriptionInput.value,
-        _csrf_token: csrf()
-    };
-    if (retroAutoCreateWrap && !retroAutoCreateWrap.classList.contains('d-none')) {
-        payload.auto_create_retro = retroAutoCreateInput.checked;
-    }
-    if (isUpdate) {
-        payload.event_id = parseInt(idInput.value);
-    }
-
-    const res = await fetch(isUpdate ? '/chefs/calendar/event-update' : '/chefs/calendar/event-create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        errorBox.textContent = data.error;
-        errorBox.classList.remove('d-none');
-    }
-});
-
-deleteBtn.addEventListener('click', async () => {
-    if (!confirm('Supprimer cet évènement ?')) return;
-    const res = await fetch('/chefs/calendar/event-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event_id: parseInt(idInput.value), _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        errorBox.textContent = data.error;
-        errorBox.classList.remove('d-none');
-    }
-});
+{# Server data handed to calendar-chief.js — the llm_connector /
+   support_dashboard pattern (window.llmConfigData,
+   window.supportDashboardCharts). JSON_HEX_TAG/JSON_HEX_AMP: the default
+   event title and location are free text an admin types on the calendar
+   configuration page, so a value containing tag-closing characters must
+   not break out of this block. #}
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+window.calendarChiefData = {
+    defaultTitle: {{ default_title|json_encode(json_flags)|raw }},
+    defaultStartTime: {{ default_start_time|json_encode(json_flags)|raw }},
+    defaultEndTime: {{ default_end_time|json_encode(json_flags)|raw }},
+    defaultLocation: {{ default_location|json_encode(json_flags)|raw }},
+    defaultCalendarId: {{ default_calendar_id|json_encode(json_flags)|raw }}
+};
 </script>
 {% endblock %}

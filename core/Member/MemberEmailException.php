@@ -12,7 +12,10 @@ namespace Core\Member;
  * A user-facing (French) error from Core\Member\MemberEmailService — same
  * "typed domain exception, caught by the controller, message shown as-is"
  * convention as Modules\MassMail\Service\MassMailException.
+ *
+ * Marked {@see \Core\Exception\UserFacingException}: every message is a
+ * French sentence written for the visitor.
  */
-class MemberEmailException extends \RuntimeException
+class MemberEmailException extends \RuntimeException implements \Core\Exception\UserFacingException
 {
 }

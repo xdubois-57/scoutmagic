@@ -31,7 +31,7 @@ Three-tab segmented control: "Lien magique" (default), "Mot de passe", "Clé num
 Name/surname. Password section (status + set/change). Passkey section (list + add). Cookie preferences link/section.
 
 ### 1.7 Cookie consent banner
-Bottom of screen on first visit. Three buttons: "Accepter tout", "Refuser tout", "Personnaliser". Non-intrusive, does not block content. Disappears after choice.
+Fixed at the bottom of the screen while no consent has been given — except on the /cookies page itself, where the server never includes it (it would cover the very preferences it links to). Actions, in this exact order: "Tout refuser" then "Tout accepter", two identical primary (`btn-primary`) buttons — refusing is exactly as prominent as accepting — then "Personnaliser", a discreet link (`btn-link`) to /cookies. Does not block content: the page body is padded by the banner's height so everything below stays reachable. Disappears after choice.
 
 ### 1.8 Cookie preferences page
 Each category as a card: name, description, toggle (except strictly necessary: always on, explained). List of individual cookies per category with name, purpose, duration. Accessible from banner, RGPD page, Mon compte.
@@ -156,3 +156,171 @@ Consent stored in strictly-necessary cookie `cookie_consent` (JSON: `{"functiona
 
 ### 6.3 Enforcement
 `CookieConsentService::isAllowed($category)` checked before any `setcookie()` for non-essential cookies. Middleware or helper — never left to individual controllers.
+
+## 7. UI conventions
+
+Rules the whole site follows. Several are enforced mechanically by
+`tests/Core/View/UxConventionsTest.php` — a convention no test defends
+drifts back into divergence within months (it already happened once).
+
+### 7.1 Lexicon
+
+One word per person, everywhere on screen:
+
+- **animé** — a child, member of a section.
+- **animateur** — a section leader (canonical on-screen word; « chef » is
+  never used alone). A section's animateurs form its **staff de section**.
+- **chef d'unité** — a unit leader; together they form the **Staff
+  d'Unité**, hierarchically above the animateurs. « Staff d'U » is the
+  accepted short form where space is tight.
+- Menus: « Espace membres » (identified visitors), « Espace animateurs »,
+  « Espace chefs d'U », « Configuration ».
+- Configuration pages are named by task, never by layer: « Édition du
+  site » (/config/general), « Installation & serveur » (/setup),
+  « Réglages » (/config/settings).
+
+URLs (`/chefs/...`, `espace_chefs`, role `chief`) are code identifiers and
+deliberately keep their historical names — renaming them breaks bookmarks
+and integrations for zero user benefit.
+
+### 7.2 Touch targets
+
+44px is a comfort **goal** for small controls (icon-only buttons, `.btn-sm`,
+checkboxes via their `<label>`), not a universal floor: WCAG 2.2 AA requires
+24×24 (2.5.8); 44px is the AAA criterion. Bootstrap's default 38px controls
+pass comfortably. Concretely:
+
+- The `pointer: coarse` block in `app.css` is the only place touch sizing
+  lives. Never `style="min-height:44px"` in a template — an inline style
+  overrides every stylesheet rule, including the desktop restore.
+- Never inflate standard inputs/selects to 44px — it lengthens forms for
+  zero gain (this exact recommendation was made and retracted once).
+- A checkbox grows its tappable zone through its `<label>`, never by
+  resizing the box.
+
+### 7.3 Going back
+
+The breadcrumb bar is the site's **only** back affordance. No « Retour »
+buttons — a destination that matters belongs in the breadcrumb trail
+(`parents` for menu sections, `breadcrumb_trail` for real ancestor pages).
+Documented exceptions live in `UxConventionsTest::BACK_BUTTON_EXCEPTIONS`.
+A `parents` entry must exactly match a `MenuBuilder` label, or it renders
+as dead text.
+
+### 7.4 Buttons
+
+Four variants, nothing else:
+
+- **Primary action** — `btn-primary`, at most one per screen. Creation
+  actions (« Nouvel article », « Créer le bien »...) are always primary,
+  never `btn-success`.
+- **Neutral / secondary** — `btn-outline-secondary`. « Annuler » is always
+  exactly `btn btn-outline-secondary`, same size as the action it sits
+  next to.
+- **Destructive trigger** — `btn-outline-danger` (opens the confirmation).
+- **Destructive confirmation** — `btn-danger`, only inside a confirmation
+  surface (modal footer, danger zone).
+
+A full-width mobile button is `w-100 w-sm-auto`, never `w-100` alone.
+Icon vocabulary is fixed: `bi-trash` delete, `bi-pencil` edit, `bi-plus-lg`
+add, `bi-three-dots-vertical` overflow menus.
+
+### 7.5 Feedback
+
+- Flash messages: types `success` | `error` | `warning` only
+  (`Core\Http\FlashMessage`); `danger` is not a type.
+- Destructive POSTs carry `data-confirm` **on the `<form>` element** — the
+  global handler in `base.html.twig` listens on `submit` and looks at
+  `e.target.closest('form[data-confirm]')`; the attribute on a button is
+  silently inert. Rule of thumb: every POST that deletes, removes, refuses
+  or revokes carries one; nothing else does. Messages state the
+  consequence: « {Verbe} {objet} ? {Conséquence concrète}. »
+- Never `on*=` attributes in templates — the CSP (`script-src 'self'
+  'nonce-…'`) makes inline handlers dead code, silently.
+- Never `alert()`/`confirm()`/`prompt()`, in a template or in
+  `public/assets/js/`. The site has one of each:
+  - **`window.ScoutMagicToast.show(message, {variant})`** for a result —
+    variants `success` | `error` | `warning` | `info`, matching the flash
+    vocabulary. It announces itself to screen readers; a native box does
+    not.
+  - **`window.ScoutMagicConfirm.ask(message)`** → `Promise<boolean>` for a
+    question. Options: `{message, title, confirmLabel, cancelLabel,
+    variant}`; `variant` is `danger` (default) or `primary` for a
+    confirmation that destroys nothing. Always name the action on the
+    button (« Supprimer », « Délier », « Appliquer ») rather than leaving
+    « Confirmer » — the label is where the visitor reads what they are
+    agreeing to. Focus lands on « Annuler », never on the destructive
+    button.
+
+  A native dialog renders the origin above the message
+  (« 127.0.0.1:8000 dit : »), labels its buttons in the browser's language
+  rather than the page's, and gives a permanent deletion exactly the same
+  two buttons as a harmless question.
+- Session-expiry text is a single constant: « Votre session a expiré.
+  Rechargez la page et réessayez. » — never « Jeton CSRF invalide. ».
+
+### 7.6 Page structure
+
+- `base.html.twig` already renders `<main class="container py-3">`. A view
+  never opens another `.container`. Page width is one of the shared width
+  classes (`page-narrow`, `page-medium`, `page-wide`) — never an inline
+  `max-width`.
+- Exactly one `<h1>` per page, one size site-wide (the `page_header`
+  partial's). The `<h1>` matches the page's `<title>` — eight pages all
+  titled « Finances » is a bug, not a convention.
+- Every `<table>` sits in a `.table-responsive` wrapper (or a documented
+  overflow container).
+
+### 7.7 Empty states
+
+Rendered through the `empty_state` partial, never hand-rolled. Canonical
+copy: « Aucun(e) {objet}. » followed, whenever the visitor has the right
+to create the missing thing, by the creation action (« Créez le premier
+album ! »). The variant without an action is only for visitors who
+genuinely cannot act.
+
+### 7.8 Colour scheme
+
+Three states, one control: the ◐ toggle in the navigation cycles
+`light` → `dark` → `auto`, where `auto` follows the operating system live.
+`data-bs-theme` on `<html>` carries the resolved choice,
+`public/assets/js/theme.js` owns it (`window.ScoutMagicTheme`), and an
+inline script in `base.html.twig`'s `<head>` applies the stored value
+before first paint — without it the page flashes white on every load.
+
+The preference is stored in `localStorage` under `theme_preference`, which
+makes it a functional cookie in the RGPD sense: it is declared in
+`core/Cookie/CookieRegistry.php` and written only when
+`CookieConsentService::isAllowed('functional')` says so. Without consent
+the toggle still works for the session; it simply does not persist.
+
+Write colours as Bootstrap semantic utilities (`text-body-secondary`,
+`bg-body-tertiary`, `border`) — never `bg-white`/`text-dark`, which are
+the same colour in both themes and produce black-on-black.
+
+### 7.9 Form fields
+
+Rendered through the `form_field` partial (`password_field` for passwords,
+`rich_text_form_field` for rich text). It renders label, control, help text
+and the required marker as one unit, with `aria-describedby` wired from the
+control to its help text — which of 136 hand-written help texts, exactly
+one did.
+
+Two sizes and no more: the default, and `size: 'sm'` for a dense table or
+a repeated row, which shrinks the label and the control together. The
+fourteen label-class combinations this replaced were the disease; a third
+size would be the relapse.
+
+A field's `id` is what JavaScript and tests grip. Renaming one is a
+breaking change — grep `public/assets/js/` and `tests/` before touching it.
+
+### 7.10 Rich text
+
+The « lien » button in every rich-text toolbar goes through
+`window.ScoutMagicRichText.insertLink()`
+(`public/assets/js/rich-text-link.js`). Five toolbars used to implement it
+separately, so none of them ever fixed the three things it gets right: the
+selection survives the dialog (a modal takes focus, and a contenteditable
+that loses focus loses its range), a bare host becomes `https://…` rather
+than a relative link that 404s, and a `javascript:` URL is refused with a
+reason rather than silently stripped later by the server-side sanitiser.

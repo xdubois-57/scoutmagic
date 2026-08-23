@@ -13,7 +13,7 @@
 {% endmacro %}
 
 {% block content %}
-    <h1 class="mb-4">Maintenance</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Maintenance' } only %}
 
     {# ————— Mise à jour ————— #}
     <div class="card mb-4" id="maintenance-update">
@@ -35,12 +35,12 @@
             </p>
 
             <button type="button" class="btn btn-outline-secondary btn-sm mb-3" id="update-check-now">
-                <i class="bi bi-arrow-repeat"></i> Vérifier maintenant
+                <i class="bi bi-arrow-repeat" aria-hidden="true"></i> Vérifier maintenant
             </button>
-            <div class="mt-2 mb-3 small d-none" id="update-check-now-progress">
+            <div class="mt-2 mb-3 small d-none" id="update-check-now-progress" role="status">
                 <span class="spinner-border spinner-border-sm"></span> Vérification en cours…
             </div>
-            <div class="mt-2 mb-3 small text-danger d-none" id="update-check-now-error"></div>
+            <div class="mt-2 mb-3 small text-danger d-none" id="update-check-now-error" role="alert"></div>
 
             {# Populated by JS from POST /config/maintenance/update/check-now
                — a manual, on-demand equivalent of the alert below, which
@@ -53,13 +53,13 @@
                 <form id="update-check-now-install-form">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-primary btn-sm" id="update-check-now-install-submit">
-                        <i class="bi bi-cloud-arrow-down"></i> Installer maintenant
+                        <i class="bi bi-cloud-arrow-down" aria-hidden="true"></i> Installer maintenant
                     </button>
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="update-check-now-dismiss">Plus tard</button>
-                    <div class="mt-2 small d-none" id="update-check-now-install-progress">
+                    <div class="mt-2 small d-none" id="update-check-now-install-progress" role="status">
                         <span class="spinner-border spinner-border-sm"></span> Installation en cours…
                     </div>
-                    <div class="mt-2 small text-danger d-none" id="update-check-now-install-error"></div>
+                    <div class="mt-2 small text-danger d-none" id="update-check-now-install-error" role="alert"></div>
                 </form>
             </div>
 
@@ -85,12 +85,12 @@
                     <form id="update-install-form">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-primary btn-sm" id="update-install-submit">
-                            <i class="bi bi-cloud-arrow-down"></i> Installer la mise à jour
+                            <i class="bi bi-cloud-arrow-down" aria-hidden="true"></i> Installer la mise à jour
                         </button>
-                        <div class="mt-2 small d-none" id="update-install-progress">
+                        <div class="mt-2 small d-none" id="update-install-progress" role="status">
                             <span class="spinner-border spinner-border-sm"></span> Installation en cours…
                         </div>
-                        <div class="mt-2 small text-danger d-none" id="update-install-error"></div>
+                        <div class="mt-2 small text-danger d-none" id="update-install-error" role="alert"></div>
                     </form>
                 </div>
             {% else %}
@@ -116,13 +116,14 @@
                                     <td class="small text-nowrap">{{ entry.startedAt }}</td>
                                     <td class="small">
                                         {% if entry.status == 'completed' %}
-                                            <span class="badge text-bg-success">Réussie</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Réussie' } only %}
                                         {% elseif entry.status == 'failed' %}
+                                            {# title tooltips (error detail) — kept out of the shared partial, which carries none #}
                                             <span class="badge text-bg-danger" title="{{ entry.errorMessage }}">Échouée</span>
                                         {% elseif entry.status == 'rolled_back' %}
                                             <span class="badge text-bg-warning" title="{{ entry.errorMessage }}">Échouée — restaurée automatiquement</span>
                                         {% else %}
-                                            <span class="badge text-bg-primary">En cours ({{ entry.status }})</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'En cours (' ~ entry.status ~ ')' } only %}
                                         {% endif %}
                                     </td>
                                 </tr>
@@ -213,7 +214,7 @@
                         </ul>
                     </div>
                     <button type="button" class="btn btn-outline-{{ webhook_configured ? 'secondary' : 'primary' }} btn-sm mb-2" id="webhook-generate-secret">
-                        <i class="bi {{ webhook_configured ? 'bi-arrow-repeat' : 'bi-key' }}"></i>
+                        <i class="bi {{ webhook_configured ? 'bi-arrow-repeat' : 'bi-key' }}" aria-hidden="true"></i>
                         <span id="webhook-generate-secret-label">{{ webhook_configured ? 'Régénérer le secret' : 'Générer le secret' }}</span>
                     </button>
                     <div class="mt-2 mb-3 d-none" id="webhook-secret-display">
@@ -252,8 +253,8 @@
             </div>
 
             <button type="button" class="btn btn-primary btn-sm" id="auto-update-save">Enregistrer</button>
-            <span class="small text-success d-none" id="auto-update-saved">Enregistré</span>
-            <div class="mt-2 small text-danger d-none" id="auto-update-error"></div>
+            <span class="small text-success d-none" id="auto-update-saved" role="status">Enregistré</span>
+            <div class="mt-2 small text-danger d-none" id="auto-update-error" role="alert"></div>
         </div>
     </div>
 
@@ -271,7 +272,6 @@
                     <option value="biweekly" {{ backup_auto_frequency == 'biweekly' ? 'selected' : '' }}>Toutes les 2 semaines</option>
                     <option value="monthly" {{ backup_auto_frequency == 'monthly' ? 'selected' : '' }}>Mensuelle</option>
                 </select>
-                <span class="small text-success d-none" id="auto-backup-frequency-saved">Enregistré</span>
             </div>
             <p class="small text-body-secondary mb-3">
                 {% if backup_auto_last_run %}
@@ -299,7 +299,7 @@
                     <form method="post" action="/config/maintenance/backup/database">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-primary btn-sm">
-                            <i class="bi bi-database-down"></i> Générer
+                            <i class="bi bi-database-down" aria-hidden="true"></i> Générer
                         </button>
                     </form>
                 </div>
@@ -333,12 +333,12 @@
                             <input type="password" class="form-control form-control-sm" id="full-backup-password" required>
                         </div>
                         <button type="submit" class="btn btn-primary btn-sm" id="full-backup-submit">
-                            <i class="bi bi-shield-lock"></i> Générer
+                            <i class="bi bi-shield-lock" aria-hidden="true"></i> Générer
                         </button>
-                        <div class="mt-2 small d-none" id="full-backup-progress">
+                        <div class="mt-2 small d-none" id="full-backup-progress" role="status">
                             <span class="spinner-border spinner-border-sm"></span> Génération en cours…
                         </div>
-                        <div class="mt-2 small text-danger d-none" id="full-backup-error"></div>
+                        <div class="mt-2 small text-danger d-none" id="full-backup-error" role="alert"></div>
                     </form>
                 </div>
             </div>
@@ -347,7 +347,10 @@
 
             <h3 class="h6">Sauvegardes récentes</h3>
             {% if backups is empty %}
-                <p class="text-body-secondary small mb-0">Aucune sauvegarde pour le moment.</p>
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucune sauvegarde pour le moment.',
+                    compact: true,
+                } only %}
             {% else %}
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
@@ -366,19 +369,20 @@
                                     <td class="small text-nowrap">{{ backup.createdAt }}</td>
                                     <td>
                                         {% if backup.status == 'completed' %}
-                                            <span class="badge text-bg-success">Terminée</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Terminée' } only %}
                                         {% elseif backup.status == 'in_progress' %}
-                                            <span class="badge text-bg-warning">En cours</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'En cours' } only %}
                                         {% elseif backup.status == 'pending' %}
-                                            <span class="badge text-bg-primary">En attente</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %}
                                         {% elseif backup.status == 'failed' %}
+                                            {# title tooltip (error detail) — kept out of the shared partial #}
                                             <span class="badge text-bg-danger" title="{{ backup.errorMessage }}">Échouée</span>
                                         {% endif %}
                                     </td>
                                     <td class="text-end">
                                         {% if backup.status == 'completed' and backup.fileId %}
                                             <a href="/files/{{ backup.fileId }}" class="btn btn-sm btn-outline-secondary">
-                                                <i class="bi bi-download"></i> Télécharger
+                                                <i class="bi bi-download" aria-hidden="true"></i> Télécharger
                                             </a>
                                         {% endif %}
                                     </td>
@@ -394,7 +398,7 @@
     {# ————— Réinitialisation ————— #}
     <div class="card mb-4 border-danger" id="maintenance-reset">
         <div class="card-body">
-            <h2 class="h5 mb-3 text-danger"><i class="bi bi-exclamation-triangle"></i> Réinitialisation</h2>
+            <h2 class="h5 mb-3 text-danger"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Réinitialisation</h2>
             <p class="text-body-secondary small">
                 Ces actions sont irréversibles sans restauration manuelle. Une sauvegarde de sécurité est prise
                 automatiquement avant chaque action.
@@ -414,8 +418,8 @@
                         <button type="submit" class="btn btn-outline-danger btn-sm" id="reset-settings-submit" disabled>
                             Réinitialiser les paramètres
                         </button>
-                        <div class="mt-2 small d-none" id="reset-settings-progress"><span class="spinner-border spinner-border-sm"></span> En cours…</div>
-                        <div class="mt-2 small text-danger d-none" id="reset-settings-error"></div>
+                        <div class="mt-2 small d-none" id="reset-settings-progress" role="status"><span class="spinner-border spinner-border-sm"></span> En cours…</div>
+                        <div class="mt-2 small text-danger d-none" id="reset-settings-error" role="alert"></div>
                     </form>
                 </div>
 
@@ -464,8 +468,8 @@
                         <button type="submit" class="btn btn-outline-danger btn-sm" id="restore-backup-submit" disabled>
                             Restaurer
                         </button>
-                        <div class="mt-2 small d-none" id="restore-backup-progress"><span class="spinner-border spinner-border-sm"></span> Restauration en cours…</div>
-                        <div class="mt-2 small text-danger d-none" id="restore-backup-error"></div>
+                        <div class="mt-2 small d-none" id="restore-backup-progress" role="status"><span class="spinner-border spinner-border-sm"></span> Restauration en cours…</div>
+                        <div class="mt-2 small text-danger d-none" id="restore-backup-error" role="alert"></div>
                     </form>
                 </div>
 
@@ -488,8 +492,8 @@
                         <button type="submit" class="btn btn-danger btn-sm" id="full-reset-submit" disabled>
                             Tout effacer
                         </button>
-                        <div class="mt-2 small d-none" id="full-reset-progress"><span class="spinner-border spinner-border-sm"></span> Réinitialisation en cours — ne fermez pas cette page…</div>
-                        <div class="mt-2 small text-danger d-none" id="full-reset-error"></div>
+                        <div class="mt-2 small d-none" id="full-reset-progress" role="status"><span class="spinner-border spinner-border-sm"></span> Réinitialisation en cours — ne fermez pas cette page…</div>
+                        <div class="mt-2 small text-danger d-none" id="full-reset-error" role="alert"></div>
                     </form>
                 </div>
             </div>

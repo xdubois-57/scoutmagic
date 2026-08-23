@@ -150,15 +150,56 @@ class RentalHardeningAuditTest extends TestCase
 
     // ── Capability tokens (§13) ─────────────────────────────────────────
 
-    public function testTheTrackingTokenIsStoredHashedAndNeverInTheClear(): void
+    /**
+     * The token was a `password_hash()` until the module started emailing
+     * the renter its decisions — a hash can only ever answer "is this the
+     * token?", and an email has to carry the link itself. What this pins
+     * is what did NOT change: the column is still unreadable to anyone
+     * holding a copy of the database without the application key, which is
+     * where every other identity column in that table already stands
+     * (SECURITY.md §5).
+     */
+    public function testTheTrackingTokenIsNeverStoredInTheClear(): void
     {
         $schema = (string) file_get_contents(self::root() . '/modules/rental/schema.sql');
 
-        $this->assertMatchesRegularExpression('/tracking_token_hash/', $schema);
+        $this->assertMatchesRegularExpression('/tracking_token_encrypted\s+BLOB/i', $schema);
         $this->assertDoesNotMatchRegularExpression(
             '/tracking_token\s+(VARCHAR|CHAR|TEXT)/i',
             $schema,
-            'A tracking token must exist only as a hash.'
+            'A tracking token is never a plain column.'
+        );
+    }
+
+    /**
+     * The one call that hands a credential back out
+     * (`RentalBookingRepository::trackingTokenOf()`), and the short list of
+     * places allowed to make it.
+     *
+     * A token reaching a template, a flash message or a JSON response
+     * would be a capability handed to whoever is looking at the manager's
+     * screen — including over their shoulder, and including in a support
+     * screenshot. It belongs in a URL inside an email addressed to the
+     * renter, and in the controller line that fetches it for one.
+     */
+    public function testOnlyTheEmailPathEverReadsATokenBack(): void
+    {
+        $callers = [];
+        foreach (self::sourceFiles('rental') as $file) {
+            if (str_contains(self::code($file), 'trackingTokenOf(')) {
+                $callers[] = basename($file);
+            }
+        }
+        sort($callers);
+
+        $this->assertSame(
+            [
+                'RentalBookingRepository.php',
+                'RentalBookingService.php',
+                'RentalManagementController.php',
+            ],
+            $callers,
+            'Reading a tracking token back is for building a renter email and nothing else.'
         );
     }
 

@@ -33,6 +33,29 @@ Before submitting any code:
 10. ☐ Sensitive actions logged via `JournalService`.
 11. ☐ Non-essential cookies checked via `CookieConsentService::isAllowed()` before being set.
 
+## Exception messages that reach a visitor
+
+A caught exception's message is shown to a visitor **only** when its class
+implements `Core\Exception\UserFacingException`. Everywhere else, display it
+through `Core\Exception\UserFacingMessage::from($e, '<French fallback>')`,
+which substitutes the fallback you wrote and leaves the real text to the
+journal.
+
+- Implementing the marker is a claim about **every** message that class is
+  ever constructed with: French, a full sentence, naming nothing internal
+  (no file path, SQL fragment, class name, or library text). Read every
+  `throw new` of the class before adding it.
+- Never `throw new SomeUserFacingException($e->getMessage(), 0, $e)`. That
+  re-labels a technical message as user-facing and defeats the marker
+  entirely — write a French sentence at the wrap site and let `$previous`
+  carry the detail. This is checked by
+  `tests/Core/Exception/UserFacingMessageTest.php` and enforced by review;
+  it has already gone wrong three times (`SettingException`,
+  `ModuleException` — which leaked a filesystem path onto a config page —
+  and `MailException`, which is raw PHPMailer English by construction).
+- A value written now and rendered later (a `last_error` column a template
+  shows) is gated at the **write** site, not the read site.
+
 ## Cookie consent
 
 - Every cookie used by the site (core or module) must be declared: name, category, purpose (in French), and duration.
@@ -116,7 +139,8 @@ Mechanism: the TypeScript compiler used purely as a development-time checker ove
 - Never duplicate a Bootstrap component in custom CSS.
 - **Production frontend assets still require no build step.** No Sass, no webpack, no application bundler, no transpiler — `public/assets/js/*.js` is always plain, unbundled browser JavaScript, loaded via a classic `<script src="...">` tag, exactly as before. Any new vendored front-end library goes under `public/assets/vendor/<name>/` and must be added to `scripts/release.sh`'s dependency freshness gate (a new `check_vendored_asset_freshness` call — see that function's docblock) in the same change.
 - **npm/Node are permitted, but strictly as development/test tooling** — narrowly reconciling this repo's older, blanket "no npm" rule. `package.json`/`package-lock.json`/`node_modules/` exist solely to run TypeScript's `checkJs` static analysis (`tsconfig.json`, `scripts/js-typecheck.mjs`, § Static analysis above) and the two Node-based test stacks — Vitest (`tests/js/`) and Playwright (`tests/e2e/`, ARCHITECTURE.md § 15) — locally and in CI; none of it is ever required to run, build, or deploy ScoutMagic itself, and none of it ships in a release artifact (`scripts/release.sh` excludes it, and `node_modules/`/`coverage/`/`tests/e2e/` output are gitignored — see `.gitignore`). **A browser automation runtime is test infrastructure, not frontend architecture**: Playwright downloads a Chromium binary to *drive* the site the way a visitor's browser does, and compiles, bundles, transpiles, and minifies exactly nothing — `public/assets/js/*.js` is still shipped byte-for-byte as written, loaded by a plain `<script src="...">`. The same is true of `tsc`: `--noEmit` means it only reads `public/assets/js/*.js` and reports, it never writes a compiled/transpiled copy anywhere, and TypeScript itself never becomes the production source language. Do not let this permission creep into introducing an actual frontend build pipeline (bundler, Sass compiler, transpiler) — that remains banned unless this architecture is deliberately revisited.
-- Minimum 44px touch targets on interactive elements.
+- Touch targets: 44px is a comfort goal for small controls (icon-only buttons, `.btn-sm`, checkbox labels), handled centrally in `app.css`'s `pointer: coarse` block — never a universal minimum, and never via inline `min-height` styles in templates. WCAG 2.2 AA requires 24×24; Bootstrap's 38px defaults pass. Do not inflate standard inputs to 44px. See `design.md` §7.2.
+- UI conventions (lexicon, back navigation, button variants, feedback, page structure, empty states) live in `design.md` §7 and are enforced by `tests/Core/View/UxConventionsTest.php` — read §7 before adding any template.
 - HTML5 input types (`tel`, `date`, `email`) for appropriate keyboard on mobile.
 
 ## Database
@@ -132,7 +156,7 @@ Mechanism: the TypeScript compiler used purely as a development-time checker ove
 
 `settings.setting_type` drives validation (`Core\Config\SettingService`) and rendering. Beyond the usual `text`/`textarea`/`boolean`/`number`/`select`/`email`/`url`/`tel`/`date`/`color`, one type carries a security meaning:
 
-- **`secret`** — a setting whose *value* must never be displayed or exported. It is filtered out of Configuration > Paramètres entirely (`SettingsController::index()`), and the support package's `configuration-parameters.xlsx` writes `[REDACTED]` in its place while keeping the key and label visible (ARCHITECTURE.md §8.48). Use it for any setting that is a credential, a token, or anything a screenshot of the settings page must not reveal. **No setting carries it today** — every real credential lives outside `settings` (`secrets.enc`, or an encrypted BLOB column) and should keep doing so; `secret` is the safety net for the case where that isn't practical, not an invitation to start storing credentials in `settings`.
+- **`secret`** — a setting whose *value* must never be displayed or exported. It is filtered out of Configuration > Réglages entirely (`SettingsController::index()`), and the support package's `configuration-parameters.xlsx` writes `[REDACTED]` in its place while keeping the key and label visible (ARCHITECTURE.md §8.48). Use it for any setting that is a credential, a token, or anything a screenshot of the settings page must not reveal. **No setting carries it today** — every real credential lives outside `settings` (`secrets.enc`, or an encrypted BLOB column) and should keep doing so; `secret` is the safety net for the case where that isn't practical, not an invitation to start storing credentials in `settings`.
 
 ## RGPD — a new outbound flow is a documentation change
 

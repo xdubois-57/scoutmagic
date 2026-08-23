@@ -64,7 +64,7 @@ class TrackingService
 
     /**
      * Every request an identified session's email is linked to (primary or
-     * confirmed secondary) — the Espace animés menu hook and the "my
+     * confirmed secondary) — the Espace membres menu hook and the "my
      * requests" list on an identified visit to the tracking page.
      *
      * @return array<RegistrationRequest>

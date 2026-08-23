@@ -4,11 +4,13 @@
  */
 
 // Avatar notification badge (Core\Notification, Lot 2) — the count is
-// server-rendered on page load (nav.html.twig), refreshed every 60s (same
-// setInterval pattern as the backup-status/magic-link polls) and, when a
-// push arrives while a tab is open, immediately via the service worker's
-// postMessage (see public/sw.js's own 'push' handler) rather than waiting
-// out the next poll.
+// server-rendered on page load (nav.html.twig), refreshed every 60s via
+// ScoutMagicApi.poll (which also refreshes immediately when the tab
+// becomes visible again, so a count that went stale while the tab was in
+// the background corrects itself right away) and, when a push arrives
+// while a tab is open, immediately via the service worker's postMessage
+// (see public/sw.js's own 'push' handler) rather than waiting out the
+// next poll.
 //
 // Also keeps the installed app icon's OS-level badge (navigator.
 // setAppBadge()/clearAppBadge()) in sync with the same count. sw.js's own
@@ -45,23 +47,22 @@
     }
 
     function refresh() {
-        fetch('/api/notifications/unread-count', { headers: { 'Accept': 'application/json' } })
-            .then(function (res) { return res.ok ? res.json() : null; })
-            .then(function (data) {
-                if (data && typeof data.count === 'number') {
-                    render(data.count);
+        // Best-effort — a transient failure (data-less envelope) just
+        // keeps the last-known (server-rendered) count on screen. The
+        // promise is returned so ScoutMagicApi.poll never overlaps two
+        // in-flight refreshes.
+        return window.ScoutMagicApi.getJson('/api/notifications/unread-count')
+            .then(function (res) {
+                if (res.ok && res.data && typeof res.data.count === 'number') {
+                    render(res.data.count);
                 }
-            })
-            .catch(function () {
-                // Best-effort — a transient failure just keeps the
-                // last-known (server-rendered) count on screen.
             });
     }
 
     if (badges.length === 0) return;
 
     refresh();
-    setInterval(refresh, 60000);
+    window.ScoutMagicApi.poll(refresh, { intervalMs: 60000 });
 
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.addEventListener('message', function (event) {
