@@ -7,7 +7,7 @@
 //
 // Exercises the REAL public/assets/js/mass-mail-list.js (imported below,
 // never reimplemented) on top of the real api.js envelope, with the
-// server-side payload handed over as window.massMailListData exactly as
+// server-side payload handed over in the page's JSON island exactly as
 // _compose_dialog.html.twig's inline nonce-tagged script does.
 //
 // SCOPE. Most of this file is dialog glue — a few hundred lines of "show
@@ -22,6 +22,23 @@
 // The rest is left to tests/e2e/specs/mass-mail-merge.spec.js and the PHP
 // integration tests.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * Installs a page's server data the way the template does — a
+ * `<script type="application/json">` island — rather than an inline
+ * assignment to a window global. ScoutMagicApi.pageData() reads it.
+ */
+function installIsland(id, data) {
+    document.getElementById(id)?.remove();
+    if (data === undefined) {
+        return;
+    }
+    const el = document.createElement('script');
+    el.type = 'application/json';
+    el.id = id;
+    el.textContent = JSON.stringify(data);
+    document.body.appendChild(el);
+}
 
 const START_SENDING_MESSAGE =
     'Lancer l\'envoi ? La liste des destinataires sera figée et l\'envoi ne pourra plus être annulé.';
@@ -196,12 +213,12 @@ function email(overrides = {}) {
  * Boots the page, then opens email #7 so mmCurrentId is set — the status
  * actions all address the email currently in the dialog.
  *
- * @param {object} [data] the window.massMailListData payload
+ * @param {object} [data] the page's JSON-island payload
  * @param {object} [opened] the email GET response
  */
 async function bootAndOpen(data = listData(), opened = email()) {
     buildDom();
-    window.massMailListData = data;
+    installIsland('mass-mail-list-data', data);
     global.fetch = vi.fn(() => jsonResponse(opened));
     vi.resetModules();
     await import('../../public/assets/js/api.js');
@@ -441,7 +458,7 @@ describe('mass-mail-list.js: what each status locks', () => {
 
     it('toasts rather than silently doing nothing when the email cannot be loaded', async () => {
         buildDom();
-        window.massMailListData = listData();
+        installIsland('mass-mail-list-data', listData());
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Email introuvable.' }));
         vi.resetModules();
         await import('../../public/assets/js/api.js');
@@ -504,5 +521,46 @@ describe('mass-mail-list.js: saving a draft', () => {
             audience_id: null,
             scout_year_ids: [2],
         });
+    });
+});
+
+// The page's server data reaches this file as parsed JSON from a
+// `<script type="application/json">` island — DOM text, which is exactly
+// the source CodeQL follows into an innerHTML sink. The list markup is
+// built by string concatenation, so EVERY interpolated value has to be
+// escaped, ids and enums included: they are integers and server-side
+// enums today, and that is the kind of assumption that rots.
+describe('mass-mail-list.js: no value reaches the option markup unescaped', () => {
+    it('a quote in a list id or type cannot open an attribute of its own', async () => {
+        await bootAndOpen(listData({
+            defaultLists: [{
+                list_type: 'default_section" data-injected="1',
+                list_section_id: '2" data-injected="1',
+                label: 'Louveteaux',
+                description: 'Section',
+            }],
+            customLists: [{ id: '9" data-injected="1', name: 'Anciens', description: 'Liste maison' }],
+        }));
+
+        expect(document.querySelectorAll('#mm-list [data-injected]')).toHaveLength(0);
+        // …and the value survives intact as text, rather than being dropped.
+        const option = [...document.querySelectorAll('#mm-list option')]
+            .find((o) => o.textContent === 'Anciens');
+        expect(option.dataset.listId).toBe('9" data-injected="1');
+    });
+
+    it('a quote in a scout year label or id cannot break out either', async () => {
+        await bootAndOpen(listData({
+            scoutYears: {
+                previous: { id: '1" data-injected="1', label: '2024-2025', available: true },
+                current: { id: 2, label: '2025-2026', available: true },
+                next: { id: 3, label: '<img src=x onerror=alert(1)>', available: false },
+            },
+        }));
+
+        expect(document.querySelectorAll('#mm-scout-year-group [data-injected]')).toHaveLength(0);
+        expect(document.querySelector('#mm-scout-year-group img')).toBeNull();
+        expect(document.querySelector('label[for="mm-year-next"]').textContent)
+            .toBe('<img src=x onerror=alert(1)>');
     });
 });

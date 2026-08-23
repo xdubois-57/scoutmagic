@@ -82,26 +82,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/assets/js/sortable.js" defer></script>
 <script src="/assets/js/list-editor.js" defer></script>
-<script nonce="{{ csp_nonce }}">
-document.querySelectorAll('.module-toggle').forEach(toggle => {
-    toggle.addEventListener('change', async () => {
-        const moduleId = toggle.dataset.module;
-        const enabled = toggle.checked;
-        const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-        const res = await fetch('/config/modules/toggle', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ module_id: moduleId, enabled, _csrf_token: csrf })
-        });
-        const data = await res.json();
-        if (!data.success) {
-            alert(data.error);
-            toggle.checked = !enabled;
-        } else {
-            window.location.reload();
-        }
-    });
-});
-</script>
+<script src="/assets/js/config-modules.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

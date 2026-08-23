@@ -35,13 +35,21 @@
                 </p>
                 <form method="post" action="/config/inscriptions/schedule" class="row g-2 align-items-end">
                     {{ csrf_field()|raw }}
-                    <div class="col-auto">
-                        <label class="form-label small mb-1" for="scheduled_open_at">Ouverture (MM-JJ)</label>
-                        <input type="text" class="form-control form-control-sm" id="scheduled_open_at" name="scheduled_open_at" value="{{ scheduled_open_at }}" placeholder="09-30" pattern="\d{2}-\d{2}" style="max-width:120px;">
+                    <div class="col-auto" style="max-width:140px;">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'scheduled_open_at', field_name: 'scheduled_open_at',
+                            label: 'Ouverture (MM-JJ)', value: scheduled_open_at,
+                            placeholder: '09-30', pattern: '\\d{2}-\\d{2}',
+                            size: 'sm', wrapper_class: '',
+                        } only %}
                     </div>
-                    <div class="col-auto">
-                        <label class="form-label small mb-1" for="scheduled_close_at">Fermeture (MM-JJ)</label>
-                        <input type="text" class="form-control form-control-sm" id="scheduled_close_at" name="scheduled_close_at" value="{{ scheduled_close_at }}" placeholder="08-31" pattern="\d{2}-\d{2}" style="max-width:120px;">
+                    <div class="col-auto" style="max-width:140px;">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'scheduled_close_at', field_name: 'scheduled_close_at',
+                            label: 'Fermeture (MM-JJ)', value: scheduled_close_at,
+                            placeholder: '08-31', pattern: '\\d{2}-\\d{2}',
+                            size: 'sm', wrapper_class: '',
+                        } only %}
                     </div>
                     <div class="col-auto">
                         <button type="submit" class="btn btn-outline-primary btn-sm">Enregistrer la programmation</button>
@@ -162,29 +170,39 @@
 
                 <form method="get" action="/config/inscriptions" class="row g-2 align-items-end mb-4">
                     <div class="col-12 col-sm-4 col-md-3">
-                        <label class="form-label small mb-1" for="year">Année scoute</label>
-                        <select class="form-select form-select-sm" id="year" name="year">
-                            {% for year in selectable_years %}
-                                <option value="{{ year.id }}" {{ year.id == selected_year.id ? 'selected' : '' }}>
-                                    {{ year.label }}{{ year.id == target_year_id ? ' (cible)' : '' }}{{ year.id == current_year_id ? ' (en cours)' : '' }}
-                                </option>
-                            {% endfor %}
-                        </select>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'year', field_name: 'year', label: 'Année scoute',
+                            type: 'select', size: 'sm', wrapper_class: '',
+                            options: selectable_years|default([])|map(year => {
+                                value: year.id,
+                                label: year.label
+                                    ~ (year.id == target_year_id ? ' (cible)' : '')
+                                    ~ (year.id == current_year_id ? ' (en cours)' : ''),
+                                selected: year.id == selected_year.id,
+                            }),
+                        } only %}
                     </div>
                     <div class="col-12 col-sm-4 col-md-3">
-                        <label class="form-label small mb-1" for="status">État</label>
-                        <select class="form-select form-select-sm" id="status" name="status">
-                            <option value="">Tous</option>
-                            <option value="pending" {{ status_filter == 'pending' ? 'selected' : '' }}>En attente</option>
-                            <option value="accepted" {{ status_filter == 'accepted' ? 'selected' : '' }}>Acceptée</option>
-                            <option value="refused" {{ status_filter == 'refused' ? 'selected' : '' }}>Refusée</option>
-                            <option value="withdrawn" {{ status_filter == 'withdrawn' ? 'selected' : '' }}>Retirée</option>
-                            <option value="encoded" {{ status_filter == 'encoded' ? 'selected' : '' }}>Encodée dans Desk</option>
-                        </select>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'status', field_name: 'status', label: 'État',
+                            type: 'select', size: 'sm', wrapper_class: '',
+                            options: {
+                                '': 'Tous',
+                                'pending': 'En attente',
+                                'accepted': 'Acceptée',
+                                'refused': 'Refusée',
+                                'withdrawn': 'Retirée',
+                                'encoded': 'Encodée dans Desk',
+                            }|map((label, value) => {
+                                value: value, label: label, selected: status_filter == value,
+                            }),
+                        } only %}
                     </div>
                     <div class="col-12 col-sm-4 col-md-4">
-                        <label class="form-label small mb-1" for="q">Recherche (enfant, parent)</label>
-                        <input type="text" class="form-control form-control-sm" id="q" name="q" value="{{ search }}">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'q', field_name: 'q', label: 'Recherche (enfant, parent)',
+                            value: search, size: 'sm', wrapper_class: '',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-2">
                         <button type="submit" class="btn btn-outline-primary btn-sm w-100">Filtrer</button>

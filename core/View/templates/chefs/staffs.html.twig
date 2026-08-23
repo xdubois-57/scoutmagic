@@ -287,12 +287,16 @@
    oversizeWarningEnabled is the module addendum's rule: the advisory
    warning exists only when the server has no PDF compression backend of
    its own. #}
-<script nonce="{{ csp_nonce }}">
-window.staffsData = {{ {
+{# Server data as a JSON ISLAND, read by staffs.js through
+   ScoutMagicApi.pageData(). #}
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+<script type="application/json" id="staffs-data">
+{{ {
     oversizeWarningEnabled: section_document_compression_backend_none|default(false),
     oversizeWarningMb: section_document_oversize_warning_mb|default(5)
-}|json_encode|raw }};
+}|json_encode(json_flags)|raw }}
 </script>
+<script src="/assets/js/sortable.js" defer></script>
 <script src="/assets/js/list-editor.js" defer></script>
 <script src="/assets/js/staffs.js" defer></script>
 {% endif %}

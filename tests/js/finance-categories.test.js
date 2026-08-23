@@ -94,6 +94,7 @@ async function boot() {
     buildDom();
     vi.resetModules();
     await import('../../public/assets/js/api.js');
+    await import('../../public/assets/js/sortable.js');
     await import('../../public/assets/js/finance-categories.js');
     await settle();
     fetch.mockClear();

@@ -65,24 +65,15 @@ final class UxConventionsTest extends TestCase
      * `window.ScoutMagicConfirm.ask()` and `.prompt()`, all loaded on every
      * page by base.html.twig.
      *
-     * There were 91 native calls when this rule landed. `public/assets/js/`
-     * is now at zero and stays there; what is left is inside templates'
-     * inline `<script>` blocks, and each entry disappears as its template's
-     * script moves to a real file (which is also the only way it becomes
-     * testable at all).
+     * There were 91 native calls when this rule landed. The list is now
+     * EMPTY — not one alert(), confirm() or prompt() is left anywhere in
+     * `public/assets/js/` or in a template — and it must stay so. The last
+     * entries went as their templates' inline `<script>` blocks moved to
+     * real files, which is also the only way they became testable at all.
      *
      * @var array<string, int> file path (repo-relative) => count
      */
-    private const NATIVE_DIALOG_ALLOWLIST = [
-        'core/View/templates/account/index.html.twig' => 5,
-        'core/View/templates/admin/scout_year.html.twig' => 1,
-        'core/View/templates/config/modules.html.twig' => 1,
-        'core/View/templates/config/notifications.html.twig' => 1,
-        'modules/banner/views/config.html.twig' => 3,
-        'modules/calendar/views/public.html.twig' => 2,
-        'modules/mass_mail/views/tracking.html.twig' => 1,
-        'modules/registration/views/departures.html.twig' => 2,
-    ];
+    private const NATIVE_DIALOG_ALLOWLIST = [];
 
     /**
      * design.md §7.3 — the breadcrumb bar is the site's only back
@@ -371,6 +362,70 @@ final class UxConventionsTest extends TestCase
             $found,
             self::NATIVE_DIALOG_ALLOWLIST,
             'Use ScoutMagicToast.show() / ScoutMagicConfirm.ask() / .prompt() — never the browser\'s own box'
+        );
+    }
+
+    /**
+     * design.md §7.5 — behaviour lives in `public/assets/js/`, never in a
+     * template's own `<script>` block.
+     *
+     * A template is the one place JavaScript cannot be tested: Vitest
+     * imports files, not Twig output, so an inline block is invisible to
+     * the suite by construction — and every copy of a shared behaviour
+     * this chantier found (the `data-confirm` handler, three PDF
+     * thumbnail fallbacks, three « click a row to see its detail »
+     * handlers) was living in one. Inline blocks also carry a CSP nonce
+     * and interpolate server values into a script body, where a value
+     * containing `</script` ends the block mid-statement.
+     *
+     * Two shapes stay legitimate and are NOT counted:
+     * - `<script src=…>`, which is the point;
+     * - `<script type="application/json">` data islands, read with
+     *   `ScoutMagicApi.pageData()` — data to the parser, not code.
+     *
+     * There were 26 templates with real inline blocks when this rule
+     * landed. The list below is what is left, each with a reason no file
+     * could serve.
+     *
+     * @var array<string, int> template path => count of inline blocks
+     */
+    private const INLINE_SCRIPT_ALLOWLIST = [
+        // The three blocks base.html.twig cannot move out:
+        //  - the anti-FOUC theme bootstrap, which MUST run synchronously
+        //    before the first paint (a deferred file paints light, then
+        //    flips to dark in front of the visitor);
+        //  - the service-worker registration, whose URL carries the Twig
+        //    `app_version` and `pwa_icon_version` cache busters;
+        //  - `offline-config-data` is a JSON island and is not counted.
+        'core/View/templates/base.html.twig' => 2,
+    ];
+
+    public function testBehaviourLivesInFilesNotInTemplates(): void
+    {
+        $found = [];
+
+        foreach (self::templates() as $rel) {
+            $count = 0;
+            preg_match_all('~<script\b([^>]*)>(.*?)</script~s', self::templateSource($rel), $blocks, PREG_SET_ORDER);
+            foreach ($blocks as $block) {
+                if (str_contains($block[1], 'src=') || str_contains($block[1], 'application/json')) {
+                    continue;
+                }
+                if (trim($block[2]) === '') {
+                    continue;
+                }
+                $count++;
+            }
+            if ($count > 0) {
+                $found[$rel] = $count;
+            }
+        }
+
+        self::assertMatchesAllowlist(
+            $found,
+            self::INLINE_SCRIPT_ALLOWLIST,
+            'Behaviour belongs in public/assets/js/ (a spec can import a file, never a Twig block);'
+            . ' server data belongs in a <script type="application/json"> island'
         );
     }
 

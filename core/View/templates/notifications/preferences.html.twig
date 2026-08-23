@@ -80,13 +80,21 @@
         <div class="card-body">
             <h2 class="h5 mb-3">Heures calmes et discrétion</h2>
             <div class="row g-3 align-items-end">
+                {# No `field_name`: notification-preferences.js reads these
+                   by id and saves them itself. #}
                 <div class="col-6 col-sm-3">
-                    <label class="form-label small" for="quiet-hours-start">Début (facultatif)</label>
-                    <input type="time" class="form-control form-control-sm" id="quiet-hours-start" value="{{ quiet_hours_start ? quiet_hours_start[:5] : '' }}">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'quiet-hours-start', label: 'Début (facultatif)', type: 'time',
+                        value: quiet_hours_start ? quiet_hours_start[:5] : '',
+                        size: 'sm', wrapper_class: '',
+                    } only %}
                 </div>
                 <div class="col-6 col-sm-3">
-                    <label class="form-label small" for="quiet-hours-end">Fin</label>
-                    <input type="time" class="form-control form-control-sm" id="quiet-hours-end" value="{{ quiet_hours_end ? quiet_hours_end[:5] : '' }}">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'quiet-hours-end', label: 'Fin', type: 'time',
+                        value: quiet_hours_end ? quiet_hours_end[:5] : '',
+                        size: 'sm', wrapper_class: '',
+                    } only %}
                 </div>
                 <div class="col-12 col-sm-6">
                     <div class="form-check form-switch">

@@ -9,8 +9,8 @@
 // table. Extracted from the template's inline <script> so the Vitest suite
 // can exercise the production code directly (tests/js/llm-config.test.js).
 // The per-driver model lists come from the server through
-// window.llmConfigData, set by an inline nonce-tagged script in the
-// template — the window.supportDashboardCharts / window.massMailListData
+// the `llm-config-data` JSON island the template renders, read through
+// ScoutMagicApi.pageData() — the site-wide server-data-to-a-page
 // pattern.
 //
 // Consulting the dropdown is NOT activating a provider. The change handler
@@ -34,7 +34,8 @@
 
     var api = window.ScoutMagicApi;
     var escapeHtml = api.escapeHtml;
-    var MODELS_BY_DRIVER = (window.llmConfigData && window.llmConfigData.modelsByDriver) || {};
+    var pageData = window.ScoutMagicApi.pageData('llm-config-data') || {};
+    var MODELS_BY_DRIVER = pageData.modelsByDriver || {};
 
     /**
      * @param {string} id

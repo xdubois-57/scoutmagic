@@ -114,7 +114,7 @@
 
     {# Read-only event detail dialog, opened by clicking a bar in the grid.
        The shared embed names the title id eventDetailsModal-title — the id
-       showEventDetails() below fills in; the title starts empty and is set
+       calendar-public.js fills in; the title starts empty and is set
        per event. #}
     {% embed 'partials/modal.html.twig' with { id: 'eventDetailsModal', title: '' } only %}
         {% block body %}
@@ -134,86 +134,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-const eventDetailsModalEl = document.getElementById('eventDetailsModal');
-const eventDetailsModal = new bootstrap.Modal(eventDetailsModalEl);
-
-function formatDateFr(isoDate) {
-    const [y, m, d] = isoDate.split('-');
-    return `${d}/${m}/${y}`;
-}
-
-// Shared by both the month-grid bars and the "Prochains évènements" list
-// items below — both emit the identical data-* bag (see
-// partials/month_grid.html.twig and the <li> loop above), so there is only
-// ever one place that knows how to fill this modal.
-function showEventDetails(data) {
-    // The shared modal embed names its title '{id}-title'.
-    document.getElementById('eventDetailsModal-title').textContent = data.title;
-    document.getElementById('event-details-calendar-dot').style.backgroundColor = data.color;
-    document.getElementById('event-details-calendar-label').textContent = data.calendarLabel;
-
-    let dates = formatDateFr(data.startDate);
-    if (data.endDate && data.endDate !== data.startDate) {
-        dates += ' — ' + formatDateFr(data.endDate);
-    }
-    document.getElementById('event-details-dates').textContent = dates;
-
-    const timeRow = document.getElementById('event-details-time-row');
-    if (data.startTime) {
-        let time = data.startTime;
-        if (data.endTime) time += ' - ' + data.endTime;
-        document.getElementById('event-details-time').textContent = time;
-        timeRow.classList.remove('d-none');
-    } else {
-        timeRow.classList.add('d-none');
-    }
-
-    const locationRow = document.getElementById('event-details-location-row');
-    if (data.location) {
-        document.getElementById('event-details-location').textContent = data.location;
-        locationRow.classList.remove('d-none');
-    } else {
-        locationRow.classList.add('d-none');
-    }
-
-    document.getElementById('event-details-description').textContent = data.description || '';
-
-    eventDetailsModal.show();
-}
-
-// Both triggers are real <button> elements, so Enter and Space already fire
-// a click — no keyboard handler of our own, and none of the inline
-// onKeyDown attribute this site's CSP would refuse to run anyway.
-document.querySelectorAll('.calendar-event-bar--clickable, .calendar-upcoming-event-trigger').forEach(trigger => {
-    trigger.addEventListener('click', () => showEventDetails(trigger.dataset));
-});
-</script>
-{% if is_authenticated %}
-<script nonce="{{ csp_nonce }}">
-document.getElementById('copy-personal-link')?.addEventListener('click', () => {
-    const input = document.getElementById('personal-ics-link');
-    input.select();
-    navigator.clipboard?.writeText(input.value);
-});
-
-document.getElementById('regenerate-personal-link')?.addEventListener('click', async () => {
-    if (!confirm("Régénérer le lien invalidera l'ancien : les abonnements déjà configurés cesseront de se mettre à jour. Continuer ?")) {
-        return;
-    }
-    const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-    const res = await fetch('/calendar/personal-token/regenerate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ _csrf_token: csrf })
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        alert(data.error);
-    }
-});
-</script>
-{% endif %}
+<script src="/assets/js/calendar-public.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

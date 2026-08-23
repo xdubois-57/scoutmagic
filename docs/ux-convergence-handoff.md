@@ -1,9 +1,10 @@
 # UX convergence — handoff / reprise
 
-Document de passation du chantier « Convergence ScoutMagic » (branche
-`claude/refactor-ux-analysis-dc4itj`, RIEN n'est mergé sur main). Écrit pour
-la session Claude qui reprendra le travail. À SUPPRIMER de la branche avant
-merge — c'est un document de chantier, pas de la documentation produit.
+Document de passation du chantier « Convergence ScoutMagic ». Écrit pour
+la session Claude qui reprendra le travail. À SUPPRIMER quand le chantier
+sera clos — c'est un document de chantier, pas de la documentation
+produit. Les trois premières sessions sont mergées sur `main` (PR #38) ;
+la quatrième est sur `claude/refactor-ux-analysis-dc4itj`.
 
 Références :
 
@@ -11,7 +12,7 @@ Références :
   https://claude.ai/code/artifact/72d1ffad-0d11-4aab-a2e0-a0ff083cec0f
 - Rapport précédent (révision 3, fiches détaillées des 17 bloquants) :
   artifact « Revue UX ScoutMagic » du même compte.
-- Conventions du chantier : `design.md` §7.1 à §7.10 (écrit par ce chantier) ;
+- Conventions du chantier : `design.md` §7.1 à §7.11 (écrit par ce chantier) ;
   politique des messages d'exception : `AGENTS.md` § Exception messages ;
   verrou mécanique : `tests/Core/View/UxConventionsTest.php`.
 
@@ -188,35 +189,64 @@ tranchés, et un plan de test manuel existe
   1 173 tests JS / 62 fichiers, 38 scénarios Playwright, PHPStan `[OK]`,
   typecheck 0 nouveau.
 
-## À FAIRE (dans l'ordre suggéré)
+### Quatrième session — la fin du chantier de convergence
 
-1. **Extraction du JS inline restant** — 814 lignes dans 26 gabarits. Les
-   plus gros : `account/index.html.twig` (127 l., 5 boîtes natives),
-   `banner/views/config.html.twig` (88 l., 3),
-   `calendar/views/public.html.twig` (78 l., 2),
-   `finance/views/dashboard.html.twig` (64 l.),
-   `registration/views/passage.html.twig` (54 l.),
-   `auth/password_reset.html.twig` (52 l.). Le patron est établi : lire
-   `public/assets/js/config-badges.js` et sa spec, puis faire pareil.
-   Chaque extraction rend le fichier testable ET fait tomber une entrée de
-   `UxConventionsTest::NATIVE_DIALOG_ALLOWLIST`, qui ne peut que rétrécir.
-2. **`drop_zone`** — le seul composant de la section C jamais créé. Deux
-   zones de dépôt recodées + deux réimplémentations du réordonnancement
-   (~50 lignes de JS chacune).
-3. **Migration `form_field` restante** — le partial sert maintenant les
-   champs compacts, donc les fichiers que le relevé avait rejetés sont
-   éligibles : gallery/config, retro/settings, finance (dashboard, receipts,
-   import), mass_mail (list, tracking), groups (list, members, show),
-   sos_staff/admin, calendar (chief, config), registration/config,
-   admin/journal, admin/scout_year, config/maintenance,
-   notifications/preferences. Exclus : `setup/index.html.twig`, et tout
-   champ dont le contrôle porte des `data-*` lus par du JS (le partial ne
-   les émet pas).
-4. **Toujours ouverts, hors périmètre** : extractions IA des reçus ;
+Les trois points de l'ancienne liste « À FAIRE » sont faits.
+
+- **Plus un seul `<script>` de comportement dans un gabarit.** Les 26
+  gabarits qui en portaient encore sont vidés (16 nouveaux fichiers
+  testés : account-passkeys, banner-config, calendar-public,
+  finance-dashboard, password-reset, registration-passage,
+  registration-departures, registration-public-form, mass-mail-tracking,
+  config-modules, admin-scout-year, finance-import-form, mail-sandbox,
+  plus les trois socles ci-dessous). Deux confirmations sont devenues
+  `data-confirm` sur le formulaire, donc leurs pages n'ont plus de JS du
+  tout.
+- **`NATIVE_DIALOG_ALLOWLIST` est VIDE.** 91 boîtes natives au départ, zéro
+  aujourd'hui, nulle part.
+- **Nouveau verrou `testBehaviourLivesInFilesNotInTemplates`** : un gabarit
+  ne peut plus porter de `<script>` de comportement. Deux exceptions
+  documentées (l'amorce de thème anti-FOUC et l'enregistrement du service
+  worker, toutes deux dans base.html.twig).
+- **Les données serveur sont des îlots `<script type="application/json">`**,
+  lus par `ScoutMagicApi.pageData(id)`. Sept pages posaient un
+  `window.xxxData = {…}` inline ; `window-globals.d.ts` perd sept
+  déclarations.
+- **Quatre socles partagés de plus** : `pdf-thumbnail.js` (le repli d'une
+  vignette PDF absente, qui existait en trois exemplaires),
+  `reveal-details.js` (« cliquer une ligne pour voir son détail », trois
+  exemplaires, désormais piloté par `data-reveal`), `drop-zone.js` +
+  `partials/drop_zone.html.twig` (trois zones de dépôt), `sortable.js`
+  (trois réordonnancements par glisser-déposer), et `scroll-into-focus.js`.
+- **`form_field` : 20 → 47 gabarits, 155 inclusions.** Le partial a gagné
+  ce qui bloquait la migration : `field_name` facultatif, `data: {…}` sur
+  le contrôle ET sur une `<option>`, `wrapper_class`,
+  `label_visually_hidden`, `control_class_extra`, et le type `password`.
+- **Un défaut trouvé au passage** : la grille du réordonnancement
+  enregistrait sur le `drop` de l'élément dans un cas sur trois — or `drop`
+  ne se déclenche que si le pointeur est relâché SUR un voisin, donc
+  relâcher juste à côté laissait la liste réordonnée à l'écran et le
+  serveur dans l'ignorance. Tout passe par `dragend`.
+- **Quatre scénarios de bout en bout mis à jour**, qui ont trouvé ce
+  qu'aucun test unitaire ne pouvait voir : un dialogue du site est
+  invisible à Playwright en tant que dialogue, et un état vide masqué
+  n'est pas un état vide absent.
+
+## À FAIRE
+
+1. **La queue de la migration `form_field`** — 228 contrôles bruts dans
+   72 gabarits, dont plus aucun n'en a plus de dix. Les plus gros restants
+   sont les fiches de location (`rental/views/management/*`), le
+   constructeur de formulaires d'actualité
+   (`news/views/partials/_field.html.twig`, qui construit ses champs en
+   JavaScript) et `config/maintenance`. Hors de portée, avec la raison :
+   `setup/index.html.twig` (l'installateur rend avant que le thème
+   existe), un libellé qui porte du balisage (« Tapez **EFFACER** pour
+   confirmer »), et un `<select>` à `<optgroup>`.
+2. **Toujours ouverts, hors périmètre** : extractions IA des reçus ;
    prérequis FTP de la maintenance ; « Requis par : … » sur les cartes de
    modules ; luminance sur couleurs configurables ; conventions d'URL
-   (dette assumée). Les autres points de la section E de la révision 3
-   sont faits (troisième session).
+   (dette assumée).
 
 ## Pièges appris (à respecter absolument)
 
@@ -236,6 +266,13 @@ tranchés, et un plan de test manuel existe
   l'entrée dans le même commit que le correctif. Quand plusieurs agents
   extraient en parallèle, leur dire de NE PAS toucher au test et resserrer
   la liste soi-même à la fin.
+- **Un `{% for %}` Twig tolère `null`, un `|map` non.** Remplacer une
+  boucle par `options: xs|map(...)` casse tout rendu qui ne passe pas la
+  variable (un test de gabarit qui rend avec un contexte partiel, par
+  exemple) : écrire `xs|default([])|map(...)`.
+- **Une expression Twig dans un attribut est échappée.**
+  `<div{{ cond ? ' class="x"' : '' }}>` rend `class=&quot;x&quot;` —
+  écrire le balisage avec `{% if %}`.
 - **`aria-checked` des `role="switch"` est SYNCHRONISÉ par nav.js**
   (`ScoutMagicNav.syncSwitchAriaChecked`) : ne pas les supprimer —
   `tests/Core/View/SwitchAriaCheckedTest.php` les épingle.
@@ -245,8 +282,10 @@ tranchés, et un plan de test manuel existe
   création, l'empty_state n'en reçoit pas (un seul btn-primary par écran).
 - **Twig `|default(true)`** rend true pour `false` — utiliser
   `x is defined ? x : true` pour un booléen paramétrable.
-- **Le partial `form_field` n'émet pas de `data-*`** : un champ dont le
-  contrôle porte un `data-` lu par du JS n'est pas migrable tel quel.
+- **Le partial `form_field` émet maintenant des `data-*`** (sur le
+  contrôle et sur une `<option>`), et `field_name` y est facultatif. Ce
+  qui reste hors de portée : un libellé qui porte du balisage, et un
+  `<select>` à `<optgroup>`.
 - **`getByLabel(..., { exact: true })` casse quand un champ devient
   `required`** : le partial ajoute un « * » visible dans le libellé. Les
   specs concernées utilisent maintenant `getByLabel(/^Adresse email \*$/)`.
@@ -267,5 +306,16 @@ tranchés, et un plan de test manuel existe
   la stratégie par nom de fichier). Un nouveau gabarit d'email en texte
   brut n'a donc PAS besoin de `|raw` — et ne doit pas en avoir.
 - **Playwright dans ce conteneur** : `E2E_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium npm run e2e`.
-  Sans ça, les 38 scénarios échouent tous en 2 ms sur
+  Sans ça, les 40 scénarios échouent tous en 2 ms sur
   « Executable doesn't exist » — ce n'est jamais une régression du code.
+- **Remplacer une boîte native par le dialogue du site casse les
+  scénarios de bout en bout qui y répondaient**, et l'échec accuse
+  l'assertion, jamais le dialogue : Playwright ne VOIT pas la modale du
+  site comme un dialogue, donc `page.on('dialog')` ne se déclenche
+  jamais et le clic ne résout rien. Passer par
+  `tests/e2e/support/confirm-dialog.js` (`autoConfirm`,
+  `answerConfirmation`, `collectToasts`).
+- **Un `<script>` d'un gabarit ne peut pas être testé**, et c'est la
+  vraie raison de l'extraction : Vitest importe des fichiers, pas du
+  rendu Twig. Le verrou est
+  `UxConventionsTest::testBehaviourLivesInFilesNotInTemplates`.

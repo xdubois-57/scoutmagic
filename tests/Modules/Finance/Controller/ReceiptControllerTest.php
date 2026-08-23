@@ -269,14 +269,16 @@ class ReceiptControllerTest extends TestCase
         //
         // Now the input is the control it always was: labelled by the field
         // label, visually-hidden so it stays focusable, and opening its
-        // picker on Enter and Space with no script at all.
+        // picker on Enter and Space with no script at all. The markup is
+        // the shared partials/drop_zone.html.twig (design.md §7.10), which
+        // renders the attributes in its own order.
         $body = $this->controller->form(new Request('GET', '/finance/receipts/new', [], [], [], []), [])->getBody();
 
         $this->assertStringContainsString('id="drop-zone"', $body);
         $this->assertStringNotContainsString('role="button"', $body);
         $this->assertStringContainsString('<label class="form-label small" for="receipt-files">', $body);
         $this->assertMatchesRegularExpression(
-            '/<input type="file" class="visually-hidden" id="receipt-files"/',
+            '/<input\s+type="file"\s+class="visually-hidden"\s+id="receipt-files"/',
             $body
         );
     }

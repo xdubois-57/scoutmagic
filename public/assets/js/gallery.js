@@ -240,21 +240,10 @@
             uploadAll(fileList);
         }
 
-        ['dragenter', 'dragover'].forEach(function (evt) {
-            zone.addEventListener(evt, function (e) {
-                e.preventDefault();
-                zone.classList.add('border-primary');
-            });
-        });
-        ['dragleave', 'drop'].forEach(function (evt) {
-            zone.addEventListener(evt, function (e) {
-                e.preventDefault();
-                zone.classList.remove('border-primary');
-            });
-        });
-        zone.addEventListener('drop', function (e) { handleFiles(e.dataTransfer.files); });
-        zone.addEventListener('click', function () { input.click(); });
-        input.addEventListener('change', function () { handleFiles(input.files); });
+        // Drag, drop, click-to-pick and the highlight are the shared zone
+        // (public/assets/js/drop-zone.js); this file only says what to do
+        // with the files.
+        window.ScoutMagicDropZone.bind(zone, handleFiles, { input: input });
     })();
 
     // ------------------------------------------------------------------
@@ -266,7 +255,6 @@
         if (!grid) return;
 
         var reorderUrl = grid.dataset.reorderUrl;
-        var draggedItem = null;
 
         function persistOrder() {
             var ids = Array.from(grid.querySelectorAll('.gallery-media-item')).map(/** @param {HTMLElement} el */ function (el) {
@@ -280,23 +268,14 @@
             });
         }
 
-        grid.querySelectorAll('.gallery-media-item').forEach(/** @param {HTMLElement} item */ function (item) {
-            item.addEventListener('dragstart', function () {
-                draggedItem = item;
-                item.classList.add('opacity-50');
-            });
-            item.addEventListener('dragend', function () {
-                item.classList.remove('opacity-50');
-                draggedItem = null;
-                persistOrder();
-            });
-            item.addEventListener('dragover', function (e) {
-                e.preventDefault();
-                if (!draggedItem || draggedItem === item) return;
-                var rect = item.getBoundingClientRect();
-                var after = (e.clientX - rect.left) > rect.width / 2;
-                grid.insertBefore(draggedItem, after ? item.nextSibling : item);
-            });
+        // A grid, so the midpoint that decides « before or after » is the
+        // horizontal one — the only thing that differs from the vertical
+        // lists using the same shared toolbox
+        // (public/assets/js/sortable.js).
+        window.ScoutMagicSortable.bind(grid, {
+            itemSelector: '.gallery-media-item',
+            axis: 'x',
+            onReorder: persistOrder,
         });
 
         grid.querySelectorAll('.gallery-media-delete').forEach(/** @param {HTMLElement} btn */ function (btn) {

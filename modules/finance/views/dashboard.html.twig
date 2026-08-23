@@ -23,34 +23,44 @@
 
         <form method="get" action="/finance" class="row g-2 align-items-end mb-3">
             <div class="col-6 col-md-3">
-                <label class="form-label small" for="filter-account">Compte</label>
-                <select class="form-select form-select-sm" id="filter-account" name="account_id" required>
-                    {% for account in accounts %}
-                        <option value="{{ account.id }}" {{ selected_account and account.id == selected_account.id ? 'selected' : '' }}>{{ account.name }}</option>
-                    {% endfor %}
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-account', field_name: 'account_id', label: 'Compte',
+                    type: 'select', required: true, size: 'sm', wrapper_class: '',
+                    options: accounts|default([])|map(account => {
+                        value: account.id, label: account.name,
+                        selected: selected_account and account.id == selected_account.id,
+                    }),
+                } only %}
             </div>
             <div class="col-6 col-md-3">
-                <label class="form-label small" for="filter-fiscal-year">Exercice</label>
-                <select class="form-select form-select-sm" id="filter-fiscal-year" name="fiscal_year_id" required>
-                    {% for fiscalYear in fiscal_years %}
-                        <option value="{{ fiscalYear.id }}" {{ selected_fiscal_year and fiscalYear.id == selected_fiscal_year.id ? 'selected' : '' }}>{{ fiscalYear.label }}</option>
-                    {% endfor %}
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-fiscal-year', field_name: 'fiscal_year_id', label: 'Exercice',
+                    type: 'select', required: true, size: 'sm', wrapper_class: '',
+                    options: fiscal_years|default([])|map(fiscalYear => {
+                        value: fiscalYear.id, label: fiscalYear.label,
+                        selected: selected_fiscal_year and fiscalYear.id == selected_fiscal_year.id,
+                    }),
+                } only %}
             </div>
             <div class="col-6 col-md-3">
-                <label class="form-label small" for="filter-category">Catégorie</label>
-                <select class="form-select form-select-sm" id="filter-category" name="category_id">
-                    <option value="all" {{ filter_category_id == 'all' ? 'selected' : '' }}>Toutes</option>
-                    <option value="none" {{ filter_category_id == 'none' ? 'selected' : '' }}>Non catégorisé</option>
-                    {% for category in categories %}
-                        <option value="{{ category.id }}" {{ filter_category_id == category.id ? 'selected' : '' }}>{{ category.name }}</option>
-                    {% endfor %}
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-category', field_name: 'category_id', label: 'Catégorie',
+                    type: 'select', size: 'sm', wrapper_class: '',
+                    options: [
+                        { value: 'all', label: 'Toutes', selected: filter_category_id == 'all' },
+                        { value: 'none', label: 'Non catégorisé', selected: filter_category_id == 'none' },
+                    ]|merge(categories|default([])|map(category => {
+                        value: category.id, label: category.name,
+                        selected: filter_category_id == category.id,
+                    })),
+                } only %}
             </div>
             <div class="col-6 col-md-3">
-                <label class="form-label small" for="filter-search">Recherche</label>
-                <input type="text" class="form-control form-control-sm" id="filter-search" name="q" value="{{ filter_search }}" placeholder="Libellé, commentaire, reçu...">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'filter-search', field_name: 'q', label: 'Recherche',
+                    value: filter_search, placeholder: 'Libellé, commentaire, reçu...',
+                    size: 'sm', wrapper_class: '',
+                } only %}
             </div>
             <div class="col-12">
                 <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
@@ -282,74 +292,30 @@
 
 {% block scripts %}
     {% if not no_accounts %}
-        <script nonce="{{ csp_nonce }}">
-        document.querySelectorAll('img.pdf-thumbnail').forEach(img => {
-            img.addEventListener('error', () => {
-                const fallback = document.createElement('div');
-                fallback.className = 'd-flex align-items-center justify-content-center bg-body-secondary rounded';
-                fallback.style.height = '160px';
-                fallback.innerHTML = '<i class="bi bi-file-earmark-pdf fs-1"></i>';
-                img.replaceWith(fallback);
-            }, { once: true });
-        });
-        </script>
-    {% endif %}
-    {% if selected_fiscal_year and category_summary %}
-        <script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
-        <script nonce="{{ csp_nonce }}">
-        {#
-           JSON_HEX_TAG/JSON_HEX_AMP: a category name is free text, and
-           without them a name containing HTML tag-closing characters could
-           break out of this script block early. CSP (nonce, no
-           unsafe-inline) stops that from executing, but it still breaks
-           the page — and escaping costs nothing.
-        #}
-        {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
-        const categoryLabels = {{ category_summary|map(row => row.category_name ?? 'Non catégorisé')|json_encode(json_flags)|raw }};
-        const categoryIncome = {{ category_summary|map(row => row.income)|json_encode(json_flags)|raw }};
-        const categoryExpense = {{ category_summary|map(row => row.expense)|json_encode(json_flags)|raw }};
-        const evolutionLabels = {{ balance_evolution|map(point => point.month)|json_encode(json_flags)|raw }};
-        const evolutionBalances = {{ balance_evolution|map(point => point.balance)|json_encode(json_flags)|raw }};
-        const netPositive = {{ net_category_breakdown.positive|json_encode(json_flags)|raw }};
-        const netNegative = {{ net_category_breakdown.negative|json_encode(json_flags)|raw }};
-
-        const positiveColors = ['#198754', '#20c997', '#0d6efd', '#0dcaf0', '#adb5bd'];
-        const negativeColors = ['#dc3545', '#fd7e14', '#6f42c1', '#d63384', '#adb5bd'];
-
-        const netLabels = netPositive.map(row => row.label).concat(netNegative.map(row => row.label));
-        const netValues = netPositive.map(row => row.net).concat(netNegative.map(row => row.net));
-        const netColors = netPositive.map((row, i) => positiveColors[i] ?? positiveColors[positiveColors.length - 1])
-            .concat(netNegative.map((row, i) => negativeColors[i] ?? negativeColors[negativeColors.length - 1]));
-
-        new Chart(document.getElementById('chart-net-category-pie'), {
-            type: 'pie',
-            data: {
-                labels: netLabels,
-                datasets: [{ data: netValues, backgroundColor: netColors }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
-        });
-
-        new Chart(document.getElementById('chart-income-expense-bar'), {
-            type: 'bar',
-            data: {
-                labels: categoryLabels,
-                datasets: [
-                    { label: 'Recettes', data: categoryIncome, backgroundColor: '#198754' },
-                    { label: 'Dépenses', data: categoryExpense, backgroundColor: '#dc3545' }
-                ]
-            },
-            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
-        });
-
-        new Chart(document.getElementById('chart-balance-line'), {
-            type: 'line',
-            data: {
-                labels: evolutionLabels,
-                datasets: [{ label: 'Solde', data: evolutionBalances, borderColor: '#0d6efd', tension: 0.2 }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
-        });
-        </script>
+        {% if selected_fiscal_year and category_summary %}
+            {#
+              A JSON island, not an inline assignment: the parser reads it
+              as data, so a category named with a « < » cannot end the
+              block early, and it needs no nonce. JSON_HEX_TAG/JSON_HEX_AMP
+              escape those characters anyway, so the island cannot be
+              closed from inside either (base.html.twig's
+              `offline-config-data` is the same shape).
+            #}
+            {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+            <script type="application/json" id="finance-dashboard-data">
+{{ {
+                categoryLabels: category_summary|map(row => row.category_name ?? 'Non catégorisé'),
+                categoryIncome: category_summary|map(row => row.income),
+                categoryExpense: category_summary|map(row => row.expense),
+                evolutionLabels: balance_evolution|map(point => point.month),
+                evolutionBalances: balance_evolution|map(point => point.balance),
+                netPositive: net_category_breakdown.positive,
+                netNegative: net_category_breakdown.negative
+            }|json_encode(json_flags)|raw }}
+            </script>
+            <script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
+        {% endif %}
+        <script src="/assets/js/pdf-thumbnail.js" defer></script>
+        <script src="/assets/js/finance-dashboard.js" defer></script>
     {% endif %}
 {% endblock %}

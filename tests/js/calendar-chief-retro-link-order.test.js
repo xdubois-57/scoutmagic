@@ -112,7 +112,7 @@ beforeEach(() => {
     window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
     window.ScoutMagicToast = { show: vi.fn() };
     delete window.bootstrap;
-    delete window.calendarChiefData;
+    document.getElementById('calendar-chief-data')?.remove();
 });
 
 describe('calendar-chief.js openEditModal() — retro link populate-before-reveal order', () => {

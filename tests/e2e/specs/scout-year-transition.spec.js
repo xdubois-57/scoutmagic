@@ -67,6 +67,7 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test } from '@playwright/test';
 
+import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 // Shared with specs/optional-module-dependencies.spec.js, which switches
 // modules off for the opposite reason — see support/modules.js.
@@ -189,11 +190,13 @@ test('the whole site transitions to the next scout year through the documented w
         }
     });
 
-    // The last step guards itself with a window.confirm() ("Activer cette
-    // année pour tout le monde ?"). Playwright dismisses dialogs by
-    // default, which would silently cancel the submit, so accepting it is
-    // part of driving the page as a human would.
-    page.on('dialog', (dialog) => dialog.accept());
+    // The last step guards itself with the site's own confirmation
+    // dialog ("Activer cette année pour tout le monde ?", `data-confirm`
+    // on the form). Playwright cannot see it as a dialog at all, so the
+    // click resolves nothing unless something answers it — driving the
+    // page as a human would. Installed before the first navigation,
+    // because the observer is an init script.
+    await autoConfirm(page, { native: false });
 
     await loginAsAdmin(page);
 
