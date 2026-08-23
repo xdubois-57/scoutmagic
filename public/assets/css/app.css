@@ -391,6 +391,29 @@ body:has(> #cookie-banner) {
     display: flex;
 }
 
+/* The separator belongs to the text it separates, not to the tallest
+   crumb in the row.
+
+   Bootstrap renders it as a floated `::before` on each crumb after the
+   first. A float is placed at the top of its containing block, which is
+   invisible as long as every crumb is the same height — plain text. One
+   crumb here is not: a `parents` entry that matches a menu renders as a
+   real <button> (partials/breadcrumb_bar.html.twig), and the touch
+   baseline above gives every .btn `min-height: 44px` on a coarse
+   pointer. On a phone that crumb's <li> is therefore 44px tall while its
+   neighbours are 24px, and the « / » in front of it floats to the top of
+   those 44px — roughly ten pixels above the words it sits between.
+   Reported from a real phone; a mouse-driven browser never shows it,
+   which is why it survived the review.
+
+   float: none puts the separator back in the crumb's own line box, on
+   the same baseline as the text, whatever height the crumb ends up
+   with. Nothing else about the bar changes: the tap target stays 44px,
+   and `padding-left` on the crumb keeps the spacing Bootstrap intends. */
+.breadcrumb-bar .breadcrumb-item + .breadcrumb-item::before {
+    float: none;
+}
+
 /* Core\Security\HumanCheck — partials/human_check_fields.html.twig's
    honeypot trap field. Global (app.css, loaded on every page by
    base.html.twig) rather than components.css (opt-in per template) since
