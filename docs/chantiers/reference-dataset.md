@@ -514,3 +514,64 @@ et dans le README, et un test le tient.
 4. **Les collaborateurs IA du module Finances reçoivent un connecteur nul**, ce
    que fait la racine de composition elle-même quand `llm_connector` est
    désactivé : la catégorisation retombe sur les règles.
+
+
+---
+
+## IT-06 — Les extras déclaratifs
+
+**Livré.**
+
+- **`ExtrasBlueprint`** — la table : décalages d'année scoute, départs marqués
+  avec commentaire, attributions de badges, évènements de calendrier, libellés
+  et montant des créances attendues.
+- **`ExtrasApplier`** — l'application, **toujours par les vrais services** :
+  `MemberYearRepository::updateScoutYearOffset()`, `DepartureService`,
+  `BadgeService` (+ semis des badges par défaut et des badges référents),
+  `PhotoIngestionService` pour les 57 photos, `CalendarEventService`,
+  `ExpectedReceivableService`.
+- **`build.php`** enrichi d'une étape 5 et de son rapport.
+- **Quatre tests ajoutés** à `ReferenceDatasetBuilderTest` : les extras
+  s'appliquent, chaque photo passe réellement par le pipeline de téléversement,
+  une créance existe par communication structurée, et les extras d'un module
+  désactivé sont ignorés.
+
+**Exécution réelle**, sur une seconde instance jetable : 2 décalages,
+3 départs, 5 badges, 43 photos individuelles, 14 photos de groupe,
+9 évènements, 17 créances. Vérifié sur disque : 43 `thumb.webp` et 14
+`md.webp` réellement générés, et une photo de groupe stockée en 1448×1086,
+soit un 4:3 exact — les trois choses (recadrage, retrait EXIF, dérivé) qu'une
+écriture directe dans `member_photos` aurait sautées, et la raison d'être
+d'IT-05bis.
+
+**Le sous-ensemble est assumé et nommé.** Le chantier demandait une couverture
+large plutôt qu'exhaustive et autorisait explicitement à proposer un
+sous-ensemble. Sont couverts les sept extras dont le reste du jeu de données a
+besoin pour avoir du sens. Ne le sont pas : documents de section, articles avec
+formulaire, groupes de discussion, demandes d'inscription, locations — chacun
+demandant de recomposer la chaîne complète de son module (notifications,
+planificateur, stockage chiffré, connecteur IA optionnel), soit beaucoup de
+surface de câblage à maintenir pour une fixture. La liste et la raison sont
+dans README.md §8.3.
+
+**Décisions prises en autonomie.**
+
+1. **Un module désactivé sur la cible est ignoré, pas fatal.** `ExtrasApplier`
+   vérifie l'existence des tables avant d'écrire. Un module désactivé n'a pas
+   de tables — c'est une configuration, pas une panne — et planter à mi-course
+   laisserait le jeu de données à moitié appliqué. C'est aussi ce qui permet
+   aux tests de couvrir le chemin sans monter le schéma du calendrier.
+2. **Le montant dû d'une créance n'est pas le montant payé.** Les paiements du
+   relevé sont tirés entre 35 € et 95 €, la cotisation vaut 65 € : certains
+   foyers sont à jour, d'autres en dessous, d'autres au-dessus. Une page
+   « Paiements attendus » où tout est soldé ne montre rien.
+3. **Un départ marqué qui ne se réalise pas.** Deux des trois marquages
+   correspondent à des membres réellement absents l'année suivante ; le
+   troisième porte sur quelqu'un qui reste. Un marquage est une prévision, pas
+   un fait, et une grille « Départs » réaliste contient les deux.
+4. **PHPStan a attrapé quatre constructeurs** — `DepartureRepository`,
+   `CalendarRepository`, `CalendarUnitFeedTokenRepository`,
+   `ExpectedReceivableRepository` — qui prennent tous un `EncryptionService`
+   en second argument. C'est exactement la classe de défaut pour laquelle ce
+   répertoire est dans les `paths` de `phpstan.neon`, et elle s'est
+   matérialisée dès la première itération qui compose beaucoup de services.

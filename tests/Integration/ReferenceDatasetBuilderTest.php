@@ -14,6 +14,9 @@ use Tests\Fixtures\ReferenceDataset\BankBlueprint;
 use Tests\Fixtures\ReferenceDataset\DatasetGenerator;
 use Tests\Fixtures\ReferenceDataset\DemoAccounts;
 use Tests\Fixtures\ReferenceDataset\DeskImportReplay;
+use Tests\Fixtures\ReferenceDataset\ExtrasApplier;
+use Tests\Fixtures\ReferenceDataset\ExtrasBlueprint;
+use Tests\Fixtures\ReferenceDataset\PhotoLot;
 use Tests\Fixtures\ReferenceDataset\FinanceSeeder;
 use Tests\Fixtures\ReferenceDataset\UnitBlueprint;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -36,12 +39,38 @@ final class ReferenceDatasetBuilderTest extends TestCase
 {
     private \PDO $pdo;
     private EncryptionService $encryption;
+    private string $storagePath;
+
+    /** @var array<string, int> */
+    private array $yearIds = [];
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         FinanceTestHelper::createTables($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->storagePath = sys_get_temp_dir() . '/scoutmagic_refdataset_' . uniqid();
+        mkdir($this->storagePath, 0755, true);
+    }
+
+    protected function tearDown(): void
+    {
+        self::removeDirectory($this->storagePath);
+    }
+
+    private static function removeDirectory(string $directory): void
+    {
+        if (!is_dir($directory)) {
+            return;
+        }
+        foreach (scandir($directory) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $path = $directory . '/' . $entry;
+            is_dir($path) ? self::removeDirectory($path) : @unlink($path);
+        }
+        @rmdir($directory);
     }
 
     private static function datasetRoot(): string
@@ -163,6 +192,95 @@ final class ReferenceDatasetBuilderTest extends TestCase
         }
     }
 
+    // ---------------------------------------------------------------- extras
+
+    public function testTheExtrasApplyThroughTheRealServices(): void
+    {
+        $counts = $this->applyExtras();
+
+        self::assertSame(2, $counts['décalages d\'année']);
+        self::assertSame(count(ExtrasBlueprint::DEPARTURES), $counts['départs marqués']);
+        self::assertSame(count(ExtrasBlueprint::BADGES), $counts['badges attribués']);
+        self::assertGreaterThan(30, $counts['photos de membres'], 'Les portraits ne sont plus attribués.');
+        self::assertSame(count(PhotoLot::GROUP_PHOTOS, COUNT_RECURSIVE) - count(PhotoLot::GROUP_PHOTOS), $counts['photos de groupe']);
+    }
+
+    public function testEveryPhotoGoesThroughTheRealUploadPipeline(): void
+    {
+        // Not a row written by hand: a `files` entry per photo, a derivative
+        // per photo, and the group photos cropped to 4:3 before storage. Those
+        // three are exactly what writing into member_photos directly would
+        // have skipped — and the only reason IT-05bis extracted the pipeline.
+        $this->applyExtras();
+
+        $memberPhotos = (int) ($this->pdo->query('SELECT COUNT(*) AS n FROM member_photos')?->fetch()['n'] ?? 0);
+        $sectionPhotos = (int) ($this->pdo->query('SELECT COUNT(*) AS n FROM section_staff_photos')?->fetch()['n'] ?? 0);
+        $memberFiles = (int) ($this->pdo->query(
+            "SELECT COUNT(*) AS n FROM files WHERE relative_path LIKE 'core/member_photos/%'"
+        )?->fetch()['n'] ?? 0);
+
+        self::assertGreaterThan(30, $memberPhotos);
+        self::assertSame($memberPhotos, $memberFiles, 'Chaque photo de membre doit avoir sa ligne files.');
+        self::assertGreaterThan(0, $sectionPhotos);
+
+        $derivatives = glob($this->storagePath . '/core/member_photos/*.thumb.webp') ?: [];
+        self::assertCount($memberPhotos, $derivatives, 'Chaque portrait doit avoir sa vignette.');
+
+        $stored = glob($this->storagePath . '/core/section_photos/*') ?: [];
+        $stored = array_values(array_filter($stored, static fn (string $p): bool => !str_contains($p, '.md.webp')));
+        self::assertNotEmpty($stored);
+        $size = getimagesize($stored[0]);
+        self::assertNotFalse($size);
+        self::assertEqualsWithDelta(4 / 3, $size[0] / $size[1], 0.01, 'Une photo de groupe n\'a pas été recadrée en 4:3.');
+    }
+
+    public function testAReceivableExistsForEveryStructuredCommunication(): void
+    {
+        // What turns the membership payments — which no categorisation rule
+        // matches, and none should — into a reconciliation instead of a
+        // mystery.
+        $this->applyExtras();
+
+        $expected = 0;
+        foreach (UnitBlueprint::YEARS as $year) {
+            $expected += count(BankBlueprint::communicationsFor($year));
+        }
+
+        $found = (int) ($this->pdo->query('SELECT COUNT(*) AS n FROM finance_expected_receivables')?->fetch()['n'] ?? 0);
+        self::assertSame($expected, $found);
+    }
+
+    public function testTheExtrasOfADisabledModuleAreSkippedRatherThanFatal(): void
+    {
+        // The calendar tables are absent from this test database, exactly as
+        // they are on an instance where the module is disabled. A build must
+        // skip those extras, not die halfway and leave the dataset
+        // half-applied.
+        $counts = $this->applyExtras();
+
+        self::assertSame(0, $counts['évènements de calendrier']);
+        self::assertGreaterThan(0, $counts['créances attendues'], 'Les modules présents doivent, eux, être traités.');
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function applyExtras(): array
+    {
+        $superadminId = $this->replayDesk();
+        $seeder = new FinanceSeeder($this->pdo, $this->encryption, self::datasetRoot(), $superadminId);
+        $seeder->ensureModuleDefaults();
+        $seeder->seed();
+
+        return (new ExtrasApplier(
+            $this->pdo,
+            $this->encryption,
+            $this->storagePath,
+            self::datasetRoot(),
+            $superadminId,
+        ))->apply($this->yearIds, $seeder->accountIds()['unite'] ?? 0);
+    }
+
     /**
      * @return array<string, \Tests\Fixtures\ReferenceDataset\Person>
      */
@@ -182,9 +300,9 @@ final class ReferenceDatasetBuilderTest extends TestCase
         $superadminId = (new DemoAccounts($this->pdo, $this->encryption, $this->people()))->ensureSuperadmin();
 
         $replay = new DeskImportReplay($this->pdo, $this->encryption, self::datasetRoot());
-        $yearIds = $replay->ensureYears();
-        $replay->importAll($yearIds, $superadminId);
-        $replay->confirmFunctionRoles($yearIds);
+        $this->yearIds = $replay->ensureYears();
+        $replay->importAll($this->yearIds, $superadminId);
+        $replay->confirmFunctionRoles($this->yearIds);
 
         return $superadminId;
     }

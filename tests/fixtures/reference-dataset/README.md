@@ -70,6 +70,8 @@ tests/fixtures/reference-dataset/
   InstanceContext.php    ouvre l'installation cible et refuse les mauvaises
   FinanceSeeder.php      comptes bancaires + import des six relevés
   DemoAccounts.php       LA TABLE : quel membre porte quel rôle de démo
+  ExtrasBlueprint.php    LA TABLE : décalages, départs, badges, évènements
+  ExtrasApplier.php      applique les extras par les vrais services
   desk/                  les trois exports Desk générés, commités
   bank/                  les six relevés BNP générés, commités
   photos/                le lot de photos (§4) + assignments.csv, généré
@@ -286,8 +288,48 @@ construction (§11).
 | Sections | 8 + Staff d'U, `Iama Horizon` inactive |
 
 Les 20 mouvements non catégorisés sont les cotisations à communication
-structurée : elles se réconcilient contre des créances attendues, pas contre
-une règle de libellé.
+structurée : elles se réconcilient contre des créances attendues (§8.3), pas
+contre une règle de libellé.
+
+### 8.3 Les extras, et le sous-ensemble couvert
+
+Les extras sont tout ce que Desk ne connaît pas. Ils sont déclarés dans
+`ExtrasBlueprint` et appliqués par `ExtrasApplier`, **toujours par les vrais
+services** — jamais une écriture directe dans `member_photos`, `member_badges`
+ou `finance_expected_receivables`.
+
+**Couverts :**
+
+| Extra | Ce qu'il apporte |
+|---|---|
+| Décalages d'année | 2 membres, dont `T0009` en A1 — l'héritage par-dessus l'année manquante (scénario 5). |
+| Départs marqués | 3, avec commentaire : deux qui se réalisent, un qui ne se réalise pas. C'est à quoi ressemble une grille « Départs » en mars. |
+| Badges | 5 attributions sur `Infirmier` et `Trésorier`, après le semis des badges par défaut et des badges référents de section. |
+| Photos individuelles | 43, par `PhotoIngestionService` — le pipeline de `/upload`. |
+| Photos de groupe | 14, recadrées en 4:3 avant stockage. |
+| Évènements de calendrier | 9, sur les calendriers de section et le calendrier d'unité. |
+| Créances attendues | 17, une par communication structurée. Le montant dû (65 €) n'est **pas** le montant payé : certains foyers sont à jour, d'autres non — une page de réconciliation où tout est soldé ne montre rien. |
+
+**Non couverts, délibérément.** Le chantier demandait « une couverture large
+des modules, pas l'exhaustivité », et autorisait explicitement à proposer un
+sous-ensemble plutôt que de livrer une couverture partielle non documentée.
+Manquent donc : **documents de section**, **articles d'actualité avec
+formulaire**, **groupes de discussion et messages**, **demandes d'inscription**,
+**bien en location avec réservation**.
+
+La raison est la même pour les cinq : chacun demande de recomposer la chaîne
+complète de son module — notifications, planificateur, stockage chiffré,
+parfois un connecteur IA optionnel — soit beaucoup de surface de câblage pour
+une fixture, et autant de constructeurs à suivre à chaque évolution. Les sept
+extras couverts sont ceux dont le reste du jeu de données a besoin pour avoir
+du sens : sans les photos le trombinoscope est vide, sans les créances les
+vingt cotisations ne se réconcilient contre rien, sans le décalage d'année le
+scénario 5 n'est pas observable.
+
+**Un module désactivé sur l'instance cible est ignoré, pas fatal.**
+`ExtrasApplier` vérifie que les tables du module existent avant d'écrire :
+un module désactivé n'a pas de tables, et c'est une configuration, pas une
+panne. Le compteur affiché tombe alors à zéro.
 
 ## 9. Régénération des fichiers
 

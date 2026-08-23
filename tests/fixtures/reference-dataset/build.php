@@ -40,6 +40,7 @@ require_once __DIR__ . '/../../../vendor/autoload.php';
 use Tests\Fixtures\ReferenceDataset\DatasetGenerator;
 use Tests\Fixtures\ReferenceDataset\DemoAccounts;
 use Tests\Fixtures\ReferenceDataset\DeskImportReplay;
+use Tests\Fixtures\ReferenceDataset\ExtrasApplier;
 use Tests\Fixtures\ReferenceDataset\FinanceSeeder;
 use Tests\Fixtures\ReferenceDataset\InstanceContext;
 use Tests\Fixtures\ReferenceDataset\UnitBlueprint;
@@ -131,7 +132,17 @@ printf(
     $financeCounts['duplicates'],
 );
 
-// 5. Les comptes de démonstration adossés à des membres — après les imports,
+// 5. Les extras : tout ce que Desk ne connaît pas, appliqué par les vrais
+//    services — photos par le pipeline de téléversement, décalages d'année,
+//    départs, badges, évènements, créances attendues.
+$extras = new ExtrasApplier($pdo, $encryption, $context->storagePath(), $datasetRoot, $superadminId);
+$extraCounts = $extras->apply($yearIds, $finance->accountIds()['unite'] ?? 0);
+echo "\nExtras appliqués :\n";
+foreach ($extraCounts as $label => $count) {
+    printf("  %-26s %3d\n", $label, $count);
+}
+
+// 6. Les comptes de démonstration adossés à des membres — après les imports,
 //    puisque c'est l'import Desk qui les crée.
 $accounts = $demoAccounts->seedMemberAccounts();
 echo "\nComptes de démonstration (mot de passe : " . DemoAccounts::PASSWORD . ")\n";
@@ -139,7 +150,7 @@ foreach ($accounts as $handle => $email) {
     printf("  %-12s %s\n", $handle, $email);
 }
 
-// 6. Le rapport final, par année et par section.
+// 7. Le rapport final, par année et par section.
 echo "\nEffectifs constatés en base :\n";
 foreach (UnitBlueprint::YEARS as $label) {
     $statement = $pdo->prepare(
@@ -160,7 +171,8 @@ foreach ($sections !== false ? $sections->fetchAll(\PDO::FETCH_ASSOC) : [] as $s
     );
 }
 
-echo "\nTerminé. Les extras (photos, badges, documents, évènements, articles,\n";
-echo "groupes, inscriptions, locations) arrivent à l'itération suivante.\n";
+echo "\nTerminé. Les extras non couverts — documents de section, articles avec\n";
+echo "formulaire, groupes de discussion, demandes d'inscription, locations —\n";
+echo "sont listés dans README.md §8.3 avec la raison.\n";
 echo "\nPensez à prendre une sauvegarde Maintenance : elle sert de point de\n";
 echo "restauration jetable entre deux essais (README.md §11).\n";
