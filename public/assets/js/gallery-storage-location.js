@@ -176,7 +176,6 @@
     var explainWrap = document.getElementById('s3-explain-wrap');
     var explainBtn = /** @type {HTMLButtonElement} */ (document.getElementById('s3-explain-ai'));
     var explainResult = document.getElementById('s3-explain-result');
-    var lastError = '';
 
     if (testBtn) {
         testBtn.addEventListener('click', function () {
@@ -208,7 +207,6 @@
                     testResult.innerHTML = '<div class="alert alert-success mb-0 py-2">Connexion réussie.</div>';
                 } else {
                     testResult.innerHTML = '<div class="alert alert-danger mb-0 py-2">' + escapeHtml(data.error || 'Échec de la connexion.') + '</div>';
-                    lastError = data.error || 'Échec de la connexion.';
                     if (explainWrap) explainWrap.classList.remove('d-none');
                 }
             });
@@ -228,8 +226,13 @@
                 region: /** @type {HTMLInputElement} */ (document.getElementById('s3-region')).value,
                 bucket: /** @type {HTMLInputElement} */ (document.getElementById('s3-bucket')).value,
                 access_key: /** @type {HTMLInputElement} */ (document.getElementById('s3-access-key')).value,
-                secret_key_length: secretKey.length,
-                error: lastError
+                secret_key_length: secretKey.length
+                // The error itself is deliberately NOT sent. The browser
+                // only ever had the French summary, which says « vérifiez
+                // vos identifiants » for half a dozen distinct mistakes;
+                // the provider's own words are what diagnose it, and they
+                // stay server-side (Service\S3TestFailure) rather than
+                // being handed to the page and handed back.
             }).then(function (res) {
                 explainBtn.disabled = false;
                 if (isNetworkFailure(res)) {

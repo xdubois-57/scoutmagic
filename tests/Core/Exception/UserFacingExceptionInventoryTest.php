@@ -45,6 +45,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Core\Image\ImageDimensionException::class,
         \Core\Import\ImportException::class,
         \Core\Maintenance\BackupException::class,
+        \Core\Maintenance\UpdateException::class,
         \Core\Member\MemberEmailException::class,
         \Core\Member\SectionDocumentException::class,
         \Core\Member\SectionException::class,
@@ -82,7 +83,6 @@ final class UserFacingExceptionInventoryTest extends TestCase
         // Library and driver text, or internal identifiers.
         \Core\Cookie\CookieConsentException::class => 'English, names a cookie category and its consent state',
         \Core\Mail\MailException::class => "PHPMailer's ErrorInfo — an SMTP transcript, always English",
-        \Core\Maintenance\UpdateException::class => 'two throw sites interpolate an absolute server path and a raw PHP warning',
         \Core\Member\MemberNotFoundException::class => 'English, names a member_year id',
         \Core\Module\ModuleException::class => 'about fifty English manifest-validation messages, one with a filesystem path',
         \Core\Security\DecryptionException::class => 'English, and describes the shape of the ciphertext',

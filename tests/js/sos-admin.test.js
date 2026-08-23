@@ -28,10 +28,11 @@ const TRANSITIONS_HTML = '<ul class="list-group"><li>page 2</li></ul>'
     + '<nav><a href="#" data-transitions-page="3">3</a></nav>';
 
 const PAGE_DOM = `
-    <select id="default-number-member">
+    <select id="default-number-member" data-saved-value="4">
         <option value="4" selected>Alice D. (+32 470 00 00 01)</option>
         <option value="7">Bruno T. (+32 470 00 00 02)</option>
     </select>
+    <button type="button" id="default-number-save" disabled>Enregistrer</button>
     <div class="text-danger small mt-1 d-none" id="default-number-error" role="alert"></div>
     <input type="time" id="transition-hour" value="18:00">
     <input class="form-check-input" type="checkbox" id="email-notifications-toggle" checked>
@@ -104,6 +105,18 @@ function changeControl(id) {
     document.getElementById(id).dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+/**
+ * Picks a member and presses « Enregistrer » — what saving the default
+ * number takes since it stopped saving on `change`.
+ *
+ * @param {string} memberId
+ */
+function chooseAndSave(memberId) {
+    /** @type {HTMLSelectElement} */ (document.getElementById('default-number-member')).value = memberId;
+    changeControl('default-number-member');
+    document.getElementById('default-number-save').dispatchEvent(new Event('click', { bubbles: true }));
+}
+
 describe('sos-admin.js', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -144,9 +157,7 @@ describe('sos-admin.js', () => {
     describe('default number', () => {
         it('POSTs the chosen member and the CSRF token', async () => {
             await boot();
-            document.getElementById('default-number-member').value = '7';
-
-            changeControl('default-number-member');
+            chooseAndSave('7');
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
             const { url, opts, body } = lastRequest();
@@ -159,7 +170,7 @@ describe('sos-admin.js', () => {
         it('confirms the save — this select decides who the SOS number rings', async () => {
             await boot();
 
-            changeControl('default-number-member');
+            chooseAndSave('7');
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
 
             expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
@@ -171,7 +182,7 @@ describe('sos-admin.js', () => {
         it('never puts the member id or a number in the URL it builds', async () => {
             await boot();
 
-            changeControl('default-number-member');
+            chooseAndSave('7');
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
             expect(String(fetch.mock.calls[0][0])).toBe('/admin/sos/default-number');
@@ -181,7 +192,7 @@ describe('sos-admin.js', () => {
             global.fetch = mockFetch({ '/default-number': { success: false, error: 'Membre invalide.' } });
             await boot();
 
-            changeControl('default-number-member');
+            chooseAndSave('7');
             await vi.waitFor(() => {
                 expect(document.getElementById('default-number-error').textContent).toBe('Membre invalide.');
             });
@@ -194,7 +205,7 @@ describe('sos-admin.js', () => {
             });
             await boot();
 
-            changeControl('default-number-member');
+            chooseAndSave('7');
             await vi.waitFor(() => {
                 expect(document.getElementById('default-number-error').textContent)
                     .toContain('<img src=x onerror=alert(1)>');
@@ -206,11 +217,79 @@ describe('sos-admin.js', () => {
             global.fetch = vi.fn(() => htmlErrorResponse());
             await boot();
 
-            changeControl('default-number-member');
+            chooseAndSave('7');
             await vi.waitFor(() => {
                 expect(document.getElementById('default-number-error').textContent)
                     .toBe('Erreur : réponse serveur invalide.');
             });
+        });
+    });
+
+    describe('the default number takes an explicit press', () => {
+        it('saves nothing when the selection merely changes', async () => {
+            // It used to save on `change`: a mis-click, or an arrow key on
+            // a focused select, re-routed the unit's emergency line with
+            // nothing to confirm and nothing to cancel.
+            await boot();
+            /** @type {HTMLSelectElement} */ (document.getElementById('default-number-member')).value = '7';
+
+            changeControl('default-number-member');
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(fetch).not.toHaveBeenCalled();
+        });
+
+        it('offers the button only once the value actually differs', async () => {
+            await boot();
+            const save = /** @type {HTMLButtonElement} */ (document.getElementById('default-number-save'));
+
+            // As rendered, the select already shows what is stored.
+            expect(save.disabled).toBe(true);
+
+            /** @type {HTMLSelectElement} */ (document.getElementById('default-number-member')).value = '7';
+            changeControl('default-number-member');
+            expect(save.disabled).toBe(false);
+
+            // Back to the stored value: there is nothing to save again.
+            /** @type {HTMLSelectElement} */ (document.getElementById('default-number-member')).value = '4';
+            changeControl('default-number-member');
+            expect(save.disabled).toBe(true);
+        });
+
+        it('settles once saved, so a second press cannot repeat it', async () => {
+            await boot();
+            chooseAndSave('7');
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
+
+            expect(/** @type {HTMLButtonElement} */ (document.getElementById('default-number-save')).disabled)
+                .toBe(true);
+        });
+
+        it('stays pressable after a failure, because the retry is the button', async () => {
+            global.fetch = mockFetch({ '/default-number': { success: false, error: 'Membre invalide.' } });
+            await boot();
+            chooseAndSave('7');
+            await vi.waitFor(() => {
+                expect(document.getElementById('default-number-error').textContent).toBe('Membre invalide.');
+            });
+
+            expect(/** @type {HTMLButtonElement} */ (document.getElementById('default-number-save')).disabled)
+                .toBe(false);
+        });
+
+        it('clears a previous error the moment the selection changes again', async () => {
+            global.fetch = mockFetch({ '/default-number': { success: false, error: 'Membre invalide.' } });
+            await boot();
+            chooseAndSave('7');
+            await vi.waitFor(() => {
+                expect(document.getElementById('default-number-error').classList.contains('d-none')).toBe(false);
+            });
+
+            /** @type {HTMLSelectElement} */ (document.getElementById('default-number-member')).value = '4';
+            changeControl('default-number-member');
+
+            expect(document.getElementById('default-number-error').textContent).toBe('');
+            expect(document.getElementById('default-number-error').classList.contains('d-none')).toBe(true);
         });
     });
 

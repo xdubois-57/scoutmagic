@@ -460,4 +460,57 @@ class InstallUpdateHandlerTest extends TestCase
         // before it (scandir order decides that).
         $this->assertFileDoesNotExist($dest . '/b/inner.php');
     }
+
+    // ── What the admin is told, and what they are not ───────────────────
+
+    public function testTheFailureNamesTheFileRelativeToTheInstallRoot(): void
+    {
+        // Naming the file is the whole point: an interrupted update with
+        // no file in it leaves the admin with a broken site and nowhere to
+        // start. Naming the absolute path was the reason it could not be
+        // shown to them — that prefix is the hosting account, and often a
+        // customer id above it.
+        $source = $this->storagePath . '/src';
+        $dest = $this->storagePath . '/dest';
+        mkdir($source . '/core/View', 0755, true);
+        mkdir($dest . '/core', 0755, true);
+        file_put_contents($source . '/core/View/TwigFactory.php', '<?php // new');
+        // Blocks core/View specifically, so the message has a path with
+        // more than one segment in it to get right.
+        file_put_contents($dest . '/core/View', 'not a directory');
+
+        try {
+            $this->invokeInstallFiles($source, $dest);
+            $this->fail('installFiles() should have thrown');
+        } catch (UpdateException $e) {
+            $this->assertStringContainsString('core/View', $e->getMessage());
+            $this->assertStringNotContainsString($dest, $e->getMessage());
+            $this->assertStringNotContainsString($this->storagePath, $e->getMessage());
+        }
+    }
+
+    public function testTheFailureIsWrittenForTheAdminWhoHasToFixIt(): void
+    {
+        $source = $this->storagePath . '/src';
+        $dest = $this->storagePath . '/dest';
+        mkdir($source . '/core', 0755, true);
+        mkdir($dest, 0755, true);
+        file_put_contents($source . '/core/Thing.php', '<?php');
+        file_put_contents($dest . '/core', 'not a directory');
+
+        try {
+            $this->invokeInstallFiles($source, $dest);
+            $this->fail('installFiles() should have thrown');
+        } catch (UpdateException $e) {
+            // French, whole sentences, and it says what to go and check —
+            // which is what lets the class be a UserFacingException at
+            // all (tests/Core/Exception/UserFacingExceptionInventoryTest).
+            $this->assertStringContainsString("droits d'écriture", $e->getMessage());
+            $this->assertStringContainsString('espace disque', $e->getMessage());
+            // No raw PHP warning: error_get_last() at this point is not
+            // reliably the warning from the suppressed call above it.
+            $this->assertStringNotContainsString('mkdir(', $e->getMessage());
+            $this->assertStringNotContainsString('Permission denied', $e->getMessage());
+        }
+    }
 }

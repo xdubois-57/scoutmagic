@@ -203,6 +203,9 @@ final class UxConventionsTest extends TestCase
         '/locations/{slug}/apercu',
         '/mass-mail/audiences/{id}',
         '/mass-mail/{id}/merge-preview',
+        // How many people the send would reach, asked from the send
+        // dialog just before the confirmation — JSON, no page.
+        '/mass-mail/{id}/recipient-count',
         '/news/{id}/form/responses/export',
         '/news/{id}/poster',
         '/r/{token}/poll',

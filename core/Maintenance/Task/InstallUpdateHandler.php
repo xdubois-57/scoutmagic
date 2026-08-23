@@ -637,7 +637,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
             if ($entry === '.' || $entry === '..' || in_array($entry, $excludedTopLevel, true)) {
                 continue;
             }
-            $this->copyRecursive($sourceDir . '/' . $entry, $destDir . '/' . $entry);
+            $this->copyRecursive($sourceDir . '/' . $entry, $destDir . '/' . $entry, $destDir);
         }
     }
 
@@ -704,40 +704,54 @@ class InstallUpdateHandler implements TaskHandlerInterface
      *
      * @throws UpdateException on the first file or directory that cannot be written
      */
-    private function copyRecursive(string $source, string $dest): void
+    private function copyRecursive(string $source, string $dest, string $root): void
     {
         if (is_dir($source)) {
             // The is_dir() re-check covers the harmless race where a
             // concurrent mkdir() of the same path won.
             if (!is_dir($dest) && !@mkdir($dest, 0755, true) && !is_dir($dest)) {
-                throw new UpdateException(self::writeFailureMessage('créer le répertoire', $dest));
+                throw new UpdateException(self::writeFailureMessage('créer le répertoire', $dest, $root));
             }
             foreach (scandir($source) ?: [] as $entry) {
                 if ($entry === '.' || $entry === '..') {
                     continue;
                 }
-                $this->copyRecursive($source . '/' . $entry, $dest . '/' . $entry);
+                $this->copyRecursive($source . '/' . $entry, $dest . '/' . $entry, $root);
             }
         } elseif (!@copy($source, $dest)) {
-            throw new UpdateException(self::writeFailureMessage('remplacer le fichier', $dest));
+            throw new UpdateException(self::writeFailureMessage('remplacer le fichier', $dest, $root));
         }
     }
 
     /**
-     * The PHP-level diagnostic is suppressed at the call site and folded
-     * into the exception instead: mid-update, a raw warning can end up in
-     * the response body on a host with display_errors on, and the reason
-     * ("Permission denied", "Disk quota exceeded", …) is exactly what the
-     * admin needs in the journal entry to fix their hosting.
+     * Which file the update stopped on, said to the admin who has to go
+     * and fix it.
+     *
+     * The path is what makes this actionable — an interrupted update with
+     * no name in it leaves an admin with a broken site and nowhere to
+     * start. It is given RELATIVE to the install root
+     * (`core/View/TwigFactory.php`, not
+     * `/var/www/vhosts/unite.be/httpdocs/core/View/TwigFactory.php`)
+     * because the absolute prefix is the part that is both useless to
+     * them — they know where their own site lives — and the part worth
+     * not printing onto a page: it names the hosting account and often
+     * the customer id above it.
+     *
+     * `error_get_last()` used to be folded in for the reason
+     * ("Permission denied", "Disk quota exceeded"). It is gone: the last
+     * PHP warning at this point is not reliably the one from the
+     * suppressed call just above — anything in between with its own
+     * suppressed warning wins — so it was as likely to name an unrelated
+     * failure as the real one, and it is raw English either way. What is
+     * certain is which file, and that is what this now says.
      */
-    private static function writeFailureMessage(string $action, string $path): string
+    private static function writeFailureMessage(string $action, string $path, string $root): string
     {
-        $reason = error_get_last()['message'] ?? '';
+        $relative = str_starts_with($path, $root . '/') ? substr($path, strlen($root) + 1) : basename($path);
 
-        return "La mise à jour n'a pas pu {$action} « {$path} »"
-            . ($reason !== '' ? " ({$reason})" : '')
-            . ' — installation interrompue pour ne pas laisser le site avec une mise à jour '
-            . 'partiellement appliquée.';
+        return "La mise à jour n'a pas pu {$action} « {$relative} » — vérifiez les droits d'écriture "
+            . 'et l\'espace disque sur le serveur. L\'installation a été interrompue pour ne pas laisser '
+            . 'le site avec une mise à jour partiellement appliquée.';
     }
 
     private function removeDirectory(string $dir): void

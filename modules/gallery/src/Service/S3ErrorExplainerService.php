@@ -42,19 +42,28 @@ class S3ErrorExplainerService
         string $bucket,
         string $accessKey,
         int $secretKeyLength,
-        string $errorMessage
+        string $errorMessage,
+        ?string $technicalError = null
     ): string {
         if ($this->llmConnector === null || !$this->llmConnector->isAvailable()) {
             throw new GalleryException('Service IA non disponible.');
         }
 
+        // The SDK's own line is the diagnostic material — « The request
+        // signature we calculated does not match » and « The specified
+        // bucket does not exist » are different mistakes that both reach
+        // the admin as « vérifiez vos identifiants ». Asking the model to
+        // explain the French summary alone was asking it to guess.
         $prompt = "Fournisseur : {$provider}\n"
             . "Endpoint : {$endpoint}\n"
             . "Région : {$region}\n"
             . "Bucket : {$bucket}\n"
             . "Access key : {$accessKey}\n"
             . "Secret key : (non transmise — longueur : {$secretKeyLength} caractères)\n"
-            . "Message d'erreur reçu du fournisseur lors du test de connexion :\n{$errorMessage}";
+            . "Diagnostic affiché à l'administrateur :\n{$errorMessage}"
+            . ($technicalError !== null && trim($technicalError) !== ''
+                ? "\nMessage technique exact renvoyé par le fournisseur :\n{$technicalError}"
+                : '');
 
         $request = new LlmRequest(
             tier: LlmTier::CHEAP,

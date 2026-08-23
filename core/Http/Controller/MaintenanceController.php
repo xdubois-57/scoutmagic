@@ -199,12 +199,10 @@ class MaintenanceController extends AbstractController
         try {
             $commit = $this->releaseClient()->getLatestCommit($branch);
         } catch (UpdateException $e) {
-            // UpdateException is deliberately NOT a UserFacingException: two
-            // of its throw sites build their message from an absolute server
-            // path and a raw PHP warning (Task\InstallUpdateHandler
-            // ::writeFailureMessage()). The ones reachable from here — the
-            // GitHub client's — are French and safe, so they survive; the
-            // fallback catches the day a third one is added.
+            // Still through UserFacingMessage::from() rather than
+            // getMessage() directly: the class is marked now, so its own
+            // French sentence survives, and the fallback is what a
+            // \Throwable rethrown as one from somewhere else would get.
             return $this->json(['success' => false, 'error' => UserFacingMessage::from(
                 $e,
                 "La dernière version n'a pas pu être récupérée depuis GitHub — vérifiez la connexion du serveur et les paramètres du dépôt."

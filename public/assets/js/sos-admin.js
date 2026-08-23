@@ -88,32 +88,56 @@
 
     // --- Settings (each control saves itself) ---
 
-    if (defaultNumberSelect) {
-        var defaultNumberError = document.getElementById('default-number-error');
+    // This select decides which phone the unit's SOS number rings on every
+    // day nobody is on duty. It used to save on `change`: a mis-click — or
+    // an arrow key on a focused select — re-routed the unit's emergency
+    // line with nothing to confirm and nothing to cancel. It now takes an
+    // explicit press, and the button stays disabled until the value
+    // actually differs from what is stored, so an accidental change is
+    // visible as a button that just lit up rather than as nothing at all.
+    var defaultNumberSave = /** @type {HTMLButtonElement|null} */ (
+        document.getElementById('default-number-save')
+    );
 
-        defaultNumberSelect.addEventListener('change', async function () {
+    if (defaultNumberSelect && defaultNumberSave) {
+        var defaultNumberError = document.getElementById('default-number-error');
+        var savedNumber = defaultNumberSelect.dataset.savedValue || '';
+
+        var syncSaveState = function () {
+            defaultNumberSave.disabled = defaultNumberSelect.value === savedNumber;
+        };
+
+        defaultNumberSelect.addEventListener('change', function () {
+            if (defaultNumberError) {
+                defaultNumberError.textContent = '';
+                defaultNumberError.classList.add('d-none');
+            }
+            syncSaveState();
+        });
+        syncSaveState();
+
+        defaultNumberSave.addEventListener('click', async function () {
             if (defaultNumberError) {
                 defaultNumberError.textContent = '';
                 defaultNumberError.classList.add('d-none');
             }
 
-            var res = await api.withDisabled(
-                /** @type {HTMLInputElement} */ (/** @type {unknown} */ (defaultNumberSelect)),
-                function () {
-                    return api.postJson('/admin/sos/default-number', {
-                        member_id: parseInt(defaultNumberSelect.value, 10)
-                    });
-                }
-            );
+            var chosen = defaultNumberSelect.value;
+            var res = await api.withDisabled(defaultNumberSave, function () {
+                return api.postJson('/admin/sos/default-number', {
+                    member_id: parseInt(chosen, 10)
+                });
+            });
             if (succeeded(res)) {
-                // This select decides who the unit's SOS number rings on
-                // unassigned days, and it saves the moment it changes. Saying
-                // nothing left the most consequential control on the page as
-                // the only silent one — and silence is also how an accidental
-                // change goes unnoticed.
+                savedNumber = chosen;
+                syncSaveState();
                 window.ScoutMagicToast.show('Numéro par défaut enregistré.', { variant: 'success' });
                 return;
             }
+            // The save failed, so the stored value is still the old one and
+            // the button must stay pressable — re-enabling it is how the
+            // admin retries.
+            syncSaveState();
             // Never the member's number, only the server's own message: this
             // line is next to a control listing mobile numbers.
             if (defaultNumberError) {

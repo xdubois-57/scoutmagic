@@ -208,6 +208,12 @@ class PublicRegistrationController extends AbstractController
         return $this->render('@registration/submitted.html.twig', [
             'child_first_name' => $receipt['child_first_name'],
             'request_id' => $receipt['request_id'],
+            // A real ancestor PAGE rather than a `parents` menu label:
+            // « Inscriptions » here means the registration page this
+            // family just came from, not the menu it happens to sit in.
+            'breadcrumb_trail' => [
+                ['label' => 'Inscriptions', 'url' => '/inscriptions'],
+            ],
         ]);
     }
 

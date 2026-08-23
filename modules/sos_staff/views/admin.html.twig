@@ -68,14 +68,29 @@
                         Complétez un numéro de mobile pour au moins un membre du Staff d'U.
                     </p>
                 {% else %}
+                    {#
+                      An explicit button, unlike the two controls beside
+                      it. This select decides which phone the unit's SOS
+                      number rings on every day nobody is on duty, and it
+                      used to save on `change` — so a mis-click, or an
+                      arrow key on a focused select, re-routed the unit's
+                      emergency line with nothing to confirm and nothing
+                      to cancel. The button is disabled until the value
+                      actually differs from what is stored, which is also
+                      what makes an accidental change visible.
+                    #}
                     <div class="d-flex gap-2">
-                        <select class="form-select form-select-sm" id="default-number-member">
+                        <select class="form-select form-select-sm" id="default-number-member"
+                                data-saved-value="{{ default_number_selection_member_id }}">
                             {% for option in staff_options %}
                                 <option value="{{ option.member_id }}" {{ default_number_selection_member_id == option.member_id ? 'selected' : '' }}>
                                     {{ option.label }} ({{ option.mobile }})
                                 </option>
                             {% endfor %}
                         </select>
+                        <button type="button" class="btn btn-sm btn-primary text-nowrap" id="default-number-save" disabled>
+                            Enregistrer
+                        </button>
                     </div>
                     <p class="text-body-secondary small mt-1 mb-0">
                         Numéro utilisé les jours sans garde explicite. Il doit toujours s'agir d'un membre du Staff d'U —

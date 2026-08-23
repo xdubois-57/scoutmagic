@@ -150,9 +150,12 @@ export async function collectToasts(page) {
  * actions in the test should be confirmed.
  *
  * @param {import('@playwright/test').Page} page
- * @param {{ accept?: boolean }} [options] accept defaults to true; false
- *        presses « Annuler », which is how a spec proves that declining
- *        really does cancel.
+ * @param {{ accept?: boolean, note?: string }} [options] accept defaults to
+ *        true; false presses « Annuler », which is how a spec proves that
+ *        declining really does cancel. `note` types into the dialog's
+ *        free-text field before answering — the confirm-with-a-word case
+ *        (data-confirm-note), where the field the manager writes in only
+ *        exists inside the dialog.
  * @returns {Promise<string>} the dialog's message, for asserting on
  */
 export async function answerConfirmation(page, options = {}) {
@@ -160,6 +163,10 @@ export async function answerConfirmation(page, options = {}) {
     await dialog.waitFor({ state: 'visible' });
 
     const message = (await dialog.locator('#sm-confirm-modal-body').innerText()).trim();
+
+    if (options.note !== undefined) {
+        await dialog.locator('#sm-confirm-modal-input').fill(options.note);
+    }
 
     // « Annuler » is first in the footer and the confirmation second —
     // design.md §7.4's ordering, which the dialog builds deliberately.

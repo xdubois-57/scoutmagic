@@ -25,6 +25,7 @@ use Modules\Gallery\Service\DelegatedAlbumDescriberRegistry;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryException;
 use Modules\Gallery\Service\S3ErrorExplainerService;
+use Modules\Gallery\Service\S3TestFailure;
 use Modules\Gallery\Service\Storage\S3StorageBackend;
 use Modules\Gallery\Service\StorageLocationService;
 use Twig\Environment;
@@ -205,18 +206,24 @@ class GalleryConfigController extends AbstractController
 
         $error = $backend->testConnection();
         if ($error === null) {
+            S3TestFailure::forget();
+
             return $this->json(['success' => true]);
         }
 
         // $error is already a French sentence; the AWS SDK's own words are
-        // on lastTechnicalError() and stay here, in the journal.
+        // on lastTechnicalError() and stay here — in the journal, and in
+        // the session for explainS3Error(), which is the one reader that
+        // has any use for them. They never reach the page.
+        $summary = 'Connexion impossible : ' . $error;
         $this->journalService->log(
             'gallery', 's3_test_connection_failed', 'info', 'Échec du test de connexion à un stockage S3',
             ['bucket' => (string) ($data['bucket'] ?? ''), 'sdk_error' => $backend->lastTechnicalError()],
             (int) AuthSession::getUserAccountId()
         );
+        S3TestFailure::remember($summary, $backend->lastTechnicalError());
 
-        return $this->json(['success' => false, 'error' => 'Connexion impossible : ' . $error], 422);
+        return $this->json(['success' => false, 'error' => $summary], 422);
     }
 
     /**
@@ -234,6 +241,19 @@ class GalleryConfigController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
+        // The failure comes from the session, never from the request body.
+        // The browser only ever had the French summary — useless to
+        // diagnose — and a string the browser supplies is a string that
+        // goes into a model's prompt having been through a page the admin
+        // can edit.
+        $failure = S3TestFailure::read();
+        if ($failure === null) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Lancez d\'abord un test de connexion : il n\'y a rien à expliquer pour le moment.',
+            ], 422);
+        }
+
         try {
             $explanation = $this->s3ErrorExplainerService->explain(
                 (string) ($data['provider'] ?? 'custom'),
@@ -242,7 +262,8 @@ class GalleryConfigController extends AbstractController
                 (string) ($data['bucket'] ?? ''),
                 (string) ($data['access_key'] ?? ''),
                 (int) ($data['secret_key_length'] ?? 0),
-                (string) ($data['error'] ?? '')
+                $failure['summary'],
+                $failure['technical']
             );
         } catch (GalleryException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
