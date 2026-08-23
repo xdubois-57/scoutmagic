@@ -124,128 +124,14 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/assets/js/mass-mail-config.js" defer></script>
 <script nonce="{{ csp_nonce }}">
-const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-document.getElementById('cfg-batch-interval').value = {{ batch_interval_minutes|json_encode|raw }};
-
-const cfgModalEl = document.getElementById('cfg-list-modal');
-const cfgModal = window.bootstrap ? new window.bootstrap.Modal(cfgModalEl) : null;
-let cfgCurrentListId = null;
-
-function cfgShowError(message) {
-    const box = document.getElementById('cfg-list-error');
-    box.textContent = message;
-    box.classList.remove('d-none');
-}
-
-function cfgResetModal() {
-    cfgCurrentListId = null;
-    document.getElementById('cfg-list-modal-title').textContent = 'Nouvelle liste';
-    document.getElementById('cfg-list-error').classList.add('d-none');
-    document.getElementById('cfg-list-name').value = '';
-    document.getElementById('cfg-list-description').value = '';
-    document.querySelectorAll('.cfg-function-checkbox, .cfg-section-checkbox').forEach(cb => { cb.checked = false; });
-}
-
-document.getElementById('cfg-new-list-btn').addEventListener('click', () => {
-    cfgResetModal();
-    cfgModal ? cfgModal.show() : cfgModalEl.classList.add('show');
-});
-
-document.querySelectorAll('.cfg-edit-list-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        cfgResetModal();
-        cfgCurrentListId = btn.dataset.id;
-        document.getElementById('cfg-list-modal-title').textContent = 'Modifier la liste';
-        document.getElementById('cfg-list-name').value = btn.dataset.name;
-        document.getElementById('cfg-list-description').value = btn.dataset.description || '';
-        const functionIds = btn.dataset.functionIds ? btn.dataset.functionIds.split(',') : [];
-        const sectionIds = btn.dataset.sectionIds ? btn.dataset.sectionIds.split(',') : [];
-        functionIds.forEach(id => {
-            const cb = document.getElementById('cfg-fn-' + id);
-            if (cb) cb.checked = true;
-        });
-        sectionIds.forEach(id => {
-            const cb = document.getElementById('cfg-sec-' + id);
-            if (cb) cb.checked = true;
-        });
-        cfgModal ? cfgModal.show() : cfgModalEl.classList.add('show');
-    });
-});
-
-document.getElementById('cfg-list-save-btn').addEventListener('click', async () => {
-    const functionIds = Array.from(document.querySelectorAll('.cfg-function-checkbox:checked')).map(cb => parseInt(cb.value, 10));
-    const sectionIds = Array.from(document.querySelectorAll('.cfg-section-checkbox:checked')).map(cb => parseInt(cb.value, 10));
-    const payload = {
-        name: document.getElementById('cfg-list-name').value,
-        description: document.getElementById('cfg-list-description').value,
-        function_ids: functionIds,
-        section_ids: sectionIds,
-        _csrf_token: csrf()
-    };
-
-    const url = cfgCurrentListId ? '/config/mass-mail/lists/' + cfgCurrentListId : '/config/mass-mail/lists';
-    const method = cfgCurrentListId ? 'PATCH' : 'POST';
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    const data = await res.json();
-    if (!data.success) {
-        cfgShowError(data.error || 'Erreur.');
-        return;
-    }
-    window.location.reload();
-});
-
-document.querySelectorAll('.cfg-toggle-list-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-        const active = btn.dataset.active === '1';
-        const res = await fetch('/config/mass-mail/lists/' + btn.dataset.id + '/toggle', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ active: !active, _csrf_token: csrf() })
-        });
-        const data = await res.json();
-        if (!data.success) {
-            alert(data.error || 'Erreur.');
-            return;
-        }
-        window.location.reload();
-    });
-});
-
-document.querySelectorAll('.cfg-delete-list-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-        if (!confirm('Supprimer cette liste ?')) return;
-        const res = await fetch('/config/mass-mail/lists/' + btn.dataset.id, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ _csrf_token: csrf() })
-        });
-        const data = await res.json();
-        if (!data.success) {
-            alert(data.error || 'Erreur.');
-            return;
-        }
-        window.location.reload();
-    });
-});
-
-document.getElementById('cfg-settings-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const res = await fetch('/config/mass-mail/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            batch_size: parseInt(document.getElementById('cfg-batch-size').value, 10),
-            batch_interval_minutes: parseInt(document.getElementById('cfg-batch-interval').value, 10),
-            _csrf_token: csrf()
-        })
-    });
-    const data = await res.json();
-    if (!data.success) {
-        alert(data.error || 'Erreur.');
-        return;
-    }
-    alert('Réglages enregistrés.');
-});
+{# Server data handed to mass-mail-config.js — the llm_connector /
+   support_dashboard pattern (window.llmConfigData,
+   window.supportDashboardCharts). #}
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+window.massMailConfigData = {
+    batchIntervalMinutes: {{ batch_interval_minutes|json_encode(json_flags)|raw }}
+};
 </script>
 {% endblock %}

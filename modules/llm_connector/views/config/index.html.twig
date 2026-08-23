@@ -149,12 +149,17 @@
                 <label for="provider-api-key" class="form-label">Clé API</label>
                 <div class="d-flex flex-column flex-sm-row gap-2">
                     <input type="password" class="form-control flex-grow-1" id="provider-api-key" placeholder="">
-                    <button type="submit" class="btn btn-primary text-nowrap">Enregistrer</button>
+                    {# Activating an AI provider (an RGPD sub-processor) is this
+                       button and nothing else — never a side effect of browsing
+                       the dropdown above. The label says so. #}
+                    <button type="submit" class="btn btn-primary text-nowrap">Enregistrer et activer</button>
                 </div>
                 <div class="form-text" id="api-key-hint"></div>
             </div>
         </form>
-        <div id="provider-message" class="mt-3" style="display:none;"></div>
+        {# role="status" : the « Test de connexion en cours… » line and its
+           result are announced instead of appearing silently. #}
+        <div id="provider-message" class="mt-3" role="status" style="display:none;"></div>
     </div>
 </div>
 
@@ -171,209 +176,15 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/assets/js/llm-config.js" defer></script>
 <script nonce="{{ csp_nonce }}">
-const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-
-// Models data from server
-const modelsByDriver = {{ models_by_driver|json_encode|raw }};
-
-// Auto-fill hidden name/endpoint, show/hide driver help, update models list
-function updateDriverInfo() {
-    const select = document.getElementById('provider-driver');
-    const option = select?.selectedOptions[0];
-    if (!option) return;
-
-    const driverValue = select.value;
-    const providerId = option.dataset.providerId || '';
-    const hasKey = option.dataset.hasKey === '1';
-
-    // Update hidden fields
-    document.getElementById('provider-id').value = providerId;
-    document.getElementById('provider-name').value = option.dataset.label || option.textContent.trim();
-    document.getElementById('provider-endpoint').value = option.dataset.endpoint || '';
-    document.getElementById('provider-has-key').value = hasKey ? '1' : '0';
-
-    // Update API key hint
-    const hintEl = document.getElementById('api-key-hint');
-    if (hasKey) {
-        hintEl.textContent = 'Laisser vide pour conserver la clé actuelle.';
-        document.getElementById('provider-api-key').placeholder = '••••••••';
-    } else {
-        hintEl.textContent = '';
-        document.getElementById('provider-api-key').placeholder = '';
-    }
-
-    // Show/hide driver-specific help
-    document.querySelectorAll('[id^="driver-help-"]').forEach(el => {
-        el.style.display = el.id === 'driver-help-' + driverValue ? '' : 'none';
-    });
-
-    // Update models list
-    updateModelsList(driverValue);
-}
-
-function updateModelsList(driver) {
-    const container = document.getElementById('models-container');
-    const models = modelsByDriver[driver] || [];
-
-    if (models.length === 0) {
-        container.innerHTML = '<p class="text-body-secondary mb-0">Aucun modèle découvert. Enregistrez une clé API pour interroger l\'API du fournisseur.</p>';
-        return;
-    }
-
-    let html = '<p class="text-body-secondary small mb-3">Les modèles économique, performant et OCR sont sélectionnés automatiquement parmi les modèles disponibles du fournisseur.</p>';
-    html += '<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Modèle</th><th>Rôle</th></tr></thead><tbody>';
-
-    models.forEach(model => {
-        html += '<tr><td>' + escapeHtml(model.display_name) + '<span class="text-body-secondary small d-block"><code>' + escapeHtml(model.model_id) + '</code></span></td><td>';
-        
-        if (model.is_tier_cheap) html += '<span class="badge text-bg-info">Économique</span> ';
-        if (model.is_tier_capable) html += '<span class="badge text-bg-primary">Performant</span> ';
-        if (model.is_tier_ocr) html += '<span class="badge text-bg-success">OCR</span> ';
-        if (!model.is_tier_cheap && !model.is_tier_capable && !model.is_tier_ocr) {
-            html += '<span class="text-body-secondary">—</span>';
-        }
-        
-        html += '</td></tr>';
-    });
-
-    html += '</tbody></table></div>';
-    container.innerHTML = html;
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text ?? '';
-    return div.innerHTML;
-}
-
-updateDriverInfo();
-
-document.getElementById('provider-driver')?.addEventListener('change', () => {
-    updateDriverInfo();
-    // Auto-test if provider has saved key, and activate this provider
-    const hasKey = document.getElementById('provider-has-key').value === '1';
-    const providerId = document.getElementById('provider-id').value;
-    if (hasKey && providerId) {
-        testConnection(providerId, true);
-    }
-});
-
-// Provider form — save then auto-test connection
-document.getElementById('provider-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const msgEl = document.getElementById('provider-message');
-    msgEl.style.display = 'block';
-    msgEl.innerHTML = '<div class="alert alert-info mb-0">Enregistrement en cours…</div>';
-
-    const body = {
-        id: document.getElementById('provider-id').value || null,
-        name: document.getElementById('provider-name').value,
-        driver: document.getElementById('provider-driver').value,
-        api_endpoint: document.getElementById('provider-endpoint').value,
-        api_key: document.getElementById('provider-api-key').value,
-        _csrf_token: csrf()
-    };
-
-    const res = await fetch('/config/llm/providers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    });
-    const data = await res.json();
-    if (!data.success) {
-        msgEl.innerHTML = '<div class="alert alert-danger mb-0">' + escapeHtml(data.error) + '</div>';
-        return;
-    }
-
-    // Save succeeded — now test connection
-    const providerId = data.provider_id;
-    document.getElementById('provider-id').value = providerId;
-    msgEl.innerHTML = '<div class="alert alert-info mb-0">Test de connexion en cours…</div>';
-
-    await testConnection(providerId);
-});
-
-// Test connection function (also used on dropdown change)
-async function testConnection(providerId, shouldActivate = false) {
-    const msgEl = document.getElementById('provider-message');
-    if (!providerId) {
-        providerId = document.getElementById('provider-id').value;
-    }
-    if (!providerId) return;
-
-    msgEl.style.display = 'block';
-    msgEl.innerHTML = '<div class="alert alert-info mb-0">Test de connexion en cours…</div>';
-
-    const res = await fetch('/config/llm/providers/' + providerId + '/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (data.success) {
-        // If shouldActivate is true (from dropdown change), save provider as active
-        if (shouldActivate) {
-            const saveRes = await fetch('/config/llm/providers', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id: providerId,
-                    name: document.getElementById('provider-name').value,
-                    driver: document.getElementById('provider-driver').value,
-                    api_endpoint: document.getElementById('provider-endpoint').value,
-                    api_key: '',  // Empty = keep existing key
-                    _csrf_token: csrf()
-                })
-            });
-            const saveData = await saveRes.json();
-            if (!saveData.success) {
-                msgEl.innerHTML = '<div class="alert alert-warning mb-0">Modèles rafraîchis mais échec de l\'activation.</div>';
-                return;
-            }
-        }
-        
-        updateSummary(data);
-        msgEl.innerHTML = '<div class="alert alert-success mb-0">Connexion réussie — ' + escapeHtml(String(data.message || '').replace('Connexion réussie — ', '')) + '</div>';
-        setTimeout(() => window.location.reload(), 800);
-    } else {
-        msgEl.innerHTML = '<div class="alert alert-danger mb-0">' + escapeHtml(data.error) + '</div>';
-    }
-}
-
-function updateSummary(data) {
-    const summaryCard = document.querySelector('[data-summary]');
-    if (!summaryCard) return;
-
-    const badge = summaryCard.querySelector('.badge');
-    if (badge) {
-        // Same classes as the status_badge partial's `active` tone.
-        badge.className = 'badge text-bg-success';
-        badge.textContent = 'Actif';
-    }
-
-    const providerStrong = summaryCard.querySelector('[data-provider] strong');
-    if (providerStrong && data.provider_name) {
-        providerStrong.textContent = data.provider_name;
-    }
-
-    const cheapStrong = summaryCard.querySelector('[data-cheap] strong');
-    if (cheapStrong) {
-        cheapStrong.textContent = data.cheap_model || '—';
-    }
-
-    const capableStrong = summaryCard.querySelector('[data-capable] strong');
-    if (capableStrong) {
-        capableStrong.textContent = data.capable_model || '—';
-    }
-
-    const ocrStrong = summaryCard.querySelector('[data-ocr] strong');
-    if (ocrStrong) {
-        const ocrText = data.ocr_model || '—';
-        ocrStrong.textContent = data.ocr_fallback ? ocrText + ' (fallback)' : ocrText;
-    }
-}
-
-
+{# Server data handed to llm-config.js — the support_dashboard pattern
+   (window.supportDashboardCharts). JSON_HEX_TAG/JSON_HEX_AMP: model
+   display names and ids come from the provider's own API, so a value
+   containing tag-closing characters must not break out of this block. #}
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+window.llmConfigData = {
+    modelsByDriver: {{ models_by_driver|json_encode(json_flags)|raw }}
+};
 </script>
 {% endblock %}

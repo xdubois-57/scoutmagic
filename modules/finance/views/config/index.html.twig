@@ -72,40 +72,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-
-async function executeDangerAction(action, extra) {
-    const confirmationText = prompt('Cette action est irréversible. Tapez SUPPRIMER pour confirmer :');
-    if (confirmationText !== 'SUPPRIMER') {
-        return;
-    }
-    const res = await fetch('/config/finance/danger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.assign({ action: action, confirmation_text: confirmationText, _csrf_token: csrf() }, extra))
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        alert(data.error);
-    }
-}
-
-document.getElementById('danger-movements-btn').addEventListener('click', () => {
-    const accountId = parseInt(document.getElementById('danger-movements-account').value, 10);
-    if (!confirm("Supprimer tous les mouvements de ce compte ? Cette action est irréversible.")) {
-        return;
-    }
-    executeDangerAction('delete_movements', { account_id: accountId });
-});
-
-document.getElementById('danger-receipts-btn').addEventListener('click', () => {
-    if (!confirm('Supprimer (archiver) tous les reçus ? Cette action est irréversible.')) {
-        return;
-    }
-    executeDangerAction('delete_receipts', {});
-});
-</script>
+<script src="/assets/js/finance-config.js" defer></script>
 {% endblock %}

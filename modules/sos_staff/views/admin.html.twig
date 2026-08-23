@@ -180,109 +180,18 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/assets/js/sos-admin.js" defer></script>
 <script nonce="{{ csp_nonce }}">
-const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-const currentYear = {{ year }};
-const currentMonth = {{ month }};
-const cellStates = {{ states|json_encode|raw }};
-
-async function postJson(url, body) {
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, _csrf_token: csrf() })
-    });
-    return res.json();
-}
-
-// --- Default number / settings (auto-save) ---
-document.getElementById('default-number-member')?.addEventListener('change', async (e) => {
-    const errorBox = document.getElementById('default-number-error');
-    errorBox.classList.add('d-none');
-    const data = await postJson('/admin/sos/default-number', { member_id: parseInt(e.target.value) });
-    if (!data.success) {
-        errorBox.textContent = data.error;
-        errorBox.classList.remove('d-none');
-    }
-});
-
-document.getElementById('transition-hour').addEventListener('change', async (e) => {
-    await postJson('/admin/sos/settings', { transition_hour: e.target.value });
-});
-
-document.getElementById('email-notifications-toggle').addEventListener('change', async (e) => {
-    await postJson('/admin/sos/settings', { email_notifications_enabled: e.target.checked });
-});
-
-// --- Duty grid (3-state click-cycle, full-month auto-save) ---
-function cycle(state) {
-    if (state === 'oncall') return 'unavailable';
-    if (state === 'unavailable') return null;
-    return 'oncall';
-}
-
-async function saveOnCall() {
-    const cells = [];
-    Object.keys(cellStates).forEach(date => {
-        Object.keys(cellStates[date]).forEach(memberId => {
-            cells.push({ member_id: parseInt(memberId), date, state: cellStates[date][memberId] });
-        });
-    });
-
-    const status = document.getElementById('oncall-save-status');
-    status.textContent = 'Enregistrement…';
-    const data = await postJson('/admin/sos/oncall', { year: currentYear, month: currentMonth, cells });
-    status.textContent = data.success ? 'Enregistré.' : ('Erreur : ' + data.error);
-}
-
-document.querySelectorAll('.sos-oncall-cell').forEach(cell => {
-    cell.addEventListener('click', () => {
-        const date = cell.dataset.date;
-        const memberId = cell.dataset.memberId;
-        const current = (cellStates[date] && cellStates[date][memberId]) || null;
-        const next = cycle(current);
-
-        if (!cellStates[date]) cellStates[date] = {};
-        if (next === null) {
-            delete cellStates[date][memberId];
-        } else {
-            cellStates[date][memberId] = next;
-        }
-
-        // Update all matching cells/buttons (mobile + desktop share same class)
-        document.querySelectorAll('.sos-oncall-cell[data-date="'+date+'"][data-member-id="'+memberId+'"]').forEach(el => {
-            el.classList.remove('state-oncall', 'state-unavailable', 'btn-success', 'btn-danger', 'btn-outline-secondary');
-            if (el.tagName === 'TD') {
-                el.textContent = '';
-                if (next === 'oncall') { el.classList.add('state-oncall'); el.textContent = '✓'; }
-                else if (next === 'unavailable') { el.classList.add('state-unavailable'); el.textContent = '✗'; }
-            } else {
-                const label = el.querySelector('.d-block');
-                const stateSpan = el.lastElementChild !== label ? el.lastElementChild : null;
-                if (next === 'oncall') { el.classList.add('btn-success'); if (stateSpan) stateSpan.textContent = '✓'; }
-                else if (next === 'unavailable') { el.classList.add('btn-danger'); if (stateSpan) stateSpan.textContent = '✗'; }
-                else { el.classList.add('btn-outline-secondary'); if (stateSpan) stateSpan.textContent = '—'; }
-            }
-        });
-
-        saveOnCall();
-    });
-});
-
-// --- Planned redirections list (AJAX pagination, no page reload) ---
-const transitionsList = document.getElementById('planned-transitions-list');
-
-async function loadTransitionsPage(page) {
-    const params = new URLSearchParams({ month: '{{ month_param }}', transitions_page: page });
-    const res = await fetch('/admin/sos/transitions?' + params.toString());
-    transitionsList.innerHTML = await res.text();
-}
-
-transitionsList.addEventListener('click', (e) => {
-    const link = e.target.closest('[data-transitions-page]');
-    if (!link) return;
-    e.preventDefault();
-    loadTransitionsPage(link.dataset.transitionsPage);
-});
+{# Server data handed to sos-admin.js — the window.llmConfigData pattern.
+   JSON_HEX_TAG/JSON_HEX_AMP so no value can break out of this block; the
+   payload is dates, member ids and duty states only — never a phone
+   number (AGENTS.md § Security checklist). #}
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+window.sosAdminData = {
+    year: {{ year }},
+    month: {{ month }},
+    monthParam: {{ month_param|json_encode(json_flags)|raw }},
+    states: {{ states|json_encode(json_flags)|raw }}
+};
 </script>
 {% endblock %}

@@ -115,10 +115,16 @@ class MovementsListRenderingTest extends TestCase
 
         // The old selector only matched the desktop <tr> rows, leaving
         // mobile cards inert — it must not come back.
-        $this->assertStringNotContainsString("tr.movement-row", $html);
-        // Delegation resolving the row from the event target covers both views.
-        $this->assertStringContainsString(".closest('.movement-row')", $html);
-        // Enter/Space activation backs the card's role="button".
-        $this->assertStringContainsString("addEventListener('keydown'", $html);
+        $this->assertStringNotContainsString('tr.movement-row', $html);
+        // The handlers themselves moved out of this template into
+        // public/assets/js/finance-movements.js, where Vitest can reach
+        // them: tests/js/finance-movements.test.js opens the dialog from a
+        // desktop <tr> AND from a mobile <div> card, and covers Enter and
+        // Space. What this page still has to prove is that it loads the
+        // script that carries them.
+        $this->assertStringContainsString('<script src="/assets/js/finance-movements.js" defer></script>', $html);
+        // And that both views still carry the class the delegation resolves.
+        $this->assertMatchesRegularExpression('~<tr[^>]*class="[^"]*\bmovement-row\b~', $html);
+        $this->assertMatchesRegularExpression('~<div[^>]*class="[^"]*\bmovement-row\b~', $html);
     }
 }

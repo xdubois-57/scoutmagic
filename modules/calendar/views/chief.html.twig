@@ -121,164 +121,21 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/assets/js/calendar-chief.js" defer></script>
 <script nonce="{{ csp_nonce }}">
-const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-
-const eventModalEl = document.getElementById('eventModal');
-const eventModal = new bootstrap.Modal(eventModalEl);
-const form = document.getElementById('event-form');
-const idInput = document.getElementById('event-id');
-const titleInput = document.getElementById('event-title');
-const calendarSelect = document.getElementById('event-calendar');
-const startDateInput = document.getElementById('event-start-date');
-const endDateInput = document.getElementById('event-end-date');
-const startTimeInput = document.getElementById('event-start-time');
-const endTimeInput = document.getElementById('event-end-time');
-const locationInput = document.getElementById('event-location');
-const descriptionInput = document.getElementById('event-description');
-// The shared modal embed names its title '{id}-title'.
-const modalTitle = document.getElementById('eventModal-title');
-const submitBtn = document.getElementById('event-form-submit');
-const deleteBtn = document.getElementById('event-form-delete');
-const errorBox = document.getElementById('event-form-error');
-const retroAutoCreateWrap = document.getElementById('event-retro-auto-create-wrap');
-const retroAutoCreateInput = document.getElementById('event-retro-auto-create');
-const retroLinkWrap = document.getElementById('event-retro-link-wrap');
-const retroLinkAnchor = document.getElementById('event-retro-link');
-
-const defaultTitle = {{ default_title|json_encode|raw }};
-const defaultStartTime = {{ default_start_time|json_encode|raw }};
-const defaultEndTime = {{ default_end_time|json_encode|raw }};
-const defaultLocation = {{ default_location|json_encode|raw }};
-const defaultCalendarId = {{ default_calendar_id|json_encode|raw }};
-
-function openAddModal(dateStr) {
-    idInput.value = '';
-    titleInput.value = defaultTitle;
-    if (defaultCalendarId !== null) {
-        calendarSelect.value = String(defaultCalendarId);
-    }
-    startDateInput.value = dateStr;
-    endDateInput.value = dateStr;
-    startTimeInput.value = defaultStartTime;
-    endTimeInput.value = defaultEndTime;
-    locationInput.value = defaultLocation;
-    descriptionInput.value = '';
-    modalTitle.textContent = 'Ajouter un évènement';
-    submitBtn.textContent = 'Ajouter';
-    deleteBtn.classList.add('d-none');
-    errorBox.classList.add('d-none');
-    if (retroAutoCreateWrap) {
-        retroAutoCreateWrap.classList.remove('d-none');
-        retroAutoCreateInput.checked = false;
-    }
-    if (retroLinkWrap) retroLinkWrap.classList.add('d-none');
-    eventModal.show();
-}
-
-function openEditModal(dataset) {
-    idInput.value = dataset.id;
-    calendarSelect.value = dataset.calendarId;
-    titleInput.value = dataset.title;
-    startDateInput.value = dataset.startDate;
-    endDateInput.value = dataset.endDate || '';
-    startTimeInput.value = dataset.startTime || '';
-    endTimeInput.value = dataset.endTime || '';
-    locationInput.value = dataset.location;
-    descriptionInput.value = dataset.description;
-    modalTitle.textContent = "Modifier l'évènement";
-    submitBtn.textContent = 'Enregistrer';
-    deleteBtn.classList.remove('d-none');
-    errorBox.classList.add('d-none');
-    if (retroAutoCreateWrap) {
-        var hasLinkedRetro = dataset.hasLinkedRetro === '1';
-        retroAutoCreateWrap.classList.toggle('d-none', hasLinkedRetro);
-        retroAutoCreateInput.checked = dataset.autoCreateRetro === '1';
-    }
-    if (retroLinkWrap) {
-        if (dataset.retroLink) {
-            // Populate before revealing: the wrap and the anchor inside it
-            // share no other content, so removing d-none before the href/
-            // text are set would briefly expose an empty, non-navigable
-            // link — every other populate+reveal pair in this codebase
-            // (e.g. modules/sos_staff/views/config.html.twig's
-            // consumer-key-validation-link) follows this same order.
-            retroLinkAnchor.href = dataset.retroLink;
-            retroLinkAnchor.textContent = dataset.retroLinkTitle || dataset.retroLink;
-            retroLinkWrap.classList.remove('d-none');
-        } else {
-            retroLinkWrap.classList.add('d-none');
-        }
-    }
-    eventModal.show();
-}
-
-// Both are real <button> elements (partials/month_grid.html.twig renders them
-// as buttons whenever the caller marks them clickable), so Enter and Space
-// already fire a click — no keyboard handler of our own, and none of the
-// inline onKeyDown attribute this site's CSP would refuse to run anyway.
-document.querySelectorAll('.calendar-day-cell--clickable').forEach(cell => {
-    cell.addEventListener('click', () => openAddModal(cell.dataset.date));
-});
-
-document.querySelectorAll('.calendar-event-bar--clickable').forEach(bar => {
-    bar.addEventListener('click', (e) => {
-        // The bar sits on top of the day cell in the same grid, so without
-        // this a click on a bar would also open the "add an event" modal.
-        e.stopPropagation();
-        openEditModal(bar.dataset);
-    });
-});
-
-form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const isUpdate = idInput.value !== '';
-    const payload = {
-        calendar_id: parseInt(calendarSelect.value),
-        title: titleInput.value,
-        start_date: startDateInput.value,
-        end_date: endDateInput.value,
-        start_time: startTimeInput.value,
-        end_time: endTimeInput.value,
-        location: locationInput.value,
-        description: descriptionInput.value,
-        _csrf_token: csrf()
-    };
-    if (retroAutoCreateWrap && !retroAutoCreateWrap.classList.contains('d-none')) {
-        payload.auto_create_retro = retroAutoCreateInput.checked;
-    }
-    if (isUpdate) {
-        payload.event_id = parseInt(idInput.value);
-    }
-
-    const res = await fetch(isUpdate ? '/chefs/calendar/event-update' : '/chefs/calendar/event-create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        errorBox.textContent = data.error;
-        errorBox.classList.remove('d-none');
-    }
-});
-
-deleteBtn.addEventListener('click', async () => {
-    if (!confirm('Supprimer cet évènement ?')) return;
-    const res = await fetch('/chefs/calendar/event-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event_id: parseInt(idInput.value), _csrf_token: csrf() })
-    });
-    const data = await res.json();
-    if (data.success) {
-        window.location.reload();
-    } else {
-        errorBox.textContent = data.error;
-        errorBox.classList.remove('d-none');
-    }
-});
+{# Server data handed to calendar-chief.js — the llm_connector /
+   support_dashboard pattern (window.llmConfigData,
+   window.supportDashboardCharts). JSON_HEX_TAG/JSON_HEX_AMP: the default
+   event title and location are free text an admin types on the calendar
+   configuration page, so a value containing tag-closing characters must
+   not break out of this block. #}
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+window.calendarChiefData = {
+    defaultTitle: {{ default_title|json_encode(json_flags)|raw }},
+    defaultStartTime: {{ default_start_time|json_encode(json_flags)|raw }},
+    defaultEndTime: {{ default_end_time|json_encode(json_flags)|raw }},
+    defaultLocation: {{ default_location|json_encode(json_flags)|raw }},
+    defaultCalendarId: {{ default_calendar_id|json_encode(json_flags)|raw }}
+};
 </script>
 {% endblock %}

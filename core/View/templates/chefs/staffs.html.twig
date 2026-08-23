@@ -283,107 +283,17 @@
 
 {% block scripts %}
 {% if can_edit_section is defined and can_edit_section %}
-<script src="/assets/js/list-editor.js" defer></script>
+{# Server data handed to staffs.js — the window.llmConfigData pattern.
+   oversizeWarningEnabled is the module addendum's rule: the advisory
+   warning exists only when the server has no PDF compression backend of
+   its own. #}
 <script nonce="{{ csp_nonce }}">
-// Documents de section — title/description auto-save on blur (no save
-// button, module addendum), separate from list-editor.js's own
-// reorder/delete wiring (loaded above) since it has no concept of
-// per-item editable fields.
-document.querySelectorAll('.section-document-title-input, .section-document-description-input').forEach(function (field) {
-    field.addEventListener('blur', function () {
-        var row = field.closest('.section-document-row');
-        var title = row.querySelector('.section-document-title-input').value;
-        var description = row.querySelector('.section-document-description-input').value;
-        var csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-
-        fetch('/chefs/staffs/documents/' + row.dataset.id, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title: title, description: description, _csrf_token: csrf })
-        })
-        .then(function (res) { return res.json(); })
-        .then(function (data) {
-            if (!data.success) alert(data.error || 'Erreur.');
-        });
-    });
-});
-
-// Oversize warning — shown only when no compression backend is
-// available server-side (module addendum: never when one is, whatever
-// the file size, since the server shrinks it itself in that case).
-// Purely advisory: it never blocks the upload, it only offers to shrink
-// the file first via iLovePDF or an offline alternative.
-{% if section_document_compression_backend_none %}
-(function () {
-    var input = document.getElementById('section-document-file-input');
-    if (!input) return;
-    var thresholdBytes = {{ section_document_oversize_warning_mb|default(5) }} * 1024 * 1024;
-
-    input.addEventListener('change', function () {
-        var file = input.files[0];
-        if (!file || file.size <= thresholdBytes) return;
-
-        var sizeMb = (file.size / 1024 / 1024).toFixed(1);
-        var proceed = confirm(
-            'Ce fichier fait ' + sizeMb + ' Mo. Aucun outil de compression n\'est disponible sur ce serveur pour le réduire automatiquement.\n\n' +
-            'Vous pouvez le réduire vous-même avant de l\'ajouter : en ligne via iLovePDF (ilovepdf.com), ou hors ligne avec Aperçu (macOS) ' +
-            'ou un outil équivalent sous Windows/Linux.\n\n' +
-            'Attention si ce document contient des données personnelles avant de le transmettre à un service en ligne tiers.\n\n' +
-            'Cliquez sur OK pour ajouter ce fichier tel quel, ou sur Annuler pour choisir un autre fichier.'
-        );
-        if (!proceed) {
-            input.value = '';
-        }
-    });
-})();
-{% endif %}
-
-// Badge picker per staff member — partials/chip_picker.html.twig in
-// mode:multi, same component as the section picker above. chip-picker.js
-// already flips the chip/sheet-row visual state optimistically on click
-// and dispatches chip-picker:change with the picker's full new selection
-// (docs/module-development.md); this only needs to translate that into
-// the existing single-badge-toggle AJAX endpoint (one member_year_id +
-// the one badge_id that just changed) and revert the optimistic state if
-// the server rejects the toggle.
-document.querySelectorAll('.badge-picker').forEach(wrapper => {
-    const picker = wrapper.querySelector('.chip-picker');
-    if (!picker) return;
-
-    const memberYearId = wrapper.dataset.memberYearId;
-    let previousSelected = new Set(
-        Array.prototype.slice
-            .call(picker.querySelectorAll('.chip-picker-item[data-selected="true"]'))
-            .map(el => el.dataset.id)
-    );
-
-    picker.addEventListener('chip-picker:change', async (e) => {
-        const nextSelected = new Set(e.detail.selectedIds);
-        let badgeId = null;
-        nextSelected.forEach(id => { if (!previousSelected.has(id)) badgeId = id; });
-        if (badgeId === null) {
-            previousSelected.forEach(id => { if (!nextSelected.has(id)) badgeId = id; });
-        }
-        if (badgeId === null) return;
-
-        const assigned = nextSelected.has(badgeId);
-        const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-
-        const res = await fetch('/chefs/staffs/badge-toggle', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ member_year_id: parseInt(memberYearId), badge_id: parseInt(badgeId), _csrf_token: csrf })
-        });
-        const data = await res.json();
-
-        if (data.success) {
-            previousSelected = nextSelected;
-        } else {
-            window.ChipPicker.setSelected(picker.id, badgeId, !assigned);
-            alert(data.error);
-        }
-    });
-});
+window.staffsData = {{ {
+    oversizeWarningEnabled: section_document_compression_backend_none|default(false),
+    oversizeWarningMb: section_document_oversize_warning_mb|default(5)
+}|json_encode|raw }};
 </script>
+<script src="/assets/js/list-editor.js" defer></script>
+<script src="/assets/js/staffs.js" defer></script>
 {% endif %}
 {% endblock %}

@@ -190,7 +190,7 @@ class CalendarChiefControllerTest extends TestCase
         $this->assertStringContainsString('<form id="event-form">', $body);
         $this->assertStringContainsString('form="event-form"', $body);
         $this->assertStringContainsString('modal-dialog-scrollable', $body);
-        // The embed's title contract, which the inline JS targets.
+        // The embed's title contract, which calendar-chief.js targets.
         $this->assertStringContainsString('id="eventModal-title"', $body);
     }
 
@@ -199,8 +199,11 @@ class CalendarChiefControllerTest extends TestCase
         $request = new Request('GET', '/chefs/calendar', [], [], [], []);
         $response = $this->controller->index($request, []);
 
-        $this->assertStringContainsString('const defaultStartTime = "14:00"', $response->getBody());
-        $this->assertStringContainsString('const defaultEndTime = "16:00"', $response->getBody());
+        // The defaults reach public/assets/js/calendar-chief.js through the
+        // window.calendarChiefData block the template renders (they used to be
+        // bare `const`s in an inline script).
+        $this->assertStringContainsString('defaultStartTime: "14:00"', $response->getBody());
+        $this->assertStringContainsString('defaultEndTime: "16:00"', $response->getBody());
     }
 
     public function testIndexRendersMonthGridWithCalendarPicker(): void
@@ -304,8 +307,10 @@ class CalendarChiefControllerTest extends TestCase
         $request = new Request('GET', '/chefs/calendar', ['calendar' => (string) $calendarB->id], [], [], []);
         $response = $this->controller->index($request, []);
 
-        $this->assertStringContainsString("const defaultCalendarId = {$calendarB->id};", $response->getBody());
-        $this->assertStringNotContainsString("const defaultCalendarId = {$calendarA->id};", $response->getBody());
+        // The trailing newline ends the window.calendarChiefData property, so
+        // an id that merely starts with another one cannot match it.
+        $this->assertStringContainsString("defaultCalendarId: {$calendarB->id}\n", $response->getBody());
+        $this->assertStringNotContainsString("defaultCalendarId: {$calendarA->id}\n", $response->getBody());
     }
 
     public function testIndexDefaultMyEventsExcludesEventsFromUnlinkedSection(): void
