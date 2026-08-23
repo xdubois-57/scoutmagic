@@ -95,40 +95,37 @@ Références :
   OVH reparsées, `href` non validé, page 500 injectée comme liste,
   enregistrements silencieux).
 - **Couverture JS** : 15 % → **78 %** d'instructions, 86 % de branches,
-  6 → 62 fichiers de spec, 97 → **1 148** tests.
+  6 → 62 fichiers de spec, 97 → **1 149** tests.
+- **Bout en bout** : `npm run e2e` n'avait jamais tourné du chantier. Il
+  passe — **38 tests verts**. Onze specs répondaient aux confirmations par
+  `page.on('dialog')`, qui ne se déclenche plus sur une modale du site ;
+  elles passent par `tests/e2e/support/confirm-dialog.js`. La suite a
+  trouvé ce qu'aucun test unitaire ne pouvait voir : le helper cliquait
+  pendant la transition d'ouverture de Bootstrap, dont `Modal.hide()` ne
+  fait rien tant qu'elle court — la modale et son fond restaient à l'écran
+  et avalaient tous les clics suivants.
+  **Note d'environnement** : le binaire Chromium de ce conteneur (build
+  1194) ne correspond pas au `@playwright/test` installé (1234) ; il faut
+  donc `E2E_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium npm run e2e`
+  (l'échappatoire documentée dans README § « Où ça tourne »). Sur une
+  machine dont les navigateurs correspondent, `npm run e2e` suffit.
 
 ## À FAIRE (dans l'ordre suggéré)
 
-1. **Bout en bout — le seul vrai reste bloquant.** `npm run e2e` n'a jamais
-   été lancé de tout le chantier, et il ne passera pas en l'état : quatorze
-   specs pilotent les confirmations par `page.on('dialog', …)`, qui ne se
-   déclenche plus sur les pages migrées (le dialogue est une modale du site,
-   pas une boîte du navigateur). Le helper est écrit et documenté —
-   `tests/e2e/support/confirm-dialog.js` : `autoConfirm(page)` (couvre les
-   deux mondes pendant la transition), `answerConfirmation(page, {accept})`
-   pour asserter le libellé, `collectToasts(page)` pour les specs qui
-   capturaient des `alert()`. Reste à migrer les specs et à faire passer la
-   suite. Fichiers concernés : scout-year-transition, calendar-events,
-   groups-discussion, auth-methods, news-form-payment, groups-management,
-   retro-board, mass-mail-merge, account-settings, finance-receipts,
-   mass-mail, registration-grids, gallery-media, banner-visibility.
-   Attention : `auth-methods` et `news-form-payment` ne *confirment* pas,
-   elles **capturent** des `alert()` pour diagnostiquer — c'est
-   `collectToasts()` qu'il leur faut, pas `autoConfirm()`.
-2. **Extraction du JS inline restant** : 814 lignes dans 26 gabarits. Les
+1. **Extraction du JS inline restant** — 814 lignes dans 26 gabarits. Les
    plus gros : `account/index.html.twig` (127 l., 5 boîtes natives),
-   `sos_staff/views/admin.html.twig` (reste un bloc de données),
-   `calendar/views/public.html.twig` (78 l., 2), `banner/views/config.html.twig`
-   (88 l., 3), `finance/views/dashboard.html.twig` (64 l.),
+   `banner/views/config.html.twig` (88 l., 3),
+   `calendar/views/public.html.twig` (78 l., 2),
+   `finance/views/dashboard.html.twig` (64 l.),
    `registration/views/passage.html.twig` (54 l.),
    `auth/password_reset.html.twig` (52 l.). Le patron est établi : lire
    `public/assets/js/config-badges.js` et sa spec, puis faire pareil.
-   `UxConventionsTest::NATIVE_DIALOG_ALLOWLIST` liste ce qui reste et **ne
-   peut que rétrécir**.
-3. **`drop_zone`** — le seul composant de la section C jamais créé. Deux
+   Chaque extraction rend le fichier testable ET fait tomber une entrée de
+   `UxConventionsTest::NATIVE_DIALOG_ALLOWLIST`, qui ne peut que rétrécir.
+2. **`drop_zone`** — le seul composant de la section C jamais créé. Deux
    zones de dépôt recodées + deux réimplémentations du réordonnancement
    (~50 lignes de JS chacune).
-4. **Migration `form_field` restante** — le partial sert maintenant les
+3. **Migration `form_field` restante** — le partial sert maintenant les
    champs compacts, donc les fichiers que le relevé avait rejetés sont
    éligibles : gallery/config, retro/settings, finance (dashboard, receipts,
    import), mass_mail (list, tracking), groups (list, members, show),
@@ -137,7 +134,7 @@ Références :
    notifications/preferences. Exclus : `setup/index.html.twig`, et tout
    champ dont le contrôle porte des `data-*` lus par du JS (le partial ne
    les émet pas).
-5. **`Core\Maintenance\UpdateException` reste non marquée, délibérément.**
+4. **`Core\Maintenance\UpdateException` reste non marquée, délibérément.**
    Deux de ses sites de lancement construisent leur message avec
    `InstallUpdateHandler::writeFailureMessage()`, qui interpole un chemin
    serveur ABSOLU et l'avertissement PHP brut (« copy(...): Failed to open
@@ -148,7 +145,7 @@ Références :
    `writeFailureMessage()` relatif à la racine d'installation et lui retirer
    `error_get_last()`, puis marquer la classe. Pas fait : la version sûre
    est en place, l'amélioration est un choix produit.
-6. **« Expliquer avec l'IA » d'un échec S3, légèrement dégradé.**
+5. **« Expliquer avec l'IA » d'un échec S3, légèrement dégradé.**
    `public/assets/js/gallery-storage-location.js` renvoie au serveur la
    chaîne d'erreur qu'il a reçue ; comme `S3StorageBackend::testConnection()`
    retourne désormais une phrase française au lieu du message du SDK AWS,
@@ -159,11 +156,12 @@ Références :
    `GalleryConfigController::testConnection()` mémorise
    `$backend->lastTechnicalError()` en session et que `explainS3Error()` le
    relise côté serveur, plutôt que de le faire transiter par le navigateur.
-7. **Deux « save on change » silencieux restants** — `#default-number-member`
+6. **Un « save on change » silencieux restant** — `#default-number-member`
    (sos_staff/admin) confirme maintenant par un toast, mais **enregistre
-   toujours au `change`** : c'est la forme exacte du bug llm_connector.
-   Décision produit à prendre : bouton explicite, ou statu quo.
-6. **Hors périmètre du chantier mais toujours ouverts** : parcours de la
+   toujours au `change`** : c'est la forme exacte du bug llm_connector, sur
+   le réglage qui décide à qui sonne le numéro SOS de l'unité. Décision
+   produit à prendre : bouton explicite, ou statu quo.
+7. **Hors périmètre du chantier mais toujours ouverts** : parcours de la
    section E de la révision 3 (page de confirmation d'inscription autonome,
    extractions IA des reçus, décompte avant envoi groupé, prérequis FTP de
    la maintenance, **emails rental décision/proposition/modification —
