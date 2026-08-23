@@ -101,7 +101,7 @@ class DynamicMenuRegistrarTest extends TestCase
             1000,
             true,
             "Demande d'inscription",
-            MenuBuilder::GROUP_DYNAMIC
+            MenuBuilder::SORT_GROUP_DYNAMIC
         );
 
         $this->registrar->register($builder, [$this->provider([$entry])], 'someone@example.org');
@@ -205,14 +205,14 @@ class DynamicMenuRegistrarTest extends TestCase
     public function testEntriesSortWithinTheirGroupNotAheadOfCorePages(): void
     {
         $builder = new MenuBuilder(Role::fromString('identified'));
-        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Page core', '/core', 'identified', 50, false, null, MenuBuilder::GROUP_CORE);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Page core', '/core', 'identified', 50, false, null, MenuBuilder::SORT_GROUP_CORE);
 
         // A module entry with a far lower order must still sort after the
         // core page — MenuBuilder ranks by group first, order only as a
         // tie-break inside a group.
         $this->registrar->register($builder, [$this->provider([
-            new MenuEntry(MenuBuilder::MENU_ESPACE_ANIMES, 'Page module', '/module', 'identified', 1, false, null, MenuBuilder::GROUP_MODULE),
-            new MenuEntry(MenuBuilder::MENU_ESPACE_ANIMES, 'Entrée dynamique', '/dyn', 'identified', 999, true, null, MenuBuilder::GROUP_DYNAMIC),
+            new MenuEntry(MenuBuilder::MENU_ESPACE_ANIMES, 'Page module', '/module', 'identified', 1, false, null, MenuBuilder::SORT_GROUP_MODULE),
+            new MenuEntry(MenuBuilder::MENU_ESPACE_ANIMES, 'Entrée dynamique', '/dyn', 'identified', 999, true, null, MenuBuilder::SORT_GROUP_DYNAMIC),
         ])], null);
 
         $labels = array_column($this->pagesOf($builder->build(), MenuBuilder::MENU_ESPACE_ANIMES), 'label');

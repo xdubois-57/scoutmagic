@@ -529,6 +529,7 @@
       "role_min": "admin",
       "label": "Locations",
       "menu_icon": "bi-house-door",
+      "menu_group": "services",
       "breadcrumb": {
         "label": "Locations",
         "parents": [

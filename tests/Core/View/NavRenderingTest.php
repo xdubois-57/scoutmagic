@@ -147,6 +147,33 @@ class NavRenderingTest extends TestCase
         $this->assertStringContainsString('desktop-menu-btn', $html);
     }
 
+    /**
+     * The offcanvas iterates `menu.pages` — the flat, sorted list — and
+     * knows nothing about the named columns MenuBuilder also returns
+     * (`menu.groups`, for the desktop panel). Splitting a menu into
+     * columns must never reach the mobile navigation: it lists every page
+     * of a menu, in one list, in that list's own order.
+     */
+    public function testMobileOffcanvasListsEveryPageOfAMenuFlat(): void
+    {
+        $html = $this->renderNav(Role::SUPERADMIN, true);
+
+        $offcanvasStart = strpos($html, 'id="navOffcanvas"');
+        $offcanvasEnd = strpos($html, 'id="desktopNav"');
+        $this->assertIsInt($offcanvasStart);
+        $this->assertIsInt($offcanvasEnd);
+        $offcanvas = substr($html, $offcanvasStart, $offcanvasEnd - $offcanvasStart);
+
+        $notreUnite = substr($offcanvas, (int) strpos($offcanvas, 'id="mob-notre_unite"'));
+        $this->assertLessThan(
+            strpos($notreUnite, 'Contact'),
+            strpos($notreUnite, 'Accueil'),
+            'the offcanvas keeps the flat page order'
+        );
+        // No column title of any kind between the two.
+        $this->assertStringNotContainsString('Unité & données', $offcanvas);
+    }
+
     public function testActivePageHighlighted(): void
     {
         $html = $this->renderNav(Role::SUPERADMIN, true, '/setup');

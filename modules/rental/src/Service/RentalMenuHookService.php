@@ -71,7 +71,7 @@ class RentalMenuHookService implements MenuEntryProvider
                 self::INDEX_ORDER,
                 false,
                 null,
-                MenuBuilder::GROUP_MODULE,
+                MenuBuilder::SORT_GROUP_MODULE,
                 'bi-house-door'
             );
         }
@@ -88,8 +88,9 @@ class RentalMenuHookService implements MenuEntryProvider
                 self::INDEX_ORDER,
                 false,
                 null,
-                MenuBuilder::GROUP_MODULE,
-                'bi-key'
+                MenuBuilder::SORT_GROUP_MODULE,
+                'bi-key',
+                'pages'
             );
         }
 

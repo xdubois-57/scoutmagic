@@ -1317,41 +1317,41 @@ $menuBuilder = new MenuBuilder(Role::fromString($currentRole));
 $dynamicMenuRegistrar = new DynamicMenuRegistrar();
 
 // Register core pages in menus
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-house');
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'public', 20, false, null, MenuBuilder::GROUP_CORE, 'bi-envelope');
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30, false, null, MenuBuilder::GROUP_CORE, 'bi-diagram-3');
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40, false, null, MenuBuilder::GROUP_CORE, 'bi-shield-check');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-people-fill');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Membres par section', '/chefs/membres', 'intendant', 11, false, null, MenuBuilder::GROUP_CORE, 'bi-list-ul');
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-house');
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'public', 20, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-envelope');
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-diagram-3');
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-shield-check');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-people-fill', null, 'ma_section');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Membres par section', '/chefs/membres', 'intendant', 11, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-list-ul', null, 'ma_section');
 // Édition du site — shrunk to just the configuration-mode toggle,
 // moved here from the Configuration menu and widened from superadmin to
 // admin (see /config-mode/activate|deactivate's own role_min and
 // Core\View\ConfigurationMode, widened the same way) so every chief
 // d'unité, not only a superadmin, can edit site content. First in this
 // menu (order 10) — the most-used entry for a chief d'unité.
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Édition du site', '/config/general', 'admin', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-pencil-square');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 20, false, null, MenuBuilder::GROUP_CORE, 'bi-cloud-arrow-down');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 30, false, null, MenuBuilder::GROUP_CORE, 'bi-person-lines-fill');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 40, false, null, MenuBuilder::GROUP_CORE, 'bi-calendar-range');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 50, false, null, MenuBuilder::GROUP_CORE, 'bi-journal-text');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Édition du site', '/config/general', 'admin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-pencil-square', null, 'contenu');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 20, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-cloud-arrow-down', null, 'membres_annee');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-person-lines-fill', null, 'membres_annee');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 40, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-calendar-range', null, 'membres_annee');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 50, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-journal-text', null, 'suivi');
 // Installation & serveur first (order 5, ahead of Modules/Badges below) —
 // the most-used entry for a superadmin; the rest of this menu keeps its
 // existing relative order.
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Installation & serveur', '/setup', 'superadmin', 5, false, null, MenuBuilder::GROUP_CORE, 'bi-sliders');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Modules', '/config/modules', 'superadmin', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-puzzle');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Badges', '/config/badges', 'superadmin', 12, false, null, MenuBuilder::GROUP_CORE, 'bi-award');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 20, false, null, MenuBuilder::GROUP_CORE, 'bi-diagram-2');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 30, false, null, MenuBuilder::GROUP_CORE, 'bi-gear-wide-connected');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35, false, null, MenuBuilder::GROUP_CORE, 'bi-shield-lock');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40, false, null, MenuBuilder::GROUP_CORE, 'bi-clock-history');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45, false, null, MenuBuilder::GROUP_CORE, 'bi-tools');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46, false, null, MenuBuilder::GROUP_CORE, 'bi-bell');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 47, false, null, MenuBuilder::GROUP_CORE, 'bi-life-preserver');
-// order 10, not a leftover "after the separator" number — GROUP_CORE
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Installation & serveur', '/setup', 'superadmin', 5, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-sliders', null, 'site');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Modules', '/config/modules', 'superadmin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-puzzle', null, 'site');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Badges', '/config/badges', 'superadmin', 12, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-award', null, 'unite_donnees');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 20, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-diagram-2', null, 'unite_donnees');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-gear-wide-connected', null, 'site');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-shield-lock', null, 'unite_donnees');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-clock-history', null, 'exploitation');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-tools', null, 'exploitation');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-bell', null, 'exploitation');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 47, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-life-preserver', null, 'exploitation');
+// order 10, not a leftover "after the separator" number — SORT_GROUP_CORE
 // (addPage()'s default) already sorts this after the dynamic member
 // entries/empty-state placeholder above regardless of the numeric order,
 // and it's currently the only core static page in this menu.
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-bell');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-bell', null, 'pages');
 
 // Create router early so ModuleManager can register routes
 $router = new Router();
@@ -1481,7 +1481,7 @@ if ($schedulerService->find('core', \Core\Support\Task\PurgeSupportPackagesHandl
     $schedulerService->schedule('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE);
 }
 
-// Add dynamic member entries to Espace membres — group: GROUP_DYNAMIC keeps
+// Add dynamic member entries to Espace membres — group: SORT_GROUP_DYNAMIC keeps
 // these (and the empty-state placeholder below) sorted ahead of every core
 // static page and every module page in this menu regardless of numeric
 // `order` (Core\View\MenuBuilder::buildPages() sorts by group first). No
@@ -1501,17 +1501,18 @@ if (AuthSession::isAuthenticated()) {
             10 + $index,  // order: members first
             true,          // isDynamic = true (renders with the avatar-circle styling)
             $member->getMainSectionName(),  // subtitle
-            MenuBuilder::GROUP_DYNAMIC,
+            MenuBuilder::SORT_GROUP_DYNAMIC,
             null,
             // The persistent member id, never member_years.id: the avatar
             // draws this member's photo for the year in effect, and
             // Core\Photo\MemberPhotoService is keyed on members.id.
-            $member->memberId
+            $member->memberId,
+            'mes_membres'
         );
     }
 
     // Empty state message when no members are linked — conceptually the
-    // same "dynamic member list" slot (hence GROUP_DYNAMIC), but isDynamic
+    // same "dynamic member list" slot (hence SORT_GROUP_DYNAMIC), but isDynamic
     // stays false so it renders as a plain line, not a two-letter avatar
     // bubble carved out of this whole sentence.
     if (count($linkedMembers) === 0) {
@@ -1523,7 +1524,10 @@ if (AuthSession::isAuthenticated()) {
             10,
             false,
             null,
-            MenuBuilder::GROUP_DYNAMIC
+            MenuBuilder::SORT_GROUP_DYNAMIC,
+            null,
+            null,
+            'mes_membres'
         );
     }
 }

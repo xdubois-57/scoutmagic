@@ -516,11 +516,17 @@ class ModuleManager
                     $menuOrder,
                     false,
                     null,
-                    MenuBuilder::GROUP_MODULE,
+                    MenuBuilder::SORT_GROUP_MODULE,
                     // module.json's own `menu_icon` — null when the
                     // module declares none, which renders the neutral
                     // fallback rather than nothing (partials/nav.html.twig).
-                    $route['menu_icon'] ?? null
+                    $route['menu_icon'] ?? null,
+                    null,
+                    // module.json's own `menu_group`, already validated
+                    // against the menu's declared columns at manifest load
+                    // (ModuleManifest::validateRoute()). Null lands in the
+                    // menu's last declared group.
+                    $route['menu_group'] ?? null
                 );
             }
         }

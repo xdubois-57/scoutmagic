@@ -18,6 +18,7 @@
       "role_min": "superadmin",
       "label": "Outils de test",
       "menu_icon": "bi-tools",
+      "menu_group": "modules",
       "breadcrumb": {
         "label": "Outils de test",
         "parents": [

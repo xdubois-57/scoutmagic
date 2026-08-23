@@ -151,11 +151,11 @@ class MenuBuilderTest extends TestCase
         // Registered out of "natural" order and with module pages using a
         // numerically LOWER order than the core/dynamic entries, matching
         // the real trombinoscope (5) / gallery (6) case.
-        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Trombinoscope', '/trombinoscope', 'identified', 5, false, null, MenuBuilder::GROUP_MODULE);
-        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Galerie', '/gallery', 'identified', 6, false, null, MenuBuilder::GROUP_MODULE);
-        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 10, false, null, MenuBuilder::GROUP_CORE);
-        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Kaa', '/members/2', 'identified', 11, true, null, MenuBuilder::GROUP_DYNAMIC);
-        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Baloo', '/members/1', 'identified', 10, true, null, MenuBuilder::GROUP_DYNAMIC);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Trombinoscope', '/trombinoscope', 'identified', 5, false, null, MenuBuilder::SORT_GROUP_MODULE);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Galerie', '/gallery', 'identified', 6, false, null, MenuBuilder::SORT_GROUP_MODULE);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 10, false, null, MenuBuilder::SORT_GROUP_CORE);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Kaa', '/members/2', 'identified', 11, true, null, MenuBuilder::SORT_GROUP_DYNAMIC);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Baloo', '/members/1', 'identified', 10, true, null, MenuBuilder::SORT_GROUP_DYNAMIC);
 
         $menus = $builder->build();
 
@@ -165,12 +165,12 @@ class MenuBuilderTest extends TestCase
 
     public function testModuleGroupDefaultsWhenGroupIsOmitted(): void
     {
-        // addPage()'s default $group is GROUP_CORE, not GROUP_MODULE — a
+        // addPage()'s default $group is SORT_GROUP_CORE, not SORT_GROUP_MODULE — a
         // caller must opt in to the module group explicitly (only
         // Core\Module\ModuleManager::loadModule() does).
         $builder = new MenuBuilder(Role::IDENTIFIED);
         $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Core page', '/core-page', 'identified', 100);
-        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Dynamic', '/members/1', 'identified', 10, true, null, MenuBuilder::GROUP_DYNAMIC);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Dynamic', '/members/1', 'identified', 10, true, null, MenuBuilder::SORT_GROUP_DYNAMIC);
 
         $menus = $builder->build();
 
@@ -238,7 +238,7 @@ class MenuBuilderTest extends TestCase
             10,
             true,
             'Louveteaux',
-            MenuBuilder::GROUP_DYNAMIC,
+            MenuBuilder::SORT_GROUP_DYNAMIC,
             null,
             42
         );
@@ -250,7 +250,7 @@ class MenuBuilderTest extends TestCase
             20,
             false,
             null,
-            MenuBuilder::GROUP_CORE,
+            MenuBuilder::SORT_GROUP_CORE,
             'bi-bell'
         );
 
@@ -275,5 +275,161 @@ class MenuBuilderTest extends TestCase
 
         $this->assertNull($page['icon']);
         $this->assertNull($page['avatarMemberId']);
+    }
+
+    // --- menu groups (the desktop mega-menu's named columns) -------------
+
+    /**
+     * Columns are drawn in MENU_GROUPS' declaration order, whatever the
+     * pages' numeric `order` says — `order` still sorts *within* a column,
+     * and nothing else.
+     */
+    public function testGroupOrderFollowsTheDeclarationOrderNotThePagesOrder(): void
+    {
+        $builder = new MenuBuilder(Role::SUPERADMIN);
+        // "Exploitation" is declared last but registered first, and with
+        // the lowest `order` of the three.
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'superadmin', 1, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'exploitation');
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 20, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'site');
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'unite_donnees');
+
+        $groups = $builder->build()[0]['groups'];
+
+        $this->assertSame(['unite_donnees', 'site', 'exploitation'], array_column($groups, 'id'));
+        $this->assertSame(['Unité & données', 'Site', 'Exploitation'], array_column($groups, 'label'));
+    }
+
+    /**
+     * A module page and a core page share a column on purpose (Finances
+     * belongs under "Gestion" whichever registered it) — inside it, the
+     * existing sort applies untouched: sort group first, `order` second.
+     */
+    public function testPagesInsideAGroupKeepTheExistingSortGroupThenOrderSort(): void
+    {
+        $builder = new MenuBuilder(Role::INTENDANT);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Finances', '/finance', 'intendant', 1, false, null, MenuBuilder::SORT_GROUP_MODULE, null, null, 'gestion');
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Statistiques', '/chiefs/stats', 'intendant', 2, false, null, MenuBuilder::SORT_GROUP_MODULE, null, null, 'gestion');
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Page core', '/chefs/core', 'intendant', 99, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'gestion');
+
+        $groups = $builder->build()[0]['groups'];
+
+        $this->assertCount(1, $groups);
+        $this->assertSame('gestion', $groups[0]['id']);
+        $this->assertSame(['Page core', 'Finances', 'Statistiques'], array_column($groups[0]['pages'], 'label'));
+    }
+
+    /**
+     * Role filtering runs before grouping, so a column whose every page is
+     * filtered out is absent entirely: an intendant must never be shown a
+     * titled column with nothing under it.
+     */
+    public function testAGroupWhoseEveryPageIsRoleFilteredIsAbsentRatherThanEmpty(): void
+    {
+        $builder = new MenuBuilder(Role::INTENDANT);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'ma_section');
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Finances', '/finance', 'chief', 10, false, null, MenuBuilder::SORT_GROUP_MODULE, null, null, 'gestion');
+
+        $groups = $builder->build()[0]['groups'];
+
+        $this->assertSame(['ma_section'], array_column($groups, 'id'));
+    }
+
+    /**
+     * A page that names no group lands in the menu's *last* declared one —
+     * a core page added later and forgotten shows up under "Exploitation",
+     * where the omission is visible, rather than inventing an unnamed
+     * column of its own.
+     */
+    public function testAPageWithNoMenuGroupLandsInTheLastDeclaredGroup(): void
+    {
+        $builder = new MenuBuilder(Role::SUPERADMIN);
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'site');
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Page oubliée', '/config/oops', 'superadmin', 20);
+
+        $groups = $builder->build()[0]['groups'];
+
+        $this->assertSame(['site', 'exploitation'], array_column($groups, 'id'));
+        $this->assertSame(['Page oubliée'], array_column($groups[1]['pages'], 'label'));
+    }
+
+    /**
+     * Fail loud at boot, never silently into a fallback column: a typo'd
+     * group id must be impossible to ship.
+     */
+    public function testAnUndeclaredMenuGroupIsRefused(): void
+    {
+        $builder = new MenuBuilder(Role::SUPERADMIN);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("Menu group 'explotation' is not declared for menu 'configuration'");
+
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'superadmin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'explotation');
+    }
+
+    /**
+     * A group declared for *another* menu is just as wrong as a typo — the
+     * vocabulary is closed per menu, not globally.
+     */
+    public function testAGroupDeclaredForAnotherMenuIsRefused(): void
+    {
+        $builder = new MenuBuilder(Role::SUPERADMIN);
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Finances', '/config/finance', 'superadmin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'gestion');
+    }
+
+    /**
+     * An ungrouped menu returns one untitled group holding every page —
+     * one shape for the templates to consume, no "is this menu grouped?"
+     * branch downstream.
+     */
+    public function testAnUngroupedMenuReturnsOneUntitledGroupWithEveryPage(): void
+    {
+        $builder = new MenuBuilder(Role::PUBLIC);
+        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10);
+        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'public', 20);
+
+        $groups = $builder->build()[0]['groups'];
+
+        $this->assertCount(1, $groups);
+        $this->assertNull($groups[0]['id']);
+        $this->assertNull($groups[0]['label']);
+        $this->assertSame(['Accueil', 'Contact'], array_column($groups[0]['pages'], 'label'));
+    }
+
+    /**
+     * Grouping is an added view of the same list, never a replacement:
+     * `pages` stays the flat, sorted, role-filtered list every existing
+     * consumer (the mobile offcanvas) reads, carrying exactly the same
+     * keys it did before groups existed.
+     */
+    public function testPagesStaysTheFlatListItAlwaysWasAlongsideGroups(): void
+    {
+        $builder = new MenuBuilder(Role::SUPERADMIN);
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'superadmin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-tools', null, 'exploitation');
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-gear-wide-connected', null, 'site');
+
+        $menu = $builder->build()[0];
+
+        $this->assertSame(['Réglages', 'Maintenance'], array_column($menu['pages'], 'label'));
+        $this->assertSame(
+            ['label', 'url', 'isDynamic', 'subtitle', 'icon', 'avatarMemberId'],
+            array_keys($menu['pages'][0])
+        );
+        // The very same page shape, whichever way it was reached.
+        $this->assertSame($menu['pages'][0], $menu['groups'][0]['pages'][0]);
+    }
+
+    /**
+     * Every group id MENU_GROUPS declares must be unique inside its menu —
+     * a duplicate would silently swallow one column's pages into another.
+     */
+    public function testEveryDeclaredGroupIdIsUniqueWithinItsMenu(): void
+    {
+        foreach (MenuBuilder::MENU_GROUPS as $menuId => $groups) {
+            $ids = array_column($groups, 'id');
+            $this->assertSame(array_unique($ids), $ids, "duplicate group id in '{$menuId}'");
+        }
     }
 }
