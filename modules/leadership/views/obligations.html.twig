@@ -1,0 +1,52 @@
+{% extends 'base.html.twig' %}
+{% block title %}Obligations — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Obligations',
+            subtitle: "Ce qui peut être anticipé, et ce que Desk signale. Le site ne stocke jamais l'état d'un CQA ou d'un extrait de casier judiciaire, et n'en affiche donc jamais un.",
+        } only %}
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-1">Anniversaires des {{ adult_age }} ans</h2>
+                <p class="small text-body-secondary mb-3">
+                    Animateurs qui atteignent {{ adult_age }} ans dans les {{ alert_weeks }} prochaines semaines.
+                    C'est la seule échéance de cette page qui se voit venir : à partir de cet âge, un extrait de
+                    casier judiciaire est légalement requis.
+                </p>
+                {% include '@leadership/partials/_person_list.html.twig' with {
+                    lines: birthdays,
+                    empty_message: 'Aucun anniversaire des ' ~ adult_age ~ ' ans dans les ' ~ alert_weeks ~ ' prochaines semaines.',
+                } only %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-1">Candidats au dernier import</h2>
+                <p class="small text-body-secondary mb-3">
+                    Desk préfixe la fonction du mot « candidat » tant que les obligations ne sont pas — ou ne sont
+                    plus — en ordre, et retire le préfixe de lui-même quand elles le redeviennent. Ce n'est donc pas
+                    une liste d'entrées en fonction : le statut revient à l'expiration d'un CQA ou d'un extrait,
+                    y compris pour un animateur en poste depuis des années.
+                </p>
+                <p class="small text-body-secondary mb-3">
+                    L'absence de quelqu'un dans cette liste ne dit rien de sa situation aujourd'hui : elle dit
+                    seulement que Desk ne le signalait pas au moment de l'import.
+                </p>
+                {% include '@leadership/partials/_person_list.html.twig' with {
+                    lines: candidates,
+                    empty_message: 'Aucun candidat signalé par Desk au dernier import.',
+                } only %}
+            </div>
+        </div>
+
+        {% include '@leadership/partials/_validity_footer.html.twig' with {
+            scout_year_label: scout_year_label,
+            last_import_at: last_import_at,
+            rules_version: rules_version,
+            rules_verified_on: rules_verified_on,
+        } only %}
+    </div>
+{% endblock %}

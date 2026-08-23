@@ -249,6 +249,45 @@
                 </div>
             {% endif %}
 
+            {# §6bis — Parcours de formation (leadership module, optional).
+               SELF ONLY, and the is_self test is deliberately separate
+               from the route's own authorization: MemberController::show()
+               admits a chief/admin onto somebody else's page, and this
+               block must not follow them there — same rule, and the same
+               reason, as the photo a member may replace and the private
+               documents above. Where the unit as a whole stands on
+               formation is a question for that module's own admin pages;
+               this card answers a question the member asked about
+               themselves. #}
+            {% if is_self and formation_path %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">Mon parcours de formation</h2>
+                        {% if formation_path.isRecognised %}
+                            <ol class="list-unstyled d-flex flex-wrap gap-2 mb-3">
+                                {% for step in formation_path.steps %}
+                                    <li class="badge rounded-pill {{ step.reached ? 'text-bg-primary' : 'text-bg-light border' }}">
+                                        {{ step.label }}{% if step.current %} <span class="visually-hidden">(étape actuelle)</span>{% endif %}
+                                    </li>
+                                {% endfor %}
+                            </ol>
+                        {% endif %}
+                        <p class="small mb-0">
+                            {{ formation_path.currentLabel }}.
+                            {% if formation_path.nextLabel %}
+                                Prochaine étape connue : {{ formation_path.nextLabel }}.
+                            {% endif %}
+                        </p>
+                        {% if not formation_path.isRecognised %}
+                            <p class="small text-body-secondary mb-0 mt-2">
+                                Le site ne sait pas à quelle étape rattacher ce qui est encodé dans Desk. Votre équipe
+                                d'unité peut le lui indiquer ; en attendant, rien n'est déduit.
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+
             {# §7bis — Adresses email (self-service only, no chief/admin
                bypass — module addendum: "a member manages ONLY their own
                secondary emails"). The Desk-imported address is always

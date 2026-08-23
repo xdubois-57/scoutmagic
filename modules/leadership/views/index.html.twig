@@ -1,0 +1,66 @@
+{% extends 'base.html.twig' %}
+{% block title %}Encadrement — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Encadrement',
+            subtitle: "Trois listes de personnes à contacter, calculées à partir du dernier import Desk. Ce module ne stocke rien et ne décide rien : il lit.",
+        } only %}
+
+        <div class="row row-cols-1 row-cols-md-3 g-3">
+            <div class="col">
+                <div class="card h-100">
+                    <div class="card-body d-flex flex-column">
+                        <div class="small text-body-secondary d-flex align-items-center gap-1 mb-1">
+                            <i class="bi bi-mortarboard text-primary" aria-hidden="true"></i> Formations
+                        </div>
+                        <div class="fs-3 fw-semibold lh-1">{{ training_count }}</div>
+                        <p class="small text-body-secondary mt-2 mb-3">
+                            Animateurs à qui proposer de commencer le parcours, ou d'aller au bout de celui qu'ils ont entamé.
+                        </p>
+                        <a href="/admin/leadership/training" class="mt-auto stretched-link">Voir les formations</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card h-100">
+                    <div class="card-body d-flex flex-column">
+                        <div class="small text-body-secondary d-flex align-items-center gap-1 mb-1">
+                            <i class="bi bi-shield-check text-primary" aria-hidden="true"></i> Obligations
+                        </div>
+                        <div class="fs-3 fw-semibold lh-1">{{ obligations_count }}</div>
+                        <p class="small text-body-secondary mt-2 mb-3">
+                            Anniversaires des 20 ans qui approchent, et animateurs que Desk signale comme candidats.
+                        </p>
+                        <a href="/admin/leadership/obligations" class="mt-auto stretched-link">Voir les obligations</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card h-100">
+                    <div class="card-body d-flex flex-column">
+                        <div class="small text-body-secondary d-flex align-items-center gap-1 mb-1">
+                            <i class="bi bi-basket text-primary" aria-hidden="true"></i> Intendants
+                        </div>
+                        <div class="fs-3 fw-semibold lh-1">{{ stewards_count }}</div>
+                        <p class="small text-body-secondary mt-2 mb-3">
+                            {% if summer_regime %}
+                                Intendants inscrits. En été, chaque inscription entraîne une cotisation invité.
+                            {% else %}
+                                Intendants inscrits, avec le nombre de jours écoulés depuis leur inscription.
+                            {% endif %}
+                        </p>
+                        <a href="/admin/leadership/stewards" class="mt-auto stretched-link">Voir les intendants</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% include '@leadership/partials/_validity_footer.html.twig' with {
+            scout_year_label: scout_year_label,
+            last_import_at: last_import_at,
+            rules_version: rules_version,
+            rules_verified_on: rules_verified_on,
+        } only %}
+    </div>
+{% endblock %}

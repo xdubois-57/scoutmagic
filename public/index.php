@@ -1911,9 +1911,14 @@ $newsArticleService = null;
 // above.
 $calendarEventLookup = null;
 
+// Optional dependency on the leadership module (ARCHITECTURE.md §7.5) for
+// the member page's own "Mon parcours de formation" card (§6bis) — set in
+// that module's block below, same pattern as the two above.
+$formationPathProvider = null;
+
 // Baseline MemberPageService (core deps only) — re-registered further
-// down, once mass_mail/gallery/trombinoscope/calendar availability is
-// known, exactly like MemberController itself.
+// down, once mass_mail/gallery/trombinoscope/calendar/leadership
+// availability is known, exactly like MemberController itself.
 $memberPageService = new \Core\Member\MemberPageService(
     $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
     $sectionDocumentService
@@ -3883,20 +3888,71 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     }
 }
 
+// Leadership ("Encadrement") — four read-only admin pages built entirely
+// from core tables, plus the member page's own training-path card through
+// Core\Module\FormationPathProvider (ARCHITECTURE.md §7.4/§8.64). The
+// module stores nothing but its formation-level vocabulary mapping, so
+// there is no cache to warm here and nothing to invalidate after an
+// import.
+if (in_array('leadership', $moduleManager->getEnabledModuleIds(), true)) {
+    $leadershipRepository = new \Modules\Leadership\Repository\LeadershipRepository($connection, $encryptionService);
+    $leadershipMappingRepository = new \Modules\Leadership\Repository\FormationLevelMappingRepository($connection);
+    $leadershipResolver = new \Modules\Leadership\Service\FormationLevelResolver();
+    $leadershipObligationsService = new \Modules\Leadership\Service\ObligationsService(
+        new \Modules\Leadership\Service\CandidateDetector()
+    );
+
+    $frontController->registerController(
+        \Modules\Leadership\Controller\LeadershipController::class,
+        new \Modules\Leadership\Controller\LeadershipController(
+            $twig,
+            $leadershipRepository,
+            $leadershipMappingRepository,
+            $leadershipResolver,
+            new \Modules\Leadership\Service\TrainingService(
+                $leadershipRepository,
+                $sectionService,
+                $memberYearService,
+                new \Modules\Leadership\Service\SupervisionCalculator()
+            ),
+            $leadershipObligationsService,
+            new \Modules\Leadership\Service\StewardService($leadershipRepository, $leadershipObligationsService),
+            $scoutYearResolver,
+            $editableContentService
+        )
+    );
+
+    $frontController->registerController(
+        \Modules\Leadership\Controller\FormationMappingController::class,
+        new \Modules\Leadership\Controller\FormationMappingController(
+            $twig,
+            $leadershipMappingRepository,
+            $journalService
+        )
+    );
+
+    $formationPathProvider = new \Modules\Leadership\Service\MemberFormationPathService(
+        $leadershipRepository,
+        $leadershipMappingRepository,
+        $leadershipResolver
+    );
+}
+
 // Re-registers MemberController (and its MemberPageService) with
 // whichever optional providers are available — mass_mail's "Communications
 // récentes", gallery's "Galeries photos", trombinoscope's section-
 // responsable lookup (via $sectionResponsableProvider, ARCHITECTURE.md
-// §7.4), and calendar's next-upcoming-event lookup (via
-// $calendarEventLookup); each stays null when its module is disabled and
-// the corresponding page block just doesn't render. Placed after every
-// one of those modules' blocks above so their repositories/services are
-// in scope.
+// §7.4), calendar's next-upcoming-event lookup (via $calendarEventLookup),
+// and leadership's own training path (via $formationPathProvider); each
+// stays null when its module is disabled and the corresponding page block
+// just doesn't render. Placed after every one of those modules' blocks
+// above so their repositories/services are in scope.
 if (
     in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)
     || in_array('gallery', $moduleManager->getEnabledModuleIds(), true)
     || in_array('calendar', $moduleManager->getEnabledModuleIds(), true)
     || in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)
+    || in_array('leadership', $moduleManager->getEnabledModuleIds(), true)
 ) {
     $massMailQueryForMember = in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)
         ? new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
@@ -3909,7 +3965,8 @@ if (
 
     $memberPageService = new \Core\Member\MemberPageService(
         $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
-        $sectionDocumentService, $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookup
+        $sectionDocumentService, $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookup,
+        $formationPathProvider
     );
 
     $frontController->registerController(
