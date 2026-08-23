@@ -18,7 +18,7 @@
 // through window.ScoutMagicConfirm (design.md §7.5), each naming its own
 // action on the confirm button rather than a generic « OK ».
 (function () {
-    var rulesList = document.getElementById('rules-list');
+    const rulesList = document.getElementById('rules-list');
     if (!rulesList || !document.getElementById('category-form')) return;
 
     const api = window.ScoutMagicApi;
@@ -399,7 +399,7 @@
             const item = btn.closest('.rule-item');
             const prev = item.previousElementSibling;
             if (prev && prev.classList.contains('rule-item')) {
-                rulesList.insertBefore(item, prev);
+                prev.before(item);
                 persistRuleOrder();
                 updateRuleMoveButtons();
             }
@@ -410,7 +410,7 @@
             const item = btn.closest('.rule-item');
             const next = item.nextElementSibling;
             if (next && next.classList.contains('rule-item')) {
-                rulesList.insertBefore(next, item);
+                item.before(next);
                 persistRuleOrder();
                 updateRuleMoveButtons();
             }

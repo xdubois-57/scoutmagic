@@ -135,9 +135,8 @@
         var timer = 0;
         return function () {
             var args = arguments;
-            var self = this;
             clearTimeout(timer);
-            timer = setTimeout(function () { fn.apply(self, args); }, delayMs);
+            timer = setTimeout(() => fn.apply(this, args), delayMs);
         };
     }
 

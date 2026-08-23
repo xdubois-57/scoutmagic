@@ -486,7 +486,7 @@
                 if (carrier === null) {
                     carrier = doc.createElement('input');
                     carrier.type = 'hidden';
-                    carrier.setAttribute('data-confirm-note-field', '');
+                    carrier.dataset.confirmNoteField = '';
                     form.appendChild(carrier);
                 }
                 carrier.name = form.dataset.confirmNoteName || 'message';

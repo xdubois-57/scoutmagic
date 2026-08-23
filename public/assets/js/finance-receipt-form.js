@@ -28,8 +28,8 @@
 // compression, so a second click cannot start a second submit of the same
 // receipts while the first one is still resizing.
 (function () {
-    var form = /** @type {HTMLFormElement|null} */ (document.getElementById('receipt-form'));
-    var statusEl = document.getElementById('receipt-file-status');
+    const form = /** @type {HTMLFormElement|null} */ (document.getElementById('receipt-form'));
+    const statusEl = document.getElementById('receipt-file-status');
     // A no-op on any page that loads this file without the form — the
     // « Aucun compte visible pour votre rôle. » empty state renders the
     // page header and nothing else.
@@ -37,17 +37,59 @@
         return;
     }
 
-    var MAX_WIDTH = 1600;
-    var JPEG_QUALITY = 0.75;
-    var MAX_FILES = 10;
+    const MAX_WIDTH = 1600;
+    const JPEG_QUALITY = 0.75;
+    const MAX_FILES = 10;
 
-    var api = window.ScoutMagicApi;
-    var submitBtn = /** @type {HTMLButtonElement|null} */ (form.querySelector('button[type="submit"]'));
+    const api = window.ScoutMagicApi;
+    const submitBtn = /** @type {HTMLButtonElement|null} */ (form.querySelector('button[type="submit"]'));
 
     // Downscaling needs all three, and so does rewriting the input's
     // FileList afterwards. Where any is missing the form submits the files
     // exactly as they were picked — the server accepts them either way.
-    var supportsResize = !!(window.FileReader && window.HTMLCanvasElement && window.DataTransfer);
+    const supportsResize = !!(window.FileReader && window.HTMLCanvasElement && window.DataTransfer);
+
+    /**
+     * @param {File} file
+     * @returns {Promise<string>}
+     */
+    function readAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(/** @type {string} */ (reader.result));
+            reader.onerror = () => reject(new Error('FileReader failed'));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    /**
+     * @param {string} dataUrl
+     * @returns {Promise<HTMLImageElement>}
+     */
+    function loadImage(dataUrl) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error('Image load failed'));
+            img.src = dataUrl;
+        });
+    }
+
+    /**
+     * @param {HTMLCanvasElement} canvas
+     * @returns {Promise<Blob>}
+     */
+    function canvasToJpegBlob(canvas) {
+        return new Promise((resolve, reject) => {
+            canvas.toBlob((blob) => {
+                if (blob) {
+                    resolve(blob);
+                } else {
+                    reject(new Error('toBlob failed'));
+                }
+            }, 'image/jpeg', JPEG_QUALITY);
+        });
+    }
 
     /**
      * One image file, re-encoded as a JPEG at most MAX_WIDTH wide (aspect
@@ -58,41 +100,24 @@
      * @param {File} file
      * @returns {Promise<Blob>}
      */
-    function resizeImage(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-                const img = new Image();
-                img.onload = () => {
-                    let width = img.width;
-                    let height = img.height;
-                    if (width > MAX_WIDTH) {
-                        height = Math.round(height * (MAX_WIDTH / width));
-                        width = MAX_WIDTH;
-                    }
-                    const canvas = document.createElement('canvas');
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    if (!ctx) {
-                        reject(new Error('Canvas context unavailable'));
-                        return;
-                    }
-                    ctx.drawImage(img, 0, 0, width, height);
-                    canvas.toBlob((blob) => {
-                        if (blob) {
-                            resolve(blob);
-                        } else {
-                            reject(new Error('toBlob failed'));
-                        }
-                    }, 'image/jpeg', JPEG_QUALITY);
-                };
-                img.onerror = () => reject(new Error('Image load failed'));
-                img.src = /** @type {string} */ (reader.result);
-            };
-            reader.onerror = () => reject(new Error('FileReader failed'));
-            reader.readAsDataURL(file);
-        });
+    async function resizeImage(file) {
+        const dataUrl = await readAsDataUrl(file);
+        const img = await loadImage(dataUrl);
+        let width = img.width;
+        let height = img.height;
+        if (width > MAX_WIDTH) {
+            height = Math.round(height * (MAX_WIDTH / width));
+            width = MAX_WIDTH;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            throw new Error('Canvas context unavailable');
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        return canvasToJpegBlob(canvas);
     }
 
     /**
@@ -107,8 +132,8 @@
         return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
     }
 
-    var singleInput = /** @type {HTMLInputElement|null} */ (document.getElementById('receipt-file'));
-    var dropZone = document.getElementById('drop-zone');
+    const singleInput = /** @type {HTMLInputElement|null} */ (document.getElementById('receipt-file'));
+    const dropZone = document.getElementById('drop-zone');
 
     if (singleInput) {
         // --- « Remplacer le reçu » : one file, one input ---
