@@ -571,6 +571,42 @@ class GalleryConfigControllerTest extends TestCase
         $this->assertStringNotContainsString('stored-secret', (string) $payload['error']);
     }
 
+    /**
+     * A bare `catch (\Throwable)` used to render `$e->getMessage()` as
+     * submit_error — a PDOException naming a column, a SettingException
+     * naming a key.
+     */
+    public function testSaveShowsAWrittenSentenceRatherThanAThrowablesOwnMessage(): void
+    {
+        $settingService = $this->createMock(SettingService::class);
+        $settingService->method('set')->willThrowException(
+            new \PDOException("SQLSTATE[42S22]: Column not found: 1054 Unknown column 'value' in 'field list'")
+        );
+
+        $controller = new GalleryConfigController(
+            $this->twig, $settingService, $this->createMock(FfmpegAvailability::class),
+            new JournalService(new JournalRepository($this->pdo)), new S3ErrorExplainerService(),
+            $this->storageLocationService, $this->storageLocationRepository, $this->albumService
+        );
+
+        $response = $controller->save(new Request('POST', '/config/gallery', [], [
+            '_csrf_token' => $this->csrfToken(),
+            'gallery_max_media_per_album' => '200',
+            'gallery_max_photo_upload_mb' => '30',
+            'gallery_photo_max_dimension' => '3000',
+            'gallery_max_video_upload_mb' => '2048',
+            'gallery_max_video_duration_sec' => '1800',
+        ], [], []), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $body = $response->getBody();
+        $this->assertStringNotContainsString('SQLSTATE', $body);
+        $this->assertStringNotContainsString('Unknown column', $body);
+        // Twig autoescaping turns the apostrophe into an entity, so assert
+        // on the half of the sentence that has none.
+        $this->assertStringContainsString('vérifiez les valeurs saisies', $body);
+    }
+
     public function testTestConnectionIgnoresAnUnknownLocationId(): void
     {
         $response = $this->controller->testConnection($this->jsonRequest([

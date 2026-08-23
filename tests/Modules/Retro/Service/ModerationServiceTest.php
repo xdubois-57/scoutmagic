@@ -110,6 +110,25 @@ class ModerationServiceTest extends TestCase
         $service->shorten('text', 20);
     }
 
+    public function testTheLlmFailuresTextNeverReachesTheRetroExceptionsOwnMessage(): void
+    {
+        $technical = new LlmException('HTTP 401 — {"error":{"message":"invalid x-api-key"}}');
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('complete')->willThrowException($technical);
+        $service = new ModerationService($llmConnector);
+
+        try {
+            $service->shorten('text', 20);
+            self::fail('Expected a RetroException.');
+        } catch (RetroException $e) {
+            self::assertStringNotContainsString('x-api-key', $e->getMessage());
+            self::assertStringNotContainsString('HTTP 401', $e->getMessage());
+            self::assertStringContainsString('raccourcissement', $e->getMessage());
+            self::assertSame($technical, $e->getPrevious());
+        }
+    }
+
     /**
      * Structured output is prompt-instructed, not API-enforced, so a model
      * can answer with the string "false" — truthy in PHP, which used to flag

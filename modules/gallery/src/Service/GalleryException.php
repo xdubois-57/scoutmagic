@@ -8,6 +8,15 @@ declare(strict_types=1);
 
 namespace Modules\Gallery\Service;
 
-class GalleryException extends \RuntimeException
+use Core\Exception\UserFacingException;
+
+/**
+ * A refused gallery operation. Marked {@see UserFacingException}: every
+ * message is a French sentence written for the chief or the visitor. The two
+ * sites that re-wrap an upload/decode failure route the original through
+ * {@see \Core\Exception\UserFacingMessage::from()} rather than trusting
+ * `$e->getMessage()` blindly.
+ */
+class GalleryException extends \RuntimeException implements UserFacingException
 {
 }

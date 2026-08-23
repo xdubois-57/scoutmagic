@@ -36,13 +36,13 @@ class SettingService
     {
         $setting = $this->repository->findByModuleAndKey($moduleId, $key);
         if ($setting === null) {
-            throw new SettingException("Setting '{$key}' not found.");
+            throw new SettingException("Le réglage « {$key} » est introuvable — il a peut-être été supprimé, rechargez la page.");
         }
         if (!(bool) $setting['editable']) {
-            throw new SettingException("Setting '{$key}' is not editable.");
+            throw new SettingException("Le réglage « {$key} » n'est pas modifiable depuis cette page.");
         }
         if (!$this->validateValue($value, $setting)) {
-            throw new SettingException("Invalid value for setting '{$key}'.");
+            throw new SettingException("La valeur saisie pour le réglage « {$key} » est invalide — vérifiez le format attendu.");
         }
 
         $this->repository->updateValue($moduleId, $key, $value);
@@ -62,10 +62,10 @@ class SettingService
     {
         $setting = $this->repository->findByModuleAndKey($moduleId, $key);
         if ($setting === null) {
-            throw new SettingException("Setting '{$key}' not found.");
+            throw new SettingException("Le réglage « {$key} » est introuvable — il a peut-être été supprimé, rechargez la page.");
         }
         if (!$this->validateValue($value, $setting)) {
-            throw new SettingException("Invalid value for setting '{$key}'.");
+            throw new SettingException("La valeur saisie pour le réglage « {$key} » est invalide — vérifiez le format attendu.");
         }
 
         $this->repository->updateValue($moduleId, $key, $value);

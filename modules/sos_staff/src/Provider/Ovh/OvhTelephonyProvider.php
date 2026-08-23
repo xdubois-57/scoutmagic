@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\SosStaff\Provider\Ovh;
 
+use Core\Exception\UserFacingMessage;
 use Modules\SosStaff\Provider\ForwardingState;
 use Modules\SosStaff\Provider\PhoneLine;
 use Modules\SosStaff\Provider\PhoneProviderInterface;
@@ -91,7 +92,19 @@ class OvhTelephonyProvider implements PhoneProviderInterface
         try {
             return $call();
         } catch (OvhApiException $e) {
-            throw new ProviderException($e->getMessage(), 0, $e);
+            // OvhApiException is itself a Core\Exception\UserFacingException,
+            // so forwarding its sentence is a checked claim rather than an
+            // assumption: should it ever lose that marker, the fallback here
+            // is what the admin sees instead of OVH's English. $e stays as
+            // $previous so the journal and the trace keep everything.
+            throw new ProviderException(
+                UserFacingMessage::from(
+                    $e,
+                    'L\'appel à l\'API de téléphonie OVH a échoué — vérifiez la configuration du fournisseur, puis réessayez.'
+                ),
+                0,
+                $e
+            );
         }
     }
 }

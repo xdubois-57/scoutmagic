@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Exception\UserFacingMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
@@ -108,7 +109,25 @@ class ConfigModulesController extends AbstractController
                 $this->moduleManager->deactivate($moduleId, $userId);
             }
         } catch (ModuleException $e) {
-            return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+            // ModuleException is NOT a UserFacingException: its ~55 messages
+            // are developer notes, several of which name a filesystem path
+            // ("Module manifest not found: /var/www/…"). The real text goes
+            // to the journal; the visitor gets the sentence below.
+            $this->journalService->log(
+                'core',
+                $enabled ? 'module_activation_failed' : 'module_deactivation_failed',
+                'info',
+                ($enabled ? 'Échec de l\'activation' : 'Échec de la désactivation') . " du module « {$moduleId} »",
+                ['module_id' => $moduleId, 'error' => $e->getMessage()],
+                $userId
+            );
+
+            return $this->json(['success' => false, 'error' => UserFacingMessage::from(
+                $e,
+                $enabled
+                    ? 'Ce module n\'a pas pu être activé — vérifiez qu\'il est complet et que les modules dont il dépend sont activés.'
+                    : 'Ce module n\'a pas pu être désactivé — vérifiez qu\'aucun autre module actif n\'en dépend.'
+            )], 400);
         }
 
         return $this->json(['success' => true]);

@@ -362,13 +362,13 @@ class SectionService
      * "#RRGGBB" hex string so every consumer of colorForSection() can trust
      * the value is safe to drop straight into a CSS background-color.
      *
-     * @throws \InvalidArgumentException on an invalid hex color
+     * @throws SectionException on an invalid hex color
      */
     public function updateSectionColor(int $sectionId, ?string $color): void
     {
         $clean = $color !== null && trim($color) !== '' ? trim($color) : null;
         if ($clean !== null && !preg_match('/^#[0-9A-Fa-f]{6}$/', $clean)) {
-            throw new \InvalidArgumentException('Couleur invalide — format hexadécimal attendu (ex : #378ADD).');
+            throw new SectionException('Couleur invalide — format hexadécimal attendu (ex : #378ADD).');
         }
 
         $pdo = $this->connection->getPdo();

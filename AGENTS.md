@@ -33,6 +33,29 @@ Before submitting any code:
 10. ☐ Sensitive actions logged via `JournalService`.
 11. ☐ Non-essential cookies checked via `CookieConsentService::isAllowed()` before being set.
 
+## Exception messages that reach a visitor
+
+A caught exception's message is shown to a visitor **only** when its class
+implements `Core\Exception\UserFacingException`. Everywhere else, display it
+through `Core\Exception\UserFacingMessage::from($e, '<French fallback>')`,
+which substitutes the fallback you wrote and leaves the real text to the
+journal.
+
+- Implementing the marker is a claim about **every** message that class is
+  ever constructed with: French, a full sentence, naming nothing internal
+  (no file path, SQL fragment, class name, or library text). Read every
+  `throw new` of the class before adding it.
+- Never `throw new SomeUserFacingException($e->getMessage(), 0, $e)`. That
+  re-labels a technical message as user-facing and defeats the marker
+  entirely — write a French sentence at the wrap site and let `$previous`
+  carry the detail. This is checked by
+  `tests/Core/Exception/UserFacingMessageTest.php` and enforced by review;
+  it has already gone wrong three times (`SettingException`,
+  `ModuleException` — which leaked a filesystem path onto a config page —
+  and `MailException`, which is raw PHPMailer English by construction).
+- A value written now and rendered later (a `last_error` column a template
+  shows) is gated at the **write** site, not the read site.
+
 ## Cookie consent
 
 - Every cookie used by the site (core or module) must be declared: name, category, purpose (in French), and duration.

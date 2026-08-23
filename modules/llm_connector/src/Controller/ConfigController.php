@@ -8,12 +8,14 @@ declare(strict_types=1);
 
 namespace Modules\LlmConnector\Controller;
 
+use Core\Exception\UserFacingMessage;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmTier;
 use Modules\LlmConnector\Provider\AnthropicProvider;
 use Modules\LlmConnector\Provider\MistralProvider;
@@ -262,9 +264,29 @@ class ConfigController extends AbstractController
                 'ocr_fallback' => $ocrModel === null && $cheapModel !== null,
             ]);
         } catch (\Throwable $e) {
+            // A bare \Throwable here caught anything the driver stack threw
+            // — including Api\LlmException, whose message IS written for the
+            // admin, and a PDOException, whose message is not. The helper is
+            // what tells the two apart; the journal keeps the rest.
+            $this->journalService->log(
+                'llm_connector',
+                'test_connection_failed',
+                'info',
+                'Échec du test de connexion au fournisseur IA',
+                [
+                    'provider_id' => $provider['id'],
+                    'error' => $e->getMessage(),
+                    'error_detail' => $e instanceof LlmException ? $e->detail : null,
+                ],
+                AuthSession::getUserAccountId()
+            );
+
             return $this->json([
                 'success' => false,
-                'error' => 'Échec de connexion : ' . $e->getMessage(),
+                'error' => UserFacingMessage::from(
+                    $e,
+                    "La connexion au fournisseur IA a échoué — vérifiez la clé d'API et l'adresse du service, puis réessayez."
+                ),
             ]);
         }
     }

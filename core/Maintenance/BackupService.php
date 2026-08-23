@@ -217,7 +217,18 @@ class BackupService implements BackupServiceInterface
         try {
             DatabaseRestorer::restore($host, $port, $dbName, $user, $password, $dumpPath);
         } catch (\Throwable $e) {
-            throw new BackupException('La restauration de la base de données a échoué. (' . $e->getMessage() . ')');
+            // The cause travels as $previous, never folded into the message:
+            // BackupException is marked UserFacingException, so appending
+            // whatever DatabaseRestorer/PDO said would launder a SQL error
+            // into a sentence the visitor is shown verbatim. The detail is
+            // still on the stack trace and in every journal entry that logs
+            // it (Core\Maintenance\Task\RestoreBackupHandler and friends).
+            throw new BackupException(
+                'La restauration de la base de données a échoué — la sauvegarde est peut-être incomplète ou '
+                . 'issue d\'une autre version. Consultez le journal des événements pour le détail.',
+                0,
+                $e
+            );
         }
     }
 
@@ -353,7 +364,15 @@ class BackupService implements BackupServiceInterface
             DatabaseDumper::dump($host, $port, $dbName, $user, $password, $path, $skipDataForTables);
         } catch (\Throwable $e) {
             @unlink($path);
-            throw new BackupException('La génération du dump de la base de données a échoué. (' . $e->getMessage() . ')');
+            // Same rule as restoreDatabase() above: the cause is carried by
+            // $previous, not appended to a message this class promises is
+            // fit for a visitor.
+            throw new BackupException(
+                'La génération du dump de la base de données a échoué. Consultez le journal des événements '
+                . 'pour le détail, puis réessayez.',
+                0,
+                $e
+            );
         }
 
         if (!is_file($path) || filesize($path) === 0) {

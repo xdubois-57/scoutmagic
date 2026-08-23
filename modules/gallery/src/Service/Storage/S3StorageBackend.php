@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Gallery\Service\Storage;
 
+use Aws\Exception\AwsException;
 use Aws\S3\S3Client;
 
 /**
@@ -34,6 +35,13 @@ class S3StorageBackend implements StorageBackendInterface
     private const DELETE_BATCH_SIZE = 1000;
 
     private S3Client $client;
+
+    /**
+     * The AWS SDK's own message for the most recent failed
+     * {@see testConnection()} operation — deliberately kept OFF that
+     * method's return value, which is rendered on the configuration page.
+     */
+    private ?string $lastTechnicalError = null;
 
     /**
      * $client is normally left null (built from the connection parameters
@@ -263,20 +271,26 @@ class S3StorageBackend implements StorageBackendInterface
      * testConnection() (admin-triggered) and Service\StorageLocationService
      * ::checkNow() (TTL-gated background refresh).
      *
-     * @return string|null null on success, otherwise a message identifying
-     *                      which operation failed and the underlying SDK
-     *                      error (never contains the secret key — only ever
-     *                      the access key id, endpoint and bucket, which are
-     *                      not secrets) so the admin can see exactly why a
-     *                      provider rejected the request instead of a single
-     *                      generic message for every cause.
+     * @return string|null null on success, otherwise a FRENCH sentence
+     *                      naming the operation that failed and, where the
+     *                      provider said so, why. It used to return the AWS
+     *                      SDK's own English — "Error executing
+     *                      \"HeadBucket\" … AWS HTTP error: cURL error 6" —
+     *                      which reached the configuration page through
+     *                      Service\StorageLocationService's `lastCheckError`
+     *                      column and Controller\GalleryConfigController's
+     *                      JSON. The SDK's words are still available, on
+     *                      {@see self::lastTechnicalError()}, for the caller
+     *                      to journal.
      */
     public function testConnection(): ?string
     {
+        $this->lastTechnicalError = null;
+
         try {
             $this->client->headBucket(['Bucket' => $this->bucket]);
         } catch (\Throwable $e) {
-            return $e->getMessage();
+            return $this->failure('Connexion au bucket impossible', $e);
         }
 
         $key = self::HEALTH_CHECK_PREFIX . '/' . bin2hex(random_bytes(8)) . '.txt';
@@ -285,14 +299,14 @@ class S3StorageBackend implements StorageBackendInterface
         try {
             $this->put($key, $content, 'text/plain');
         } catch (\Throwable $e) {
-            return "Écriture impossible (l'accès en lecture fonctionne, mais pas en écriture) : " . $e->getMessage();
+            return $this->failure("Écriture impossible (l'accès en lecture fonctionne, mais pas en écriture)", $e);
         }
 
         try {
             $readBack = $this->get($key);
         } catch (\Throwable $e) {
             $this->cleanupHealthCheckObject($key);
-            return "Lecture impossible juste après l'écriture : " . $e->getMessage();
+            return $this->failure("Lecture impossible juste après l'écriture", $e);
         }
         if ($readBack !== $content) {
             $this->cleanupHealthCheckObject($key);
@@ -302,10 +316,53 @@ class S3StorageBackend implements StorageBackendInterface
         try {
             $this->deletePrefix(self::HEALTH_CHECK_PREFIX);
         } catch (\Throwable $e) {
-            return "Suppression impossible (list/delete) : " . $e->getMessage();
+            return $this->failure('Suppression impossible (list/delete)', $e);
         }
 
         return null;
+    }
+
+    /**
+     * The AWS SDK's own message for the most recent {@see testConnection()}
+     * failure, or null when the last check succeeded or has not run. For the
+     * journal and the log — never for a page, which is the whole point of
+     * keeping it off testConnection()'s return value.
+     */
+    public function lastTechnicalError(): ?string
+    {
+        return $this->lastTechnicalError;
+    }
+
+    /**
+     * Turns one failed operation into the sentence the admin reads, and
+     * parks the SDK's own words on $lastTechnicalError.
+     */
+    private function failure(string $operation, \Throwable $e): string
+    {
+        $this->lastTechnicalError = $e->getMessage();
+
+        return $operation . ' : ' . self::probableCause($e) . '.';
+    }
+
+    /**
+     * A French cause per S3 error code — the codes are a short, stable,
+     * provider-independent vocabulary (every S3-compatible provider uses
+     * them), unlike the prose around them, which varies by provider and is
+     * always English.
+     */
+    private static function probableCause(\Throwable $e): string
+    {
+        $code = $e instanceof AwsException ? (string) $e->getAwsErrorCode() : '';
+
+        return match ($code) {
+            'NoSuchBucket' => 'le bucket indiqué n\'existe pas sur ce service (vérifiez son nom et la région)',
+            'InvalidAccessKeyId' => 'la clé d\'accès est inconnue de ce service (vérifiez qu\'elle appartient bien à ce fournisseur)',
+            'SignatureDoesNotMatch' => 'la clé secrète ne correspond pas à la clé d\'accès (recopiez-la, sans espace avant ni après)',
+            'AccessDenied', 'Forbidden' => 'les identifiants n\'ont pas les droits nécessaires sur ce bucket (lecture, écriture, listage et suppression sont tous requis)',
+            'RequestTimeTooSkewed' => 'l\'horloge du serveur est trop décalée par rapport à celle du fournisseur',
+            'NotFound' => 'le bucket ou l\'adresse du service est introuvable (vérifiez l\'adresse et le nom du bucket)',
+            default => 'le service a refusé la requête (voir le journal pour le détail technique)',
+        };
     }
 
     private function cleanupHealthCheckObject(string $key): void

@@ -71,7 +71,14 @@ class S3ErrorExplainerService
         try {
             $response = $this->llmConnector->complete($request);
         } catch (LlmException $e) {
-            throw new GalleryException('Échec de la génération de l\'explication : ' . $e->getMessage());
+            // Appending the connector's message used to quote the AI
+            // provider's own HTTP body onto the configuration page — one
+            // third party's error text explaining another's.
+            throw new GalleryException(
+                "L'explication n'a pas pu être générée par l'IA — réessayez dans quelques instants.",
+                0,
+                $e
+            );
         }
 
         return trim($response->content);

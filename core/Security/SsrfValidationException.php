@@ -13,7 +13,10 @@ namespace Core\Security;
  * (Core\Security\SsrfUrlValidator) — a non-https scheme, embedded
  * credentials, a disallowed port, or a host that resolves to a
  * non-public address.
+ *
+ * Marked {@see \Core\Exception\UserFacingException}: every message is a
+ * French sentence written for the visitor.
  */
-class SsrfValidationException extends \RuntimeException
+class SsrfValidationException extends \RuntimeException implements \Core\Exception\UserFacingException
 {
 }

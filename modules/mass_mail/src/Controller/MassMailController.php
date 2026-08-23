@@ -10,6 +10,7 @@ namespace Modules\MassMail\Controller;
 
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
@@ -356,7 +357,18 @@ class MassMailController extends AbstractController
         } catch (MassMailException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         } catch (MailException $e) {
-            return $this->json(['success' => false, 'error' => 'Échec de l\'envoi : ' . $e->getMessage()], 500);
+            // Core\Mail\MailException is built from PHPMailer's ErrorInfo
+            // (Core\Mail\MailService::send()) — raw SMTP English, every
+            // time, which is why it is not a Core\Exception\UserFacingException
+            // and why this goes through the helper rather than being
+            // concatenated.
+            return $this->json([
+                'success' => false,
+                'error' => UserFacingMessage::from(
+                    $e,
+                    "L'email de test n'a pas pu être envoyé — vérifiez la configuration d'envoi du site (Configuration > Email), puis réessayez."
+                ),
+            ], 500);
         }
 
         return $this->json(['success' => true]);

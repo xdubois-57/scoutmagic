@@ -8,6 +8,13 @@ declare(strict_types=1);
 
 namespace Modules\News\Service;
 
-class NewsException extends \RuntimeException
+use Core\Exception\UserFacingException;
+
+/**
+ * A refused news operation — a missing image, a closed form, a field that
+ * failed validation. Marked {@see UserFacingException}: every message is a
+ * French sentence naming the field or the article the author is looking at.
+ */
+class NewsException extends \RuntimeException implements UserFacingException
 {
 }

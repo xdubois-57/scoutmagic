@@ -96,12 +96,19 @@ class RgpdContentService
     }
 
     /**
-     * Generate RGPD content via AI based on active modules and user prompt
+     * Generate RGPD content via AI based on active modules and user prompt.
+     *
+     * @throws RgpdGenerationException when the AI service is unavailable,
+     *         the answer stays truncated, or the produced text does not
+     *         designate the deploying unit as data controller — the three
+     *         refusals whose French wording the admin is meant to read
+     * @throws \RuntimeException on an internal cleanup failure, whose
+     *         message is NOT for the admin (see RgpdGenerationException)
      */
     public function generateWithAi(string $userPrompt): string
     {
         if (!$this->isAvailable()) {
-            throw new \RuntimeException('Service IA non disponible.');
+            throw new RgpdGenerationException('Service IA non disponible.');
         }
 
         $baseContent = $this->getDefaultContent();
@@ -166,8 +173,11 @@ class RgpdContentService
             // must not be silently auto-saved and published (see save flow
             // in RgpdConfigController::generate()); surfacing this as an
             // exception routes it through that controller's existing
-            // catch-all error handling instead.
-            throw new \RuntimeException(
+            // catch-all error handling instead. RgpdGenerationException
+            // rather than a plain \RuntimeException so this sentence — which
+            // is the actionable half of the whole check — survives the
+            // Core\Exception\UserFacingMessage gate at the display site.
+            throw new RgpdGenerationException(
                 "Le contenu généré ne désigne pas clairement « {$unitName} » comme responsable du traitement — il n'a pas été enregistré. Réessayez, ou complétez les instructions personnalisées pour préciser le nom de l'unité."
             );
         }
@@ -202,7 +212,7 @@ class RgpdContentService
      * prompt) to continue writing exactly where it stopped, and
      * concatenates the results, up to self::MAX_CONTINUATIONS extra calls.
      *
-     * @throws \RuntimeException if still truncated after every continuation
+     * @throws RgpdGenerationException if still truncated after every continuation
      */
     private function completeWithContinuation(LlmRequest $request): string
     {
@@ -228,7 +238,7 @@ class RgpdContentService
         }
 
         if ($response->truncated) {
-            throw new \RuntimeException(
+            throw new RgpdGenerationException(
                 'La réponse générée a été tronquée malgré ' . (self::MAX_CONTINUATIONS + 1) . ' tentatives. Réessayez, ou raccourcissez les instructions personnalisées.'
             );
         }

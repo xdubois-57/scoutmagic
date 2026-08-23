@@ -76,7 +76,15 @@ class SummaryService
         try {
             $response = $this->llmConnector->complete($request);
         } catch (LlmException $e) {
-            throw new RetroException('Échec de la génération de la synthèse : ' . $e->getMessage());
+            // Appending $e->getMessage() used to quote the provider's own
+            // HTTP body into the board page (Api\LlmException::apiError()).
+            // The cause travels as $previous instead.
+            throw new RetroException(
+                'La synthèse n\'a pas pu être générée par l\'IA — réessayez dans quelques instants.',
+                RetroException::TYPE_GENERIC,
+                null,
+                $e
+            );
         }
 
         $bullets = $response->parsed['bullets'] ?? null;

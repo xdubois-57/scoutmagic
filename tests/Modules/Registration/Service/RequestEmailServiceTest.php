@@ -139,6 +139,37 @@ class RequestEmailServiceTest extends TestCase
     }
 
     /**
+     * Core\Mail\MailException is built from PHPMailer's ErrorInfo — raw
+     * SMTP English, always — and this message used to be interpolated into
+     * RegistrationException's own, which Controller\
+     * RegistrationRequestController shows to the chief. RegistrationException
+     * is now a Core\Exception\UserFacingException, so what it says IS what
+     * the page says.
+     */
+    public function testTheSmtpErrorNeverReachesTheRegistrationExceptionsOwnMessage(): void
+    {
+        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('send')->willThrowException(
+            new MailException('SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting')
+        );
+        $service = $this->buildService($mailService);
+        $requestId = $this->createRequest();
+
+        try {
+            $service->sendRefused($this->requestRepository->findById($requestId), '2026-2027');
+            $this->fail('Expected a RegistrationException.');
+        } catch (RegistrationException $e) {
+            $this->assertStringNotContainsString('SMTP', $e->getMessage());
+            $this->assertStringNotContainsString('PHPMailer', $e->getMessage());
+            $this->assertStringContainsString('lien de suivi', $e->getMessage());
+            // The detail is not lost — it is on the cause, and in the
+            // journal entry written just above the throw.
+            $this->assertInstanceOf(MailException::class, $e->getPrevious());
+        }
+    }
+
+    /**
      * A failed send must leave the family's EXISTING tracking link alive:
      * the token used to be rotated and persisted before the send, so an SMTP
      * outage killed the link the parent already had while the replacement

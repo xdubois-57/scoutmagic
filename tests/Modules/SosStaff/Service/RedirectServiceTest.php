@@ -174,9 +174,18 @@ class RedirectServiceTest extends TestCase
             ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
         $this->userAccountRepository->method('findFirstSuperAdmin')->willReturn(null);
 
-        $this->expectException(SosException::class);
-        $this->expectExceptionMessage('OVH indisponible');
-        $this->service()->apply(1, null, 100);
+        try {
+            $this->service()->apply(1, null, 100);
+            self::fail('Expected a SosException.');
+        } catch (SosException $e) {
+            // The provider's account of the failure belongs to the journal
+            // and the admin alert mail (asserted separately); the exception
+            // itself carries only the sentence a page may render, plus the
+            // cause.
+            self::assertStringNotContainsString('OVH indisponible', $e->getMessage());
+            self::assertStringContainsString('redirection du numéro SOS', $e->getMessage());
+            self::assertInstanceOf(ProviderException::class, $e->getPrevious());
+        }
     }
 
     public function testApplySendsAdminAlertEmailOnFailure(): void

@@ -6,6 +6,7 @@ namespace Tests\Modules\Gallery\Service;
 
 use Core\Config\SettingService;
 use Core\File\FileRepository;
+use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
@@ -142,6 +143,67 @@ class MediaServiceTest extends TestCase
         $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
 
         $this->assertSame($first->id, $this->albumRepository->findById($this->albumId)->coverMediaId);
+    }
+
+    /**
+     * The upload handler's own sentence is worth keeping — « Le fichier
+     * dépasse la taille maximale… » is exactly what the chief needs — but
+     * only because Core\File\UploadException claims it is fit for a
+     * visitor. GalleryException is itself a
+     * Core\Exception\UserFacingException, so anything it is constructed
+     * with reaches the page.
+     */
+    public function testAMarkedUploadFailureKeepsItsOwnSentence(): void
+    {
+        $service = $this->serviceWithUploadHandlerThrowing(
+            new UploadException('Le fichier dépasse la taille maximale de 30 Mo.')
+        );
+
+        try {
+            $service->upload($this->albumRepository->findById($this->albumId), $this->fakeUploadedImage(), Role::CHIEF, 'c@test.com', $this->authorId);
+            self::fail('Expected a GalleryException.');
+        } catch (GalleryException $e) {
+            self::assertSame('Le fichier dépasse la taille maximale de 30 Mo.', $e->getMessage());
+            self::assertInstanceOf(UploadException::class, $e->getPrevious());
+        }
+    }
+
+    /**
+     * …and the other half of the same claim: an UNMARKED failure — the
+     * shape a bare `new GalleryException($e->getMessage())` could not tell
+     * apart — gets the sentence written here instead of its own.
+     */
+    public function testAnUnmarkedUploadFailureIsReplacedByTheWrittenFallback(): void
+    {
+        $service = $this->serviceWithUploadHandlerThrowing(
+            new \RuntimeException("move_uploaded_file(): Unable to move '/tmp/phpA1' to '/var/www/storage/gallery/1/orig'")
+        );
+
+        try {
+            $service->upload($this->albumRepository->findById($this->albumId), $this->fakeUploadedImage(), Role::CHIEF, 'c@test.com', $this->authorId);
+            self::fail('Expected the original exception or a GalleryException.');
+        } catch (GalleryException $e) {
+            self::fail('A non-UploadException must not be caught here: ' . $e->getMessage());
+        } catch (\RuntimeException $e) {
+            // Only Core\File\UploadException is caught — anything else
+            // propagates rather than being re-labelled as user-facing.
+            self::assertStringContainsString('move_uploaded_file', $e->getMessage());
+        }
+    }
+
+    private function serviceWithUploadHandlerThrowing(\Throwable $e): MediaService
+    {
+        $uploadHandler = $this->createMock(UploadHandler::class);
+        $uploadHandler->method('handle')->willThrowException($e);
+        $ffmpegAvailability = $this->createMock(FfmpegAvailability::class);
+        $ffmpegAvailability->method('check')->willReturn(false);
+
+        return new MediaService(
+            $this->mediaRepository, $this->albumRepository, $uploadHandler,
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            $this->settingService, $this->accessService, $this->storageBackendFactory,
+            $this->storageLocationService, $ffmpegAvailability, $this->storedFileCleaner
+        );
     }
 
     public function testUploadRejectsAnExternalAlbum(): void

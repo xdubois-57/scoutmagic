@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Http\Controller;
 
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
@@ -186,9 +187,20 @@ class RgpdConfigController extends AbstractController
                 $userId
             );
 
+            // Core\View\RgpdGenerationException's three messages (service
+            // unavailable, answer still truncated, generated text not naming
+            // the unit as data controller) are written for this admin and
+            // survive. Everything else — the regex failures in
+            // sanitizeHtmlOutput(), a PDO error from the auto-save — gets
+            // the sentence below instead. Detail is in the journal entry
+            // just above, stack trace included.
             return $this->json([
                 'success' => false,
-                'error' => 'Échec de génération : ' . $e->getMessage(),
+                'error' => 'Échec de génération : ' . UserFacingMessage::from(
+                    $e,
+                    'le texte produit n\'a pas pu être traité et n\'a pas été enregistré. Réessayez, ou '
+                    . 'simplifiez les instructions personnalisées.'
+                ),
             ], 500);
         }
 

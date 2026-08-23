@@ -106,6 +106,11 @@ class LlmConnectorService implements LlmConnectorInterface
                     'tier' => $request->tier->value,
                     'model' => $model['model_id'],
                     'error_code' => $e->getCode(),
+                    // The provider's own words, which Api\LlmException keeps
+                    // out of its message on purpose. The journal is where
+                    // they belong — this is the entry an admin reads when
+                    // the page only said "erreur HTTP 401".
+                    'error_detail' => $e->detail,
                 ],
                 null
             );
@@ -217,7 +222,7 @@ class LlmConnectorService implements LlmConnectorInterface
             'anthropic' => new AnthropicProvider($apiEndpoint, $apiKey),
             'mistral' => new MistralProvider($apiEndpoint, $apiKey),
             'scaleway' => new ScalewayProvider($apiEndpoint, $apiKey),
-            default => throw LlmException::apiError("Unknown driver: {$driver}"),
+            default => throw LlmException::unknownDriver($driver),
         };
     }
 }

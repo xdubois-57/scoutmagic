@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\MassMail\Task;
 
+use Core\Exception\UserFacingMessage;
 use Core\Import\MemberYearRepository;
 use Core\Mail\MailException;
 use Core\Scheduler\SchedulerService;
@@ -157,9 +158,26 @@ class SendBatchHandler implements TaskHandlerInterface
                 $this->dispatchEmailReceivedNotification($context, $recipient, $email);
             } catch (MailException $e) {
                 // $e->getMessage() is a transport-level error (SMTP
-                // response, connection failure) — never contains the
-                // recipient's own address, so it's safe to persist as-is.
-                $recipientRepository->recordSendFailure($recipient->id, $e->getMessage());
+                // response, connection failure) built from PHPMailer's
+                // ErrorInfo — raw English, and views/tracking.html.twig
+                // renders this column verbatim to whoever opens the
+                // tracking page. The sanitising happens HERE, at the write:
+                // the value is stored now and rendered much later, with no
+                // catch block in between to route it through.
+                $recipientRepository->recordSendFailure(
+                    $recipient->id,
+                    UserFacingMessage::from($e, "Échec de l'envoi — voir le journal pour le détail technique.")
+                );
+                // The real transport error still has to reach someone, and
+                // the journal is where it belongs.
+                $context->journal->log(
+                    'mass_mail',
+                    'recipient_send_failed',
+                    'info',
+                    'Échec d\'envoi à un destinataire d\'email groupé',
+                    ['recipient_id' => $recipient->id, 'email_id' => $recipient->emailId, 'mail_error' => $e->getMessage()],
+                    null
+                );
                 $errorCount++;
             }
         }

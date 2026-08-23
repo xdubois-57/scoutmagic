@@ -96,7 +96,14 @@ class OvhApiClientTest extends TestCase
         $client->get('/telephony');
     }
 
-    public function testHttpErrorStatusThrowsWithOvhMessage(): void
+    /**
+     * OVH's own `message` is English ("Invalid signature") and
+     * OvhApiException is a Core\Exception\UserFacingException, whose
+     * message is shown to the admin verbatim — so the provider's words go
+     * on $detail and the status code, which is short and safe, stays in the
+     * sentence.
+     */
+    public function testHttpErrorStatusKeepsOvhsOwnWordsOutOfTheMessage(): void
     {
         $captured = [];
         $client = new OvhApiClient(
@@ -106,9 +113,14 @@ class OvhApiClientTest extends TestCase
             transport: $this->fakeTransport($captured, '{"message":"Invalid signature"}', 401)
         );
 
-        $this->expectException(OvhApiException::class);
-        $this->expectExceptionMessage('Invalid signature');
-        $client->get('/telephony');
+        try {
+            $client->get('/telephony');
+            self::fail('Expected an OvhApiException.');
+        } catch (OvhApiException $e) {
+            self::assertSame('Invalid signature', $e->detail);
+            self::assertStringNotContainsString('Invalid signature', $e->getMessage());
+            self::assertStringContainsString('HTTP 401', $e->getMessage());
+        }
     }
 
     public function testRequestConsumerKeyDoesNotRequireExistingConsumerKey(): void

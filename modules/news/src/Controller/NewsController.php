@@ -10,6 +10,7 @@ namespace Modules\News\Controller;
 
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
@@ -618,7 +619,18 @@ class NewsController extends AbstractController
                 $uploadedFile, 'news/images', self::IMAGE_ALLOWED_MIMES, self::IMAGE_MAX_SIZE_BYTES, $roleMin, 'news', $accountId
             );
         } catch (UploadException $e) {
-            throw new NewsException($e->getMessage());
+            // Same reasoning as Gallery\Service\MediaService::store(): the
+            // upload handler's own sentence is worth keeping, but only
+            // because Core\File\UploadException claims it is fit for a
+            // visitor — the helper is what checks that claim.
+            throw new NewsException(
+                UserFacingMessage::from(
+                    $e,
+                    "L'image n'a pas pu être envoyée — vérifiez son format et sa taille, puis réessayez."
+                ),
+                0,
+                $e
+            );
         }
     }
 

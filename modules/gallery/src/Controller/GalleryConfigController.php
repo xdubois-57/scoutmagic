@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Gallery\Controller;
 
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -120,9 +121,18 @@ class GalleryConfigController extends AbstractController
                 $this->settingService->set($key, $request->getBody($key) !== null ? '1' : '0', 'gallery');
             }
         } catch (\Throwable $e) {
-            $context = $this->buildContext();
-            $context['submit_error'] = 'Erreur lors de l\'enregistrement : ' . $e->getMessage();
-            return $this->render('@gallery/config.html.twig', $context)->setStatusCode(422);
+            // A bare \Throwable: a PDOException naming a column, a
+            // SettingException naming a key. The journal keeps it; the page
+            // gets a sentence somebody wrote for it.
+            $this->journalService->log(
+                'gallery', 'config_update_failed', 'info', 'Échec de l\'enregistrement de la configuration de la galerie',
+                ['error' => $e->getMessage()], (int) AuthSession::getUserAccountId()
+            );
+
+            return $this->saveError(UserFacingMessage::from(
+                $e,
+                "La configuration n'a pas pu être enregistrée — vérifiez les valeurs saisies, puis réessayez."
+            ));
         }
 
         $this->journalService->log(
@@ -197,6 +207,14 @@ class GalleryConfigController extends AbstractController
         if ($error === null) {
             return $this->json(['success' => true]);
         }
+
+        // $error is already a French sentence; the AWS SDK's own words are
+        // on lastTechnicalError() and stay here, in the journal.
+        $this->journalService->log(
+            'gallery', 's3_test_connection_failed', 'info', 'Échec du test de connexion à un stockage S3',
+            ['bucket' => (string) ($data['bucket'] ?? ''), 'sdk_error' => $backend->lastTechnicalError()],
+            (int) AuthSession::getUserAccountId()
+        );
 
         return $this->json(['success' => false, 'error' => 'Connexion impossible : ' . $error], 422);
     }

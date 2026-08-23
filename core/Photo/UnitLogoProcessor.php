@@ -98,7 +98,7 @@ class UnitLogoProcessor
         try {
             \Core\Image\ImageDimensionGuard::assertWithinCeilingFromString($contents);
         } catch (\Core\Image\ImageDimensionException $e) {
-            throw new UploadException($e->getMessage());
+            throw new UploadException($e->getMessage(), 0, $e);
         }
 
         $image = match ($mimeType) {

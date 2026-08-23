@@ -12,6 +12,7 @@ use Core\Database\MigrationRunner;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
+use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
@@ -197,7 +198,17 @@ class InstallUpdateHandler implements TaskHandlerInterface
         } catch (\Throwable $e) {
             // The safety backup itself failed — nothing was changed yet, so
             // there is nothing to roll back.
-            $updateHistoryRepository->markFailed($historyId, $e->getMessage());
+            //
+            // update_history.error_message is written here and rendered much
+            // later as a title="" tooltip on Configuration > Maintenance, so
+            // it goes through the gate: \Throwable is caught, and a
+            // ZipArchive/PDO/filesystem message must not reach that page.
+            // The journal entry immediately below keeps the real text.
+            $updateHistoryRepository->markFailed($historyId, UserFacingMessage::from(
+                $e,
+                'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée. '
+                . 'Vérifiez l\'espace disque et les droits d\'écriture sur storage/, puis relancez la mise à jour.'
+            ));
             $context->journal->log(
                 'core',
                 'update_failed',
@@ -273,7 +284,11 @@ class InstallUpdateHandler implements TaskHandlerInterface
             if ($dbDumpFile === null || $filesZipFile === null) {
                 $updateHistoryRepository->markFailed(
                     $historyId,
-                    'Échec de la migration et sauvegarde de sécurité introuvable pour restauration automatique : ' . $migrationError->getMessage()
+                    'Échec de la migration, et la sauvegarde de sécurité est introuvable pour une restauration '
+                    . 'automatique. ' . UserFacingMessage::from(
+                        $migrationError,
+                        'Consultez le journal des événements pour le détail — une intervention manuelle est nécessaire.'
+                    )
                 );
                 $context->journal->log(
                     'core',
@@ -392,7 +407,13 @@ class InstallUpdateHandler implements TaskHandlerInterface
         try {
             $backupService->restoreDatabase($dbDumpPath);
             $backupService->restoreFiles($filesZipPath);
-            $updateHistoryRepository->markRolledBack($historyId, $error->getMessage());
+            // Same write-site rule as markFailed() above: this string is
+            // rendered as a title="" tooltip on the maintenance page.
+            $updateHistoryRepository->markRolledBack($historyId, UserFacingMessage::from(
+                $error,
+                'L\'installation de la mise à jour a échoué — la version précédente a été restaurée '
+                . 'automatiquement. Le détail est dans le journal des événements.'
+            ));
             $context->journal->log(
                 'core',
                 'update_rolled_back',
@@ -406,7 +427,10 @@ class InstallUpdateHandler implements TaskHandlerInterface
         } catch (\Throwable $rollbackError) {
             $updateHistoryRepository->markFailed(
                 $historyId,
-                'Échec de la mise à jour et de la restauration automatique : ' . $rollbackError->getMessage()
+                'Échec de la mise à jour et de la restauration automatique. ' . UserFacingMessage::from(
+                    $rollbackError,
+                    'Consultez le journal des événements pour le détail — une intervention manuelle est nécessaire.'
+                )
             );
             $context->journal->log(
                 'core',

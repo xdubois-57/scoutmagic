@@ -135,6 +135,12 @@ class InstallUpdateHandlerTest extends TestCase
         $this->assertSame('failed', $history->status);
         $this->assertNotNull($history->errorMessage);
         $this->assertNull($history->backupId);
+        // update_history.error_message reaches a title="" tooltip on
+        // Configuration > Maintenance, so what a caught \Throwable happened
+        // to say never lands there verbatim — see
+        // Core\Exception\UserFacingMessage.
+        $this->assertStringNotContainsString('SQLSTATE', (string) $history->errorMessage);
+        $this->assertStringNotContainsString('/', (string) $history->errorMessage);
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId);

@@ -12,7 +12,10 @@ namespace Core\Image;
  * Thrown when an image's pixel dimensions exceed the decode ceiling
  * (Core\Image\ImageDimensionGuard) — i.e. a decompression-bomb input that
  * would allocate an unsafe amount of memory if decoded.
+ *
+ * Marked {@see \Core\Exception\UserFacingException}: every message is a
+ * French sentence written for the visitor.
  */
-class ImageDimensionException extends \RuntimeException
+class ImageDimensionException extends \RuntimeException implements \Core\Exception\UserFacingException
 {
 }

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Service;
 
+use Core\Exception\UserFacingException;
+
 /**
  * $type lets the Controller distinguish the cases the composer reacts to
  * differently — a moderation flag renders the suggested rewording inline
@@ -18,8 +20,11 @@ namespace Modules\Groups\Service;
  * $suggestion carries the AI's proposed rewording and is the ONLY place
  * any part of a rejected message travels. It is shown straight back to
  * its own author and never stored, journaled or logged (module spec).
+ *
+ * Marked {@see UserFacingException}: every message is a French sentence
+ * written for the member composing the message.
  */
-class GroupsException extends \RuntimeException
+class GroupsException extends \RuntimeException implements UserFacingException
 {
     public const TYPE_GENERIC = 'generic';
     public const TYPE_OFFENSIVE = 'offensive';

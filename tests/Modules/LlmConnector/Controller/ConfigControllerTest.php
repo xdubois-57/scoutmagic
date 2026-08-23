@@ -457,6 +457,32 @@ class ConfigControllerTest extends TestCase
         $this->assertStringContainsString('Point de terminaison invalide', $decoded['error']);
     }
 
+    /**
+     * The bare `catch (\Throwable)` here used to render `$e->getMessage()`
+     * as 'Échec de connexion : Unknown driver: bogus' — an internal English
+     * string from createDriver(), straight into the configuration page.
+     * Api\LlmException is a Core\Exception\UserFacingException and still
+     * speaks for itself; anything else gets the sentence written here.
+     */
+    public function testTestConnectionReplacesATechnicalFailureWithAWrittenSentence(): void
+    {
+        // A public IP literal passes the SSRF guard without a DNS lookup;
+        // createDriver() then throws before any connection is attempted.
+        $providerId = $this->providerRepository->create('Bidon', 'bogus', 'https://93.184.216.34/v1', 'sk-test', true);
+
+        $response = $this->controller->testConnection(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            ['id' => (string) $providerId]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertIsArray($decoded);
+        $this->assertFalse($decoded['success']);
+        $this->assertStringNotContainsString('Unknown driver', $decoded['error']);
+        $this->assertStringNotContainsString('bogus', $decoded['error']);
+        $this->assertStringContainsString("clé d'API", $decoded['error']);
+    }
+
     // --------------------------------------------------- ProviderRepository
 
     /**

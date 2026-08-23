@@ -437,6 +437,35 @@ class SetupControllerTest extends TestCase
     }
 
     /**
+     * The connection test's reply is displayed as-is by setup.js. It used
+     * to be the PDOException's own message — the DSN, the MySQL driver's
+     * English, and the account name it tried, all on the setup page. See
+     * Core\Database\Connection::testConnection().
+     */
+    public function testTestDatabaseNeverReturnsTheDriverMessageOrTheCredentialsItTried(): void
+    {
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $_POST['_csrf_token'] = \Core\Security\CsrfGuard::generateToken();
+        $request = new Request('POST', '/setup/test-db', [], [
+            'db_host' => 'invalid.invalid.host',
+            'db_port' => '9999',
+            'db_name' => 'nonexistent',
+            'db_user' => 'nobody',
+            'db_password' => 'wrong',
+        ], [], []);
+
+        $json = json_decode($controller->testDatabase($request, [])->getBody(), true);
+
+        $this->assertFalse($json['success']);
+        $this->assertStringNotContainsString('SQLSTATE', $json['message']);
+        $this->assertStringNotContainsString('mysql:', $json['message']);
+        $this->assertStringNotContainsString('invalid.invalid.host', $json['message']);
+        $this->assertStringNotContainsString('nonexistent', $json['message']);
+        $this->assertStringNotContainsString('nobody', $json['message']);
+        $this->assertStringContainsString('base de données', $json['message']);
+    }
+
+    /**
      * Regression: a database left over from a prior install (files
      * replaced, database untouched) generates a brand-new encryption key
      * against old encrypted rows — a guaranteed DecryptionException down
@@ -1264,7 +1293,11 @@ class SetupControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
-        $this->assertStringContainsString('Invalid address', (string) $decoded['message']);
+        // PHPMailer answers in English ("Invalid address: (From)…"), so the
+        // controller substitutes its own French sentence — see
+        // Core\Exception\UserFacingMessage.
+        $this->assertStringContainsString('n\'a pas pu être envoyé', (string) $decoded['message']);
+        $this->assertStringNotContainsString('Invalid address', (string) $decoded['message']);
     }
 
     /**

@@ -851,6 +851,45 @@ class NewsIntegrationTest extends TestCase
         $this->assertSame(42, $form->financeAccountId);
     }
 
+    /**
+     * NewsException is a Core\Exception\UserFacingException, and store()
+     * renders its message into the editor — so an upload failure must not be
+     * re-labelled as user-facing just by being re-wrapped. The handler's own
+     * sentence survives only because Core\File\UploadException claims to be
+     * fit for a visitor; anything else propagates instead.
+     */
+    public function testAnImageUploadFailureIsNotRelabelledAsUserFacing(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $csrfToken = CsrfGuard::generateToken();
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $uploadHandler = $this->createMock(UploadHandler::class);
+        $uploadHandler->method('handle')->willThrowException(
+            new \Core\File\UploadException('Le fichier dépasse la taille maximale de 5 Mo.')
+        );
+        $controller = new NewsController(
+            $this->twig, $this->articleService, $this->formService, $this->responseService,
+            new SeoKeywordService(null), new PosterPdfService(), $this->scoutYearService,
+            $this->settingService, $this->schedulerService, $this->userAccountRepository,
+            $this->memberService, $this->sectionService, $uploadHandler,
+            new FileRepository($this->pdo), sys_get_temp_dir(), $this->journalService
+        );
+
+        $response = $controller->store(new Request('POST', '/news', [], [
+            '_csrf_token' => $csrfToken,
+            'title' => 'Nouveau camp',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+        ], [], []), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $body = $response->getBody();
+        $this->assertStringContainsString('taille maximale', $body);
+        $this->assertSame(0, count($this->articleRepository->findAll()));
+    }
+
     public function testStoreCreatesArticleWithFormAndRedirects(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');

@@ -9,11 +9,13 @@ declare(strict_types=1);
 namespace Core\Http\Controller;
 
 use Core\Badge\BadgeService;
+use Core\Exception\UserFacingMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Import\AgeBranchRepository;
 use Core\Import\FunctionRepository;
 use Core\Journal\JournalService;
+use Core\Member\SectionException;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Module\FunctionFlagsProvider;
@@ -396,8 +398,15 @@ class FunctionsController extends AbstractController
         $color = isset($json['color']) ? (string) $json['color'] : null;
         try {
             $this->sectionService->updateSectionColor($sectionId, $color);
-        } catch (\InvalidArgumentException $e) {
-            return $this->json(['success' => false, 'error' => $e->getMessage()]);
+        } catch (SectionException $e) {
+            // Was catch (\InvalidArgumentException) — too wide to display
+            // from: the colour-format sentence and whatever an unrelated
+            // library throws arrived through the same variable.
+            return $this->json(['success' => false, 'error' => UserFacingMessage::from(
+                $e,
+                'La couleur de cette section n\'a pas pu être modifiée — indiquez une couleur au format '
+                . 'hexadécimal (ex : #378ADD).'
+            )]);
         }
 
         $this->journalService->log(

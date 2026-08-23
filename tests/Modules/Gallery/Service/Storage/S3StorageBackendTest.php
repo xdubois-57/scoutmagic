@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Gallery\Service\Storage;
 
+use Aws\Command;
+use Aws\Exception\AwsException;
 use Aws\MockHandler;
 use Aws\Result;
 use Aws\S3\S3Client;
@@ -53,10 +55,91 @@ class S3StorageBackendTest extends TestCase
         $mock = new MockHandler();
         $mock->appendException(new \RuntimeException('NoSuchBucket'));
 
+        $backend = $this->backendWithMockClient($mock);
+        $error = $backend->testConnection();
+
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('Connexion au bucket impossible', $error);
+        // The SDK's own words are still reachable — for the journal, not the
+        // page (Controller\GalleryConfigController::testConnection()).
+        $this->assertStringContainsString('NoSuchBucket', (string) $backend->lastTechnicalError());
+    }
+
+    /**
+     * The leak this method exists to stop: `lastCheckError` is rendered on
+     * the gallery configuration page and this string used to be the AWS
+     * SDK's own English — "Error executing \"HeadBucket\" on … AWS HTTP
+     * error: cURL error 6: Could not resolve host", endpoint, request id
+     * and all.
+     */
+    public function testConnectionNeverSurfacesTheAwsSdkMessage(): void
+    {
+        $sdkMessage = 'Error executing "HeadBucket" on "https://s3.example.org/scoutmagic"; '
+            . 'AWS HTTP error: cURL error 6: Could not resolve host: s3.example.org';
+
+        $mock = new MockHandler();
+        $mock->appendException(new \RuntimeException($sdkMessage));
+
+        $backend = $this->backendWithMockClient($mock);
+        $error = $backend->testConnection();
+
+        $this->assertNotNull($error);
+        foreach (['HeadBucket', 'AWS', 'cURL', 'http', 'Error executing'] as $fragment) {
+            $this->assertStringNotContainsStringIgnoringCase($fragment, $error);
+        }
+        $this->assertSame($sdkMessage, $backend->lastTechnicalError());
+    }
+
+    /**
+     * The S3 error CODE is a short, stable vocabulary every compatible
+     * provider shares — unlike the prose around it — so it is what the
+     * French sentence is built from.
+     */
+    public function testConnectionNamesTheProbableCauseInFrenchForAKnownS3ErrorCode(): void
+    {
+        $mock = new MockHandler();
+        $mock->appendException(new AwsException(
+            'Error executing "HeadBucket": Access Denied',
+            new Command('HeadBucket'),
+            ['code' => 'SignatureDoesNotMatch']
+        ));
+
         $error = $this->backendWithMockClient($mock)->testConnection();
 
         $this->assertNotNull($error);
-        $this->assertStringContainsString('NoSuchBucket', $error);
+        $this->assertStringContainsString('la clé secrète ne correspond pas', $error);
+    }
+
+    public function testConnectionForgetsThePreviousTechnicalErrorOnASuccessfulCheck(): void
+    {
+        $backend = $this->backendWithMockClient((function () {
+            $mock = new MockHandler();
+            $mock->appendException(new \RuntimeException('NoSuchBucket'));
+            return $mock;
+        })());
+        $backend->testConnection();
+        $this->assertNotNull($backend->lastTechnicalError());
+
+        // A second, healthy backend must not report the first one's error.
+        $written = ['key' => null, 'body' => null];
+        $mock = new MockHandler();
+        $mock->append(fn() => new Result([]));
+        $mock->append(function ($cmd) use (&$written) {
+            $written['key'] = $cmd['Key'];
+            $written['body'] = (string) $cmd['Body'];
+            return new Result([]);
+        });
+        $mock->append(function () use (&$written) {
+            return new Result(['Body' => Utils::streamFor((string) $written['body'])]);
+        });
+        $mock->append(function () use (&$written) {
+            return new Result(['Contents' => [['Key' => $written['key']]]]);
+        });
+        $mock->append(fn() => new Result([]));
+
+        $healthy = $this->backendWithMockClient($mock);
+        $this->assertNull($healthy->testConnection());
+        $this->assertNull($healthy->lastTechnicalError());
     }
 
     /**
@@ -69,11 +152,13 @@ class S3StorageBackendTest extends TestCase
         $mock->append(fn() => new Result([])); // headBucket succeeds
         $mock->appendException(new \RuntimeException('Access Denied')); // putObject fails
 
-        $error = $this->backendWithMockClient($mock)->testConnection();
+        $backend = $this->backendWithMockClient($mock);
+        $error = $backend->testConnection();
 
         $this->assertNotNull($error);
         $this->assertStringContainsString('Écriture impossible', $error);
-        $this->assertStringContainsString('Access Denied', $error);
+        $this->assertStringNotContainsString('Access Denied', $error);
+        $this->assertStringContainsString('Access Denied', (string) $backend->lastTechnicalError());
     }
 
     public function testConnectionFailsWhenGetObjectFailsAfterASuccessfulWrite(): void

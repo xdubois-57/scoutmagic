@@ -60,6 +60,34 @@ class SeoKeywordServiceTest extends TestCase
         $service->generateKeywords('Titre', '<p>Corps</p>');
     }
 
+    /**
+     * NewsException is a Core\Exception\UserFacingException and is rendered
+     * in the article editor — the connector's message, which carries the AI
+     * provider's own HTTP failure, must not be appended to it.
+     */
+    public function testTheLlmFailuresTextNeverReachesTheNewsExceptionsOwnMessage(): void
+    {
+        $technical = new LlmException('HTTP 401 — {"error":{"message":"invalid x-api-key"}}');
+        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector->method('isAvailable')->willReturn(true);
+        $connector->method('complete')->willThrowException($technical);
+        $service = new SeoKeywordService($connector);
+
+        foreach ([
+            fn() => $service->generateKeywords('Titre', '<p>Corps</p>'),
+            fn() => $service->generateSummary('Titre', '<p>Corps</p>'),
+        ] as $call) {
+            try {
+                $call();
+                self::fail('Expected a NewsException.');
+            } catch (NewsException $e) {
+                self::assertStringNotContainsString('x-api-key', $e->getMessage());
+                self::assertStringNotContainsString('HTTP 401', $e->getMessage());
+                self::assertSame($technical, $e->getPrevious());
+            }
+        }
+    }
+
     public function testGenerateSummaryThrowsWhenUnavailable(): void
     {
         $service = new SeoKeywordService(null);

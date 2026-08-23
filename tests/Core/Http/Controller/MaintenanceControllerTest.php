@@ -762,6 +762,11 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame(409, $response->getStatusCode());
         $decoded = json_decode($response->getBody(), true);
         $this->assertSame(6, $decoded['received']);
+        // Core\File\UploadException is marked
+        // Core\Exception\UserFacingException, so its own French sentence
+        // (which carries the resume offset the client needs) survives the
+        // gate rather than being replaced by the controller's fallback.
+        $this->assertStringContainsString('Fragment hors séquence', $decoded['error']);
 
         unset($_FILES['file']);
     }

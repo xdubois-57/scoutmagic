@@ -890,7 +890,15 @@ class RentalManagementController extends AbstractController
                     RentalDocumentService::OWNER_TYPE,
                     $booking->id
                 );
-            } catch (\Throwable $e) {
+            } catch (UploadException $e) {
+                // Narrow on purpose. UploadException's messages are French
+                // and user-facing (« Le fichier dépasse la taille maximale
+                // autorisée (10 Mo). »), so forwarding one is the point —
+                // it is the only thing that tells the manager what to do.
+                // A \Throwable from anywhere else has nothing to say to
+                // them and must not be dressed up as if it did; it now
+                // reaches the error handler instead. This method's callers
+                // catch RentalException, hence the re-throw.
                 throw new RentalException($e->getMessage(), 0, $e);
             }
 
@@ -1463,7 +1471,9 @@ class RentalManagementController extends AbstractController
                         RentalDocumentService::OWNER_TYPE,
                         $booking->id
                     );
-                } catch (\Throwable $e) {
+                } catch (UploadException $e) {
+                    // Narrow on purpose — see the identical catch in
+                    // uploadDocument() above.
                     throw new RentalException($e->getMessage(), 0, $e);
                 }
             }
@@ -1533,7 +1543,9 @@ class RentalManagementController extends AbstractController
                         RentalDocumentService::OWNER_TYPE,
                         $booking->id
                     );
-                } catch (\Throwable $e) {
+                } catch (UploadException $e) {
+                    // Narrow on purpose — see the identical catch in
+                    // uploadDocument() above.
                     throw new RentalException($e->getMessage(), 0, $e);
                 }
             }

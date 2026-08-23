@@ -15,6 +15,7 @@ use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -322,7 +323,14 @@ class SetupController extends AbstractController
                 $dumpPath = $this->bundleBackupWithEncryptionKey($dumpPath, $masterKeyPath, $secretsPath);
             }
         } catch (\Core\Maintenance\BackupException $e) {
-            $backupError = $e->getMessage();
+            // BackupException is marked UserFacingException, so its own
+            // sentence survives; the helper is still what stands here so an
+            // empty message can never render as "Échec de la sauvegarde : ".
+            $backupError = UserFacingMessage::from(
+                $e,
+                'la sauvegarde préalable n\'a pas pu être générée — vérifiez l\'espace disque et les droits '
+                . 'd\'écriture sur storage/.'
+            );
         }
 
         // The backup step failing must never leave the operator stuck with
@@ -546,7 +554,20 @@ class SetupController extends AbstractController
 
             return $this->json(['success' => true, 'public_key' => $this->dkimManager->getPublicKey()]);
         } catch (\Throwable $e) {
-            return $this->json(['success' => false, 'message' => $e->getMessage()], 500);
+            // Whatever OpenSSL says here is English and technical.
+            $this->journalService?->log(
+                'core',
+                'setup_dkim_generation_failed',
+                'info',
+                'Échec de la génération de la clé DKIM',
+                ['error' => $e->getMessage()]
+            );
+
+            return $this->json(['success' => false, 'message' => UserFacingMessage::from(
+                $e,
+                'La clé DKIM n\'a pas pu être générée — vérifiez que l\'extension OpenSSL est active sur le '
+                . 'serveur et que le dossier storage/ est accessible en écriture.'
+            )], 500);
         }
     }
 
@@ -681,7 +702,21 @@ class SetupController extends AbstractController
 
             return $this->json(['success' => true, 'message' => 'Email envoyé avec succès.']);
         } catch (\Throwable $e) {
-            return $this->json(['success' => false, 'message' => $e->getMessage()]);
+            // MailException/PHPMailer answer in English, and an SMTP
+            // transcript can echo back the credentials that were tried.
+            $this->journalService?->log(
+                'core',
+                'setup_test_mail_failed',
+                'info',
+                'Échec de l\'envoi de l\'email de test depuis la page de configuration',
+                ['error' => $e->getMessage()]
+            );
+
+            return $this->json(['success' => false, 'message' => UserFacingMessage::from(
+                $e,
+                'L\'email de test n\'a pas pu être envoyé — vérifiez le serveur SMTP, le port, et les '
+                . 'identifiants saisis ci-dessus.'
+            )]);
         }
     }
 
@@ -752,7 +787,10 @@ class SetupController extends AbstractController
             $testResult = $connection->testConnection();
             if ($testResult !== true) {
                 $this->cleanupFailedSetup($masterKeyCreatedThisRun);
-                FlashMessage::set('error', 'La connexion à la base de données a échoué : ' . $testResult);
+                // testConnection() now returns a complete French sentence of
+                // its own (it used to return the raw PDO message, which this
+                // line prefixed and displayed) — no prefix to add.
+                FlashMessage::set('error', $testResult);
                 return $this->redirect('/setup');
             }
 
@@ -813,7 +851,16 @@ class SetupController extends AbstractController
             return $this->redirect('/');
         } catch (\Throwable $e) {
             $this->cleanupFailedSetup($masterKeyCreatedThisRun);
-            FlashMessage::set('error', 'Erreur lors de l\'installation : ' . $e->getMessage());
+            // error_log() rather than the journal: what is being handled here
+            // is most often the database itself refusing, and a journal write
+            // would throw a second exception inside this catch block and turn
+            // a flash message into a fatal.
+            error_log('ScoutMagic setup failed: ' . $e->getMessage());
+            FlashMessage::set('error', 'Erreur lors de l\'installation : ' . UserFacingMessage::from(
+                $e,
+                'l\'installation n\'a pas pu être terminée. Vérifiez les paramètres de la base de données et '
+                . 'les droits d\'écriture sur storage/, puis réessayez.'
+            ));
             return $this->redirect('/setup');
         }
     }
@@ -899,7 +946,15 @@ class SetupController extends AbstractController
             FlashMessage::set('success', 'Configuration enregistrée avec succès.');
             return $this->redirect('/setup');
         } catch (\Throwable $e) {
-            FlashMessage::set('error', 'Erreur lors de la sauvegarde : ' . $e->getMessage());
+            // Same reasoning as handleFirstTimeSetup(): the failure being
+            // reported is frequently the database, so the detail goes to the
+            // PHP error log rather than through a journal INSERT.
+            error_log('ScoutMagic setup configuration save failed: ' . $e->getMessage());
+            FlashMessage::set('error', 'Erreur lors de la sauvegarde : ' . UserFacingMessage::from(
+                $e,
+                'la configuration n\'a pas pu être enregistrée. Vérifiez les paramètres de la base de données '
+                . 'et les droits d\'écriture sur storage/, puis réessayez.'
+            ));
             return $this->redirect('/setup');
         }
     }

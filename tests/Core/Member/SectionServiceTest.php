@@ -485,7 +485,11 @@ class SectionServiceTest extends TestCase
     {
         $sectionId = $this->createSection('BAL01', 1);
 
-        $this->expectException(\InvalidArgumentException::class);
+        // Core\Member\SectionException, not \InvalidArgumentException: the
+        // message is displayed by FunctionsController::updateSectionColor(),
+        // and only a marked type may reach a visitor verbatim.
+        $this->expectException(\Core\Member\SectionException::class);
+        $this->expectExceptionMessage('Couleur invalide — format hexadécimal attendu (ex : #378ADD).');
         $this->service->updateSectionColor($sectionId, 'not-a-color');
     }
 }
