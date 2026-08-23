@@ -414,6 +414,38 @@ body:has(> #cookie-banner) {
     float: none;
 }
 
+/* A toast announces something; it must never intercept a click meant for
+   the page.
+
+   public/assets/js/toast.js parks every message in a
+   `.toast-container.position-fixed.bottom-0.end-0` — the bottom-right
+   corner, which is exactly where a modal's footer buttons and most
+   primary actions sit. For the four seconds a success toast lives (eight
+   for an error), that corner was dead: the visitor pressed « Envoyer un
+   test », then pressed « Lancer l'envoi » and nothing happened, because
+   the toast was on top of it.
+
+   Bootstrap already sets `pointer-events: none` on the CONTAINER — it
+   knows the problem. What it then does is set `pointer-events: auto`
+   back on `.toast` itself, so the box the visitor can actually see is
+   the box that swallows the click. That is the declaration overridden
+   here; the close button gets it back, so a toast can still be dismissed
+   by hand.
+
+   Caught by the end-to-end suite, whose click on that very button was
+   refused with « <div class="toast-body"> … subtree intercepts pointer
+   events ». It had passed locally for weeks: a faster machine let the
+   toast expire before the next click. Nothing changes visually — the
+   toast simply stops being in the way. No caller treats one as
+   clickable: show() returns the element, and none of the 61 call sites
+   binds anything to it. */
+.toast-container .toast {
+    pointer-events: none;
+}
+.toast-container .toast .btn-close {
+    pointer-events: auto;
+}
+
 /* Core\Security\HumanCheck — partials/human_check_fields.html.twig's
    honeypot trap field. Global (app.css, loaded on every page by
    base.html.twig) rather than components.css (opt-in per template) since
