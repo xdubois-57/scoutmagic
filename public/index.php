@@ -1362,6 +1362,14 @@ $router = new Router();
 // FrontController's ETag logic (§8.25).
 $offlineWhitelist = new OfflineWhitelist();
 
+// Contextual help (Core\Help, ARCHITECTURE.md §8.64) — same single-shared-
+// instance reasoning as $offlineWhitelist just above: core topics live in
+// docs/help/, module topics are registered by ModuleManager as each
+// enabled module loads, and HelpService (built on top, below) is the one
+// role-filtering consumer.
+$helpRegistry = new \Core\Help\HelpRegistry(dirname(__DIR__) . '/docs/help');
+$helpService = new \Core\Help\HelpService($helpRegistry);
+
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
 $moduleRegistryRepo = new ModuleRegistryRepository($pdo);
@@ -1377,7 +1385,8 @@ $moduleManager = new ModuleManager(
     $router,
     $notificationService,
     $offlineWhitelist,
-    $installationProfile
+    $installationProfile,
+    $helpRegistry
 );
 
 // Usage statistics (Core\Statistics, ARCHITECTURE.md §8.47). Built here
@@ -1610,6 +1619,14 @@ $router->addRoute('POST', '/config-mode/deactivate', ConfigModeController::class
 // Editable content API
 $router->addRoute('POST', '/api/editable-content', EditableContentController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/api/rich-text-content', EditableContentController::class, 'updateField', 'superadmin');
+
+// Contextual help (Core\Help, ARCHITECTURE.md §8.64). Both routes are
+// role_min: public — HelpService's own role filter is the per-topic gate
+// (a below-role topic 404s exactly like an unknown id). `parents` stays
+// empty on purpose: the help belongs to no menu, and a `parents` entry
+// that matches no MenuBuilder label renders as dead text (design.md §7.3).
+$router->addRoute('GET', '/aide', \Core\Http\Controller\HelpController::class, 'index', 'public', ['label' => 'Aide', 'parents' => []]);
+$router->addRoute('GET', '/aide/{id}', \Core\Http\Controller\HelpController::class, 'show', 'public', ['label' => 'Aide', 'parents' => []]);
 
 // Cookie consent
 $router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public', ['label' => 'Préférences cookies', 'parents' => []]);
@@ -1877,7 +1894,15 @@ $rgpdContentService = new RgpdContentService($moduleManager, $settingService, $l
 
 // Handle the request
 $maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
-$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate);
+$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService);
+
+// Contextual help pages (Core\Http\Controller\HelpController) — needs the
+// HelpService built next to the registry above, after every enabled
+// module had its chance to register topics.
+$frontController->registerController(
+    \Core\Http\Controller\HelpController::class,
+    new \Core\Http\Controller\HelpController($twig, $helpService)
+);
 
 // Optional dependency on the trombinoscope module (ARCHITECTURE.md §7.4)
 // for the Sections page's "responsable" name — set below only when

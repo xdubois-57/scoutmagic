@@ -270,6 +270,17 @@
             </div>
         </div>
     </div>
+    {# Contextual help panel (ARCHITECTURE.md §8.64) — rendered only when
+       at least one topic covers this page (`route_help`, set by
+       Core\Http\FrontController after the RBAC guard, already
+       role-filtered and already rendered server-side so the panel works
+       offline). The button that opens it lives in the breadcrumb bar
+       (partials/help_button.html.twig); with no matching topic that
+       button is a plain /aide link and this markup isn't emitted at all. #}
+    {% if route_help|default([]) is not empty %}
+        {% include 'partials/help_panel.html.twig' %}
+        <script src="/assets/js/help-panel.js" defer></script>
+    {% endif %}
     {% block scripts %}{% endblock %}
 
     {# The confirmation behind every form carrying data-confirm lives in

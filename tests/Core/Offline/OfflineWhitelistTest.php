@@ -35,7 +35,7 @@ class OfflineWhitelistTest extends TestCase
         $paths = array_column($this->whitelist->getAllEntries(), 'path');
 
         $this->assertSame(
-            ['/', '/contact', '/sections', '/rgpd', '/account', '/notifications', '/members/', '/chefs/staffs'],
+            ['/', '/contact', '/sections', '/rgpd', '/account', '/notifications', '/members/', '/chefs/staffs', '/aide', '/aide/'],
             $paths
         );
     }
@@ -94,7 +94,7 @@ class OfflineWhitelistTest extends TestCase
 
         $paths = array_column($this->whitelist->getEntriesForRole(Role::PUBLIC), 'path');
 
-        $this->assertSame(['/', '/contact', '/sections', '/rgpd'], $paths);
+        $this->assertSame(['/', '/contact', '/sections', '/rgpd', '/aide', '/aide/'], $paths);
         $this->assertNotContains('/chiefs/stats', $paths);
         $this->assertNotContains('/account', $paths);
         $this->assertNotContains('/chefs/staffs', $paths);

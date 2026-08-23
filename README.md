@@ -34,6 +34,7 @@ volontaire, sans garantie de délai.
 - Contrôle d'accès basé sur les rôles (6 niveaux)
 - Authentification sans mot de passe (lien magique, mot de passe, passkey)
 - Design responsive mobile-first, installable comme application sur l'écran d'accueil (PWA) avec accès hors ligne aux pages publiques, au calendrier, au centre de notifications, au trombinoscope, aux staffs, aux statistiques des membres, aux prévisions, et à la page et au compte propres de chaque membre — chaque image pré-téléchargée, extensible par des modules, sans qu'aucune page de configuration ni contenu privé/financier ne soit jamais mis en cache
+- Aide contextuelle intégrée : un bouton d'aide sur chaque page ouvre les sujets qui la concernent (panneau consultable hors ligne), et la page `/aide` rassemble toute la documentation, filtrée selon le rôle du visiteur — livrée avec chaque release, extensible par les modules
 - Mode configuration pour l'édition de contenu en ligne
 - Architecture modulaire pour l'extensibilité
 - Données personnelles chiffrées au repos
