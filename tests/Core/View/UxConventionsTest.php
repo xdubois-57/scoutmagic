@@ -77,7 +77,6 @@ final class UxConventionsTest extends TestCase
         'core/View/templates/admin/scout_year.html.twig' => 1,
         'core/View/templates/config/modules.html.twig' => 1,
         'core/View/templates/config/notifications.html.twig' => 1,
-        'modules/calendar/views/public.html.twig' => 2,
         'modules/mass_mail/views/tracking.html.twig' => 1,
         'modules/registration/views/departures.html.twig' => 2,
     ];
