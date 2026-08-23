@@ -131,6 +131,12 @@ interface Window {
             inputType?: string;
             readonly?: boolean;
             selectOnOpen?: boolean;
+            // A textarea instead of a one-line input, with its own label
+            // above it: the confirm-with-a-note case, where the message
+            // states the decision and the label asks for the word to go
+            // with it.
+            multiline?: boolean;
+            label?: string;
             confirmLabel?: string;
             cancelLabel?: string;
             variant?: 'danger' | 'primary';

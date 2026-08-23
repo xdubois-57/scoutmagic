@@ -357,3 +357,263 @@ describe('ScoutMagicConfirm.prompt()', () => {
         expect(field().placeholder).toBe('https://…');
     });
 });
+
+describe('ScoutMagicConfirm.prompt() with a note', () => {
+    /** @returns {HTMLTextAreaElement} */
+    function textarea() {
+        const el = document.getElementById('sm-confirm-modal-input');
+        if (el === null) {
+            throw new Error('The prompt dialog has no field');
+        }
+        return /** @type {HTMLTextAreaElement} */ (el);
+    }
+
+    it('renders a textarea with its own label when the answer is a few sentences', async () => {
+        const smConfirm = await loadConfirm();
+        smConfirm.prompt({
+            message: 'Refuser cette demande de réservation ?',
+            label: 'Un mot au locataire (facultatif)',
+            multiline: true,
+        });
+
+        expect(textarea().tagName).toBe('TEXTAREA');
+        expect(textarea().rows).toBe(3);
+        // A second sentence exists, so it is the field's label — not the
+        // decision, which stays the question in the body.
+        const label = document.querySelector('#sm-confirm-modal label');
+        expect(label.textContent).toBe('Un mot au locataire (facultatif)');
+        expect(label.getAttribute('for')).toBe('sm-confirm-modal-input');
+        expect(textarea().getAttribute('aria-labelledby')).toBeNull();
+        expect(document.getElementById('sm-confirm-modal-body').textContent)
+            .toBe('Refuser cette demande de réservation ?');
+    });
+
+    it('lets Enter start a new line instead of agreeing', async () => {
+        const smConfirm = await loadConfirm();
+        const answer = smConfirm.prompt({ message: 'Refuser ?', label: 'Un mot', multiline: true });
+
+        textarea().value = 'Première ligne';
+        textarea().dispatchEvent(
+            new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+        );
+
+        // The dialog is still open: nothing was sent.
+        expect(modal()).not.toBeNull();
+        textarea().value = 'Première ligne\nSeconde ligne';
+        buttonLabelled('Valider').click();
+        await expect(answer).resolves.toBe('Première ligne\nSeconde ligne');
+    });
+
+    it('still submits on Enter in a one-line field', async () => {
+        const smConfirm = await loadConfirm();
+        const answer = smConfirm.prompt('URL du lien :');
+
+        const el = /** @type {HTMLInputElement} */ (document.getElementById('sm-confirm-modal-input'));
+        expect(el.tagName).toBe('INPUT');
+        el.value = 'https://lesscouts.be';
+        el.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+
+        await expect(answer).resolves.toBe('https://lesscouts.be');
+    });
+
+    it('styles the dialog as destructive when the caller says the action is', async () => {
+        const smConfirm = await loadConfirm();
+        smConfirm.prompt({ message: 'Refuser ?', label: 'Un mot', multiline: true, variant: 'danger' });
+
+        expect(buttonLabelled('Valider').className).toContain('btn-danger');
+    });
+});
+
+// The other half of this file: the handler that makes data-confirm work at
+// all. It used to be an inline <script> in base.html.twig, where no unit
+// test could reach it — and before that, an identical copy in three page
+// templates, missing from a fourth.
+describe('the delegated data-confirm form handler', () => {
+    /**
+     * @param {Record<string, string>} attrs
+     * @returns {HTMLFormElement}
+     */
+    function formWith(attrs) {
+        const form = document.createElement('form');
+        form.method = 'post';
+        form.action = '/mes-locations/statut';
+        for (const [name, value] of Object.entries(attrs)) {
+            form.setAttribute(name, value);
+        }
+        const button = document.createElement('button');
+        button.type = 'submit';
+        button.textContent = 'Refuser';
+        form.appendChild(button);
+        document.body.appendChild(form);
+        return form;
+    }
+
+    /** @param {HTMLFormElement} form */
+    function submit(form) {
+        // jsdom would try to navigate; the handler replays through
+        // requestSubmit(), so that is what a replay looks like here.
+        const replay = vi.fn();
+        form.requestSubmit = replay;
+        form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+        return replay;
+    }
+
+    it('asks before submitting, and replays the form once confirmed', async () => {
+        await loadConfirm();
+        const form = formWith({ 'data-confirm': 'Annuler cette réservation ?' });
+
+        const replay = submit(form);
+        expect(replay).not.toHaveBeenCalled();
+        expect(document.getElementById('sm-confirm-modal-body').textContent)
+            .toBe('Annuler cette réservation ?');
+
+        buttonLabelled('Confirmer').click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(replay).toHaveBeenCalled();
+        // The replayed submit must not ask a second time.
+        expect(form.dataset.confirmed).toBe('1');
+    });
+
+    it('leaves the form alone when the visitor declines', async () => {
+        await loadConfirm();
+        const form = formWith({ 'data-confirm': 'Annuler cette réservation ?' });
+
+        const replay = submit(form);
+        buttonLabelled('Annuler').click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(replay).not.toHaveBeenCalled();
+        expect(form.dataset.confirmed).toBeUndefined();
+    });
+
+    it('lets the replayed submit through instead of asking again', async () => {
+        await loadConfirm();
+        const form = formWith({ 'data-confirm': 'Annuler ?' });
+        form.dataset.confirmed = '1';
+
+        const event = new window.Event('submit', { bubbles: true, cancelable: true });
+        form.dispatchEvent(event);
+
+        expect(event.defaultPrevented).toBe(false);
+        expect(modal()).toBeNull();
+    });
+
+    it('honours a custom label on the agreeing button', async () => {
+        await loadConfirm();
+        submit(formWith({ 'data-confirm': 'Refuser ?', 'data-confirm-label': 'Refuser' }));
+
+        expect(buttonLabelled('Refuser')).toBeTruthy();
+    });
+
+    it('works for a form inserted after load, which is why it is delegated', async () => {
+        await loadConfirm();
+        // Inserted here, long after the listener was attached — a
+        // querySelectorAll() at load time could never have seen it.
+        const replay = submit(formWith({ 'data-confirm': 'Supprimer ce message ?' }));
+
+        buttonLabelled('Confirmer').click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(replay).toHaveBeenCalled();
+    });
+
+    describe('with data-confirm-note', () => {
+        it('asks for a word and posts it under the given name', async () => {
+            await loadConfirm();
+            const form = formWith({
+                'data-confirm': 'Refuser cette demande ?',
+                'data-confirm-note': 'Un mot au locataire (facultatif)',
+                'data-confirm-note-name': 'renter_message',
+            });
+
+            const replay = submit(form);
+            const written = /** @type {HTMLTextAreaElement} */ (
+                document.getElementById('sm-confirm-modal-input')
+            );
+            expect(written.tagName).toBe('TEXTAREA');
+            written.value = 'Le gîte est déjà pris ce week-end.';
+            buttonLabelled('Confirmer').click();
+            await Promise.resolve();
+            await Promise.resolve();
+
+            const carrier = /** @type {HTMLInputElement} */ (
+                form.querySelector('input[type="hidden"][data-confirm-note-field]')
+            );
+            expect(carrier.name).toBe('renter_message');
+            expect(carrier.value).toBe('Le gîte est déjà pris ce week-end.');
+            expect(replay).toHaveBeenCalled();
+        });
+
+        it('defaults the field name to message', async () => {
+            await loadConfirm();
+            const form = formWith({ 'data-confirm': 'Refuser ?', 'data-confirm-note': 'Un mot' });
+
+            submit(form);
+            buttonLabelled('Confirmer').click();
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(form.querySelector('input[data-confirm-note-field]').getAttribute('name'))
+                .toBe('message');
+        });
+
+        it('submits with no word at all, because the word is optional', async () => {
+            await loadConfirm();
+            const form = formWith({ 'data-confirm': 'Refuser ?', 'data-confirm-note': 'Un mot' });
+
+            const replay = submit(form);
+            buttonLabelled('Confirmer').click();
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(replay).toHaveBeenCalled();
+            expect(form.querySelector('input[data-confirm-note-field]').getAttribute('value'))
+                .toBe('');
+        });
+
+        it('cancels on a dismissal without posting anything', async () => {
+            await loadConfirm();
+            const form = formWith({ 'data-confirm': 'Refuser ?', 'data-confirm-note': 'Un mot' });
+
+            const replay = submit(form);
+            document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(replay).not.toHaveBeenCalled();
+            expect(form.querySelector('input[data-confirm-note-field]')).toBeNull();
+        });
+
+        it('carries one word, not the one before it, when the visitor reopens', async () => {
+            await loadConfirm();
+            const form = formWith({ 'data-confirm': 'Refuser ?', 'data-confirm-note': 'Un mot' });
+
+            submit(form);
+            /** @type {HTMLTextAreaElement} */ (
+                document.getElementById('sm-confirm-modal-input')
+            ).value = 'Premier essai';
+            buttonLabelled('Confirmer').click();
+            await Promise.resolve();
+            await Promise.resolve();
+
+            // A second decision on the same form — the replay guard is
+            // cleared the way a fresh page load would.
+            delete form.dataset.confirmed;
+            submit(form);
+            /** @type {HTMLTextAreaElement} */ (
+                document.getElementById('sm-confirm-modal-input')
+            ).value = 'Second essai';
+            buttonLabelled('Confirmer').click();
+            await Promise.resolve();
+            await Promise.resolve();
+
+            const carriers = form.querySelectorAll('input[data-confirm-note-field]');
+            expect(carriers).toHaveLength(1);
+            expect(/** @type {HTMLInputElement} */ (carriers[0]).value).toBe('Second essai');
+        });
+    });
+});

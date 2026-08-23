@@ -54,7 +54,7 @@
      *
      * @param {{message: string, title: string, confirmLabel: string, cancelLabel: string,
      *          variant: string, input: ({value: string, placeholder: string, inputType: string,
-     *          readonly: boolean}|null)}} opts
+     *          readonly: boolean, multiline: boolean, label: string}|null)}} opts
      * @returns {{root: HTMLElement, confirmBtn: HTMLButtonElement,
      *            cancelBtn: HTMLButtonElement, field: (HTMLInputElement|null)}}
      */
@@ -97,17 +97,33 @@
 
         var field = null;
         if (opts.input) {
-            field = document.createElement('input');
-            field.type = opts.input.inputType;
+            // A textarea when the answer is a few sentences — a word to a
+            // renter alongside a decision — and a single line otherwise.
+            field = document.createElement(opts.input.multiline ? 'textarea' : 'input');
+            if (opts.input.multiline) {
+                field.rows = 3;
+            } else {
+                field.type = opts.input.inputType;
+            }
             field.className = 'form-control mt-2';
             field.id = MODAL_ID + '-input';
             field.value = opts.input.value;
             field.placeholder = opts.input.placeholder;
             field.readOnly = opts.input.readonly;
-            // The message is the field's label — there is no second
-            // sentence to read, so pointing at it is more useful than an
-            // invented one.
-            field.setAttribute('aria-labelledby', MODAL_ID + '-body');
+            if (opts.input.label) {
+                // A second sentence exists, so it is the label rather than
+                // the question above it.
+                var fieldLabel = document.createElement('label');
+                fieldLabel.className = 'form-label mt-3 mb-0';
+                fieldLabel.htmlFor = field.id;
+                fieldLabel.textContent = opts.input.label;
+                body.appendChild(fieldLabel);
+            } else {
+                // The message is the field's label — there is no second
+                // sentence to read, so pointing at it is more useful than an
+                // invented one.
+                field.setAttribute('aria-labelledby', MODAL_ID + '-body');
+            }
             body.appendChild(field);
         }
 
@@ -137,7 +153,9 @@
         confirmBtn.addEventListener('click', function () {
             settle(field === null ? true : field.value);
         });
-        if (field !== null) {
+        if (field !== null && !opts.input.multiline) {
+            // Only for a one-line answer: in a textarea, Enter is how you
+            // start a new line, not how you agree.
             field.addEventListener('keydown', function (e) {
                 if (e.key === 'Enter') {
                     e.preventDefault();
@@ -208,7 +226,8 @@
      *
      * @param {{message: string, title: string, confirmLabel: string, cancelLabel: string,
      *          variant: string, input: ({value: string, placeholder: string, inputType: string,
-     *          readonly: boolean, selectOnOpen: boolean}|null)}} opts
+     *          readonly: boolean, selectOnOpen: boolean, multiline: boolean,
+     *          label: string}|null)}} opts
      * @param {boolean|null} cancelValue what a dismissal resolves to
      * @returns {Promise<boolean|string|null>}
      */
@@ -318,6 +337,7 @@
      *
      * @param {string|{message: string, title?: string, value?: string, placeholder?: string,
      *                 inputType?: string, readonly?: boolean, selectOnOpen?: boolean,
+     *                 multiline?: boolean, label?: string,
      *                 confirmLabel?: string, cancelLabel?: string, variant?: 'danger'|'primary'}} input
      * @returns {Promise<string|null>} the value (possibly an empty string)
      *          when confirmed, null on cancel, Escape, backdrop click or
@@ -326,6 +346,7 @@
     function prompt(input) {
         /** @type {{message?: string, title?: string, value?: string, placeholder?: string,
          *          inputType?: string, readonly?: boolean, selectOnOpen?: boolean,
+         *          multiline?: boolean, label?: string,
          *          confirmLabel?: string, cancelLabel?: string, variant?: string}} */
         var raw = typeof input === 'string' ? { message: input } : (input || {});
         var value = raw.value || '';
@@ -335,13 +356,17 @@
             title: raw.title || 'Saisie',
             confirmLabel: raw.confirmLabel || 'Valider',
             cancelLabel: raw.cancelLabel || 'Annuler',
-            // A prompt destroys nothing; danger styling would be a lie.
+            // A prompt destroys nothing by itself; danger styling would be a
+            // lie — unless the caller says the action behind it does, which
+            // is the confirm-with-a-note case.
             variant: raw.variant === 'danger' ? 'danger' : 'primary',
             input: {
                 value: value,
                 placeholder: raw.placeholder || '',
                 inputType: raw.inputType || 'text',
                 readonly: raw.readonly === true,
+                multiline: raw.multiline === true,
+                label: raw.label || '',
                 // A pre-filled value is there to be replaced, or — in the
                 // clipboard fallback — to be copied. Selecting it serves
                 // both.
@@ -350,5 +375,127 @@
         }, null));
     }
 
-    window.ScoutMagicConfirm = { ask: ask, prompt: prompt };
+    // The two functions above, as one object — exported below, and used
+    // by the delegated handler through it rather than by their bare names.
+    // A bare `prompt(...)` anywhere in this repository is the native box
+    // this file exists to abolish, and the check that enforces that
+    // (UxConventionsTest::testNoNativeBrowserDialogs) is right to read it
+    // that way even here.
+    var api = { ask: ask, prompt: prompt };
+
+    /**
+     * Stops the submit of any form carrying data-confirm, asks, and
+     * replays it once the visitor agrees. Delegated on `document` once for
+     * the whole site.
+     *
+     * This lived as an inline <script> in base.html.twig, and before that
+     * as an identical copy in three page templates — missing from a
+     * fourth, where the confirmation therefore never appeared. It is here
+     * instead because it is the other half of this file: `ask()` without a
+     * caller is not the site's confirmation, this is. Being a real file
+     * also means jsdom can exercise it, which an inline template script
+     * cannot be.
+     *
+     * Delegated rather than attached per form at load: a form inserted
+     * later by a module's own dynamic JS (groups.js inserting a reply, or
+     * "Voir plus" appending a page of them) carries the same markup, and a
+     * querySelectorAll() at load time can never see it — the confirmation
+     * would silently never fire for anything added after the page
+     * rendered.
+     *
+     * Read from the form:
+     *   data-confirm            the question. Required; nothing else fires without it.
+     *   data-confirm-label      the wording of the agreeing button.
+     *   data-confirm-note       a second question — asks for a free-text
+     *                           word to send along with the decision, and
+     *                           turns the dialog into a prompt. Its value
+     *                           is the field's label.
+     *   data-confirm-note-name  the name that word is posted under
+     *                           (default `message`).
+     *
+     * @param {Document} doc
+     */
+    function delegate(doc) {
+        // Attached once per document. A page that loads this file twice —
+        // a template adding its own <script src> on top of base.html.twig's,
+        // which has happened — would otherwise ask the same question twice,
+        // the second dialog opening on top of the first.
+        if (/** @type {any} */ (doc).scoutMagicConfirmDelegated === true) {
+            return;
+        }
+        /** @type {any} */ (doc).scoutMagicConfirmDelegated = true;
+
+        doc.addEventListener('submit', function (e) {
+            var target = /** @type {HTMLElement|null} */ (e.target);
+            var form = /** @type {HTMLFormElement|null} */ (
+                target === null ? null : target.closest('form[data-confirm]')
+            );
+            if (form === null || form.dataset.confirmed === '1') {
+                return;
+            }
+            e.preventDefault();
+            // Carried along so a form with two submit buttons still sends
+            // which one was pressed: form.submit() would drop that, and
+            // skip validation with it.
+            var submitter = /** @type {HTMLElement|null} */ (
+                /** @type {any} */ (e).submitter || null
+            );
+
+            var replay = function () {
+                form.dataset.confirmed = '1';
+                if (form.requestSubmit) {
+                    form.requestSubmit(/** @type {any} */ (submitter));
+                } else {
+                    form.submit();
+                }
+            };
+
+            var note = form.dataset.confirmNote || '';
+            if (note === '') {
+                api.ask({
+                    message: form.dataset.confirm || '',
+                    confirmLabel: form.dataset.confirmLabel || 'Confirmer'
+                }).then(function (confirmed) {
+                    if (confirmed) {
+                        replay();
+                    }
+                });
+                return;
+            }
+
+            // The decision is still the question; the note is optional, and
+            // an empty answer is a real answer — only a dismissal (null)
+            // cancels. Danger styling because what is behind it is a
+            // refusal or a cancellation, not a form to fill in.
+            api.prompt({
+                message: form.dataset.confirm || '',
+                label: note,
+                multiline: true,
+                variant: 'danger',
+                confirmLabel: form.dataset.confirmLabel || 'Confirmer'
+            }).then(function (written) {
+                if (written === null) {
+                    return;
+                }
+                // Reused rather than appended each time: the visitor can
+                // cancel, reopen and answer differently, and two hidden
+                // fields of the same name would post the first one.
+                var carrier = /** @type {HTMLInputElement|null} */ (
+                    form.querySelector('input[type="hidden"][data-confirm-note-field]')
+                );
+                if (carrier === null) {
+                    carrier = doc.createElement('input');
+                    carrier.type = 'hidden';
+                    carrier.setAttribute('data-confirm-note-field', '');
+                    form.appendChild(carrier);
+                }
+                carrier.name = form.dataset.confirmNoteName || 'message';
+                carrier.value = written;
+                replay();
+            });
+        });
+    }
+
+    window.ScoutMagicConfirm = api;
+    delegate(document);
 })();
