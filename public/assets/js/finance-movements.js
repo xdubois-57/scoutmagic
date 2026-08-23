@@ -23,8 +23,8 @@
 // FormData, which the JSON toolbox deliberately does not own (the
 // mass-mail-list.js precedent).
 (function () {
-    var detailsModalEl = document.getElementById('movement-details-modal');
-    var attachmentsModalEl = document.getElementById('attachments-modal');
+    const detailsModalEl = document.getElementById('movement-details-modal');
+    const attachmentsModalEl = document.getElementById('attachments-modal');
     // Every handler below reaches into one of the two dialogs. On a page
     // that does not render them — the "Aucun compte visible pour votre
     // rôle." empty state, or any page loading this file by accident — the

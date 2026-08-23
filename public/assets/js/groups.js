@@ -1586,7 +1586,7 @@
         // form otherwise.
         var anchor = form.querySelector('#groups-post-error, .groups-reply-error');
         if (anchor) {
-            anchor.insertAdjacentElement('afterend', panel);
+            anchor.after(panel);
         } else {
             form.appendChild(panel);
         }

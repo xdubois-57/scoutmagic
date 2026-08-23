@@ -16,7 +16,7 @@
 // uploads (audience import, attachments) keep a raw fetch(FormData) since
 // the JSON toolbox deliberately owns JSON bodies only.
 (function () {
-    var mmModalEl = document.getElementById('mm-modal');
+    const mmModalEl = document.getElementById('mm-modal');
     const MM_DATA = window.ScoutMagicApi.pageData('mass-mail-list-data');
     if (!mmModalEl || !MM_DATA) return;
 
