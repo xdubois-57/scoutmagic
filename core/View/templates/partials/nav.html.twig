@@ -3,12 +3,17 @@
  Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
 #}
 {# Mobile header bar — visible below lg #}
-<header class="d-lg-none d-flex align-items-center px-3 border-bottom bg-white" style="height:56px;">
-    <button class="btn btn-link text-dark p-2 me-auto d-inline-flex align-items-center justify-content-center" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas" style="min-width:44px;min-height:44px;">
+<header class="d-lg-none d-flex align-items-center px-3 border-bottom bg-body" style="height:56px;">
+    <button class="btn btn-link text-body p-2 me-auto d-inline-flex align-items-center justify-content-center" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas" style="min-width:44px;min-height:44px;">
         <i class="bi bi-list fs-3" aria-hidden="true"></i>
         <span class="visually-hidden">Menu</span>
     </button>
     <span class="fw-semibold text-truncate" style="min-width:0;">{{ site_name }}</span>
+    {# Theme cycle button (clair → sombre → auto) — public/assets/js/theme.js
+       updates the icon and aria-label to reflect the current preference.
+       Rendered for every visitor, signed in or not: a color scheme is a
+       device preference, not an account feature. #}
+    {% include 'partials/theme_toggle.html.twig' %}
     {% if is_authenticated %}
     {% include 'partials/notification_dropdown.html.twig' %}
     {# Direct link to "Mon compte" — deliberately not the offcanvas, which
@@ -30,7 +35,7 @@
     </div>
     <div class="offcanvas-body d-flex flex-column p-0">
         {% if is_authenticated %}
-        <div class="d-flex align-items-center gap-2 p-3 border-bottom bg-light">
+        <div class="d-flex align-items-center gap-2 p-3 border-bottom bg-body-tertiary">
             {# Both the avatar and the name link to /account — a single
                "Mon compte" destination, never /notifications (see
                partials/notification_dropdown.html.twig for the separate
@@ -39,7 +44,7 @@
                 {% include 'partials/account_avatar.html.twig' with {size: 40, font_size: '.9rem'} %}
                 <div>
                     <div class="fw-semibold small text-truncate" style="max-width:140px;">{{ current_user_display_name }}</div>
-                    <div class="text-muted" style="font-size:.75rem;">
+                    <div class="text-body-secondary" style="font-size:.75rem;">
                         {{ current_user_role_label }}
                         {% if current_user_member_count > 0 %}
                             · {{ current_user_member_count }} membre{{ current_user_member_count > 1 ? 's' : '' }}
@@ -56,7 +61,7 @@
             <div class="accordion-item">
                 <h2 class="accordion-header">
                     <button class="accordion-button {% if menu.id != active_menu_id %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#mob-{{ menu.id }}" aria-expanded="{{ menu.id == active_menu_id ? 'true' : 'false' }}">
-                        <i class="bi {{ menu.icon }} me-2"></i> {{ menu.label }}
+                        <i class="bi {{ menu.icon }} me-2" aria-hidden="true"></i> {{ menu.label }}
                     </button>
                 </h2>
                 <div id="mob-{{ menu.id }}" class="accordion-collapse collapse {% if menu.id == active_menu_id %}show{% endif %}" data-bs-parent="#mobileMenuAccordion">
@@ -70,7 +75,7 @@
                                        on a blue background, invisible. Bold blue text on the plain list
                                        background is the highlight instead. #}
                                     <li class="list-group-item list-group-item-action border-0 ps-4" style="min-height:44px;">
-                                        <a href="{{ page.url }}" class="d-flex align-items-center gap-2 text-decoration-none{% if current_path == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}"{{ current_path == page.url ? ' aria-current="page"' : '' }}>
+                                        <a href="{{ page.url }}" class="d-flex align-items-center gap-2 text-decoration-none{% if current_path == page.url %} fw-semibold text-primary{% else %} text-body{% endif %}"{{ current_path == page.url ? ' aria-current="page"' : '' }}>
                                             {#
                                               The member this entry is for, drawn by the shared
                                               component (person_avatar(), Core\View\PersonAvatar):
@@ -104,10 +109,10 @@
                                           `menu_icon`); the fallback keeps the alignment for an
                                           entry that declared none rather than leaving a hole.
                                         #}
-                                        <a href="{{ page.url }}" class="d-flex align-items-center gap-2 text-decoration-none{% if active_page_url|default('') == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}"{{ active_page_url|default('') == page.url ? ' aria-current="page"' : '' }}>
+                                        <a href="{{ page.url }}" class="d-flex align-items-center gap-2 text-decoration-none{% if active_page_url|default('') == page.url %} fw-semibold text-primary{% else %} text-body{% endif %}"{{ active_page_url|default('') == page.url ? ' aria-current="page"' : '' }}>
                                             <span class="d-inline-flex align-items-center justify-content-center text-body-secondary"
                                                   style="width:32px;min-width:32px;" aria-hidden="true">
-                                                <i class="bi {{ page.icon|default('') ?: 'bi-dot' }}"></i>
+                                                <i class="bi {{ page.icon|default('') ?: 'bi-dot' }}" aria-hidden="true"></i>
                                             </span>
                                             <span>{{ page.label }}</span>
                                         </a>
@@ -135,21 +140,30 @@
 </div>
 
 {# Desktop navigation — visible at lg and above #}
-<nav class="d-none d-lg-block border-bottom bg-white" id="desktopNav">
+<nav class="d-none d-lg-block border-bottom bg-body" id="desktopNav">
     <div class="container-fluid d-flex align-items-center px-3" style="height:56px;">
-        <a href="/" class="text-decoration-none text-dark fw-semibold me-4">{{ site_name }}</a>
+        <a href="/" class="text-decoration-none text-body-emphasis fw-semibold me-4">{{ site_name }}</a>
 
         <div class="d-flex align-items-center gap-1 flex-grow-1" id="desktopMenus">
             {% for menu in menus %}
+            {# Tab-styled, not pill-styled: the menu row and the page row
+               used to be two stacks of identical grey pills — two
+               hierarchy levels, zero visual difference. Level 1 reads as
+               tabs (text + active underline, .desktop-menu-btn in
+               app.css), level 2 keeps the pills. nav.js toggles the
+               `active` class. #}
             <button type="button"
-                    class="btn btn-sm {% if menu.id == active_menu_id %}btn-primary{% else %}btn-outline-secondary{% endif %} desktop-menu-btn"
+                    class="btn btn-sm desktop-menu-btn{% if menu.id == active_menu_id %} active{% endif %}"
                     data-menu-id="{{ menu.id }}">
-                <i class="bi {{ menu.icon }} me-1"></i>{{ menu.label }}
+                <i class="bi {{ menu.icon }} me-1" aria-hidden="true"></i>{{ menu.label }}
             </button>
             {% endfor %}
         </div>
 
-        <div class="ms-auto">
+        <div class="ms-auto d-flex align-items-center gap-2">
+            {# Same theme cycle button as the mobile header above — one
+               partial, one definition (see theme.js). #}
+            {% include 'partials/theme_toggle.html.twig' %}
             {% if is_authenticated %}
             <div class="d-flex align-items-center gap-2">
                 {% include 'partials/notification_dropdown.html.twig' %}
@@ -160,7 +174,7 @@
                     {% include 'partials/account_avatar.html.twig' with {size: 32, font_size: '.8rem'} %}
                     <span class="small text-truncate" style="max-width:160px;">{{ current_user_display_name }}</span>
                     {% if current_user_member_count > 0 %}
-                        <span class="text-muted" style="font-size:.75rem;">· {{ current_user_member_count }} membre{{ current_user_member_count > 1 ? 's' : '' }}</span>
+                        <span class="text-body-secondary" style="font-size:.75rem;">· {{ current_user_member_count }} membre{{ current_user_member_count > 1 ? 's' : '' }}</span>
                     {% endif %}
                 </a>
                 <form method="post" action="/logout" class="d-inline ms-2">
@@ -176,7 +190,7 @@
 
     {# Sub-menu bars #}
     {% for menu in menus %}
-    <div class="desktop-submenu border-top bg-light {% if menu.id != active_menu_id %}d-none{% endif %}" data-submenu-id="{{ menu.id }}">
+    <div class="desktop-submenu border-top bg-body-tertiary {% if menu.id != active_menu_id %}d-none{% endif %}" data-submenu-id="{{ menu.id }}">
         <div class="container-fluid px-3 py-2 d-flex flex-wrap gap-2">
             {% for page in menu.pages %}
                 {% if page.isDynamic %}

@@ -15,7 +15,7 @@
                     <button type="submit" class="btn btn-outline-danger">Se désinscrire</button>
                 </form>
             {% elseif state == 'done' %}
-                <p class="text-success mb-0"><i class="bi bi-check-circle"></i> Vous avez bien été désinscrit(e) des emails groupés pour cette adresse.</p>
+                <p class="text-success mb-0"><i class="bi bi-check-circle" aria-hidden="true"></i> Vous avez bien été désinscrit(e) des emails groupés pour cette adresse.</p>
             {% else %}
                 <p class="text-danger mb-0">Ce lien de désinscription n'est plus valide.</p>
             {% endif %}

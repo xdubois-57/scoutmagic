@@ -59,6 +59,23 @@ class CookieRegistry
                 'duration' => 'Jusqu\'à la prochaine mise à jour du site (remplacé automatiquement)',
             ],
             [
+                // Not an HTTP cookie but a localStorage entry — declared
+                // here anyway, same reasoning as the Cache Storage entries
+                // around it: the preferences page and consent banner must
+                // stay a complete picture of the site's local storage
+                // footprint. Functional, with a real consent gate enforced
+                // client-side (public/assets/js/theme.js checks the
+                // cookie_consent cookie before writing; without functional
+                // consent the theme toggle works for the session only and
+                // stores nothing). Only ever holds 'light' or 'dark' —
+                // 'automatique' (the default, follows the device setting)
+                // is stored as an absence of the entry.
+                'name' => 'theme_preference',
+                'category' => 'functional',
+                'purpose' => 'Mémorisation du thème d\'affichage choisi (clair ou sombre) pour l\'appliquer à chaque visite.',
+                'duration' => 'Jusqu\'au retrait (suppression manuelle ou retour au thème automatique)',
+            ],
+            [
                 // Also a Cache Storage API entry, not an HTTP cookie — the
                 // Lot 3 content cache the app-shell entry above's comment
                 // anticipated, widened in Lot 4 (ARCHITECTURE §8.25) to a

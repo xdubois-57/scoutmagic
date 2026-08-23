@@ -13,13 +13,14 @@
             <div class="card mb-3">
                 <div class="card-body">
                     <div class="d-flex align-items-center justify-content-between mb-2">
-                        <h2 class="h5 mb-0">{{ category.label }}</h2>
+                        <h2 class="h5 mb-0" id="cookie-category-{{ category_id }}-label">{{ category.label }}</h2>
                         {% if category_id == 'necessary' %}
                             {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Toujours actif' } only %}
                         {% else %}
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox"
+                                <input class="form-check-input" type="checkbox" role="switch"
                                        name="{{ category_id }}" id="cookie-{{ category_id }}"
+                                       aria-labelledby="cookie-category-{{ category_id }}-label"
                                        {% if category.accepted %}checked{% endif %}>
                             </div>
                         {% endif %}

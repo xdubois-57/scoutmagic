@@ -21,7 +21,7 @@
         </p>
         {% if board.voteMode == 'budget' and board.status == 'open' and can_vote %}
             <p class="small text-body-secondary mb-2">
-                <i class="bi bi-coin"></i> Il te reste <strong id="retro-budget-remaining">{{ remaining_budget !== null ? remaining_budget : board.voteBudget }}</strong> point(s) à distribuer.
+                <i class="bi bi-coin" aria-hidden="true"></i> Il te reste <strong id="retro-budget-remaining">{{ remaining_budget !== null ? remaining_budget : board.voteBudget }}</strong> point(s) à distribuer.
             </p>
         {% endif %}
         <p class="text-body-secondary small">
@@ -29,7 +29,7 @@
         </p>
 
         <button class="btn btn-link btn-sm p-0 mb-2" type="button" data-bs-toggle="collapse" data-bs-target="#retro-anonymity-info">
-            <i class="bi bi-shield-check"></i> Pourquoi c'est vraiment anonyme ?
+            <i class="bi bi-shield-check" aria-hidden="true"></i> Pourquoi c'est vraiment anonyme ?
         </button>
         <div class="collapse mb-3" id="retro-anonymity-info">
             <div class="alert alert-success small mb-0">
@@ -43,25 +43,25 @@
 
         {% if is_unit_chief %}
             <div class="alert alert-warning small d-flex gap-2">
-                <i class="bi bi-exclamation-triangle flex-shrink-0"></i>
+                <i class="bi bi-exclamation-triangle flex-shrink-0" aria-hidden="true"></i>
                 <span>Masquer un mot est une mesure de <strong>dernier recours</strong> — réservée aux propos injurieux ou aux attaques personnelles, jamais à un simple désaccord. L'action reste réversible. Seul le chef d'unité peut voir et lever un masquage.</span>
             </div>
         {% endif %}
 
         {% if vote_requires_auth and not can_vote %}
             <div class="alert alert-info small d-flex gap-2">
-                <i class="bi bi-box-arrow-in-right flex-shrink-0"></i>
+                <i class="bi bi-box-arrow-in-right flex-shrink-0" aria-hidden="true"></i>
                 <span>Tu peux toujours ajouter des mots anonymement. Pour voter, connecte-toi avec ton email — juste pour s'assurer qu'une même personne ne vote pas deux fois, ton identité reste invisible des autres.</span>
             </div>
         {% endif %}
 
-        <div class="d-flex align-items-center gap-2 bg-white border rounded px-3 py-2 mb-1 flex-wrap">
+        <div class="d-flex align-items-center gap-2 bg-body border rounded px-3 py-2 mb-1 flex-wrap">
             <span class="text-body-secondary small text-truncate flex-grow-1">{{ public_url }}</span>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="retro-qr-toggle">
-                <i class="bi bi-qr-code"></i> QR code
+                <i class="bi bi-qr-code" aria-hidden="true"></i> QR code
             </button>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="retro-copy-link" data-url="{{ public_url }}">
-                <i class="bi bi-clipboard"></i> Copier
+                <i class="bi bi-clipboard" aria-hidden="true"></i> Copier
             </button>
         </div>
         <div class="d-none mb-3" id="retro-qr-container">
@@ -70,7 +70,7 @@
 
         {% if board.status == 'closed' and board.aiSummary %}
             <div class="alert alert-info">
-                <div class="fw-semibold small mb-1"><i class="bi bi-stars"></i> Synthèse générée automatiquement</div>
+                <div class="fw-semibold small mb-1"><i class="bi bi-stars" aria-hidden="true"></i> Synthèse générée automatiquement</div>
                 <div class="small" style="white-space: pre-line;">{{ board.aiSummary }}</div>
             </div>
         {% endif %}
@@ -94,14 +94,14 @@
                                               placeholder="Ajouter un mot…" data-draft-input
                                               aria-label="Ajouter un mot — {{ label }}"></textarea>
                                     <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="small text-danger d-none" data-draft-error></span>
+                                        <span class="small text-danger d-none" data-draft-error role="alert"></span>
                                         <span class="small text-body-secondary ms-auto" data-draft-counter>0/{{ board.maxCommentLength }}</span>
                                     </div>
                                     <button type="button" class="btn btn-sm btn-outline-primary d-none" data-shorten-btn>
-                                        <i class="bi bi-magic"></i> Raccourcir avec l'IA
+                                        <i class="bi bi-magic" aria-hidden="true"></i> Raccourcir avec l'IA
                                     </button>
                                     <button type="submit" class="btn btn-sm btn-outline-primary">
-                                        <i class="bi bi-plus-lg"></i> Ajouter
+                                        <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter
                                     </button>
                                     <div class="d-none mt-2" data-moderation-alert></div>
                                 </form>

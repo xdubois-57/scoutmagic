@@ -64,7 +64,7 @@
                 <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
             </div>
         </div>
-        <div class="text-danger small mt-2 d-none" id="notifications-error"></div>
+        <div class="text-danger small mt-2 d-none" id="notifications-error" role="alert"></div>
     </form>
 
     <hr class="my-4">
@@ -99,7 +99,7 @@
     {# 5.3 Supplementary calendars #}
     <h2 class="h5 mb-3">Calendriers supplémentaires</h2>
     <div class="alert alert-warning small mb-3">
-        <i class="bi bi-exclamation-triangle"></i>
+        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
         La visibilité ne restreint que l'affichage sur la page publique lorsque l'utilisateur est identifié —
         elle ne restreint pas l'accès au lien ICS. Le calendrier reste accessible à toute personne connaissant
         le lien. Utilisez le bouton « Régénérer » pour restreindre l'accès à un lien déjà partagé.
@@ -124,7 +124,7 @@
                            aria-label="Lien ICS du calendrier {{ calendar.name }}"
                            value="{{ param('base_url')|trim('/') }}/calendar/feed/{{ calendar.icsToken }}.ics">
                     <button type="button" class="btn btn-outline-secondary copy-link-btn">
-                        <i class="bi bi-clipboard"></i> Copier
+                        <i class="bi bi-clipboard" aria-hidden="true"></i> Copier
                     </button>
                 </div>
                 <div class="d-flex gap-2">
@@ -136,12 +136,12 @@
                         {% if hasEvents %}
                             <span class="d-inline-block" title="Ce calendrier contient des évènements — il ne peut pas être supprimé.">
                                 <button type="button" class="btn btn-sm btn-outline-danger" disabled style="pointer-events:none;">
-                                    <i class="bi bi-trash"></i> Supprimer
+                                    <i class="bi bi-trash" aria-hidden="true"></i> Supprimer
                                 </button>
                             </span>
                         {% else %}
                             <button type="button" class="btn btn-sm btn-outline-danger delete-calendar-btn" data-calendar-id="{{ calendar.id }}">
-                                <i class="bi bi-trash"></i> Supprimer
+                                <i class="bi bi-trash" aria-hidden="true"></i> Supprimer
                             </button>
                         {% endif %}
                     {% endif %}
@@ -167,7 +167,7 @@
                        aria-label="Lien ICS du calendrier Unité complète"
                        value="{{ param('base_url')|trim('/') }}/calendar/feed/unit/{{ unit_feed_token }}.ics">
                 <button type="button" class="btn btn-outline-secondary" id="copy-unit-link">
-                    <i class="bi bi-clipboard"></i> Copier
+                    <i class="bi bi-clipboard" aria-hidden="true"></i> Copier
                 </button>
             </div>
             <button type="button" class="btn btn-sm btn-outline-danger" id="regenerate-unit-token">
@@ -184,7 +184,7 @@
             <option value="admin">Chef d'Unité</option>
         </select>
         <button type="button" class="btn btn-sm btn-primary" id="add-calendar-btn">
-            <i class="bi bi-plus-lg"></i> Ajouter
+            <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter
         </button>
     </div>
 {% endblock %}

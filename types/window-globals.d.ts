@@ -35,6 +35,13 @@ interface Window {
     // access it defensively through `window`, since a page may not have
     // loaded the bundle at all.
     bootstrap?: typeof bootstrap;
+    // modules/mass_mail/views/list.html.twig — server data handed to
+    // public/assets/js/mass-mail-list.js by an inline nonce-tagged script
+    // (the window.supportDashboardCharts precedent).
+    // Deliberately loose: the exact shape belongs to the page that
+    // serializes it, and mirroring it here would be a second, always-
+    // stale copy (the window.Chart precedent above).
+    massMailListData?: { [key: string]: any };
     // public/assets/js/api.js — the site-wide fetch toolbox, loaded by
     // base.html.twig on every page (see its header for the envelope).
     ScoutMagicApi?: {
@@ -51,6 +58,14 @@ interface Window {
             resumeOnVisible?: boolean;
             onExpire?: () => void;
         }) => { stop: () => void };
+    };
+    // public/assets/js/theme.js — the light/dark/auto color-scheme
+    // toolbox, loaded by base.html.twig on every page (design.md §7.8).
+    ScoutMagicTheme?: {
+        getPreference: () => string;
+        setPreference: (pref: string) => void;
+        cycle: () => void;
+        hasFunctionalConsent: () => boolean;
     };
     // public/assets/js/toast.js — the non-blocking replacement for
     // alert(), loaded by base.html.twig on every page.

@@ -10,8 +10,7 @@
     function hideAllDesktopMenus() {
         submenus.forEach(function (s) { s.classList.add('d-none'); });
         buttons.forEach(function (b) {
-            b.classList.remove('btn-primary');
-            b.classList.add('btn-outline-secondary');
+            b.classList.remove('active');
         });
     }
 
@@ -31,8 +30,7 @@
         target.classList.remove('d-none');
         var btn = document.querySelector('.desktop-menu-btn[data-menu-id="' + menuId + '"]');
         if (btn) {
-            btn.classList.remove('btn-outline-secondary');
-            btn.classList.add('btn-primary');
+            btn.classList.add('active');
         }
     }
 

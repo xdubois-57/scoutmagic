@@ -495,3 +495,31 @@ body:has(> #cookie-banner) {
         justify-content: flex-end;
     }
 }
+
+/* ============================================================
+   DESKTOP NAV — level one reads as tabs, level two as pills.
+   The two rows used to be identical grey outline pills: two
+   different hierarchy levels (menus, then the active menu's pages)
+   with zero visual difference between them. The menu row is now
+   quiet text with a primary underline on the active menu — the
+   page row below keeps the pill buttons, so "where am I" reads
+   in one glance: underlined section, filled page.
+   ============================================================ */
+.desktop-menu-btn {
+    border: 0;
+    border-radius: 0;
+    color: var(--bs-secondary-color);
+    /* The underline slot is always reserved so activating a menu
+       never shifts the row's height. */
+    border-bottom: 2px solid transparent;
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+}
+.desktop-menu-btn:hover {
+    color: var(--bs-body-color);
+}
+.desktop-menu-btn.active {
+    color: var(--bs-primary);
+    border-bottom-color: var(--bs-primary);
+    font-weight: 600;
+}

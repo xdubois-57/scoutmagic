@@ -28,7 +28,7 @@
         </p>
         <p>
             <a href="https://eu.api.ovh.com/createApp/" target="_blank" rel="noopener">
-                Créer une application sur la console API OVH <i class="bi bi-box-arrow-up-right"></i>
+                Créer une application sur la console API OVH <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
             </a>
         </p>
         <form id="ovh-credentials-form" class="row g-2 align-items-end">
@@ -36,23 +36,23 @@
                 <label class="form-label small" for="ovh-application-key">Application Key</label>
                 <div class="input-group input-group-sm">
                     <input type="password" class="form-control" id="ovh-application-key" autocomplete="off">
-                    <button type="button" class="btn btn-outline-secondary toggle-visibility" data-target="ovh-application-key"><i class="bi bi-eye"></i></button>
+                    <button type="button" class="btn btn-outline-secondary toggle-visibility" data-target="ovh-application-key" aria-label="Afficher ou masquer l'Application Key"><i class="bi bi-eye" aria-hidden="true"></i></button>
                 </div>
             </div>
             <div class="col-12 col-md-5">
                 <label class="form-label small" for="ovh-application-secret">Application Secret</label>
                 <div class="input-group input-group-sm">
                     <input type="password" class="form-control" id="ovh-application-secret" autocomplete="off">
-                    <button type="button" class="btn btn-outline-secondary toggle-visibility" data-target="ovh-application-secret"><i class="bi bi-eye"></i></button>
+                    <button type="button" class="btn btn-outline-secondary toggle-visibility" data-target="ovh-application-secret" aria-label="Afficher ou masquer l'Application Secret"><i class="bi bi-eye" aria-hidden="true"></i></button>
                 </div>
             </div>
             <div class="col-12 col-md-2">
                 <button type="submit" class="btn btn-sm btn-primary w-100">Enregistrer</button>
             </div>
         </form>
-        <div class="text-danger small mt-2 d-none" id="ovh-credentials-error"></div>
+        <div class="text-danger small mt-2 d-none" id="ovh-credentials-error" role="alert"></div>
         {% if has_application_credentials %}
-            <p class="text-success small mb-0 mt-2"><i class="bi bi-check-circle"></i> Application Key/Secret enregistrés.</p>
+            <p class="text-success small mb-0 mt-2"><i class="bi bi-check-circle" aria-hidden="true"></i> Application Key/Secret enregistrés.</p>
         {% endif %}
     </div>
 
@@ -63,7 +63,7 @@
         </div>
 
         {% if consumer_key_validated %}
-            <p class="text-success small mb-2"><i class="bi bi-check-circle"></i> Consumer Key validée.</p>
+            <p class="text-success small mb-2"><i class="bi bi-check-circle" aria-hidden="true"></i> Consumer Key validée.</p>
             <button type="button" class="btn btn-sm btn-outline-danger" id="regenerate-consumer-key-btn" {{ has_application_credentials ? '' : 'disabled' }}>
                 Régénérer la Consumer Key
             </button>
@@ -77,7 +77,7 @@
                 <button type="button" class="btn btn-sm btn-outline-primary" id="validate-consumer-key-btn">J'ai validé, vérifier</button>
             </div>
         {% endif %}
-        <div class="text-danger small mt-2 d-none" id="consumer-key-error"></div>
+        <div class="text-danger small mt-2 d-none" id="consumer-key-error" role="alert"></div>
     </div>
 
     <div class="border rounded-3 p-3 mb-3">
@@ -96,7 +96,7 @@
             </div>
             <button type="button" class="btn btn-sm btn-outline-primary" id="select-line-btn">Sélectionner</button>
         </div>
-        <div class="text-danger small mt-2 d-none" id="lines-error"></div>
+        <div class="text-danger small mt-2 d-none" id="lines-error" role="alert"></div>
 
         {% if sos_number %}
             <p class="small mt-2 mb-0">

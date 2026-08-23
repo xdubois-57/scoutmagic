@@ -3,7 +3,7 @@
 {% macro field(icon, label, value) %}
     <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
         <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0">
-            <i class="bi {{ icon }}"></i> {{ label }}
+            <i class="bi {{ icon }}" aria-hidden="true"></i> {{ label }}
         </span>
         <span class="text-end">{{ value|default('—') }}</span>
     </div>
@@ -12,7 +12,7 @@
 <div class="card mt-4" id="member-detail" style="scroll-margin-top: 1rem;">
     <div class="card-body">
         {# Données Desk — read-only #}
-        <h2 class="h5 d-flex align-items-center gap-2 mb-1"><i class="bi bi-lock"></i> Données Desk</h2>
+        <h2 class="h5 d-flex align-items-center gap-2 mb-1"><i class="bi bi-lock" aria-hidden="true"></i> Données Desk</h2>
         <p class="text-body-secondary small mb-3">Informations importées depuis Desk — lecture seule.</p>
 
         {% set mainFn = member.getMainFunction() %}
@@ -26,7 +26,7 @@
 
         {# Email — accent color, mailto link #}
         <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
-            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-envelope"></i> Email</span>
+            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-envelope" aria-hidden="true"></i> Email</span>
             <span class="text-end">
                 {% if member.email %}<a href="mailto:{{ member.email }}" class="link-primary">{{ member.email }}</a>{% else %}—{% endif %}
             </span>
@@ -34,13 +34,13 @@
 
         {# Phones — tel: links. Desk provides two numbers: Tél (fixe) and GSM. #}
         <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
-            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-telephone"></i> Tél. parent 1</span>
+            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-telephone" aria-hidden="true"></i> Tél. parent 1</span>
             <span class="text-end">
                 {% if member.phone %}<a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}">{{ member.phone|normalize_phone }}</a>{% else %}—{% endif %}
             </span>
         </div>
         <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
-            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-phone"></i> Tél. parent 2</span>
+            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-phone" aria-hidden="true"></i> Tél. parent 2</span>
             <span class="text-end">
                 {% if member.mobile %}<a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}">{{ member.mobile|normalize_phone }}</a>{% else %}—{% endif %}
             </span>
@@ -54,7 +54,7 @@
 
         {# Handicap — health data (encrypted). Desk exports true/false. #}
         <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
-            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-heart-pulse"></i> Handicap</span>
+            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-heart-pulse" aria-hidden="true"></i> Handicap</span>
             <span class="text-end">
                 {% if member.handicap == 'true' %}Oui{% elseif member.handicap == 'false' %}Non{% else %}{{ member.handicap|default('—') }}{% endif %}
             </span>
@@ -63,7 +63,7 @@
         <hr class="my-4">
 
         {# Données du site #}
-        <h2 class="h5 d-flex align-items-center gap-2 mb-3"><i class="bi bi-globe"></i> Données du site</h2>
+        <h2 class="h5 d-flex align-items-center gap-2 mb-3"><i class="bi bi-globe" aria-hidden="true"></i> Données du site</h2>
 
         <div id="scout-year-offset-card" data-member-year-id="{{ member.memberYearId }}">
             <div class="form-label fw-semibold mb-1">Décalage année scoute</div>
@@ -108,14 +108,14 @@
                 <form method="post" action="/admin/members/temporary-access/remove">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-outline-danger">
-                        <i class="bi bi-person-dash"></i> Retirer de ma liste
+                        <i class="bi bi-person-dash" aria-hidden="true"></i> Retirer de ma liste
                     </button>
                 </form>
             {% else %}
                 <form method="post" action="/admin/members/{{ member.memberYearId }}/temporary-access">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-outline-primary">
-                        <i class="bi bi-person-plus"></i> Ajouter temporairement à ma liste
+                        <i class="bi bi-person-plus" aria-hidden="true"></i> Ajouter temporairement à ma liste
                     </button>
                 </form>
             {% endif %}

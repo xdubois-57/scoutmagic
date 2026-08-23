@@ -100,7 +100,7 @@
                 #}
                 <div class="d-flex align-items-center flex-wrap gap-2">
                     <label class="btn btn-outline-secondary d-flex align-items-center mb-0">
-                        <i class="bi bi-image me-1"></i> Photos{{ video_upload_allowed ? '/vidéos' : '' }}
+                        <i class="bi bi-image me-1" aria-hidden="true"></i> Photos{{ video_upload_allowed ? '/vidéos' : '' }}
                         <input type="file" id="groups-media-input" class="visually-hidden"
                                accept="{{ video_upload_allowed ? 'image/*,video/*' : 'image/*' }}" multiple>
                     </label>
@@ -109,7 +109,7 @@
                              data-max-options="{{ constant('Modules\\Groups\\Service\\PollService::MAX_OPTIONS') }}">
                         <summary class="btn btn-outline-secondary d-flex align-items-center mb-0"
                                  style="list-style:none;cursor:pointer;">
-                            <i class="bi bi-bar-chart me-1"></i> Sondage
+                            <i class="bi bi-bar-chart me-1" aria-hidden="true"></i> Sondage
                         </summary>
                         <div class="border rounded p-2 mt-2">
                             <label class="form-label small mb-1" for="poll-question">Question</label>
@@ -177,7 +177,7 @@
 
                     <span class="small text-body-secondary ms-auto" id="groups-media-count">0 / {{ max_media_per_post }} médias</span>
                 </div>
-                <p class="small text-danger mt-1 mb-0 d-none" id="groups-media-limit-warning">
+                <p class="small text-danger mt-1 mb-0 d-none" id="groups-media-limit-warning" role="alert">
                     Maximum {{ max_media_per_post }} médias par message — les fichiers en trop n'ont pas été ajoutés.
                 </p>
                 {% if not video_upload_allowed %}

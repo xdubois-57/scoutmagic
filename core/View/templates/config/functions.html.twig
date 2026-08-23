@@ -17,7 +17,7 @@
     {% if unconfirmed|length > 0 %}
         <div class="alert alert-warning mb-4">
             <h2 class="h6 mb-2">
-                <i class="bi bi-exclamation-triangle"></i>
+                <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                 {{ unconfirmed|length }} fonction(s) à confirmer
             </h2>
             <p class="small mb-0">
@@ -93,7 +93,7 @@
 
     {% if function_flags is not null %}
         <p class="text-body-secondary small">
-            <i class="bi bi-info-circle"></i> {{ function_flags.section_label }} :
+            <i class="bi bi-info-circle" aria-hidden="true"></i> {{ function_flags.section_label }} :
             « {{ function_flags.lead_label }} » s'applique aux fonctions Chef et Chef d'Unité ci-dessus.
         </p>
     {% endif %}
@@ -114,7 +114,7 @@
         masquez-la des sélecteurs de section du site (Staffs, Trombinoscope,
         calendrier, statistiques, page publique Sections). Par défaut, la couleur suit
         la branche d'âge (Baladins, Louveteaux, Éclaireurs, Pionniers) ou
-        est celle du Staff d'U ; le bouton <i class="bi bi-arrow-counterclockwise"></i>
+        est celle du Staff d'U ; le bouton <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
         efface une couleur personnalisée et revient à cette valeur par
         défaut. Une section sans aucun membre à l'import Desk devient
         automatiquement inactive et disparaît de partout, y compris de
@@ -145,7 +145,7 @@
                                        data-has-override="{{ section.color ? '1' : '0' }}">
                                 <button type="button" class="btn btn-sm btn-outline-secondary section-color-reset"
                                         title="Revenir à la couleur par défaut" aria-label="Revenir à la couleur par défaut" {{ section.color ? '' : 'disabled' }}>
-                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                    <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
                                 </button>
                             </div>
                             <div class="form-check form-switch ms-auto text-nowrap">
@@ -188,8 +188,8 @@
                         {% elseif branch.default_logo %}
                             <img src="/assets/img/branches/{{ branch.default_logo }}" alt="{{ branch.label }}" class="rounded" style="width:48px;height:48px;object-fit:contain;">
                         {% else %}
-                            <div class="d-flex align-items-center justify-content-center bg-light rounded" style="width:48px;height:48px;">
-                                <i class="bi bi-image text-muted"></i>
+                            <div class="d-flex align-items-center justify-content-center bg-body-tertiary rounded" style="width:48px;height:48px;">
+                                <i class="bi bi-image text-body-secondary" aria-hidden="true"></i>
                             </div>
                         {% endif %}
                         <a class="btn btn-sm btn-outline-secondary" href="/upload?context=age_branch_logo&key={{ branch.id }}&return=/config/functions">

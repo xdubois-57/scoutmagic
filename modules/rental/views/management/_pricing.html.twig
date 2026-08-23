@@ -86,7 +86,7 @@
                     <input class="form-check-input" type="radio" name="minimum_mode" id="minimum-persons-mode"
                            value="persons" {{ pricing.minimumPersons is not null ? 'checked' : '' }}>
                     <label class="form-check-label" for="minimum-persons-mode">Nombre de personnes minimum</label>
-                    <input type="number" min="1" class="form-control mt-1" name="minimum_persons"
+                    <input type="number" inputmode="numeric" min="1" class="form-control mt-1" name="minimum_persons"
                            aria-label="Nombre de personnes minimum"
                            value="{{ pricing.minimumPersons ?? '' }}">
                     <div class="form-text">
@@ -318,7 +318,7 @@
             </div>
             <div class="col-4 col-md-2">
                 <label class="form-label" for="sim-persons">Participants</label>
-                <input type="number" min="0" class="form-control" id="sim-persons" name="sim_persons"
+                <input type="number" inputmode="numeric" min="0" class="form-control" id="sim-persons" name="sim_persons"
                        value="{{ simulation ? simulation.request.persons : '' }}">
             </div>
             <div class="col-4 col-md-2">

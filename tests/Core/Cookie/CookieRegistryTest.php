@@ -9,10 +9,12 @@ use PHPUnit\Framework\TestCase;
 
 class CookieRegistryTest extends TestCase
 {
-    public function testGetCoreCookiesReturnsSixCookies(): void
+    public function testGetCoreCookiesReturnsSevenCookies(): void
     {
+        // Six historical entries plus theme_preference (the dark-mode
+        // choice, functional, stored client-side).
         $cookies = CookieRegistry::getCoreCookies();
-        $this->assertCount(6, $cookies);
+        $this->assertCount(7, $cookies);
     }
 
     public function testEachCookieHasRequiredKeys(): void
@@ -51,7 +53,7 @@ class CookieRegistryTest extends TestCase
     public function testMostCoreCookiesAreNecessaryExceptTheFunctionalOnes(): void
     {
         $cookies = CookieRegistry::getCoreCookies();
-        $functionalNames = ['last_login_method', 'content-{accountScope}-{version}'];
+        $functionalNames = ['last_login_method', 'content-{accountScope}-{version}', 'theme_preference'];
 
         foreach ($cookies as $cookie) {
             $expected = in_array($cookie['name'], $functionalNames, true) ? 'functional' : 'necessary';

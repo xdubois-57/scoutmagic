@@ -18,7 +18,7 @@
     {# Unconfirmed functions warning #}
     {% if unconfirmed_count > 0 %}
         <div class="alert alert-warning">
-            <i class="bi bi-exclamation-triangle"></i>
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
             {{ unconfirmed_count }} fonction(s) importée(s) n'ont pas encore de rôle confirmé.
             Les membres avec ces fonctions ont le rôle « Animé » par défaut.
             <a href="/config/functions">Configurer les fonctions</a>

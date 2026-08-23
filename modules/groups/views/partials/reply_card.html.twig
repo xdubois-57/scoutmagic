@@ -27,10 +27,10 @@
             <div class="alert {{ row.is_hidden|default(false) ? 'alert-warning' : 'alert-secondary' }} d-flex flex-wrap align-items-center gap-2 py-1 px-2 mb-1 small groups-hidden-banner">
                 <span class="flex-grow-1">
                     {% if row.is_hidden|default(false) %}
-                        <i class="bi bi-eye-slash me-1"></i>
+                        <i class="bi bi-eye-slash me-1" aria-hidden="true"></i>
                         Réponse masquée après {{ row.report_count }} signalement{{ row.report_count > 1 ? 's' : '' }}.
                     {% else %}
-                        <i class="bi bi-flag me-1"></i>
+                        <i class="bi bi-flag me-1" aria-hidden="true"></i>
                         {{ row.report_count }} signalement{{ row.report_count > 1 ? 's' : '' }} sur cette réponse.
                     {% endif %}
                 </span>
@@ -69,7 +69,7 @@
                         <button class="btn btn-sm btn-link text-body-secondary d-flex align-items-center justify-content-center p-0"
                                 type="button" data-bs-toggle="dropdown"
                                 aria-expanded="false" aria-label="Actions sur cette réponse">
-                            <i class="bi bi-three-dots-vertical"></i>
+                            <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end">
                             {% if row.can_edit %}

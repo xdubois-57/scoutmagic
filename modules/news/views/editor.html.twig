@@ -24,12 +24,12 @@
                             <div class="d-flex align-items-center gap-2 mb-2">
                                 <label for="image" class="editable-image d-inline-block flex-shrink-0" style="cursor:pointer;max-width:140px;" aria-label="Modifier l'image de l'article">
                                     <div class="editable-overlay">
-                                        <i class="bi bi-camera text-white fs-4"></i>
+                                        <i class="bi bi-camera text-white fs-4" aria-hidden="true"></i>
                                     </div>
                                     <img id="news-image-preview" src="{{ (article and article.imageFileId) ? file_url(article.imageFileId) : '' }}" alt=""
                                          class="rounded d-block {{ (article and article.imageFileId) ? '' : 'd-none' }}" style="max-width:140px;max-height:140px;width:auto;height:auto;">
-                                    <div id="news-image-placeholder" class="d-flex align-items-center justify-content-center bg-light rounded {{ (article and article.imageFileId) ? 'd-none' : '' }}" style="width:110px;height:110px;">
-                                        <i class="bi bi-image text-muted" style="font-size:1.5rem;"></i>
+                                    <div id="news-image-placeholder" class="d-flex align-items-center justify-content-center bg-body-tertiary rounded {{ (article and article.imageFileId) ? 'd-none' : '' }}" style="width:110px;height:110px;">
+                                        <i class="bi bi-image text-body-secondary" style="font-size:1.5rem;" aria-hidden="true"></i>
                                     </div>
                                 </label>
                                 <span id="news-image-label" class="fw-medium {{ (article and article.imageFileId) ? 'd-none' : '' }}">Image <span class="text-danger">*</span></span>
@@ -109,7 +109,6 @@
                     <h2 class="h6">Référencement</h2>
                     <div class="form-check form-switch mb-2">
                         <input class="form-check-input" type="checkbox" role="switch" name="is_indexed" id="is_indexed" value="1"
-                               {{ is_indexed_value ? 'checked' : '' }}
                                aria-checked="{{ is_indexed_value ? 'true' : 'false' }}">
                         <label class="form-check-label" for="is_indexed">Indexer cette page dans les moteurs de recherche</label>
                     </div>
@@ -138,7 +137,7 @@
                         {% if short_url %}
                             <p class="mb-2">Affiche A4 avec QR code vers {{ short_url }}</p>
                             <a href="/news/{{ article.id }}/poster" class="btn btn-outline-secondary">
-                                <i class="bi bi-file-earmark-pdf"></i> Télécharger le PDF
+                                <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Télécharger le PDF
                             </a>
                         {% else %}
                             <p class="text-body-secondary mb-0">Enregistrez l'article pour générer le lien court.</p>

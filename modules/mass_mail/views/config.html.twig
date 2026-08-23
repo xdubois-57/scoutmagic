@@ -9,7 +9,7 @@
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h2 class="h5 mb-0">Listes de diffusion</h2>
-                <button type="button" class="btn btn-sm btn-primary" id="cfg-new-list-btn"><i class="bi bi-plus-lg"></i> Nouvelle liste</button>
+                <button type="button" class="btn btn-sm btn-primary" id="cfg-new-list-btn"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nouvelle liste</button>
             </div>
 
             <ul class="list-group mb-2">
@@ -33,13 +33,14 @@
                                 <button type="button" class="btn btn-sm btn-outline-secondary cfg-edit-list-btn"
                                         data-id="{{ list.id }}" data-name="{{ list.name }}" data-description="{{ list.description }}"
                                         data-function-ids="{{ custom_list_criteria[list.id].function_ids|join(',') }}"
-                                        data-section-ids="{{ custom_list_criteria[list.id].section_ids|join(',') }}">
-                                    <i class="bi bi-pencil"></i>
+                                        data-section-ids="{{ custom_list_criteria[list.id].section_ids|join(',') }}"
+                                        aria-label="Modifier la liste">
+                                    <i class="bi bi-pencil" aria-hidden="true"></i>
                                 </button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary cfg-toggle-list-btn" data-id="{{ list.id }}" data-active="{{ list.isActive ? '1' : '0' }}">
-                                    <i class="bi {{ list.isActive ? 'bi-eye-slash' : 'bi-eye' }}"></i>
+                                <button type="button" class="btn btn-sm btn-outline-secondary cfg-toggle-list-btn" data-id="{{ list.id }}" data-active="{{ list.isActive ? '1' : '0' }}" aria-label="{{ list.isActive ? 'Désactiver la liste' : 'Activer la liste' }}">
+                                    <i class="bi {{ list.isActive ? 'bi-eye-slash' : 'bi-eye' }}" aria-hidden="true"></i>
                                 </button>
-                                <button type="button" class="btn btn-sm btn-outline-danger cfg-delete-list-btn" data-id="{{ list.id }}"><i class="bi bi-trash"></i></button>
+                                <button type="button" class="btn btn-sm btn-outline-danger cfg-delete-list-btn" data-id="{{ list.id }}" aria-label="Supprimer la liste"><i class="bi bi-trash" aria-hidden="true"></i></button>
                             </span>
                         </div>
                         <p class="text-body-secondary small mb-0 mt-1">{{ list.description }}</p>

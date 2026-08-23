@@ -115,7 +115,7 @@
                                     {% for yearInBranch in 1..max_years_in_branch %}
                                         <td style="max-width:100px;">
                                             {% if yearInBranch <= bracket.durationYears %}
-                                                <input type="number" min="0" class="form-control form-control-sm" name="capacity[{{ bracket.ageBranchId }}][{{ yearInBranch }}]" value="{{ capacities[bracket.ageBranchId][yearInBranch] ?? '' }}" aria-label="Capacité {{ bracket.branchLabel }} — {{ yearInBranch }}e année">
+                                                <input type="number" inputmode="numeric" min="0" class="form-control form-control-sm" name="capacity[{{ bracket.ageBranchId }}][{{ yearInBranch }}]" value="{{ capacities[bracket.ageBranchId][yearInBranch] ?? '' }}" aria-label="Capacité {{ bracket.branchLabel }} — {{ yearInBranch }}e année">
                                             {% endif %}
                                         </td>
                                     {% endfor %}

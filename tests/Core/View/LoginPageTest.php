@@ -80,7 +80,7 @@ class LoginPageTest extends TestCase
         // Magic link tab button should have 'active' class
         $this->assertMatchesRegularExpression('/data-tab="magic-link"[^>]*>Lien magique/', $html);
         // Magic link tab content should NOT have d-none
-        $this->assertStringContainsString('id="tab-magic-link" class="">', $html);
+        $this->assertStringContainsString('id="tab-magic-link" class=""', $html);
         // Password and passkey tab contents should have d-none
         $this->assertStringContainsString('id="tab-password" class="d-none"', $html);
         $this->assertStringContainsString('id="tab-passkey" class="d-none"', $html);
@@ -143,7 +143,7 @@ class LoginPageTest extends TestCase
             'default_login_method' => 'password',
         ]);
 
-        $this->assertStringContainsString('id="tab-password" class="">', $html);
+        $this->assertStringContainsString('id="tab-password" class=""', $html);
         $this->assertStringContainsString('id="tab-magic-link" class="d-none"', $html);
         $this->assertStringContainsString('id="tab-passkey" class="d-none"', $html);
     }

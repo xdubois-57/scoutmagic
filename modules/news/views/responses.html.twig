@@ -14,11 +14,11 @@
         <div class="d-flex gap-2 text-nowrap">
             {% if finance_available %}
                 <a href="/finance/receivables?source=news&id={{ form.id }}" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-cash-coin"></i> Voir dans Finances
+                    <i class="bi bi-cash-coin" aria-hidden="true"></i> Voir dans Finances
                 </a>
             {% endif %}
             <a href="/news/{{ article.id }}/form/responses/export" class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-file-earmark-spreadsheet"></i> Exporter en Excel
+                <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Exporter en Excel
             </a>
         </div>
     </div>

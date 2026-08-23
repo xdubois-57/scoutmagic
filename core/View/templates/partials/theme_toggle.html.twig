@@ -1,0 +1,19 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# Theme cycle button — one click steps through clair → sombre → automatique
+   (public/assets/js/theme.js, design.md §7.8). Server-rendered with the
+   "auto" icon: the real preference lives in the visitor's browser
+   (localStorage, functional consent) and theme.js corrects the icon and
+   aria-label on load, before the first paint of the button matters.
+   Rendered in both nav surfaces (mobile header, desktop bar) via this one
+   partial — never copy this markup at a call site. No inline min-height:
+   touch sizing lives in app.css's pointer:coarse block (design.md §7.2). #}
+<button type="button"
+        class="btn btn-link text-body p-2 d-inline-flex align-items-center justify-content-center"
+        data-theme-toggle
+        aria-label="Thème : automatique (cliquer pour changer)"
+        title="Thème">
+    <i class="bi bi-circle-half fs-5" aria-hidden="true" data-theme-toggle-icon></i>
+</button>

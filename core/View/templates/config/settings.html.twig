@@ -3,7 +3,7 @@
 {% block content %}
     {% include 'partials/page_header.html.twig' with { title: 'Réglages' } only %}
 
-    {# One collapsible section per module group, all folded but the first.
+    {# One collapsible section per module group, all folded.
        Flat, this page measured over 11 000 px — every setting of every
        module in one uninterrupted wall, with no way to see what modules
        even have settings without scrolling through all of them. Folded,
@@ -13,9 +13,9 @@
     {% for group_id, group in setting_groups %}
         <div class="mb-3">
             <button type="button"
-                    class="btn w-100 d-flex align-items-center gap-2 border rounded-3 p-3 text-start{{ loop.first ? '' : ' collapsed' }}"
+                    class="btn w-100 d-flex align-items-center gap-2 border rounded-3 p-3 text-start collapsed"
                     data-bs-toggle="collapse" data-bs-target="#settings-group-{{ group_id }}"
-                    aria-expanded="{{ loop.first ? 'true' : 'false' }}" aria-controls="settings-group-{{ group_id }}">
+                    aria-expanded="false" aria-controls="settings-group-{{ group_id }}">
                 <i class="bi {{ group.icon ?? 'bi-gear' }} text-body-secondary" aria-hidden="true"></i>
                 <span class="flex-grow-1">
                     <span class="h5 mb-0 d-block">{{ group.label }}</span>
@@ -26,7 +26,7 @@
                 <span class="badge text-bg-secondary">{{ group.settings|length }}</span>
                 <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
             </button>
-            <div class="collapse{{ loop.first ? ' show' : '' }} mt-2" id="settings-group-{{ group_id }}">
+            <div class="collapse mt-2" id="settings-group-{{ group_id }}">
             <div class="border rounded-3 overflow-hidden">
                 {% for setting in group.settings %}
                     {% if setting.editable %}
@@ -55,7 +55,7 @@
                                         {{ setting.setting_value|length > 40 ? setting.setting_value[:40] ~ '…' : setting.setting_value }}
                                     {% endif %}
                                 </span>
-                                <i class="bi bi-chevron-right text-body-tertiary small"></i>
+                                <i class="bi bi-chevron-right text-body-tertiary small" aria-hidden="true"></i>
                             </div>
                         </div>
                     {% else %}
@@ -69,7 +69,7 @@
                             </div>
                             <div class="d-flex align-items-center gap-2">
                                 <span class="text-body-secondary small">{{ setting.setting_value }}</span>
-                                <i class="bi bi-lock text-body-tertiary small"></i>
+                                <i class="bi bi-lock text-body-tertiary small" aria-hidden="true"></i>
                             </div>
                         </div>
                     {% endif %}
@@ -86,7 +86,7 @@
         <p class="text-body-secondary small" id="settingEditDescription"></p>
         <div class="form-label" id="settingEditLabel"></div>
         <div id="settingEditInputContainer"></div>
-        <div class="text-danger small mt-1 d-none" id="settingEditError"></div>
+        <div class="text-danger small mt-1 d-none" id="settingEditError" role="alert"></div>
         <p class="text-body-secondary mt-2" style="font-size:0.7rem;" id="settingEditType"></p>
     {% endblock %}
     {% block footer %}

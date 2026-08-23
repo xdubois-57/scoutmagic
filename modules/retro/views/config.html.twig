@@ -152,7 +152,7 @@
                     <div class="form-text">Quand un événement est lié, seule l'audience minimale choisie ici verra le lien vers cette rétrospective dans le calendrier et dans le flux ICS personnel — « Animateur » par défaut.</div>
                 </div>
             </div>
-            <div class="card-footer d-flex gap-2 bg-white">
+            <div class="card-footer d-flex gap-2 bg-body">
                 <a href="/retro" class="btn btn-outline-secondary flex-fill">Annuler</a>
                 <button type="submit" class="btn btn-primary flex-fill">
                     {{ board ? 'Enregistrer' : 'Créer la rétrospective' }}
@@ -161,14 +161,14 @@
         </form>
 
         {% if board %}
-            <div class="d-flex align-items-center gap-2 bg-white border rounded px-3 py-2 mt-3 flex-wrap">
+            <div class="d-flex align-items-center gap-2 bg-body border rounded px-3 py-2 mt-3 flex-wrap">
                 <span class="small fw-semibold">Lien de participation :</span>
                 <span class="small text-body-secondary text-break flex-grow-1">{{ public_url }}</span>
                 <form method="post" action="/retro/{{ board.id }}/regenerate-link" class="m-0"
                       data-confirm="Générer un nouveau lien rend immédiatement l'ancien inaccessible pour tout le monde, y compris ceux qui l'ont déjà reçu ou scanné. Les mots et votes déjà publiés sont conservés. Continuer ?">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-outline-secondary btn-sm text-nowrap">
-                        <i class="bi bi-arrow-repeat"></i> Régénérer le lien
+                        <i class="bi bi-arrow-repeat" aria-hidden="true"></i> Régénérer le lien
                     </button>
                 </form>
             </div>
@@ -179,7 +179,7 @@
                           data-confirm="Clôturer cette rétrospective ? Plus aucun mot ni vote ne sera accepté après.">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-danger btn-sm">
-                            <i class="bi bi-lock"></i> Clôturer maintenant
+                            <i class="bi bi-lock" aria-hidden="true"></i> Clôturer maintenant
                         </button>
                     </form>
                 {% elseif board.status == 'closed' %}
@@ -187,20 +187,20 @@
                           data-confirm="Réouvrir cette rétrospective ? Les participants pourront à nouveau ajouter des mots et voter.">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-success btn-sm">
-                            <i class="bi bi-unlock"></i> Réouvrir
+                            <i class="bi bi-unlock" aria-hidden="true"></i> Réouvrir
                         </button>
                     </form>
                     <form method="post" action="/retro/{{ board.id }}/archive">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-archive"></i> Archiver
+                            <i class="bi bi-archive" aria-hidden="true"></i> Archiver
                         </button>
                     </form>
                 {% elseif board.status == 'archived' %}
                     <form method="post" action="/retro/{{ board.id }}/unarchive">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-box-arrow-up"></i> Désarchiver
+                            <i class="bi bi-box-arrow-up" aria-hidden="true"></i> Désarchiver
                         </button>
                     </form>
                 {% endif %}

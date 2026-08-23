@@ -45,7 +45,7 @@
                             {{ section_info.section.name ?? section_info.section.desk_code }}
                             {% if section_info.section.email %}
                                 <div class="small">
-                                    <i class="bi bi-envelope text-body-secondary"></i>
+                                    <i class="bi bi-envelope text-body-secondary" aria-hidden="true"></i>
                                     <a href="mailto:{{ section_info.section.email }}">{{ section_info.section.email }}</a>
                                 </div>
                             {% endif %}
@@ -106,12 +106,12 @@
                             <div class="d-flex flex-wrap gap-2 mt-3">
                                 {% if trombinoscope_enabled %}
                                     <a href="/trombinoscope?section={{ section_info.section.id }}" class="btn btn-sm btn-outline-secondary">
-                                        <i class="bi bi-people"></i> Trombinoscope de la section
+                                        <i class="bi bi-people" aria-hidden="true"></i> Trombinoscope de la section
                                     </a>
                                 {% endif %}
                                 {% if calendar_enabled %}
                                     <a href="/calendar?section={{ section_info.section.id }}" class="btn btn-sm btn-outline-secondary">
-                                        <i class="bi bi-calendar3"></i> Calendrier de la section
+                                        <i class="bi bi-calendar3" aria-hidden="true"></i> Calendrier de la section
                                     </a>
                                 {% endif %}
                             </div>
@@ -158,7 +158,7 @@
                                 {% for document in member_documents %}
                                     <li class="d-flex justify-content-between border-bottom py-2">
                                         <a href="{{ file_url(document.fileId) }}" class="text-decoration-none">
-                                            <i class="bi bi-file-earmark-lock"></i> {{ document.title }}
+                                            <i class="bi bi-file-earmark-lock" aria-hidden="true"></i> {{ document.title }}
                                         </a>
                                         <span class="text-body-secondary">{{ document.createdAt|french_date }}</span>
                                     </li>
@@ -195,7 +195,7 @@
                                     {% for document in year_block.documents %}
                                         <li class="d-flex justify-content-between border-bottom py-2">
                                             <a href="{{ file_url(document.fileId) }}" class="text-decoration-none" target="_blank" rel="noopener">
-                                                <i class="bi bi-file-earmark-arrow-down"></i> {{ document.title }}
+                                                <i class="bi bi-file-earmark-arrow-down" aria-hidden="true"></i> {{ document.title }}
                                                 {% if document.description %}
                                                     <span class="text-body-secondary">— {{ document.description }}</span>
                                                 {% endif %}
@@ -227,11 +227,11 @@
                                            third-party album URL verbatim). #}
                                         <a href="{{ album.url }}" class="text-decoration-none text-body"
                                            {% if album.url starts with 'http' %}target="_blank" rel="noopener noreferrer"{% endif %}>
-                                            <div class="bg-light rounded d-flex align-items-center justify-content-center" style="aspect-ratio:1/1;overflow:hidden;">
+                                            <div class="bg-body-tertiary rounded d-flex align-items-center justify-content-center" style="aspect-ratio:1/1;overflow:hidden;">
                                                 {% if album.cover_url %}
                                                     <img src="{{ album.cover_url }}" alt="" class="w-100 h-100" style="object-fit:cover;">
                                                 {% else %}
-                                                    <i class="bi bi-images text-muted"></i>
+                                                    <i class="bi bi-images text-body-secondary" aria-hidden="true"></i>
                                                 {% endif %}
                                             </div>
                                             <p class="small mb-0 mt-1 text-truncate">{{ album.title }}</p>
@@ -422,7 +422,7 @@
                             {% endif %}
                             <h2 class="h6 mb-2">{{ branch_card.label }}</h2>
                             <a href="{{ branch_card.explanation_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
-                                En savoir plus <i class="bi bi-box-arrow-up-right"></i>
+                                En savoir plus <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
                             </a>
                         </div>
                     </div>
@@ -434,7 +434,7 @@
                             <h2 class="h6 mb-2">Staff {{ section_info.section.name ?? section_info.section.desk_code }}</h2>
                             {{ section_photo(section_info.section.id, section_info.section.name ?? section_info.section.desk_code) }}
                             <a href="/trombinoscope?section={{ section_info.section.id }}" class="btn btn-sm btn-outline-primary mt-2">
-                                Voir dans le trombinoscope <i class="bi bi-box-arrow-up-right"></i>
+                                Voir dans le trombinoscope <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
                             </a>
                         </div>
                     </div>

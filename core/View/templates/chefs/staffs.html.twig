@@ -31,7 +31,7 @@
 
         {% if not current_section.name and current_section.id > 0 %}
             <div class="alert alert-warning small py-2 mb-3">
-                <i class="bi bi-exclamation-triangle"></i>
+                <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                 Cette section n'a pas encore de nom configuré.
                 {% if can_edit_section %}
                     Ce réglage se fait sur la page « Config Desk ».
@@ -101,25 +101,25 @@
                         <div class="d-flex flex-wrap gap-3 small">
                             {% if member.formationLevel %}
                                 <span>
-                                    <i class="bi bi-mortarboard text-body-secondary"></i>
+                                    <i class="bi bi-mortarboard text-body-secondary" aria-hidden="true"></i>
                                     {{ member.formationLevel }}
                                 </span>
                             {% endif %}
                             {% if member.mobile %}
                                 <a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}" class="text-decoration-none">
-                                    <i class="bi bi-phone text-body-secondary"></i>
+                                    <i class="bi bi-phone text-body-secondary" aria-hidden="true"></i>
                                     {{ member.mobile|normalize_phone }}
                                 </a>
                             {% elseif member.phone %}
                                 <a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}" class="text-decoration-none">
-                                    <i class="bi bi-telephone text-body-secondary"></i>
+                                    <i class="bi bi-telephone text-body-secondary" aria-hidden="true"></i>
                                     {{ member.phone|normalize_phone }}
                                 </a>
                             {% endif %}
                             {% if member.email %}
                                 <a href="mailto:{{ member.email }}" class="text-decoration-none text-truncate"
                                    style="max-width:200px;">
-                                    <i class="bi bi-envelope text-body-secondary"></i>
+                                    <i class="bi bi-envelope text-body-secondary" aria-hidden="true"></i>
                                     {{ member.email }}
                                 </a>
                             {% endif %}
@@ -140,14 +140,14 @@
                     <h2 class="h5 mb-0">Documents de section</h2>
                     {% if can_edit_section %}
                         <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#sectionDocumentAddModal">
-                            <i class="bi bi-plus-lg"></i> Ajouter un document
+                            <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter un document
                         </button>
                     {% endif %}
                 </div>
 
                 {% if section_document_compression_backend_none %}
                     <div class="alert alert-warning small py-2 mb-3">
-                        <i class="bi bi-exclamation-triangle"></i>
+                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                         Aucun outil de compression PDF n'est disponible sur ce serveur — les documents PDF ajoutés ne seront pas compressés automatiquement.
                         {% if can_edit_section %}
                             Pour l'activer&nbsp;: installez Ghostscript (<code>apt install ghostscript</code> ou <code>yum install ghostscript</code>) sur le serveur, ou vérifiez que <code>proc_open</code> n'est pas désactivé dans la configuration PHP (<code>disable_functions</code>). Sur un hébergement mutualisé où vous ne pouvez pas installer de logiciel, contactez votre hébergeur.
@@ -197,7 +197,7 @@
                                                 {% endif %}
                                                 <div class="small text-body-secondary">
                                                     <a href="{{ file_url(item.fileId) }}" target="_blank" rel="noopener">
-                                                        <i class="bi bi-file-earmark-arrow-down"></i> Télécharger
+                                                        <i class="bi bi-file-earmark-arrow-down" aria-hidden="true"></i> Télécharger
                                                     </a>
                                                     {% if item.compressionStatus == 'compressed' %}
                                                         · {% include 'partials/status_badge.html.twig' with {

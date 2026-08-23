@@ -20,7 +20,7 @@
 
     {% if storage_unavailable %}
         <div class="alert alert-warning text-center">
-            <i class="bi bi-exclamation-triangle"></i> Cet album est temporairement indisponible{{ storage_unavailable_reason ? ' : ' ~ storage_unavailable_reason : '.' }}
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Cet album est temporairement indisponible{{ storage_unavailable_reason ? ' : ' ~ storage_unavailable_reason : '.' }}
         </div>
     {% elseif media is empty %}
         {% include 'partials/empty_state.html.twig' with {

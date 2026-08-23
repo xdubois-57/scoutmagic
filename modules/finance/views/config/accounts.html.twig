@@ -60,14 +60,14 @@
                                     data-section-id="{{ account.sectionId }}" data-role-min-view="{{ account.roleMinView }}"
                                     data-iban="{{ account.iban }}" data-holder="{{ account.holderName }}"
                                     data-is-default="{{ account.isDefault ? '1' : '0' }}"
-                                    title="Modifier"><i class="bi bi-pencil"></i></button>
+                                    title="Modifier" aria-label="Modifier"><i class="bi bi-pencil" aria-hidden="true"></i></button>
                             {% if account.status == 'draft' %}
                                 <span class="text-body-secondary small fst-italic">IBAN et titulaire requis pour activer</span>
                             {% else %}
                                 <button type="button" class="btn btn-sm {{ account.status == 'active' ? 'btn-outline-success' : 'btn-outline-secondary' }} toggle-account-btn"
                                         data-id="{{ account.id }}" data-active="{{ account.status == 'active' ? '1' : '0' }}"
-                                        title="{{ account.status == 'active' ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
-                                    <i class="bi {{ account.status == 'active' ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
+                                        title="{{ account.status == 'active' ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}" aria-label="{{ account.status == 'active' ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
+                                    <i class="bi {{ account.status == 'active' ? 'bi-toggle-on' : 'bi-toggle-off' }}" aria-hidden="true"></i>
                                 </button>
                             {% endif %}
                         </td>
@@ -130,7 +130,7 @@
                                 </select>
                             </div>
                         </div>
-                        <div class="text-danger small mt-2 d-none" id="account-form-error"></div>
+                        <div class="text-danger small mt-2 d-none" id="account-form-error" role="alert"></div>
                 </form>
         {% endblock %}
         {% block footer %}

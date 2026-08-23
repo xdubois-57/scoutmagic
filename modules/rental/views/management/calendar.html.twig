@@ -140,7 +140,7 @@
                     {% if asset.quantity > 1 %}
                         <div class="col-6 col-md-2">
                             <label class="form-label" for="block-units">Quantité</label>
-                            <input type="number" min="1" max="{{ asset.quantity }}" value="1"
+                            <input type="number" inputmode="numeric" min="1" max="{{ asset.quantity }}" value="1"
                                    class="form-control form-control-sm" id="block-units" name="units">
                         </div>
                     {% endif %}

@@ -115,7 +115,7 @@
                         <div class="step-item__marker flex-shrink-0">
                             <span class="step-circle {{ step.done ? 'step-circle--done' : 'step-circle--pending' }}"
                                   aria-hidden="true">
-                                {% if step.done %}<i class="bi bi-check-lg"></i>{% else %}{{ step.number }}{% endif %}
+                                {% if step.done %}<i class="bi bi-check-lg" aria-hidden="true"></i>{% else %}{{ step.number }}{% endif %}
                             </span>
                         </div>
                         <div class="flex-grow-1 pt-1">

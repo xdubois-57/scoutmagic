@@ -40,14 +40,14 @@
                 <span class="small text-body-secondary ms-1">{{ results|length }} résultat{{ results|length > 1 ? 's' : '' }}</span>
                 <div class="d-flex flex-wrap gap-2 ms-auto">
                     <a href="/admin/members/export?q={{ query|url_encode }}" class="btn btn-sm btn-outline-primary">
-                        <i class="bi bi-file-earmark-spreadsheet"></i> Exporter les résultats
+                        <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Exporter les résultats
                     </a>
                     {# Not disabled in the markup: without JS the form still
                        submits (an empty selection falls back server-side to
                        "all results of ?q="); the script only adds the
                        disabled state and the live count. #}
                     <button type="submit" class="btn btn-sm btn-outline-primary" id="member-export-selection-btn">
-                        <i class="bi bi-file-earmark-spreadsheet"></i> Exporter la sélection<span id="member-export-selection-count"></span>
+                        <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Exporter la sélection<span id="member-export-selection-count"></span>
                     </button>
                 </div>
             </div>

@@ -46,13 +46,13 @@
             </div>
             <div class="col-4 col-md-2">
                 <label class="form-label" for="persons">Participants</label>
-                <input type="number" min="0" class="form-control" id="persons" name="persons"
+                <input type="number" inputmode="numeric" min="0" class="form-control" id="persons" name="persons"
                        value="{{ form_persons }}">
             </div>
             {% if asset.isStock %}
                 <div class="col-4 col-md-2">
                     <label class="form-label" for="units">Quantité</label>
-                    <input type="number" min="1" max="{{ asset.quantity }}" class="form-control"
+                    <input type="number" inputmode="numeric" min="1" max="{{ asset.quantity }}" class="form-control"
                            id="units" name="units" value="{{ form_units }}">
                 </div>
             {% endif %}

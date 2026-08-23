@@ -46,7 +46,7 @@
                 </div>
                 <div class="col-6 col-md-3">
                     <label class="form-label" for="max-persons">Capacité maximum</label>
-                    <input type="number" min="1" class="form-control" id="max-persons"
+                    <input type="number" inputmode="numeric" min="1" class="form-control" id="max-persons"
                            name="max_persons" value="{{ constraints.maxPersons ?? '' }}">
                     <div class="form-text">Vide : la capacité du bien fait foi.</div>
                 </div>

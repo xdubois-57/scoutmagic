@@ -43,7 +43,7 @@
 
 {% if email.mimeFileId %}
     <a href="{{ file_url(email.mimeFileId) }}" class="btn btn-outline-primary mb-3">
-        <i class="bi bi-download"></i> Télécharger le .eml
+        <i class="bi bi-download" aria-hidden="true"></i> Télécharger le .eml
     </a>
 {% endif %}
 
@@ -139,7 +139,7 @@
                         </span>
                         {% if attachment.file_id %}
                             <a href="{{ file_url(attachment.file_id) }}" class="btn btn-sm btn-outline-secondary">
-                                <i class="bi bi-download"></i> Télécharger
+                                <i class="bi bi-download" aria-hidden="true"></i> Télécharger
                             </a>
                         {% else %}
                             <span class="badge text-bg-warning">Contenu non conservé</span>

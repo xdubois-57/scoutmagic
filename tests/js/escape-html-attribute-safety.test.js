@@ -41,8 +41,7 @@ function loadEscapeHtml(relativePath) {
 // loadEscapeHtml() throws before a single `it` runs, which is exactly
 // what happened when the receipts template stopped carrying the function.
 const templates = {
-    'ScoutMagicApi toolbox (used by finance receipts list)': 'public/assets/js/api.js',
-    'mass_mail list': 'modules/mass_mail/views/list.html.twig',
+    'ScoutMagicApi toolbox (used by finance receipts + mass-mail lists)': 'public/assets/js/api.js',
 };
 
 describe('inline escapeHtml() in attribute-building templates', () => {

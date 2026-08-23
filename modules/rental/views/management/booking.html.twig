@@ -217,7 +217,7 @@
                                             </div>
                                             <div class="col-6 col-md-2">
                                                 <label class="form-label visually-hidden" for="qty-{{ loop.index0 }}">Quantité</label>
-                                                <input type="number" min="1" class="form-control form-control-sm"
+                                                <input type="number" inputmode="numeric" min="1" class="form-control form-control-sm"
                                                        id="qty-{{ loop.index0 }}" name="quantity" value="{{ line.quantity }}">
                                             </div>
                                             <div class="col-6 col-md-3">
@@ -257,7 +257,7 @@
                     </div>
                     <div class="col-6 col-md-2">
                         <label class="form-label" for="new-quantity">Quantité</label>
-                        <input type="number" min="1" class="form-control form-control-sm" id="new-quantity"
+                        <input type="number" inputmode="numeric" min="1" class="form-control form-control-sm" id="new-quantity"
                                name="quantity" value="1">
                     </div>
                     <div class="col-6 col-md-3">

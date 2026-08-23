@@ -34,11 +34,11 @@
             <div class="alert {{ row.is_hidden|default(false) ? 'alert-warning' : 'alert-secondary' }} d-flex flex-wrap align-items-center gap-2 py-2 px-3 mb-2 small groups-hidden-banner">
                 <span class="flex-grow-1">
                     {% if row.is_hidden|default(false) %}
-                        <i class="bi bi-eye-slash me-1"></i>
+                        <i class="bi bi-eye-slash me-1" aria-hidden="true"></i>
                         Message masqué après {{ row.report_count }} signalement{{ row.report_count > 1 ? 's' : '' }}.
                         Vous seul, en tant que modérateur, le voyez.
                     {% else %}
-                        <i class="bi bi-flag me-1"></i>
+                        <i class="bi bi-flag me-1" aria-hidden="true"></i>
                         {{ row.report_count }} signalement{{ row.report_count > 1 ? 's' : '' }} sur ce message.
                         Il reste visible par tout le monde.
                     {% endif %}
@@ -95,7 +95,7 @@
                     <button class="btn btn-sm btn-link text-body-secondary d-flex align-items-center justify-content-center"
                             type="button" data-bs-toggle="dropdown"
                             aria-expanded="false" aria-label="Actions sur ce message">
-                        <i class="bi bi-three-dots-vertical"></i>
+                        <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">
                         {#
@@ -210,7 +210,7 @@
                         style="font-size:0.75rem;" aria-haspopup="dialog"
                         data-url="/groups/{{ group.id }}/posts/{{ row.post.id }}/seen-by"
                         data-dialog-title="Vu par">
-                    <i class="bi bi-eye me-1"></i>
+                    <i class="bi bi-eye me-1" aria-hidden="true"></i>
                     {% if row.seen_count|default(0) > 0 %}
                         Vu par {{ row.seen_count }} membre{{ row.seen_count > 1 ? 's' : '' }}
                     {% else %}
@@ -339,13 +339,13 @@
                                maxlength="{{ constant('Modules\\Groups\\Service\\ReplyService::MAX_BODY_LENGTH') }}">
                         <label class="btn btn-sm btn-outline-secondary d-flex align-items-center mb-0"
                                aria-label="Joindre une image à la réponse">
-                            <i class="bi bi-image"></i>
+                            <i class="bi bi-image" aria-hidden="true"></i>
                             {# One image maximum — no `multiple`, and the server rejects a second one anyway. #}
                             <input type="file" name="image[]" class="visually-hidden groups-reply-image" accept="image/*">
                         </label>
                         <button type="submit" class="btn btn-sm btn-primary d-flex align-items-center"
                                 aria-label="Envoyer la réponse">
-                            <i class="bi bi-send"></i>
+                            <i class="bi bi-send" aria-hidden="true"></i>
                         </button>
                     </div>
                     {#

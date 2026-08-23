@@ -69,11 +69,11 @@
                     </p>
                     <div class="d-flex gap-2">
                         <a href="/upload?context=unit_logo&return=/setup" class="btn btn-sm btn-outline-primary">
-                            <i class="bi bi-upload"></i> Envoyer un logo
+                            <i class="bi bi-upload" aria-hidden="true"></i> Envoyer un logo
                         </a>
                         {% if unit_logo_is_custom %}
                         <button type="button" class="btn btn-sm btn-outline-danger" id="unit-logo-delete-btn">
-                            <i class="bi bi-trash"></i> Supprimer
+                            <i class="bi bi-trash" aria-hidden="true"></i> Supprimer
                         </button>
                         {% endif %}
                     </div>
@@ -87,7 +87,7 @@
                        already-installed icon, no web API for it). #}
                     {% if unit_logo_is_custom %}
                     <p class="text-body-secondary small mt-2 mb-0">
-                        <i class="bi bi-info-circle"></i>
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
                         Notifier les membres ayant installé l'application sur iOS qu'un nouveau logo est
                         disponible (ils devront supprimer puis réinstaller l'application pour le voir) :
                         <button type="button" class="btn btn-link btn-sm p-0 align-baseline" id="unit-logo-notify-ios-btn">envoyer une notification</button>.
@@ -225,7 +225,7 @@
             </div>
 
             <div class="mb-3">
-                <label for="dmarc_report_email" class="form-label">Email rapports DMARC <span class="text-muted fw-normal">(optionnel)</span></label>
+                <label for="dmarc_report_email" class="form-label">Email rapports DMARC <span class="text-body-secondary fw-normal">(optionnel)</span></label>
                 <input type="email" class="form-control{% if errors.dmarc_report_email is defined %} is-invalid{% endif %}" id="dmarc_report_email" name="dmarc_report_email" value="{{ values.dmarc_report_email ?? '' }}" placeholder="{{ values.mail_from_address ?? '' }}">
                 <div class="form-text">Adresse à laquelle les fournisseurs de messagerie envoient un résumé périodique des emails reçus au nom du domaine. Certains services externes traitent automatiquement ces résumés. Laissez vide pour utiliser l'adresse d'expédition ci-dessus — modifiable à tout moment par la suite.</div>
                 {% if errors.dmarc_report_email is defined %}<div class="invalid-feedback">{{ errors.dmarc_report_email }}</div>{% endif %}
@@ -240,7 +240,7 @@
                     {% if has_dkim_key %}
                         <p class="mb-2 small">Clé DKIM générée. Sélecteur : <strong>{{ values.dkim_selector ?? '—' }}</strong>.</p>
                         <div class="mb-2">
-                            <small class="text-muted">Clé publique (pour l'enregistrement DNS) :</small>
+                            <small class="text-body-secondary">Clé publique (pour l'enregistrement DNS) :</small>
                             <div class="input-group input-group-sm mt-1">
                                 <input type="text" class="form-control font-monospace" value="{{ dkim_public_key }}" readonly id="dkim-pubkey-display" aria-label="Clé publique DKIM">
                                 <button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="dkim-pubkey-display">Copier</button>
@@ -254,7 +254,7 @@
                         </div>
                         {% endif %}
                     {% else %}
-                        <p class="text-muted small">Aucune clé DKIM pour le moment — une clé sera générée automatiquement lors de l'enregistrement final, mais la propagation DNS peut prendre du temps : générez-la dès maintenant si vous voulez configurer l'enregistrement DNS DKIM sans attendre la fin de l'installation.</p>
+                        <p class="text-body-secondary small">Aucune clé DKIM pour le moment — une clé sera générée automatiquement lors de l'enregistrement final, mais la propagation DNS peut prendre du temps : générez-la dès maintenant si vous voulez configurer l'enregistrement DNS DKIM sans attendre la fin de l'installation.</p>
                         <div class="mb-2">
                             <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-generate-dkim">
                                 <span class="spinner-border spinner-border-sm d-none" id="dkim-gen-spinner" role="status"></span>
@@ -281,13 +281,13 @@
             </div>
 
             {# DNS records panel #}
-            <div class="card bg-light mt-3">
+            <div class="card bg-body-tertiary mt-3">
                 <div class="card-body">
                     <h3 class="h6 mb-2">Configuration DNS requise</h3>
-                    <p class="text-muted small mb-2">Un domaine ne peut avoir qu'un seul enregistrement TXT SPF et qu'un seul enregistrement <code>_dmarc</code> : si une valeur actuelle est déjà affichée ci-dessous, la valeur suggérée l'intègre automatiquement (elle ne supprime rien de votre configuration existante) — remplacez l'enregistrement existant par cette valeur suggérée plutôt que d'en ajouter un second. Le DKIM utilise en revanche un sous-domaine dédié au sélecteur choisi ci-dessus : il n'entre jamais en conflit avec un enregistrement existant sous un autre nom, et nécessite d'avoir généré la clé DKIM (section « Clé DKIM » ci-dessus) pour connaître sa valeur.</p>
-                    <p class="text-muted small mb-2">Pour le SPF en mode SMTP, la valeur suggérée autorise directement l'adresse IP de votre serveur SMTP (<code>a:{hôte}</code>) — cela convient à la plupart des hébergeurs mutualisés. Si votre fournisseur SMTP est un grand service tiers (Google, SendGrid, Mailgun, Office 365…), il publie généralement sa propre valeur <code>include:</code> à ajouter à la place : consultez sa documentation SPF, la valeur suggérée ici ne peut pas la deviner automatiquement.</p>
+                    <p class="text-body-secondary small mb-2">Un domaine ne peut avoir qu'un seul enregistrement TXT SPF et qu'un seul enregistrement <code>_dmarc</code> : si une valeur actuelle est déjà affichée ci-dessous, la valeur suggérée l'intègre automatiquement (elle ne supprime rien de votre configuration existante) — remplacez l'enregistrement existant par cette valeur suggérée plutôt que d'en ajouter un second. Le DKIM utilise en revanche un sous-domaine dédié au sélecteur choisi ci-dessus : il n'entre jamais en conflit avec un enregistrement existant sous un autre nom, et nécessite d'avoir généré la clé DKIM (section « Clé DKIM » ci-dessus) pour connaître sa valeur.</p>
+                    <p class="text-body-secondary small mb-2">Pour le SPF en mode SMTP, la valeur suggérée autorise directement l'adresse IP de votre serveur SMTP (<code>a:{hôte}</code>) — cela convient à la plupart des hébergeurs mutualisés. Si votre fournisseur SMTP est un grand service tiers (Google, SendGrid, Mailgun, Office 365…), il publie généralement sa propre valeur <code>include:</code> à ajouter à la place : consultez sa documentation SPF, la valeur suggérée ici ne peut pas la deviner automatiquement.</p>
                     <div id="dns-records">
-                        <p class="text-muted small mb-2">Complétez les champs ci-dessus puis cliquez sur « Vérifier les DNS » pour afficher les enregistrements requis.</p>
+                        <p class="text-body-secondary small mb-2">Complétez les champs ci-dessus puis cliquez sur « Vérifier les DNS » pour afficher les enregistrements requis.</p>
                     </div>
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-check-dns">
                         <span class="spinner-border spinner-border-sm d-none" id="dns-spinner" role="status"></span>
@@ -303,13 +303,13 @@
     <div class="card mb-4">
         <div class="card-body">
             <h2 class="card-title h5 mb-3">Tâche planifiée (cron)</h2>
-            <p class="text-muted small">Le site exécute déjà les tâches planifiées (sauvegardes automatiques, rappels, relances d'envoi…) de façon opportuniste après chaque visite d'une page — pratique, mais peu fiable si le site reçoit peu de trafic : rien ne s'exécute tant que personne ne le consulte. Configurez une véritable tâche cron chez votre hébergeur pour que ces tâches s'exécutent à l'heure prévue, même sans visiteur.</p>
+            <p class="text-body-secondary small">Le site exécute déjà les tâches planifiées (sauvegardes automatiques, rappels, relances d'envoi…) de façon opportuniste après chaque visite d'une page — pratique, mais peu fiable si le site reçoit peu de trafic : rien ne s'exécute tant que personne ne le consulte. Configurez une véritable tâche cron chez votre hébergeur pour que ces tâches s'exécutent à l'heure prévue, même sans visiteur.</p>
             <p class="small mb-1">Ajoutez cette ligne dans votre crontab (ou dans la section « Tâches planifiées »/« Cron » du panneau de contrôle de votre hébergeur, si disponible) :</p>
             <div class="input-group input-group-sm mt-1 mb-2">
                 <input type="text" class="form-control font-monospace" value="* * * * * php {{ cron_script_path ?? '/chemin/vers/le/site/public/cron.php' }}" readonly id="cron-line-display" aria-label="Ligne crontab">
                 <button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="cron-line-display">Copier</button>
             </div>
-            <p class="text-muted small mb-0">Le script se protège lui-même contre les exécutions simultanées et n'a besoin d'être lancé qu'une fois par minute. Remplacez <code>php</code> par le chemin complet de l'exécutable en ligne de commande si votre hébergeur en exige un précis (souvent indiqué dans son panneau de contrôle, par exemple <code>/usr/bin/php8.3</code>).</p>
+            <p class="text-body-secondary small mb-0">Le script se protège lui-même contre les exécutions simultanées et n'a besoin d'être lancé qu'une fois par minute. Remplacez <code>php</code> par le chemin complet de l'exécutable en ligne de commande si votre hébergeur en exige un précis (souvent indiqué dans son panneau de contrôle, par exemple <code>/usr/bin/php8.3</code>).</p>
         </div>
     </div>
 
@@ -370,7 +370,7 @@
                 </label>
             </div>
 
-            <p class="text-muted small mb-2">
+            <p class="text-body-secondary small mb-2">
                 Un rapport agrégé est envoyé une fois par jour à l'équipe qui développe ScoutMagic. Il sert à vous
                 fournir un meilleur support en cas de problème, à repérer les fonctionnalités réellement utilisées
                 et à décider des développements à venir. <strong>Ce rapport n'est pas anonyme</strong> : il contient
@@ -394,12 +394,12 @@
                     <li>les dates d'installation et de dernière mise à jour, et les réglages de mise à jour
                         automatique.</li>
                 </ul>
-                <p class="text-muted mt-2 mb-0">
+                <p class="text-body-secondary mt-2 mb-0">
                     Le contenu exact est consultable après l'installation, sur la page Configuration &gt; Support.
                 </p>
             </details>
 
-            <p class="text-muted small mt-2 mb-0">
+            <p class="text-body-secondary small mt-2 mb-0">
                 Ce choix est modifiable à tout moment. Le refuser n'empêche rien d'autre : la page Support et la
                 génération d'une archive de diagnostic restent disponibles.
             </p>
