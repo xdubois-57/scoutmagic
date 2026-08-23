@@ -19,7 +19,7 @@
 // walks both over the same receipt.
 
 (function () {
-    var grid = document.getElementById('receipts-grid');
+    const grid = document.getElementById('receipts-grid');
     if (!grid) return;
 
     const currentAccountId = parseInt(/** @type {HTMLElement} */ (grid).dataset.accountId || '0', 10);
@@ -40,45 +40,49 @@
         return Number(amount).toLocaleString('fr-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
-    function receiptCardHtml(r) {
-        const isImage = r.mime_type.startsWith('image/');
-        const isPdf = r.mime_type === 'application/pdf';
-        const thumb = isImage
-            ? '<img src="/files/' + r.file_id + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">'
-            : isPdf
-                ? '<img src="/files/' + r.file_id + '/thumbnail" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">'
-                : '<div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">'
-                    + '<i class="bi bi-file-earmark-word fs-1"></i></div>';
-
-        let suggestedBlock = '';
-        if (r.suggested_amount || r.suggested_date || r.suggested_label) {
-            suggestedBlock = '<div class="small">'
-                + (r.suggested_amount ? formatAmount(r.suggested_amount) + ' €' : '')
-                + (r.suggested_date ? ' — ' + escapeHtml(r.suggested_date) : '')
-                + (r.suggested_source === 'ai' ? ' <span class="badge text-bg-info">IA</span>' : '')
-                + (r.suggested_label ? '<div class="text-body-secondary">' + escapeHtml(r.suggested_label) + '</div>' : '')
-                + (r.suggested_description ? '<div class="text-body-secondary fst-italic">' + escapeHtml(r.suggested_description) + '</div>' : '')
-                + '</div>';
+    function receiptThumbHtml(r) {
+        if (r.mime_type.startsWith('image/')) {
+            return '<img src="/files/' + r.file_id + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">';
         }
+        if (r.mime_type === 'application/pdf') {
+            return '<img src="/files/' + r.file_id + '/thumbnail" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">';
+        }
+        return '<div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">'
+            + '<i class="bi bi-file-earmark-word fs-1"></i></div>';
+    }
 
-        let statusBlock;
+    function receiptSuggestedBlockHtml(r) {
+        if (!r.suggested_amount && !r.suggested_date && !r.suggested_label) {
+            return '';
+        }
+        return '<div class="small">'
+            + (r.suggested_amount ? formatAmount(r.suggested_amount) + ' €' : '')
+            + (r.suggested_date ? ' — ' + escapeHtml(r.suggested_date) : '')
+            + (r.suggested_source === 'ai' ? ' <span class="badge text-bg-info">IA</span>' : '')
+            + (r.suggested_label ? '<div class="text-body-secondary">' + escapeHtml(r.suggested_label) + '</div>' : '')
+            + (r.suggested_description ? '<div class="text-body-secondary fst-italic">' + escapeHtml(r.suggested_description) + '</div>' : '')
+            + '</div>';
+    }
+
+    function receiptStatusBlockHtml(r) {
         if (r.is_pending) {
-            statusBlock = '<span class="badge text-bg-warning">En attente</span>'
+            return '<span class="badge text-bg-warning">En attente</span>'
                 + (r.matching_ai_attempted
                     ? ' <span class="badge text-bg-secondary" title="Le rapprochement automatique par IA a déjà été tenté pour ce reçu, sans résultat certain.">IA : aucun mouvement trouvé</span>'
                     : '');
-        } else {
-            statusBlock = '<button type="button" class="btn btn-sm btn-link p-0 movements-btn" data-id="' + r.id + '">'
-                + '<span class="badge text-bg-success">' + r.movement_count + ' mouvement(s) lié(s)</span></button>';
         }
+        return '<button type="button" class="btn btn-sm btn-link p-0 movements-btn" data-id="' + r.id + '">'
+            + '<span class="badge text-bg-success">' + r.movement_count + ' mouvement(s) lié(s)</span></button>';
+    }
 
+    function receiptCardHtml(r) {
         return '<div class="col-12 col-md-4" data-receipt-id="' + r.id + '">'
             + '<div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">'
-            + '<a href="/files/' + r.file_id + '" target="_blank" rel="noopener">' + thumb + '</a>'
+            + '<a href="/files/' + r.file_id + '" target="_blank" rel="noopener">' + receiptThumbHtml(r) + '</a>'
             + '<div class="fw-semibold text-truncate" title="' + escapeHtml(r.original_filename) + '">' + escapeHtml(r.original_filename) + '</div>'
             + '<div class="text-body-secondary small">' + escapeHtml(r.uploaded_at) + '</div>'
-            + suggestedBlock
-            + '<div>' + statusBlock + '</div>'
+            + receiptSuggestedBlockHtml(r)
+            + '<div>' + receiptStatusBlockHtml(r) + '</div>'
             + '<div class="d-flex gap-2 mt-auto">'
             + '<button type="button" class="btn btn-sm btn-outline-primary associate-btn" data-id="' + r.id + '" data-suggested-date="' + escapeHtml(r.suggested_date || '') + '">Associer</button>'
             + '<a href="/finance/receipts/new?replace=' + r.id + '" class="btn btn-sm btn-outline-secondary">Remplacer</a>'
@@ -251,7 +255,13 @@
     async function associateWithMovement(movementId) {
         const res = await window.ScoutMagicApi.postJson('/finance/receipts/' + currentAttachmentId + '/associate', { transaction_ids: [movementId] });
         if (res.data && res.data.success) {
-            associateModal ? associateModal.hide() : null;
+            // A plain `if`, not the side-effect ternary this used to be:
+            // main fixed that as a SonarQube reliability finding (S2201),
+            // and the fix applies unchanged to the shared-toolbox version
+            // of the call above it.
+            if (associateModal) {
+                associateModal.hide();
+            }
             fetchReceipts(currentPage);
         } else {
             window.ScoutMagicToast.show((res.data && res.data.error) || 'Une erreur est survenue.', { variant: 'error' });

@@ -9,11 +9,14 @@ set -euo pipefail
 # list (fetched via the same GitHub API `--generate-notes` itself calls),
 # and requires the deployment gate, the security gate, the tests gate,
 # the end-to-end gate, the dependency freshness gate, and the SonarQube
-# Cloud gate to all pass.
+# Cloud gate to all pass. Every non-skipped gate runs concurrently (see
+# "Gate execution" below) — a failure in one is never masked by another
+# still running, and if several fail, all of them are reported together
+# rather than stopping at the first.
 # Whichever notes are used (this auto-generated list, or --notes-file's
 # content), a "Vérifications effectuées" section reporting every gate's
 # outcome (verified, with details, or bypassed) is always appended at the
-# end — see ${GATE_REPORT} and the gate-invocation blocks below.
+# end — see ${GATE_REPORT} and the "Gate execution" block below.
 #
 #   --notes-file <path>        Use the release notes from this file
 #                               instead of the auto-generated commit list.
@@ -104,22 +107,31 @@ echo "Bumping version: ${CURRENT} → ${NEW_VERSION}"
 
 PRODUCTION_URL="https://www.scoutmagic.be"
 
-# Accumulates one Markdown bullet per gate below (verified or bypassed),
-# in French since it's appended to the public release notes (see the
+# ${GATE_REPORT} — one Markdown bullet per gate (verified or bypassed), in
+# French since it's appended to the public release notes (see the
 # "Vérifications effectuées" block near the end of this script) — unlike
 # this script's own English console output, the release notes are
-# user-facing text read by site administrators.
-GATE_REPORT=""
+# user-facing text read by site administrators. Built once, after every
+# gate below has run (they run in parallel, each in its own subshell —
+# see the "Gate execution" block), from each *_GATE_REPORT_LINE variable:
+# already set directly for a skipped gate, or read back from that gate's
+# own report file otherwise (a subshell's variable assignments never
+# reach this parent shell).
 
 # ---------------------------------------------------------------
 # Deployment gate — verifies the PREVIOUS release actually reached
 # production before a new one is created, and that production isn't
 # currently broken. Exposed via GET /api/version (Core\Http\Controller\
 # VersionController, role_min: public — see its own docblock), which
-# reports the same version/commit already shown to a logged-in admin on
+# reports the same version already shown to a logged-in admin on
 # Configuration > Maintenance. Two cases, matching VersionFile's own
 # format:
-#   - dev build ("dev-{sha}"): the reported commit must match local HEAD.
+#   - dev build: the bare "version":"dev" response never discloses the
+#     real commit (audit hardening — it would fingerprint exactly which
+#     patches an install is missing), so this asks the one question that
+#     needs answering instead: GET .../api/version?commit=<local HEAD
+#     short sha> back, and check its own "matches" boolean rather than
+#     comparing a value it was never given.
 #   - stable build (a semver tag): the reported version must equal
 #     ${CURRENT}, the latest tag before this run's bump — i.e. the last
 #     release already installed itself.
@@ -132,24 +144,29 @@ check_deployment_gate() {
     command -v curl &> /dev/null || { echo "ERROR: curl is required for the deployment gate." >&2; exit 1; }
     command -v php &> /dev/null || { echo "ERROR: php is required for the deployment gate." >&2; exit 1; }
 
-    local version_json remote_version remote_commit local_head_short home_body home_status
+    local version_json remote_version local_head_short match_json matches report_suffix home_body home_status
 
     version_json="$(curl -fsS --max-time 15 "${PRODUCTION_URL}/api/version")" \
         || { echo "ERROR: cannot reach ${PRODUCTION_URL}/api/version." >&2; exit 1; }
     remote_version="$(php -r '$d=json_decode(file_get_contents("php://stdin"), true); echo $d["version"] ?? "";' <<< "${version_json}")"
-    remote_commit="$(php -r '$d=json_decode(file_get_contents("php://stdin"), true); echo $d["commit"] ?? "";' <<< "${version_json}")"
 
-    if [[ -n "${remote_commit}" ]]; then
+    if [[ "${remote_version}" == "dev" ]]; then
         local_head_short="$(git rev-parse --short=7 HEAD)"
-        if [[ "${remote_commit}" != "${local_head_short}" ]]; then
-            echo "ERROR: release blocked by the deployment gate — ${PRODUCTION_URL} is on dev commit ${remote_commit}, but local HEAD is ${local_head_short}." >&2
+        match_json="$(curl -fsS --max-time 15 "${PRODUCTION_URL}/api/version?commit=${local_head_short}")" \
+            || { echo "ERROR: cannot reach ${PRODUCTION_URL}/api/version?commit=${local_head_short}." >&2; exit 1; }
+        matches="$(php -r '$d=json_decode(file_get_contents("php://stdin"), true); echo ($d["matches"] ?? false) ? "1" : "";' <<< "${match_json}")"
+        if [[ -z "${matches}" ]]; then
+            echo "ERROR: release blocked by the deployment gate — ${PRODUCTION_URL} is a dev build not yet on local HEAD (${local_head_short})." >&2
             echo "Wait for the site to pick up the latest commit (or re-run with --skip-deployment-check to bypass, emergency use only)." >&2
             exit 1
         fi
+        report_suffix="dev/${local_head_short}"
     elif [[ "${remote_version}" != "${CURRENT}" ]]; then
         echo "ERROR: release blocked by the deployment gate — ${PRODUCTION_URL} reports version '${remote_version}', expected the latest released tag '${CURRENT}'." >&2
         echo "The previous release may not have deployed yet. Wait for it, or re-run with --skip-deployment-check to bypass (emergency use only)." >&2
         exit 1
+    else
+        report_suffix="${remote_version}"
     fi
 
     home_body="$(curl -fsS --max-time 15 -w '\n%{http_code}' "${PRODUCTION_URL}/")" \
@@ -167,8 +184,8 @@ check_deployment_gate() {
         exit 1
     fi
 
-    DEPLOYMENT_GATE_REPORT_LINE="vérifié — ${PRODUCTION_URL} à jour (${remote_version}${remote_commit:+/${remote_commit}}), HTTP ${home_status}."
-    echo "Deployment gate OK: ${PRODUCTION_URL} is up to date (${remote_version}${remote_commit:+/${remote_commit}}) and responds normally."
+    echo "vérifié — ${PRODUCTION_URL} à jour (${report_suffix}), HTTP ${home_status}." > "${GATE_REPORT_FILE}"
+    echo "Deployment gate OK: ${PRODUCTION_URL} is up to date (${report_suffix}) and responds normally."
 }
 
 # ---------------------------------------------------------------
@@ -216,7 +233,7 @@ check_security_gate() {
         exit 1
     fi
 
-    SECURITY_GATE_REPORT_LINE="vérifié — aucun signalement CodeQL ni alerte Dependabot ouvert."
+    echo "vérifié — aucun signalement CodeQL ni alerte Dependabot ouvert." > "${GATE_REPORT_FILE}"
     echo "Security gate OK: no open CodeQL findings, no open Dependabot alerts."
 }
 
@@ -311,7 +328,7 @@ check_tests_gate() {
     echo "Running JavaScript unit tests (npm run test:coverage)..."
     npm run test:coverage
 
-    TESTS_GATE_REPORT_LINE="vérifié — PHPStan sans erreur ; PHPUnit : ${phpunit_summary} ; analyse statique JavaScript (npm run typecheck) : OK ; tests JavaScript (Vitest) : OK."
+    echo "vérifié — PHPStan sans erreur ; PHPUnit : ${phpunit_summary} ; analyse statique JavaScript (npm run typecheck) : OK ; tests JavaScript (Vitest) : OK." > "${GATE_REPORT_FILE}"
     echo "Tests gate OK: PHPStan, PHPUnit, JavaScript static analysis, and JavaScript unit tests passed."
 }
 
@@ -342,7 +359,7 @@ check_e2e_gate() {
     echo "Running end-to-end browser tests (npm run e2e)..."
     npm run e2e
 
-    E2E_GATE_REPORT_LINE="vérifié — la page d'accueil publique démarre et s'affiche dans un vrai navigateur (Playwright/Chromium, via \`public/index.php\`)."
+    echo "vérifié — la page d'accueil publique démarre et s'affiche dans un vrai navigateur (Playwright/Chromium, via \`public/index.php\`)." > "${GATE_REPORT_FILE}"
     echo "E2E gate OK: the application boots and renders in a real browser."
 }
 
@@ -422,54 +439,9 @@ check_dependency_freshness_gate() {
         exit 1
     fi
 
-    DEPENDENCY_GATE_REPORT_LINE="vérifié — dépendances Composer directes, Bootstrap, Bootstrap Icons et Chart.js vendorisés à jour."
+    echo "vérifié — dépendances Composer directes, Bootstrap, Bootstrap Icons et Chart.js vendorisés à jour." > "${GATE_REPORT_FILE}"
     echo "Dependency freshness gate OK: direct Composer dependencies and vendored front-end libraries (Bootstrap, Bootstrap Icons, Chart.js) are up to date."
 }
-
-if [[ "${SKIP_DEPLOYMENT_CHECK}" -eq 1 ]]; then
-    echo "WARNING: --skip-deployment-check used — ${PRODUCTION_URL} was NOT checked for this release. Emergency use only: verify it manually right after publishing." >&2
-    DEPLOYMENT_GATE_REPORT_LINE="ignoré (\`--skip-deployment-check\`) — à vérifier manuellement."
-else
-    check_deployment_gate
-fi
-GATE_REPORT="${GATE_REPORT}- **Déploiement** : ${DEPLOYMENT_GATE_REPORT_LINE}
-"
-
-if [[ "${SKIP_SECURITY_GATE}" -eq 1 ]]; then
-    echo "WARNING: --skip-security-gate used — open CodeQL findings and/or Dependabot alerts were NOT checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
-    SECURITY_GATE_REPORT_LINE="ignoré (\`--skip-security-gate\`) — à vérifier manuellement."
-else
-    check_security_gate
-fi
-GATE_REPORT="${GATE_REPORT}- **Sécurité** : ${SECURITY_GATE_REPORT_LINE}
-"
-
-if [[ "${SKIP_TESTS_GATE}" -eq 1 ]]; then
-    echo "WARNING: --skip-tests-gate used — PHPStan, PHPUnit, JavaScript static analysis (npm run typecheck), AND the JavaScript unit tests (npm run test:coverage) were NOT run for this release. Emergency use only: run them immediately after publishing and fix any failure." >&2
-    TESTS_GATE_REPORT_LINE="ignoré (\`--skip-tests-gate\`) — PHPStan, PHPUnit, l'analyse statique JavaScript et les tests JavaScript non exécutés, à vérifier manuellement."
-else
-    check_tests_gate
-fi
-GATE_REPORT="${GATE_REPORT}- **Tests** : ${TESTS_GATE_REPORT_LINE}
-"
-
-if [[ "${SKIP_E2E_GATE}" -eq 1 ]]; then
-    echo "WARNING: --skip-e2e-gate used — the end-to-end browser test (npm run e2e) was NOT run for this release, so nothing verified that the application actually boots and renders. Emergency use only: run it immediately after publishing and fix any failure." >&2
-    E2E_GATE_REPORT_LINE="ignoré (\`--skip-e2e-gate\`) — test navigateur de bout en bout non exécuté, à vérifier manuellement."
-else
-    check_e2e_gate
-fi
-GATE_REPORT="${GATE_REPORT}- **Tests de bout en bout** : ${E2E_GATE_REPORT_LINE}
-"
-
-if [[ "${SKIP_DEPENDENCY_CHECK}" -eq 1 ]]; then
-    echo "WARNING: --skip-dependency-check used — outdated Composer/vendored front-end dependencies were NOT checked for this release. Emergency use only: update them immediately after publishing." >&2
-    DEPENDENCY_GATE_REPORT_LINE="ignoré (\`--skip-dependency-check\`) — à vérifier manuellement."
-else
-    check_dependency_freshness_gate
-fi
-GATE_REPORT="${GATE_REPORT}- **Dépendances** : ${DEPENDENCY_GATE_REPORT_LINE}
-"
 
 # ---------------------------------------------------------------
 # SonarQube Cloud gate — delegates to scripts/check-sonar-release.sh (kept
@@ -489,17 +461,208 @@ check_sonar_gate() {
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     "${script_dir}/check-sonar-release.sh"
+    echo "vérifié — aucun signalement de sécurité actif, aucun problème de sévérité HIGH ou supérieure, Quality Gate OK." > "${GATE_REPORT_FILE}"
 }
+
+# ---------------------------------------------------------------
+# Gate execution — every gate above is independent of every other (each
+# checks a different system: production over HTTPS, GitHub's API, this
+# checkout's own PHP/JS toolchain, a real browser against a throwaway
+# instance, Composer/GitHub for dependency freshness, SonarQube Cloud's
+# API), reads but never writes vendor/ or node_modules/, and none of them
+# commits/tags/pushes anything — that only happens once every gate that
+# ran has passed. Running them concurrently instead of one after another
+# is purely a speed optimization, worth it because the two genuinely slow
+# ones (the tests gate's full PHPUnit suite, the end-to-end browser gate)
+# otherwise get paid for one after the other instead of overlapped with
+# the four fast, network-bound ones.
+#
+# One narrow, accepted exception: the end-to-end gate wipes and
+# regenerates storage/temp/twig_cache at startup (scripts/e2e-support.php
+# — Twig's compiled-template cache is keyed on VERSION and anchored to
+# this repository, shared with anything else that renders a view). A
+# PHPUnit test rendering a real Twig view at the exact moment that happens
+# could see a transient cache miss. Twig recompiles from source on a
+# miss — self-healing, not a wrong result — so this can cost an occasional
+# rerun, never a false pass.
+#
+# Each non-skipped gate runs in its own background subshell, output
+# redirected to its own log file under ${GATE_TMP_DIR} — interleaved
+# parallel output would be unreadable, so nothing prints live; every
+# gate's log is replayed in order once all of them are known to have
+# passed, and a failed gate's log (last 60 lines, plus the full path) is
+# shown in the combined summary below instead. A subshell's own variable
+# assignments never reach this parent shell, which is why a passing gate
+# writes its report line to ${GATE_REPORT_FILE} (set per-gate by
+# launch_gate) instead of setting one directly, the way the sequential
+# version of this script used to. stdin is /dev/null for every gate so
+# one that somehow tried to prompt interactively (check-sonar-release.sh
+# asking for a missing SONAR_TOKEN, say) fails closed instead of hanging
+# invisibly in the background.
+#
+# A skipped gate (--skip-*) is never launched at all — its warning and
+# report line are exactly what the sequential version printed.
+# ---------------------------------------------------------------
+GATE_TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "${GATE_TMP_DIR}"' EXIT
+
+# Four parallel indexed arrays (never associative — macOS's own /bin/bash
+# is still 3.2, which has no `declare -A` at all) keyed by a shared
+# position: GATE_KEYS[i]/GATE_LABELS[i]/GATE_PIDS[i]/GATE_EXIT[i] all
+# describe the same i-th launched gate.
+GATE_KEYS=()
+GATE_LABELS=()
+GATE_PIDS=()
+GATE_EXIT=()
+
+# An optional 4th argument names another gate this one must not overlap
+# with. Tests and End-to-end both run real MySQL schema migrations against
+# the same local MySQL server and are both CPU-heavy; running them fully
+# concurrently was observed to cause spurious migration timeouts in both
+# (contention, not a real bug). A background subshell can't bash-`wait` on
+# a sibling subshell's PID (they aren't each other's children), so the
+# dependency is a polled sentinel file instead.
+launch_gate() {
+    local key="$1" label="$2" func="$3" depends_on="${4:-}"
+    GATE_KEYS+=("${key}")
+    GATE_LABELS+=("${label}")
+    (
+        if [[ -n "${depends_on}" ]]; then
+            while [[ ! -f "${GATE_TMP_DIR}/${depends_on}.done" ]]; do
+                sleep 1
+            done
+        fi
+        export GATE_REPORT_FILE="${GATE_TMP_DIR}/${key}.report"
+        set +e
+        "${func}"
+        status=$?
+        touch "${GATE_TMP_DIR}/${key}.done"
+        exit "${status}"
+    ) > "${GATE_TMP_DIR}/${key}.log" 2>&1 < /dev/null &
+    GATE_PIDS+=("$!")
+}
+
+if [[ "${SKIP_DEPLOYMENT_CHECK}" -eq 1 ]]; then
+    echo "WARNING: --skip-deployment-check used — ${PRODUCTION_URL} was NOT checked for this release. Emergency use only: verify it manually right after publishing." >&2
+    DEPLOYMENT_GATE_REPORT_LINE="ignoré (\`--skip-deployment-check\`) — à vérifier manuellement."
+else
+    launch_gate deployment "Deployment" check_deployment_gate
+fi
+
+if [[ "${SKIP_SECURITY_GATE}" -eq 1 ]]; then
+    echo "WARNING: --skip-security-gate used — open CodeQL findings and/or Dependabot alerts were NOT checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
+    SECURITY_GATE_REPORT_LINE="ignoré (\`--skip-security-gate\`) — à vérifier manuellement."
+else
+    launch_gate security "Security" check_security_gate
+fi
+
+if [[ "${SKIP_TESTS_GATE}" -eq 1 ]]; then
+    echo "WARNING: --skip-tests-gate used — PHPStan, PHPUnit, JavaScript static analysis (npm run typecheck), AND the JavaScript unit tests (npm run test:coverage) were NOT run for this release. Emergency use only: run them immediately after publishing and fix any failure." >&2
+    TESTS_GATE_REPORT_LINE="ignoré (\`--skip-tests-gate\`) — PHPStan, PHPUnit, l'analyse statique JavaScript et les tests JavaScript non exécutés, à vérifier manuellement."
+else
+    launch_gate tests "Tests" check_tests_gate
+fi
+
+if [[ "${SKIP_E2E_GATE}" -eq 1 ]]; then
+    echo "WARNING: --skip-e2e-gate used — the end-to-end browser test (npm run e2e) was NOT run for this release, so nothing verified that the application actually boots and renders. Emergency use only: run it immediately after publishing and fix any failure." >&2
+    E2E_GATE_REPORT_LINE="ignoré (\`--skip-e2e-gate\`) — test navigateur de bout en bout non exécuté, à vérifier manuellement."
+else
+    # Runs after the Tests gate finishes (not concurrently with it) — both
+    # hit the same local MySQL server with real schema migrations, and
+    # running them at the same time causes spurious migration timeouts.
+    # See the comment on launch_gate().
+    if [[ "${SKIP_TESTS_GATE}" -eq 1 ]]; then
+        launch_gate e2e "End-to-end" check_e2e_gate
+    else
+        launch_gate e2e "End-to-end" check_e2e_gate tests
+    fi
+fi
+
+if [[ "${SKIP_DEPENDENCY_CHECK}" -eq 1 ]]; then
+    echo "WARNING: --skip-dependency-check used — outdated Composer/vendored front-end dependencies were NOT checked for this release. Emergency use only: update them immediately after publishing." >&2
+    DEPENDENCY_GATE_REPORT_LINE="ignoré (\`--skip-dependency-check\`) — à vérifier manuellement."
+else
+    launch_gate dependency "Dependency freshness" check_dependency_freshness_gate
+fi
 
 if [[ "${SKIP_SONAR_GATE}" -eq 1 ]]; then
     echo "WARNING: --skip-sonar-gate used — active SonarQube Cloud security findings, HIGH-or-above severity findings, unreviewed Security Hotspots, and the Quality Gate were NOT checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
     SONAR_GATE_REPORT_LINE="ignoré (\`--skip-sonar-gate\`) — à vérifier manuellement."
 else
-    check_sonar_gate
-    SONAR_GATE_REPORT_LINE="vérifié — aucun signalement de sécurité actif, aucun problème de sévérité HIGH ou supérieure, Quality Gate OK."
+    launch_gate sonar "SonarQube Cloud" check_sonar_gate
 fi
-GATE_REPORT="${GATE_REPORT}- **SonarQube Cloud** : ${SONAR_GATE_REPORT_LINE}
+
+GATE_COUNT="${#GATE_KEYS[@]}"
+
+if [[ "${GATE_COUNT}" -gt 0 ]]; then
+    gate_label_list=""
+    gi=0
+    while [[ "${gi}" -lt "${GATE_COUNT}" ]]; do
+        gate_label_list="${gate_label_list}${gate_label_list:+, }${GATE_LABELS[${gi}]}"
+        gi=$((gi + 1))
+    done
+    echo ""
+    echo "Running ${GATE_COUNT} gate(s) in parallel: ${gate_label_list}..."
+fi
+
+GATES_FAILED=0
+gi=0
+while [[ "${gi}" -lt "${GATE_COUNT}" ]]; do
+    if wait "${GATE_PIDS[${gi}]}"; then
+        GATE_EXIT+=(0)
+    else
+        GATE_EXIT+=("$?")
+    fi
+    gi=$((gi + 1))
+done
+
+echo ""
+echo "==================== Gate results ===================="
+gi=0
+while [[ "${gi}" -lt "${GATE_COUNT}" ]]; do
+    if [[ "${GATE_EXIT[${gi}]}" -eq 0 ]]; then
+        echo "✅ ${GATE_LABELS[${gi}]} gate passed"
+    else
+        GATES_FAILED=1
+        echo "❌ ${GATE_LABELS[${gi}]} gate FAILED — last 60 lines (full log: ${GATE_TMP_DIR}/${GATE_KEYS[${gi}]}.log):"
+        tail -n 60 "${GATE_TMP_DIR}/${GATE_KEYS[${gi}]}.log" | sed 's/^/    /'
+        echo ""
+    fi
+    gi=$((gi + 1))
+done
+echo "========================================================"
+
+if [[ "${GATES_FAILED}" -eq 1 ]]; then
+    echo "" >&2
+    echo "ERROR: release blocked — one or more gates failed (see above). Fix the underlying issue and re-run." >&2
+    exit 1
+fi
+
+# Every gate that ran had its own live output going only to its log file
+# (interleaved parallel output would be unreadable) — replay each one now,
+# in the same order the sequential version of this script used to print
+# them, so a passing run's output still shows every gate's own detail.
+for key in ${GATE_KEYS[@]+"${GATE_KEYS[@]}"}; do
+    cat "${GATE_TMP_DIR}/${key}.log"
+done
+
+DEPLOYMENT_GATE_REPORT_LINE="${DEPLOYMENT_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/deployment.report" 2>/dev/null)}"
+SECURITY_GATE_REPORT_LINE="${SECURITY_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/security.report" 2>/dev/null)}"
+TESTS_GATE_REPORT_LINE="${TESTS_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/tests.report" 2>/dev/null)}"
+E2E_GATE_REPORT_LINE="${E2E_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/e2e.report" 2>/dev/null)}"
+DEPENDENCY_GATE_REPORT_LINE="${DEPENDENCY_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/dependency.report" 2>/dev/null)}"
+SONAR_GATE_REPORT_LINE="${SONAR_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/sonar.report" 2>/dev/null)}"
+
+GATE_REPORT="- **Déploiement** : ${DEPLOYMENT_GATE_REPORT_LINE}
+- **Sécurité** : ${SECURITY_GATE_REPORT_LINE}
+- **Tests** : ${TESTS_GATE_REPORT_LINE}
+- **Tests de bout en bout** : ${E2E_GATE_REPORT_LINE}
+- **Dépendances** : ${DEPENDENCY_GATE_REPORT_LINE}
+- **SonarQube Cloud** : ${SONAR_GATE_REPORT_LINE}
 "
+
+rm -rf "${GATE_TMP_DIR}"
+trap - EXIT
 
 # The VERSION file is the running site's source of truth for its installed
 # version (Core\Maintenance\VersionFile, read by the Configuration >

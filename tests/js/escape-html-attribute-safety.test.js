@@ -1,11 +1,13 @@
 // Isolated JavaScript unit test — jsdom DOM only, no PHP/DB/network.
 //
-// The receipts and mass-mail list pages build table rows in an inline
-// <script> and interpolate escapeHtml(...) output into alt=/title=/data-*
-// attributes. A textContent->innerHTML escaper handles & < > but NOT quotes,
-// so a filename or description containing a double quote used to break out of
-// the attribute (audit M16). This test reads the REAL escapeHtml definition
-// out of each template source and proves a quote can no longer break out.
+// The receipts and mass-mail list pages build table rows client-side and
+// interpolate escapeHtml(...) output into alt=/title=/data-* attributes —
+// mass-mail's inline in the template's own <script>, receipts' in its own
+// extracted file (public/assets/js/finance-receipts.js). A
+// textContent->innerHTML escaper handles & < > but NOT quotes, so a
+// filename or description containing a double quote used to break out of
+// the attribute (audit M16). This test reads the REAL escapeHtml
+// definition out of each source and proves a quote can no longer break out.
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -20,10 +22,10 @@ const here = dirname(fileURLToPath(import.meta.url));
  */
 function loadEscapeHtml(relativePath) {
     const source = readFileSync(resolve(here, '../../', relativePath), 'utf8');
-    // The closing brace may be indented (the definition now lives inside
-    // finance-receipts.js's IIFE) — \s* accepts that; the lazy body match
-    // still stops at the first line holding nothing but a brace, which is
-    // the function's own end since escapeHtml has no nested blocks.
+    // The closing brace may be indented (the definition lives inside
+    // api.js's IIFE) — \s* accepts that; the lazy body match still stops
+    // at the first line holding nothing but a brace, which is the
+    // function's own end since escapeHtml has no nested blocks.
     const match = source.match(/function escapeHtml\s*\([^)]*\)\s*\{[\s\S]*?\n\s*\}/);
     if (match === null) {
         throw new Error(`No escapeHtml() found in ${relativePath}`);
@@ -41,6 +43,12 @@ function loadEscapeHtml(relativePath) {
 // loadEscapeHtml() throws before a single `it` runs, which is exactly
 // what happened when the receipts template stopped carrying the function.
 const templates = {
+    // One entry, not the three this list has carried in turn: the two
+    // former call sites (finance-receipts.js and mass_mail's template)
+    // no longer DEFINE escapeHtml at all — they call the toolbox's. A
+    // list still naming them would throw « No escapeHtml() found »
+    // before a single `it` ran, which is the failure mode this file was
+    // written to have when a definition moves unnoticed.
     'ScoutMagicApi toolbox (used by finance receipts + mass-mail lists)': 'public/assets/js/api.js',
 };
 

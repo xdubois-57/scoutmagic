@@ -158,10 +158,16 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
     await dialog.locator('#mm-save-btn').click();
 
     // Saving reloads the page; the list row shows the raw template subject.
+    // The row can be visible before the reload's own copy of the page's
+    // bottom <script> (which wires every .mm-open-btn's click listener)
+    // has actually run — parsing reaches the row well before it reaches
+    // that script — so the assertions above alone are not enough to
+    // prove the new page has finished loading.
     const row = page.getByRole('row', { name: new RegExp(RUN_TAG) });
     await expect(row).toBeVisible();
     await expect(row.getByText('Publipostage')).toBeVisible();
     await expect(row.getByText('Brouillon')).toBeVisible();
+    await page.waitForLoadState('domcontentloaded');
 
     // ---------------------------------------------------------------
     // Reopening rebuilds the dialog from the server: the stored audience

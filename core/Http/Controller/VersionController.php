@@ -37,15 +37,27 @@ class VersionController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         $raw = VersionFile::read(dirname($this->storagePath));
+        $isDevBuild = VersionFile::isDevBuild($raw);
 
         // A dev build's exact commit sha is NOT disclosed publicly: it
         // fingerprints precisely which patches an install is missing, which
         // matters more here than elsewhere because the app ships an
         // auto-updater (audit hardening). A dev build reports a bare "dev".
-        $version = preg_match('/^dev-[0-9a-f]{7,40}$/', $raw) === 1 ? 'dev' : $raw;
+        $payload = ['version' => $isDevBuild ? 'dev' : $raw];
 
-        return $this->json([
-            'version' => $version,
-        ]);
+        // scripts/release.sh's deployment gate still needs to confirm a dev
+        // build has actually caught up to the exact commit about to be
+        // released — this answers "does it match?" without ever reading
+        // the real value back, which is the one piece of information the
+        // hardening above withholds. A caller who does not already know
+        // the short sha (anyone but the releaser, who read it from their
+        // own git checkout) learns nothing from a query that always comes
+        // back false.
+        $expectedShortSha = $request->getQuery('commit');
+        if ($isDevBuild && is_string($expectedShortSha) && preg_match('/^[0-9a-f]{7,40}$/', $expectedShortSha) === 1) {
+            $payload['matches'] = hash_equals('dev-' . $expectedShortSha, $raw);
+        }
+
+        return $this->json($payload);
     }
 }
