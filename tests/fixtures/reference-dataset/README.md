@@ -326,10 +326,17 @@ du sens : sans les photos le trombinoscope est vide, sans les créances les
 vingt cotisations ne se réconcilient contre rien, sans le décalage d'année le
 scénario 5 n'est pas observable.
 
-**Un module désactivé sur l'instance cible est ignoré, pas fatal.**
-`ExtrasApplier` vérifie que les tables du module existent avant d'écrire :
-un module désactivé n'a pas de tables, et c'est une configuration, pas une
-panne. Le compteur affiché tombe alors à zéro.
+**Un module désactivé sur l'instance cible est ignoré, pas fatal — et le saut
+est signalé.** `ExtrasApplier` vérifie que les tables du module existent avant
+d'écrire : un module désactivé n'a pas de tables, et c'est une configuration,
+pas une panne. Le builder affiche alors explicitement
+`(ignoré : module « calendar » désactivé)` à côté du compteur.
+
+Ce n'est pas un détail cosmétique : un compteur à zéro se lit exactement pareil
+que le module soit désactivé ou que le nom de table dans le code soit faux — et
+il l'a été une fois (`calendars` au lieu de `calendar_calendars`), ce qui a
+silencieusement perdu neuf évènements sur une instance où le calendrier était
+actif depuis le début.
 
 ## 9. Régénération des fichiers
 
@@ -473,3 +480,27 @@ l'instance sert de point de restauration jetable : elle se restaure sur la même
 installation, avec les mêmes clés, donc sans aucun des problèmes de portabilité
 décrits au §1. C'est la façon de récupérer la rapidité d'un dump sans en avoir les
 inconvénients.
+
+---
+
+## 12. Rappels croisés
+
+Ce jeu de données ne se maintient pas tout seul, et rien ne le protège d'un
+changement fait ailleurs sans y penser. Quatre rappels le disent là où le
+changement se fait :
+
+| Où | Ce qui y est dit |
+|---|---|
+| `AGENTS.md` § Reference dataset | La liste des changements qui obligent à vérifier ce jeu de données **dans le même changement** : format d'export Desk, `DeskCsvParser`, `BnpParser`, pipeline d'import, schéma d'une table liée aux membres. |
+| `Core\Import\DeskCsvParser` | Un en-tête de classe qui renvoie ici, et qui redit que `Sizaine/Patrouillle` et l'ignorance de `SECTION` ne sont pas des coquilles. |
+| `Modules\Finance\Parser\BnpParser` | Idem, avec la liste des cas que les six relevés contiennent délibérément. |
+| `ARCHITECTURE.md` §12 | La place de ce répertoire dans la carte du projet, et le fait qu'il est le seul sous-répertoire de `tests/` listé dans les `paths` de `phpstan.neon`. |
+
+Et trois garde-fous mécaniques, qui échouent au lieu de dériver :
+
+- `generate.php --check`, invoqué par `ReferenceDatasetFormatTest` : les
+  fichiers commités correspondent au générateur, octet pour octet, et aucune
+  photo du lot n'est orpheline ;
+- `ReferenceDatasetImportTest` : les exports veulent toujours dire ce qu'ils
+  disent, rejoués par le vrai pipeline ;
+- `ReferenceDatasetBuilderTest` : ce que le builder écrit par-dessus.

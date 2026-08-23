@@ -196,7 +196,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
 
     public function testTheExtrasApplyThroughTheRealServices(): void
     {
-        $counts = $this->applyExtras();
+        $counts = $this->applyExtras()['counts'];
 
         self::assertSame(2, $counts['décalages d\'année']);
         self::assertSame(count(ExtrasBlueprint::DEPARTURES), $counts['départs marqués']);
@@ -256,14 +256,20 @@ final class ReferenceDatasetBuilderTest extends TestCase
         // they are on an instance where the module is disabled. A build must
         // skip those extras, not die halfway and leave the dataset
         // half-applied.
-        $counts = $this->applyExtras();
+        $result = $this->applyExtras();
 
-        self::assertSame(0, $counts['évènements de calendrier']);
-        self::assertGreaterThan(0, $counts['créances attendues'], 'Les modules présents doivent, eux, être traités.');
+        self::assertSame(0, $result['counts']['évènements de calendrier']);
+        self::assertSame(
+            'calendar',
+            $result['skipped']['évènements de calendrier'] ?? null,
+            'Un extra ignoré doit être signalé, pas se contenter d\'un compteur à zéro.',
+        );
+        self::assertGreaterThan(0, $result['counts']['créances attendues'], 'Les modules présents doivent, eux, être traités.');
+        self::assertArrayNotHasKey('créances attendues', $result['skipped']);
     }
 
     /**
-     * @return array<string, int>
+     * @return array{counts: array<string, int>, skipped: array<string, string>}
      */
     private function applyExtras(): array
     {

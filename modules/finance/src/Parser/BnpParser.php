@@ -24,6 +24,16 @@ use Modules\Finance\Service\IbanNormalizer;
  * "Nº de séquence" is not usable as a dedup key — BNP Fortis exports it
  * identically ("2026-") on every row. The bank's true unique per-line
  * reference is embedded inside "Détails" as "REFERENCE BANQUE : <digits>".
+ *
+ * **Changing anything here changes the reference dataset too.**
+ * `tests/fixtures/reference-dataset/` holds six committed statements built to
+ * this exact shape, deliberately containing the cases this parser exists to
+ * survive: a `Refusé` line, a thousands separator, a dot-decimal, a line with
+ * no communication, a transfer between two of the unit's own accounts, and the
+ * tail of each year repeated at the head of the next so the REFERENCE BANQUE
+ * deduplication is exercised. Its README is the manual, AGENTS.md § Reference
+ * dataset says what to check, and `Tests\Integration\ReferenceDatasetFormatTest`
+ * fails on the pull request that breaks it.
  */
 final class BnpParser implements BankStatementParserInterface
 {

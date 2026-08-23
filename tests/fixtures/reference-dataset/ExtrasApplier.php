@@ -86,8 +86,21 @@ final class ExtrasApplier
     }
 
     /**
+     * The extras that belong to an optional module, and the table whose
+     * presence says whether that module is enabled on the target.
+     *
+     * @var array<string, array{table: string, module: string}>
+     */
+    private const MODULE_EXTRAS = [
+        'évènements de calendrier' => ['table' => 'calendar_calendars', 'module' => 'calendar'],
+        'créances attendues' => ['table' => 'finance_expected_receivables', 'module' => 'finance'],
+    ];
+
+    /**
      * @param array<string, int> $yearIds scout year label => id
-     * @return array<string, int> counters, keyed for the builder's report
+     * @return array{counts: array<string, int>, skipped: array<string, string>}
+     *         counters for the builder's report, and the extras that were
+     *         skipped mapped to the module that was not there
      */
     public function apply(array $yearIds, int $unitAccountId): array
     {
@@ -104,17 +117,29 @@ final class ExtrasApplier
 
         // A module can legitimately be disabled on the target instance, and
         // its tables then do not exist. That is not a failure of the build —
-        // it is the instance being configured differently — so the extras
-        // that belong to it are skipped rather than crashing halfway through,
-        // which would leave the dataset half-applied.
-        $counts['évènements de calendrier'] = $this->tableExists('calendars')
-            ? $this->applyCalendarEvents($yearIds)
-            : 0;
-        $counts['créances attendues'] = $this->tableExists('finance_expected_receivables')
-            ? $this->applyExpectedReceivables($unitAccountId)
-            : 0;
+        // it is the instance being configured differently — so those extras
+        // are skipped rather than crashing halfway and leaving the dataset
+        // half-applied.
+        //
+        // **The skip is reported, never silent.** A counter of zero reads the
+        // same whether the module is off or the table name in this map is
+        // wrong — and the table name in this map WAS wrong once (`calendars`
+        // instead of `calendar_calendars`), which quietly dropped nine events
+        // on an instance where the calendar was enabled the whole time.
+        $skipped = [];
+        foreach (self::MODULE_EXTRAS as $label => $extra) {
+            if (!$this->tableExists($extra['table'])) {
+                $counts[$label] = 0;
+                $skipped[$label] = $extra['module'];
+                continue;
+            }
 
-        return $counts;
+            $counts[$label] = $label === 'évènements de calendrier'
+                ? $this->applyCalendarEvents($yearIds)
+                : $this->applyExpectedReceivables($unitAccountId);
+        }
+
+        return ['counts' => $counts, 'skipped' => $skipped];
     }
 
     /**

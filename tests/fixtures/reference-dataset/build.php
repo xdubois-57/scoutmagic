@@ -136,10 +136,16 @@ printf(
 //    services — photos par le pipeline de téléversement, décalages d'année,
 //    départs, badges, évènements, créances attendues.
 $extras = new ExtrasApplier($pdo, $encryption, $context->storagePath(), $datasetRoot, $superadminId);
-$extraCounts = $extras->apply($yearIds, $finance->accountIds()['unite'] ?? 0);
+$extraResult = $extras->apply($yearIds, $finance->accountIds()['unite'] ?? 0);
 echo "\nExtras appliqués :\n";
-foreach ($extraCounts as $label => $count) {
-    printf("  %-26s %3d\n", $label, $count);
+foreach ($extraResult['counts'] as $label => $count) {
+    $skippedModule = $extraResult['skipped'][$label] ?? null;
+    printf(
+        "  %-26s %3d%s\n",
+        $label,
+        $count,
+        $skippedModule !== null ? "   (ignoré : module « {$skippedModule} » désactivé)" : '',
+    );
 }
 
 // 6. Les comptes de démonstration adossés à des membres — après les imports,

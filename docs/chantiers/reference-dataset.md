@@ -575,3 +575,65 @@ dans README.md §8.3.
    en second argument. C'est exactement la classe de défaut pour laquelle ce
    répertoire est dans les `paths` de `phpstan.neon`, et elle s'est
    matérialisée dès la première itération qui compose beaucoup de services.
+
+
+---
+
+## IT-07 — Rappels croisés, documentation, vérification transverse
+
+**Livré.**
+
+- **`AGENTS.md` § Reference dataset** — la liste des changements qui obligent à
+  vérifier ce jeu de données dans le même changement (format Desk,
+  `DeskCsvParser`, `BnpParser`, pipeline d'import, schéma d'une table liée aux
+  membres), les trois tests qui tiennent la ligne, la règle de régénération, et
+  l'interdiction de retirer ce répertoire des `paths` de `phpstan.neon`.
+- **Un en-tête de classe sur `DeskCsvParser`** qui renvoie au README et redit
+  que `Sizaine/Patrouillle` et l'ignorance de `SECTION` ne sont pas des
+  coquilles.
+- **Un rappel équivalent sur `BnpParser`**, avec la liste des cas que les six
+  relevés contiennent délibérément.
+- **`ARCHITECTURE.md` §12** — le répertoire placé dans la carte du projet.
+- **README §12** — le tableau des rappels croisés et des trois garde-fous
+  mécaniques.
+
+**Vérification transverse.** Une troisième instance jetable a été provisionnée
+avec les 17 modules activés, ramenée à l'état d'une installation neuve, puis
+construite de bout en bout. Le site a ensuite été servi par le vrai
+`public/index.php` : `/`, `/login`, `/sections` et `/contact` répondent 200,
+zéro erreur PHP dans le journal.
+
+**Un défaut trouvé par cette vérification, et c'en était un vrai.** Le garde
+« module désactivé » d'IT-06 testait l'existence d'une table `calendars` ; elle
+s'appelle `calendar_calendars`. Sur une instance où le calendrier était actif
+depuis le début, les neuf évènements étaient donc **silencieusement** sautés, et
+le compteur affichait zéro — indiscernable d'un module réellement désactivé.
+Corrigé deux fois : le nom de table, et surtout le fait que le saut est
+désormais **signalé** (`(ignoré : module « calendar » désactivé)`) plutôt que
+réduit à un zéro muet. Le chantier le disait déjà en toutes lettres — « aucune
+troncature silencieuse » — et c'est exactement la forme qu'elle avait prise.
+
+---
+
+## Récapitulatif final
+
+| # | Livré |
+|---|---|
+| IT-01 | Lot de photos assaini et ré-encodé (117,8 → 11,6 Mo), inventaire, README, vérification post-zip dans `release.sh`, PHPStan sur le répertoire |
+| IT-02 | Générateur déterministe, trois tables déclaratives, 33 membres de scénario, les trois exports Desk, mode `--check`, test de format |
+| IT-03 | `DeskImportReplay` partagé avec le builder, et 22 invariants sémantiques sur base |
+| IT-04 | Générateur de relevés BNP, six fichiers, onze tests de format |
+| IT-05bis | `Core\Photo\PhotoIngestionService` extrait d'`UploadController` (code de production) |
+| IT-05 | Builder CLI : garde de production, imports, confirmation des rôles, finances, comptes de démonstration |
+| IT-06 | Extras déclaratifs : décalages, départs, badges, 57 photos, évènements, créances |
+| IT-07 | Rappels croisés, documentation, vérification transverse |
+
+**Ce que le chantier a produit dans le code de production**, en plus du jeu de
+données : l'extraction de `PhotoIngestionService`, et deux vérifications
+ajoutées à `scripts/release.sh` et `phpstan.neon`.
+
+**Les défauts trouvés en exécutant plutôt qu'en lisant** — cinq, tous dans mon
+propre code, tous invisibles à la relecture : l'IBAN écrit par le dépôt au lieu
+du service, le `1` en dur comme importateur, l'ordre catégories/comptes, le nom
+de table du calendrier, et le zéro silencieux qui le masquait. Chacun est
+consigné dans l'itération qui l'a trouvé.
