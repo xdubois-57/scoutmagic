@@ -73,6 +73,25 @@ class BreadcrumbBarCssTest extends TestCase
     }
 
     /**
+     * And a little air on the separator's left.
+     *
+     * Bootstrap spaces it symmetrically — 0.5rem on each side, from
+     * `--bs-breadcrumb-item-padding-x` — but the glyph is not
+     * symmetric: "/" leans right, so its ink sits hard against the crumb
+     * before it and drifts away from the one after. The margin goes on
+     * the separator rather than into a wider padding on the crumb
+     * precisely so the space AFTER it stays Bootstrap's.
+     */
+    public function testTheSeparatorHasAirOnItsLeft(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/\.breadcrumb-bar \.breadcrumb-item \+ \.breadcrumb-item::before \{.*?margin-left: 0\.25rem;/s',
+            $this->css,
+            'The « / » needs a little more room on its left than the glyph leaves it.'
+        );
+    }
+
+    /**
      * The condition the rule above exists to survive. If the touch
      * baseline ever stops inflating .btn, the separator is no longer at
      * risk — but while it does, the two belong together, and a reader of
