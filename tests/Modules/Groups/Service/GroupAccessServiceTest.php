@@ -384,4 +384,65 @@ class GroupAccessServiceTest extends TestCase
 
         $this->assertSame([$inGroup], $allowed);
     }
+
+    // --- answering a member-scoped poll ---------------------------------
+
+    /**
+     * The picker a "une réponse par membre" poll shows is NOT the
+     * composer's: a parent of four whose four children reach this account
+     * has four answers to give, whichever sections those children are in.
+     * Offering two of them would quietly produce a count that is short.
+     */
+    public function testMemberIdsAllowedToVoteAsOffersEveryLinkedMemberNotOnlyTheGroupsOwn(): void
+    {
+        $groupId = $this->sectionGroup();
+        $inGroup = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD1', $this->louveteauxId, $this->currentYearId);
+        $otherSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD2', $this->eclaireursId, $this->currentYearId);
+        $noSectionAtAll = GroupsTestHelper::createMember($this->pdo, 'CHILD3');
+
+        $allowed = $this->access->memberIdsAllowedToVoteAs(
+            $this->groupRepo->findById($groupId),
+            $this->context([$otherSection, $inGroup, $noSectionAtAll])
+        );
+
+        $this->assertSame([$inGroup, $otherSection, $noSectionAtAll], $allowed);
+    }
+
+    /**
+     * The group's own members come first whatever order the account
+     * carries them in: the first option is the picker's default, which is
+     * what a no-JavaScript submit sends and what Service\PollService
+     * falls back to when the form names nobody.
+     */
+    public function testMemberIdsAllowedToVoteAsPutsTheGroupsOwnMembersFirst(): void
+    {
+        $groupId = $this->sectionGroup();
+        $otherSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD1', $this->eclaireursId, $this->currentYearId);
+        $invited = GroupsTestHelper::createMember($this->pdo, 'CHILD2');
+        $this->memberRepo->add($groupId, $invited);
+
+        $allowed = $this->access->memberIdsAllowedToVoteAs(
+            $this->groupRepo->findById($groupId),
+            $this->context([$otherSection, $invited])
+        );
+
+        $this->assertSame([$invited, $otherSection], $allowed);
+    }
+
+    /**
+     * An account with a single member has nothing to pick between, and no
+     * poll offers it a choice — the same list, one entry long.
+     */
+    public function testMemberIdsAllowedToVoteAsWithOneLinkedMemberIsThatMember(): void
+    {
+        $groupId = $this->sectionGroup();
+        $only = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD1', $this->louveteauxId, $this->currentYearId);
+
+        $allowed = $this->access->memberIdsAllowedToVoteAs(
+            $this->groupRepo->findById($groupId),
+            $this->context([$only])
+        );
+
+        $this->assertSame([$only], $allowed);
+    }
 }

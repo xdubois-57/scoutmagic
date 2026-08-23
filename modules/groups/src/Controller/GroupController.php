@@ -191,6 +191,8 @@ class GroupController extends AbstractController
             // publish (Service\GroupAccessService::canParticipate()).
             'participate_permission' => $this->accessService->canParticipate($group, $context),
             // Who this account may answer a member-scoped poll for —
+            // every member it reaches and not only this group's own
+            // (Service\GroupAccessService::memberIdsAllowedToVoteAs()),
             // empty when there is nothing to choose between (see
             // partials/poll.html.twig).
             'vote_members' => $this->voteMemberOptions($group, $context),
@@ -671,7 +673,7 @@ class GroupController extends AbstractController
      */
     private function voteMemberOptions(DiscussionGroup $group, GroupSessionContext $context): array
     {
-        $memberIds = $this->accessService->memberIdsAllowedToPostAs($group, $context);
+        $memberIds = $this->accessService->memberIdsAllowedToVoteAs($group, $context);
         if (count($memberIds) < 2) {
             return [];
         }

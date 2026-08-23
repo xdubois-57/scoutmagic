@@ -1098,6 +1098,82 @@ class PostControllerTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    // --- a poll answered per member -------------------------------------
+
+    /**
+     * A "une réponse par membre" poll asks a parent about their children,
+     * and a parent's children are not all in the same section. The picker
+     * offers every member this account reaches — the group's own first —
+     * rather than only the ones this group is built from: offering two of
+     * four does not protect anything, it quietly produces a count that is
+     * short.
+     */
+    public function testAMemberScopedPollOffersEveryLinkedMemberAndNotOnlyTheGroupsOwn(): void
+    {
+        $this->seedPostWithMemberScopedPoll();
+        $sibling = $this->siblingInAnotherSection();
+
+        $body = $this->controller([$sibling, $this->memberId])
+            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())
+            ->getBody();
+
+        $this->assertStringContainsString('<option value="' . $this->memberId . '"', $body);
+        $this->assertStringContainsString('<option value="' . $sibling . '"', $body);
+        // The group's own member is the picker's default, whatever order
+        // the account carries its members in — that default is what a
+        // no-JavaScript submit sends.
+        $this->assertStringContainsString('name="voter_member_id" value="' . $this->memberId . '"', $body);
+    }
+
+    /**
+     * And the answer for that child is really recorded as that child's,
+     * not silently re-attributed to the one who is in the section.
+     */
+    public function testAParentAnswersForAChildWhoIsNotInThisGroupsSection(): void
+    {
+        $postId = $this->seedPostWithMemberScopedPoll();
+        $sibling = $this->siblingInAnotherSection();
+        $options = $this->pollOptionsOf($postId);
+        $this->withCsrf([
+            'option_id' => (string) $options[0]['id'],
+            'voter_member_id' => (string) $sibling,
+        ]);
+
+        $response = $this->controller([$this->memberId, $sibling])
+            ->vote($this->ajaxRequest(), $this->params($postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $repo = new \Modules\Groups\Repository\PollRepository($this->pdo);
+        $pollId = $repo->findByPostId($postId)['id'];
+        $this->assertSame(
+            [$options[0]['id']],
+            $repo->ownBallots([$pollId], ['m:' . $sibling])[$pollId]['m:' . $sibling] ?? []
+        );
+    }
+
+    private function siblingInAnotherSection(): int
+    {
+        return GroupsTestHelper::createMemberWithPeriod(
+            $this->pdo,
+            'SIBLING',
+            GroupsTestHelper::createSection($this->pdo, 'ECL', 'Éclaireurs'),
+            $this->currentYearId
+        );
+    }
+
+    private function seedPostWithMemberScopedPoll(): int
+    {
+        $this->withCsrf([
+            'body' => 'Sondage',
+            'poll_question' => 'Quel enfant vient ?',
+            'poll_options' => ['Samedi', 'Dimanche'],
+            'poll_vote_scope' => \Modules\Groups\Service\PollService::SCOPE_MEMBER,
+        ]);
+        $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        return $this->postRepo->findPage($this->groupId, 10)[0]->id;
+    }
+
     public function testAnOptionFromAnotherPostsPollIsRefused(): void
     {
         $postId = $this->seedPostWithPoll();

@@ -508,7 +508,14 @@ class PostController extends AbstractController
             // and Service\PollService re-checks that it is one of theirs
             // whatever the form said (voter_member_id below is a
             // request, never an authority).
-            $allowed = $this->accessService->memberIdsAllowedToPostAs($group, $context);
+            //
+            // Every member this account reaches, not only the ones who
+            // belong to this group: a poll answered per member asks a
+            // parent about their children, and a family of four has four
+            // answers to give (Service\GroupAccessService::
+            // memberIdsAllowedToVoteAs(), which says why that is wider
+            // than what the composer offers).
+            $allowed = $this->accessService->memberIdsAllowedToVoteAs($group, $context);
             if ($this->pollService === null) {
                 return new Response('Ce message ne porte pas de sondage.', 400);
             }
@@ -759,6 +766,10 @@ class PostController extends AbstractController
      * the way this module names anybody — the account first, narrowed to
      * the one membership each option stands for ("Marie Dupont (Akéla)").
      *
+     * Every member this account reaches, this group's own first —
+     * Service\GroupAccessService::memberIdsAllowedToVoteAs() says why the
+     * picker is wider than the composer's "publier en tant que".
+     *
      * Empty when there is only one: there is nothing to pick between, and
      * a dialog asking a question with one answer is a click for nothing.
      *
@@ -766,7 +777,7 @@ class PostController extends AbstractController
      */
     private function voteMemberOptions(DiscussionGroup $group, GroupSessionContext $context): array
     {
-        $memberIds = $this->accessService->memberIdsAllowedToPostAs($group, $context);
+        $memberIds = $this->accessService->memberIdsAllowedToVoteAs($group, $context);
         if (count($memberIds) < 2) {
             return [];
         }

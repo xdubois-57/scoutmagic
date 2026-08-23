@@ -193,6 +193,48 @@ class GroupAccessService
         return $allowed;
     }
 
+    /**
+     * Which members this account may answer a member-scoped poll for —
+     * ALL of its own linked members, not only the ones who belong to
+     * this group.
+     *
+     * Deliberately WIDER than memberIdsAllowedToPostAs() above, because
+     * the two questions are different ones. Posting is signing: a
+     * message signed as a member of another section would be signed by
+     * somebody who is not here. Answering "un parent répond pour chaque
+     * enfant" is counting heads: the poll asks a parent about their
+     * children, and a family of four whose four children all reach this
+     * account has four answers to give. Offering two of them does not
+     * protect anything — it silently produces a count that is short, and
+     * a wrong count is worse than an answer somebody has to correct.
+     *
+     * What it does NOT widen is the gate. Nothing here is read before
+     * canParticipate() has said this account may write in this group,
+     * every answer is still recorded against a member this account
+     * really reaches, and one member still answers once. It is also the
+     * set the feed already reads its own answers back with — Service\
+     * GroupFeedService hands every linked member to the poll service —
+     * which is where the two used to disagree: an account could see its
+     * own answer highlighted on a poll the picker no longer let it
+     * change.
+     *
+     * The group's own members come first, so the picker's default — what
+     * a no-JavaScript submit sends, and what Service\PollService falls
+     * back to when the form names nobody — stays somebody this group is
+     * actually about.
+     *
+     * @return int[] members.id values, group members first
+     */
+    public function memberIdsAllowedToVoteAs(DiscussionGroup $group, GroupSessionContext $context): array
+    {
+        $inGroup = $this->memberIdsAllowedToPostAs($group, $context);
+
+        return array_merge(
+            $inGroup,
+            array_values(array_diff($context->linkedMemberIds, $inGroup))
+        );
+    }
+
     private function explicitRowFor(DiscussionGroup $group, GroupSessionContext $context): ?\Modules\Groups\Repository\GroupMember
     {
         foreach ($context->linkedMemberIds as $memberId) {

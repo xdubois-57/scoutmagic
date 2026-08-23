@@ -15,10 +15,12 @@
   Two things the poll's own settings change here (schema.sql):
 
   - `vote_scope: member` means one answer per MEMBER rather than per
-    login, so an account linked to several members of this group picks
-    whose answer it is casting. The picker below is a plain <select> that
-    works on its own; groups.js hides it and asks the same question in a
-    small dialog at the moment of voting, which is where it belongs.
+    login, so an account linked to several members picks whose answer it
+    is casting — every member it reaches, this group's own first
+    (Service\GroupAccessService::memberIdsAllowedToVoteAs()). The picker
+    below is a plain <select> that works on its own; groups.js hides it
+    and asks the same question in a small dialog at the moment of
+    voting, which is where it belongs.
   - `allow_multiple` means a voter may hold several options at once, and
     tapping one they already hold takes it back — so the buttons are
     "pressed or not" rather than "one of these".
