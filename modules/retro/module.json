@@ -14,6 +14,7 @@
       "role_min": "admin",
       "label": "Rétrospective",
       "menu_icon": "bi-sticky",
+      "menu_group": "services",
       "breadcrumb": { "label": "Rétrospective", "parents": ["Espace chefs d'U"] }
     },
     {
@@ -34,6 +35,7 @@
       "role_min": "intendant",
       "label": "Rétrospectives",
       "menu_icon": "bi-sticky",
+      "menu_group": "activites",
       "breadcrumb": { "label": "Rétrospectives", "parents": ["Espace animateurs"] }
     },
     {

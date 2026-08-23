@@ -2,10 +2,13 @@
  ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
  Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
 #}
-{# Fil d'Ariane — always visible on mobile viewports (below the site's lg
-   breakpoint, 992px), and on desktop only when the site runs as an
-   installed PWA (display-mode: standalone). Visibility is 100% CSS (see
-   app.css's .breadcrumb-bar rule) — no server flag, no JS detection,
+{# Fil d'Ariane — visible at every width, in an ordinary browser tab as
+   much as in an installed PWA (see app.css's .breadcrumb-bar rule). It
+   used to be hidden on a desktop browser, on the reasoning that the nav's
+   permanent sub-menu row already showed where you were; that row is gone,
+   replaced by panels that open on click and close again, so this bar is
+   now the only thing on a desktop screen that states the current page's
+   ancestry. Visibility is 100% CSS — no server flag, no JS detection,
    since this is a navigation convenience, never a security boundary
    (SECURITY §3, same principle as menu visibility).
 
@@ -26,8 +29,8 @@
    that do would send every visitor to the same arbitrarily-chosen page
    regardless of what they actually want. Instead, clicking a parent OPENS
    that menu's own section (public/assets/js/breadcrumb.js): the desktop
-   submenu bar, or the mobile offcanvas with the matching accordion section
-   expanded — letting the visitor pick the sub-page themselves, same as
+   mega-menu panel, or the mobile offcanvas with the matching accordion
+   section expanded — letting the visitor pick the sub-page themselves, same as
    using the nav directly. Only rendered as a button when the parent label
    actually matches one of the current `menus` (the same global the nav
    itself renders from); otherwise it stays plain text, exactly as before.
@@ -50,15 +53,14 @@
    no parents) so it ends the trail the same way every other page does —
    an active, non-link "Accueil" item after the icon — rather than the
    icon being the only thing rendered there. #}
-{# `--has-trail` is what makes the bar visible on a desktop browser too
-   (app.css). The bar is normally mobile-and-PWA only because on a desktop
-   the nav bar's own submenus already offer every ancestor a `parents`
-   entry names. A `breadcrumb_trail` is the case that reasoning does not
-   cover: it names specific ancestor PAGES — a group, an asset, a booking —
-   that live under a single menu entry and that the nav therefore cannot
-   offer at all. Without this, a visitor several levels into such a section
-   has nothing but the browser's back button, which is exactly what pushed
-   one module into hand-rolling "← Réservations" links of its own. #}
+{# `--has-trail` marks a bar carrying real ancestor-PAGE links rather than
+   menu parents: a group, a lettable asset, one of its bookings — pages
+   living under a single menu entry that the nav cannot offer at all,
+   which is exactly what pushed one module into hand-rolling
+   "← Réservations" links of its own. It used to be what made the bar
+   visible on a desktop browser; the bar is now visible everywhere, so
+   the class is left as a hook and a statement of what this bar contains,
+   with no visibility rule behind it. #}
 <nav class="breadcrumb-bar{{ breadcrumb_trail|default([]) is not empty ? ' breadcrumb-bar--has-trail' : '' }} border-bottom bg-body-tertiary px-3 py-2" aria-label="Fil d'Ariane">
     <ol class="breadcrumb mb-0 small align-items-center">
         <li class="breadcrumb-item">

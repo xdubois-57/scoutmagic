@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Module;
 
+use Core\View\MenuBuilder;
+
 class ModuleManifest
 {
     private const VALID_MENUS = [
@@ -44,7 +46,7 @@ class ModuleManifest
     private const VALID_OFFLINE_MATCH_VALUES = ['exact', 'child'];
 
     /**
-     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, breadcrumb: ?array{label: string, parents: array<string>}}> $routes
+     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, menu_group: ?string, breadcrumb: ?array{label: string, parents: array<string>}}> $routes
      * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string, validation_regex: ?string, editable: bool}> $settings
      * @param array<int, array{name: string, category: string, purpose: string, duration: string}> $cookies
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
@@ -285,7 +287,7 @@ class ModuleManifest
 
     /**
      * @param array<string, mixed>|mixed $route
-     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, breadcrumb: ?array{label: string, parents: array<string>}}
+     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, menu_group: ?string, breadcrumb: ?array{label: string, parents: array<string>}}
      */
     private static function validateRoute(string $moduleId, mixed $route, int $index): array
     {
@@ -360,10 +362,34 @@ class ModuleManifest
             $menuIcon = $route['menu_icon'] !== '' ? $route['menu_icon'] : null;
         }
 
+        // Optional: which named column of the menu this entry is drawn in
+        // on the desktop mega-menu (Core\View\MenuBuilder::MENU_GROUPS).
+        // A closed vocabulary per menu, exactly like `menu` itself above,
+        // and for the same reason: a free string would let two modules
+        // write "Gestion" and "gestion" and produce two columns meaning
+        // the same thing. Absent is fine — the entry then lands in that
+        // menu's last declared group (see MenuBuilder::addPage()).
+        $menuGroup = null;
+        if (isset($route['menu_group'])) {
+            if (!is_string($route['menu_group'])) {
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] 'menu_group' must be a string");
+            }
+
+            $validGroups = MenuBuilder::groupIdsFor($route['menu']);
+            if (!in_array($route['menu_group'], $validGroups, true)) {
+                throw new ModuleException(
+                    "Module '{$moduleId}' route[{$index}] invalid menu_group value '{$route['menu_group']}' for menu '{$route['menu']}'"
+                );
+            }
+
+            $menuGroup = $route['menu_group'];
+        }
+
         $breadcrumb = self::validateBreadcrumb($moduleId, $route['breadcrumb'] ?? null, $index);
 
         return [
             'menu_icon' => $menuIcon,
+            'menu_group' => $menuGroup,
             'path' => $route['path'],
             'method' => $method,
             'controller' => $route['controller'],

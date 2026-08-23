@@ -80,7 +80,7 @@ This is not optional. A PR that adds personal data processing without updating t
 
 When creating a new module:
 
-1. ☐ `module.json` with `id`, `name`, `version`, `routes` (each with `role_min` and `menu`).
+1. ☐ `module.json` with `id`, `name`, `version`, `routes` (each with `role_min` and `menu`; each route that carries a `label` also declares `menu_group`, the named column it belongs to — see `Core\View\MenuBuilder::MENU_GROUPS` and `docs/module-development.md`).
 2. ☐ `schema.sql` with complete table definitions.
 3. ☐ `settings` section with `description` (NOT NULL) on every parameter.
 4. ☐ `cookies` section declaring every cookie the module uses, with category, purpose, and duration.

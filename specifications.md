@@ -59,7 +59,8 @@ Site-wide settings, modules, functions.
 
 ### 3.6 Navigation
 - **Mobile**: hamburger (left), unit name (right). Offcanvas from left. User card, accordion sub-menus, login/logout. Every sub-page entry starts with an icon, in the same box the per-member entries use for their avatar, so all the labels in a menu line up.
-- **Desktop**: horizontal bar, wrapping sub-menu row below. User at right.
+- **Desktop**: horizontal bar, user at right. A menu opens a mega-menu panel under the bar — titled columns (at most four) of text rows, each with its icon; per-member entries keep their avatar and section. Click to open, click/Escape/outside press to close, never hover. No permanent sub-menu row.
+- **Breadcrumb**: visible at every width, on desktop as much as on mobile — with no permanent sub-menu row, it is what states the current page's ancestry.
 
 ### 3.7 How a person is shown
 
