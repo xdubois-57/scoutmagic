@@ -84,7 +84,7 @@
                                 <td><span class="badge bg-secondary">{{ booking.status.label }}</span></td>
                                 <td class="text-end">
                                     {% if booking.effectiveTotalCents is not null %}
-                                        {{ (booking.effectiveTotalCents / 100)|number_format(2, ',', ' ') }} €
+                                        {{ booking.effectiveTotalCents|money_cents }}
                                     {% else %}
                                         —
                                     {% endif %}

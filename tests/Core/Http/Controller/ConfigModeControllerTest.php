@@ -26,7 +26,11 @@ class ConfigModeControllerTest extends TestCase
         $request = new Request('POST', '/config-mode/activate', [], [], [], []);
         $response = $this->controller->activate($request, []);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
     }
 
     public function testDeactivateRejectsMissingCsrf(): void
@@ -34,7 +38,11 @@ class ConfigModeControllerTest extends TestCase
         $request = new Request('POST', '/config-mode/deactivate', [], [], [], []);
         $response = $this->controller->deactivate($request, []);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
     }
 
     public function testActivateWithValidCsrf(): void

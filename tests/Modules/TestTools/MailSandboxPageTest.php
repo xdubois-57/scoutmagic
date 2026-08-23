@@ -177,7 +177,8 @@ class MailSandboxPageTest extends TestCase
 
         $this->assertStringContainsString('[25SV] Convocation', $body);
         $this->assertStringContainsString('chef@example.be', $body);
-        $this->assertStringContainsString('01/03/2026 09:30', $body);
+        // |datetime_fr renders the one canonical form « d/m/Y à H:i ».
+        $this->assertStringContainsString('01/03/2026 à 09:30', $body);
         $this->assertStringContainsString('Ko', $body);
         $this->assertStringContainsString('DKIM', $body);
     }

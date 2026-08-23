@@ -185,7 +185,7 @@
                                         {% endif %}
                                     </td>
                                     <td class="text-end">{{ line.quantity }}</td>
-                                    <td class="text-end">{{ (line.amountCents / 100)|number_format(2, ',', ' ') }} €</td>
+                                    <td class="text-end">{{ line.amountCents|money_cents }}</td>
                                     <td class="text-end">
                                         <form method="post" action="/mes-locations/ligne" class="d-inline"
                                               data-confirm="Supprimer la ligne « {{ line.label }} » ?">
@@ -236,7 +236,7 @@
                         <tfoot>
                             <tr class="fw-semibold">
                                 <td colspan="2">Total</td>
-                                <td class="text-end">{{ (quote.totalCents / 100)|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end">{{ quote.totalCents|money_cents }}</td>
                                 <td></td>
                             </tr>
                         </tfoot>
@@ -397,7 +397,7 @@
                             <li class="border-bottom py-2">
                                 <div class="small text-body-secondary">
                                     {{ comment.author_name ?: 'Auteur inconnu' }} —
-                                    {{ comment.created_at|date('d/m/Y à H\\hi') }}
+                                    {{ comment.created_at|datetime_fr }}
                                 </div>
                                 {{ comment.body|nl2br }}
                             </li>
@@ -426,7 +426,7 @@
                     <ul class="list-unstyled mb-0 small">
                         {% for entry in history %}
                             <li class="mb-1">
-                                <span class="text-body-secondary">{{ entry.created_at|date('d/m/Y H:i') }}</span>
+                                <span class="text-body-secondary">{{ entry.created_at|datetime_fr }}</span>
                                 — {{ entry.summary ?: entry.event_type }}
                                 {% if entry.from_value or entry.to_value %}
                                     <span class="text-body-secondary">

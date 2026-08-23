@@ -40,7 +40,7 @@
                         <div>
                             <strong>{{ message.displayFrom }}</strong>
                             <div class="form-text mb-0">
-                                {{ message.sentAt|date('d/m/Y H:i') }}
+                                {{ message.sentAt|datetime_fr }}
                                 {% if message.toEmails is not empty %}
                                     · à {{ message.toEmails|join(', ') }}
                                 {% endif %}

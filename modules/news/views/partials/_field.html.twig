@@ -14,7 +14,7 @@
     {% if not field.isNonInput() %}
         <label class="form-label" for="{{ input_name }}">
             {{ field.label }}{% if field.isRequired %} <span class="text-danger">*</span>{% endif %}
-            {% if field.isPriced %}<span class="text-body-secondary small">({{ field.pricePerUnit|number_format(2, ',', ' ') }}€/unité)</span>{% endif %}
+            {% if field.isPriced %}<span class="text-body-secondary small">({{ field.pricePerUnit|money }}/unité)</span>{% endif %}
         </label>
     {% endif %}
 

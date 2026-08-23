@@ -20,7 +20,7 @@
                                 aria-expanded="{{ source_open ? 'true' : 'false' }}">
                             <span class="flex-grow-1">{{ source.source_label }}</span>
                             <span class="text-body-secondary small me-3">
-                                {{ (source.amount_received / 100)|number_format(2, ',', ' ') }} € / {{ (source.amount_due / 100)|number_format(2, ',', ' ') }} € reçus
+                                {{ source.amount_received|money_cents }} / {{ source.amount_due|money_cents }} reçus
                             </span>
                         </button>
                     </h2>
@@ -37,7 +37,7 @@
                                                     aria-expanded="{{ instance_open ? 'true' : 'false' }}">
                                                 <span class="flex-grow-1">{{ instance.instance_label }}</span>
                                                 <span class="text-body-secondary small me-3">
-                                                    {{ (instance.amount_received / 100)|number_format(2, ',', ' ') }} € / {{ (instance.amount_due / 100)|number_format(2, ',', ' ') }} €
+                                                    {{ instance.amount_received|money_cents }} / {{ instance.amount_due|money_cents }}
                                                 </span>
                                             </button>
                                         </h3>
@@ -58,8 +58,8 @@
                                                             {% for row in instance.receivables %}
                                                                 <tr>
                                                                     <td>{{ row.label ?? '—' }}</td>
-                                                                    <td class="text-end">{{ (row.amount_due / 100)|number_format(2, ',', ' ') }} €</td>
-                                                                    <td class="text-end">{{ (row.amount_received / 100)|number_format(2, ',', ' ') }} €</td>
+                                                                    <td class="text-end">{{ row.amount_due|money_cents }}</td>
+                                                                    <td class="text-end">{{ row.amount_received|money_cents }}</td>
                                                                     <td class="font-monospace small">{{ row.communication }}</td>
                                                                     <td>
                                                                         {% if row.status == 'paid' %}
@@ -90,7 +90,7 @@
                                                                 {% endif %}
                                                             </div>
                                                             <div class="text-body-secondary small">
-                                                                {{ (row.amount_received / 100)|number_format(2, ',', ' ') }} € reçu / {{ (row.amount_due / 100)|number_format(2, ',', ' ') }} € attendu
+                                                                {{ row.amount_received|money_cents }} reçu / {{ row.amount_due|money_cents }} attendu
                                                             </div>
                                                             <div class="font-monospace small text-body-secondary">{{ row.communication }}</div>
                                                         </div>

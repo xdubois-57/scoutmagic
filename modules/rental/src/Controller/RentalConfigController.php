@@ -122,10 +122,8 @@ class RentalConfigController extends AbstractController
      */
     public function saveMailboxes(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            FlashMessage::set('danger', 'Session expirée, veuillez réessayer.');
-
-            return $this->redirect('/admin/locations');
+        if (($guard = $this->guardCsrf($request, '/admin/locations')) !== null) {
+            return $guard;
         }
 
         if ($this->mailboxSelection === null) {
@@ -218,8 +216,8 @@ class RentalConfigController extends AbstractController
      */
     public function saveFinanceAccount(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/admin/locations')) !== null) {
+            return $guard;
         }
 
         $assetId = (int) $request->getBody('asset_id', 0);
@@ -237,7 +235,7 @@ class RentalConfigController extends AbstractController
 
             FlashMessage::set('success', 'Le compte de ce bien a été enregistré.');
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect('/admin/locations?asset_id=' . $assetId . '#compte');
@@ -278,8 +276,8 @@ class RentalConfigController extends AbstractController
      */
     public function create(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/admin/locations')) !== null) {
+            return $guard;
         }
 
         try {
@@ -320,8 +318,8 @@ class RentalConfigController extends AbstractController
      */
     public function saveGeneral(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/admin/locations')) !== null) {
+            return $guard;
         }
 
         $assetId = (int) $request->getBody('asset_id', 0);
@@ -373,8 +371,8 @@ class RentalConfigController extends AbstractController
      */
     public function saveManagers(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/admin/locations')) !== null) {
+            return $guard;
         }
 
         $assetId = (int) $request->getBody('asset_id', 0);
@@ -505,8 +503,8 @@ class RentalConfigController extends AbstractController
         string $successMessage,
         bool $backToAsset
     ): Response {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/admin/locations')) !== null) {
+            return $guard;
         }
 
         $assetId = (int) $request->getBody('asset_id', 0);

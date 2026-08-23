@@ -58,10 +58,8 @@ class InboundMailConfigController extends AbstractController
      */
     public function save(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            FlashMessage::set('danger', 'Session expirée, veuillez réessayer.');
-
-            return $this->redirect('/config/courrier-entrant');
+        if (($guard = $this->guardCsrf($request, '/config/courrier-entrant')) !== null) {
+            return $guard;
         }
 
         $id = (int) $request->getBody('id', 0);
@@ -75,13 +73,13 @@ class InboundMailConfigController extends AbstractController
         $isEnabled = $request->getBody('is_enabled') !== null;
 
         if ($name === '' || $host === '' || $username === '') {
-            FlashMessage::set('danger', 'Le nom, l\'hôte et le compte sont obligatoires.');
+            FlashMessage::set('error', 'Le nom, l\'hôte et le compte sont obligatoires.');
 
             return $this->redirect('/config/courrier-entrant');
         }
 
         if ($port < 1 || $port > 65535) {
-            FlashMessage::set('danger', 'Le port doit être compris entre 1 et 65535.');
+            FlashMessage::set('error', 'Le port doit être compris entre 1 et 65535.');
 
             return $this->redirect('/config/courrier-entrant');
         }
@@ -101,7 +99,7 @@ class InboundMailConfigController extends AbstractController
         }
 
         if ($password === '') {
-            FlashMessage::set('danger', 'Le mot de passe est obligatoire pour une nouvelle boîte.');
+            FlashMessage::set('error', 'Le mot de passe est obligatoire pour une nouvelle boîte.');
 
             return $this->redirect('/config/courrier-entrant');
         }
@@ -124,10 +122,8 @@ class InboundMailConfigController extends AbstractController
      */
     public function testConnection(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            FlashMessage::set('danger', 'Session expirée, veuillez réessayer.');
-
-            return $this->redirect('/config/courrier-entrant');
+        if (($guard = $this->guardCsrf($request, '/config/courrier-entrant')) !== null) {
+            return $guard;
         }
 
         $result = $this->adminService->testConnection((int) ($params['id'] ?? 0), new \DateTimeImmutable());
@@ -142,10 +138,8 @@ class InboundMailConfigController extends AbstractController
      */
     public function toggle(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            FlashMessage::set('danger', 'Session expirée, veuillez réessayer.');
-
-            return $this->redirect('/config/courrier-entrant');
+        if (($guard = $this->guardCsrf($request, '/config/courrier-entrant')) !== null) {
+            return $guard;
         }
 
         $id = (int) ($params['id'] ?? 0);
@@ -176,10 +170,8 @@ class InboundMailConfigController extends AbstractController
      */
     public function delete(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            FlashMessage::set('danger', 'Session expirée, veuillez réessayer.');
-
-            return $this->redirect('/config/courrier-entrant');
+        if (($guard = $this->guardCsrf($request, '/config/courrier-entrant')) !== null) {
+            return $guard;
         }
 
         $id = (int) ($params['id'] ?? 0);

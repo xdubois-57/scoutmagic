@@ -74,7 +74,7 @@
                         {% endif %}
                     </div>
                     <span class="badge bg-primary-subtle text-primary-emphasis text-nowrap">
-                        {{ event.startDate|date('d/m/Y') }}{% if event.endDate and event.endDate != event.startDate %} - {{ event.endDate|date('d/m/Y') }}{% endif %}
+                        {{ event.startDate|date_fr }}{% if event.endDate and event.endDate != event.startDate %} - {{ event.endDate|date_fr }}{% endif %}
                     </span>
                 </li>
             {% endfor %}

@@ -5,7 +5,7 @@ Votre réponse a bien été enregistrée. Voici un récapitulatif :
 {% for line in answers %}{{ line.label }} : {{ line.value }}
 {% endfor %}
 {% if payment %}
-Montant à payer : {{ payment.total|number_format(2, ',', ' ') }} €
+Montant à payer : {{ payment.total|money }}
 Compte : {{ payment.beneficiary }}
 IBAN : {{ payment.iban }}
 Communication structurée : {{ payment.communication }}

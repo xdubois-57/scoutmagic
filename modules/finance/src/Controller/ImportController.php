@@ -59,7 +59,7 @@ class ImportController extends AbstractController
     public function upload(Request $request, array $params): Response
     {
         if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->renderResult(['error' => 'Jeton CSRF invalide.']);
+            return $this->renderResult(['error' => self::SESSION_EXPIRED_MESSAGE]);
         }
 
         $account = $this->financeService->getAccount((int) $request->getBody('account_id', 0));

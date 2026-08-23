@@ -120,22 +120,22 @@
                                 {% if line.isInformational and line.unitPriceCents is not null %}
                                     <span class="small d-block">
                                         Facturé après le séjour selon relevé —
-                                        {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} €{{ line.meta.meter_unit is defined and line.meta.meter_unit ? ' / ' ~ line.meta.meter_unit : '' }}
+                                        {{ line.unitPriceCents|money_cents }}{{ line.meta.meter_unit is defined and line.meta.meter_unit ? ' / ' ~ line.meta.meter_unit : '' }}
                                     </span>
                                 {% elseif line.rule == 'base' and line.unitPriceCents is not null %}
                                     <span class="small text-body-secondary d-block">
-                                        {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} € {{ quote.billingUnit.pricePhrase }}
+                                        {{ line.unitPriceCents|money_cents }} {{ quote.billingUnit.pricePhrase }}
                                     </span>
                                 {% elseif line.rule == 'fee_per_person' and line.unitPriceCents is not null %}
                                     <span class="small text-body-secondary d-block">
-                                        {{ line.quantity }} pers. × {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} €
+                                        {{ line.quantity }} pers. × {{ line.unitPriceCents|money_cents }}
                                     </span>
                                 {% endif %}
                             </td>
                             <td class="text-end">
                                 {{ line.isInformational
                                     ? 'Selon relevé'
-                                    : (line.amountCents / 100)|number_format(2, ',', ' ') ~ ' €' }}
+                                    : line.amountCents|money_cents }}
                             </td>
                         </tr>
                     {% endfor %}
@@ -148,7 +148,7 @@
                                to walk back (§6.7). #}
                             {{ quote.isComplete ? 'Total estimé' : 'Dès' }}
                         </th>
-                        <td class="text-end">{{ (quote.totalCents / 100)|number_format(2, ',', ' ') }} €</td>
+                        <td class="text-end">{{ quote.totalCents|money_cents }}</td>
                     </tr>
                 </tfoot>
             </table>
@@ -177,7 +177,7 @@
                   not obvious, and this is the moment to teach it.
                 #}
                 <p class="text-body-secondary mb-2">
-                    Arrivée le <strong>{{ selection[0]|date('d/m/Y') }}</strong> — touchez maintenant
+                    Arrivée le <strong>{{ selection[0]|date_fr }}</strong> — touchez maintenant
                     votre jour de départ dans le calendrier, ou indiquez-le ci-dessus.
                 </p>
             {% elseif estimate_requested %}

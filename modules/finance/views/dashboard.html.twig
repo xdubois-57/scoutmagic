@@ -71,7 +71,7 @@
                 <div class="border rounded-3 p-3 h-100">
                     <div class="text-body-secondary small">Solde actuel</div>
                     <div class="fs-3 fw-semibold">
-                        {{ balance is not null ? balance|number_format(2, ',', ' ') ~ ' €' : 'Solde inconnu' }}
+                        {{ balance is not null ? balance|money : 'Solde inconnu' }}
                     </div>
                 </div>
             </div>
@@ -79,7 +79,7 @@
                 <div class="border rounded-3 p-3 h-100">
                     <div class="text-body-secondary small">Solde le plus bas (18 derniers mois)</div>
                     <div class="fs-3 fw-semibold">
-                        {{ lowest_balance_18_months is not null ? lowest_balance_18_months|number_format(2, ',', ' ') ~ ' €' : 'Inconnu' }}
+                        {{ lowest_balance_18_months is not null ? lowest_balance_18_months|money : 'Inconnu' }}
                     </div>
                 </div>
             </div>
@@ -94,7 +94,7 @@
                 <div class="border rounded-3 p-3 h-100">
                     <div class="text-body-secondary small">Dernier extrait importé</div>
                     <div class="fs-5 fw-semibold">
-                        {{ last_import ? last_import.importedAt|date('d/m/Y') : 'Aucun import' }}
+                        {{ last_import ? last_import.importedAt|date_fr : 'Aucun import' }}
                     </div>
                     <a href="/finance/import?account_id={{ selected_account.id }}" class="small">Importer →</a>
                 </div>
@@ -166,9 +166,9 @@
                                         {{ row.category_name ?? 'Non catégorisé' }}
                                     </a>
                                 </td>
-                                <td class="text-end text-success">{{ row.income|number_format(2, ',', ' ') }} €</td>
-                                <td class="text-end text-danger">{{ row.expense|number_format(2, ',', ' ') }} €</td>
-                                <td class="text-end">{{ row.total|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end text-success">{{ row.income|money }}</td>
+                                <td class="text-end text-danger">{{ row.expense|money }}</td>
+                                <td class="text-end">{{ row.total|money }}</td>
                             </tr>
                         {% else %}
                             <tr><td colspan="4" class="text-body-secondary fst-italic">Aucun mouvement pour cet exercice.</td></tr>
@@ -178,9 +178,9 @@
                         <tfoot>
                             <tr class="fw-bold">
                                 <td>Bilan</td>
-                                <td class="text-end text-success">{{ bilan.income|number_format(2, ',', ' ') }} €</td>
-                                <td class="text-end text-danger">{{ bilan.expense|number_format(2, ',', ' ') }} €</td>
-                                <td class="text-end">{{ bilan.total|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end text-success">{{ bilan.income|money }}</td>
+                                <td class="text-end text-danger">{{ bilan.expense|money }}</td>
+                                <td class="text-end">{{ bilan.total|money }}</td>
                             </tr>
                         </tfoot>
                     {% endif %}
@@ -211,7 +211,7 @@
                         <div class="text-body-secondary small">{{ attachment.uploadedAt }}</div>
                         {% if attachment.suggestedAmount or attachment.suggestedDate or attachment.suggestedLabel %}
                             <div class="small">
-                                {% if attachment.suggestedAmount %}{{ attachment.suggestedAmount|number_format(2, ',', ' ') }} €{% endif %}
+                                {% if attachment.suggestedAmount %}{{ attachment.suggestedAmount|money }}{% endif %}
                                 {% if attachment.suggestedDate %} — {{ attachment.suggestedDate }}{% endif %}
                                 {% if attachment.suggestedSource == 'ai' %}<span class="badge text-bg-info">IA</span>{% endif %}
                                 {% if attachment.suggestedLabel %}<div class="text-body-secondary">{{ attachment.suggestedLabel }}</div>{% endif %}
@@ -264,7 +264,7 @@
                             <td>{{ row.counterparty }}</td>
                             <td>{{ row.description }}</td>
                             <td class="text-end {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
-                                {{ movement.amount|number_format(2, ',', ' ') }} €
+                                {{ movement.amount|money }}
                             </td>
                             <td class="text-center">
                                 {% set attachment_count = recent_movements_attachment_counts[movement.id] ?? 0 %}

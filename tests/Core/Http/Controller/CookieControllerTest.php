@@ -115,7 +115,11 @@ class CookieControllerTest extends TestCase
     {
         $request = new Request('POST', '/cookies/save', [], ['_csrf_token' => 'invalid'], [], []);
         $response = $this->controller->save($request, []);
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
     }
 
     public function testSaveUpdatesConsentAndRedirects(): void

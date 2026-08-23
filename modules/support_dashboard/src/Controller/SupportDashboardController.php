@@ -107,8 +107,8 @@ class SupportDashboardController extends AbstractController
      */
     public function delete(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton de sécurité invalide.', 400);
+        if (($guard = $this->guardCsrf($request, '/support-dashboard')) !== null) {
+            return $guard;
         }
 
         $id = (int) ($params['id'] ?? 0);

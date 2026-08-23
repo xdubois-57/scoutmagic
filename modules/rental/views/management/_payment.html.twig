@@ -29,15 +29,15 @@
                 <dt class="col-sm-5">Total de la location</dt>
                 <dd class="col-sm-7">
                     {% if payment.total_cents is not null %}
-                        {{ (payment.total_cents / 100)|number_format(2, ',', ' ') }} €
+                        {{ payment.total_cents|money_cents }}
                     {% else %}
                         —
                     {% endif %}
                 </dd>
                 <dt class="col-sm-5">Reçu</dt>
-                <dd class="col-sm-7">{{ (payment.received_cents / 100)|number_format(2, ',', ' ') }} €</dd>
+                <dd class="col-sm-7">{{ payment.received_cents|money_cents }}</dd>
                 <dt class="col-sm-5">Restant dû</dt>
-                <dd class="col-sm-7">{{ (payment.remaining_cents / 100)|number_format(2, ',', ' ') }} €</dd>
+                <dd class="col-sm-7">{{ payment.remaining_cents|money_cents }}</dd>
                 {% if payment.communication %}
                     <dt class="col-sm-5">Communication</dt>
                     <dd class="col-sm-7"><code>{{ payment.communication }}</code></dd>
@@ -53,7 +53,7 @@
                         Acompte {{ payment.deposit_received ? 'reçu' : 'en attente' }}
                     </span>
                     <span class="text-body-secondary small">
-                        seuil de {{ (payment.deposit_cents / 100)|number_format(2, ',', ' ') }} €
+                        seuil de {{ payment.deposit_cents|money_cents }}
                         {% if payment.deposit_due_date %}, attendu pour le {{ payment.deposit_due_date }}{% endif %}
                         — même communication que le solde
                     </span>
@@ -80,11 +80,11 @@
                     </dd>
                     <dt class="col-sm-5">Montant</dt>
                     <dd class="col-sm-7">
-                        {{ (payment.security_deposit.amount_cents / 100)|number_format(2, ',', ' ') }} €
+                        {{ payment.security_deposit.amount_cents|money_cents }}
                     </dd>
                     <dt class="col-sm-5">Reçu</dt>
                     <dd class="col-sm-7">
-                        {{ (payment.security_deposit.received_cents / 100)|number_format(2, ',', ' ') }} €
+                        {{ payment.security_deposit.received_cents|money_cents }}
                     </dd>
                     {% if payment.security_deposit.communication %}
                         <dt class="col-sm-5">Communication</dt>
@@ -94,9 +94,9 @@
                         <dt class="col-sm-5">Restituée le</dt>
                         <dd class="col-sm-7">
                             {{ payment.security_deposit.returned_at }} —
-                            {{ (payment.security_deposit.returned_cents / 100)|number_format(2, ',', ' ') }} €
+                            {{ payment.security_deposit.returned_cents|money_cents }}
                             {% if payment.security_deposit.withheld_cents %}
-                                (retenu {{ (payment.security_deposit.withheld_cents / 100)|number_format(2, ',', ' ') }} €)
+                                (retenu {{ payment.security_deposit.withheld_cents|money_cents }})
                             {% endif %}
                         </dd>
                     {% endif %}

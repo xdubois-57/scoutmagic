@@ -51,9 +51,8 @@ class TemporaryMemberController extends AbstractController
      */
     public function add(Request $request, array $params): Response
     {
-        $csrf = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return (new Response('', 403))->setBody('Forbidden: invalid CSRF token.');
+        if (($guard = $this->guardCsrf($request, SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/admin/members'))) !== null) {
+            return $guard;
         }
 
         $role = AuthSession::getRole();
@@ -119,9 +118,8 @@ class TemporaryMemberController extends AbstractController
      */
     public function remove(Request $request, array $params): Response
     {
-        $csrf = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return (new Response('', 403))->setBody('Forbidden: invalid CSRF token.');
+        if (($guard = $this->guardCsrf($request, SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/admin/members'))) !== null) {
+            return $guard;
         }
 
         $memberYearId = TemporaryMemberSession::get();

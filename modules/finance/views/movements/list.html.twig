@@ -84,7 +84,7 @@
                 <div class="d-flex justify-content-between align-items-start mb-1">
                     <span class="text-body-secondary small">{{ movement.transactionDate }}</span>
                     <span class="fw-semibold {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
-                        {{ movement.amount|number_format(2, ',', ' ') }} €
+                        {{ movement.amount|money }}
                     </span>
                 </div>
                 <div class="fw-semibold small text-truncate">{{ row.counterparty ?: row.description }}</div>
@@ -145,7 +145,7 @@
                         <td>{{ row.counterparty }}</td>
                         <td>{{ row.description }}</td>
                         <td class="text-end {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
-                            {{ movement.amount|number_format(2, ',', ' ') }} €
+                            {{ movement.amount|money }}
                         </td>
                         <td class="text-center">
                             <button type="button" class="btn btn-sm btn-link p-0 attachment-btn" data-id="{{ movement.id }}" title="Reçus">
@@ -220,7 +220,7 @@
                             <option value="">Associer un reçu en attente…</option>
                             {% for receipt in pending_receipts %}
                                 <option value="{{ receipt.id }}">
-                                    {{ receipt.originalFilename }}{% if receipt.suggestedDate %} — {{ receipt.suggestedDate }}{% endif %}{% if receipt.suggestedLabel %} — {{ receipt.suggestedLabel }}{% endif %}{% if receipt.suggestedAmount %} — {{ receipt.suggestedAmount|number_format(2, ',', ' ') }} €{% endif %}
+                                    {{ receipt.originalFilename }}{% if receipt.suggestedDate %} — {{ receipt.suggestedDate }}{% endif %}{% if receipt.suggestedLabel %} — {{ receipt.suggestedLabel }}{% endif %}{% if receipt.suggestedAmount %} — {{ receipt.suggestedAmount|money }}{% endif %}
                                 </option>
                             {% endfor %}
                         </select>

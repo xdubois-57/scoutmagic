@@ -70,7 +70,7 @@
                 <div class="col-4">
                     <div class="card h-100">
                         <div class="card-body text-center">
-                            <div class="h4 mb-0">{{ (statistics.revenue_cents / 100)|number_format(2, ',', ' ') }} €</div>
+                            <div class="h4 mb-0">{{ statistics.revenue_cents|money_cents }}</div>
                             <div class="form-text">Revenu de l'année</div>
                         </div>
                     </div>

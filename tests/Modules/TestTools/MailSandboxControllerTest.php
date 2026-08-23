@@ -184,7 +184,11 @@ class MailSandboxControllerTest extends TestCase
             'POST'
         )->handle(new Request('POST', '/test-tools/mail-sandbox/capture', [], ['armed' => '1'], [], []));
 
-        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertFalse($this->sandboxService->armed());
     }
 

@@ -74,8 +74,8 @@ class NotificationConfigController extends AbstractController
      */
     public function rotateVapid(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->redirect('/config/notifications');
+        if (($guard = $this->guardCsrf($request, '/config/notifications')) !== null) {
+            return $guard;
         }
 
         $stmt = $this->pdo->query('SELECT COUNT(*) FROM push_subscriptions');
@@ -119,8 +119,8 @@ class NotificationConfigController extends AbstractController
      */
     public function sendTest(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->redirect('/config/notifications');
+        if (($guard = $this->guardCsrf($request, '/config/notifications')) !== null) {
+            return $guard;
         }
 
         $userId = AuthSession::getUserAccountId();

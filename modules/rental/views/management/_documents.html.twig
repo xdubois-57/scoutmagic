@@ -70,10 +70,10 @@
                                     {% endif %}
                                     <span class="text-body-secondary small d-block">{{ document.originalName }}</span>
                                 </td>
-                                <td class="small">{{ document.createdAt|date('d/m/Y') }}</td>
+                                <td class="small">{{ document.createdAt|date_fr }}</td>
                                 <td class="small">
                                     {% if document.hasBeenSent %}
-                                        Envoyé le {{ document.sentAt|date('d/m/Y') }}
+                                        Envoyé le {{ document.sentAt|date_fr }}
                                     {% else %}
                                         <span class="text-body-secondary">Jamais</span>
                                     {% endif %}

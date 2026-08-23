@@ -105,9 +105,8 @@ class RegistrationConfigController extends AbstractController
      */
     public function save(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/config/inscriptions');
+        if (($guard = $this->guardCsrf($request, '/config/inscriptions')) !== null) {
+            return $guard;
         }
 
         // A body that isn't shaped like the grid must never be interpreted:
@@ -144,9 +143,8 @@ class RegistrationConfigController extends AbstractController
      */
     public function regenerateCode(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/config/inscriptions');
+        if (($guard = $this->guardCsrf($request, '/config/inscriptions')) !== null) {
+            return $guard;
         }
 
         $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
@@ -164,9 +162,8 @@ class RegistrationConfigController extends AbstractController
      */
     public function deactivateCode(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/config/inscriptions');
+        if (($guard = $this->guardCsrf($request, '/config/inscriptions')) !== null) {
+            return $guard;
         }
 
         $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
@@ -187,9 +184,8 @@ class RegistrationConfigController extends AbstractController
      */
     public function toggleOpen(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/config/inscriptions');
+        if (($guard = $this->guardCsrf($request, '/config/inscriptions')) !== null) {
+            return $guard;
         }
 
         $isOpen = $this->settingService->get('registration_form_open', 'registration', '0') === '1';
@@ -217,9 +213,8 @@ class RegistrationConfigController extends AbstractController
      */
     public function saveSchedule(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/config/inscriptions');
+        if (($guard = $this->guardCsrf($request, '/config/inscriptions')) !== null) {
+            return $guard;
         }
 
         $openAt = trim((string) $request->getBody('scheduled_open_at', ''));
@@ -288,9 +283,8 @@ class RegistrationConfigController extends AbstractController
     {
         $yearId = (int) $request->getBody('scout_year_id', '0');
 
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/config/inscriptions?year=' . $yearId);
+        if (($guard = $this->guardCsrf($request, '/config/inscriptions?year=' . $yearId)) !== null) {
+            return $guard;
         }
 
         if ($yearId <= 0 || $this->isPastYear($yearId)) {

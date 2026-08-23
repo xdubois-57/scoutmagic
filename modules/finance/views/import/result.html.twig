@@ -21,7 +21,7 @@
         {% if balance_discrepancy is not null %}
             <div class="alert alert-warning">
                 Écart détecté entre le solde fourni et le solde calculé à partir du dernier solde de référence et des mouvements :
-                <strong>{{ balance_discrepancy > 0 ? '+' : '' }}{{ balance_discrepancy|number_format(2, ',', ' ') }} €</strong>.
+                <strong>{{ balance_discrepancy > 0 ? '+' : '' }}{{ balance_discrepancy|money }}</strong>.
                 Vérifiez qu'aucun mouvement n'a été oublié.
             </div>
         {% endif %}

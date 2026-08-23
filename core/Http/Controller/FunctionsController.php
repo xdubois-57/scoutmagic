@@ -130,8 +130,8 @@ class FunctionsController extends AbstractController
 
         // CSRF validation
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $functionId = isset($json['function_id']) ? (int) $json['function_id'] : 0;
@@ -214,8 +214,8 @@ class FunctionsController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $functionId = isset($json['function_id']) ? (int) $json['function_id'] : 0;
@@ -255,8 +255,8 @@ class FunctionsController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $sectionId = isset($json['section_id']) ? (int) $json['section_id'] : 0;
@@ -299,8 +299,8 @@ class FunctionsController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $sectionId = isset($json['section_id']) ? (int) $json['section_id'] : 0;
@@ -338,8 +338,8 @@ class FunctionsController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $sectionId = isset($json['section_id']) ? (int) $json['section_id'] : 0;
@@ -383,8 +383,8 @@ class FunctionsController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $sectionId = isset($json['section_id']) ? (int) $json['section_id'] : 0;
@@ -432,8 +432,8 @@ class FunctionsController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $branchId = isset($json['branch_id']) ? (int) $json['branch_id'] : 0;

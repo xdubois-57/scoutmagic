@@ -968,7 +968,11 @@ class SetupControllerTest extends TestCase
 
         $response = $controller->save($request, []);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
     }
 
     public function testSaveRejectsInvalidData(): void
@@ -1219,7 +1223,7 @@ class SetupControllerTest extends TestCase
         $response = $controller->testEmail($request, []);
 
         $decoded = json_decode($response->getBody(), true);
-        $this->assertNotSame('Jeton CSRF invalide.', $decoded['message'] ?? null, 'test setup itself is broken, not the assertion below');
+        $this->assertNotSame(\Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE, $decoded['message'] ?? null, 'test setup itself is broken, not the assertion below');
         // 'local' mode calls PHP's real mail() — whether that succeeds
         // depends on the test environment's MTA, which isn't what this
         // test cares about. What matters is that it got PAST PHPMailer's

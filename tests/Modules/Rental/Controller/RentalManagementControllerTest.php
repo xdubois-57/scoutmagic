@@ -453,7 +453,11 @@ class RentalManagementControllerTest extends TestCase
             'status' => 'reviewing',
         ]);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
     }
 
@@ -1204,7 +1208,7 @@ class RentalManagementControllerTest extends TestCase
         ]);
 
         $flash = \Core\Http\FlashMessage::get();
-        $this->assertSame('danger', $flash['type'] ?? null);
+        $this->assertSame('error', $flash['type'] ?? null);
         $this->assertStringContainsString('déjà validé', $flash['message'] ?? '');
     }
 

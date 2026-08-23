@@ -446,7 +446,11 @@ class GroupMemberControllerTest extends TestCase
 
         $response = $this->controller([$this->moderatorId])->inviteMember($this->postRequest(), $this->params());
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertNull($this->memberRepo->find($this->groupId, $this->outsiderId));
     }
 
@@ -628,7 +632,8 @@ class GroupMemberControllerTest extends TestCase
     {
         $_POST = ['member_id' => (string) $this->plainMemberId, 'is_moderator' => '1'];
 
-        $this->assertSame(403, $this->controller([$this->moderatorId])->setModerator($this->postRequest(), $this->params())->getStatusCode());
+        $this->assertSame(302, $this->controller([$this->moderatorId])->setModerator($this->postRequest(), $this->params())->getStatusCode());
+        \Core\Http\FlashMessage::get();
     }
 
     public function testRemoveMemberDropsTheExplicitRowForAModerator(): void

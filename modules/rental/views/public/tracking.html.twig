@@ -29,7 +29,7 @@
                 {% if booking.holdUntil %}
                     <p class="mb-0">
                         {{ booking.holdLabel }} jusqu'au
-                        <strong>{{ booking.holdUntil|date('d/m/Y') }}</strong>.
+                        <strong>{{ booking.holdUntil|date_fr }}</strong>.
                     </p>
                 {% endif %}
             </div>
@@ -82,22 +82,22 @@
                                         {% if line.isInformational and line.unitPriceCents is not null %}
                                             <span class="small d-block">
                                                 Facturé après le séjour selon relevé —
-                                                {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} €{{ line.meta.meter_unit is defined and line.meta.meter_unit ? ' / ' ~ line.meta.meter_unit : '' }}
+                                                {{ line.unitPriceCents|money_cents }}{{ line.meta.meter_unit is defined and line.meta.meter_unit ? ' / ' ~ line.meta.meter_unit : '' }}
                                             </span>
                                         {% elseif line.rule == 'base' and line.unitPriceCents is not null %}
                                             <span class="small text-body-secondary d-block">
-                                                {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} € {{ quote.billingUnit.pricePhrase }}
+                                                {{ line.unitPriceCents|money_cents }} {{ quote.billingUnit.pricePhrase }}
                                             </span>
                                         {% elseif line.rule == 'fee_per_person' and line.unitPriceCents is not null %}
                                             <span class="small text-body-secondary d-block">
-                                                {{ line.quantity }} pers. × {{ (line.unitPriceCents / 100)|number_format(2, ',', ' ') }} €
+                                                {{ line.quantity }} pers. × {{ line.unitPriceCents|money_cents }}
                                             </span>
                                         {% endif %}
                                     </td>
                                     <td class="text-end">
                                         {{ line.isInformational
                                             ? 'Selon relevé'
-                                            : (line.amountCents / 100)|number_format(2, ',', ' ') ~ ' €' }}
+                                            : line.amountCents|money_cents }}
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -105,7 +105,7 @@
                         <tfoot>
                             <tr class="fw-semibold">
                                 <th scope="row" class="text-end">Total</th>
-                                <td class="text-end">{{ (quote.totalCents / 100)|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end">{{ quote.totalCents|money_cents }}</td>
                             </tr>
                         </tfoot>
                     </table>

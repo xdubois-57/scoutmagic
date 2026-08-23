@@ -78,7 +78,7 @@
                             <span class="badge {{ rBadge }}">{{ rLabel }}</span>
                         </td>
                         <td>
-                            {% if r.status == 'sent' %}{{ r.sentAt|date('d/m/Y H:i') }}
+                            {% if r.status == 'sent' %}{{ r.sentAt|datetime_fr }}
                             {% elseif r.status == 'error' %}{{ r.errorMessage ?? '—' }}
                             {% else %}—
                             {% endif %}

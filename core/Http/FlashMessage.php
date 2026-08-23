@@ -10,6 +10,17 @@ namespace Core\Http;
 
 use Core\Security\SessionStore;
 
+/**
+ * One-shot message shown on the next rendered page.
+ *
+ * Contract: $type is exactly one of 'success', 'error' or 'warning' —
+ * these are the only types the layout maps to an alert style. 'danger'
+ * is a Bootstrap CSS class, not a flash type; passing it only renders by
+ * accident, and tests/Core/View/UxConventionsTest.php fails the build on
+ * any new occurrence. For a stale CSRF token, don't call this directly:
+ * AbstractController::guardCsrf() flashes the single site-wide message
+ * (AbstractController::SESSION_EXPIRED_MESSAGE).
+ */
 class FlashMessage
 {
     private const SESSION_KEY = '_flash_message';

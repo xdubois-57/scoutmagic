@@ -137,7 +137,11 @@ class ReactionControllerTest extends GroupsControllerTestCase
 
         $response = $this->controller([$this->memberId])->react($this->request(), $this->params($this->postId));
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertNull($this->postReactionKey($this->memberId));
     }
 

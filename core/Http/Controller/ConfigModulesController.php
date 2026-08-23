@@ -85,8 +85,8 @@ class ConfigModulesController extends AbstractController
         }
 
         $csrf = (string) ($data['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         $moduleId = (string) ($data['module_id'] ?? '');
@@ -128,8 +128,8 @@ class ConfigModulesController extends AbstractController
         }
 
         $csrf = (string) ($data['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         $ids = is_array($data['ids'] ?? null) ? array_map('strval', $data['ids']) : [];

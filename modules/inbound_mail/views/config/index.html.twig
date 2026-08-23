@@ -74,7 +74,7 @@
                                 </td>
                                 <td>
                                     {% if mailbox.lastSyncedAt %}
-                                        {{ mailbox.lastSyncedAt|date('d/m/Y H:i') }}
+                                        {{ mailbox.lastSyncedAt|datetime_fr }}
                                     {% else %}
                                         —
                                     {% endif %}

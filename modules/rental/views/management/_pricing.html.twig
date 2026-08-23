@@ -257,7 +257,7 @@
                             <span class="fw-semibold">{{ fee.label }}</span>
                             <span class="text-body-secondary small d-block">
                                 {{ fee.natureLabel }} ·
-                                {{ (fee.amountCents / 100)|number_format(2, ',', ' ') }} €{{ fee.meterUnit ? ' / ' ~ fee.meterUnit : '' }}
+                                {{ fee.amountCents|money_cents }}{{ fee.meterUnit ? ' / ' ~ fee.meterUnit : '' }}
                             </span>
                         </span>
                         <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/frais-supprimer">
@@ -363,13 +363,13 @@
                                     <td class="text-end">{{ line.isInformational ? '—' : line.quantity }}</td>
                                     <td class="text-end">
                                         {{ line.unitPriceCents is not null
-                                            ? (line.unitPriceCents / 100)|number_format(2, ',', ' ') ~ ' €'
+                                            ? line.unitPriceCents|money_cents
                                             : '—' }}
                                     </td>
                                     <td class="text-end">
                                         {{ line.isInformational
                                             ? 'Selon relevé'
-                                            : (line.amountCents / 100)|number_format(2, ',', ' ') ~ ' €' }}
+                                            : line.amountCents|money_cents }}
                                     </td>
                                 </tr>
                             {% else %}
@@ -379,7 +379,7 @@
                         <tfoot>
                             <tr class="fw-semibold">
                                 <th scope="row" colspan="3" class="text-end">Total</th>
-                                <td class="text-end">{{ (quote.totalCents / 100)|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end">{{ quote.totalCents|money_cents }}</td>
                             </tr>
                         </tfoot>
                     </table>

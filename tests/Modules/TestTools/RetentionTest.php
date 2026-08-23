@@ -320,7 +320,11 @@ class RetentionTest extends TestCase
     {
         $this->capture(1);
 
-        $this->assertSame(400, $this->postEmpty(['confirmation' => MailSandboxService::CONFIRMATION_WORD]));
+        $this->assertSame(302, $this->postEmpty(['confirmation' => MailSandboxService::CONFIRMATION_WORD]));
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertSame(1, $this->sandboxService->count());
     }
 

@@ -163,8 +163,8 @@ class RentalRequestController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/locations/' . $asset->slug)) !== null) {
+            return $guard;
         }
 
         // HumanCheck before anything else, and never for an identified
@@ -348,8 +348,8 @@ class RentalRequestController extends AbstractController
      */
     public function requestChange(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/locations/suivi/' . (int) ($params['id'] ?? 0) . '/' . (string) ($params['token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         $booking = $this->bookingService->findByTrackingToken(
@@ -363,7 +363,7 @@ class RentalRequestController extends AbstractController
 
         $kind = ChangeRequestKind::tryFrom((string) $request->getBody('kind', ''));
         if ($kind === null) {
-            FlashMessage::set('danger', "Ce type de demande n'existe pas.");
+            FlashMessage::set('error', "Ce type de demande n'existe pas.");
 
             return $this->backToTracking($params);
         }
@@ -389,7 +389,7 @@ class RentalRequestController extends AbstractController
                 . "tant qu'un gestionnaire ne l'a pas acceptée."
             );
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->backToTracking($params);
@@ -403,8 +403,8 @@ class RentalRequestController extends AbstractController
      */
     public function decideProposal(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/locations/suivi/' . (int) ($params['id'] ?? 0) . '/' . (string) ($params['token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         $booking = $this->bookingService->findByTrackingToken(
@@ -444,7 +444,7 @@ class RentalRequestController extends AbstractController
                 FlashMessage::set('success', 'Proposition refusée. Votre réservation est inchangée.');
             }
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->backToTracking($params);

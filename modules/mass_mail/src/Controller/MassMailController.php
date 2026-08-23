@@ -224,8 +224,8 @@ class MassMailController extends AbstractController
     public function importAudience(Request $request, array $params): Response
     {
         $csrf = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         $uploadedFile = $request->getFile('file');
@@ -370,8 +370,8 @@ class MassMailController extends AbstractController
     public function uploadAttachment(Request $request, array $params): Response
     {
         $csrf = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         $emailId = (int) $params['id'];

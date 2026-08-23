@@ -91,7 +91,7 @@ class GalleryConfigController extends AbstractController
     {
         if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
             $context = $this->buildContext();
-            $context['submit_error'] = 'Jeton CSRF invalide.';
+            $context['submit_error'] = self::SESSION_EXPIRED_MESSAGE;
             return $this->render('@gallery/config.html.twig', $context)->setStatusCode(403);
         }
 

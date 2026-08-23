@@ -92,8 +92,8 @@ class MemberController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
-        if (!CsrfGuard::validateToken((string) ($json['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, (string) ($json['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         $offset = isset($json['offset']) ? (int) $json['offset'] : null;
@@ -159,8 +159,8 @@ class MemberController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
-        if (!CsrfGuard::validateToken((string) ($json['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, (string) ($json['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         try {

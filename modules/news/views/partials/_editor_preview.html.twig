@@ -38,7 +38,7 @@
                     <div class="border rounded-3 p-3 mb-3">
                         {% for row in preview_fields %}
                             {% if row.field.isPriced() %}
-                                <p class="mb-1">{{ row.field.label }} : 1 × {{ row.field.pricePerUnit|number_format(2, ',', ' ') }}€ = {{ row.field.pricePerUnit|number_format(2, ',', ' ') }}€</p>
+                                <p class="mb-1">{{ row.field.label }} : 1 × {{ row.field.pricePerUnit|money }} = {{ row.field.pricePerUnit|money }}</p>
                             {% endif %}
                         {% endfor %}
                         <p class="fw-bold mb-0">Total à payer (exemple) : voir le montant ci-dessus</p>

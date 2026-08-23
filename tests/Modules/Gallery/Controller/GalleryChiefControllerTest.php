@@ -245,7 +245,11 @@ class GalleryChiefControllerTest extends TestCase
 
         $response = $this->controller->store($request, []);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
     }
 
     public function testStoreCreatesLocalAlbumAndRedirects(): void

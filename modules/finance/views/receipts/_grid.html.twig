@@ -25,7 +25,7 @@
                 <div class="text-body-secondary small">{{ attachment.uploadedAt }}</div>
                 {% if attachment.suggestedAmount or attachment.suggestedDate or attachment.suggestedLabel %}
                     <div class="small">
-                        {% if attachment.suggestedAmount %}{{ attachment.suggestedAmount|number_format(2, ',', ' ') }} €{% endif %}
+                        {% if attachment.suggestedAmount %}{{ attachment.suggestedAmount|money }}{% endif %}
                         {% if attachment.suggestedDate %} — {{ attachment.suggestedDate }}{% endif %}
                         {% if attachment.suggestedSource == 'ai' %}<span class="badge text-bg-info">IA</span>{% endif %}
                         {% if attachment.suggestedLabel %}

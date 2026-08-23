@@ -134,8 +134,8 @@ class ReplyController extends AbstractController
      */
     public function create(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/groups/' . (int) ($params['id'] ?? 0))) !== null) {
+            return $guard;
         }
 
         $context = $this->context();
@@ -271,7 +271,7 @@ class ReplyController extends AbstractController
      */
     public function edit(Request $request, array $params): Response
     {
-        return $this->replyAction($params, function (DiscussionGroup $group, Reply $reply, GroupSessionContext $context) use ($request) {
+        return $this->replyAction($request, $params, function (DiscussionGroup $group, Reply $reply, GroupSessionContext $context) use ($request) {
             if (!$this->replyService->canEdit($reply, $context)) {
                 return new Response('Cette réponse ne peut plus être modifiée.', 403);
             }
@@ -322,7 +322,7 @@ class ReplyController extends AbstractController
      */
     public function delete(Request $request, array $params): Response
     {
-        return $this->replyAction($params, function (DiscussionGroup $group, Reply $reply, GroupSessionContext $context) use ($request) {
+        return $this->replyAction($request, $params, function (DiscussionGroup $group, Reply $reply, GroupSessionContext $context) use ($request) {
             $canModerate = $this->accessService->canModerate($group, $context);
             if (!$this->replyService->canDelete($reply, $context, $canModerate)) {
                 return new Response('Vous ne pouvez pas supprimer cette réponse.', 403);
@@ -407,10 +407,10 @@ class ReplyController extends AbstractController
      * @param array<string, string> $params
      * @param callable(DiscussionGroup, Reply, GroupSessionContext): Response $action
      */
-    private function replyAction(array $params, callable $action): Response
+    private function replyAction(Request $request, array $params, callable $action): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/groups/' . (int) ($params['id'] ?? 0))) !== null) {
+            return $guard;
         }
 
         $context = $this->context();

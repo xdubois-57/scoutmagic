@@ -371,8 +371,8 @@ class RentalManagementController extends AbstractController
      */
     private function complianceAction(Request $request, callable $work): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -383,7 +383,7 @@ class RentalManagementController extends AbstractController
         try {
             $work($asset);
         } catch (RentalException | UploadException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/conformite');
@@ -1248,8 +1248,8 @@ class RentalManagementController extends AbstractController
      */
     private function assetSetupAction(Request $request, callable $work): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1260,7 +1260,7 @@ class RentalManagementController extends AbstractController
         try {
             $work($asset);
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
@@ -1274,8 +1274,8 @@ class RentalManagementController extends AbstractController
      */
     public function saveCalendarPublication(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1301,7 +1301,7 @@ class RentalManagementController extends AbstractController
         if ($enabled && $calendarIds === []) {
             // Half-configured is worse than off: an asset that says
             // "publish" but has nowhere to publish to looks like it works.
-            FlashMessage::set('danger', 'Choisissez au moins un calendrier sur lequel publier cette occupation.');
+            FlashMessage::set('error', 'Choisissez au moins un calendrier sur lequel publier cette occupation.');
 
             return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
         }
@@ -1330,8 +1330,8 @@ class RentalManagementController extends AbstractController
      */
     public function saveTemplate(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1821,8 +1821,8 @@ class RentalManagementController extends AbstractController
      */
     public function createBlock(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1858,7 +1858,7 @@ class RentalManagementController extends AbstractController
                         . 'Les deux coexistent — traitez chaque réservation individuellement.'
             );
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/calendrier');
@@ -1871,8 +1871,8 @@ class RentalManagementController extends AbstractController
      */
     public function deleteBlock(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1884,7 +1884,7 @@ class RentalManagementController extends AbstractController
             $this->blockService->delete($asset->id, (int) $request->getBody('block_id', 0));
             FlashMessage::set('success', 'Blocage supprimé.');
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/calendrier');
@@ -1904,8 +1904,8 @@ class RentalManagementController extends AbstractController
      */
     private function bookingAction(Request $request, callable $work): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1921,7 +1921,7 @@ class RentalManagementController extends AbstractController
         try {
             $work($booking, $asset);
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect($this->bookingUrl($asset, $booking));
@@ -1937,8 +1937,8 @@ class RentalManagementController extends AbstractController
      */
     private function stayAction(Request $request, callable $work): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Forbidden', 403);
+        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+            return $guard;
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
@@ -1954,7 +1954,7 @@ class RentalManagementController extends AbstractController
         try {
             $work($booking, $asset);
         } catch (RentalException $e) {
-            FlashMessage::set('danger', $e->getMessage());
+            FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirect(

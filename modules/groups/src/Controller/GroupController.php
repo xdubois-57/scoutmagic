@@ -453,8 +453,8 @@ class GroupController extends AbstractController
      */
     public function create(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/groups')) !== null) {
+            return $guard;
         }
 
         $context = $this->context();
@@ -524,7 +524,7 @@ class GroupController extends AbstractController
      */
     public function edit(Request $request, array $params): Response
     {
-        return $this->moderatorAction($params, function (DiscussionGroup $group, GroupSessionContext $context) use ($request): Response {
+        return $this->moderatorAction($request, $params, function (DiscussionGroup $group, GroupSessionContext $context) use ($request): Response {
             $name = trim((string) $request->getBody('name', ''));
             if ($name === '') {
                 FlashMessage::set('error', 'Le nom du groupe ne peut pas être vide.');
@@ -567,7 +567,7 @@ class GroupController extends AbstractController
      */
     public function close(Request $request, array $params): Response
     {
-        return $this->moderatorAction($params, function (DiscussionGroup $group, GroupSessionContext $context): Response {
+        return $this->moderatorAction($request, $params, function (DiscussionGroup $group, GroupSessionContext $context): Response {
             $this->membershipService?->close($group, $context->userAccountId);
             FlashMessage::set('success', 'Le groupe est clôturé : il reste consultable, mais n\'accepte plus de nouvelle publication.');
 
@@ -587,7 +587,7 @@ class GroupController extends AbstractController
      */
     public function reopen(Request $request, array $params): Response
     {
-        return $this->moderatorAction($params, function (DiscussionGroup $group, GroupSessionContext $context): Response {
+        return $this->moderatorAction($request, $params, function (DiscussionGroup $group, GroupSessionContext $context): Response {
             if ($this->membershipService === null) {
                 return new Response('Not Found', 404);
             }
@@ -608,10 +608,10 @@ class GroupController extends AbstractController
      * @param array<string, string> $params
      * @param callable(DiscussionGroup, GroupSessionContext): Response $action
      */
-    private function moderatorAction(array $params, callable $action): Response
+    private function moderatorAction(Request $request, array $params, callable $action): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/groups/' . (int) ($params['id'] ?? 0))) !== null) {
+            return $guard;
         }
 
         $context = $this->context();

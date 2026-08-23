@@ -49,8 +49,8 @@ class PasswordResetController extends AbstractController
     public function request(Request $request, array $params): Response
     {
         $csrfToken = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Session expirée. Veuillez recharger la page.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $email = trim((string) $request->getBody('email', ''));
@@ -135,9 +135,8 @@ class PasswordResetController extends AbstractController
     {
         $id = (int) ($params['id'] ?? 0);
 
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Session expirée. Veuillez réessayer.');
-            return $this->redirect('/password-reset/' . $id . '#' . rawurlencode((string) $request->getBody('token', '')));
+        if (($guard = $this->guardCsrf($request, '/password-reset/' . $id . '#' . rawurlencode((string) $request->getBody('token', '')))) !== null) {
+            return $guard;
         }
 
         $token = (string) $request->getBody('token', '');

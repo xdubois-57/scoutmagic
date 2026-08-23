@@ -343,7 +343,7 @@
                             {% if member.birthDate %}
                                 <div class="col-6 col-md-4">
                                     <span class="text-body-secondary d-block">Date de naissance</span>
-                                    {{ member.birthDate|date('d/m/Y') }}
+                                    {{ member.birthDate|date_fr }}
                                 </div>
                             {% endif %}
                             {% if member.gender %}

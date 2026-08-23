@@ -52,8 +52,8 @@ class GalleryStorageLocationController extends AbstractController
      */
     public function store(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/config/gallery/locations/new')) !== null) {
+            return $guard;
         }
 
         $type = (string) $request->getBody('type', StorageLocation::TYPE_LOCAL) === StorageLocation::TYPE_S3
@@ -136,8 +136,8 @@ class GalleryStorageLocationController extends AbstractController
      */
     public function update(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/config/gallery/locations/' . (int) ($params['id'] ?? 0) . '/edit')) !== null) {
+            return $guard;
         }
 
         $location = $this->storageLocationRepository->findById((int) $params['id']);

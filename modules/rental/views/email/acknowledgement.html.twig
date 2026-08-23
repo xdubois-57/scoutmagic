@@ -22,7 +22,7 @@
 {% if booking.holdUntil %}
     <p>
         Nous bloquons ces dates jusqu'au
-        <strong>{{ booking.holdUntil|date('d/m/Y') }}</strong>, le temps de vous répondre.
+        <strong>{{ booking.holdUntil|date_fr }}</strong>, le temps de vous répondre.
     </p>
 {% endif %}
 

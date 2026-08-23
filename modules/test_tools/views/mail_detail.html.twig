@@ -6,7 +6,7 @@
     <div>
         <h1 class="h4 mb-1">{{ email.subject }}</h1>
         <p class="small text-body-secondary mb-0">
-            Capturé le {{ email.capturedAt|date('d/m/Y à H:i') }}
+            Capturé le {{ email.capturedAt|datetime_fr }}
         </p>
     </div>
     {# The way back to the sandbox list lives in the breadcrumb trail

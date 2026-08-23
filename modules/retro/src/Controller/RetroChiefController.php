@@ -83,9 +83,8 @@ class RetroChiefController extends AbstractController
      */
     public function store(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/retro');
+        if (($guard = $this->guardCsrf($request, '/retro')) !== null) {
+            return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_create_board', 'intendant')) {
             return (new Response('', 403))->setBody('Forbidden');
@@ -140,9 +139,8 @@ class RetroChiefController extends AbstractController
      */
     public function update(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/retro');
+        if (($guard = $this->guardCsrf($request, '/retro')) !== null) {
+            return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_create_board', 'intendant')) {
             return (new Response('', 403))->setBody('Forbidden');
@@ -183,9 +181,8 @@ class RetroChiefController extends AbstractController
      */
     public function close(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/retro');
+        if (($guard = $this->guardCsrf($request, '/retro')) !== null) {
+            return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_close_board', 'chief')) {
             return (new Response('', 403))->setBody('Forbidden');
@@ -206,9 +203,8 @@ class RetroChiefController extends AbstractController
      */
     public function reopen(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/retro');
+        if (($guard = $this->guardCsrf($request, '/retro')) !== null) {
+            return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_close_board', 'chief')) {
             return (new Response('', 403))->setBody('Forbidden');
@@ -229,9 +225,8 @@ class RetroChiefController extends AbstractController
      */
     public function archive(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/retro');
+        if (($guard = $this->guardCsrf($request, '/retro')) !== null) {
+            return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_close_board', 'chief')) {
             return (new Response('', 403))->setBody('Forbidden');
@@ -252,9 +247,8 @@ class RetroChiefController extends AbstractController
      */
     public function unarchive(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/retro');
+        if (($guard = $this->guardCsrf($request, '/retro')) !== null) {
+            return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_close_board', 'chief')) {
             return (new Response('', 403))->setBody('Forbidden');
@@ -275,9 +269,8 @@ class RetroChiefController extends AbstractController
      */
     public function regenerateLink(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/retro');
+        if (($guard = $this->guardCsrf($request, '/retro')) !== null) {
+            return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_close_board', 'chief')) {
             return (new Response('', 403))->setBody('Forbidden');

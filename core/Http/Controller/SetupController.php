@@ -150,8 +150,9 @@ class SetupController extends AbstractController
             return $gate;
         }
 
+        // setup.js reads `message`, not `error` — keep the key, unify the sentence.
         if (!CsrfGuard::validateRequest()) {
-            return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
+            return $this->json(['success' => false, 'message' => self::SESSION_EXPIRED_MESSAGE], 403);
         }
 
         $host = (string) $request->getBody('db_host', 'localhost');
@@ -211,8 +212,9 @@ class SetupController extends AbstractController
         if ($this->secretManager->isInitialized()) {
             return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'], 403);
         }
+        // setup.js reads `message`, not `error` — keep the key, unify the sentence.
         if (!CsrfGuard::validateRequest()) {
-            return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
+            return $this->json(['success' => false, 'message' => self::SESSION_EXPIRED_MESSAGE], 403);
         }
 
         $host = (string) $request->getBody('db_host', 'localhost');
@@ -281,8 +283,9 @@ class SetupController extends AbstractController
         if ($this->secretManager->isInitialized()) {
             return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'], 403);
         }
+        // setup.js reads `message`, not `error` — keep the key, unify the sentence.
         if (!CsrfGuard::validateRequest()) {
-            return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
+            return $this->json(['success' => false, 'message' => self::SESSION_EXPIRED_MESSAGE], 403);
         }
 
         $host = (string) $request->getBody('db_host', 'localhost');
@@ -444,10 +447,8 @@ class SetupController extends AbstractController
             return $gate;
         }
 
-        // Validate CSRF token
-        $csrfToken = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return (new Response('', 403))->setBody('Forbidden: invalid CSRF token.');
+        if (($guard = $this->guardCsrf($request, '/setup')) !== null) {
+            return $guard;
         }
 
         // Collect and validate form data
@@ -533,8 +534,9 @@ class SetupController extends AbstractController
             return $gate;
         }
 
+        // setup.js reads `message`, not `error` — keep the key, unify the sentence.
         if (!CsrfGuard::validateRequest()) {
-            return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
+            return $this->json(['success' => false, 'message' => self::SESSION_EXPIRED_MESSAGE], 403);
         }
 
         try {
@@ -563,8 +565,8 @@ class SetupController extends AbstractController
         if ($this->secretManager->isInitialized()) {
             return $this->redirect('/setup');
         }
-        if (!CsrfGuard::validateRequest()) {
-            return $this->redirect('/setup');
+        if (($guard = $this->guardCsrf($request, '/setup')) !== null) {
+            return $guard;
         }
 
         $lockedUntil = (int) SessionStore::get('setup_token_locked_until', 0);
@@ -623,8 +625,9 @@ class SetupController extends AbstractController
             return $gate;
         }
 
+        // setup.js reads `message`, not `error` — keep the key, unify the sentence.
         if (!CsrfGuard::validateRequest()) {
-            return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
+            return $this->json(['success' => false, 'message' => self::SESSION_EXPIRED_MESSAGE], 403);
         }
 
         $recipient = trim((string) $request->getBody('recipient', ''));

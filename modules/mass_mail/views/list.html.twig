@@ -72,7 +72,7 @@
                             </span>
                         </td>
                         <td class="text-end">{{ recipient_counts[email.id] ?? 0 }}</td>
-                        <td>{{ email.createdAt|date('d/m/Y') }}</td>
+                        <td>{{ email.createdAt|date_fr }}</td>
                         <td class="text-end text-nowrap">
                             <button type="button" class="btn btn-sm btn-outline-secondary mm-open-btn" data-id="{{ email.id }}" title="Ouvrir"><i class="bi bi-eye"></i></button>
                             {% if email.status in ['sending', 'sent'] %}

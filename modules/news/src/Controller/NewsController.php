@@ -189,8 +189,8 @@ class NewsController extends AbstractController
     public function uploadBodyImage(Request $request, array $params): Response
     {
         $csrf = (string) $request->getBody('_csrf_token', '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
+            return $guard;
         }
 
         $uploadedFile = $request->getFile('image');
@@ -218,8 +218,8 @@ class NewsController extends AbstractController
      */
     public function store(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/news/create')) !== null) {
+            return $guard;
         }
 
         $accountId = (int) AuthSession::getUserAccountId();
@@ -286,8 +286,8 @@ class NewsController extends AbstractController
      */
     public function update(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/news/' . (int) ($params['id'] ?? 0) . '/edit')) !== null) {
+            return $guard;
         }
 
         $article = $this->articleService->findById((int) $params['id']);

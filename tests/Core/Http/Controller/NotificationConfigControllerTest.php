@@ -102,6 +102,7 @@ class NotificationConfigControllerTest extends TestCase
     protected function tearDown(): void
     {
         AuthSession::logout();
+        $_POST = [];
     }
 
     private function issueCsrfToken(): string

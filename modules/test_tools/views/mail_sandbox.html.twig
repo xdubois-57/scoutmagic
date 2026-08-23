@@ -129,7 +129,7 @@
                 <div class="d-flex justify-content-between align-items-start gap-2">
                     <span class="fw-semibold">{{ email.subject }}</span>
                     <span class="text-nowrap small text-body-secondary">
-                        {{ email.capturedAt|date('d/m/Y H:i') }}
+                        {{ email.capturedAt|datetime_fr }}
                     </span>
                 </div>
                 <div class="small text-body-secondary">{{ email.recipient }}</div>

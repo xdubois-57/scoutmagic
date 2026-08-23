@@ -237,7 +237,7 @@ class FunctionsControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
-        $this->assertSame('Jeton CSRF invalide.', $decoded['error']);
+        $this->assertSame(\Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE, $decoded['error']);
     }
 
     public function testUpdateLogsJournalEntryOnRoleChange(): void

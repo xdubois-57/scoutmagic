@@ -105,9 +105,8 @@ class TrackingController extends AbstractController
             return new Response('Forbidden', 403);
         }
 
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/inscriptions/suivi/demande/' . $registrationRequest->id);
+        if (($guard = $this->guardCsrf($request, '/inscriptions/suivi/demande/' . $registrationRequest->id)) !== null) {
+            return $guard;
         }
 
         try {
@@ -132,9 +131,8 @@ class TrackingController extends AbstractController
             return new Response('Forbidden', 403);
         }
 
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/inscriptions/suivi/demande/' . $registrationRequest->id);
+        if (($guard = $this->guardCsrf($request, '/inscriptions/suivi/demande/' . $registrationRequest->id)) !== null) {
+            return $guard;
         }
 
         try {

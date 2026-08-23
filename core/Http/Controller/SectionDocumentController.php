@@ -45,9 +45,8 @@ class SectionDocumentController extends AbstractController
         $sectionId = (int) $request->getBody('section_id', '0');
         $scoutYearId = (int) $request->getBody('scout_year_id', '0');
 
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect($this->staffsUrl($sectionId));
+        if (($guard = $this->guardCsrf($request, $this->staffsUrl($sectionId))) !== null) {
+            return $guard;
         }
 
         $file = $request->getFile('file');
@@ -101,8 +100,8 @@ class SectionDocumentController extends AbstractController
         if (!is_array($data)) {
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
-        if (!CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         try {
@@ -134,8 +133,8 @@ class SectionDocumentController extends AbstractController
         if (!is_array($data)) {
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
-        if (!CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         $ids = array_map('intval', is_array($data['ids'] ?? null) ? $data['ids'] : []);
@@ -156,8 +155,8 @@ class SectionDocumentController extends AbstractController
         if (!is_array($data)) {
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
-        if (!CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         try {

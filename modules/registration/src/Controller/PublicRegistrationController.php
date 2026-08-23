@@ -92,8 +92,8 @@ class PublicRegistrationController extends AbstractController
      */
     public function verifyCode(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/inscriptions')) !== null) {
+            return $guard;
         }
 
         $code = (string) $request->getBody('year_code', '');
@@ -117,8 +117,8 @@ class PublicRegistrationController extends AbstractController
      */
     public function submit(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/inscriptions')) !== null) {
+            return $guard;
         }
 
         $availability = $this->resolveAvailability((string) $request->getBody('year_code', ''));

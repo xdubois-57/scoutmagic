@@ -50,8 +50,8 @@
                                 <td>{{ line.value }}</td>
                             {% endfor %}
                             {% if finance_available %}
-                                <td class="text-end">{{ row.payment ? (row.payment.amount_due / 100)|number_format(2, ',', ' ') ~ ' €' : '—' }}</td>
-                                <td class="text-end">{{ row.payment ? (row.payment.amount_received / 100)|number_format(2, ',', ' ') ~ ' €' : '—' }}</td>
+                                <td class="text-end">{{ row.payment ? row.payment.amount_due|money_cents : '—' }}</td>
+                                <td class="text-end">{{ row.payment ? row.payment.amount_received|money_cents : '—' }}</td>
                                 <td>
                                     {% if row.payment %}
                                         {% if row.payment.status == 'paid' %}<span class="badge text-bg-success">Payé</span>
@@ -88,7 +88,7 @@
                         {% endfor %}
                         {% if row.payment %}
                             <div class="small text-body-secondary mt-1">
-                                Attendu: {{ (row.payment.amount_due / 100)|number_format(2, ',', ' ') }} € · Reçu: {{ (row.payment.amount_received / 100)|number_format(2, ',', ' ') }} €
+                                Attendu: {{ row.payment.amount_due|money_cents }} · Reçu: {{ row.payment.amount_received|money_cents }}
                             </div>
                         {% endif %}
                         {% if row.can_edit %}

@@ -316,8 +316,10 @@ class ReportController extends AbstractController
      */
     private function hideAction(Request $request, array $params, string $idKey, callable $hide): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, $request->getBody('return_to') === 'reports'
+            ? '/groups/' . (int) ($params['id'] ?? 0) . '/reports'
+            : '/groups/' . (int) ($params['id'] ?? 0))) !== null) {
+            return $guard;
         }
 
         $context = $this->context();
@@ -356,8 +358,8 @@ class ReportController extends AbstractController
      */
     private function reportAction(Request $request, array $params, string $idKey, callable $locate): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/groups/' . (int) ($params['id'] ?? 0))) !== null) {
+            return $guard;
         }
 
         $context = $this->context();
@@ -400,8 +402,8 @@ class ReportController extends AbstractController
      */
     private function restoreAction(Request $request, array $params, string $idKey, callable $restore): Response
     {
-        if (!CsrfGuard::validateRequest()) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/groups/' . (int) ($params['id'] ?? 0))) !== null) {
+            return $guard;
         }
 
         $context = $this->context();

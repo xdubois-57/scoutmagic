@@ -113,8 +113,8 @@ class ConfigController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $name = trim((string) ($json['name'] ?? ''));
@@ -201,8 +201,8 @@ class ConfigController extends AbstractController
         }
 
         $csrfToken = (string) ($json['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrfToken)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
+            return $guard;
         }
 
         $providerId = isset($params['id']) ? (int) $params['id'] : 0;

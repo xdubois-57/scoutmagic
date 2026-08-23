@@ -115,8 +115,8 @@ class MailSandboxController extends AbstractController
      */
     public function empty(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton de sécurité invalide.', 400);
+        if (($guard = $this->guardCsrf($request, '/test-tools/mail-sandbox')) !== null) {
+            return $guard;
         }
 
         if ((string) $request->getBody('confirmation', '') !== MailSandboxService::CONFIRMATION_WORD) {
@@ -138,8 +138,8 @@ class MailSandboxController extends AbstractController
      */
     public function toggleCapture(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton de sécurité invalide.', 400);
+        if (($guard = $this->guardCsrf($request, '/test-tools/mail-sandbox')) !== null) {
+            return $guard;
         }
 
         $this->sandboxService->setArmed(

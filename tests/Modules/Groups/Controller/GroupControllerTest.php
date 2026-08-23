@@ -1026,7 +1026,11 @@ class GroupControllerTest extends TestCase
 
         $response = $this->controller([$chiefMember], 'chief')->create($this->postRequest(), []);
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertSame([], $this->groupRepo->findAll());
     }
 

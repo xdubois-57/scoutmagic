@@ -351,9 +351,8 @@ class MaintenanceController extends AbstractController
      */
     public function createDatabaseBackup(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/config/maintenance');
+        if (($guard = $this->guardCsrf($request, '/config/maintenance')) !== null) {
+            return $guard;
         }
 
         $userId = AuthSession::getUserAccountId();
@@ -565,9 +564,8 @@ class MaintenanceController extends AbstractController
      */
     public function restoreBackup(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/config/maintenance');
+        if (($guard = $this->guardCsrf($request, '/config/maintenance')) !== null) {
+            return $guard;
         }
         if ((string) $request->getBody('confirm_keyword', '') !== self::KEYWORD_RESTORE) {
             FlashMessage::set('error', 'Mot de confirmation incorrect.');
@@ -661,8 +659,8 @@ class MaintenanceController extends AbstractController
      */
     public function restoreUploadChunk(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        if (($guard = $this->guardCsrfJson($request)) !== null) {
+            return $guard;
         }
 
         $uploadId = (string) $request->getBody('upload_id', '');

@@ -93,12 +93,7 @@ final class UxConventionsTest extends TestCase
      *
      * @var array<string, int> PHP file => count of off-contract types
      */
-    private const FLASH_TYPE_ALLOWLIST = [
-        'modules/inbound_mail/src/Controller/InboundMailConfigController.php' => 7,
-        'modules/rental/src/Controller/RentalConfigController.php' => 2,
-        'modules/rental/src/Controller/RentalManagementController.php' => 7,
-        'modules/rental/src/Controller/RentalRequestController.php' => 3,
-    ];
+    private const FLASH_TYPE_ALLOWLIST = [];
 
     /**
      * design.md §7.6 — every data `<table>` scrolls inside its own

@@ -41,7 +41,11 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
 
         $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->close($this->request(), $this->params());
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertFalse($this->group()->isClosed());
     }
 
@@ -84,7 +88,11 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
 
         $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->reopen($this->request(), $this->params());
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertTrue($this->group()->isClosed());
     }
 
@@ -174,7 +182,11 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
 
         $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertSame('Louveteaux', $this->group()->name);
     }
 
@@ -336,7 +348,11 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
 
         $response = $this->memberController([$this->memberId])->leave($this->request(), $this->params());
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertNotNull($this->memberRepo->find($this->groupId, $this->memberId));
     }
 

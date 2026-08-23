@@ -61,7 +61,7 @@
                                 </td>
                                 <td>
                                     {% if item.expiresOn %}
-                                        {{ item.expiresOn|date('d/m/Y') }}
+                                        {{ item.expiresOn|date_fr }}
                                         {# A statement about a date, never a verdict about
                                            the asset: the unit may have renewed the paper
                                            and not typed it in yet. #}

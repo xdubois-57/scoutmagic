@@ -57,8 +57,8 @@ class NotificationController extends AbstractController
     public function markRead(Request $request, array $params): Response
     {
         $id = (int) ($params['id'] ?? 0);
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->redirect('/notifications');
+        if (($guard = $this->guardCsrf($request, '/notifications')) !== null) {
+            return $guard;
         }
 
         $userId = AuthSession::getUserAccountId();
@@ -78,8 +78,8 @@ class NotificationController extends AbstractController
      */
     public function markAllRead(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->redirect('/notifications');
+        if (($guard = $this->guardCsrf($request, '/notifications')) !== null) {
+            return $guard;
         }
 
         $userId = AuthSession::getUserAccountId();

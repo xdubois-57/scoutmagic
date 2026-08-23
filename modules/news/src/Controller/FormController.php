@@ -63,8 +63,8 @@ class FormController extends AbstractController
      */
     public function submit(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/news/' . (int) ($params['id'] ?? 0))) !== null) {
+            return $guard;
         }
 
         $article = $this->articleService->findById((int) $params['id']);
@@ -253,8 +253,8 @@ class FormController extends AbstractController
      */
     public function updateResponse(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return new Response('Jeton CSRF invalide.', 403);
+        if (($guard = $this->guardCsrf($request, '/news/' . (int) ($params['id'] ?? 0) . '/form/responses/' . (int) ($params['response_id'] ?? 0) . '/edit')) !== null) {
+            return $guard;
         }
 
         [$article, $form, $response, $error] = $this->loadResponseContext($params);

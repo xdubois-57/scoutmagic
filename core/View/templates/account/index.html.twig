@@ -70,7 +70,7 @@
                 </p>
                 {% if password_changed_at %}
                     <p class="text-body-secondary small mb-3">
-                        Dernière modification : {{ password_changed_at|date('d/m/Y à H:i') }}
+                        Dernière modification : {{ password_changed_at|datetime_fr }}
                     </p>
                 {% endif %}
                 <form method="post" action="/account/password" id="account-password-form">
@@ -128,7 +128,7 @@
                                     <span class="text-body-secondary d-block"
                                           style="font-size:0.75rem;">
                                         Dernière utilisation :
-                                        {{ key.last_used_at|date('d/m/Y') }}
+                                        {{ key.last_used_at|date_fr }}
                                     </span>
                                 {% endif %}
                             </div>

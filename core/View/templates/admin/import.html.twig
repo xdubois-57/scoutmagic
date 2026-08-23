@@ -59,7 +59,7 @@
             <div class="card-body">
                 <h2 class="h5">Dernier import</h2>
                 <p class="small text-body-secondary mb-0">
-                    {{ last_import.imported_at|date('d/m/Y à H:i') }}
+                    {{ last_import.imported_at|datetime_fr }}
                     — {{ last_import.member_count }} membres,
                     {{ last_import.line_count }} lignes
                     {% if last_import.new_functions_count > 0 %}
