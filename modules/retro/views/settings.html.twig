@@ -17,20 +17,24 @@
                 <h2 class="h6 mb-3">Rôles</h2>
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
-                        <label class="form-label small" for="retro-role-min-create">Rôle minimum pour créer un board</label>
-                        <select class="form-select" id="retro-role-min-create" name="retro_role_min_create_board">
-                            {% for value, label in {'intendant': 'Intendant', 'chief': 'Chef', 'admin': "Chef d'Unité"} %}
-                                <option value="{{ value }}" {{ retro_role_min_create_board == value ? 'selected' : '' }}>{{ label }}</option>
-                            {% endfor %}
-                        </select>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'retro-role-min-create', field_name: 'retro_role_min_create_board',
+                            label: 'Rôle minimum pour créer un board', type: 'select', size: 'sm',
+                            wrapper_class: '',
+                            options: {'intendant': 'Intendant', 'chief': 'Chef', 'admin': "Chef d'Unité"}|map((label, value) => {
+                                value: value, label: label, selected: retro_role_min_create_board == value
+                            }),
+                        } only %}
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label small" for="retro-role-min-close">Rôle minimum pour clôturer un board</label>
-                        <select class="form-select" id="retro-role-min-close" name="retro_role_min_close_board">
-                            {% for value, label in {'chief': 'Chef', 'admin': "Chef d'Unité"} %}
-                                <option value="{{ value }}" {{ retro_role_min_close_board == value ? 'selected' : '' }}>{{ label }}</option>
-                            {% endfor %}
-                        </select>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'retro-role-min-close', field_name: 'retro_role_min_close_board',
+                            label: 'Rôle minimum pour clôturer un board', type: 'select', size: 'sm',
+                            wrapper_class: '',
+                            options: {'chief': 'Chef', 'admin': "Chef d'Unité"}|map((label, value) => {
+                                value: value, label: label, selected: retro_role_min_close_board == value
+                            }),
+                        } only %}
                     </div>
                 </div>
             </div>
@@ -41,21 +45,27 @@
                 <h2 class="h6 mb-3">Valeurs par défaut</h2>
                 <div class="row g-3">
                     <div class="col-12 col-md-4">
-                        <label class="form-label small" for="retro-max-length">Longueur max. d'un mot par défaut</label>
-                        <input type="number" class="form-control" id="retro-max-length" name="retro_default_max_comment_length"
-                               value="{{ retro_default_max_comment_length }}" min="120" max="200">
-                        <div class="form-text">Entre 120 et 200 caractères.</div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'retro-max-length', field_name: 'retro_default_max_comment_length',
+                            label: "Longueur max. d'un mot par défaut", type: 'number', min: 120, max: 200,
+                            value: retro_default_max_comment_length, size: 'sm', wrapper_class: '',
+                            help: 'Entre 120 et 200 caractères.',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-4">
-                        <label class="form-label small" for="retro-vote-budget">Budget de points par défaut</label>
-                        <input type="number" class="form-control" id="retro-vote-budget" name="retro_default_vote_budget"
-                               value="{{ retro_default_vote_budget }}" min="1">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'retro-vote-budget', field_name: 'retro_default_vote_budget',
+                            label: 'Budget de points par défaut', type: 'number', min: 1,
+                            value: retro_default_vote_budget, size: 'sm', wrapper_class: '',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-4">
-                        <label class="form-label small" for="retro-polling-interval">Intervalle d'actualisation (secondes)</label>
-                        <input type="number" class="form-control" id="retro-polling-interval" name="retro_polling_interval_seconds"
-                               value="{{ retro_polling_interval_seconds }}" min="3" max="60">
-                        <div class="form-text">Entre 3 et 60 secondes — fréquence à laquelle une rétrospective ouverte vérifie les nouveaux mots/votes.</div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'retro-polling-interval', field_name: 'retro_polling_interval_seconds',
+                            label: "Intervalle d'actualisation (secondes)", type: 'number', min: 3, max: 60,
+                            value: retro_polling_interval_seconds, size: 'sm', wrapper_class: '',
+                            help: 'Entre 3 et 60 secondes — fréquence à laquelle une rétrospective ouverte vérifie les nouveaux mots/votes.',
+                        } only %}
                     </div>
                 </div>
             </div>

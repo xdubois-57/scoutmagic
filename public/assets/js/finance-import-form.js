@@ -20,7 +20,7 @@
     var balanceInput = /** @type {HTMLInputElement|null} */ (
         document.getElementById('import-balance')
     );
-    var balanceHint = document.getElementById('import-balance-hint');
+    var balanceHint = document.getElementById('import-balance-help');
 
     // A no-op on every other page of the site.
     if (!accountSelect || !balanceInput || !balanceHint) {

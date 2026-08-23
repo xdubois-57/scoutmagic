@@ -16,7 +16,7 @@ const PAGE = `
         <option value="2" data-first-import="0">Livret</option>
     </select>
     <input type="number" id="import-balance">
-    <div class="form-text" id="import-balance-hint"></div>`;
+    <div class="form-text" id="import-balance-help"></div>`;
 
 const REQUIRED = 'Premier import pour ce compte : le solde est obligatoire.';
 const OPTIONAL = 'Facultatif — laissez vide pour recalculer le solde'
@@ -31,7 +31,7 @@ describe('finance-import-form.js', () => {
     const boot = () => import('../../public/assets/js/finance-import-form.js');
     const select = () => document.getElementById('import-account');
     const balance = () => document.getElementById('import-balance');
-    const hint = () => document.getElementById('import-balance-hint').textContent;
+    const hint = () => document.getElementById('import-balance-help').textContent;
 
     function pick(value) {
         select().value = value;
@@ -79,7 +79,7 @@ describe('finance-import-form.js', () => {
         document.body.innerHTML = `
             <select id="import-account"></select>
             <input type="number" id="import-balance">
-            <div id="import-balance-hint"></div>`;
+            <div id="import-balance-help"></div>`;
         await boot();
 
         expect(balance().required).toBe(false);

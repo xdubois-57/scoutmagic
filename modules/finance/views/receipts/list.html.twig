@@ -26,17 +26,24 @@
     <h2 class="h5 mb-3">{{ selected_account.name }}</h2>
 
     <div class="row g-2 align-items-end mb-3">
+        {# No `field_name`: finance-receipts.js reads these by id and drives
+           the live search itself — nothing here is ever submitted. #}
         <div class="col-6 col-md-3">
-            <label class="form-label small" for="receipts-account">Compte</label>
-            <select class="form-select form-select-sm" id="receipts-account">
-                {% for account in accounts %}
-                    <option value="{{ account.id }}" {{ selected_account and account.id == selected_account.id ? 'selected' : '' }}>{{ account.name }}</option>
-                {% endfor %}
-            </select>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'receipts-account', label: 'Compte', type: 'select',
+                size: 'sm', wrapper_class: '',
+                options: accounts|default([])|map(account => {
+                    value: account.id, label: account.name,
+                    selected: selected_account and account.id == selected_account.id,
+                }),
+            } only %}
         </div>
         <div class="col-12 col-md-5">
-            <label class="form-label small" for="receipts-search">Recherche</label>
-            <input type="text" class="form-control form-control-sm" id="receipts-search" placeholder="Rechercher (nom de fichier, commerçant, description, date, montant...)" value="{{ search }}">
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'receipts-search', label: 'Recherche', value: search,
+                placeholder: 'Rechercher (nom de fichier, commerçant, description, date, montant...)',
+                size: 'sm', wrapper_class: '',
+            } only %}
         </div>
         <div class="col-auto">
             <div class="form-label small d-block">&nbsp;</div>

@@ -34,18 +34,25 @@
     } only %}
 
     <div class="row g-2 align-items-end mb-3">
+        {# No `field_name`: mass-mail-tracking.js filters the table in the
+           browser, so nothing here is ever submitted. #}
         <div class="col-6 col-md-4">
-            <label class="form-label small" for="mmt-search">Recherche</label>
-            <input type="text" class="form-control form-control-sm" id="mmt-search" placeholder="Nom, section, adresse...">
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'mmt-search', label: 'Recherche',
+                placeholder: 'Nom, section, adresse...', size: 'sm', wrapper_class: '',
+            } only %}
         </div>
         <div class="col-6 col-md-3">
-            <label class="form-label small" for="mmt-status">Statut</label>
-            <select class="form-select form-select-sm" id="mmt-status">
-                <option value="">Tous</option>
-                <option value="pending">En attente</option>
-                <option value="sent">Envoyé</option>
-                <option value="error">Erreur</option>
-            </select>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'mmt-status', label: 'Statut', type: 'select',
+                size: 'sm', wrapper_class: '',
+                options: [
+                    { value: '', label: 'Tous' },
+                    { value: 'pending', label: 'En attente' },
+                    { value: 'sent', label: 'Envoyé' },
+                    { value: 'error', label: 'Erreur' },
+                ],
+            } only %}
         </div>
     </div>
 

@@ -29,35 +29,44 @@
 
     <form method="get" action="/finance/movements" class="row g-2 align-items-end mb-3">
         <div class="col-6 col-md-3">
-            <label class="form-label small" for="filter-account">Compte</label>
-            <select class="form-select form-select-sm" id="filter-account" name="account_id" required>
-                {% for account in accounts %}
-                    <option value="{{ account.id }}" {{ selected_account and account.id == selected_account.id ? 'selected' : '' }}>{{ account.name }}</option>
-                {% endfor %}
-            </select>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'filter-account', field_name: 'account_id', label: 'Compte',
+                type: 'select', required: true, size: 'sm', wrapper_class: '',
+                options: accounts|default([])|map(account => {
+                    value: account.id, label: account.name,
+                    selected: selected_account and account.id == selected_account.id,
+                }),
+            } only %}
         </div>
         <div class="col-6 col-md-3">
-            <label class="form-label small" for="filter-fiscal-year">Exercice</label>
-            <select class="form-select form-select-sm" id="filter-fiscal-year" name="fiscal_year_id">
-                <option value="all" {{ filter_fiscal_year_id is null ? 'selected' : '' }}>Tous</option>
-                {% for fiscalYear in fiscal_years %}
-                    <option value="{{ fiscalYear.id }}" {{ filter_fiscal_year_id == fiscalYear.id ? 'selected' : '' }}>{{ fiscalYear.label }}</option>
-                {% endfor %}
-            </select>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'filter-fiscal-year', field_name: 'fiscal_year_id', label: 'Exercice',
+                type: 'select', size: 'sm', wrapper_class: '',
+                options: [{ value: 'all', label: 'Tous', selected: filter_fiscal_year_id is null }]
+                    |merge(fiscal_years|default([])|map(fiscalYear => {
+                        value: fiscalYear.id, label: fiscalYear.label,
+                        selected: filter_fiscal_year_id == fiscalYear.id,
+                    })),
+            } only %}
         </div>
         <div class="col-6 col-md-3">
-            <label class="form-label small" for="filter-category">Catégorie</label>
-            <select class="form-select form-select-sm" id="filter-category" name="category_id">
-                <option value="all" {{ filter_category_id == 'all' ? 'selected' : '' }}>Toutes</option>
-                <option value="none" {{ filter_category_id == 'none' ? 'selected' : '' }}>Non catégorisé</option>
-                {% for category in categories %}
-                    <option value="{{ category.id }}" {{ filter_category_id == category.id ? 'selected' : '' }}>{{ category.name }}</option>
-                {% endfor %}
-            </select>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'filter-category', field_name: 'category_id', label: 'Catégorie',
+                type: 'select', size: 'sm', wrapper_class: '',
+                options: [
+                    { value: 'all', label: 'Toutes', selected: filter_category_id == 'all' },
+                    { value: 'none', label: 'Non catégorisé', selected: filter_category_id == 'none' },
+                ]|merge(categories|default([])|map(category => {
+                    value: category.id, label: category.name,
+                    selected: filter_category_id == category.id,
+                })),
+            } only %}
         </div>
         <div class="col-6 col-md-3">
-            <label class="form-label small" for="filter-search">Recherche</label>
-            <input type="text" class="form-control form-control-sm" id="filter-search" name="q" value="{{ filter_search }}" placeholder="Libellé...">
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'filter-search', field_name: 'q', label: 'Recherche',
+                value: filter_search, placeholder: 'Libellé...', size: 'sm', wrapper_class: '',
+            } only %}
         </div>
         <div class="col-12">
             <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
@@ -247,28 +256,32 @@
                 <dt class="col-4">Compte contrepartie</dt><dd class="col-8" id="md-counterparty-account"></dd>
                 <dt class="col-4">Autres informations</dt><dd class="col-8" id="md-extra-details"></dd>
             </dl>
+            {# No `field_name` in the dialog: finance-movements.js reads
+               these by id and posts the movement itself. The « attribuée
+               automatiquement » line is revealed by that same script, so it
+               stays outside the partial and is wired with
+               `describedby_extra`. #}
             <div class="mb-2">
-                <label class="form-label small" for="md-category">Catégorie</label>
-                <select class="form-select form-select-sm" id="md-category">
-                    <option value="">À catégoriser</option>
-                    {% for category in categories %}
-                        <option value="{{ category.id }}">{{ category.name }}</option>
-                    {% endfor %}
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'md-category', label: 'Catégorie', type: 'select',
+                    size: 'sm', wrapper_class: '', describedby_extra: 'md-category-auto',
+                    options: [{ value: '', label: 'À catégoriser' }]
+                        |merge(categories|default([])|map(category => {
+                            value: category.id, label: category.name,
+                        })),
+                } only %}
                 <div class="form-text small d-none" id="md-category-auto">Catégorie attribuée automatiquement (règle ou IA). Changer la catégorie ici la rendra manuelle.</div>
             </div>
-            <div class="mb-2">
-                <label class="form-label small" for="md-comment">Commentaire</label>
-                <input type="text" class="form-control form-control-sm" id="md-comment">
-            </div>
-            <div class="mb-2">
-                <label class="form-label small" for="md-fiscal-year">Exercice</label>
-                <select class="form-select form-select-sm" id="md-fiscal-year">
-                    {% for fiscalYear in fiscal_years %}
-                        <option value="{{ fiscalYear.id }}">{{ fiscalYear.label }}</option>
-                    {% endfor %}
-                </select>
-            </div>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'md-comment', label: 'Commentaire', size: 'sm', wrapper_class: 'mb-2',
+            } only %}
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'md-fiscal-year', label: 'Exercice', type: 'select',
+                size: 'sm', wrapper_class: 'mb-2',
+                options: fiscal_years|default([])|map(fiscalYear => {
+                    value: fiscalYear.id, label: fiscalYear.label,
+                }),
+            } only %}
         {% endblock %}
         {% block footer %}
             <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>

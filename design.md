@@ -325,6 +325,22 @@ size would be the relapse.
 A field's `id` is what JavaScript and tests grip. Renaming one is a
 breaking change — grep `public/assets/js/` and `tests/` before touching it.
 
+Four escape hatches, each for a real shape and none for a preference:
+`field_name` is optional (a JS-driven panel reads its fields by id and
+posts them itself — a stray `name` only invites a future GET to carry
+it); `data: {…}` puts `data-*` on the control, and on an `<option>`,
+because half the site's fields are gripped by a script through one;
+`wrapper_class` replaces the default `mb-3` for a field inside a grid
+column that supplies its own spacing; `label_visually_hidden` renders the
+label and hides it, for a repeated row the row itself names — the label
+is hidden, never dropped, and still says WHICH row it belongs to.
+`control_class_extra` takes layout classes the caller owns (`w-auto`, a
+script's hook) and never a size: that is `size`'s job.
+
+Genuinely out of reach, and why: `setup/index.html.twig` (the installer
+renders before the theme exists), a label carrying markup (« Tapez
+**EFFACER** pour confirmer »), and a `<select>` with `<optgroup>`.
+
 ### 7.10 Files and lists
 
 `partials/drop_zone.html.twig` is the one « déposez un fichier ici » zone

@@ -60,8 +60,11 @@
     <div class="border rounded-3 p-3 mb-4">
         <div class="row g-3">
             <div class="col-12 col-md-6">
-                <label class="form-label small" for="default-number-member">Numéro par défaut</label>
                 {% if staff_options is empty %}
+                    {# A <label> pointing at a control that is not rendered
+                       is a label for nothing — this branch has no select,
+                       so it carries a heading instead. #}
+                    <p class="form-label small mb-1">Numéro par défaut</p>
                     <p class="text-danger small mb-0">
                         <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                         Aucun membre du Staff d'U n'a de numéro de mobile enregistré — impossible de définir un numéro par défaut.
@@ -79,15 +82,20 @@
                       actually differs from what is stored, which is also
                       what makes an accidental change visible.
                     #}
-                    <div class="d-flex gap-2">
-                        <select class="form-select form-select-sm" id="default-number-member"
-                                data-saved-value="{{ default_number_selection_member_id }}">
-                            {% for option in staff_options %}
-                                <option value="{{ option.member_id }}" {{ default_number_selection_member_id == option.member_id ? 'selected' : '' }}>
-                                    {{ option.label }} ({{ option.mobile }})
-                                </option>
-                            {% endfor %}
-                        </select>
+                    <div class="d-flex gap-2 align-items-end">
+                        {# `data-saved-value` is what sos-admin.js compares
+                           against to decide whether « Enregistrer » may be
+                           pressed at all. #}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'default-number-member', label: 'Numéro par défaut',
+                            type: 'select', size: 'sm', wrapper_class: 'flex-grow-1',
+                            data: { 'saved-value': default_number_selection_member_id },
+                            options: staff_options|default([])|map(option => {
+                                value: option.member_id,
+                                label: option.label ~ ' (' ~ option.mobile ~ ')',
+                                selected: default_number_selection_member_id == option.member_id,
+                            }),
+                        } only %}
                         <button type="button" class="btn btn-sm btn-primary text-nowrap" id="default-number-save" disabled>
                             Enregistrer
                         </button>
@@ -100,8 +108,10 @@
                 {% endif %}
             </div>
             <div class="col-6 col-md-3">
-                <label class="form-label small" for="transition-hour">Heure de changement de garde</label>
-                <input type="time" class="form-control form-control-sm" id="transition-hour" value="{{ transition_hour }}">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'transition-hour', label: 'Heure de changement de garde',
+                    type: 'time', value: transition_hour, size: 'sm', wrapper_class: '',
+                } only %}
             </div>
             <div class="col-6 col-md-3">
                 <label class="form-label small d-block" for="email-notifications-toggle">Notifications par email</label>

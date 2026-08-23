@@ -398,6 +398,105 @@ final class SharedPartialsRenderingTest extends TestCase
         $this->assertStringNotContainsString('p-5', $html);
     }
 
+    public function testFormFieldCarriesDataAttributesOnTheControlItself(): void
+    {
+        // A partial that could not emit data-* excluded every field a
+        // script grips — which is half the site's.
+        $html = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'passage-section-12', field_name: 'intended_section_id',
+                label: 'Section prévue', type: 'select',
+                options: [ { value: '4', label: 'Louveteaux' } ],
+                data: { endpoint: '/passage/inscription/12/section', field: 'intended_section_id' },
+            } only %}"
+        );
+
+        $this->assertStringContainsString('data-endpoint="/passage/inscription/12/section"', $html);
+        $this->assertStringContainsString('data-field="intended_section_id"', $html);
+        // On the CONTROL, not on the wrapper: that is where the script
+        // reads them from.
+        $this->assertMatchesRegularExpression('/<select[^>]*data-endpoint=/s', $html);
+    }
+
+    public function testFormFieldWrapperClassIsOverridableAndDefaultsToMb3(): void
+    {
+        $default = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'name', field_name: 'name', label: 'Nom',
+            } only %}"
+        );
+        $this->assertStringContainsString('<div class="mb-3">', $default);
+
+        // A field inside a grid column or a one-row filter bar supplies
+        // its own spacing rather than fight the margin with a second class.
+        $tight = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'name', field_name: 'name', label: 'Nom', wrapper_class: 'mb-0',
+            } only %}"
+        );
+        $this->assertStringContainsString('<div class="mb-0">', $tight);
+        $this->assertStringNotContainsString('mb-3', $tight);
+
+        $bare = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'name', field_name: 'name', label: 'Nom', wrapper_class: '',
+            } only %}"
+        );
+        $this->assertStringContainsString('<div>', $bare);
+    }
+
+    public function testFormFieldHidesTheLabelWithoutDroppingIt(): void
+    {
+        // A repeated row is named by the row, not by a label above each
+        // control — but a control with NO label is unreachable by name for
+        // a screen reader, and the hidden one must still say WHICH row it
+        // belongs to.
+        $html = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'confirmed-role-7', label: 'Rôle pour ANIM01',
+                label_visually_hidden: true, type: 'select', size: 'sm',
+                control_class_extra: 'w-auto role-select',
+                options: [ { value: 'chief', label: 'Animateur' } ],
+            } only %}"
+        );
+
+        $this->assertStringContainsString('<label class="visually-hidden" for="confirmed-role-7">', $html);
+        $this->assertStringContainsString('Rôle pour ANIM01', $html);
+        $this->assertStringNotContainsString('form-label', $html);
+        // The caller's layout classes ride ON the control, next to the
+        // size the partial owns.
+        $this->assertStringContainsString('class="form-select form-select-sm w-auto role-select"', $html);
+    }
+
+    public function testFormFieldRendersAPasswordAndItsRequiredMarker(): void
+    {
+        $html = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'full-backup-password', label: \"Mot de passe de l'archive\",
+                type: 'password', required: true, size: 'sm',
+            } only %}"
+        );
+
+        $this->assertStringContainsString('type="password"', $html);
+        $this->assertStringContainsString('required', $html);
+        $this->assertStringContainsString('<span class="text-danger" aria-hidden="true">*</span>', $html);
+    }
+
+    public function testFormFieldOmitsTheNameForAControlThatIsNeverSubmitted(): void
+    {
+        // A JS-driven settings panel reads its fields by id and builds the
+        // request itself; a stray `name` on such a control only invites a
+        // future GET to carry it.
+        $html = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'event-title', label: 'Titre', size: 'sm',
+            } only %}"
+        );
+
+        $this->assertStringContainsString('id="event-title"', $html);
+        $this->assertStringNotContainsString('name=', $html);
+    }
+
     public function testPagePickerFeedsChipPickerAndMatchesPrefixes(): void
     {
         $html = $this->render(

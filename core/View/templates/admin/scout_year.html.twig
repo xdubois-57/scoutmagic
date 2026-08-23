@@ -176,12 +176,13 @@
                                       class="d-flex flex-wrap gap-2 align-items-end">
                                     {{ csrf_field()|raw }}
                                     <div>
-                                        <label class="form-label small mb-1" for="preview-year">Année</label>
-                                        <select class="form-select form-select-sm" name="scout_year_id" id="preview-year">
-                                            {% for y in years %}
-                                                <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
-                                            {% endfor %}
-                                        </select>
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'preview-year', field_name: 'scout_year_id',
+                                            label: 'Année', type: 'select', size: 'sm', wrapper_class: '',
+                                            options: years|default([])|map(y => {
+                                                value: y.id, label: y.label, selected: y.id == target_year.id,
+                                            }),
+                                        } only %}
                                     </div>
                                     <button type="submit"
                                             class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}">
@@ -200,12 +201,13 @@
                                       class="d-flex flex-wrap gap-2 align-items-end">
                                     {{ csrf_field()|raw }}
                                     <div>
-                                        <label class="form-label small mb-1" for="staff-year">Année</label>
-                                        <select class="form-select form-select-sm" name="scout_year_id" id="staff-year">
-                                            {% for y in years %}
-                                                <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
-                                            {% endfor %}
-                                        </select>
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'staff-year', field_name: 'scout_year_id',
+                                            label: 'Année', type: 'select', size: 'sm', wrapper_class: '',
+                                            options: years|default([])|map(y => {
+                                                value: y.id, label: y.label, selected: y.id == target_year.id,
+                                            }),
+                                        } only %}
                                     </div>
                                     <button type="submit"
                                             class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}">
@@ -228,13 +230,14 @@
                                       data-confirm-label="Activer">
                                     {{ csrf_field()|raw }}
                                     <div>
-                                        <label class="form-label small mb-1" for="public-year">Année</label>
-                                        <select class="form-select form-select-sm" name="scout_year_id" id="public-year"
-                                                {{ can_activate_public ? '' : 'disabled' }}>
-                                            {% for y in years %}
-                                                <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
-                                            {% endfor %}
-                                        </select>
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'public-year', field_name: 'scout_year_id',
+                                            label: 'Année', type: 'select', size: 'sm', wrapper_class: '',
+                                            disabled: not can_activate_public,
+                                            options: years|default([])|map(y => {
+                                                value: y.id, label: y.label, selected: y.id == target_year.id,
+                                            }),
+                                        } only %}
                                     </div>
                                     <button type="submit"
                                             class="btn btn-sm {{ is_current ? 'btn-danger' : 'btn-outline-secondary' }}"

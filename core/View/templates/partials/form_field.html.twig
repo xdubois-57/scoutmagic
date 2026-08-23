@@ -19,10 +19,11 @@
   Usage:
   {% include 'partials/form_field.html.twig' with {
       field_id: 'asset-name',
-      field_name: 'name',
+      field_name: 'name',          -- optional: a field a script reads by
+                                   -- id and posts itself has no name
       label: 'Nom du bien',
       type: 'text',                -- text|email|url|tel|number|date|time|
-                                   -- textarea|select (default text)
+                                   -- password|textarea|select (default text)
       value: asset.name,           -- optional
       help: 'Affiché publiquement.', -- optional, ARIA-wired
       required: true,              -- default false
@@ -32,7 +33,8 @@
       inputmode: 'decimal',        -- optional
       rows: 4,                     -- textarea only
       options: [                   -- select only
-          { value: 'a', label: 'A', selected: true, disabled: false },
+          { value: 'a', label: 'A', selected: true, disabled: false,
+            data: { 'first-import': '1' } },   -- optional data-* per option
       ],
       autocomplete: 'name',        -- optional
       size: 'sm',                  -- optional: the site's ONE compact
@@ -45,6 +47,10 @@
       list: 'suggestions',         -- optional, id of a <datalist>
       describedby_extra: 'x-error',-- optional, id of an error/hint node
                                    -- rendered OUTSIDE this partial
+      wrapper_class: 'mb-0',       -- optional, replaces the default mb-3
+      control_class_extra: 'w-auto',-- optional, extra classes ON the control
+      label_visually_hidden: true, -- optional: the row itself names the field
+      data: { id: 4, url: '/x' },  -- optional data-* ON THE CONTROL
   } only %}
 
   On `size`: the survey that preceded this partial's second pass found 34
@@ -56,6 +62,35 @@
   only compact one. Anything reaching for a third belongs in design.md
   first.
 
+  On `field_name`: omit it for a control that is never submitted with its
+  form — a JS-driven settings panel reads its fields by id and builds the
+  request itself, and a stray `name` on such a control only invites a
+  future GET to carry it.
+
+  On `data`: the control carries whatever the caller puts there, as
+  `data-{key}`. Half the site's fields are read by a script that grips
+  them through a `data-id` or a `data-endpoint`, and a partial that
+  could not emit those simply excluded every one of them. The KEY is the
+  attribute name after `data-` — `{ 'first-import': 1 }` renders
+  `data-first-import="1"` — and the value is escaped like any other.
+
+  On `label_visually_hidden`: a repeated row (one select per function, per
+  album, per member) is named by the row, not by a label above each
+  control — but a control with NO label is unreachable by name for a
+  screen reader. The label is rendered and hidden, never dropped, and it
+  must still say WHICH row it belongs to (« Rôle pour ANIM01 », not
+  « Rôle »).
+
+  On `control_class_extra`: layout classes the caller owns — `w-auto` for
+  a control inside a flex row, a hook class a script grips. Never a
+  `form-control-sm`: that is `size`'s job, and putting it here would
+  reintroduce the fourteen variants this partial exists to end.
+
+  On `wrapper_class`: `mb-3` is the default and the right answer almost
+  everywhere. A field inside a grid column or a single-row filter bar
+  that supplies its own spacing passes its own class (often `mb-0`)
+  rather than fight the margin with a second one.
+
   Passwords keep their own partial (password_field.html.twig — checklist,
   confirmation); rich text keeps rich_text_form_field.html.twig. This one
   is for everything simpler, which is most of the site.
@@ -65,14 +100,18 @@
 {% set _small = size|default('') == 'sm' %}
 {% set _help_id = field_id ~ '-help' %}
 {% set _described = [help|default('') ? _help_id : null, describedby_extra|default(null)]|filter(v => v)|join(' ') %}
-{% set _control_class = (_type == 'select' ? 'form-select' : 'form-control') ~ (_small ? (_type == 'select' ? ' form-select-sm' : ' form-control-sm') : '') %}
-<div class="mb-3">
-    <label class="form-label{{ _small ? ' small' : '' }}" for="{{ field_id }}">
+{% set _control_class = (_type == 'select' ? 'form-select' : 'form-control')
+    ~ (_small ? (_type == 'select' ? ' form-select-sm' : ' form-control-sm') : '')
+    ~ (control_class_extra|default('') ? ' ' ~ control_class_extra : '') %}
+{% set _wrapper = wrapper_class is defined ? wrapper_class : 'mb-3' %}
+<div{% if _wrapper %} class="{{ _wrapper }}"{% endif %}>
+    <label class="{{ label_visually_hidden|default(false) ? 'visually-hidden' : 'form-label' ~ (_small ? ' small' : '') }}" for="{{ field_id }}">
         {{- label -}}
         {%- if _required %} <span class="text-danger" aria-hidden="true">*</span>{% endif -%}
     </label>
     {% if _type == 'textarea' %}
-        <textarea class="{{ _control_class }}" id="{{ field_id }}" name="{{ field_name }}"
+        <textarea class="{{ _control_class }}" id="{{ field_id }}"
+                  {%- if field_name is defined and field_name %} name="{{ field_name }}"{% endif %}
                   rows="{{ rows|default(4) }}"
                   {%- if _required %} required{% endif %}
                   {%- if disabled|default(false) %} disabled{% endif %}
@@ -80,21 +119,26 @@
                   {%- if autofocus|default(false) %} autofocus{% endif %}
                   {%- if maxlength|default(0) %} maxlength="{{ maxlength }}"{% endif %}
                   {%- if placeholder|default('') %} placeholder="{{ placeholder }}"{% endif %}
-                  {%- if _described %} aria-describedby="{{ _described }}"{% endif %}>{{ value|default('') }}</textarea>
+                  {%- if _described %} aria-describedby="{{ _described }}"{% endif %}
+                  {%- for key, dval in data|default({}) %} data-{{ key }}="{{ dval }}"{% endfor %}>{{ value|default('') }}</textarea>
     {% elseif _type == 'select' %}
-        <select class="{{ _control_class }}" id="{{ field_id }}" name="{{ field_name }}"
+        <select class="{{ _control_class }}" id="{{ field_id }}"
+                {%- if field_name is defined and field_name %} name="{{ field_name }}"{% endif %}
                 {%- if _required %} required{% endif %}
                 {%- if disabled|default(false) %} disabled{% endif %}
                 {%- if autofocus|default(false) %} autofocus{% endif %}
-                {%- if _described %} aria-describedby="{{ _described }}"{% endif %}>
+                {%- if _described %} aria-describedby="{{ _described }}"{% endif %}
+                {%- for key, dval in data|default({}) %} data-{{ key }}="{{ dval }}"{% endfor %}>
             {% for option in options|default([]) %}
                 <option value="{{ option.value }}"
                         {{- option.selected|default(false) ? ' selected' : '' }}
-                        {{- option.disabled|default(false) ? ' disabled' : '' }}>{{ option.label }}</option>
+                        {{- option.disabled|default(false) ? ' disabled' : '' }}
+                        {%- for key, dval in option.data|default({}) %} data-{{ key }}="{{ dval }}"{% endfor %}>{{ option.label }}</option>
             {% endfor %}
         </select>
     {% else %}
-        <input type="{{ _type }}" class="{{ _control_class }}" id="{{ field_id }}" name="{{ field_name }}"
+        <input type="{{ _type }}" class="{{ _control_class }}" id="{{ field_id }}"
+               {%- if field_name is defined and field_name %} name="{{ field_name }}"{% endif %}
                value="{{ value|default('') }}"
                {%- if _required %} required{% endif %}
                {%- if disabled|default(false) %} disabled{% endif %}
@@ -109,7 +153,8 @@
                {%- if inputmode|default('') %} inputmode="{{ inputmode }}"{% endif %}
                {%- if placeholder|default('') %} placeholder="{{ placeholder }}"{% endif %}
                {%- if autocomplete|default('') %} autocomplete="{{ autocomplete }}"{% endif %}
-               {%- if _described %} aria-describedby="{{ _described }}"{% endif %}>
+               {%- if _described %} aria-describedby="{{ _described }}"{% endif %}
+               {%- for key, dval in data|default({}) %} data-{{ key }}="{{ dval }}"{% endfor %}>
     {% endif %}
     {% if help|default('') %}
         <div class="form-text" id="{{ _help_id }}">{{ help }}</div>
