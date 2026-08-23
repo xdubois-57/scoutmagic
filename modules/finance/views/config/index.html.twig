@@ -3,7 +3,7 @@
 {% block title %}Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Finances</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Finances' } only %}
 
     {% include '@finance/config/_nav.html.twig' %}
 
@@ -15,28 +15,27 @@
         danger » ci-dessous permet des suppressions définitives — à utiliser avec précaution.
     </p>
 
-    <div class="row g-3 mb-4">
-        <div class="col-12 col-md-4">
-            <div class="border rounded-3 p-3 h-100">
-                <div class="text-body-secondary small">Comptes</div>
-                <div class="fs-3 fw-semibold">{{ account_count }}</div>
-                <a href="/config/finance/accounts" class="small">Gérer les comptes</a>
-            </div>
-        </div>
-        <div class="col-12 col-md-4">
-            <div class="border rounded-3 p-3 h-100">
-                <div class="text-body-secondary small">Catégories</div>
-                <div class="fs-3 fw-semibold">{{ category_count }}</div>
-                <a href="/config/finance/categories" class="small">Gérer les catégories</a>
-            </div>
-        </div>
-        <div class="col-12 col-md-4">
-            <div class="border rounded-3 p-3 h-100">
-                <div class="text-body-secondary small">Exercice courant</div>
-                <div class="fs-3 fw-semibold">{{ current_fiscal_year ? current_fiscal_year.label : 'Aucun' }}</div>
-            </div>
-        </div>
-    </div>
+    {% include 'partials/stat_tiles.html.twig' with {
+        tiles: [
+            {
+                label: 'Comptes',
+                value: account_count,
+                link_label: 'Gérer les comptes',
+                link_url: '/config/finance/accounts',
+            },
+            {
+                label: 'Catégories',
+                value: category_count,
+                link_label: 'Gérer les catégories',
+                link_url: '/config/finance/categories',
+            },
+            {
+                label: 'Exercice courant',
+                value: current_fiscal_year ? current_fiscal_year.label : 'Aucun',
+            },
+        ],
+        columns: 3,
+    } only %}
 
     <hr class="my-4">
 

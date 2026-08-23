@@ -1,8 +1,8 @@
 {% extends 'base.html.twig' %}
 {% block title %}Inscriptions — {{ site_name }}{% endblock %}
 {% block content %}
-    <div class="container py-4" style="max-width: 720px;">
-        <h1 class="h3 mb-3">Inscriptions</h1>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with { title: 'Inscriptions' } only %}
 
         <div class="mb-4">
             {{ editable('registration_intro', '<p>Bienvenue sur la page d\'inscription de l\'unité. Retrouvez ci-dessous le parcours scout et les places disponibles pour l\'année ' ~ target_year_label ~ '.</p>') }}
@@ -32,11 +32,11 @@
                                         {{ year }}
                                         {% if waitlist_enabled %}
                                             {% if year in waitlist_tiers.limited|default([]) %}
-                                                <span class="badge bg-warning text-dark ms-1">Limitée</span>
+                                                <span class="badge text-bg-warning ms-1">Limitée</span>
                                             {% elseif year in waitlist_tiers.heavy|default([]) %}
-                                                <span class="badge bg-danger ms-1">Complet</span>
+                                                <span class="badge text-bg-danger ms-1">Complet</span>
                                             {% else %}
-                                                <span class="badge bg-success ms-1">Disponible</span>
+                                                <span class="badge text-bg-success ms-1">Disponible</span>
                                             {% endif %}
                                         {% endif %}
                                     </li>

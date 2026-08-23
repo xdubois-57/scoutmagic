@@ -21,13 +21,16 @@
 {% block content %}
     {# The way back to the group's page lives in the breadcrumb trail
        (design.md §7.3) — no « Retour » button here. #}
-    <div class="mb-3">
-        <h1 class="h4 mb-1">Galerie — {{ group_label|default(group.name) }}</h1>
-        <p class="text-body-secondary small mb-0">Tous les médias publiés dans ce groupe, du plus récent au plus ancien.</p>
-    </div>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Galerie — ' ~ group_label|default(group.name),
+        subtitle: 'Tous les médias publiés dans ce groupe, du plus récent au plus ancien.',
+    } only %}
 
     {% if media is empty %}
-        <p class="text-body-secondary text-center py-5 mb-0">Aucun média n'a encore été publié dans ce groupe.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: "Aucun média n'a encore été publié dans ce groupe.",
+            icon: 'bi-images',
+        } only %}
     {% else %}
         {#
           Every rendition is addressed through GET /gallery/media/{id}/{size},

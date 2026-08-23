@@ -104,12 +104,7 @@ final class UxConventionsTest extends TestCase
      *
      * @var array<string, int> template path => unwrapped table count
      */
-    private const UNWRAPPED_TABLE_ALLOWLIST = [
-        'core/View/templates/cookies/preferences.html.twig' => 1,
-        'modules/rental/views/management/_pricing.html.twig' => 1,
-        'modules/rental/views/public/_estimate.html.twig' => 1,
-        'modules/rental/views/public/tracking.html.twig' => 1,
-    ];
+    private const UNWRAPPED_TABLE_ALLOWLIST = [];
 
     /**
      * design.md §7.6 — base.html.twig already renders
@@ -119,36 +114,7 @@ final class UxConventionsTest extends TestCase
      *
      * @var list<string> template paths still nesting a container
      */
-    private const NESTED_CONTAINER_ALLOWLIST = [
-        'modules/registration/views/config.html.twig',
-        'modules/registration/views/departures.html.twig',
-        'modules/registration/views/email_confirmed.html.twig',
-        'modules/registration/views/forecast.html.twig',
-        'modules/registration/views/passage.html.twig',
-        'modules/registration/views/public.html.twig',
-        'modules/registration/views/request_detail.html.twig',
-        'modules/registration/views/submitted.html.twig',
-        'modules/registration/views/tracking_full.html.twig',
-        'modules/registration/views/tracking_minimal.html.twig',
-        'modules/rental/views/config/index.html.twig',
-        'modules/rental/views/management/booking.html.twig',
-        'modules/rental/views/management/bookings.html.twig',
-        'modules/rental/views/management/calendar.html.twig',
-        'modules/rental/views/management/document_editor.html.twig',
-        'modules/rental/views/management/my_rentals.html.twig',
-        'modules/rental/views/management/no_access.html.twig',
-        'modules/rental/views/management/overview.html.twig',
-        'modules/rental/views/management/settings.html.twig',
-        'modules/rental/views/management/stay.html.twig',
-        'modules/rental/views/management/templates.html.twig',
-        'modules/rental/views/public/index.html.twig',
-        'modules/rental/views/public/request.html.twig',
-        'modules/rental/views/public/show.html.twig',
-        'modules/rental/views/public/tracking.html.twig',
-        'modules/retro/views/board.html.twig',
-        'modules/retro/views/config.html.twig',
-        'modules/retro/views/list.html.twig',
-    ];
+    private const NESTED_CONTAINER_ALLOWLIST = [];
 
     /**
      * design.md §7.2 — touch sizing lives in app.css's `pointer: coarse`
@@ -161,31 +127,10 @@ final class UxConventionsTest extends TestCase
      * @var array<string, int> template path => inline 44px patch count
      */
     private const INLINE_TOUCH_PATCH_ALLOWLIST = [
-        'core/View/templates/account/index.html.twig' => 1,
-        'core/View/templates/admin/members/_detail_card.html.twig' => 5,
-        'core/View/templates/admin/members/_result_row.html.twig' => 2,
-        'core/View/templates/admin/members/search.html.twig' => 1,
         'core/View/templates/base.html.twig' => 1,
-        'core/View/templates/chefs/section_roster.html.twig' => 1,
         'core/View/templates/partials/chip_picker.html.twig' => 5,
         'core/View/templates/partials/nav.html.twig' => 3,
         'core/View/templates/partials/notification_dropdown.html.twig' => 1,
-        'modules/groups/views/list.html.twig' => 9,
-        'modules/groups/views/members.html.twig' => 9,
-        'modules/groups/views/partials/feed_page.html.twig' => 1,
-        'modules/groups/views/partials/group_edit_form.html.twig' => 7,
-        'modules/groups/views/partials/group_header.html.twig' => 5,
-        'modules/groups/views/partials/poll.html.twig' => 2,
-        'modules/groups/views/partials/post_card.html.twig' => 13,
-        'modules/groups/views/partials/reply_card.html.twig' => 8,
-        'modules/groups/views/partials/reply_page.html.twig' => 1,
-        'modules/groups/views/partials/search_form.html.twig' => 3,
-        'modules/groups/views/show.html.twig' => 10,
-        'modules/member_stats/views/index.html.twig' => 1,
-        'modules/sos_staff/views/admin.html.twig' => 1,
-        'modules/sos_staff/views/partials/planned_transitions.html.twig' => 1,
-        'modules/test_tools/views/mail_detail.html.twig' => 7,
-        'modules/test_tools/views/mail_sandbox.html.twig' => 12,
     ];
 
     /**

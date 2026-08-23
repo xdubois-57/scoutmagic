@@ -3,7 +3,7 @@
 {% block title %}{{ album ? 'Éditer l\'album' : 'Nouvel album' }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="h4 mb-3">{{ album ? 'Éditer l\'album' : 'Nouvel album' }}</h1>
+    {% include 'partials/page_header.html.twig' with { title: album ? 'Éditer l\'album' : 'Nouvel album' } only %}
 
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>
@@ -176,7 +176,7 @@
                                         </span>
                                     {% endif %}
                                     {% if album.coverMediaId == m.id %}
-                                        <span class="badge bg-primary position-absolute top-0 start-0 m-1">Couverture</span>
+                                        <span class="badge text-bg-primary position-absolute top-0 start-0 m-1">Couverture</span>
                                     {% endif %}
                                     <div class="position-absolute bottom-0 end-0 m-1 d-flex gap-1">
                                         {% if album.coverMediaId != m.id %}

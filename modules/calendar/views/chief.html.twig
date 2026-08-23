@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Calendrier</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Calendrier' } only %}
 
     {% include '@calendar/partials/calendar_picker.html.twig' with {
         options: calendar_options,
@@ -36,28 +36,20 @@
         {% include 'partials/month_grid.html.twig' with { weeks: weeks, days_clickable: true, events_clickable: true } %}
     </div>
 
-    {# Add/edit event dialog #}
-    <div class="modal fade" id="eventModal" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="event-modal-title">Ajouter un évènement</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                {# .modal-dialog-scrollable relies on .modal-header/.modal-body/
-                   .modal-footer being direct flex children of .modal-content so
-                   .modal-body's own overflow-y:auto has a bounded height to
-                   scroll within. Wrapping .modal-body + .modal-footer in a
-                   <form> (needed since the submit button lives in the footer)
-                   breaks that unless the form itself is also a flex column —
-                   without d-flex flex-column plus min-height:0 (a plain <form>
-                   has no `overflow` of its own, so per the flexbox spec its
-                   automatic minimum size is its content size, not 0 — it never
-                   shrinks to fit, .modal-body's internal scroll never engages,
-                   and the footer/save button end up pushed below the visible
-                   viewport on mobile). #}
-                <form id="event-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">
-                    <div class="modal-body">
+    {# Add/edit event dialog. The shared embed renders header/body/footer as
+       direct children of .modal-content (what .modal-dialog-scrollable
+       needs), so the form now lives entirely inside the body and the
+       footer's submit button reaches it through form="event-form". The
+       title id follows the embed's contract: eventModal-title. #}
+    {% embed 'partials/modal.html.twig' with {
+        id: 'eventModal',
+        title: 'Ajouter un évènement',
+        scrollable: true,
+        calendar_options: calendar_options,
+        retro_module_active: retro_module_active,
+    } only %}
+        {% block body %}
+                <form id="event-form">
                         <input type="hidden" id="event-id" value="">
                         <div class="row g-2 mb-2">
                             <div class="col-12 col-md-6">
@@ -116,18 +108,16 @@
                             </div>
                         {% endif %}
                         <div class="text-danger small d-none" id="event-form-error"></div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-outline-danger me-auto d-none" id="event-form-delete">
-                            <i class="bi bi-trash"></i> Supprimer
-                        </button>
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
-                        <button type="submit" class="btn btn-primary" id="event-form-submit">Ajouter</button>
-                    </div>
                 </form>
-            </div>
-        </div>
-    </div>
+        {% endblock %}
+        {% block footer %}
+                <button type="button" class="btn btn-outline-danger me-auto d-none" id="event-form-delete">
+                    <i class="bi bi-trash"></i> Supprimer
+                </button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="submit" class="btn btn-primary" form="event-form" id="event-form-submit">Ajouter</button>
+        {% endblock %}
+    {% endembed %}
 {% endblock %}
 
 {% block scripts %}
@@ -146,7 +136,8 @@ const startTimeInput = document.getElementById('event-start-time');
 const endTimeInput = document.getElementById('event-end-time');
 const locationInput = document.getElementById('event-location');
 const descriptionInput = document.getElementById('event-description');
-const modalTitle = document.getElementById('event-modal-title');
+// The shared modal embed names its title '{id}-title'.
+const modalTitle = document.getElementById('eventModal-title');
 const submitBtn = document.getElementById('event-form-submit');
 const deleteBtn = document.getElementById('event-form-delete');
 const errorBox = document.getElementById('event-form-error');

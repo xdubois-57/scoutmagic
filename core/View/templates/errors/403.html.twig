@@ -4,8 +4,9 @@
 
 {% block content %}
     <div class="text-center py-5">
-        <h1 class="display-4">403</h1>
-        <p class="lead">Accès refusé</p>
+        {# The status code is decoration; the words are the heading. #}
+        <p class="display-4 text-body-secondary mb-0" aria-hidden="true">403</p>
+        <h1>Accès refusé</h1>
         <p>Vous n'avez pas les permissions nécessaires pour accéder à cette page.</p>
         {% if not is_authenticated %}
             <a href="/login" class="btn btn-primary">Se connecter</a>

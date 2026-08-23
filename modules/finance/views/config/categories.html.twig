@@ -3,7 +3,7 @@
 {% block title %}Catégories — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Finances</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Catégories' } only %}
 
     {% include '@finance/config/_nav.html.twig' %}
 
@@ -50,56 +50,52 @@
                 </button>
             </div>
         {% else %}
-            <p class="text-body-secondary fst-italic mb-0">Aucune catégorie.</p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucune catégorie.',
+                compact: true,
+            } only %}
         {% endfor %}
     </div>
 
-    <div class="modal fade" id="category-modal" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="category-form-title">Nouvelle catégorie</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                {# Real bug, found and fixed while building modules/calendar's
-                   event dialog: .modal-dialog-scrollable needs .modal-body/
-                   .modal-footer as direct flex children of .modal-content for
-                   .modal-body's own overflow-y:auto to have a bounded height
-                   — wrapping both in a <form> without d-flex flex-column +
-                   min-height:0 breaks that (a plain <form> has no `overflow`
-                   of its own, so its automatic flex minimum is its content
-                   size, not 0 — it never shrinks, and the footer/save button
-                   end up pushed below the viewport on mobile). #}
-                <form id="category-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">
-                    <div class="modal-body">
-                        <input type="hidden" id="category-id" value="">
-                        <label class="form-label small" for="category-name">Nom</label>
-                        <input type="text" class="form-control form-control-sm" id="category-name" required>
-                        {% if recent_ai_suggestions %}
-                            <div class="mt-2" id="category-suggestions">
-                                <div class="text-body-secondary small mb-1">Suggestions récentes de l'IA :</div>
-                                <div class="d-flex flex-wrap gap-1">
-                                    {% for suggestion in recent_ai_suggestions %}
-                                        <button type="button" class="btn btn-sm btn-outline-secondary category-suggestion-btn" data-name="{{ suggestion }}">{{ suggestion }}</button>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        {% endif %}
-                        <div class="mt-2">
-                            <label class="form-label small" for="category-description">Description</label>
-                            <textarea class="form-control form-control-sm" id="category-description" rows="2" required
-                                      placeholder="Ce à quoi sert cette catégorie — envoyé à l'IA pour choisir entre les catégories."></textarea>
+    {# The scrollable-modal <form>-spanning-body-and-footer trap this
+       template used to document at length is gone: the form now lives
+       entirely inside the embed's body block, and the footer's submit
+       button is associated through form="category-form". The title id is
+       the embed's convention, {id}-title. #}
+    {% embed 'partials/modal.html.twig' with {
+        id: 'category-modal',
+        title: 'Nouvelle catégorie',
+        scrollable: true,
+        recent_ai_suggestions: recent_ai_suggestions,
+    } only %}
+        {% block body %}
+            <form id="category-form">
+                <input type="hidden" id="category-id" value="">
+                <label class="form-label small" for="category-name">Nom</label>
+                <input type="text" class="form-control form-control-sm" id="category-name" required>
+                {% if recent_ai_suggestions %}
+                    <div class="mt-2" id="category-suggestions">
+                        <div class="text-body-secondary small mb-1">Suggestions récentes de l'IA :</div>
+                        <div class="d-flex flex-wrap gap-1">
+                            {% for suggestion in recent_ai_suggestions %}
+                                <button type="button" class="btn btn-sm btn-outline-secondary category-suggestion-btn" data-name="{{ suggestion }}">{{ suggestion }}</button>
+                            {% endfor %}
                         </div>
-                        <div class="text-danger small mt-2 d-none" id="category-form-error"></div>
                     </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
-                        <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
+                {% endif %}
+                <div class="mt-2">
+                    <label class="form-label small" for="category-description">Description</label>
+                    <textarea class="form-control form-control-sm" id="category-description" rows="2" required
+                              placeholder="Ce à quoi sert cette catégorie — envoyé à l'IA pour choisir entre les catégories."></textarea>
+                </div>
+                <div class="text-danger small mt-2 d-none" id="category-form-error"></div>
+            </form>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" class="btn btn-sm btn-primary" form="category-form">Enregistrer</button>
+        {% endblock %}
+    {% endembed %}
 
     <hr class="my-4">
 
@@ -190,7 +186,10 @@
                 {% endif %}
             </div>
         {% else %}
-            <p class="text-body-secondary fst-italic mb-0">Aucune règle configurée.</p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucune règle configurée.',
+                compact: true,
+            } only %}
         {% endfor %}
     </div>
 
@@ -209,17 +208,16 @@
         </div>
     {% endif %}
 
-    <div class="modal fade" id="rule-modal" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="rule-form-title">Nouvelle règle</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <form id="rule-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">
-                    <div class="modal-body">
-                        <input type="hidden" id="rule-id" value="">
-                        <div class="row g-2">
+    {% embed 'partials/modal.html.twig' with {
+        id: 'rule-modal',
+        title: 'Nouvelle règle',
+        scrollable: true,
+        active_categories: active_categories,
+    } only %}
+        {% block body %}
+            <form id="rule-form">
+                <input type="hidden" id="rule-id" value="">
+                <div class="row g-2">
                             <div class="col-12 col-md-6">
                                 <label class="form-label small" for="rule-keyword-pattern">Mot-clé / expression régulière (libellé)</label>
                                 <input type="text" class="form-control form-control-sm" id="rule-keyword-pattern" placeholder="ex. delhaize ou ^VIR.*DUPONT$">
@@ -240,21 +238,19 @@
                                     {% endfor %}
                                 </select>
                             </div>
-                            <div class="col-12">
-                                <button type="button" class="btn btn-sm btn-outline-primary" id="test-rule-btn">Tester</button>
-                                <div class="mt-2 small" id="test-rule-result"></div>
-                            </div>
-                        </div>
-                        <div class="text-danger small mt-2 d-none" id="rule-form-error"></div>
+                    <div class="col-12">
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="test-rule-btn">Tester</button>
+                        <div class="mt-2 small" id="test-rule-result"></div>
                     </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
-                        <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
+                </div>
+                <div class="text-danger small mt-2 d-none" id="rule-form-error"></div>
+            </form>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" class="btn btn-sm btn-primary" form="rule-form">Enregistrer</button>
+        {% endblock %}
+    {% endembed %}
 {% endblock %}
 
 {% block scripts %}
@@ -267,7 +263,7 @@ const categoryModal = window.bootstrap ? new window.bootstrap.Modal(categoryModa
 const categoryErrorBox = document.getElementById('category-form-error');
 
 function showCategoryModal(title) {
-    document.getElementById('category-form-title').textContent = title;
+    document.getElementById('category-modal-title').textContent = title;
     categoryErrorBox.classList.add('d-none');
     categoryModal ? categoryModal.show() : categoryModalEl.classList.add('show');
 }
@@ -368,7 +364,7 @@ const ruleModal = window.bootstrap ? new window.bootstrap.Modal(ruleModalEl) : n
 const ruleErrorBox = document.getElementById('rule-form-error');
 
 function showRuleModal(title) {
-    document.getElementById('rule-form-title').textContent = title;
+    document.getElementById('rule-modal-title').textContent = title;
     ruleErrorBox.classList.add('d-none');
     ruleModal ? ruleModal.show() : ruleModalEl.classList.add('show');
 }

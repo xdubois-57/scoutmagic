@@ -3,7 +3,7 @@
 {% block title %}Configuration RGPD — {{ site_name }}{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-4">Configuration de la page RGPD</h1>
+{% include 'partials/page_header.html.twig' with { title: 'Configuration RGPD' } only %}
 
 <div class="alert alert-warning" role="alert">
     <i class="bi bi-exclamation-triangle-fill me-2"></i>

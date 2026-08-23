@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Calendrier</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Calendrier' } only %}
 
     {{ editable('calendar.intro', '<p>Retrouvez ici les prochaines activités de notre unité.</p>') }}
 
@@ -36,7 +36,12 @@
 
     <h2 class="h5 mb-3">Prochains évènements</h2>
     {% if upcoming_events is empty %}
-        <p class="text-body-secondary fst-italic mb-4">Aucun évènement à venir.</p>
+        <div class="mb-4">
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucun évènement à venir.',
+                compact: true,
+            } only %}
+        </div>
     {% else %}
         <ul class="list-group mb-4">
             {% for event in upcoming_events %}
@@ -73,7 +78,7 @@
                             <div class="text-body-secondary small"><i class="bi bi-geo-alt"></i> {{ event.data['location'] }}</div>
                         {% endif %}
                     </div>
-                    <span class="badge bg-primary-subtle text-primary-emphasis text-nowrap">
+                    <span class="badge text-bg-primary text-nowrap">
                         {{ event.startDate|date_fr }}{% if event.endDate and event.endDate != event.startDate %} - {{ event.endDate|date_fr }}{% endif %}
                     </span>
                 </li>
@@ -107,30 +112,25 @@
         </p>
     {% endif %}
 
-    {# Read-only event detail dialog, opened by clicking a bar in the grid #}
-    <div class="modal fade" id="eventDetailsModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="event-details-title"></h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <span class="d-inline-block rounded-circle" id="event-details-calendar-dot" style="width:0.6rem;height:0.6rem;"></span>
-                        <span class="text-body-secondary small" id="event-details-calendar-label"></span>
-                    </div>
-                    <div class="small mb-1"><i class="bi bi-calendar-event"></i> <span id="event-details-dates"></span></div>
-                    <div class="small mb-1 d-none" id="event-details-time-row"><i class="bi bi-clock"></i> <span id="event-details-time"></span></div>
-                    <div class="small mb-2 d-none" id="event-details-location-row"><i class="bi bi-geo-alt"></i> <span id="event-details-location"></span></div>
-                    <p class="small mb-0" style="white-space:pre-line;" id="event-details-description"></p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
-                </div>
+    {# Read-only event detail dialog, opened by clicking a bar in the grid.
+       The shared embed names the title id eventDetailsModal-title — the id
+       showEventDetails() below fills in; the title starts empty and is set
+       per event. #}
+    {% embed 'partials/modal.html.twig' with { id: 'eventDetailsModal', title: '' } only %}
+        {% block body %}
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <span class="d-inline-block rounded-circle" id="event-details-calendar-dot" style="width:0.6rem;height:0.6rem;"></span>
+                <span class="text-body-secondary small" id="event-details-calendar-label"></span>
             </div>
-        </div>
-    </div>
+            <div class="small mb-1"><i class="bi bi-calendar-event"></i> <span id="event-details-dates"></span></div>
+            <div class="small mb-1 d-none" id="event-details-time-row"><i class="bi bi-clock"></i> <span id="event-details-time"></span></div>
+            <div class="small mb-2 d-none" id="event-details-location-row"><i class="bi bi-geo-alt"></i> <span id="event-details-location"></span></div>
+            <p class="small mb-0" style="white-space:pre-line;" id="event-details-description"></p>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+        {% endblock %}
+    {% endembed %}
 {% endblock %}
 
 {% block scripts %}
@@ -148,7 +148,8 @@ function formatDateFr(isoDate) {
 // partials/month_grid.html.twig and the <li> loop above), so there is only
 // ever one place that knows how to fill this modal.
 function showEventDetails(data) {
-    document.getElementById('event-details-title').textContent = data.title;
+    // The shared modal embed names its title '{id}-title'.
+    document.getElementById('eventDetailsModal-title').textContent = data.title;
     document.getElementById('event-details-calendar-dot').style.backgroundColor = data.color;
     document.getElementById('event-details-calendar-label').textContent = data.calendarLabel;
 

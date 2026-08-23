@@ -1,7 +1,7 @@
 {% extends 'base.html.twig' %}
 {% block title %}Config Desk — {{ site_name }}{% endblock %}
 {% block content %}
-    <h1>Config Desk</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Config Desk' } only %}
 
     <h2 class="h4">Fonctions</h2>
     <p class="text-body-secondary mb-4">
@@ -32,7 +32,7 @@
                      data-id="{{ func.id }}">
                     <div>
                         <span class="fw-semibold">{{ func.desk_code }}</span>
-                        <span class="badge bg-warning-subtle text-warning-emphasis ms-2">Non confirmée</span>
+                        <span class="ms-2">{% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Non confirmée' } only %}</span>
                     </div>
                     <label class="visually-hidden" for="unconfirmed-role-{{ func.id }}">Rôle pour {{ func.desk_code }}</label>
                     <select class="form-select form-select-sm w-auto role-select" id="unconfirmed-role-{{ func.id }}" data-id="{{ func.id }}">
@@ -99,9 +99,10 @@
     {% endif %}
 
     {% if unconfirmed is empty and confirmed_by_role is empty %}
-        <p class="text-body-secondary fst-italic">
-            Aucune fonction importée. Les fonctions apparaîtront après le premier import Desk.
-        </p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune fonction importée. Les fonctions apparaîtront après le premier import Desk.',
+            compact: true,
+        } only %}
     {% endif %}
 
     <hr class="my-4">
@@ -160,9 +161,10 @@
             </div>
         {% endfor %}
     {% else %}
-        <p class="text-body-secondary fst-italic">
-            Aucune section importée. Les sections apparaîtront après le premier import Desk.
-        </p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune section importée. Les sections apparaîtront après le premier import Desk.',
+            compact: true,
+        } only %}
     {% endif %}
 
     <hr class="my-4">
@@ -203,9 +205,10 @@
             {% endfor %}
         </div>
     {% else %}
-        <p class="text-body-secondary fst-italic">
-            Aucune branche d'âge importée. Les branches apparaîtront après le premier import Desk.
-        </p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: "Aucune branche d'âge importée. Les branches apparaîtront après le premier import Desk.",
+            compact: true,
+        } only %}
     {% endif %}
 {% endblock %}
 
@@ -229,7 +232,7 @@ document.querySelectorAll('.role-select').forEach(select => {
         if (data.success) {
             // Remove "Non confirmée" badge if present
             const row = select.closest('.function-row');
-            row.querySelector('.badge.bg-warning-subtle')?.remove();
+            row.querySelector('.badge.text-bg-warning')?.remove();
             // Brief visual feedback
             row.style.backgroundColor = 'var(--bs-success-bg-subtle)';
             setTimeout(() => row.style.backgroundColor = '', 1000);

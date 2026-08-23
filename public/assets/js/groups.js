@@ -1878,7 +1878,7 @@
             return Promise.resolve(true);
         }
 
-        var label = document.getElementById('groups-detail-modal-label');
+        var label = document.getElementById('groups-detail-modal-title');
         if (label) {
             label.textContent = 'Vous répondez pour';
         }
@@ -1952,7 +1952,7 @@
             return Promise.resolve(true);
         }
 
-        var label = document.getElementById('groups-detail-modal-label');
+        var label = document.getElementById('groups-detail-modal-title');
         if (label) {
             label.textContent = 'Épingler ce message';
         }
@@ -2031,7 +2031,7 @@
         if (!url || !modalEl || !modalBody || typeof bootstrap === 'undefined') {
             return;
         }
-        var label = document.getElementById('groups-detail-modal-label');
+        var label = document.getElementById('groups-detail-modal-title');
         if (label && title) {
             label.textContent = title;
         }

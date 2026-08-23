@@ -4,7 +4,7 @@
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-6">
-        <h1 class="mb-4">Télécharger un fichier</h1>
+        {% include 'partials/page_header.html.twig' with { title: 'Télécharger un fichier' } only %}
 
         <form method="post" action="/upload" enctype="multipart/form-data" id="upload-form">
             {{ csrf_field()|raw }}
@@ -33,12 +33,12 @@
                 <p class="small text-muted mt-1" id="preview-name"></p>
             </div>
 
-            <button type="submit" class="btn btn-primary w-100" id="upload-btn" disabled>
+            <button type="submit" class="btn btn-primary w-100 w-sm-auto" id="upload-btn" disabled>
                 <i class="bi bi-upload"></i> Envoyer
             </button>
         </form>
 
-        <a href="{{ return_url }}" class="btn btn-link mt-2">Annuler</a>
+        <a href="{{ return_url }}" class="btn btn-outline-secondary mt-2">Annuler</a>
     </div>
 </div>
 {% endblock %}

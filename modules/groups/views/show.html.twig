@@ -70,7 +70,7 @@
                 #}
                 {% if event_options|default([]) is not empty %}
                     <label class="form-label small mb-1" for="post-event">Lier à un événement (facultatif)</label>
-                    <select class="form-select mb-2" id="post-event" name="calendar_event_id" style="min-height:44px;">
+                    <select class="form-select mb-2" id="post-event" name="calendar_event_id">
                         <option value="">Aucun</option>
                         {% for event in event_options %}
                             <option value="{{ event.id }}">{{ event.title }} — {{ event.startDate|french_date }}</option>
@@ -99,7 +99,7 @@
                   and refuses anything with fewer than two real options.
                 #}
                 <div class="d-flex align-items-center flex-wrap gap-2">
-                    <label class="btn btn-outline-secondary d-flex align-items-center mb-0" style="min-height:44px;">
+                    <label class="btn btn-outline-secondary d-flex align-items-center mb-0">
                         <i class="bi bi-image me-1"></i> Photos{{ video_upload_allowed ? '/vidéos' : '' }}
                         <input type="file" id="groups-media-input" class="visually-hidden"
                                accept="{{ video_upload_allowed ? 'image/*,video/*' : 'image/*' }}" multiple>
@@ -108,13 +108,13 @@
                     <details class="groups-poll-details" id="groups-poll-details"
                              data-max-options="{{ constant('Modules\\Groups\\Service\\PollService::MAX_OPTIONS') }}">
                         <summary class="btn btn-outline-secondary d-flex align-items-center mb-0"
-                                 style="min-height:44px;list-style:none;cursor:pointer;">
+                                 style="list-style:none;cursor:pointer;">
                             <i class="bi bi-bar-chart me-1"></i> Sondage
                         </summary>
                         <div class="border rounded p-2 mt-2">
                             <label class="form-label small mb-1" for="poll-question">Question</label>
                             <input type="text" class="form-control mb-2" id="poll-question" name="poll_question"
-                                   style="min-height:44px;" maxlength="{{ constant('Modules\\Groups\\Service\\PollService::MAX_QUESTION_LENGTH') }}"
+                                   maxlength="{{ constant('Modules\\Groups\\Service\\PollService::MAX_QUESTION_LENGTH') }}"
                                    placeholder="Ex. : Qui vient au week-end ?">
 
                             <div id="groups-poll-options">
@@ -133,10 +133,10 @@
                                     <div class="d-flex align-items-center gap-2 mb-1 groups-poll-option">
                                         <label class="visually-hidden" for="poll-option-{{ i }}">Choix {{ i }}</label>
                                         <input type="text" class="form-control" id="poll-option-{{ i }}" name="poll_options[]"
-                                               style="min-height:44px;" maxlength="{{ constant('Modules\\Groups\\Service\\PollService::MAX_OPTION_LENGTH') }}"
+                                               maxlength="{{ constant('Modules\\Groups\\Service\\PollService::MAX_OPTION_LENGTH') }}"
                                                placeholder="Choix {{ i }}{{ i > 2 ? ' (facultatif)' : '' }}">
                                         <button type="button" class="btn btn-outline-secondary d-flex align-items-center groups-poll-option-remove"
-                                                style="min-height:44px;" aria-label="Retirer le choix {{ i }}">
+                                                aria-label="Retirer le choix {{ i }}">
                                             <i class="bi bi-x-lg" aria-hidden="true"></i>
                                         </button>
                                     </div>
@@ -146,7 +146,7 @@
                             <div class="row g-2 mt-1">
                                 <div class="col-12 col-md-6">
                                     <label class="form-label small mb-1" for="poll-vote-scope">Qui vote</label>
-                                    <select class="form-select" id="poll-vote-scope" name="poll_vote_scope" style="min-height:44px;">
+                                    <select class="form-select" id="poll-vote-scope" name="poll_vote_scope">
                                         <option value="{{ constant('Modules\\Groups\\Service\\PollService::SCOPE_ACCOUNT') }}" selected>
                                             Une réponse par personne connectée
                                         </option>
@@ -156,11 +156,11 @@
                                     </select>
                                 </div>
                                 <div class="col-12 col-md-6 d-flex align-items-end">
-                                    <div class="form-check d-flex align-items-center gap-2 mb-0" style="min-height:44px;">
+                                    <div class="form-check d-flex align-items-center gap-2 mb-0">
                                         <input class="form-check-input mt-0" type="checkbox" value="1"
                                                id="poll-allow-multiple" name="poll_allow_multiple">
                                         <label class="form-check-label small text-body-secondary d-flex align-items-center"
-                                               for="poll-allow-multiple" style="min-height:44px;">
+                                               for="poll-allow-multiple">
                                             Plusieurs choix possibles
                                         </label>
                                     </div>
@@ -205,7 +205,7 @@
                 #}
                 <p class="small text-danger mt-2 mb-0 d-none" id="groups-post-error" role="alert"></p>
 
-                <button type="submit" class="btn btn-primary mt-2" style="min-height:44px;">Publier</button>
+                <button type="submit" class="btn btn-primary mt-2">Publier</button>
             </div>
         </form>
     {% endif %}
@@ -226,8 +226,15 @@
           back. Rendered rather than built in JS so the sentence exists in
           exactly one place.
         #}
-        <p class="text-body-secondary text-center py-5 mb-0{% if posts is not empty or pinned is not empty %} d-none{% endif %}"
-           id="groups-feed-empty">Aucun message dans ce groupe pour le moment.</p>
+        {# The wrapper keeps the id groups-feed-empty and the d-none toggling
+           contract with groups.js; the sentence itself is rendered by the
+           shared empty_state partial. #}
+        <div id="groups-feed-empty"{% if posts is not empty or pinned is not empty %} class="d-none"{% endif %}>
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucun message dans ce groupe pour le moment.',
+                icon: 'bi-chat-left-text',
+            } only %}
+        </div>
         {% if posts is not empty %}
             {% include '@groups/partials/feed_page.html.twig' with { posts: posts, group: group, next_cursor: next_cursor } %}
         {% endif %}

@@ -28,11 +28,11 @@ class FunctionsController extends AbstractController
 {
     /** @var array<int, array{value: string, label: string, badge_class: string}> */
     private const ROLE_DEFINITIONS = [
-        ['value' => 'public', 'label' => 'Public', 'badge_class' => 'bg-secondary-subtle text-secondary-emphasis'],
-        ['value' => 'identified', 'label' => 'Animé', 'badge_class' => 'bg-info-subtle text-info-emphasis'],
-        ['value' => 'intendant', 'label' => 'Intendant', 'badge_class' => 'bg-primary-subtle text-primary-emphasis'],
-        ['value' => 'chief', 'label' => 'Chef', 'badge_class' => 'bg-success-subtle text-success-emphasis'],
-        ['value' => 'admin', 'label' => 'Chef d\'Unité', 'badge_class' => 'bg-danger-subtle text-danger-emphasis'],
+        ['value' => 'public', 'label' => 'Public', 'badge_class' => 'text-bg-secondary'],
+        ['value' => 'identified', 'label' => 'Animé', 'badge_class' => 'text-bg-info'],
+        ['value' => 'intendant', 'label' => 'Intendant', 'badge_class' => 'text-bg-primary'],
+        ['value' => 'chief', 'label' => 'Chef', 'badge_class' => 'text-bg-success'],
+        ['value' => 'admin', 'label' => 'Chef d\'Unité', 'badge_class' => 'text-bg-danger'],
     ];
 
     public function __construct(

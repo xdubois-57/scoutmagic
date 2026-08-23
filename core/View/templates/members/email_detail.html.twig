@@ -3,15 +3,13 @@
 {% block content %}
     {# The way back to the member's page lives in the breadcrumb trail
        (design.md §7.3) — no « Retour » button here. #}
+    {% include 'partials/page_header.html.twig' with {
+        title: email.subject,
+        subtitle: 'Envoyé le ' ~ email.sent_at|french_date ~ ' · ' ~ email.section_name,
+    } only %}
     <div class="card">
         <div class="card-body">
-            <h1 class="h4 mb-1">{{ email.subject }}</h1>
-            <p class="text-body-secondary small mb-4">
-                Envoyé le {{ email.sent_at|french_date }} · {{ email.section_name }}
-            </p>
-            <div class="border-top pt-3">
-                {{ email.body_html|raw }}
-            </div>
+            {{ email.body_html|raw }}
         </div>
     </div>
 {% endblock %}

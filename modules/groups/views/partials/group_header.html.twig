@@ -11,22 +11,26 @@
           place, Support\GroupLabel. Falls back to the bare name for any
           caller that has not resolved it.
         #}
-        <h1 class="h4 mb-1">{{ group_label|default(group.name) }}</h1>
+        {# Kept as a bespoke header (not partials/page_header.html.twig): a
+           group's title carries badges, a description and a toolbar of
+           context actions the one-action partial cannot hold. The h1 still
+           uses the site-wide size (.h3 — design.md §7.6). #}
+        <h1 class="h3 mb-1">{{ group_label|default(group.name) }}</h1>
         <div class="d-flex align-items-center gap-2 flex-wrap">
             {% if badges.is_invitation %}
-                <span class="badge bg-secondary-subtle text-secondary-emphasis">Sur invitation</span>
+                <span class="badge text-bg-secondary">Sur invitation</span>
             {% endif %}
             {% for name in badges.section_names %}
-                <span class="badge bg-info-subtle text-info-emphasis">{{ name }}</span>
+                <span class="badge text-bg-info">{{ name }}</span>
             {% endfor %}
             {% if badges.is_archived %}
-                <span class="badge bg-secondary-subtle text-secondary-emphasis">Année passée</span>
+                {% include 'partials/status_badge.html.twig' with { status: 'archived', label: 'Année passée' } only %}
             {% endif %}
             {% if group.isClosed %}
-                <span class="badge bg-warning-subtle text-warning-emphasis">Clôturé</span>
+                {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'Clôturé' } only %}
             {% endif %}
             {% if badges.is_moderator %}
-                <span class="badge bg-primary-subtle text-primary-emphasis">Modérateur</span>
+                <span class="badge text-bg-primary">Modérateur</span>
             {% endif %}
         </div>
         {#
@@ -54,7 +58,7 @@
                 {% if can_reopen|default(false) %}
                     <form method="post" action="/groups/{{ group.id }}/reopen">
                         {{ csrf_field()|raw }}
-                        <button type="submit" class="btn btn-outline-primary d-flex align-items-center" style="min-height:44px;">
+                        <button type="submit" class="btn btn-outline-primary d-flex align-items-center">
                             <i class="bi bi-arrow-counterclockwise me-1"></i> Rouvrir
                         </button>
                     </form>
@@ -63,7 +67,7 @@
                 <form method="post" action="/groups/{{ group.id }}/close"
                       data-confirm="Clôturer ce groupe ? Il restera consultable, mais plus personne ne pourra y publier.">
                     {{ csrf_field()|raw }}
-                    <button type="submit" class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
+                    <button type="submit" class="btn btn-outline-secondary d-flex align-items-center">
                         <i class="bi bi-archive me-1"></i> Clôturer
                     </button>
                 </form>
@@ -76,16 +80,16 @@
           other group's header.
         #}
         {% if can_moderate|default(false) and reported_count|default(0) > 0 %}
-            <a class="btn btn-outline-warning d-flex align-items-center" style="min-height:44px;"
+            <a class="btn btn-outline-warning d-flex align-items-center"
                href="/groups/{{ group.id }}/reports">
                 <i class="bi bi-flag me-1"></i> Signalements
-                <span class="badge bg-warning-subtle text-warning-emphasis ms-2">{{ reported_count }}</span>
+                <span class="badge text-bg-warning ms-2">{{ reported_count }}</span>
             </a>
         {% endif %}
-        <a class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;" href="/groups/{{ group.id }}/gallery">
+        <a class="btn btn-outline-secondary d-flex align-items-center" href="/groups/{{ group.id }}/gallery">
             <i class="bi bi-images me-1"></i> Galerie
         </a>
-        <a class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;" href="/groups/{{ group.id }}/members">
+        <a class="btn btn-outline-secondary d-flex align-items-center" href="/groups/{{ group.id }}/members">
             <i class="bi bi-people me-1"></i> Membres
         </a>
     </div>

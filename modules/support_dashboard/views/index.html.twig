@@ -6,63 +6,42 @@
 {% block content %}
 {% import _self as display %}
 
-<h1 class="mb-4">Tableau de bord support</h1>
+{% include 'partials/page_header.html.twig' with { title: 'Tableau de bord support' } only %}
 
 {# ---------------------------------------------------------------- #}
-{# Indicator cards — always recomputed on the currently filtered set. #}
+{# Indicator tiles — always recomputed on the currently filtered set. #}
 {# ---------------------------------------------------------------- #}
-<div class="row row-cols-2 row-cols-lg-5 g-3 mb-4">
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <p class="text-body-secondary small mb-1">Installations actives</p>
-                <p class="h4 mb-0">{{ view.indicators.active_installations }}</p>
-            </div>
-        </div>
-    </div>
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <p class="text-body-secondary small mb-1">Total membres actifs</p>
-                <p class="h4 mb-0">{{ display.value_or_missing(view.indicators.total_active_members) }}</p>
-            </div>
-        </div>
-    </div>
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <p class="text-body-secondary small mb-1">Total sections actives</p>
-                <p class="h4 mb-0">{{ display.value_or_missing(view.indicators.total_active_sections) }}</p>
-            </div>
-        </div>
-    </div>
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <p class="text-body-secondary small mb-1">Version la plus répandue</p>
-                <p class="h4 mb-0">{{ display.value_or_missing(view.indicators.most_common_version) }}</p>
-                {% if view.indicators.most_common_version_count %}
-                    <p class="small text-body-secondary mb-0">{{ view.indicators.most_common_version_count }} installation(s)</p>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <p class="text-body-secondary small mb-1">Mises à jour automatiques</p>
-                <p class="h4 mb-0">
-                    {% if view.indicators.auto_update_percentage is null %}
-                        <span class="text-body-secondary">Non renseigné</span>
-                    {% else %}{{ view.indicators.auto_update_percentage }} %{% endif %}
-                </p>
-                {% if view.indicators.auto_update_known_count %}
-                    <p class="small text-body-secondary mb-0">sur {{ view.indicators.auto_update_known_count }} renseignée(s)</p>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-</div>
+{% include 'partials/stat_tiles.html.twig' with {
+    tiles: [
+        {
+            label: 'Installations actives',
+            value: view.indicators.active_installations,
+        },
+        {
+            label: 'Total membres actifs',
+            value: display.value_or_missing(view.indicators.total_active_members),
+        },
+        {
+            label: 'Total sections actives',
+            value: display.value_or_missing(view.indicators.total_active_sections),
+        },
+        {
+            label: 'Version la plus répandue',
+            value: display.value_or_missing(view.indicators.most_common_version),
+            sublabel: view.indicators.most_common_version_count
+                ? view.indicators.most_common_version_count ~ ' installation(s)' : '',
+        },
+        {
+            label: 'Mises à jour automatiques',
+            value: view.indicators.auto_update_percentage is null
+                ? display.value_or_missing(null)
+                : view.indicators.auto_update_percentage ~ ' %',
+            sublabel: view.indicators.auto_update_known_count
+                ? 'sur ' ~ view.indicators.auto_update_known_count ~ ' renseignée(s)' : '',
+        },
+    ],
+    columns: 5,
+} only %}
 
 {# ---------------------------------------------------------------- #}
 {# Filters and search — plain GET form, so the whole view state is    #}
@@ -228,9 +207,10 @@
         {% if history.has_data %}
             <div class="support-chart"><canvas id="chart-history"></canvas></div>
         {% else %}
-            <p class="small text-body-secondary mb-0">
-                Aucun mois n'est encore finalisé. Un mois est finalisé peu après sa fin.
-            </p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Aucun mois n'est encore finalisé. Un mois est finalisé peu après sa fin.",
+                compact: true,
+            } only %}
         {% endif %}
     </div>
 </div>
@@ -293,11 +273,10 @@
                             </td>
                             <td>{{ display.value_or_missing(row.last_upgraded_at) }}</td>
                             <td class="d-none d-md-table-cell">
-                                {% if row.is_active %}
-                                    <span class="badge text-bg-success">Active</span>
-                                {% else %}
-                                    <span class="badge text-bg-secondary">Obsolète</span>
-                                {% endif %}
+                                {% include 'partials/status_badge.html.twig' with {
+                                    status: row.is_active ? 'active' : 'inactive',
+                                    label: row.is_active ? 'Active' : 'Obsolète',
+                                } only %}
                             </td>
                             <td class="d-none d-md-table-cell">{{ display.value_or_missing(row.last_received_at) }}</td>
                             <td class="d-none d-lg-table-cell">{{ display.value_or_missing(row.active_members) }}</td>
@@ -318,39 +297,42 @@
                             </td>
                         </tr>
                     {% else %}
-                        <tr><td colspan="10" class="text-center text-body-secondary">Aucune installation ne correspond aux critères.</td></tr>
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucune installation ne correspond aux critères.',
+                            colspan: 10,
+                        } only %}
                     {% endfor %}
                 </tbody>
             </table>
         </div>
 
-        {% if view.page_count > 1 %}
-            <nav aria-label="Pagination des installations">
-                <ul class="pagination pagination-sm mb-0">
-                    {% for pageNumber in 1..view.page_count %}
-                        <li class="page-item {{ pageNumber == view.page ? 'active' : '' }}">
-                            <a class="page-link" href="/support-dashboard{{ filters.queryString({'page': pageNumber}) }}">{{ pageNumber }}</a>
-                        </li>
-                    {% endfor %}
-                </ul>
-            </nav>
-        {% endif %}
+        {# The shared partial appends the page number to base_url — the
+           filter query (page dropped) is rebuilt in front of it so no link
+           silently loses the filters the user is looking at. #}
+        {% set _pager_query = filters.queryString({'page': null}) %}
+        {% include 'partials/pagination.html.twig' with {
+            page: view.page,
+            total_pages: view.page_count,
+            base_url: '/support-dashboard' ~ _pager_query ~ (_pager_query ? '&' : '?') ~ 'page=',
+            label: 'Pagination des installations',
+        } only %}
     </div>
 </div>
 
-<div class="modal fade" id="support-detail-modal" tabindex="-1" aria-labelledby="support-detail-title" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 class="modal-title h5" id="support-detail-title">Détail de l'installation</h2>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
-            </div>
-            <div class="modal-body" id="support-detail-body">
-                <p class="text-body-secondary mb-0">Chargement…</p>
-            </div>
+{# The inner #support-detail-body div is the fragment target
+   support-dashboard.js fills — the embed owns the .modal-body itself. #}
+{% embed 'partials/modal.html.twig' with {
+    id: 'support-detail-modal',
+    title: "Détail de l'installation",
+    size: 'lg',
+    scrollable: true,
+} only %}
+    {% block body %}
+        <div id="support-detail-body">
+            <p class="text-body-secondary mb-0">Chargement…</p>
         </div>
-    </div>
-</div>
+    {% endblock %}
+{% endembed %}
 {% endblock %}
 
 {% block scripts %}

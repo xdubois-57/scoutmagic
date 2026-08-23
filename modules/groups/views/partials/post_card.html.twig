@@ -50,14 +50,14 @@
                         {% if on_reports_page|default(false) %}
                             <input type="hidden" name="return_to" value="reports">
                         {% endif %}
-                        <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center">
                             Masquer
                         </button>
                     </form>
                 {% endif %}
                 <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/restore" class="m-0 groups-restore-form">
                     {{ csrf_field()|raw }}
-                    <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center">
                         {{ row.is_hidden|default(false) ? 'Rétablir' : 'Ignorer le signalement' }}
                     </button>
                 </form>
@@ -85,7 +85,7 @@
                         {# The deadline is part of what a pin means here — one message at a
                            time, for as long as the moderator said — so it is shown rather
                            than left as something only they know. #}
-                        {% if row.post.isPinned %}<span class="badge bg-warning-subtle text-warning-emphasis ms-1">Épinglé{% if row.post.pinnedUntil %} jusqu'au {{ row.post.pinnedUntil|french_date }}{% endif %}</span>{% endif %}
+                        {% if row.post.isPinned %}<span class="badge text-bg-warning ms-1">Épinglé{% if row.post.pinnedUntil %} jusqu'au {{ row.post.pinnedUntil|french_date }}{% endif %}</span>{% endif %}
                     </p>
                 </div>
             </div>
@@ -93,7 +93,7 @@
             {% if row.can_edit or row.can_delete or row.can_pin or row.can_report|default(false) %}
                 <div class="dropdown">
                     <button class="btn btn-sm btn-link text-body-secondary d-flex align-items-center justify-content-center"
-                            style="min-height:44px;min-width:44px;" type="button" data-bs-toggle="dropdown"
+                            type="button" data-bs-toggle="dropdown"
                             aria-expanded="false" aria-label="Actions sur ce message">
                         <i class="bi bi-three-dots-vertical"></i>
                     </button>
@@ -110,14 +110,14 @@
                           never a dead end.
                         #}
                         <li>
-                            <button class="dropdown-item d-flex align-items-center groups-copy-link" style="min-height:44px;"
+                            <button class="dropdown-item d-flex align-items-center tap-target groups-copy-link"
                                     type="button" data-url="/groups/{{ group.id }}/posts/{{ row.post.id }}">
                                 Copier le lien
                             </button>
                         </li>
                         {% if row.can_edit %}
                             <li>
-                                <button class="dropdown-item d-flex align-items-center groups-edit-toggle" style="min-height:44px;"
+                                <button class="dropdown-item d-flex align-items-center tap-target groups-edit-toggle"
                                         type="button" data-post="{{ row.post.id }}">
                                     Modifier
                                 </button>
@@ -147,7 +147,7 @@
                                         <input type="hidden" name="duration"
                                                value="{{ constant('Modules\\Groups\\Service\\PostService::PIN_DURATION_DEFAULT') }}">
                                     {% endif %}
-                                    <button type="submit" class="dropdown-item d-flex align-items-center" style="min-height:44px;">
+                                    <button type="submit" class="dropdown-item d-flex align-items-center tap-target">
                                         {{ row.post.isPinned ? 'Désépingler' : 'Épingler' }}
                                     </button>
                                 </form>
@@ -158,7 +158,7 @@
                                 <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/report" class="groups-report-form"
                                       data-confirm="Signaler ce message aux modérateurs du groupe ?">
                                     {{ csrf_field()|raw }}
-                                    <button type="submit" class="dropdown-item d-flex align-items-center" style="min-height:44px;">
+                                    <button type="submit" class="dropdown-item d-flex align-items-center tap-target">
                                         Signaler
                                     </button>
                                 </form>
@@ -169,7 +169,7 @@
                                 <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/delete"
                                       class="groups-post-delete-form" data-confirm="Supprimer définitivement ce message ?">
                                     {{ csrf_field()|raw }}
-                                    <button type="submit" class="dropdown-item text-danger d-flex align-items-center" style="min-height:44px;">
+                                    <button type="submit" class="dropdown-item text-danger d-flex align-items-center tap-target">
                                         Supprimer
                                     </button>
                                 </form>
@@ -235,9 +235,9 @@
                 <textarea class="form-control mb-2" id="post-edit-body-{{ row.post.id }}" name="body" rows="3"
                           maxlength="5000" required>{{ row.post.body }}</textarea>
                 <div class="d-flex gap-2">
-                    <button type="submit" class="btn btn-sm btn-primary d-flex align-items-center" style="min-height:44px;">Enregistrer</button>
+                    <button type="submit" class="btn btn-sm btn-primary d-flex align-items-center">Enregistrer</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center groups-edit-cancel"
-                            style="min-height:44px;" data-post="{{ row.post.id }}">Annuler</button>
+                            data-post="{{ row.post.id }}">Annuler</button>
                 </div>
             </form>
         {% endif %}
@@ -298,7 +298,7 @@
                         {%- endif -%}
                     </span>
                     {% if new_replies > 0 %}
-                        <span class="badge bg-danger groups-thread-new">
+                        <span class="badge text-bg-danger groups-thread-new">
                             {{ new_replies }} nouveau{{ new_replies > 1 ? 'x' : '' }}
                         </span>
                     {% endif %}
@@ -333,18 +333,18 @@
                            for its own author — see show.html.twig's panel. #}
                         {# Same "@" autocomplete as the composer — see show.html.twig. #}
                         <input type="text" class="form-control form-control-sm" id="reply-body-input-{{ row.post.id }}"
-                               name="body" placeholder="Répondre…" style="min-height:44px;"
+                               name="body" placeholder="Répondre…"
                                data-mention-url="/groups/{{ group.id }}/mention-search"
                                value="{% if rejected_draft|default(null) and rejected_draft.post_id == row.post.id %}{{ rejected_draft.body }}{% endif %}"
                                maxlength="{{ constant('Modules\\Groups\\Service\\ReplyService::MAX_BODY_LENGTH') }}">
                         <label class="btn btn-sm btn-outline-secondary d-flex align-items-center mb-0"
-                               style="min-height:44px;" aria-label="Joindre une image à la réponse">
+                               aria-label="Joindre une image à la réponse">
                             <i class="bi bi-image"></i>
                             {# One image maximum — no `multiple`, and the server rejects a second one anyway. #}
                             <input type="file" name="image[]" class="visually-hidden groups-reply-image" accept="image/*">
                         </label>
                         <button type="submit" class="btn btn-sm btn-primary d-flex align-items-center"
-                                style="min-height:44px;" aria-label="Envoyer la réponse">
+                                aria-label="Envoyer la réponse">
                             <i class="bi bi-send"></i>
                         </button>
                     </div>

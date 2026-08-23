@@ -1,10 +1,11 @@
 {% extends 'base.html.twig' %}
 {% block title %}Demande envoyée — {{ site_name }}{% endblock %}
 {% block content %}
-    <div class="container py-4" style="max-width: 640px;">
+    <div class="page-narrow">
+        {% include 'partials/page_header.html.twig' with { title: 'Demande envoyée' } only %}
         <div class="alert alert-success">
-            <h1 class="h4 mb-2">Merci !</h1>
             <p class="mb-0">
+                <strong>Merci !</strong>
                 Votre demande d'inscription pour {{ child_first_name }} a bien été reçue. Ceci n'est pas encore une acceptation — elle sera examinée par l'unité.
             </p>
         </div>

@@ -1,8 +1,10 @@
 {% extends 'base.html.twig' %}
 {% block title %}Membres — {{ param('site_name') }}{% endblock %}
 {% block content %}
-    <h1>Membres</h1>
-    <p class="text-body-secondary small">Recherche parmi les membres de l'année {{ year_label }}.</p>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Membres',
+        subtitle: "Recherche parmi les membres de l'année " ~ year_label ~ '.',
+    } only %}
 
     <form method="get" action="/admin/members" class="mb-4">
         <div class="input-group">
@@ -17,9 +19,10 @@
             Entrez un nom, prénom, email ou téléphone pour rechercher un membre.
         </p>
     {% elseif results is empty %}
-        <p class="text-body-secondary fst-italic">
-            Aucun membre trouvé pour « {{ query }} ».
-        </p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun membre trouvé pour « ' ~ query ~ ' ».',
+            compact: true,
+        } only %}
     {% else %}
         {# The whole result list lives inside the export form: the rows'
            selected[] checkboxes feed « Exporter la sélection » without any
@@ -30,7 +33,7 @@
         <form method="get" action="/admin/members/export" id="member-export-form">
             <input type="hidden" name="q" value="{{ query }}">
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                <label class="d-flex align-items-center gap-2 m-0 small text-body-secondary" style="min-height:44px;cursor:pointer;">
+                <label class="d-flex align-items-center gap-2 m-0 small text-body-secondary tap-target" style="cursor:pointer;">
                     <input class="form-check-input m-0" type="checkbox" id="member-export-select-all" style="width:1.25rem;height:1.25rem;">
                     Tout sélectionner
                 </label>

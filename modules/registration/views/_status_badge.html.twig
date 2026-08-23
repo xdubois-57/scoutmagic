@@ -1,20 +1,18 @@
 {# Parent-facing status badge, shared by both tracking views (minimal and
-   full) so the five states are labelled in exactly one place.
+   full) so the five states are labelled in exactly one place — now a thin
+   relay onto the site's shared status vocabulary
+   (core/View/templates/partials/status_badge.html.twig).
 
    ALWAYS fed Service\RequestStatusService::visibleStatus(), never the raw
    `status` column — see Controller\TrackingController's docblock: an
    acceptance or a refusal must not surface here before its email has
    actually been sent. #}
-{% if status == 'pending' %}
-    <span class="badge bg-info text-dark">En attente d'examen</span>
-{% elseif status == 'accepted' %}
-    <span class="badge bg-success">Acceptée</span>
-{% elseif status == 'encoded' %}
-    <span class="badge bg-success">Inscription finalisée</span>
-{% elseif status == 'refused' %}
-    <span class="badge bg-danger">Refusée</span>
-{% elseif status == 'withdrawn' %}
-    <span class="badge bg-secondary">Retirée</span>
-{% else %}
-    <span class="badge bg-secondary">En cours de traitement</span>
-{% endif %}
+{% set _map = {
+    'pending':   { key: 'pending',   label: "En attente d'examen" },
+    'accepted':  { key: 'confirmed', label: 'Acceptée' },
+    'encoded':   { key: 'confirmed', label: 'Inscription finalisée' },
+    'refused':   { key: 'refused',   label: 'Refusée' },
+    'withdrawn': { key: 'cancelled', label: 'Retirée' },
+} %}
+{% set _entry = _map[status]|default({ key: 'pending', label: 'En cours de traitement' }) %}
+{% include 'partials/status_badge.html.twig' with { status: _entry.key, label: _entry.label } only %}

@@ -2,8 +2,10 @@
 {% block title %}Mon compte — {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-narrow">
-    <h1>Mon compte</h1>
-    <p class="text-body-secondary mb-4">{{ current_user_email }}</p>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Mon compte',
+        subtitle: current_user_email,
+    } only %}
 
     {#
       The photo of this LOGIN — the shared avatar (person_avatar(),
@@ -28,7 +30,7 @@
                     <form method="post" action="/account/photo/delete" class="m-0"
                           data-confirm="Retirer votre photo ? Vos initiales seront affichées à la place.">
                         {{ csrf_field() }}
-                        <button type="submit" class="btn btn-sm btn-outline-secondary" style="min-height:44px;">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">
                             Retirer la photo
                         </button>
                     </form>
@@ -139,9 +141,14 @@
                         </button>
                     </div>
                 {% else %}
-                    <p class="text-body-secondary small" id="no-passkeys-msg">
-                        Aucune clé enregistrée.
-                    </p>
+                    {# The id is what the delete handler un-hides after the
+                       last key is removed — it wraps the shared empty state. #}
+                    <div id="no-passkeys-msg">
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucune clé enregistrée.',
+                            compact: true,
+                        } only %}
+                    </div>
                 {% endfor %}
             </div>
 
@@ -151,8 +158,8 @@
                     <input type="text" id="passkey-device-label" class="form-control form-control-sm"
                            placeholder="ex. iPhone de Jean" maxlength="100">
                 </div>
-                <button type="button" class="btn btn-outline-primary w-100" id="passkey-add-btn">
-                    <i class="bi bi-plus"></i> Ajouter une clé
+                <button type="button" class="btn btn-outline-primary w-100 w-sm-auto" id="passkey-add-btn">
+                    <i class="bi bi-plus-lg"></i> Ajouter une clé
                 </button>
             </div>
 

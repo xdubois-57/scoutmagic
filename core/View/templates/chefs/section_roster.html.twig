@@ -9,16 +9,22 @@
         'returning': 'bg-primary-subtle',
         'neutral': '',
     } %}
+    {# Movement badges keep their own four-tone mapping: the legend below
+       explains each tone, so collapsing them into status_badge's single
+       severity scale would erase information. Only the badge syntax is
+       aligned (text-bg-*). #}
     {% set movement_badge_classes = {
-        'new': 'bg-success-subtle text-success-emphasis',
-        'section_change': 'bg-info-subtle text-info-emphasis',
-        'branch_change': 'bg-warning-subtle text-warning-emphasis',
-        'returning': 'bg-primary-subtle text-primary-emphasis',
-        'neutral': 'bg-secondary-subtle text-secondary-emphasis',
+        'new': 'text-bg-success',
+        'section_change': 'text-bg-info',
+        'branch_change': 'text-bg-warning',
+        'returning': 'text-bg-primary',
+        'neutral': 'text-bg-secondary',
     } %}
 
-    <h1 class="mb-1">Membres par section</h1>
-    <p class="text-body-secondary small mb-3">Année scoute {{ scout_year_label }}</p>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Membres par section',
+        subtitle: 'Année scoute ' ~ scout_year_label,
+    } only %}
 
     {% if picker_sections|length > 1 %}
         {% include 'partials/section_picker.html.twig' with {
@@ -53,7 +59,10 @@
     </div>
 
     {% if section_blocks is empty %}
-        <p class="text-body-secondary">Aucune section disponible. Les sections apparaîtront après le premier import Desk.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune section disponible. Les sections apparaîtront après le premier import Desk.',
+            icon: 'bi-people',
+        } only %}
     {% endif %}
 
     {% for block in section_blocks %}
@@ -90,7 +99,7 @@
                                         <td>
                                             <div class="d-flex flex-wrap align-items-center gap-2">
                                                 {% if can_view_member_link %}
-                                                    <a href="/members/{{ member.memberYearId }}" style="min-height:44px;display:inline-flex;align-items:center;">
+                                                    <a href="/members/{{ member.memberYearId }}" class="tap-target d-inline-flex align-items-center">
                                                         {{ member.lastName|normalize_name }}, {{ member.firstName|normalize_name }}{% if member.totem %} · {{ member.totem|normalize_totem }}{% endif %}
                                                     </a>
                                                 {% else %}
@@ -114,7 +123,10 @@
                                                 {% endfor %}
                                             {% endif %}
                                             {% if member.emails|length == 0 and member.phones|length == 0 %}
-                                                <span class="text-body-secondary">Aucune coordonnée</span>
+                                                {% include 'partials/empty_state.html.twig' with {
+                                                    message: 'Aucune coordonnée.',
+                                                    compact: true,
+                                                } only %}
                                             {% endif %}
                                         </td>
                                     </tr>
@@ -123,7 +135,10 @@
                         </table>
                     </div>
                 {% else %}
-                    <p class="text-body-secondary fst-italic small">Aucun membre dans cette catégorie.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun membre dans cette catégorie.',
+                        compact: true,
+                    } only %}
                 {% endif %}
             {% endfor %}
         </section>

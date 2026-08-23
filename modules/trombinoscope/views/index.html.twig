@@ -5,7 +5,7 @@
 {% endblock %}
 
 {% block content %}
-    <h1 class="mb-3">Trombinoscope</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Trombinoscope' } only %}
 
     {% if picker_sections|length > 1 %}
         {% include 'partials/section_picker.html.twig' with {
@@ -16,9 +16,10 @@
     {% endif %}
 
     {% if section_blocks is empty %}
-        <p class="text-body-secondary">
-            Aucune section disponible. Les sections apparaîtront après le premier import Desk.
-        </p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune section disponible. Les sections apparaîtront après le premier import Desk.',
+            icon: 'bi-people',
+        } only %}
     {% endif %}
 
     {% for block in section_blocks %}
@@ -44,9 +45,9 @@
                                         <div class="text-body-secondary small">{{ block.lead.getMainFunction().functionLabel }}</div>
                                     {% endif %}
                                     <div class="d-flex flex-wrap gap-1 mt-1">
-                                        <span class="badge bg-primary" style="font-size:0.6rem;">Responsable</span>
+                                        <span class="badge text-bg-primary" style="font-size:var(--fs-micro);">Responsable</span>
                                         {% for badge in block.lead.badges %}
-                                            <span class="badge bg-warning-subtle text-warning-emphasis d-inline-flex align-items-center gap-1" style="font-size:0.6rem;">
+                                            <span class="badge text-bg-warning d-inline-flex align-items-center gap-1" style="font-size:var(--fs-micro);">
                                                 {{ badge.name }}
                                             </span>
                                         {% endfor %}
@@ -67,7 +68,7 @@
                                     {% if member.badges|length > 0 %}
                                         <div class="d-flex flex-wrap gap-1 mt-1">
                                             {% for badge in member.badges %}
-                                                <span class="badge bg-warning-subtle text-warning-emphasis d-inline-flex align-items-center gap-1" style="font-size:0.6rem;">
+                                                <span class="badge text-bg-warning d-inline-flex align-items-center gap-1" style="font-size:var(--fs-micro);">
                                                     {{ badge.name }}
                                                 </span>
                                             {% endfor %}
@@ -79,7 +80,7 @@
                     {% endfor %}
                 </div>
             {% else %}
-                <p class="text-body-secondary fst-italic">Aucun animateur configuré pour cette section.</p>
+                {% include 'partials/empty_state.html.twig' with { message: 'Aucun animateur configuré pour cette section.', compact: true } only %}
             {% endif %}
         </section>
     {% endfor %}

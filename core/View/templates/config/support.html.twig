@@ -1,7 +1,7 @@
 {% extends 'base.html.twig' %}
 {% block title %}Support — {{ site_name }}{% endblock %}
 {% block content %}
-<h1 class="mb-4">Configuration — Support</h1>
+{% include 'partials/page_header.html.twig' with { title: 'Support' } only %}
 
 <div class="card mb-3">
     <div class="card-body">

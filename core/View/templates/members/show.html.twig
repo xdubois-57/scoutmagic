@@ -35,7 +35,10 @@
                 <div class="card-body">
                     <h2 class="h5 mb-3">Informations essentielles</h2>
                     {% if not section_info %}
-                        <p class="text-body-secondary small mb-0">Aucune section connue pour ce membre.</p>
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucune section connue pour ce membre.',
+                            compact: true,
+                        } only %}
                     {% else %}
                         <div class="mb-3">
                             <span class="text-body-secondary d-block small">Section</span>
@@ -134,7 +137,10 @@
                                 {% endfor %}
                             </ul>
                         {% else %}
-                            <p class="text-body-secondary small mb-0">Aucune communication pour le moment.</p>
+                            {% include 'partials/empty_state.html.twig' with {
+                                message: 'Aucune communication pour le moment.',
+                                compact: true,
+                            } only %}
                         {% endif %}
                     </div>
                 </div>
@@ -159,7 +165,10 @@
                                 {% endfor %}
                             </ul>
                         {% else %}
-                            <p class="text-body-secondary small mb-0">Aucun document privé pour le moment.</p>
+                            {% include 'partials/empty_state.html.twig' with {
+                                message: 'Aucun document privé pour le moment.',
+                                compact: true,
+                            } only %}
                         {% endif %}
                     </div>
                 </div>
@@ -231,7 +240,10 @@
                                 {% endfor %}
                             </div>
                         {% else %}
-                            <p class="text-body-secondary small mb-0">Aucune galerie pour le moment.</p>
+                            {% include 'partials/empty_state.html.twig' with {
+                                message: 'Aucune galerie pour le moment.',
+                                compact: true,
+                            } only %}
                         {% endif %}
                     </div>
                 </div>
@@ -254,11 +266,11 @@
                                     <div>
                                         {{ row.email }}
                                         {% if row.status == 'valid' %}
-                                            <span class="badge bg-success">Valide</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'confirmed', label: 'Valide' } only %}
                                         {% elseif row.status == 'pending' %}
-                                            <span class="badge bg-warning text-dark">En attente de confirmation</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente de confirmation' } only %}
                                         {% else %}
-                                            <span class="badge bg-secondary">Inactif</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'Inactif' } only %}
                                         {% endif %}
                                     </div>
                                     {% if row.source == 'desk' %}
@@ -382,7 +394,7 @@
                                 <span class="text-body-secondary d-block small">Adresse(s)</span>
                                 {% for address in member.addresses %}
                                     <div class="small {% if not loop.last %}mb-2{% endif %}">
-                                        <span class="badge bg-secondary-subtle text-secondary-emphasis mb-1">{{ address.type }}</span>
+                                        <span class="badge text-bg-secondary mb-1">{{ address.type }}</span>
                                         <div>{{ address.format()|normalize_address }}</div>
                                     </div>
                                 {% endfor %}

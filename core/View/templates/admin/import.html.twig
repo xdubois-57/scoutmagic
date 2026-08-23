@@ -1,7 +1,7 @@
 {% extends 'base.html.twig' %}
 {% block title %}Import Desk — {{ site_name }}{% endblock %}
 {% block content %}
-    <h1>Import Desk</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Import Desk' } only %}
 
     {# Scout year info #}
     <div class="card mb-3">

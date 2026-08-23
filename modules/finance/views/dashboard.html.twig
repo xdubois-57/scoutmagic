@@ -1,9 +1,9 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Finances — {{ site_name }}{% endblock %}
+{% block title %}Tableau de bord — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Finances</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Tableau de bord' } only %}
 
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
@@ -14,9 +14,12 @@
     </p>
 
     {% if no_accounts %}
-        <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun compte visible pour votre rôle.',
+            icon: 'bi-wallet2',
+        } only %}
     {% else %}
-        <h2 class="h5 mb-3">Tableau de bord — {{ selected_account.name }}</h2>
+        <h2 class="h5 mb-3">{{ selected_account.name }}</h2>
 
         <form method="get" action="/finance" class="row g-2 align-items-end mb-3">
             <div class="col-6 col-md-3">
@@ -66,53 +69,41 @@
             </div>
         {% endif %}
 
-        <div class="row g-3 mb-3">
-            <div class="col-12 col-md-4">
-                <div class="border rounded-3 p-3 h-100">
-                    <div class="text-body-secondary small">Solde actuel</div>
-                    <div class="fs-3 fw-semibold">
-                        {{ balance is not null ? balance|money : 'Solde inconnu' }}
-                    </div>
-                </div>
-            </div>
-            <div class="col-12 col-md-4">
-                <div class="border rounded-3 p-3 h-100">
-                    <div class="text-body-secondary small">Solde le plus bas (18 derniers mois)</div>
-                    <div class="fs-3 fw-semibold">
-                        {{ lowest_balance_18_months is not null ? lowest_balance_18_months|money : 'Inconnu' }}
-                    </div>
-                </div>
-            </div>
-            <div class="col-12 col-md-4 d-flex flex-column justify-content-center gap-2">
-                <a href="/finance/import?account_id={{ selected_account.id }}" class="btn btn-outline-primary">Importer un extrait bancaire →</a>
-                <a href="/finance/receipts/new?account_id={{ selected_account.id }}" class="btn btn-outline-primary">Ajouter un reçu →</a>
-            </div>
-        </div>
+        {% include 'partials/stat_tiles.html.twig' with {
+            tiles: [
+                {
+                    label: 'Solde actuel',
+                    value: balance is not null ? balance|money : 'Solde inconnu',
+                },
+                {
+                    label: 'Solde le plus bas',
+                    value: lowest_balance_18_months is not null ? lowest_balance_18_months|money : 'Inconnu',
+                    sublabel: '18 derniers mois',
+                },
+                {
+                    label: 'Dernier extrait importé',
+                    value: last_import ? last_import.importedAt|date_fr : 'Aucun import',
+                    link_label: 'Importer →',
+                    link_url: '/finance/import?account_id=' ~ selected_account.id,
+                },
+                {
+                    label: 'Mouvements',
+                    value: movements_count,
+                    link_label: 'Voir les mouvements →',
+                    link_url: '/finance/movements?account_id=' ~ selected_account.id ~ '&fiscal_year_id=all',
+                },
+                {
+                    label: 'Reçus',
+                    value: receipts_count,
+                    link_label: 'Voir les reçus →',
+                    link_url: '/finance/receipts?account_id=' ~ selected_account.id,
+                },
+            ],
+        } only %}
 
-        <div class="row g-3 mb-4">
-            <div class="col-12 col-md-4">
-                <div class="border rounded-3 p-3 h-100">
-                    <div class="text-body-secondary small">Dernier extrait importé</div>
-                    <div class="fs-5 fw-semibold">
-                        {{ last_import ? last_import.importedAt|date_fr : 'Aucun import' }}
-                    </div>
-                    <a href="/finance/import?account_id={{ selected_account.id }}" class="small">Importer →</a>
-                </div>
-            </div>
-            <div class="col-12 col-md-4">
-                <div class="border rounded-3 p-3 h-100">
-                    <div class="text-body-secondary small">Mouvements</div>
-                    <div class="fs-5 fw-semibold">{{ movements_count }}</div>
-                    <a href="/finance/movements?account_id={{ selected_account.id }}&fiscal_year_id=all" class="small">Voir les mouvements →</a>
-                </div>
-            </div>
-            <div class="col-12 col-md-4">
-                <div class="border rounded-3 p-3 h-100">
-                    <div class="text-body-secondary small">Reçus</div>
-                    <div class="fs-5 fw-semibold">{{ receipts_count }}</div>
-                    <a href="/finance/receipts?account_id={{ selected_account.id }}" class="small">Voir les reçus →</a>
-                </div>
-            </div>
+        <div class="d-flex flex-column flex-sm-row gap-2 mb-4">
+            <a href="/finance/import?account_id={{ selected_account.id }}" class="btn btn-outline-primary">Importer un extrait bancaire →</a>
+            <a href="/finance/receipts/new?account_id={{ selected_account.id }}" class="btn btn-outline-primary">Ajouter un reçu →</a>
         </div>
 
         {% if selected_fiscal_year and category_summary %}
@@ -171,7 +162,10 @@
                                 <td class="text-end">{{ row.total|money }}</td>
                             </tr>
                         {% else %}
-                            <tr><td colspan="4" class="text-body-secondary fst-italic">Aucun mouvement pour cet exercice.</td></tr>
+                            {% include 'partials/empty_state.html.twig' with {
+                                message: 'Aucun mouvement pour cet exercice.',
+                                colspan: 4,
+                            } only %}
                         {% endfor %}
                     </tbody>
                     {% if category_summary %}
@@ -223,7 +217,10 @@
                 </div>
             {% else %}
                 <div class="col-12">
-                    <p class="text-body-secondary fst-italic">Aucun reçu en attente.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun reçu en attente.',
+                        compact: true,
+                    } only %}
                 </div>
             {% endfor %}
         </div>
@@ -272,7 +269,10 @@
                             </td>
                         </tr>
                     {% else %}
-                        <tr><td colspan="6" class="text-body-secondary fst-italic">Aucun mouvement.</td></tr>
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucun mouvement.',
+                            colspan: 6,
+                        } only %}
                     {% endfor %}
                 </tbody>
             </table>

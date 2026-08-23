@@ -162,7 +162,7 @@
                         <span>
                             {{ category.label }}
                             {% if category.isDefault %}
-                                <span class="badge bg-secondary">Proposée par défaut</span>
+                                <span class="badge text-bg-secondary">Proposée par défaut</span>
                             {% endif %}
                         </span>
                         <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/categorie-supprimer"
@@ -346,6 +346,7 @@
                         <div class="alert alert-warning py-2 small mb-2">{{ warning }}</div>
                     {% endfor %}
 
+                    <div class="table-responsive">
                     <table class="table table-sm mb-2">
                         <caption class="visually-hidden">Détail du prix simulé</caption>
                         <thead>
@@ -373,7 +374,11 @@
                                     </td>
                                 </tr>
                             {% else %}
-                                <tr><td colspan="4" class="text-body-secondary fst-italic">Aucune ligne calculable.</td></tr>
+                                {% include 'partials/empty_state.html.twig' with {
+                                    message: 'Aucune ligne calculable.',
+                                    compact: true,
+                                    colspan: 4,
+                                } only %}
                             {% endfor %}
                         </tbody>
                         <tfoot>
@@ -383,6 +388,7 @@
                             </tr>
                         </tfoot>
                     </table>
+                    </div>
 
                     <p class="small text-body-secondary mb-0">
                         {{ quote.nights }} nuit{{ quote.nights > 1 ? 's' : '' }} ·

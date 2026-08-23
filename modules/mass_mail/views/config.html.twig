@@ -3,7 +3,7 @@
 {% block title %}Configuration envoi de mails — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Configuration envoi de mails</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Configuration envoi de mails' } only %}
 
     <div class="card mb-4">
         <div class="card-body">
@@ -28,7 +28,7 @@
                 {% for list in custom_lists %}
                     <li class="list-group-item" data-id="{{ list.id }}">
                         <div class="d-flex justify-content-between align-items-center">
-                            <span>{{ list.name }}{% if not list.isActive %} <span class="badge text-bg-secondary">Désactivée</span>{% endif %}</span>
+                            <span>{{ list.name }}{% if not list.isActive %} {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'Désactivée' } only %}{% endif %}</span>
                             <span class="text-nowrap">
                                 <button type="button" class="btn btn-sm btn-outline-secondary cfg-edit-list-btn"
                                         data-id="{{ list.id }}" data-name="{{ list.name }}" data-description="{{ list.description }}"
@@ -45,7 +45,12 @@
                         <p class="text-body-secondary small mb-0 mt-1">{{ list.description }}</p>
                     </li>
                 {% else %}
-                    <li class="list-group-item text-body-secondary fst-italic">Aucune liste personnalisée.</li>
+                    <li class="list-group-item">
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucune liste personnalisée.',
+                            compact: true,
+                        } only %}
+                    </li>
                 {% endfor %}
             </ul>
         </div>
@@ -68,54 +73,53 @@
         </div>
     </div>
 
-    <div class="modal fade" id="cfg-list-modal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="cfg-list-modal-title">Nouvelle liste</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert alert-danger d-none" id="cfg-list-error"></div>
-                    <div class="mb-3">
-                        <label class="form-label small" for="cfg-list-name">Nom</label>
-                        <input type="text" class="form-control form-control-sm" id="cfg-list-name">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label small" for="cfg-list-description">Description</label>
-                        <textarea class="form-control form-control-sm" id="cfg-list-description" rows="2" maxlength="500"
-                                  placeholder="À qui s'adresse cette liste, dans quel but — affiché aux animateurs qui la choisissent."></textarea>
-                    </div>
-                    <div class="mb-3">
-                        <div class="form-label small d-block">Fonctions (au moins une)</div>
-                        <div class="border rounded p-2" style="max-height:160px;overflow-y:auto;">
-                            {% for f in all_functions %}
-                                <div class="form-check">
-                                    <input class="form-check-input cfg-function-checkbox" type="checkbox" value="{{ f.id }}" id="cfg-fn-{{ f.id }}">
-                                    <label class="form-check-label small" for="cfg-fn-{{ f.id }}">{{ f.label }}</label>
-                                </div>
-                            {% endfor %}
+    {# The title id the JS targets (cfg-list-modal-title) is exactly the
+       embed's {id}-title convention. #}
+    {% embed 'partials/modal.html.twig' with {
+        id: 'cfg-list-modal',
+        title: 'Nouvelle liste',
+        all_functions: all_functions,
+        all_sections: all_sections,
+    } only %}
+        {% block body %}
+            <div class="alert alert-danger d-none" id="cfg-list-error"></div>
+            <div class="mb-3">
+                <label class="form-label small" for="cfg-list-name">Nom</label>
+                <input type="text" class="form-control form-control-sm" id="cfg-list-name">
+            </div>
+            <div class="mb-3">
+                <label class="form-label small" for="cfg-list-description">Description</label>
+                <textarea class="form-control form-control-sm" id="cfg-list-description" rows="2" maxlength="500"
+                          placeholder="À qui s'adresse cette liste, dans quel but — affiché aux animateurs qui la choisissent."></textarea>
+            </div>
+            <div class="mb-3">
+                <div class="form-label small d-block">Fonctions (au moins une)</div>
+                <div class="border rounded p-2" style="max-height:160px;overflow-y:auto;">
+                    {% for f in all_functions %}
+                        <div class="form-check">
+                            <input class="form-check-input cfg-function-checkbox" type="checkbox" value="{{ f.id }}" id="cfg-fn-{{ f.id }}">
+                            <label class="form-check-label small" for="cfg-fn-{{ f.id }}">{{ f.label }}</label>
                         </div>
-                    </div>
-                    <div class="mb-3">
-                        <div class="form-label small d-block">Sections (au moins une)</div>
-                        <div class="border rounded p-2" style="max-height:160px;overflow-y:auto;">
-                            {% for s in all_sections %}
-                                <div class="form-check">
-                                    <input class="form-check-input cfg-section-checkbox" type="checkbox" value="{{ s.id }}" id="cfg-sec-{{ s.id }}">
-                                    <label class="form-check-label small" for="cfg-sec-{{ s.id }}">{{ s.name }}</label>
-                                </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Annuler</button>
-                    <button type="button" class="btn btn-sm btn-primary" id="cfg-list-save-btn">Enregistrer</button>
+                    {% endfor %}
                 </div>
             </div>
-        </div>
-    </div>
+            <div class="mb-3">
+                <div class="form-label small d-block">Sections (au moins une)</div>
+                <div class="border rounded p-2" style="max-height:160px;overflow-y:auto;">
+                    {% for s in all_sections %}
+                        <div class="form-check">
+                            <input class="form-check-input cfg-section-checkbox" type="checkbox" value="{{ s.id }}" id="cfg-sec-{{ s.id }}">
+                            <label class="form-check-label small" for="cfg-sec-{{ s.id }}">{{ s.name }}</label>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="button" class="btn btn-sm btn-primary" id="cfg-list-save-btn">Enregistrer</button>
+        {% endblock %}
+    {% endembed %}
 {% endblock %}
 
 {% block scripts %}

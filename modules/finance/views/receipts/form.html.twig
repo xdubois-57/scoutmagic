@@ -3,14 +3,19 @@
 {% block title %}{{ replace_id ? 'Remplacer' : 'Nouveau' }} reçu — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">{{ replace_id ? 'Remplacer le reçu' : 'Nouveau reçu' }}</h1>
+    {% include 'partials/page_header.html.twig' with {
+        title: replace_id ? 'Remplacer le reçu' : 'Nouveau reçu',
+    } only %}
 
     {% if error %}
         <div class="alert alert-danger">{{ error }}</div>
     {% endif %}
 
     {% if not replace_id and accounts is empty %}
-        <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun compte visible pour votre rôle.',
+            icon: 'bi-wallet2',
+        } only %}
     {% else %}
     <form method="post" action="{{ replace_id ? '/finance/receipts/' ~ replace_id ~ '/replace' : '/finance/receipts/new' }}"
           enctype="multipart/form-data" class="border rounded-3 p-3" id="receipt-form">

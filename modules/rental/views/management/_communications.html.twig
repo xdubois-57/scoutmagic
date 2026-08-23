@@ -30,9 +30,10 @@
         </p>
 
         {% if messages is empty %}
-            <p class="text-body-secondary mb-0">
-                Aucun message n'a encore été rattaché à cette réservation.
-            </p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Aucun message n'a encore été rattaché à cette réservation.",
+                compact: true,
+            } only %}
         {% else %}
             {% for message in messages %}
                 <div class="border rounded p-3 mb-3">

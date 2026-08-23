@@ -86,16 +86,31 @@
             + '</div></div></div>';
     }
 
+    // Mirrors core/View/templates/partials/pagination.html.twig in AJAX
+    // mode (data_attr: 'data-page') — the same markup Twig renders for the
+    // first paint in receipts/_grid.html.twig: prev/next chevrons, a ±2
+    // window around the current page, first/last always shown, ellipsis
+    // for the gaps. Keep the two renderings in step.
     function paginationHtml(data) {
         if (data.total_pages <= 1) {
             return '';
         }
-        let items = '';
+        const win = 2;
+        const pageButton = (p, extra, label) => '<li class="page-item ' + (extra || '') + '">'
+            + '<button type="button" class="page-link" data-page="' + p + '"'
+            + (label ? ' aria-label="' + label.text + '"' : (p === data.page ? ' aria-current="page"' : ''))
+            + '>' + (label ? '<i class="bi ' + label.icon + '" aria-hidden="true"></i>' : p) + '</button></li>';
+
+        let items = pageButton(data.page - 1, data.page <= 1 ? 'disabled' : '', { text: 'Précédent', icon: 'bi-chevron-left' });
         for (let p = 1; p <= data.total_pages; p++) {
-            items += '<li class="page-item ' + (p === data.page ? 'active' : '') + '">'
-                + '<a class="page-link" href="#" data-page="' + p + '">' + p + '</a></li>';
+            if (p === 1 || p === data.total_pages || (p >= data.page - win && p <= data.page + win)) {
+                items += pageButton(p, p === data.page ? 'active' : '');
+            } else if (p === data.page - win - 1 || p === data.page + win + 1) {
+                items += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+            }
         }
-        return '<nav><ul class="pagination pagination-sm">' + items + '</ul></nav>';
+        items += pageButton(data.page + 1, data.page >= data.total_pages ? 'disabled' : '', { text: 'Suivant', icon: 'bi-chevron-right' });
+        return '<nav aria-label="Pagination des reçus"><ul class="pagination pagination-sm">' + items + '</ul></nav>';
     }
 
     function bindPdfThumbnailFallbacks(root) {
@@ -111,8 +126,10 @@
     }
 
     function renderReceipts(data) {
+        // Same markup as partials/empty_state.html.twig (compact) via
+        // receipts/_grid.html.twig's own empty branch.
         const cards = data.receipts.length === 0
-            ? '<div class="col-12"><p class="text-body-secondary fst-italic">Aucun reçu.</p></div>'
+            ? '<div class="col-12"><p class="text-body-secondary fst-italic mb-0">Aucun reçu.</p></div>'
             : data.receipts.map(receiptCardHtml).join('');
         grid.innerHTML = '<div class="row g-3">' + cards + '</div>' + paginationHtml(data);
         bindGridEvents();
@@ -157,7 +174,9 @@
     });
 
     function bindGridEvents() {
-        document.querySelectorAll('#receipts-grid .page-link').forEach(link => {
+        // [data-page] skips the ellipsis <span class="page-link">, which
+        // carries no target page.
+        document.querySelectorAll('#receipts-grid .page-link[data-page]').forEach(link => {
             link.addEventListener('click', (e) => {
                 e.preventDefault();
                 fetchReceipts(parseInt(/** @type {HTMLElement} */ (link).dataset.page, 10));

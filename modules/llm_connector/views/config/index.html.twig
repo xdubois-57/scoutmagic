@@ -3,7 +3,7 @@
 {% block title %}Intelligence artificielle — {{ site_name }}{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-4">Intelligence artificielle</h1>
+{% include 'partials/page_header.html.twig' with { title: 'Intelligence artificielle' } only %}
 
 {# Module description #}
 <div class="card mb-4">
@@ -35,9 +35,9 @@
             <div class="col-12 col-md-4">
                 <span class="text-body-secondary small d-block">Statut</span>
                 {% if active_provider and (cheap_model or capable_model) %}
-                    <span class="badge bg-success">Actif</span>
+                    {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Actif' } only %}
                 {% else %}
-                    <span class="badge bg-secondary">Non configuré</span>
+                    {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Non configuré' } only %}
                 {% endif %}
             </div>
             <div class="col-12 col-md-8" data-provider>
@@ -227,9 +227,9 @@ function updateModelsList(driver) {
     models.forEach(model => {
         html += '<tr><td>' + escapeHtml(model.display_name) + '<span class="text-body-secondary small d-block"><code>' + escapeHtml(model.model_id) + '</code></span></td><td>';
         
-        if (model.is_tier_cheap) html += '<span class="badge bg-info text-dark">Économique</span> ';
-        if (model.is_tier_capable) html += '<span class="badge bg-primary">Performant</span> ';
-        if (model.is_tier_ocr) html += '<span class="badge bg-success">OCR</span> ';
+        if (model.is_tier_cheap) html += '<span class="badge text-bg-info">Économique</span> ';
+        if (model.is_tier_capable) html += '<span class="badge text-bg-primary">Performant</span> ';
+        if (model.is_tier_ocr) html += '<span class="badge text-bg-success">OCR</span> ';
         if (!model.is_tier_cheap && !model.is_tier_capable && !model.is_tier_ocr) {
             html += '<span class="text-body-secondary">—</span>';
         }
@@ -347,7 +347,8 @@ function updateSummary(data) {
 
     const badge = summaryCard.querySelector('.badge');
     if (badge) {
-        badge.className = 'badge bg-success';
+        // Same classes as the status_badge partial's `active` tone.
+        badge.className = 'badge text-bg-success';
         badge.textContent = 'Actif';
     }
 

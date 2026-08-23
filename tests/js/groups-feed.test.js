@@ -316,7 +316,7 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         document.body.innerHTML = `
             <button type="button" class="groups-seen-by" data-url="/groups/1/posts/9/seen-by" data-dialog-title="Vu par"></button>
             <div class="modal" id="groups-detail-modal"></div>
-            <h2 id="groups-detail-modal-label">Réactions</h2>
+            <h2 id="groups-detail-modal-title">Réactions</h2>
             <div id="groups-detail-modal-body"></div>
         `;
         global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => ({ show: vi.fn() })) } };
@@ -331,7 +331,7 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         // The dialog is shared with the reaction tallies, so the title has
         // to follow the trigger or a "vu par" list would open under
         // "Réactions".
-        expect(document.getElementById('groups-detail-modal-label').textContent).toBe('Vu par');
+        expect(document.getElementById('groups-detail-modal-title').textContent).toBe('Vu par');
         expect(fetch).toHaveBeenCalledWith(
             '/groups/1/posts/9/seen-by',
             { headers: { 'X-Requested-With': 'XMLHttpRequest' } }

@@ -14,19 +14,20 @@
     `admin` to do their job.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 1100px;">
-        <h1 class="h3 mb-1">Locations</h1>
-        <p class="text-body-secondary small mb-4">
-            Les biens que l'unité met en location, et qui les gère. Tout le reste — règles de
-            réservation, tarif, acompte, réservations, contrats, séjour — se règle depuis l'espace
-            de gestion de chaque bien, accessible à ses gestionnaires. Le Staff d'U y accède
-            partout, sans avoir à être désigné nulle part.
-        </p>
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Locations',
+            subtitle: "Les biens que l'unité met en location, et qui les gère. Tout le reste — règles de
+                réservation, tarif, acompte, réservations, contrats, séjour — se règle depuis l'espace
+                de gestion de chaque bien, accessible à ses gestionnaires. Le Staff d'U y accède
+                partout, sans avoir à être désigné nulle part.",
+        } only %}
 
         {% if assets is empty %}
-            <div class="alert alert-info">
-                Aucun bien n'est encore configuré. Créez le premier ci-dessous.
-            </div>
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Aucun bien n'est encore configuré. Créez le premier ci-dessous.",
+                icon: 'bi-house',
+            } only %}
         {% else %}
             {% set asset_items = [] %}
             {% for asset in assets %}
@@ -411,7 +412,7 @@
                         type_suggestions: type_suggestions,
                         field_prefix: 'new',
                     } %}
-                    <button type="submit" class="btn btn-success">Créer le bien</button>
+                    <button type="submit" class="btn btn-primary">Créer le bien</button>
                 </form>
             </div>
         </div>

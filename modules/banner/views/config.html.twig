@@ -3,7 +3,7 @@
 {% block title %}Bannière — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Bannière</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Bannière' } only %}
     <p class="text-body-secondary small mb-3">
         À chaque chargement de la page d'accueil, une bannière est choisie aléatoirement parmi celles
         actives et visibles par le visiteur ci-dessous. Si aucune ne correspond, rien ne s'affiche.

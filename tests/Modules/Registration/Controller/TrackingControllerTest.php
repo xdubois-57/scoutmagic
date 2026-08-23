@@ -123,7 +123,9 @@ class TrackingControllerTest extends TestCase
             ['id' => (string) $this->created['id'], 'token' => $this->created['tracking_token']]
         )->getBody();
 
-        $this->assertStringContainsString("En attente d'examen", $body);
+        // The label now flows through the shared status_badge partial, whose
+        // {{ label }} output escapes the apostrophe.
+        $this->assertStringContainsString('En attente d&#039;examen', $body);
         $this->assertStringNotContainsString('Acceptée', $body);
         // The raw enum must never reach a parent-facing surface either.
         $this->assertStringNotContainsString('accepted', $body);
@@ -152,7 +154,9 @@ class TrackingControllerTest extends TestCase
             ['id' => (string) $this->created['id']]
         )->getBody();
 
-        $this->assertStringContainsString("En attente d'examen", $body);
+        // The label now flows through the shared status_badge partial, whose
+        // {{ label }} output escapes the apostrophe.
+        $this->assertStringContainsString('En attente d&#039;examen', $body);
         $this->assertStringNotContainsString('Refusée', $body);
     }
 

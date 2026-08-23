@@ -1,7 +1,7 @@
 {% extends 'base.html.twig' %}
 {% block title %}Réglages — {{ param('site_name') }}{% endblock %}
 {% block content %}
-    <h1 class="h3 mb-4">Réglages</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Réglages' } only %}
 
     {# One collapsible section per module group, all folded but the first.
        Flat, this page measured over 11 000 px — every setting of every
@@ -79,28 +79,21 @@
         </div>
     {% endfor %}
 
-{# Edit dialog modal #}
-<div class="modal fade" id="settingEditModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="settingEditTitle"></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p class="text-body-secondary small" id="settingEditDescription"></p>
-                <div class="form-label" id="settingEditLabel"></div>
-                <div id="settingEditInputContainer"></div>
-                <div class="text-danger small mt-1 d-none" id="settingEditError"></div>
-                <p class="text-body-secondary mt-2" style="font-size:0.7rem;" id="settingEditType"></p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
-                <button type="button" class="btn btn-primary" id="settingEditSave">Enregistrer</button>
-            </div>
-        </div>
-    </div>
-</div>
+{# Edit dialog modal — the title text is filled by settings.js, which
+   targets the skeleton's canonical '{id}-title' id. #}
+{% embed 'partials/modal.html.twig' with { id: 'settingEditModal', title: '' } only %}
+    {% block body %}
+        <p class="text-body-secondary small" id="settingEditDescription"></p>
+        <div class="form-label" id="settingEditLabel"></div>
+        <div id="settingEditInputContainer"></div>
+        <div class="text-danger small mt-1 d-none" id="settingEditError"></div>
+        <p class="text-body-secondary mt-2" style="font-size:0.7rem;" id="settingEditType"></p>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-primary" id="settingEditSave">Enregistrer</button>
+    {% endblock %}
+{% endembed %}
 {% endblock %}
 
 {% block scripts %}

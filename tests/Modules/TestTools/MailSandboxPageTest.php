@@ -263,14 +263,17 @@ class MailSandboxPageTest extends TestCase
             );
         }
 
+        // The shared pagination partial marks the current page with
+        // aria-current and links the others.
         $first = $this->list('/test-tools/mail-sandbox');
-        $this->assertStringContainsString('Page 1 sur 2', $first);
+        $this->assertStringContainsString('aria-current="page">1</a>', $first);
+        $this->assertStringContainsString('page=2', $first);
         // Newest first: the last message captured heads the first page.
         $this->assertStringContainsString('[25SV] Message 28', $first);
         $this->assertStringNotContainsString('[25SV] Message 01', $first);
 
         $second = $this->list('/test-tools/mail-sandbox?page=2');
-        $this->assertStringContainsString('Page 2 sur 2', $second);
+        $this->assertStringContainsString('aria-current="page">2</a>', $second);
         $this->assertStringContainsString('[25SV] Message 01', $second);
 
         // Past the last page: an empty slice with a way back, never an error.
@@ -280,7 +283,7 @@ class MailSandboxPageTest extends TestCase
 
         // Before the first page: clamped to page 1 rather than a negative offset.
         $before = $this->list('/test-tools/mail-sandbox?page=0');
-        $this->assertStringContainsString('Page 1 sur 2', $before);
+        $this->assertStringContainsString('aria-current="page">1</a>', $before);
     }
 
     public function testTheEmptyStateInvitesAnAction(): void

@@ -3,7 +3,7 @@
 {% block title %}Contact — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Contact</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Contact' } only %}
 
     {{ editable('contact.text', '<p>Contactez-nous pour toute question concernant notre unité scoute.</p>') }}
 

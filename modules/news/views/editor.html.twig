@@ -3,7 +3,7 @@
 {% block title %}{{ article ? 'Éditer' : 'Nouvel article' }} — Actualités — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="h4 mb-3">{{ article ? 'Éditer l\'article' : 'Nouvel article' }}</h1>
+    {% include 'partials/page_header.html.twig' with { title: article ? 'Éditer l\'article' : 'Nouvel article' } only %}
 
     {% include '@news/partials/_form_tabs.html.twig' with {article_id: article ? article.id : null, active: preview is defined and preview ? 'preview' : 'edit', can_view_responses: form is not null} %}
 
@@ -156,23 +156,17 @@
         </form>
 
         {% if article %}
-            <div class="modal fade" id="news-delete-modal" tabindex="-1">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">Confirmer la suppression</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            Supprimer cet article et son formulaire ? Cette action est irréversible.
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
-                            <button type="button" class="btn btn-danger" id="news-delete-confirm-btn" data-id="{{ article.id }}">Supprimer</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            {# article_id rides along in the embed context: with `only`, the
+               blocks below no longer see this template's own variables. #}
+            {% embed 'partials/modal.html.twig' with { id: 'news-delete-modal', title: 'Confirmer la suppression', article_id: article.id } only %}
+                {% block body %}
+                    Supprimer cet article et son formulaire ? Cette action est irréversible.
+                {% endblock %}
+                {% block footer %}
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <button type="button" class="btn btn-danger" id="news-delete-confirm-btn" data-id="{{ article_id }}">Supprimer</button>
+                {% endblock %}
+            {% endembed %}
         {% endif %}
     {% endif %}
 {% endblock %}

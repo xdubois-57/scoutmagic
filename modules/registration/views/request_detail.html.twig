@@ -1,25 +1,27 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ r.childFirstName }} {{ r.childLastName }} — Inscriptions — {{ site_name }}{% endblock %}
 {% block content %}
-    <div class="container py-4" style="max-width: 900px;">
+    <div class="page-medium">
         {# The way back to the request list lives in the breadcrumb trail
            (design.md §7.3) — no « Retour » link here. #}
-        <h1 class="h3 mb-1">{{ r.childFirstName }} {{ r.childLastName }}</h1>
-        <p class="text-body-secondary small mb-4">Demande reçue le {{ r.receivedAt|french_date }} — année scoute {{ scout_year_label }}</p>
+        {% include 'partials/page_header.html.twig' with {
+            title: r.childFirstName ~ ' ' ~ r.childLastName,
+            subtitle: 'Demande reçue le ' ~ r.receivedAt|french_date ~ ' — année scoute ' ~ scout_year_label,
+        } only %}
 
         <div class="card mb-4">
             <div class="card-body">
                 <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
                     {% if r.status == 'pending' %}
-                        <span class="badge bg-info text-dark fs-6">En attente</span>
+                        {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %}
                     {% elseif r.status == 'accepted' %}
-                        <span class="badge bg-primary fs-6">Acceptée</span>
+                        {% include 'partials/status_badge.html.twig' with { status: 'confirmed', label: 'Acceptée' } only %}
                     {% elseif r.status == 'refused' %}
-                        <span class="badge bg-danger fs-6">Refusée</span>
+                        {% include 'partials/status_badge.html.twig' with { status: 'refused', label: 'Refusée' } only %}
                     {% elseif r.status == 'withdrawn' %}
-                        <span class="badge bg-secondary fs-6">Retirée</span>
+                        {% include 'partials/status_badge.html.twig' with { status: 'cancelled', label: 'Retirée' } only %}
                     {% elseif r.status == 'encoded' %}
-                        <span class="badge bg-success fs-6">Encodée dans Desk</span>
+                        {% include 'partials/status_badge.html.twig' with { status: 'encoded', label: 'Encodée dans Desk' } only %}
                     {% endif %}
                     {% if visible_status != r.status %}
                         <span class="text-body-secondary small">— visible par la famille comme « {{ visible_status == 'pending' ? 'en attente' : visible_status }} » tant que l'email n'est pas envoyé</span>
@@ -180,7 +182,7 @@
                         </p>
                         <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/send-accepted-email">
                             {{ csrf_field()|raw }}
-                            <button type="submit" class="btn btn-sm btn-primary" {{ accepted_email_ready ? '' : 'disabled' }}>
+                            <button type="submit" class="btn btn-sm btn-outline-primary" {{ accepted_email_ready ? '' : 'disabled' }}>
                                 {{ r.acceptedEmailSentAt ? 'Renvoyer' : 'Envoyer' }}
                             </button>
                         </form>
@@ -195,7 +197,7 @@
                         </p>
                         <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/send-refused-email">
                             {{ csrf_field()|raw }}
-                            <button type="submit" class="btn btn-sm btn-primary" {{ refused_email_ready ? '' : 'disabled' }}>
+                            <button type="submit" class="btn btn-sm btn-outline-primary" {{ refused_email_ready ? '' : 'disabled' }}>
                                 {{ r.refusedEmailSentAt ? 'Renvoyer' : 'Envoyer' }}
                             </button>
                         </form>

@@ -6,10 +6,12 @@
 <div class="page-narrow" id="scoutmagic-setup-wizard">
 
 {% if not is_initialized %}
-    <h1 class="mb-3">Installation</h1>
-    <p class="lead text-muted mb-4">Bienvenue ! Configurez les paramètres de base pour initialiser le site.</p>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Installation',
+        subtitle: 'Bienvenue ! Configurez les paramètres de base pour initialiser le site.',
+    } only %}
 {% else %}
-    <h1 class="mb-4">Configuration du site</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Configuration du site' } only %}
 {% endif %}
 
 <form method="post" action="/setup/save" id="setup-form" data-initialized="{{ is_initialized ? '1' : '0' }}" novalidate>

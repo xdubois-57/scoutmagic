@@ -1,25 +1,25 @@
 {% extends "base.html.twig" %}
 
-{% block title %}SOS Staff d'U — {{ site_name }}{% endblock %}
+{% block title %}SOS Staff d'U — Configuration — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">SOS Staff d'U — Configuration</h1>
+    {% include 'partials/page_header.html.twig' with { title: "SOS Staff d'U — Configuration" } only %}
 
     <h2 class="h5 mb-3">Fournisseur de téléphonie</h2>
     <div class="d-flex flex-wrap gap-2 mb-4">
         {% for option in provider_options %}
             <span class="btn btn-sm {{ option.is_active ? 'btn-primary' : (option.is_available ? 'btn-outline-secondary' : 'btn-outline-secondary disabled') }} d-flex align-items-center gap-2">
                 {{ option.label }}
-                {% if not option.is_available %}<span class="badge bg-secondary-subtle text-secondary-emphasis">Bientôt</span>{% endif %}
-                {% if option.is_active %}<span class="badge bg-light text-primary">Actif</span>{% endif %}
+                {% if not option.is_available %}<span class="badge text-bg-secondary">Bientôt</span>{% endif %}
+                {% if option.is_active %}{% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Actif' } only %}{% endif %}
             </span>
         {% endfor %}
     </div>
 
     <div class="border rounded-3 p-3 mb-3">
         <div class="d-flex align-items-center gap-2 mb-2">
-            <span class="badge {{ has_application_credentials ? 'bg-success' : 'bg-secondary' }}">1</span>
-            <h2 class="h6 mb-0">Application OVH <span class="badge bg-secondary-subtle text-secondary-emphasis">Manuel</span></h2>
+            <span class="badge {{ has_application_credentials ? 'text-bg-success' : 'text-bg-secondary' }}">1</span>
+            <h2 class="h6 mb-0">Application OVH <span class="badge text-bg-secondary">Manuel</span></h2>
         </div>
         <p class="text-body-secondary small">
             Connectez-vous avec le compte OVH qui gère la ligne téléphonique, puis créez une application
@@ -58,8 +58,8 @@
 
     <div class="border rounded-3 p-3 mb-3">
         <div class="d-flex align-items-center gap-2 mb-2">
-            <span class="badge {{ consumer_key_validated ? 'bg-success' : 'bg-secondary' }}">2</span>
-            <h2 class="h6 mb-0">Consumer Key <span class="badge bg-secondary-subtle text-secondary-emphasis">Automatisé</span></h2>
+            <span class="badge {{ consumer_key_validated ? 'text-bg-success' : 'text-bg-secondary' }}">2</span>
+            <h2 class="h6 mb-0">Consumer Key <span class="badge text-bg-secondary">Automatisé</span></h2>
         </div>
 
         {% if consumer_key_validated %}
@@ -82,8 +82,8 @@
 
     <div class="border rounded-3 p-3 mb-3">
         <div class="d-flex align-items-center gap-2 mb-2">
-            <span class="badge {{ service_name ? 'bg-success' : 'bg-secondary' }}">3</span>
-            <h2 class="h6 mb-0">Ligne téléphonique <span class="badge bg-secondary-subtle text-secondary-emphasis">Automatisé</span></h2>
+            <span class="badge {{ service_name ? 'text-bg-success' : 'text-bg-secondary' }}">3</span>
+            <h2 class="h6 mb-0">Ligne téléphonique <span class="badge text-bg-secondary">Automatisé</span></h2>
         </div>
 
         <button type="button" class="btn btn-sm btn-primary mb-2" id="list-lines-btn" {{ consumer_key_validated ? '' : 'disabled' }}>

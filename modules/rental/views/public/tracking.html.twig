@@ -16,15 +16,17 @@
   shown to anyone else.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 720px;">
-        <h1 class="h3 mb-1">Votre demande {{ booking.reference }}</h1>
-        <p class="text-body-secondary mb-4">{{ asset.name }}</p>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Votre demande ' ~ booking.reference,
+            subtitle: asset.name,
+        } only %}
 
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">Où en est votre demande</h2>
                 <p class="mb-2">
-                    <span class="badge bg-secondary">{{ booking.status.label }}</span>
+                    {% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}
                 </p>
                 {% if booking.holdUntil %}
                     <p class="mb-0">
@@ -63,6 +65,7 @@
             <div class="card mb-4">
                 <div class="card-body">
                     <h2 class="h5 mb-3">Détail du prix</h2>
+                    <div class="table-responsive">
                     <table class="table table-sm">
                         <caption class="visually-hidden">Détail du prix de votre location</caption>
                         <thead>
@@ -109,6 +112,7 @@
                             </tr>
                         </tfoot>
                     </table>
+                    </div>
                     <p class="small text-body-secondary mb-0">
                         Ce détail reflète en permanence l'état de votre dossier.
                     </p>
@@ -137,7 +141,7 @@
                                             <span class="fw-semibold">{{ change.kind.label }}</span>
                                             <span class="text-body-secondary small d-block">{{ change.summary }}</span>
                                         </span>
-                                        <span class="badge bg-secondary">{{ change.status.label }}</span>
+                                        {% include 'partials/status_badge.html.twig' with { status: change.status.value, label: change.status.label } only %}
                                     </div>
                                     {% if change.isPending and change.origin.value == 'manager' %}
                                         <p class="small mb-2">

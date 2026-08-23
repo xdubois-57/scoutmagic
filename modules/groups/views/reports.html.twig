@@ -22,7 +22,10 @@
     </p>
 
     {% if rows is empty %}
-        <p class="text-body-secondary text-center py-5 mb-0">Aucun contenu signalé dans ce groupe.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun contenu signalé dans ce groupe.',
+            icon: 'bi-flag',
+        } only %}
     {% else %}
         {#
           The feed's own card, unchanged, threads included — a reported

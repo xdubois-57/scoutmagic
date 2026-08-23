@@ -17,14 +17,14 @@
 #}
 {% if can_moderate|default(false) %}
     <details class="mb-3">
-        <summary class="btn btn-outline-secondary d-inline-flex align-items-center" style="min-height:44px;list-style:none;cursor:pointer;">
+        <summary class="btn btn-outline-secondary d-inline-flex align-items-center" style="list-style:none;cursor:pointer;">
             <i class="bi bi-pencil me-1"></i> Modifier le groupe
         </summary>
         <form method="post" action="/groups/{{ group.id }}/edit" class="card card-body mt-2" style="max-width:420px;">
             {{ csrf_field()|raw }}
             <label class="form-label small mb-1" for="group-edit-name">Nom du groupe</label>
             <input type="text" class="form-control mb-2" id="group-edit-name" name="name"
-                   maxlength="150" required style="min-height:44px;" value="{{ group.name }}">
+                   maxlength="150" required value="{{ group.name }}">
 
             {#
               Optional, and emptying it clears it (GroupController::edit()).
@@ -54,12 +54,12 @@
                     { value: constant('Modules\\Groups\\Repository\\DiscussionGroup::POSTING_MEMBERS'), label: 'Tous les membres du groupe' },
                     { value: constant('Modules\\Groups\\Repository\\DiscussionGroup::POSTING_MODERATORS'), label: 'Seulement les modérateurs' }
                 ] %}
-                    <div class="form-check d-flex align-items-center gap-2" style="min-height:44px;">
+                    <div class="form-check d-flex align-items-center gap-2">
                         <input class="form-check-input mt-0" type="radio" name="posting_policy"
                                id="group-edit-posting-{{ choice.value }}" value="{{ choice.value }}"
                                {{ group.postingPolicy == choice.value ? 'checked' : '' }}>
                         <label class="form-check-label small d-flex align-items-center"
-                               for="group-edit-posting-{{ choice.value }}" style="min-height:44px;">
+                               for="group-edit-posting-{{ choice.value }}">
                             {{ choice.label }}
                         </label>
                     </div>
@@ -71,10 +71,10 @@
             </p>
 
             {% if group.sectionId is null %}
-                <div class="form-check d-flex align-items-center gap-2 mb-2" style="min-height:44px;">
+                <div class="form-check d-flex align-items-center gap-2 mb-2">
                     <input class="form-check-input mt-0" type="checkbox" value="1" id="group-edit-tie-year" name="tie_to_year"
                            {{ group.scoutYearId is not null ? 'checked' : '' }}>
-                    <label class="form-check-label small d-flex align-items-center" for="group-edit-tie-year" style="min-height:44px;">
+                    <label class="form-check-label small d-flex align-items-center" for="group-edit-tie-year">
                         Limiter ce groupe sur invitation à l'année scoute en cours
                     </label>
                 </div>
@@ -83,7 +83,7 @@
                 </p>
             {% endif %}
 
-            <button type="submit" class="btn btn-primary" style="min-height:44px;">Enregistrer</button>
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
         </form>
     </details>
 {% endif %}

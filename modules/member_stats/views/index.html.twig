@@ -2,35 +2,29 @@
 {% block title %}Statistiques — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-1">Statistiques des membres</h1>
-    <p class="text-body-secondary mb-4">Répartition des animés par branche — année {{ scout_year_label }}.</p>
+    {# The h1 follows the page's <title> and breadcrumb label (design.md
+       §7.6); the year detail lives in the subtitle. #}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Statistiques',
+        subtitle: 'Répartition des animés par branche — année ' ~ scout_year_label ~ '.',
+    } only %}
 
-    {# Summary cards #}
-    <div class="row g-2 g-md-3 mb-4">
-        {% set summary = [
+    {# Summary tiles — this page's data shape is the stat_tiles model. #}
+    {% include 'partials/stat_tiles.html.twig' with {
+        tiles: [
             { label: 'Animés', value: stats.totals.total, icon: 'bi-people-fill', tone: 'primary' },
             { label: 'Garçons', value: stats.totals.male, icon: 'bi-gender-male', tone: 'info' },
             { label: 'Filles', value: stats.totals.female, icon: 'bi-gender-female', tone: 'danger' },
-            { label: 'Autres', value: stats.totals.other, icon: 'bi-gender-ambiguous', tone: 'secondary' }
-        ] %}
-        {% for card in summary %}
-            <div class="col-6 col-md-3">
-                <div class="card h-100 border-0 shadow-sm">
-                    <div class="card-body py-3">
-                        <div class="text-body-secondary small d-flex align-items-center gap-2">
-                            <i class="bi {{ card.icon }} text-{{ card.tone }}"></i> {{ card.label }}
-                        </div>
-                        <div class="fs-3 fw-semibold lh-1 mt-1">{{ card.value }}</div>
-                    </div>
-                </div>
-            </div>
-        {% endfor %}
-    </div>
+            { label: 'Autres', value: stats.totals.other, icon: 'bi-gender-ambiguous', tone: 'secondary' },
+        ],
+        columns: 4,
+    } only %}
 
     {% if stats.totals.total == 0 %}
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle"></i> Aucun animé enregistré pour cette année.
-        </div>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun animé enregistré pour cette année.',
+            icon: 'bi-people',
+        } only %}
     {% endif %}
 
     {# Branch sections #}
@@ -53,7 +47,6 @@
                         {# Collapsible bar row #}
                         <button type="button"
                                 class="btn btn-light w-100 border p-0 overflow-hidden text-start collapsed d-flex align-items-center gap-2"
-                                style="min-height: 44px;"
                                 data-bs-toggle="collapse" data-bs-target="#{{ panel_id }}"
                                 aria-expanded="false" aria-controls="{{ panel_id }}">
                             {# Fixed left column: the year label #}

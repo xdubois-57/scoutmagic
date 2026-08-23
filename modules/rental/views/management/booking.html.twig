@@ -13,12 +13,14 @@
   unreachable box reads as outstanding work.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 900px;">
-        <h1 class="h3 mb-1">{{ booking.reference }}</h1>
-        <p class="text-body-secondary small mb-3">
-            {{ asset.name }} · du {{ booking.arrivalDate }} au {{ booking.departureDate }}
-            {% if is_in_progress %}<span class="badge bg-success ms-1">En cours</span>{% endif %}
-        </p>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: booking.reference,
+            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate ~ ' au ' ~ booking.departureDate,
+        } only %}
+        {% if is_in_progress %}
+            <p class="mb-3">{% include 'partials/status_badge.html.twig' with { status: 'active', label: 'En cours' } only %}</p>
+        {% endif %}
 
         {% include '@rental/management/_nav.html.twig' %}
 
@@ -86,7 +88,7 @@
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">État</h2>
-                <p class="mb-3"><span class="badge bg-secondary">{{ booking.status.label }}</span></p>
+                <p class="mb-3">{% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}</p>
 
                 {% if allowed_transitions is empty %}
                     <p class="text-body-secondary mb-0">
@@ -105,7 +107,7 @@
                                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                 <input type="hidden" name="status" value="{{ target.value }}">
                                 <button type="submit"
-                                        class="btn btn-sm {{ target.value == 'confirmed' ? 'btn-success' : 'btn-outline-secondary' }}">
+                                        class="btn btn-sm {{ target.value == 'confirmed' ? 'btn-primary' : 'btn-outline-secondary' }}">
                                     {{ target.label }}
                                 </button>
                             </form>
@@ -175,7 +177,7 @@
                                     <td>
                                         {{ line.label }}
                                         {% if line.isManual %}
-                                            <span class="badge bg-info text-dark ms-1"
+                                            <span class="badge text-bg-info ms-1"
                                                   title="Cette ligne ne sera plus recalculée">Modifiée à la main</span>
                                         {% endif %}
                                         {% if line.isInformational %}
@@ -314,7 +316,10 @@
                 </p>
 
                 {% if change_requests is empty %}
-                    <p class="text-body-secondary">Aucune demande.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune demande.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <ul class="list-unstyled">
                         {% for change in change_requests %}
@@ -328,7 +333,7 @@
                                             <span class="small d-block">{{ change.message|nl2br }}</span>
                                         {% endif %}
                                     </span>
-                                    <span class="badge bg-secondary">{{ change.status.label }}</span>
+                                    {% include 'partials/status_badge.html.twig' with { status: change.status.value, label: change.status.label } only %}
                                 </div>
                                 {% if change.isPending and change.origin.value == 'renter' %}
                                     <div class="d-flex gap-2 mt-2">
@@ -390,7 +395,10 @@
                 </p>
 
                 {% if comments is empty %}
-                    <p class="text-body-secondary">Aucun commentaire.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun commentaire.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <ul class="list-unstyled">
                         {% for comment in comments %}
@@ -421,7 +429,10 @@
             <div class="card-body">
                 <h2 class="h5 mb-2">Historique</h2>
                 {% if history is empty %}
-                    <p class="text-body-secondary mb-0">Rien encore.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Rien encore.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <ul class="list-unstyled mb-0 small">
                         {% for entry in history %}

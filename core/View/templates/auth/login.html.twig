@@ -5,7 +5,7 @@
 {% block content %}
 <div class="page-narrow">
 
-    <h1 class="mb-4 text-center">Se connecter</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Se connecter' } only %}
 
     {# Tabs — data-default marks which one the server pre-selected (module addendum: remembers the last method used, via an optional functional cookie). #}
     <ul class="nav nav-pills nav-fill mb-4" role="tablist">

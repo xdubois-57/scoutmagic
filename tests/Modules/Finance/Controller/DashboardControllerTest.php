@@ -467,7 +467,9 @@ class DashboardControllerTest extends TestCase
         $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId], [], [], []), []);
         $body = $response->getBody();
 
-        $this->assertStringContainsString('/finance/movements?account_id=' . $accountId . '&fiscal_year_id=all', $body);
+        // The tile links are built as Twig strings (stat_tiles partial),
+        // so the & separator is HTML-escaped in the rendered attribute.
+        $this->assertStringContainsString('/finance/movements?account_id=' . $accountId . '&amp;fiscal_year_id=all', $body);
         $this->assertStringContainsString('/finance/receipts?account_id=' . $accountId, $body);
     }
 

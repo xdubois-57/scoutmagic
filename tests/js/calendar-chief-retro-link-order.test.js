@@ -43,7 +43,7 @@ function buildDom() {
             <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title" id="event-modal-title">Ajouter un évènement</h5>
+                        <h5 class="modal-title" id="eventModal-title">Ajouter un évènement</h5>
                     </div>
                     <form id="event-form">
                         <div class="modal-body">

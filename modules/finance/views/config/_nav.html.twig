@@ -1,19 +1,16 @@
 {#
-  Config sub-page picker — same visual/interaction pattern as
-  partials/section_picker.html.twig and @calendar/partials/calendar_picker.html.twig
-  (a row of pill buttons, not Bootstrap nav-pills).
+  Config sub-page picker — the shared partials/page_picker.html.twig
+  (chip_picker underneath), same component as the finance page picker and
+  the section/calendar pickers. Used to be a hand-drawn row of pill
+  buttons.
 #}
-{% set finance_nav_items = [
-    {'url': '/config/finance', 'label': 'Vue d’ensemble'},
-    {'url': '/config/finance/accounts', 'label': 'Comptes'},
-    {'url': '/config/finance/categories', 'label': 'Catégories'},
-] %}
-<div class="d-flex flex-wrap gap-2 pb-2 mb-3 finance-config-picker">
-    {% for item in finance_nav_items %}
-        {% set is_active = current_path == item.url %}
-        <a href="{{ item.url }}"
-           class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none">
-            {{ item.label }}
-        </a>
-    {% endfor %}
-</div>
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'finance-config-picker',
+    pages: [
+        {'url': '/config/finance', 'label': 'Vue d’ensemble'},
+        {'url': '/config/finance/accounts', 'label': 'Comptes'},
+        {'url': '/config/finance/categories', 'label': 'Catégories'},
+    ],
+    current_path: current_path,
+    sheet_title: 'Choisir une page',
+} only %}

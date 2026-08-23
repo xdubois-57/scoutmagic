@@ -11,11 +11,11 @@
   honest one, and it is on the page: photograph on site, type it up on return.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 960px;">
-        <h1 class="h3 mb-1">Séjour — {{ booking.reference }}</h1>
-        <p class="text-body-secondary small mb-3">
-            {{ asset.name }} · du {{ booking.arrivalDate }} au {{ booking.departureDate }}
-        </p>
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Séjour — ' ~ booking.reference,
+            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate ~ ' au ' ~ booking.departureDate,
+        } only %}
 
         <div class="alert alert-secondary">
             <strong>Cette page ne fonctionne qu'en ligne.</strong> Les relevés et états des lieux ne
@@ -28,10 +28,13 @@
                 <h2 class="h5 mb-3">Compteurs</h2>
 
                 {% if consumptions is empty %}
-                    <p class="text-body-secondary mb-0">
-                        Aucun compteur configuré pour ce bien. Ajoutez-en depuis
-                        <a href="/mes-locations/{{ asset.slug }}/gabarits">les gabarits du bien</a>.
-                    </p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun compteur configuré pour ce bien.',
+                        compact: true,
+                        action_label: 'En ajouter depuis les gabarits du bien',
+                        action_url: '/mes-locations/' ~ asset.slug ~ '/gabarits',
+                        icon: 'bi-speedometer2',
+                    } only %}
                 {% else %}
                     {% for consumption in consumptions %}
                         <div class="border rounded p-3 mb-3">
@@ -114,10 +117,10 @@
                 </p>
 
                 {% if inventory is empty %}
-                    <p class="text-body-secondary mb-0">
-                        Aucune liste figée pour cette réservation. Elle est copiée depuis le modèle du
-                        bien à la confirmation.
-                    </p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune liste figée pour cette réservation. Elle est copiée depuis le modèle du bien à la confirmation.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <div class="table-responsive">
                         <table class="table table-sm align-middle">
@@ -193,7 +196,10 @@
                 </p>
 
                 {% if incidents is empty %}
-                    <p class="text-body-secondary">Aucun incident.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun incident.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <ul class="list-unstyled">
                         {% for incident in incidents %}
@@ -206,9 +212,10 @@
                                         {% endif %}
                                     </span>
                                     <span class="text-end">
-                                        <span class="badge {{ incident.isDecided ? 'bg-secondary' : 'bg-warning text-dark' }}">
-                                            {{ incident.decision.label }}
-                                        </span>
+                                        {% include 'partials/status_badge.html.twig' with {
+                                            status: incident.isDecided ? 'closed' : 'pending',
+                                            label: incident.decision.label,
+                                        } only %}
                                         {% if incident.effectiveAmountCents %}
                                             <span class="d-block small">
                                                 {{ incident.effectiveAmountCents|money_cents }}
@@ -370,7 +377,7 @@
                                     </span>
                                 </span>
                                 {% if settlement.isValidated %}
-                                    <span class="badge bg-success">Validé</span>
+                                    {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Validé' } only %}
                                 {% else %}
                                     <form method="post" action="/mes-locations/decompte-valider"
                                           data-confirm="Valider ce décompte ? Il ne pourra plus être modifié.">

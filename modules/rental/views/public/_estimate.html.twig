@@ -99,6 +99,7 @@
             <a class="btn btn-primary" href="{{ request_url }}">Introduire une demande</a>
         {% elseif estimate %}
             {% set quote = estimate.quote %}
+            <div class="table-responsive">
             <table class="table table-sm">
                 <caption class="visually-hidden">Détail du prix estimé</caption>
                 <thead>
@@ -152,6 +153,7 @@
                     </tr>
                 </tfoot>
             </table>
+            </div>
 
             {% for warning in quote.warnings %}
                 <p class="small text-body-secondary mb-1">{{ warning }}</p>

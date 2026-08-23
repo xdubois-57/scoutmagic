@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="page-narrow" id="scoutmagic-setup-wizard">
-<h1 class="mb-3">Installation</h1>
+{% include 'partials/page_header.html.twig' with { title: 'Installation' } only %}
 
 {% if state == 'missing' %}
 <div class="alert alert-warning">

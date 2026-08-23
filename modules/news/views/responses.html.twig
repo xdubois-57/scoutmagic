@@ -3,7 +3,7 @@
 {% block title %}Réponses — {{ article.title }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="h4 mb-3">{{ article.title }}</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Réponses — ' ~ article.title } only %}
 
     {% include '@news/partials/_form_tabs.html.twig' with {article_id: article.id, active: 'responses', can_view_responses: true} %}
 
@@ -24,7 +24,10 @@
     </div>
 
     {% if rows is empty %}
-        <p class="text-body-secondary text-center py-5">Aucune réponse pour le moment.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune réponse pour le moment.',
+            icon: 'bi-inbox',
+        } only %}
     {% else %}
         <div class="table-responsive d-none d-md-block">
             <table class="table table-sm align-middle">
@@ -54,9 +57,9 @@
                                 <td class="text-end">{{ row.payment ? row.payment.amount_received|money_cents : '—' }}</td>
                                 <td>
                                     {% if row.payment %}
-                                        {% if row.payment.status == 'paid' %}<span class="badge text-bg-success">Payé</span>
-                                        {% elseif row.payment.status == 'partial' %}<span class="badge text-bg-warning">Partiel</span>
-                                        {% else %}<span class="badge text-bg-secondary">Non payé</span>{% endif %}
+                                        {% if row.payment.status == 'paid' %}{% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Payé' } only %}
+                                        {% elseif row.payment.status == 'partial' %}{% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'Partiel' } only %}
+                                        {% else %}{% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Non payé' } only %}{% endif %}
                                     {% endif %}
                                 </td>
                             {% endif %}
@@ -78,9 +81,9 @@
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="fw-bold">{{ row.response.contactEmail }}</span>
                             {% if row.payment %}
-                                {% if row.payment.status == 'paid' %}<span class="badge text-bg-success">Payé</span>
-                                {% elseif row.payment.status == 'partial' %}<span class="badge text-bg-warning">Partiel</span>
-                                {% else %}<span class="badge text-bg-secondary">Non payé</span>{% endif %}
+                                {% if row.payment.status == 'paid' %}{% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Payé' } only %}
+                                {% elseif row.payment.status == 'partial' %}{% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'Partiel' } only %}
+                                {% else %}{% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Non payé' } only %}{% endif %}
                             {% endif %}
                         </div>
                         {% for line in row.answers %}

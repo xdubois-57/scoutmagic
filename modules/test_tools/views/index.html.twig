@@ -2,7 +2,7 @@
 {% block title %}Outils de test — {{ site_name }}{% endblock %}
 
 {% block content %}
-<h1 class="mb-3">Outils de test</h1>
+{% include 'partials/page_header.html.twig' with { title: 'Outils de test' } only %}
 
 <p class="text-body-secondary">
     Ces outils ne sont disponibles que sur l'installation de référence et sur les

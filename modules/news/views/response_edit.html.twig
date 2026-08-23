@@ -8,7 +8,7 @@
 
 {% block content %}
     <div class="mx-auto" style="max-width: 720px;">
-        <h1 class="h4 mb-4">Modifier ma réponse — {{ article.title }}</h1>
+        {% include 'partials/page_header.html.twig' with { title: 'Modifier ma réponse — ' ~ article.title } only %}
 
         {% if submit_error %}
             <div class="alert alert-danger">{{ submit_error }}</div>

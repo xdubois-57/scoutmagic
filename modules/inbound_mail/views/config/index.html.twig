@@ -3,7 +3,7 @@
 {% block title %}Courrier entrant — {{ site_name }}{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-4">Courrier entrant</h1>
+{% include 'partials/page_header.html.twig' with { title: 'Courrier entrant' } only %}
 
 <div class="card mb-4">
     <div class="card-body">
@@ -35,7 +35,7 @@
         <h2 class="h5 mb-3">Boîtes configurées</h2>
 
         {% if mailboxes is empty %}
-            <p class="text-body-secondary mb-0">Aucune boîte n'est configurée pour l'instant.</p>
+            {% include 'partials/empty_state.html.twig' with { message: "Aucune boîte n'est configurée pour l'instant.", compact: true } only %}
         {% else %}
             <div class="table-responsive">
                 <table class="table align-middle">
@@ -54,7 +54,7 @@
                                 <td>
                                     {{ mailbox.name }}
                                     {% if not mailbox.isEnabled %}
-                                        <span class="badge text-bg-secondary">désactivée</span>
+                                        {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'désactivée' } only %}
                                     {% endif %}
                                     <div class="form-text">
                                         {{ mailbox.host }}:{{ mailbox.port }} ({{ mailbox.encryption }})
@@ -62,9 +62,10 @@
                                 </td>
                                 <td>{{ mailbox.username }}</td>
                                 <td>
-                                    <span class="badge {{ mailbox.syncState.badgeClass }}">
-                                        {{ mailbox.syncState.label }}
-                                    </span>
+                                    {% include 'partials/status_badge.html.twig' with {
+                                        status: { 'never': 'neutral', 'ok': 'success', 'error': 'error' }[mailbox.syncState.value],
+                                        label: mailbox.syncState.label,
+                                    } only %}
                                     {% if mailbox.lastError %}
                                         {# The operator-facing sentence, written by
                                            MailboxErrorFormatter — never a library's own

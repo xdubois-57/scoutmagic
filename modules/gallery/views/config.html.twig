@@ -3,7 +3,7 @@
 {% block title %}Galerie photos et vidéos — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="h3 mb-4">Galerie photos et vidéos</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Galerie photos et vidéos' } only %}
 
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>
@@ -59,7 +59,10 @@
                     reste rattaché à l'emplacement où il a été créé, même si l'emplacement « actif » par défaut change ensuite.
                 </p>
                 {% if locations is empty %}
-                    <p class="text-body-secondary mb-0">Aucun emplacement configuré.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun emplacement configuré.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <div class="table-responsive">
                         <table class="table table-sm align-middle">
@@ -146,7 +149,10 @@
                 {% endfor %}
 
                 {% if migratable is empty %}
-                    <p class="text-body-secondary mb-0">Aucun album local.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun album local.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <div class="table-responsive">
                         <table class="table table-sm align-middle">
@@ -176,7 +182,7 @@
                                         <td>
                                             {{ entry.label }}
                                             {% if entry.owner %}
-                                                <span class="badge rounded-pill bg-light text-dark border ms-1"
+                                                <span class="badge rounded-pill text-bg-light border ms-1"
                                                       title="Album géré par un autre module : son contenu et ses accès ne se configurent pas ici.">
                                                     <i class="bi bi-box-arrow-in-right"></i> Album délégué
                                                 </span>

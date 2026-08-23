@@ -3,27 +3,24 @@
 {% block title %}Actualités — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center mb-4 gap-2">
-        <h1 class="mb-0">Actualités</h1>
-        {% if manage %}
-            <a href="/news/create" class="btn btn-primary w-100 w-sm-auto">
-                <i class="bi bi-plus-lg"></i> Nouvel article
-            </a>
-        {% endif %}
-    </div>
+    {% if manage %}
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Actualités',
+            action_label: 'Nouvel article',
+            action_url: '/news/create',
+        } only %}
+    {% else %}
+        {% include 'partials/page_header.html.twig' with { title: 'Actualités' } only %}
+    {% endif %}
 
     {% if articles is empty %}
-        <p class="text-body-secondary text-center py-5">
-            {% if manage %}
-                Aucune actualité. Créez la première !
-                <br class="d-none d-sm-block">
-                <a href="/news/create" class="btn btn-primary mt-3">
-                    <i class="bi bi-plus-lg"></i> Nouvel article
-                </a>
-            {% else %}
-                Aucune actualité pour le moment.
-            {% endif %}
-        </p>
+        {# The creation action already lives in the page header above for a
+           manager (one btn-primary per screen, design.md §7.4) — the empty
+           state states the fact and never doubles the button. #}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune actualité pour le moment.',
+            icon: 'bi-newspaper',
+        } only %}
     {% else %}
         <div class="d-flex flex-column gap-3 mx-auto" style="max-width: 720px;">
             {% for row in articles %}
@@ -41,12 +38,12 @@
                             <div class="d-flex flex-wrap align-items-center gap-2 small text-body-secondary mb-2">
                                 <span>{{ article.createdAt|french_date }}</span>
                                 {% if row.form_badge == 'open' %}
-                                    <span class="badge rounded-pill bg-success-subtle text-success-emphasis">Formulaire ouvert</span>
+                                    {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Formulaire ouvert' } only %}
                                 {% elseif row.form_badge == 'closed' %}
-                                    <span class="badge rounded-pill bg-secondary-subtle text-secondary">Formulaire fermé</span>
+                                    {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'Formulaire fermé' } only %}
                                 {% endif %}
                                 {% if manage %}
-                                    <span class="badge rounded-pill bg-light text-dark border">
+                                    <span class="badge rounded-pill text-bg-light border">
                                         {% if article.visibility == 'public' %}Public
                                         {% elseif article.visibility == 'chief' %}Chefs
                                         {% elseif article.visibility == 'admin' %}Chefs d'Unité

@@ -24,8 +24,10 @@
   (EditableContentService, SECURITY.md §7).
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 900px;">
-        <h1 class="h3 mb-3">Gabarits — {{ asset.name }}</h1>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Gabarits — ' ~ asset.name,
+        } only %}
 
         {% include '@rental/management/_nav.html.twig' %}
 
@@ -255,7 +257,10 @@
                 </p>
 
                 {% if meters is empty %}
-                    <p class="text-body-secondary">Aucun compteur.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun compteur.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <ul class="list-unstyled">
                         {% for meter in meters %}
@@ -343,7 +348,10 @@
                 </p>
 
                 {% if inventory_template is empty %}
-                    <p class="text-body-secondary">Aucun élément.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun élément.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <ul class="list-unstyled">
                         {% for item in inventory_template %}

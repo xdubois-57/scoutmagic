@@ -1,8 +1,8 @@
 {% extends 'base.html.twig' %}
 {% block title %}Suivi de votre demande — {{ site_name }}{% endblock %}
 {% block content %}
-    <div class="container py-4" style="max-width: 640px;">
-        <h1 class="h4 mb-3">Suivi de votre demande</h1>
+    <div class="page-narrow">
+        {% include 'partials/page_header.html.twig' with { title: 'Suivi de votre demande' } only %}
 
         <div class="card mb-3">
             <div class="card-body">
@@ -62,11 +62,11 @@
                             <div>
                                 {{ row.email }}
                                 {% if row.isValid() %}
-                                    <span class="badge bg-success">Confirmée</span>
+                                    {% include 'partials/status_badge.html.twig' with { status: 'confirmed', label: 'Confirmée' } only %}
                                 {% elseif row.isPending() %}
-                                    <span class="badge bg-warning text-dark">En attente de confirmation</span>
+                                    {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente de confirmation' } only %}
                                 {% else %}
-                                    <span class="badge bg-secondary">Inactive</span>
+                                    {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'Inactive' } only %}
                                 {% endif %}
                             </div>
                             {% if row.isPending() %}

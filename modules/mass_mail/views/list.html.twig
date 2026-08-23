@@ -3,9 +3,12 @@
 {% block title %}Envoi de mails — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="mb-0">Envoi de mails</h1>
-        <button type="button" class="btn btn-primary" id="mm-new-btn"><i class="bi bi-plus-lg"></i> Nouvel email</button>
+    {% include 'partials/page_header.html.twig' with { title: 'Envoi de mails' } only %}
+
+    {# The creation action opens the compose dialog (JS), so it cannot ride
+       the page_header's link action — it keeps its own right-aligned row. #}
+    <div class="d-flex justify-content-end mb-3">
+        <button type="button" class="btn btn-primary w-100 w-sm-auto" id="mm-new-btn"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nouvel email</button>
     </div>
 
     <form method="get" action="/mass-mail" class="row g-2 align-items-end mb-3">
@@ -32,7 +35,9 @@
             </select>
         </div>
         <div class="col-12 col-md-2">
-            <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
+            {# The page's one primary action is « Nouvel email » above
+               (design.md §7.4) — the filter button is neutral. #}
+            <button type="submit" class="btn btn-sm btn-outline-secondary">Filtrer</button>
             <a href="/mass-mail" class="btn btn-sm btn-outline-secondary">Réinitialiser</a>
         </div>
     </form>
@@ -66,10 +71,10 @@
                         </td>
                         <td>{{ email.listType == 'mail_merge' ? '—' : email.scoutYearIds|map(yid => scout_years_by_id[yid] ?? '?')|join(', ') }}</td>
                         <td>
-                            {% set badgeClass = email.status == 'draft' ? 'text-bg-secondary' : (email.status == 'test' ? 'text-bg-warning' : (email.status == 'sending' ? 'text-bg-info' : 'text-bg-success')) %}
-                            <span class="badge {{ badgeClass }}">
-                                {{ email.status == 'draft' ? 'Brouillon' : (email.status == 'test' ? 'Test' : (email.status == 'sending' ? 'Envoi en cours' : 'Envoyé')) }}
-                            </span>
+                            {% include 'partials/status_badge.html.twig' with {
+                                status: email.status == 'draft' ? 'draft' : (email.status == 'test' ? 'pending' : (email.status == 'sending' ? 'in_progress' : 'done')),
+                                label: email.status == 'draft' ? 'Brouillon' : (email.status == 'test' ? 'Test' : (email.status == 'sending' ? 'Envoi en cours' : 'Envoyé')),
+                            } only %}
                         </td>
                         <td class="text-end">{{ recipient_counts[email.id] ?? 0 }}</td>
                         <td>{{ email.createdAt|date_fr }}</td>
@@ -81,23 +86,26 @@
                         </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="8" class="text-body-secondary fst-italic">Aucun email.</td></tr>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun email.',
+                        colspan: 8,
+                        icon: 'bi-envelope',
+                    } only %}
                 {% endfor %}
             </tbody>
         </table>
     </div>
 
-    {% if total_pages > 1 %}
-        <nav>
-            <ul class="pagination pagination-sm">
-                {% for p in 1..total_pages %}
-                    <li class="page-item {{ p == page ? 'active' : '' }}">
-                        <a class="page-link" href="?page={{ p }}{% if search %}&search={{ search }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if section_id %}&section_id={{ section_id }}{% endif %}">{{ p }}</a>
-                    </li>
-                {% endfor %}
-            </ul>
-        </nav>
-    {% endif %}
+    {% include 'partials/pagination.html.twig' with {
+        page: page,
+        total_pages: total_pages,
+        base_url: '?'
+            ~ (search ? 'search=' ~ search|url_encode ~ '&' : '')
+            ~ (status ? 'status=' ~ status|url_encode ~ '&' : '')
+            ~ (section_id ? 'section_id=' ~ section_id ~ '&' : '')
+            ~ 'page=',
+        label: 'Pagination des emails',
+    } only %}
 
     {% include '@mass_mail/_compose_dialog.html.twig' %}
 {% endblock %}
@@ -117,7 +125,9 @@ const MM_DATA = {
 };
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
 const statusLabel = (s) => ({ draft: 'Brouillon', test: 'Test', sending: 'Envoi en cours', sent: 'Envoyé' })[s] || s;
-const statusBadgeClass = (s) => ({ draft: 'text-bg-secondary', test: 'text-bg-warning', sending: 'text-bg-info', sent: 'text-bg-success' })[s] || 'text-bg-secondary';
+// Same tone mapping as partials/status_badge.html.twig (draft → info,
+// test/sending → warning, sent → success) — keep the two in step.
+const statusBadgeClass = (s) => ({ draft: 'text-bg-info', test: 'text-bg-warning', sending: 'text-bg-warning', sent: 'text-bg-success' })[s] || 'text-bg-secondary';
 
 function escapeHtml(value) {
     // Quotes are escaped too (textContent->innerHTML does not) because the

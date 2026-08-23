@@ -1,7 +1,7 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ board.title }} — {{ param('site_name') }}{% endblock %}
 {% block content %}
-    <div class="container py-4" id="retro-board"
+    <div id="retro-board"
          data-token="{{ token }}"
          data-csrf="{{ csrf_token }}"
          data-poll-interval="{{ polling_interval_seconds }}"
@@ -12,12 +12,13 @@
          data-max-length="{{ board.maxCommentLength }}"
          data-ai-available="{{ ai_available ? '1' : '0' }}"
          data-remaining-budget="{{ remaining_budget !== null ? remaining_budget : '' }}">
-        <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
-            <h1 class="h3 mb-0">{{ board.title }}</h1>
-            <span class="badge {{ board.status == 'open' ? 'text-bg-success' : 'text-bg-secondary' }}">
-                {{ board.status == 'open' ? 'Ouvert' : 'Clôturé' }}
-            </span>
-        </div>
+        {% include 'partials/page_header.html.twig' with { title: board.title } only %}
+        <p class="mb-2">
+            {% include 'partials/status_badge.html.twig' with {
+                status: board.status == 'open' ? 'active' : 'closed',
+                label: board.status == 'open' ? 'Ouvert' : 'Clôturé',
+            } only %}
+        </p>
         {% if board.voteMode == 'budget' and board.status == 'open' and can_vote %}
             <p class="small text-body-secondary mb-2">
                 <i class="bi bi-coin"></i> Il te reste <strong id="retro-budget-remaining">{{ remaining_budget !== null ? remaining_budget : board.voteBudget }}</strong> point(s) à distribuer.
@@ -99,7 +100,7 @@
                                     <button type="button" class="btn btn-sm btn-outline-primary d-none" data-shorten-btn>
                                         <i class="bi bi-magic"></i> Raccourcir avec l'IA
                                     </button>
-                                    <button type="submit" class="btn btn-sm btn-success">
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">
                                         <i class="bi bi-plus-lg"></i> Ajouter
                                     </button>
                                     <div class="d-none mt-2" data-moderation-alert></div>

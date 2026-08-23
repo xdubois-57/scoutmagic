@@ -3,7 +3,7 @@
 {% block title %}Badges — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Badges</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Badges' } only %}
 
     <p class="text-body-secondary small mb-3">
         Rôles transversaux assignables aux animateurs et chefs d'unité (ex: Infirmier, Trésorier),
@@ -20,9 +20,9 @@
                 <input type="text" class="form-control form-control-sm badge-name-input flex-grow-1 {{ badge.isDefault ? 'bg-body-secondary text-body-secondary' : '' }}"
                        style="max-width:220px;min-width:120px;" value="{{ badge.name }}" {{ badge.isDefault ? 'readonly' : '' }} aria-label="Nom du badge">
                 {% if badge.referentSectionId %}
-                    <span class="badge bg-info-subtle text-info-emphasis" title="Suit automatiquement le nom de la section">Référent de section</span>
+                    <span class="badge text-bg-info" title="Suit automatiquement le nom de la section">Référent de section</span>
                 {% elseif badge.isDefault %}
-                    <span class="badge bg-secondary-subtle text-secondary-emphasis">Par défaut</span>
+                    <span class="badge text-bg-secondary">Par défaut</span>
                 {% endif %}
                 <div class="form-check form-switch ms-auto text-nowrap">
                     <input type="checkbox" class="form-check-input badge-active-input" role="switch" id="badge-active-{{ badge.id }}" {{ badge.isActive ? 'checked' : '' }} aria-checked="{{ badge.isActive ? 'true' : 'false' }}">

@@ -41,14 +41,14 @@
                         {% if on_reports_page|default(false) %}
                             <input type="hidden" name="return_to" value="reports">
                         {% endif %}
-                        <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center">
                             Masquer
                         </button>
                     </form>
                 {% endif %}
                 <form method="post" action="/groups/{{ group.id }}/replies/{{ row.reply.id }}/restore" class="m-0 groups-restore-form">
                     {{ csrf_field()|raw }}
-                    <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center">
                         {{ row.is_hidden|default(false) ? 'Rétablir' : 'Ignorer le signalement' }}
                     </button>
                 </form>
@@ -67,14 +67,14 @@
                 {% if row.can_edit or row.can_delete or row.can_report|default(false) %}
                     <div class="dropdown">
                         <button class="btn btn-sm btn-link text-body-secondary d-flex align-items-center justify-content-center p-0"
-                                style="min-height:44px;min-width:44px;" type="button" data-bs-toggle="dropdown"
+                                type="button" data-bs-toggle="dropdown"
                                 aria-expanded="false" aria-label="Actions sur cette réponse">
-                            <i class="bi bi-three-dots"></i>
+                            <i class="bi bi-three-dots-vertical"></i>
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end">
                             {% if row.can_edit %}
                                 <li>
-                                    <button class="dropdown-item d-flex align-items-center groups-reply-edit-toggle" style="min-height:44px;"
+                                    <button class="dropdown-item d-flex align-items-center tap-target groups-reply-edit-toggle"
                                             type="button" data-reply="{{ row.reply.id }}">
                                         Modifier
                                     </button>
@@ -85,7 +85,7 @@
                                     <form method="post" action="/groups/{{ group.id }}/replies/{{ row.reply.id }}/report" class="groups-report-form"
                                           data-confirm="Signaler cette réponse aux modérateurs du groupe ?">
                                         {{ csrf_field()|raw }}
-                                        <button type="submit" class="dropdown-item d-flex align-items-center" style="min-height:44px;">
+                                        <button type="submit" class="dropdown-item d-flex align-items-center tap-target">
                                             Signaler
                                         </button>
                                     </form>
@@ -96,7 +96,7 @@
                                     <form method="post" action="/groups/{{ group.id }}/replies/{{ row.reply.id }}/delete"
                                           class="groups-reply-delete-form" data-confirm="Supprimer définitivement cette réponse ?">
                                         {{ csrf_field()|raw }}
-                                        <button type="submit" class="dropdown-item text-danger d-flex align-items-center" style="min-height:44px;">
+                                        <button type="submit" class="dropdown-item text-danger d-flex align-items-center tap-target">
                                             Supprimer
                                         </button>
                                     </form>
@@ -138,9 +138,9 @@
                 <textarea class="form-control mb-2" id="reply-edit-body-{{ row.reply.id }}" name="body" rows="2"
                           maxlength="{{ constant('Modules\\Groups\\Service\\ReplyService::MAX_BODY_LENGTH') }}">{{ row.reply.body }}</textarea>
                 <div class="d-flex gap-2">
-                    <button type="submit" class="btn btn-sm btn-primary d-flex align-items-center" style="min-height:44px;">Enregistrer</button>
+                    <button type="submit" class="btn btn-sm btn-primary d-flex align-items-center">Enregistrer</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center groups-reply-edit-cancel"
-                            style="min-height:44px;" data-reply="{{ row.reply.id }}">Annuler</button>
+                            data-reply="{{ row.reply.id }}">Annuler</button>
                 </div>
             </form>
         {% endif %}

@@ -176,25 +176,22 @@ class CalendarChiefControllerTest extends TestCase
         $this->assertStringContainsString('Calendrier', $response->getBody());
     }
 
-    public function testEventFormIsAFlexColumnSoTheScrollableModalBodyAndFooterLayoutCorrectly(): void
+    public function testEventFormStaysInsideTheModalBodySoTheScrollableLayoutWorks(): void
     {
-        // Real bug, found and fixed: .modal-dialog-scrollable relies on
-        // .modal-body/.modal-footer being direct flex children of
-        // .modal-content so .modal-body's own overflow-y:auto has a
-        // bounded height to scroll within. #event-form wraps both (the
-        // submit button lives in the footer) — without the form itself
-        // being a flex column with min-height:0, a plain <form> has no
-        // `overflow` of its own, so its automatic flex minimum size is its
-        // content size rather than 0: it never shrinks, .modal-body's
-        // internal scroll never engages, and the footer (the save button)
-        // ends up pushed below the visible viewport on mobile.
+        // Historical bug, now structurally impossible: .modal-dialog-scrollable
+        // relies on .modal-body/.modal-footer being direct flex children of
+        // .modal-content. The shared partials/modal.html.twig embed renders
+        // them that way, the whole #event-form lives inside .modal-body, and
+        // the footer's submit button reaches it through form="event-form".
         $request = new Request('GET', '/chefs/calendar', [], [], [], []);
         $response = $this->controller->index($request, []);
+        $body = $response->getBody();
 
-        $this->assertMatchesRegularExpression(
-            '/<form id="event-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">/',
-            $response->getBody()
-        );
+        $this->assertStringContainsString('<form id="event-form">', $body);
+        $this->assertStringContainsString('form="event-form"', $body);
+        $this->assertStringContainsString('modal-dialog-scrollable', $body);
+        // The embed's title contract, which the inline JS targets.
+        $this->assertStringContainsString('id="eventModal-title"', $body);
     }
 
     public function testIndexPrefillsFormWithConfiguredDefaults(): void

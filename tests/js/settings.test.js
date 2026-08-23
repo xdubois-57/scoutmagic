@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const MODAL_DOM = `
     <div id="settingEditModal"></div>
-    <span id="settingEditTitle"></span><span id="settingEditDescription"></span>
+    <span id="settingEditModal-title"></span><span id="settingEditDescription"></span>
     <span id="settingEditLabel"></span><span id="settingEditType"></span>
     <div id="settingEditError" class="d-none"></div>
     <div id="settingEditInputContainer"></div>

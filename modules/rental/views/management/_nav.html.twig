@@ -1,12 +1,13 @@
 {#
-  Sub-navigation of one asset's managed space (§6.4), on the model of
-  modules/finance/views/_nav.html.twig: a thin mapping layer over
-  partials/chip_picker.html.twig rather than a raw horizontal-scroll row
-  (ARCHITECTURE.md §8.30).
+  Sub-navigation of one asset's managed space (§6.4), rendered through the
+  shared partials/page_picker.html.twig (design.md §7.6) rather than a copy
+  of the pages[] → chip_picker mapping layer.
 
   Requires `asset` and `nav_page` in scope. A page that does not exist yet is
   deliberately absent rather than shown disabled — a chip that does nothing is
-  worse than one that is not there.
+  worse than one that is not there. The nav_page key → URL mapping stays here
+  because booking and stay pages select « Réservations » without carrying its
+  URL as their own.
 #}
 {% set management_pages = [
     {'key': 'overview', 'url': '/mes-locations/' ~ asset.slug, 'label': "Vue d'ensemble"},
@@ -16,21 +17,17 @@
     {'key': 'compliance', 'url': '/mes-locations/' ~ asset.slug ~ '/conformite', 'label': 'Échéances'},
     {'key': 'settings', 'url': '/mes-locations/' ~ asset.slug ~ '/reglages', 'label': 'Réglages'},
 ] %}
-{% set management_items = [] %}
+{% set pages = [] %}
+{% set current_management_path = '' %}
 {% for page in management_pages %}
-    {% set management_items = management_items|merge([{
-        id: page.url,
-        label: page.label,
-        selected: nav_page == page.key,
-    }]) %}
+    {% set pages = pages|merge([{url: page.url, label: page.label}]) %}
+    {% if nav_page == page.key %}
+        {% set current_management_path = page.url %}
+    {% endif %}
 {% endfor %}
-<div class="rental-management-picker mb-3">
-    {% include 'partials/chip_picker.html.twig' with {
-        picker_id: 'rental-management-picker',
-        items: management_items,
-        mode: 'single',
-        base_url: '',
-        sheet_title: 'Choisir une page',
-        empty_text: 'Aucune page disponible.',
-    } %}
-</div>
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'rental-management-picker',
+    pages: pages,
+    current_path: current_management_path,
+    sheet_title: 'Choisir une page',
+} only %}

@@ -3,7 +3,7 @@
 {% block title %}Rétrospectives — Configuration — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="h3 mb-4">Rétrospectives — Configuration</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Rétrospectives — Configuration' } only %}
 
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>

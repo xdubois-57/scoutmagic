@@ -1,9 +1,9 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Importer un relevé — Finances — {{ site_name }}{% endblock %}
+{% block title %}Importer — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Finances</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Importer' } only %}
 
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 

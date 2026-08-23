@@ -244,7 +244,7 @@ class MemberSearchControllerTest extends TestCase
         $this->assertStringContainsString('#639922', $body);
         // No offset set yet → "Normal" is the active segment.
         $this->assertMatchesRegularExpression(
-            '/offset-btn active"\s+style="min-height:44px;" data-offset="0"/',
+            '/offset-btn active"\s+data-offset="0"/',
             $body
         );
     }

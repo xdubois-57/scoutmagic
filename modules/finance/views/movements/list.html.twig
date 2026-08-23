@@ -9,7 +9,7 @@
 {% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Finances</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Mouvements' } only %}
 
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
@@ -20,9 +20,12 @@
     </p>
 
     {% if no_accounts %}
-        <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun compte visible pour votre rôle.',
+            icon: 'bi-wallet2',
+        } only %}
     {% else %}
-    <h2 class="h5 mb-3">Mouvements — {{ selected_account.name }}</h2>
+    <h2 class="h5 mb-3">{{ selected_account.name }}</h2>
 
     <form method="get" action="/finance/movements" class="row g-2 align-items-end mb-3">
         <div class="col-6 col-md-3">
@@ -101,7 +104,10 @@
                 </div>
             </div>
         {% else %}
-            <p class="text-body-secondary fst-italic">Aucun mouvement.</p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucun mouvement.',
+                compact: true,
+            } only %}
         {% endfor %}
     </div>
 
@@ -160,7 +166,10 @@
                         </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="6" class="text-body-secondary fst-italic">Aucun mouvement.</td></tr>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun mouvement.',
+                        colspan: 6,
+                    } only %}
                 {% endfor %}
             </tbody>
         </table>
@@ -182,109 +191,90 @@
         <i class="bi bi-file-earmark-spreadsheet"></i> Exporter en XLSX
     </a>
 
-    {% if total_pages > 1 %}
-        {% set page_url = filters_query %}
-        <nav aria-label="Pagination des mouvements">
-            <ul class="pagination pagination-sm">
-                <li class="page-item {{ page <= 1 ? 'disabled' : '' }}">
-                    <a class="page-link" href="{{ page_url }}&page={{ page - 1 }}" aria-label="Précédent"><i class="bi bi-chevron-left"></i></a>
-                </li>
-                {% for p in 1..total_pages %}
-                    {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-                        <li class="page-item {{ p == page ? 'active' : '' }}">
-                            <a class="page-link" href="{{ page_url }}&page={{ p }}">{{ p }}</a>
-                        </li>
-                    {% elseif p == page - 3 or p == page + 3 %}
-                        <li class="page-item disabled"><span class="page-link">…</span></li>
-                    {% endif %}
-                {% endfor %}
-                <li class="page-item {{ page >= total_pages ? 'disabled' : '' }}">
-                    <a class="page-link" href="{{ page_url }}&page={{ page + 1 }}" aria-label="Suivant"><i class="bi bi-chevron-right"></i></a>
-                </li>
-            </ul>
-        </nav>
-    {% endif %}
+    {% include 'partials/pagination.html.twig' with {
+        page: page,
+        total_pages: total_pages,
+        base_url: filters_query ~ '&page=',
+        label: 'Pagination des mouvements',
+    } only %}
 
-    <div class="modal fade" id="attachments-modal" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Reçus associés</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div id="attachments-list" class="d-flex flex-column gap-2 mb-3"></div>
-                    <div class="d-flex gap-2 mb-2">
-                        <label class="visually-hidden" for="attachments-add-select">Associer un reçu en attente</label>
-                        <select class="form-select form-select-sm" id="attachments-add-select">
-                            <option value="">Associer un reçu en attente…</option>
-                            {% for receipt in pending_receipts %}
-                                <option value="{{ receipt.id }}">
-                                    {{ receipt.originalFilename }}{% if receipt.suggestedDate %} — {{ receipt.suggestedDate }}{% endif %}{% if receipt.suggestedLabel %} — {{ receipt.suggestedLabel }}{% endif %}{% if receipt.suggestedAmount %} — {{ receipt.suggestedAmount|money }}{% endif %}
-                                </option>
-                            {% endfor %}
-                        </select>
-                        <button type="button" class="btn btn-sm btn-primary" id="attachments-add-btn">Associer</button>
-                    </div>
-                    <div class="text-body-secondary small text-center mb-2">— ou —</div>
-                    <div class="d-flex gap-2">
-                        <input type="file" class="form-control form-control-sm" id="attachments-upload-input" accept=".pdf,.jpg,.jpeg,.png" aria-label="Téléverser un reçu">
-                        <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="attachments-upload-btn">Téléverser et associer</button>
-                    </div>
-                    <div class="text-danger small mt-2 d-none" id="attachments-upload-error"></div>
-                </div>
+    {# `only` isolates the embed's scope — the variables its blocks use
+       are passed through explicitly alongside the modal's own options. #}
+    {% embed 'partials/modal.html.twig' with {
+        id: 'attachments-modal',
+        title: 'Reçus associés',
+        scrollable: true,
+        pending_receipts: pending_receipts,
+    } only %}
+        {% block body %}
+            <div id="attachments-list" class="d-flex flex-column gap-2 mb-3"></div>
+            <div class="d-flex gap-2 mb-2">
+                <label class="visually-hidden" for="attachments-add-select">Associer un reçu en attente</label>
+                <select class="form-select form-select-sm" id="attachments-add-select">
+                    <option value="">Associer un reçu en attente…</option>
+                    {% for receipt in pending_receipts %}
+                        <option value="{{ receipt.id }}">
+                            {{ receipt.originalFilename }}{% if receipt.suggestedDate %} — {{ receipt.suggestedDate }}{% endif %}{% if receipt.suggestedLabel %} — {{ receipt.suggestedLabel }}{% endif %}{% if receipt.suggestedAmount %} — {{ receipt.suggestedAmount|money }}{% endif %}
+                        </option>
+                    {% endfor %}
+                </select>
+                <button type="button" class="btn btn-sm btn-primary" id="attachments-add-btn">Associer</button>
             </div>
-        </div>
-    </div>
+            <div class="text-body-secondary small text-center mb-2">— ou —</div>
+            <div class="d-flex gap-2">
+                <input type="file" class="form-control form-control-sm" id="attachments-upload-input" accept=".pdf,.jpg,.jpeg,.png" aria-label="Téléverser un reçu">
+                <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="attachments-upload-btn">Téléverser et associer</button>
+            </div>
+            <div class="text-danger small mt-2 d-none" id="attachments-upload-error"></div>
+        {% endblock %}
+    {% endembed %}
 
-    <div class="modal fade" id="movement-details-modal" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Détails du mouvement</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <dl class="row small mb-3">
-                        <dt class="col-4">Date</dt><dd class="col-8" id="md-date"></dd>
-                        <dt class="col-4">Libellé</dt><dd class="col-8" id="md-label"></dd>
-                        <dt class="col-4">Référence bancaire</dt><dd class="col-8" id="md-bank-reference"></dd>
-                        <dt class="col-4">Montant</dt><dd class="col-8" id="md-amount"></dd>
-                        <dt class="col-4">Origine</dt><dd class="col-8" id="md-source"></dd>
-                        <dt class="col-4">Contrepartie</dt><dd class="col-8" id="md-counterparty-name"></dd>
-                        <dt class="col-4">Compte contrepartie</dt><dd class="col-8" id="md-counterparty-account"></dd>
-                        <dt class="col-4">Autres informations</dt><dd class="col-8" id="md-extra-details"></dd>
-                    </dl>
-                    <div class="mb-2">
-                        <label class="form-label small" for="md-category">Catégorie</label>
-                        <select class="form-select form-select-sm" id="md-category">
-                            <option value="">À catégoriser</option>
-                            {% for category in categories %}
-                                <option value="{{ category.id }}">{{ category.name }}</option>
-                            {% endfor %}
-                        </select>
-                        <div class="form-text small d-none" id="md-category-auto">Catégorie attribuée automatiquement (règle ou IA). Changer la catégorie ici la rendra manuelle.</div>
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label small" for="md-comment">Commentaire</label>
-                        <input type="text" class="form-control form-control-sm" id="md-comment">
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label small" for="md-fiscal-year">Exercice</label>
-                        <select class="form-select form-select-sm" id="md-fiscal-year">
-                            {% for fiscalYear in fiscal_years %}
-                                <option value="{{ fiscalYear.id }}">{{ fiscalYear.label }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Annuler</button>
-                    <button type="button" class="btn btn-sm btn-primary" id="md-save-btn">Enregistrer</button>
-                </div>
+    {% embed 'partials/modal.html.twig' with {
+        id: 'movement-details-modal',
+        title: 'Détails du mouvement',
+        scrollable: true,
+        categories: categories,
+        fiscal_years: fiscal_years,
+    } only %}
+        {% block body %}
+            <dl class="row small mb-3">
+                <dt class="col-4">Date</dt><dd class="col-8" id="md-date"></dd>
+                <dt class="col-4">Libellé</dt><dd class="col-8" id="md-label"></dd>
+                <dt class="col-4">Référence bancaire</dt><dd class="col-8" id="md-bank-reference"></dd>
+                <dt class="col-4">Montant</dt><dd class="col-8" id="md-amount"></dd>
+                <dt class="col-4">Origine</dt><dd class="col-8" id="md-source"></dd>
+                <dt class="col-4">Contrepartie</dt><dd class="col-8" id="md-counterparty-name"></dd>
+                <dt class="col-4">Compte contrepartie</dt><dd class="col-8" id="md-counterparty-account"></dd>
+                <dt class="col-4">Autres informations</dt><dd class="col-8" id="md-extra-details"></dd>
+            </dl>
+            <div class="mb-2">
+                <label class="form-label small" for="md-category">Catégorie</label>
+                <select class="form-select form-select-sm" id="md-category">
+                    <option value="">À catégoriser</option>
+                    {% for category in categories %}
+                        <option value="{{ category.id }}">{{ category.name }}</option>
+                    {% endfor %}
+                </select>
+                <div class="form-text small d-none" id="md-category-auto">Catégorie attribuée automatiquement (règle ou IA). Changer la catégorie ici la rendra manuelle.</div>
             </div>
-        </div>
-    </div>
+            <div class="mb-2">
+                <label class="form-label small" for="md-comment">Commentaire</label>
+                <input type="text" class="form-control form-control-sm" id="md-comment">
+            </div>
+            <div class="mb-2">
+                <label class="form-label small" for="md-fiscal-year">Exercice</label>
+                <select class="form-select form-select-sm" id="md-fiscal-year">
+                    {% for fiscalYear in fiscal_years %}
+                        <option value="{{ fiscalYear.id }}">{{ fiscalYear.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="button" class="btn btn-sm btn-primary" id="md-save-btn">Enregistrer</button>
+        {% endblock %}
+    {% endembed %}
     {% endif %}
 {% endblock %}
 

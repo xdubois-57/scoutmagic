@@ -152,12 +152,16 @@ describe('finance-receipts.js: live search', () => {
         document.getElementById('receipts-filter-btn').click();
         await settle();
 
-        const links = document.querySelectorAll('#receipts-grid .page-link');
-        expect(links).toHaveLength(3);
+        // Same skeleton as partials/pagination.html.twig (AJAX mode):
+        // prev chevron, the three pages, next chevron.
+        const links = document.querySelectorAll('#receipts-grid .page-link[data-page]');
+        expect(links).toHaveLength(5);
+        expect(links[0].getAttribute('aria-label')).toBe('Précédent');
+        expect(links[4].getAttribute('aria-label')).toBe('Suivant');
 
         fetch.mockClear();
         fetch.mockReturnValue(jsonResponse({ success: true, receipts: [], page: 2, total_pages: 3 }));
-        links[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        links[2].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         await settle();
         expect(fetch).toHaveBeenCalledWith('/finance/receipts/search?account_id=7&q=&pending=0&page=2', expect.anything());
     });

@@ -3,7 +3,11 @@
 {% block title %}Reçus — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Finances</h1>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Reçus',
+        action_label: no_accounts ? '' : 'Ajouter un reçu',
+        action_url: no_accounts ? '' : '/finance/receipts/new?account_id=' ~ selected_account.id,
+    } only %}
 
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
@@ -14,12 +18,12 @@
     </p>
 
     {% if no_accounts %}
-        <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun compte visible pour votre rôle.',
+            icon: 'bi-wallet2',
+        } only %}
     {% else %}
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="h5 mb-0">Reçus — {{ selected_account.name }}</h2>
-        <a href="/finance/receipts/new?account_id={{ selected_account.id }}" class="btn btn-sm btn-primary">Ajouter un reçu</a>
-    </div>
+    <h2 class="h5 mb-3">{{ selected_account.name }}</h2>
 
     <div class="row g-2 align-items-end mb-3">
         <div class="col-6 col-md-3">
@@ -43,7 +47,9 @@
         </div>
         <div class="col-auto">
             <div class="form-label small d-block">&nbsp;</div>
-            <button type="button" class="btn btn-sm btn-primary" id="receipts-filter-btn">Filtrer</button>
+            {# The page's one primary action is « Ajouter un reçu » in the
+               page header (design.md §7.4) — the filter button is neutral. #}
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="receipts-filter-btn">Filtrer</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="receipts-reset-btn">Réinitialiser</button>
         </div>
     </div>
@@ -52,34 +58,18 @@
         {% include '@finance/receipts/_grid.html.twig' %}
     </div>
 
-    <div class="modal fade" id="associate-modal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Associer à un mouvement</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <input type="text" class="form-control form-control-sm mb-2" id="associate-search" placeholder="Rechercher un mouvement (libellé)..." aria-label="Rechercher un mouvement par libellé">
-                    <div id="associate-results" class="d-flex flex-column gap-1"></div>
-                </div>
-            </div>
-        </div>
-    </div>
+    {% embed 'partials/modal.html.twig' with { id: 'associate-modal', title: 'Associer à un mouvement' } only %}
+        {% block body %}
+            <input type="text" class="form-control form-control-sm mb-2" id="associate-search" placeholder="Rechercher un mouvement (libellé)..." aria-label="Rechercher un mouvement par libellé">
+            <div id="associate-results" class="d-flex flex-column gap-1"></div>
+        {% endblock %}
+    {% endembed %}
 
-    <div class="modal fade" id="movements-modal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Mouvements liés</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div id="movements-list" class="d-flex flex-column gap-2"></div>
-                </div>
-            </div>
-        </div>
-    </div>
+    {% embed 'partials/modal.html.twig' with { id: 'movements-modal', title: 'Mouvements liés' } only %}
+        {% block body %}
+            <div id="movements-list" class="d-flex flex-column gap-2"></div>
+        {% endblock %}
+    {% endembed %}
     {% endif %}
 {% endblock %}
 

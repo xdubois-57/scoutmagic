@@ -6,20 +6,15 @@
   post and reply carrying a dialog of its own.
 
   The title starts on the commonest of the two so a dialog opened before
-  the title is set still says something true.
+  the title is set still says something true. The shared modal embed
+  names the title `groups-detail-modal-title` — the id groups.js targets.
 #}
-<div class="modal fade" id="groups-detail-modal" tabindex="-1" aria-labelledby="groups-detail-modal-label" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 class="modal-title h5" id="groups-detail-modal-label">Réactions</h2>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
-            </div>
-            <div class="modal-body" id="groups-detail-modal-body">
-                <div class="text-center py-3">
-                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                </div>
+{% embed 'partials/modal.html.twig' with { id: 'groups-detail-modal', title: 'Réactions' } only %}
+    {% block body %}
+        <div id="groups-detail-modal-body">
+            <div class="text-center py-3">
+                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
             </div>
         </div>
-    </div>
-</div>
+    {% endblock %}
+{% endembed %}

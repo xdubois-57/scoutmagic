@@ -2,13 +2,13 @@
 {% block title %}Prévisions — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <div class="container py-4" style="max-width: 1100px;">
-        <h1 class="h3 mb-1">Prévisions</h1>
-        <p class="text-body-secondary small mb-3">
-            Effectif projeté pour l'année {{ target_year_label }} — toujours calculé sur l'année publique + 1, quelle
-            que soit l'année actuellement prévisualisée. Combine ce qui est déjà encodé dans Desk (certain), les
-            départs annoncés, les passages entre sections et les inscriptions acceptées (prévisionnel).
-        </p>
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Prévisions',
+            subtitle: "Effectif projeté pour l'année " ~ target_year_label ~ " — toujours calculé sur l'année publique + 1, quelle
+                que soit l'année actuellement prévisualisée. Combine ce qui est déjà encodé dans Desk (certain), les
+                départs annoncés, les passages entre sections et les inscriptions acceptées (prévisionnel).",
+        } only %}
 
         <p class="small text-body-secondary d-flex flex-wrap align-items-center gap-3 mb-4">
             <span class="d-inline-flex align-items-center gap-1">
@@ -23,27 +23,15 @@
         </p>
 
         {# Header stats #}
-        <div class="row g-2 g-md-3 mb-4">
-            {% set summary = [
+        {% include 'partials/stat_tiles.html.twig' with {
+            tiles: [
                 { label: 'Effectif projeté', value: forecast.summary.projected_total, icon: 'bi-people-fill', tone: 'primary' },
                 { label: 'Variation', value: (forecast.summary.variation > 0 ? '+' : '') ~ forecast.summary.variation, icon: 'bi-arrow-left-right', tone: forecast.summary.variation < 0 ? 'danger' : 'success' },
                 { label: 'Départs annoncés', value: forecast.summary.departures_count, icon: 'bi-box-arrow-right', tone: 'secondary' },
                 { label: 'Fin de parcours', value: forecast.summary.aging_out_count, icon: 'bi-hourglass-bottom', tone: 'secondary' },
-                { label: 'Entrées', value: forecast.summary.new_registrations_count, icon: 'bi-box-arrow-in-right', tone: 'info' }
-            ] %}
-            {% for card in summary %}
-                <div class="col-6 col-md-3">
-                    <div class="card h-100 border-0 shadow-sm">
-                        <div class="card-body py-3">
-                            <div class="text-body-secondary small d-flex align-items-center gap-2">
-                                <i class="bi {{ card.icon }} text-{{ card.tone }}"></i> {{ card.label }}
-                            </div>
-                            <div class="fs-3 fw-semibold lh-1 mt-1">{{ card.value }}</div>
-                        </div>
-                    </div>
-                </div>
-            {% endfor %}
-        </div>
+                { label: 'Entrées', value: forecast.summary.new_registrations_count, icon: 'bi-box-arrow-in-right', tone: 'info' },
+            ],
+        } only %}
 
         {# Places restantes par année du parcours — same bar-row style as
            the Statistiques page (modules/member_stats/views/index.html.twig):
@@ -61,7 +49,10 @@
                     mêmes chiffres que la page <a href="/config/inscriptions">Inscriptions</a>.
                 </p>
                 {% if capacity_by_branch|length == 0 %}
-                    <p class="text-body-secondary small mb-0">Aucune capacité configurée.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune capacité configurée.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     {% for branch in capacity_by_branch %}
                         <section class="mb-3">
@@ -83,11 +74,11 @@
                                         </span>
                                         <span class="text-nowrap flex-shrink-0" style="width: 6.5rem;">
                                             {% if row.tier == 'available' %}
-                                                <span class="badge bg-success">Disponible</span>
+                                                <span class="badge text-bg-success">Disponible</span>
                                             {% elseif row.tier == 'limited' %}
-                                                <span class="badge bg-warning text-dark">Limitée</span>
+                                                <span class="badge text-bg-warning">Limitée</span>
                                             {% else %}
-                                                <span class="badge bg-danger">Importante</span>
+                                                <span class="badge text-bg-danger">Importante</span>
                                             {% endif %}
                                         </span>
                                     </div>
@@ -141,7 +132,7 @@
                         <span class="d-inline-block rounded-circle flex-shrink-0"
                               style="width: 0.9rem; height: 0.9rem; background-color: {{ section.color }};"></span>
                         <h2 class="h5 mb-0">{{ section.label }}</h2>
-                        <span class="badge bg-light text-body border">{{ section.total }} au total</span>
+                        <span class="badge text-bg-light border">{{ section.total }} au total</span>
                     </div>
                     <p class="small text-body-secondary mb-2">
                         <i class="bi bi-check-circle-fill text-success" aria-hidden="true"></i> {{ section.certain_total }} certain(s)
@@ -198,7 +189,10 @@
                     trois ans.
                 </p>
                 {% if forecast.pyramid|length == 0 %}
-                    <p class="text-body-secondary small mb-0">Aucune donnée.</p>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune donnée.',
+                        compact: true,
+                    } only %}
                 {% else %}
                     <div class="d-flex flex-column gap-1">
                         {% for birth_year, row in forecast.pyramid %}

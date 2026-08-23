@@ -13,7 +13,7 @@
 {% endmacro %}
 
 {% block content %}
-    <h1 class="mb-4">Maintenance</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Maintenance' } only %}
 
     {# ————— Mise à jour ————— #}
     <div class="card mb-4" id="maintenance-update">
@@ -116,13 +116,14 @@
                                     <td class="small text-nowrap">{{ entry.startedAt }}</td>
                                     <td class="small">
                                         {% if entry.status == 'completed' %}
-                                            <span class="badge text-bg-success">Réussie</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Réussie' } only %}
                                         {% elseif entry.status == 'failed' %}
+                                            {# title tooltips (error detail) — kept out of the shared partial, which carries none #}
                                             <span class="badge text-bg-danger" title="{{ entry.errorMessage }}">Échouée</span>
                                         {% elseif entry.status == 'rolled_back' %}
                                             <span class="badge text-bg-warning" title="{{ entry.errorMessage }}">Échouée — restaurée automatiquement</span>
                                         {% else %}
-                                            <span class="badge text-bg-primary">En cours ({{ entry.status }})</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'En cours (' ~ entry.status ~ ')' } only %}
                                         {% endif %}
                                     </td>
                                 </tr>
@@ -347,7 +348,10 @@
 
             <h3 class="h6">Sauvegardes récentes</h3>
             {% if backups is empty %}
-                <p class="text-body-secondary small mb-0">Aucune sauvegarde pour le moment.</p>
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucune sauvegarde pour le moment.',
+                    compact: true,
+                } only %}
             {% else %}
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
@@ -366,12 +370,13 @@
                                     <td class="small text-nowrap">{{ backup.createdAt }}</td>
                                     <td>
                                         {% if backup.status == 'completed' %}
-                                            <span class="badge text-bg-success">Terminée</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Terminée' } only %}
                                         {% elseif backup.status == 'in_progress' %}
-                                            <span class="badge text-bg-warning">En cours</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'En cours' } only %}
                                         {% elseif backup.status == 'pending' %}
-                                            <span class="badge text-bg-primary">En attente</span>
+                                            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %}
                                         {% elseif backup.status == 'failed' %}
+                                            {# title tooltip (error detail) — kept out of the shared partial #}
                                             <span class="badge text-bg-danger" title="{{ backup.errorMessage }}">Échouée</span>
                                         {% endif %}
                                     </td>

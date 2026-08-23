@@ -29,7 +29,7 @@
 {% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">SOS Staff d'U</h1>
+    {% include 'partials/page_header.html.twig' with { title: "SOS Staff d'U" } only %}
 
     <div class="border rounded-3 p-3 mb-3">
         <div class="row g-3">
@@ -127,8 +127,7 @@
                         {% set state = states[day.date][option.member_id] ?? null %}
                         <button type="button"
                                 class="btn btn-sm {{ state == 'oncall' ? 'btn-success' : (state == 'unavailable' ? 'btn-danger' : 'btn-outline-secondary') }} sos-oncall-cell"
-                                data-member-id="{{ option.member_id }}" data-date="{{ day.date }}"
-                                style="min-width:44px;min-height:44px;">
+                                data-member-id="{{ option.member_id }}" data-date="{{ day.date }}">
                             <span class="d-block small" style="font-size:0.65rem;">{{ option.label|split(' ')|first }}</span>
                             <span>{{ state == 'oncall' ? '✓' : (state == 'unavailable' ? '✗' : '—') }}</span>
                         </button>

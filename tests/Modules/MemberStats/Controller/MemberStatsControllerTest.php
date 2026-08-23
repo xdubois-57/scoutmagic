@@ -143,7 +143,9 @@ class MemberStatsControllerTest extends TestCase
         $response = $this->buildFrontController()->handle(new Request('GET', '/chiefs/stats', [], [], [], []));
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Statistiques des membres', $response->getBody());
+        // The h1 now follows the page's <title> and breadcrumb label
+        // (design.md §7.6); the detail lives in the page_header subtitle.
+        $this->assertStringContainsString('Répartition des animés par branche', $response->getBody());
     }
 
     public function testIntendantIsDenied(): void

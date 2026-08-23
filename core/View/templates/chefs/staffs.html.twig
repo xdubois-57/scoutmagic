@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="/assets/css/components.css">
 {% endblock %}
 {% block content %}
-    <h1 class="mb-3">Staffs</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Staffs' } only %}
 
     {% if sections|length > 0 %}
         {% include 'partials/section_picker.html.twig' with {
@@ -17,7 +17,7 @@
     {% if current_section %}
         <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
             <span class="fw-semibold fs-5">{{ current_section.name ?? current_section.desk_code }}</span>
-            <span class="badge bg-secondary-subtle text-secondary-emphasis">
+            <span class="badge text-bg-secondary">
                 {{ current_section.branch_name }}
             </span>
             <span class="text-body-secondary small">{{ staff|length }} animateur{{ staff|length > 1 ? 's' : '' }}</span>
@@ -91,7 +91,7 @@
                         {% elseif member.badges|length > 0 %}
                             <div class="d-flex flex-wrap gap-1 mb-2">
                                 {% for badge in member.badges %}
-                                    <span class="badge bg-info-subtle text-info-emphasis d-inline-flex align-items-center gap-1">
+                                    <span class="badge text-bg-info d-inline-flex align-items-center gap-1">
                                         {{ badge.name }}
                                     </span>
                                 {% endfor %}
@@ -127,7 +127,10 @@
                     </div>
                 </div>
             {% else %}
-                <p class="text-body-secondary fst-italic">Aucun animateur dans cette section.</p>
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun animateur dans cette section.',
+                    compact: true,
+                } only %}
             {% endfor %}
         </div>
 
@@ -159,7 +162,7 @@
                                 <button class="accordion-button {{ year_block.is_current ? '' : 'collapsed' }}" type="button"
                                         data-bs-toggle="collapse" data-bs-target="#sdYear{{ year_block.scout_year.id }}">
                                     {{ year_block.scout_year.label }}
-                                    <span class="badge bg-secondary-subtle text-secondary-emphasis ms-2">
+                                    <span class="badge text-bg-secondary ms-2">
                                         {{ year_block.documents|length }} document{{ year_block.documents|length > 1 ? 's' : '' }}
                                     </span>
                                 </button>
@@ -197,11 +200,15 @@
                                                         <i class="bi bi-file-earmark-arrow-down"></i> Télécharger
                                                     </a>
                                                     {% if item.compressionStatus == 'compressed' %}
-                                                        · <span class="badge bg-success-subtle text-success-emphasis">
-                                                            {{ (item.sizeBeforeBytes / 1024 / 1024)|number_format(1) }}&nbsp;Mo → {{ (item.sizeAfterBytes / 1024 / 1024)|number_format(1) }}&nbsp;Mo
-                                                        </span>
+                                                        · {% include 'partials/status_badge.html.twig' with {
+                                                            status: 'done',
+                                                            label: (item.sizeBeforeBytes / 1024 / 1024)|number_format(1) ~ ' Mo → ' ~ (item.sizeAfterBytes / 1024 / 1024)|number_format(1) ~ ' Mo',
+                                                        } only %}
                                                     {% elseif item.compressionStatus == 'pending' %}
-                                                        · <span class="badge bg-secondary-subtle text-secondary-emphasis">Compression en cours…</span>
+                                                        · {% include 'partials/status_badge.html.twig' with {
+                                                            status: 'in_progress',
+                                                            label: 'Compression en cours…',
+                                                        } only %}
                                                     {% endif %}
                                                 </div>
                                             </div>
@@ -211,62 +218,66 @@
                             </div>
                         </div>
                     {% else %}
-                        <p class="text-body-secondary fst-italic mb-0">Aucun document pour cette section.</p>
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucun document pour cette section.',
+                            compact: true,
+                        } only %}
                     {% endfor %}
                 </div>
             </div>
         </div>
 
         {% if can_edit_section %}
-            <div class="modal fade" id="sectionDocumentAddModal" tabindex="-1" aria-hidden="true">
-                <div class="modal-dialog">
+            {# The <form> lives in the body; the footer's submit reaches it
+               through form="section-document-add-form" so the shared modal
+               skeleton (header/body/footer) stays intact. #}
+            {% embed 'partials/modal.html.twig' with {
+                id: 'sectionDocumentAddModal',
+                title: 'Ajouter un document',
+                current_section: current_section,
+                section_document_years: section_document_years,
+            } only %}
+                {% block body %}
                     <form method="post" action="/chefs/staffs/documents" enctype="multipart/form-data" id="section-document-add-form">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">Ajouter un document</h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
-                            </div>
-                            <div class="modal-body">
-                                {{ csrf_field() }}
-                                <input type="hidden" name="section_id" value="{{ current_section.id }}">
-                                <div class="mb-2">
-                                    <label class="form-label small" for="section-document-add-scout-year">Année scoute</label>
-                                    <select name="scout_year_id" id="section-document-add-scout-year" class="form-select">
-                                        {% for year_block in section_document_years %}
-                                            <option value="{{ year_block.scout_year.id }}" {{ year_block.is_current ? 'selected' : '' }}>
-                                                {{ year_block.scout_year.label }}
-                                            </option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                                <div class="mb-2">
-                                    <label class="form-label small" for="section-document-file-input">Fichier</label>
-                                    <input type="file" name="file" class="form-control" required id="section-document-file-input"
-                                           accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.txt,.csv">
-                                    <div class="form-text">PDF, Word, Excel, PowerPoint, OpenDocument, texte, CSV — 20 Mo maximum.</div>
-                                </div>
-                                <div class="mb-2">
-                                    <label class="form-label small" for="section-document-add-title">Titre</label>
-                                    <input type="text" name="title" class="form-control" id="section-document-add-title" placeholder="Nom du fichier par défaut">
-                                </div>
-                                <div class="mb-0">
-                                    <label class="form-label small" for="section-document-add-description">Description</label>
-                                    <textarea name="description" class="form-control" id="section-document-add-description" rows="2"></textarea>
-                                </div>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
-                                <button type="submit" class="btn btn-primary">Ajouter</button>
-                            </div>
+                        {{ csrf_field() }}
+                        <input type="hidden" name="section_id" value="{{ current_section.id }}">
+                        <div class="mb-2">
+                            <label class="form-label small" for="section-document-add-scout-year">Année scoute</label>
+                            <select name="scout_year_id" id="section-document-add-scout-year" class="form-select">
+                                {% for year_block in section_document_years %}
+                                    <option value="{{ year_block.scout_year.id }}" {{ year_block.is_current ? 'selected' : '' }}>
+                                        {{ year_block.scout_year.label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small" for="section-document-file-input">Fichier</label>
+                            <input type="file" name="file" class="form-control" required id="section-document-file-input"
+                                   accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.txt,.csv">
+                            <div class="form-text">PDF, Word, Excel, PowerPoint, OpenDocument, texte, CSV — 20 Mo maximum.</div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small" for="section-document-add-title">Titre</label>
+                            <input type="text" name="title" class="form-control" id="section-document-add-title" placeholder="Nom du fichier par défaut">
+                        </div>
+                        <div class="mb-0">
+                            <label class="form-label small" for="section-document-add-description">Description</label>
+                            <textarea name="description" class="form-control" id="section-document-add-description" rows="2"></textarea>
                         </div>
                     </form>
-                </div>
-            </div>
+                {% endblock %}
+                {% block footer %}
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <button type="submit" class="btn btn-primary" form="section-document-add-form">Ajouter</button>
+                {% endblock %}
+            {% endembed %}
         {% endif %}
     {% else %}
-        <p class="text-body-secondary">
-            Aucune section disponible. Les sections apparaîtront après le premier import Desk.
-        </p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune section disponible. Les sections apparaîtront après le premier import Desk.',
+            icon: 'bi-people',
+        } only %}
     {% endif %}
 {% endblock %}
 

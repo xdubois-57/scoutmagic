@@ -12,8 +12,10 @@
   booking, and calling it consent would misrepresent the legal basis.
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 720px;">
-        <h1 class="h3 mb-3">Demande de location — {{ asset.name }}</h1>
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Demande de location — ' ~ asset.name,
+        } only %}
 
         {% for error in errors %}
             <div class="alert alert-danger">{{ error }}</div>

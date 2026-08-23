@@ -3,7 +3,7 @@
 {% block title %}Calendrier — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Calendrier</h1>
+    {% include 'partials/page_header.html.twig' with { title: 'Calendrier' } only %}
 
     {# 5.1 Event defaults #}
     <h2 class="h5 mb-3">Valeurs par défaut des évènements</h2>
@@ -84,10 +84,13 @@
                     <option value="chief" {{ item.calendar.visibility == 'chief' ? 'selected' : '' }}>Animateur</option>
                     <option value="admin" {{ item.calendar.visibility == 'admin' ? 'selected' : '' }}>Chef d'Unité</option>
                 </select>
-                <span class="badge bg-secondary-subtle text-secondary-emphasis text-nowrap">Non supprimable</span>
+                <span class="badge text-bg-secondary text-nowrap">Non supprimable</span>
             </div>
         {% else %}
-            <p class="text-body-secondary fst-italic">Aucune section active pour le moment.</p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucune section active pour le moment.',
+                compact: true,
+            } only %}
         {% endfor %}
     </div>
 
@@ -108,7 +111,7 @@
                 <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
                     <span class="fw-semibold">{{ calendar.name }}</span>
                     {% if calendar.isDefault %}
-                        <span class="badge bg-secondary-subtle text-secondary-emphasis">Par défaut</span>
+                        <span class="badge text-bg-secondary">Par défaut</span>
                     {% endif %}
                     <select class="form-select form-select-sm visibility-select ms-auto" style="max-width:220px;" data-calendar-id="{{ calendar.id }}" aria-label="Visibilité du calendrier {{ calendar.name }}">
                         <option value="public" {{ calendar.visibility == 'public' ? 'selected' : '' }}>Public</option>
@@ -154,7 +157,7 @@
         <div class="border rounded-3 p-3">
             <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
                 <span class="fw-semibold">Unité complète</span>
-                <span class="badge bg-secondary-subtle text-secondary-emphasis">Lecture seule — combine tout</span>
+                <span class="badge text-bg-secondary">Lecture seule — combine tout</span>
             </div>
             <p class="text-body-secondary small mb-2">
                 Regroupe les évènements de tous les calendriers ci-dessus (sections et supplémentaires).

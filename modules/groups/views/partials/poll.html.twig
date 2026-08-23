@@ -38,7 +38,7 @@
         {% if can_vote and is_member_scope and members is not empty %}
             <div class="mb-2 groups-poll-voter">
                 <label class="form-label small mb-1" for="poll-voter-{{ post.id }}">Vous répondez pour</label>
-                <select class="form-select form-select-sm" id="poll-voter-{{ post.id }}" style="min-height:44px;">
+                <select class="form-select form-select-sm" id="poll-voter-{{ post.id }}">
                     {% for member in members %}
                         <option value="{{ member.id }}">{{ member.name }}</option>
                     {% endfor %}
@@ -72,7 +72,6 @@
                         {% endif %}
                         <button type="submit"
                                 class="btn btn-sm w-100 text-start d-flex align-items-center justify-content-between {{ option.is_own ? 'btn-primary' : 'btn-outline-secondary' }}"
-                                style="min-height:44px;"
                                 aria-pressed="{{ option.is_own ? 'true' : 'false' }}">
                             <span>{{ option.label }}</span>
                             <span class="small ms-2">{{ option.votes }} · {{ option.percent }} %</span>

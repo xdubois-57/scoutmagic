@@ -1,8 +1,10 @@
 {% extends 'base.html.twig' %}
 {% block title %}Actions planifiées — {{ param('site_name') }}{% endblock %}
 {% block content %}
-    <h1>Actions planifiées</h1>
-    <p class="text-body-secondary small mb-3">{{ total }} action{{ total > 1 ? 's' : '' }} au total</p>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Actions planifiées',
+        subtitle: total ~ ' action' ~ (total > 1 ? 's' : '') ~ ' au total',
+    } only %}
 
     {# Desktop table #}
     <div class="d-none d-md-block">
@@ -28,15 +30,15 @@
                         <td class="small text-nowrap">{{ action.run_at }}</td>
                         <td>
                             {% if action.status == 'pending' %}
-                                <span class="badge text-bg-primary">En attente</span>
+                                {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %}
                             {% elseif action.status == 'processing' %}
-                                <span class="badge text-bg-warning">En cours</span>
+                                {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'En cours' } only %}
                             {% elseif action.status == 'done' %}
-                                <span class="badge text-bg-success">Terminé</span>
+                                {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Terminé' } only %}
                             {% elseif action.status == 'failed' %}
-                                <span class="badge text-bg-danger">Échoué</span>
+                                {% include 'partials/status_badge.html.twig' with { status: 'failed', label: 'Échoué' } only %}
                             {% elseif action.status == 'canceled' %}
-                                <span class="badge text-bg-secondary">Annulé</span>
+                                {% include 'partials/status_badge.html.twig' with { status: 'cancelled', label: 'Annulé' } only %}
                             {% endif %}
                         </td>
                         <td class="small text-center">{{ action.attempts }}</td>
@@ -50,7 +52,10 @@
                     </tr>
                     {% endif %}
                     {% else %}
-                    <tr><td colspan="7" class="text-center text-body-secondary py-4">Aucune action planifiée.</td></tr>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune action planifiée.',
+                        colspan: 7,
+                    } only %}
                     {% endfor %}
                 </tbody>
             </table>
@@ -65,15 +70,15 @@
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <span class="fw-semibold small">{{ action.task_key }}</span>
                     {% if action.status == 'pending' %}
-                        <span class="badge text-bg-primary" style="font-size:0.65rem;">En attente</span>
+                        {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %}
                     {% elseif action.status == 'processing' %}
-                        <span class="badge text-bg-warning" style="font-size:0.65rem;">En cours</span>
+                        {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'En cours' } only %}
                     {% elseif action.status == 'done' %}
-                        <span class="badge text-bg-success" style="font-size:0.65rem;">Terminé</span>
+                        {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Terminé' } only %}
                     {% elseif action.status == 'failed' %}
-                        <span class="badge text-bg-danger" style="font-size:0.65rem;">Échoué</span>
+                        {% include 'partials/status_badge.html.twig' with { status: 'failed', label: 'Échoué' } only %}
                     {% elseif action.status == 'canceled' %}
-                        <span class="badge text-bg-secondary" style="font-size:0.65rem;">Annulé</span>
+                        {% include 'partials/status_badge.html.twig' with { status: 'cancelled', label: 'Annulé' } only %}
                     {% endif %}
                 </div>
                 <div class="text-body-secondary" style="font-size:0.7rem;">
@@ -85,22 +90,22 @@
             </div>
         </div>
         {% else %}
-        <p class="text-center text-body-secondary py-4">Aucune action planifiée.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune action planifiée.',
+            compact: true,
+        } only %}
         {% endfor %}
     </div>
 
-    {# Pagination #}
-    {% if total_pages > 1 %}
-    <nav class="mt-3">
-        <ul class="pagination pagination-sm justify-content-center">
-            {% for p in 1..total_pages %}
-                <li class="page-item {{ p == page ? 'active' : '' }}">
-                    <a class="page-link" href="?page={{ p }}">{{ p }}</a>
-                </li>
-            {% endfor %}
-        </ul>
-    </nav>
-    {% endif %}
+    <div class="mt-3">
+        {% include 'partials/pagination.html.twig' with {
+            page: page,
+            total_pages: total_pages,
+            base_url: '?page=',
+            label: 'Pagination des actions planifiées',
+            centered: true,
+        } only %}
+    </div>
 {% endblock %}
 
 {% block scripts %}

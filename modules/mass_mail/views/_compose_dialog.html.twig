@@ -1,11 +1,15 @@
-{# Shared create/edit dialog — module spec: "même dialogue pour les deux". #}
-<div class="modal fade" id="mm-modal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+{# Shared create/edit dialog — module spec: "même dialogue pour les deux".
+   Deliberately NOT the shared partials/modal.html.twig embed: its header
+   carries a dynamic status badge next to the title, which the embed's
+   fixed title+close header cannot host. The title id (mm-modal-title)
+   and heading level follow the embed's conventions anyway. #}
+<div class="modal fade" id="mm-modal" tabindex="-1" aria-labelledby="mm-modal-title" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-fullscreen-sm-down modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="mm-modal-title">Nouvel email</h5>
+                <h2 class="modal-title h5" id="mm-modal-title">Nouvel email</h2>
                 <span class="badge text-bg-secondary ms-2 d-none" id="mm-status-badge"></span>
-                <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal" aria-label="Fermer"></button>
             </div>
             <div class="modal-body">
                 <div class="alert alert-danger d-none" id="mm-error"></div>
@@ -147,7 +151,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Fermer</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="mm-to-draft-btn">Retour au brouillon</button>
                 <button type="button" class="btn btn-sm btn-primary d-none" id="mm-save-btn">Enregistrer</button>
                 <button type="button" class="btn btn-sm btn-warning d-none" id="mm-to-test-btn">Passer en mode test</button>

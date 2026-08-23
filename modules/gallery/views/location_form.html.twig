@@ -5,7 +5,7 @@
 {% block content %}
     {# The way back to the gallery config lives in the breadcrumb trail
        (design.md §7.3) — no « Retour » button here. #}
-    <h1 class="h4 mb-3">{{ location ? 'Modifier l\'emplacement de stockage' : 'Nouvel emplacement de stockage' }}</h1>
+    {% include 'partials/page_header.html.twig' with { title: location ? 'Modifier l\'emplacement de stockage' : 'Nouvel emplacement de stockage' } only %}
 
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>

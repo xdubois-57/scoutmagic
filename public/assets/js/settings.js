@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var options = [];
             try { options = JSON.parse(row.dataset.options || '[]'); } catch(e) {}
 
-            document.getElementById('settingEditTitle').textContent = label;
+            document.getElementById('settingEditModal-title').textContent = label;
             document.getElementById('settingEditDescription').textContent = description;
             document.getElementById('settingEditLabel').textContent = 'Valeur';
             document.getElementById('settingEditType').textContent = 'Type : ' + type;

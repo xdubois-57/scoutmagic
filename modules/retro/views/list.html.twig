@@ -1,42 +1,43 @@
 {% extends 'base.html.twig' %}
 {% block title %}Rétrospectives — {{ param('site_name') }}{% endblock %}
 {% block content %}
-    <div class="container py-4">
-        <div class="d-flex align-items-center justify-content-between mb-1">
-            <h1 class="h3 mb-0">Rétrospectives</h1>
-            {% if can_create %}
-                <a href="/retro/create" class="btn btn-success btn-sm">
-                    <i class="bi bi-plus-lg"></i> Nouvelle
-                </a>
-            {% endif %}
-        </div>
-        <p class="text-body-secondary small mb-4">Un mot, un vote — sans jamais savoir qui a dit quoi.</p>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Rétrospectives',
+        subtitle: 'Un mot, un vote — sans jamais savoir qui a dit quoi.',
+        action_label: can_create ? 'Nouvelle' : '',
+        action_url: '/retro/create',
+    } only %}
 
-        {% if boards is empty and archived_boards is empty %}
-            <p class="text-body-secondary">Aucune rétrospective pour le moment.</p>
+    {% if boards is empty and archived_boards is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune rétrospective pour le moment.',
+            icon: 'bi-chat-square-text',
+        } only %}
+    {% else %}
+        {% if boards is empty %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucune rétrospective active pour le moment.',
+                icon: 'bi-chat-square-text',
+            } only %}
         {% else %}
-            {% if boards is empty %}
-                <p class="text-body-secondary">Aucune rétrospective active pour le moment.</p>
-            {% else %}
+            <div class="d-flex flex-column gap-3">
+                {% for entry in boards %}
+                    {% include '@retro/_board_card.html.twig' with { entry: entry, can_close: can_close } %}
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if archived_boards is not empty %}
+            <button class="btn btn-link btn-sm p-0 mt-4" type="button" data-bs-toggle="collapse" data-bs-target="#retro-archived">
+                <i class="bi bi-archive"></i> Rétrospectives archivées ({{ archived_boards|length }})
+            </button>
+            <div class="collapse mt-2" id="retro-archived">
                 <div class="d-flex flex-column gap-3">
-                    {% for entry in boards %}
+                    {% for entry in archived_boards %}
                         {% include '@retro/_board_card.html.twig' with { entry: entry, can_close: can_close } %}
                     {% endfor %}
                 </div>
-            {% endif %}
-
-            {% if archived_boards is not empty %}
-                <button class="btn btn-link btn-sm p-0 mt-4" type="button" data-bs-toggle="collapse" data-bs-target="#retro-archived">
-                    <i class="bi bi-archive"></i> Rétrospectives archivées ({{ archived_boards|length }})
-                </button>
-                <div class="collapse mt-2" id="retro-archived">
-                    <div class="d-flex flex-column gap-3">
-                        {% for entry in archived_boards %}
-                            {% include '@retro/_board_card.html.twig' with { entry: entry, can_close: can_close } %}
-                        {% endfor %}
-                    </div>
-                </div>
-            {% endif %}
+            </div>
         {% endif %}
-    </div>
+    {% endif %}
 {% endblock %}

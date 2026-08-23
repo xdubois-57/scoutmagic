@@ -2,7 +2,7 @@
 {% block title %}Bac à sable e-mail — {{ site_name }}{% endblock %}
 
 {% block content %}
-<h1 class="mb-3">Bac à sable e-mail</h1>
+{% include 'partials/page_header.html.twig' with { title: 'Bac à sable e-mail' } only %}
 
 {# ------------------------------------------------------------------ #}
 {# State block: the switch, what it currently does, and — only when     #}
@@ -32,8 +32,7 @@
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="armed" value="{{ armed ? '0' : '1' }}">
                 <button type="submit"
-                        class="btn {{ armed ? 'btn-outline-secondary' : 'btn-danger' }}"
-                        style="min-height:44px;">
+                        class="btn {{ armed ? 'btn-outline-secondary' : 'btn-danger' }}">
                     {{ armed ? 'Désactiver la capture' : 'Activer la capture' }}
                 </button>
             </form>
@@ -60,19 +59,17 @@
     <div class="col-12 col-lg-4">
         <label for="sandboxSubject" class="form-label small mb-1">Objet</label>
         <input type="search" class="form-control" id="sandboxSubject" name="subject"
-               value="{{ filters.subject }}" placeholder="Un mot de l'objet"
-               style="min-height:44px;">
+               value="{{ filters.subject }}" placeholder="Un mot de l'objet">
     </div>
     <div class="col-12 col-lg-4">
         <label for="sandboxRecipient" class="form-label small mb-1">Destinataire (adresse exacte)</label>
         <input type="email" class="form-control" id="sandboxRecipient" name="recipient"
-               value="{{ filters.recipient }}" placeholder="prenom@exemple.be"
-               style="min-height:44px;">
+               value="{{ filters.recipient }}" placeholder="prenom@exemple.be">
     </div>
     <div class="col-12 col-lg-4 d-flex flex-wrap align-items-center gap-3">
-        <button type="submit" class="btn btn-primary" style="min-height:44px;">Rechercher</button>
+        <button type="submit" class="btn btn-primary">Rechercher</button>
         {% if filters.isFiltered %}
-            <a href="/test-tools/mail-sandbox" class="btn btn-link px-0" style="min-height:44px;">Effacer</a>
+            <a href="/test-tools/mail-sandbox" class="btn btn-link px-0">Effacer</a>
         {% endif %}
     </div>
     <div class="col-12">
@@ -92,31 +89,38 @@
 {# List                                                                #}
 {# ------------------------------------------------------------------ #}
 {% if emails is empty %}
-    <div class="text-center py-5">
-        {% if total > 0 %}
-            {# Past the last page — the set is not empty, this slice of it is. #}
-            <p class="text-body-secondary mb-3">Cette page ne contient aucun message.</p>
-            <a href="/test-tools/mail-sandbox?{{ filters.queryWithoutPage }}" class="btn btn-outline-secondary"
-               style="min-height:44px;">
+    {% if total > 0 %}
+        {# Past the last page — the set is not empty, this slice of it is. #}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Cette page ne contient aucun message.',
+            icon: 'bi-envelope-paper',
+        } only %}
+        <p class="text-center">
+            <a href="/test-tools/mail-sandbox?{{ filters.queryWithoutPage }}" class="btn btn-outline-secondary">
                 Revenir à la première page
             </a>
-        {% elseif filters.isFiltered %}
-            <p class="text-body-secondary mb-3">Aucun message ne correspond à cette recherche.</p>
-            <a href="/test-tools/mail-sandbox" class="btn btn-outline-secondary" style="min-height:44px;">
+        </p>
+    {% elseif filters.isFiltered %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun message ne correspond à cette recherche.',
+            icon: 'bi-envelope-paper',
+        } only %}
+        <p class="text-center">
+            <a href="/test-tools/mail-sandbox" class="btn btn-outline-secondary">
                 Voir tous les messages
             </a>
-        {% elseif armed %}
-            <p class="text-body-secondary mb-3">
-                La capture est active mais rien n'est encore passé. Déclenchez un envoi —
-                une demande de lien magique, un e-mail de test — et il apparaîtra ici.
-            </p>
-        {% else %}
-            <p class="text-body-secondary mb-3">
-                Rien n'a encore été capturé. Activez la capture ci-dessus, puis déclenchez un
-                envoi depuis le site : le message viendra ici au lieu de partir.
-            </p>
-        {% endif %}
-    </div>
+        </p>
+    {% elseif armed %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: "La capture est active mais rien n'est encore passé. Déclenchez un envoi — une demande de lien magique, un e-mail de test — et il apparaîtra ici.",
+            icon: 'bi-envelope-paper',
+        } only %}
+    {% else %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: "Rien n'a encore été capturé. Activez la capture ci-dessus, puis déclenchez un envoi depuis le site : le message viendra ici au lieu de partir.",
+            icon: 'bi-envelope-paper',
+        } only %}
+    {% endif %}
 {% else %}
     <p class="small text-body-secondary">
         {{ total }} message{{ total > 1 ? 's' : '' }}{{ filters.isFiltered ? ' correspondant à la recherche' : '' }}.
@@ -153,26 +157,13 @@
         {% endfor %}
     </div>
 
-    {% if page_count > 1 %}
-        <nav aria-label="Pagination des messages capturés">
-            <ul class="pagination">
-                {% set query = filters.queryWithoutPage %}
-                <li class="page-item {{ filters.page <= 1 ? 'disabled' : '' }}">
-                    <a class="page-link" style="min-height:44px;"
-                       href="?{{ query }}{{ query ? '&' : '' }}page={{ filters.page - 1 }}">Précédent</a>
-                </li>
-                <li class="page-item disabled">
-                    <span class="page-link" style="min-height:44px;">
-                        Page {{ filters.page }} sur {{ page_count }}
-                    </span>
-                </li>
-                <li class="page-item {{ filters.page >= page_count ? 'disabled' : '' }}">
-                    <a class="page-link" style="min-height:44px;"
-                       href="?{{ query }}{{ query ? '&' : '' }}page={{ filters.page + 1 }}">Suivant</a>
-                </li>
-            </ul>
-        </nav>
-    {% endif %}
+    {% set query = filters.queryWithoutPage %}
+    {% include 'partials/pagination.html.twig' with {
+        page: filters.page,
+        total_pages: page_count,
+        base_url: '?' ~ query ~ (query ? '&' : '') ~ 'page=',
+        label: 'Pagination des messages capturés',
+    } only %}
 {% endif %}
 
 {# ------------------------------------------------------------------ #}
@@ -200,11 +191,11 @@
                         Tapez <strong>{{ confirmation_word }}</strong> pour confirmer
                     </label>
                     <input type="text" class="form-control" id="sandbox-empty-keyword" name="confirmation"
-                           autocomplete="off" style="min-height:44px;">
+                           autocomplete="off">
                 </div>
                 <div class="col-12 col-lg-4">
                     <button type="submit" class="btn btn-outline-danger" id="sandbox-empty-submit"
-                            style="min-height:44px;" disabled>
+                            disabled>
                         Tout supprimer
                     </button>
                 </div>

@@ -3,27 +3,30 @@
 {% block title %}{{ album.title }} — Galerie — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
-        <div>
-            <h1 class="h4 mb-1">{{ album.title }}</h1>
-            {% if album.subtitle %}<p class="text-body-secondary mb-0">{{ album.subtitle }}</p>{% endif %}
-            <p class="small text-body-secondary mb-0">{{ album.albumDate|french_date }}</p>
-        </div>
-        <div class="d-flex gap-2">
-            {% if has_downloadable_media %}
-                <a href="/gallery/{{ album.id }}/download" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-file-earmark-zip"></i> Télécharger l'album (ZIP)
-                </a>
-            {% endif %}
-        </div>
-    </div>
+    {% if has_downloadable_media %}
+        {% include 'partials/page_header.html.twig' with {
+            title: album.title,
+            subtitle: (album.subtitle ? album.subtitle ~ ' · ' : '') ~ album.albumDate|french_date,
+            action_label: "Télécharger l'album (ZIP)",
+            action_url: '/gallery/' ~ album.id ~ '/download',
+            action_icon: 'bi-file-earmark-zip',
+        } only %}
+    {% else %}
+        {% include 'partials/page_header.html.twig' with {
+            title: album.title,
+            subtitle: (album.subtitle ? album.subtitle ~ ' · ' : '') ~ album.albumDate|french_date,
+        } only %}
+    {% endif %}
 
     {% if storage_unavailable %}
         <div class="alert alert-warning text-center">
             <i class="bi bi-exclamation-triangle"></i> Cet album est temporairement indisponible{{ storage_unavailable_reason ? ' : ' ~ storage_unavailable_reason : '.' }}
         </div>
     {% elseif media is empty %}
-        <p class="text-body-secondary text-center py-5">Aucun média dans cet album.</p>
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun média dans cet album.',
+            icon: 'bi-images',
+        } only %}
     {% else %}
         {% include '@gallery/partials/media_grid.html.twig' with { rows: media } %}
 

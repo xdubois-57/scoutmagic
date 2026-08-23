@@ -8,8 +8,10 @@
   the same data the public pages never carry a word of (§6.6).
 #}
 {% block content %}
-    <div class="container py-4" style="max-width: 960px;">
-        <h1 class="h3 mb-3">Réservations — {{ asset.name }}</h1>
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Réservations — ' ~ asset.name,
+        } only %}
 
         {% include '@rental/management/_nav.html.twig' %}
 
@@ -53,7 +55,10 @@
         </form>
 
         {% if bookings is empty %}
-            <p class="text-body-secondary">Aucune réservation ne correspond à ce filtre.</p>
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucune réservation ne correspond à ce filtre.',
+                icon: 'bi-calendar-x',
+            } only %}
         {% else %}
             <div class="table-responsive">
                 <table class="table align-middle">
@@ -81,7 +86,7 @@
                                 <td class="small">
                                     du {{ booking.arrivalDate }}<br>au {{ booking.departureDate }}
                                 </td>
-                                <td><span class="badge bg-secondary">{{ booking.status.label }}</span></td>
+                                <td>{% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}</td>
                                 <td class="text-end">
                                     {% if booking.effectiveTotalCents is not null %}
                                         {{ booking.effectiveTotalCents|money_cents }}
