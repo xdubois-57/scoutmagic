@@ -515,12 +515,30 @@ GATE_LABELS=()
 GATE_PIDS=()
 GATE_EXIT=()
 
+# An optional 4th argument names another gate this one must not overlap
+# with. Tests and End-to-end both run real MySQL schema migrations against
+# the same local MySQL server and are both CPU-heavy; running them fully
+# concurrently was observed to cause spurious migration timeouts in both
+# (contention, not a real bug). A background subshell can't bash-`wait` on
+# a sibling subshell's PID (they aren't each other's children), so the
+# dependency is a polled sentinel file instead.
 launch_gate() {
-    local key="$1" label="$2" func="$3"
+    local key="$1" label="$2" func="$3" depends_on="${4:-}"
     GATE_KEYS+=("${key}")
     GATE_LABELS+=("${label}")
-    ( export GATE_REPORT_FILE="${GATE_TMP_DIR}/${key}.report"; "${func}" ) \
-        > "${GATE_TMP_DIR}/${key}.log" 2>&1 < /dev/null &
+    (
+        if [[ -n "${depends_on}" ]]; then
+            while [[ ! -f "${GATE_TMP_DIR}/${depends_on}.done" ]]; do
+                sleep 1
+            done
+        fi
+        export GATE_REPORT_FILE="${GATE_TMP_DIR}/${key}.report"
+        set +e
+        "${func}"
+        status=$?
+        touch "${GATE_TMP_DIR}/${key}.done"
+        exit "${status}"
+    ) > "${GATE_TMP_DIR}/${key}.log" 2>&1 < /dev/null &
     GATE_PIDS+=("$!")
 }
 
@@ -549,7 +567,15 @@ if [[ "${SKIP_E2E_GATE}" -eq 1 ]]; then
     echo "WARNING: --skip-e2e-gate used — the end-to-end browser test (npm run e2e) was NOT run for this release, so nothing verified that the application actually boots and renders. Emergency use only: run it immediately after publishing and fix any failure." >&2
     E2E_GATE_REPORT_LINE="ignoré (\`--skip-e2e-gate\`) — test navigateur de bout en bout non exécuté, à vérifier manuellement."
 else
-    launch_gate e2e "End-to-end" check_e2e_gate
+    # Runs after the Tests gate finishes (not concurrently with it) — both
+    # hit the same local MySQL server with real schema migrations, and
+    # running them at the same time causes spurious migration timeouts.
+    # See the comment on launch_gate().
+    if [[ "${SKIP_TESTS_GATE}" -eq 1 ]]; then
+        launch_gate e2e "End-to-end" check_e2e_gate
+    else
+        launch_gate e2e "End-to-end" check_e2e_gate tests
+    fi
 fi
 
 if [[ "${SKIP_DEPENDENCY_CHECK}" -eq 1 ]]; then
