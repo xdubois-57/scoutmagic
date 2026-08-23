@@ -243,6 +243,17 @@ add, `bi-three-dots-vertical` overflow menus.
   consequence: « {Verbe} {objet} ? {Conséquence concrète}. »
 - Never `on*=` attributes in templates — the CSP (`script-src 'self'
   'nonce-…'`) makes inline handlers dead code, silently.
+- **Behaviour lives in `public/assets/js/`, never in a template's own
+  `<script>` block.** A template is the one place JavaScript cannot be
+  tested — Vitest imports files, not Twig output — and every duplicated
+  behaviour this codebase has found was living in one. Server data goes
+  in a `<script type="application/json" id="…">` island, read with
+  `window.ScoutMagicApi.pageData(id)`: data to the parser, so a value
+  containing `</script` cannot end the block mid-statement, and no nonce
+  is needed. Pinned by
+  `UxConventionsTest::testBehaviourLivesInFilesNotInTemplates`; the two
+  exceptions (the anti-FOUC theme bootstrap and the service-worker
+  registration, both in `base.html.twig`) are listed there with reasons.
 - Never `alert()`/`confirm()`/`prompt()`, in a template or in
   `public/assets/js/`. The site has one of each:
   - **`window.ScoutMagicToast.show(message, {variant})`** for a result —
@@ -320,7 +331,43 @@ size would be the relapse.
 A field's `id` is what JavaScript and tests grip. Renaming one is a
 breaking change — grep `public/assets/js/` and `tests/` before touching it.
 
-### 7.10 Rich text
+Four escape hatches, each for a real shape and none for a preference:
+`field_name` is optional (a JS-driven panel reads its fields by id and
+posts them itself — a stray `name` only invites a future GET to carry
+it); `data: {…}` puts `data-*` on the control, and on an `<option>`,
+because half the site's fields are gripped by a script through one;
+`wrapper_class` replaces the default `mb-3` for a field inside a grid
+column that supplies its own spacing; `label_visually_hidden` renders the
+label and hides it, for a repeated row the row itself names — the label
+is hidden, never dropped, and still says WHICH row it belongs to.
+`control_class_extra` takes layout classes the caller owns (`w-auto`, a
+script's hook) and never a size: that is `size`'s job.
+
+Genuinely out of reach, and why: `setup/index.html.twig` (the installer
+renders before the theme exists), a label carrying markup (« Tapez
+**EFFACER** pour confirmer »), and a `<select>` with `<optgroup>`.
+
+### 7.10 Files and lists
+
+`partials/drop_zone.html.twig` is the one « déposez un fichier ici » zone
+— dashed border, centred icon, one padding scale of two (`md`, `lg`), and
+`border-primary` while a file hovers. Its behaviour is
+`window.ScoutMagicDropZone.bind(zone, onFiles, {input, pickOnClick})`
+(`public/assets/js/drop-zone.js`). Three screens used to draw and wire it
+separately, and only one of the three remembered that `dragover` must
+call `preventDefault()` — without it the browser refuses the drop and
+opens the file in a new tab, so the zone looks alive and does nothing.
+
+`window.ScoutMagicSortable.bind(container, {itemSelector, axis,
+draggingClass, onReorder})` (`public/assets/js/sortable.js`) is the one
+drag-and-drop reordering. It saves on `dragend`, never on the item's own
+`drop`: `drop` only fires when the pointer is released ON a sibling, so a
+release just outside the list left two of the three previous
+implementations visually reordered and the server none the wiser. Every
+sortable list also offers up/down buttons — dragging is not available to
+a finger or a keyboard (§7.2).
+
+### 7.11 Rich text
 
 The « lien » button in every rich-text toolbar goes through
 `window.ScoutMagicRichText.insertLink()`

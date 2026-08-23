@@ -12,8 +12,8 @@
 // inline template script is invisible to both Vitest and `npm run typecheck`.
 //
 // The month being displayed and the duty states it starts from come from the
-// server through window.sosAdminData, set by an inline nonce-tagged script in
-// the template — the window.llmConfigData / window.supportDashboardCharts
+// server through the `sos-admin-data` JSON island the template renders,
+// read with ScoutMagicApi.pageData() — the site-wide server-data-to-a-page
 // pattern. Nothing in that payload is a phone number: it is dates, member ids
 // and the two duty states (AGENTS.md § Security checklist, SECURITY.md — the
 // members' mobile numbers this page shows are rendered server-side and stay
@@ -36,7 +36,7 @@
 // provider list switched the active sub-processor. It is left as-is here on
 // purpose — changing it is a product decision, not a refactor.
 (function () {
-    var data = window.sosAdminData || {};
+    var data = window.ScoutMagicApi.pageData('sos-admin-data') || {};
 
     var defaultNumberSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('default-number-member'));
     var transitionHourInput = /** @type {HTMLInputElement|null} */ (document.getElementById('transition-hour'));

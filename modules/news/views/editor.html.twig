@@ -171,22 +171,31 @@
 {% endblock %}
 
 {% block scripts %}
-    <script nonce="{{ csp_nonce }}">
-        window.NEWS_EDITOR_DATA = {
-            articleId: {{ article ? article.id : 'null' }},
-            fields: {{ fields_override is defined ? fields_override|json_encode|raw : fields|map(f => {
-                id: f.id, field_type: f.fieldType, label: f.label, is_required: f.isRequired,
-                options_source: f.optionsSource, options_manual: f.optionsManual,
-                capacity_max: f.capacityMax, price_per_unit: f.pricePerUnit, confirmation_text: f.confirmationText
-            })|json_encode|raw }},
-            financeAvailable: {{ finance_available ? 'true' : 'false' }},
-            financeAccounts: {{ finance_accounts|json_encode|raw }},
-            form: {{ form ? {
-                access: form.access, response_limit: form.responseLimit, opens_at: form.opensAt, closes_at: form.closesAt,
-                is_force_closed: form.isForceClosed, response_role_min: form.responseRoleMin,
-                daily_digest_enabled: form.dailyDigestEnabled, finance_account_id: form.financeAccountId
-            }|json_encode|raw : 'null' }}
-        };
-    </script>
-    <script src="/assets/js/news-form-builder.js" defer></script>
+{# Server data as a JSON ISLAND, not an inline assignment: an island is
+   data to the parser, so a field label or a confirmation text — free
+   text an animateur types — cannot end the block in the middle of an
+   object literal, and the template needs no nonce for it.
+   news-form-builder.js reads it through ScoutMagicApi.pageData(). #}
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+<script type="application/json" id="news-editor-data">
+{{ {
+    articleId: article ? article.id : null,
+    fields: fields_override is defined ? fields_override : fields|map(f => {
+        id: f.id, field_type: f.fieldType, label: f.label, is_required: f.isRequired,
+        options_source: f.optionsSource, options_manual: f.optionsManual,
+        capacity_max: f.capacityMax, price_per_unit: f.pricePerUnit,
+        confirmation_text: f.confirmationText
+    }),
+    financeAvailable: finance_available,
+    financeAccounts: finance_accounts,
+    form: form ? {
+        access: form.access, response_limit: form.responseLimit,
+        opens_at: form.opensAt, closes_at: form.closesAt,
+        is_force_closed: form.isForceClosed, response_role_min: form.responseRoleMin,
+        daily_digest_enabled: form.dailyDigestEnabled,
+        finance_account_id: form.financeAccountId
+    } : null
+}|json_encode(json_flags)|raw }}
+</script>
+<script src="/assets/js/news-form-builder.js" defer></script>
 {% endblock %}

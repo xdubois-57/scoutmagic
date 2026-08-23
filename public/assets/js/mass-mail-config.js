@@ -20,8 +20,8 @@
 // harmless question, in the browser's language rather than French.
 //
 // The current sending interval comes from the server through
-// window.massMailConfigData, set by an inline nonce-tagged script in the
-// template — the window.llmConfigData / window.supportDashboardCharts
+// the `mass-mail-config-data` JSON island the template renders, read
+// through ScoutMagicApi.pageData() — the site-wide server-data-to-a-page
 // pattern.
 (function () {
     var modalEl = document.getElementById('cfg-list-modal');
@@ -35,7 +35,7 @@
     }
 
     var api = window.ScoutMagicApi;
-    var pageData = window.massMailConfigData || {};
+    var pageData = window.ScoutMagicApi.pageData('mass-mail-config-data') || {};
 
     /**
      * @param {string} id

@@ -361,17 +361,18 @@
 
 {% block scripts %}
 <script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
-<script src="/assets/js/support-dashboard.js" defer></script>
-<script nonce="{{ csp_nonce }}">
-{# JSON_HEX_TAG/JSON_HEX_AMP: a version string is reported by a remote
-   installation, so it is untrusted text — without them a value containing
-   tag-closing characters would break out of this script block. The nonce
-   CSP stops it executing either way, but it would still break the page. #}
+{# Server data as a JSON ISLAND, read by support-dashboard.js through
+   ScoutMagicApi.pageData(). A version string is reported by a REMOTE
+   installation, so it is untrusted text: an island makes it data to the
+   parser, and JSON_HEX_TAG/JSON_HEX_AMP escape the tag-closing
+   characters on top of that. #}
 {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
-window.supportDashboardCharts = {
-    versions: {{ view.charts.versions|json_encode(json_flags)|raw }},
-    autoUpdate: {{ view.charts.auto_update|json_encode(json_flags)|raw }},
-    history: {{ history.series|json_encode(json_flags)|raw }}
-};
+<script type="application/json" id="support-dashboard-data">
+{{ {
+    versions: view.charts.versions,
+    autoUpdate: view.charts.auto_update,
+    history: history.series
+}|json_encode(json_flags)|raw }}
 </script>
+<script src="/assets/js/support-dashboard.js" defer></script>
 {% endblock %}

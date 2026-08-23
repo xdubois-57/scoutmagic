@@ -142,16 +142,19 @@
                             <i class="bi bi-trash" aria-hidden="true"></i>
                         </button>
                     </div>
-                {% else %}
-                    {# The id is what the delete handler un-hides after the
-                       last key is removed — it wraps the shared empty state. #}
-                    <div id="no-passkeys-msg">
-                        {% include 'partials/empty_state.html.twig' with {
-                            message: 'Aucune clé enregistrée.',
-                            compact: true,
-                        } only %}
-                    </div>
                 {% endfor %}
+
+                {# Rendered on EVERY visit, hidden while keys remain: the
+                   delete handler un-hides it after the last one goes.
+                   It used to live in the loop's {% else %}, so on a page
+                   that had keys the element did not exist and deleting
+                   the last one emptied the list into nothing at all. #}
+                <div id="no-passkeys-msg"{% if passkeys|length %} class="d-none"{% endif %}>
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune clé enregistrée.',
+                        compact: true,
+                    } only %}
+                </div>
             </div>
 
             <div id="passkey-add-section">
@@ -219,132 +222,5 @@
    (partials/password_field.html.twig) — this page writes none of it. #}
 <script type="module" src="/assets/js/password-field.js"></script>
 {% endif %}
-<script nonce="{{ csp_nonce }}">
-(function() {
-    function getCsrf() {
-        var el = document.querySelector('input[name="_csrf_token"]');
-        return el ? el.value : '';
-    }
-
-    function base64ToBuffer(b64) {
-        var bin = atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
-        return Uint8Array.from(bin, function(c) { return c.charCodeAt(0); }).buffer;
-    }
-    function bufferToBase64(buf) {
-        return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)))
-            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    }
-
-    // Check WebAuthn support
-    if (!window.PublicKeyCredential) {
-        document.getElementById('passkey-add-btn').disabled = true;
-        document.getElementById('passkey-unsupported-notice').classList.remove('d-none');
-    }
-
-    // Add passkey flow
-    var addBtn = document.getElementById('passkey-add-btn');
-    if (addBtn) {
-        addBtn.addEventListener('click', async function() {
-            var labelInput = document.getElementById('passkey-label-input');
-            if (labelInput.style.display === 'none') {
-                labelInput.style.display = 'block';
-                document.getElementById('passkey-device-label').focus();
-                return;
-            }
-
-            var deviceLabel = document.getElementById('passkey-device-label').value || 'Clé sans nom';
-
-            try {
-                var optRes = await fetch('/account/passkey/register-options');
-                var options = await optRes.json();
-
-                options.challenge = base64ToBuffer(options.challenge);
-                options.user.id = base64ToBuffer(options.user.id);
-                if (options.excludeCredentials) {
-                    options.excludeCredentials = options.excludeCredentials.map(function(c) {
-                        return Object.assign({}, c, { id: base64ToBuffer(c.id) });
-                    });
-                }
-
-                var credential = await navigator.credentials.create({ publicKey: options });
-
-                var verifyRes = await fetch('/account/passkey/register', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
-                    body: JSON.stringify({
-                        id: credential.id,
-                        rawId: bufferToBase64(credential.rawId),
-                        response: {
-                            attestationObject: bufferToBase64(credential.response.attestationObject),
-                            clientDataJSON: bufferToBase64(credential.response.clientDataJSON)
-                        },
-                        type: credential.type,
-                        device_label: deviceLabel
-                    })
-                });
-                var result = await verifyRes.json();
-
-                if (result.success) {
-                    window.location.reload();
-                } else {
-                    alert(result.error || 'L\'enregistrement a échoué.');
-                }
-            } catch (err) {
-                if (err && err.name === 'InvalidStateError') {
-                    // The platform authenticator already holds a key for this account
-                    // on this device (excludeCredentials prevents a duplicate).
-                    alert('Cet appareil possède déjà une clé enregistrée pour ce compte.');
-                } else if (err && err.name === 'NotAllowedError') {
-                    alert('L\'enregistrement a été annulé.');
-                } else {
-                    alert('L\'enregistrement a échoué.');
-                }
-            }
-        });
-    }
-
-    // Delete passkey. The row only disappears on a CONFIRMED deletion:
-    // res.ok is not that — the endpoint answers HTTP 200 with
-    // {success:false, error} on a business refusal ("Clé introuvable."),
-    // and this handler used to read res.ok as success, remove the row,
-    // and let the owner of a lost device believe a still-valid key had
-    // been revoked. Authentication is the one place the UI must never
-    // claim more than the server did.
-    document.querySelectorAll('.passkey-delete-btn').forEach(function(btn) {
-        btn.addEventListener('click', async function() {
-            if (!confirm('Supprimer cette clé ? Vous ne pourrez plus vous connecter avec.')) return;
-            var id = btn.dataset.id;
-            var errorBox = document.getElementById('passkey-error');
-            if (errorBox) { errorBox.classList.add('d-none'); errorBox.textContent = ''; }
-            var failure = 'La clé n\'a pas pu être supprimée. Rechargez la page et réessayez.';
-            try {
-                var res = await fetch('/account/passkey/delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
-                    body: JSON.stringify({ id: parseInt(id) })
-                });
-                var data = await res.json();
-                if (!res.ok || !data.success) {
-                    if (errorBox) {
-                        errorBox.textContent = data.error || failure;
-                        errorBox.classList.remove('d-none');
-                    }
-                    return;
-                }
-            } catch (e) {
-                if (errorBox) {
-                    errorBox.textContent = failure;
-                    errorBox.classList.remove('d-none');
-                }
-                return;
-            }
-            btn.closest('[data-passkey-id]').remove();
-            if (document.querySelectorAll('[data-passkey-id]').length === 0) {
-                var msg = document.getElementById('no-passkeys-msg');
-                if (msg) msg.classList.remove('d-none');
-            }
-        });
-    });
-})();
-</script>
+<script src="/assets/js/account-passkeys.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

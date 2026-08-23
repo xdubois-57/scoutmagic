@@ -13,26 +13,36 @@
 
     <form method="get" action="/mass-mail" class="row g-2 align-items-end mb-3">
         <div class="col-12 col-md-4">
-            <label class="form-label small" for="mm-filter-search">Recherche</label>
-            <input type="text" class="form-control form-control-sm" id="mm-filter-search" name="search" value="{{ search }}" placeholder="Sujet, section, liste...">
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'mm-filter-search', field_name: 'search', label: 'Recherche',
+                value: search, placeholder: 'Sujet, section, liste...',
+                size: 'sm', wrapper_class: '',
+            } only %}
         </div>
         <div class="col-6 col-md-3">
-            <label class="form-label small" for="mm-filter-status">Statut</label>
-            <select class="form-select form-select-sm" id="mm-filter-status" name="status">
-                <option value="">Tous</option>
-                {% for s in statuses %}
-                    <option value="{{ s }}" {{ status == s ? 'selected' : '' }}>{{ s == 'draft' ? 'Brouillon' : (s == 'test' ? 'Test' : (s == 'sending' ? 'Envoi en cours' : 'Envoyé')) }}</option>
-                {% endfor %}
-            </select>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'mm-filter-status', field_name: 'status', label: 'Statut',
+                type: 'select', size: 'sm', wrapper_class: '',
+                options: [{ value: '', label: 'Tous', selected: status == '' }]
+                    |merge(statuses|default([])|map(s => {
+                        value: s,
+                        label: s == 'draft' ? 'Brouillon'
+                            : (s == 'test' ? 'Test'
+                            : (s == 'sending' ? 'Envoi en cours' : 'Envoyé')),
+                        selected: status == s,
+                    })),
+            } only %}
         </div>
         <div class="col-6 col-md-3">
-            <label class="form-label small" for="mm-filter-section">Section</label>
-            <select class="form-select form-select-sm" id="mm-filter-section" name="section_id">
-                <option value="">Toutes</option>
-                {% for section in sections %}
-                    <option value="{{ section.id }}" {{ section_id == section.id ? 'selected' : '' }}>{{ section.name }}</option>
-                {% endfor %}
-            </select>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'mm-filter-section', field_name: 'section_id', label: 'Section',
+                type: 'select', size: 'sm', wrapper_class: '',
+                options: [{ value: '', label: 'Toutes', selected: not section_id }]
+                    |merge(sections|default([])|map(section => {
+                        value: section.id, label: section.name,
+                        selected: section_id == section.id,
+                    })),
+            } only %}
         </div>
         <div class="col-12 col-md-2">
             {# The page's one primary action is « Nouvel email » above
@@ -111,23 +121,25 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/mass-mail-list.js" defer></script>
-<script nonce="{{ csp_nonce }}">
-{# Server data handed to mass-mail-list.js — the support_dashboard
-   pattern (window.supportDashboardCharts). JSON_HEX_TAG/JSON_HEX_AMP:
-   list names/descriptions are user-entered text, so a value containing
-   tag-closing characters must not break out of this script block. #}
+{# Server data as a JSON ISLAND, not an inline assignment: an island is
+   data to the parser, so a list name that manages to contain a
+   tag-closing sequence cannot end the block in the middle of an object
+   literal, and the template needs no nonce for it.
+   JSON_HEX_TAG/JSON_HEX_AMP escape those characters anyway.
+   mass-mail-list.js reads it through ScoutMagicApi.pageData(). #}
 {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
-window.massMailListData = {
-    sections: {{ sections|json_encode(json_flags)|raw }},
-    defaultLists: {{ default_lists|json_encode(json_flags)|raw }},
-    customLists: {{ custom_lists|map(l => {id: l.id, name: l.name, description: l.description})|json_encode(json_flags)|raw }},
-    scoutYears: {{ scout_years|json_encode(json_flags)|raw }},
-    currentUserEmail: {{ current_user_email|json_encode(json_flags)|raw }},
-    unrestricted: {{ unrestricted|json_encode(json_flags)|raw }},
-    userSectionIds: {{ user_section_ids|json_encode(json_flags)|raw }},
-    forcedSectionId: {{ forced_section_id|json_encode(json_flags)|raw }},
-    previousYearCutoff: {{ previous_year_cutoff|json_encode(json_flags)|raw }}
-};
+<script type="application/json" id="mass-mail-list-data">
+{{ {
+    sections: sections,
+    defaultLists: default_lists,
+    customLists: custom_lists|map(l => {id: l.id, name: l.name, description: l.description}),
+    scoutYears: scout_years,
+    currentUserEmail: current_user_email,
+    unrestricted: unrestricted,
+    userSectionIds: user_section_ids,
+    forcedSectionId: forced_section_id,
+    previousYearCutoff: previous_year_cutoff
+}|json_encode(json_flags)|raw }}
 </script>
+<script src="/assets/js/mass-mail-list.js" defer></script>
 {% endblock %}

@@ -230,6 +230,36 @@
         return { stop: stop };
     }
 
+    /**
+     * Reads a page's server data out of a
+     * `<script type="application/json" id="...">` island.
+     *
+     * The alternative — an inline `window.somethingData = {…}` — is
+     * JavaScript, so it needs a CSP nonce, and a value that manages to
+     * contain `</script` ends the block in the middle of an object
+     * literal and takes the rest of the page's markup with it. An island
+     * is data to the parser: the same accident yields a JSON string that
+     * fails to parse, and nothing else on the page moves.
+     *
+     * Returns null when the island is absent (a page that renders it
+     * only in some states) or unparseable — callers guard on that rather
+     * than get a half-empty object.
+     *
+     * @param {string} id
+     * @returns {any}
+     */
+    function pageData(id) {
+        var el = document.getElementById(id);
+        if (!el) {
+            return null;
+        }
+        try {
+            return JSON.parse(el.textContent || 'null');
+        } catch (e) {
+            return null;
+        }
+    }
+
     window.ScoutMagicApi = {
         csrfToken: csrfToken,
         postJson: postJson,
@@ -237,6 +267,7 @@
         withDisabled: withDisabled,
         escapeHtml: escapeHtml,
         debounce: debounce,
+        pageData: pageData,
         poll: poll
     };
 })();

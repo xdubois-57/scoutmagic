@@ -217,38 +217,10 @@
         // (visually-hidden, not d-none) and opens its picker on Enter and Space with
         // no script. Guarded against the input's own click bubbling back up here,
         // which would reopen the picker the moment it closed.
-        dropZone.addEventListener('click', (e) => {
-            if (e.target !== filesInput) {
-                filesInput.click();
-            }
-        });
-
-        filesInput.addEventListener('change', () => {
-            addFiles(filesInput.files);
-        });
-
-        ['dragenter', 'dragover'].forEach(eventName => {
-            dropZone.addEventListener(eventName, (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                dropZone.classList.add('border-primary');
-            });
-        });
-
-        ['dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                dropZone.classList.remove('border-primary');
-            });
-        });
-
-        dropZone.addEventListener('drop', (e) => {
-            const transfer = /** @type {DragEvent} */ (e).dataTransfer;
-            if (transfer && transfer.files) {
-                addFiles(transfer.files);
-            }
-        });
+        // Drag, drop, click-to-pick and the highlight are the shared zone
+        // (public/assets/js/drop-zone.js) — including the guard that stops
+        // a click on the hidden input from re-opening the picker.
+        window.ScoutMagicDropZone.bind(dropZone, addFiles, { input: filesInput });
 
         form.addEventListener('submit', async (e) => {
             if (selectedFiles.length === 0) {
