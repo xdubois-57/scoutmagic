@@ -74,7 +74,6 @@ final class UxConventionsTest extends TestCase
      * @var array<string, int> file path (repo-relative) => count
      */
     private const NATIVE_DIALOG_ALLOWLIST = [
-        'core/View/templates/account/index.html.twig' => 5,
         'core/View/templates/admin/scout_year.html.twig' => 1,
         'core/View/templates/config/modules.html.twig' => 1,
         'core/View/templates/config/notifications.html.twig' => 1,
