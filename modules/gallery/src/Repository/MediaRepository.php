@@ -107,6 +107,30 @@ class MediaRepository
     }
 
     /**
+     * Re-parents one media to another album, rewriting in the SAME statement
+     * the four rendition paths and the rank it takes there. The three travel
+     * together on purpose: a rendition key embeds the album id it was
+     * written under ("{albumId}/med_{mediaId}.jpg"), so a row whose album_id
+     * moved while its paths did not is a row whose objects the source
+     * album's deletePrefix() is still free to destroy.
+     */
+    public function moveToAlbum(
+        int $mediaId,
+        int $toAlbumId,
+        ?string $thumbPath,
+        ?string $mediumPath,
+        ?string $largePath,
+        ?string $originalPath,
+        int $sortOrder
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'UPDATE gallery_media SET album_id = ?, thumb_path = ?, medium_path = ?, large_path = ?, '
+            . 'original_path = ?, sort_order = ? WHERE id = ?'
+        );
+        $stmt->execute([$toAlbumId, $thumbPath, $mediumPath, $largePath, $originalPath, $sortOrder, $mediaId]);
+    }
+
+    /**
      * Writes $orderedMediaIds' positions as sort_order 0..n-1. Scoped to
      * $albumId in the WHERE clause as a second line of defence: the caller
      * (Service\MediaService::reorder()) already validates that every id

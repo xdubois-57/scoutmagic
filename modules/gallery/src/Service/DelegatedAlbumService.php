@@ -18,6 +18,7 @@ use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
+use Modules\Gallery\Service\Storage\StorageBackendInterface;
 
 /**
  * The concrete implementation behind Api\DelegatedAlbumManager — a thin
@@ -134,6 +135,71 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         $this->mediaService->deleteWithoutAuthorisationCheck($media, $album);
     }
 
+    public function moveMedia(string $ownerType, int $fromAlbumId, int $toAlbumId): int
+    {
+        if ($fromAlbumId === $toAlbumId) {
+            throw new GalleryException('Un album ne peut pas être fusionné avec lui-même.');
+        }
+
+        $from = $this->resolveOwnedAlbum($ownerType, $fromAlbumId);
+        $to = $this->resolveOwnedAlbum($ownerType, $toAlbumId);
+
+        // copy() lives on ONE backend, and Service\StorageLocationService::
+        // resolveLocationForAlbum() reads the location off the album — so a
+        // media landing in an album on another location would look for its
+        // bytes on a backend that never held them. Refused rather than
+        // silently half-done.
+        $fromLocation = $this->storageLocationService->resolveLocationForAlbum($from);
+        $toLocation = $this->storageLocationService->resolveLocationForAlbum($to);
+        if ($fromLocation === null || $toLocation === null || $fromLocation->id !== $toLocation->id) {
+            throw new GalleryException(
+                'Ces deux albums ne sont pas hébergés sur le même emplacement de stockage : '
+                . 'leurs médias ne peuvent pas être regroupés sans être ré-envoyés.'
+            );
+        }
+
+        $media = $this->mediaRepository->findByAlbumId($fromAlbumId);
+        if ($media === []) {
+            return 0;
+        }
+
+        $backend = $this->storageBackendFactory->create($fromLocation);
+        $sortOrder = $this->mediaRepository->nextSortOrder($toAlbumId);
+        $movedKeys = [];
+
+        // findByAlbumId() already returns the album's own order, so walking
+        // it while incrementing one rank appends the whole group after the
+        // target's existing media without disturbing their relative order.
+        foreach ($media as $item) {
+            $paths = [];
+            foreach (['thumbPath', 'mediumPath', 'largePath', 'originalPath'] as $property) {
+                $paths[$property] = $this->moveObject($backend, $item->$property, $fromAlbumId, $toAlbumId, $movedKeys);
+            }
+
+            // The row is rewritten only once every one of its renditions is
+            // readable at its new key. An interruption before this point
+            // leaves copies nothing points at (harmless, and cleaned up with
+            // the source album); an interruption after it leaves source
+            // objects nothing points at — never a row pointing at bytes that
+            // are gone.
+            $this->mediaRepository->moveToAlbum(
+                $item->id,
+                $toAlbumId,
+                $paths['thumbPath'],
+                $paths['mediumPath'],
+                $paths['largePath'],
+                $paths['originalPath'],
+                $sortOrder++
+            );
+        }
+
+        foreach ($movedKeys as $sourceKey) {
+            $backend->delete($sourceKey);
+        }
+
+        return count($media);
+    }
+
     public function deleteAlbum(int $albumId): void
     {
         $album = $this->resolveDelegatedAlbum($albumId);
@@ -152,6 +218,55 @@ class DelegatedAlbumService implements DelegatedAlbumManager
     public function videoUploadAllowed(): bool
     {
         return $this->mediaService->videoUploadAllowed();
+    }
+
+    /**
+     * A delegated album that additionally belongs to $ownerType — the fence
+     * that stops one module merging another module's albums by guessing an
+     * id.
+     *
+     * @throws GalleryException when it doesn't exist, isn't delegated, or
+     *         belongs to a different owner type
+     */
+    private function resolveOwnedAlbum(string $ownerType, int $albumId): Album
+    {
+        $album = $this->resolveDelegatedAlbum($albumId);
+        if ($album->ownerType !== $ownerType) {
+            throw new GalleryException('Album délégué introuvable.');
+        }
+
+        return $album;
+    }
+
+    /**
+     * Copies one rendition under the target album's prefix and returns its
+     * new key, recording the source key in $movedKeys for deletion once the
+     * whole album has moved.
+     *
+     * A null path (a video with no kept original, a still-processing photo)
+     * stays null. So does a path that does not actually sit under the source
+     * album's prefix: those exist only from before renditions were keyed by
+     * album, and re-keying one on a guess would lose it outright.
+     *
+     * @param array<int, string> $movedKeys
+     */
+    private function moveObject(
+        StorageBackendInterface $backend,
+        ?string $path,
+        int $fromAlbumId,
+        int $toAlbumId,
+        array &$movedKeys
+    ): ?string {
+        $prefix = $fromAlbumId . '/';
+        if ($path === null || $path === '' || !str_starts_with($path, $prefix)) {
+            return $path;
+        }
+
+        $newPath = $toAlbumId . '/' . substr($path, strlen($prefix));
+        $backend->copy($path, $newPath);
+        $movedKeys[] = $path;
+
+        return $newPath;
     }
 
     /**

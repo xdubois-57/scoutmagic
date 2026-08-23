@@ -73,6 +73,45 @@ interface DelegatedAlbumManager
     public function deleteMedia(int $albumId, int $mediaId): void;
 
     /**
+     * Moves every media of $fromAlbumId into $toAlbumId and returns how many
+     * moved — so an owning module can merge two of the albums it owns
+     * (camps merging two stays of one place, say) without its members'
+     * photos being deleted and re-uploaded.
+     *
+     * Both albums must be delegated AND carry $ownerType: a module can only
+     * ever merge its own albums, never reach into another module's. The
+     * caller has already decided its user may do this (this whole interface
+     * performs no authorisation); $ownerType is a data-integrity fence, not
+     * a permission check.
+     *
+     * The renditions are NOT re-uploaded: each is copied server-side under
+     * the target album's own "{albumId}/" prefix (StorageBackendInterface::
+     * copy() — an S3 CopyObject, a filesystem copy locally) and the source
+     * object is removed afterwards. That prefix move is not cosmetic. A
+     * rendition key embeds the album id it was written under, and album
+     * deletion clears storage with a single deletePrefix("{albumId}") — so
+     * renditions left behind under the source album's prefix would be
+     * destroyed the day that album is deleted, silently blanking media the
+     * target album still lists. The original file is untouched either way:
+     * it is a `files` row (Core\File\UploadHandler), stored outside any
+     * album prefix.
+     *
+     * Refuses, changing nothing, when: either album is unknown or not
+     * delegated; either one belongs to a different $ownerType; both ids are
+     * the same album; or the two albums sit on different storage locations
+     * (copy() works within one backend, and the location is resolved from
+     * the ALBUM, so a media whose bytes stayed on the source backend would
+     * be unservable the moment it landed in the target).
+     *
+     * Order is preserved and deterministic: the moved media keep their
+     * relative order and are appended after whatever the target already
+     * held.
+     *
+     * @throws \Modules\Gallery\Service\GalleryException on any refusal above
+     */
+    public function moveMedia(string $ownerType, int $fromAlbumId, int $toAlbumId): int;
+
+    /**
      * Deletes the album row, every one of its media rows (DB cascade) and
      * every stored object for them (thumb/medium/large/original, on
      * whichever storage backend the album lives on) — the DB cascade never
