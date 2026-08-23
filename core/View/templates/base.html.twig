@@ -29,7 +29,7 @@
     {% block head_meta %}{% endblock %}
     {# Color scheme (design.md §7.8) — deliberately inline AND before the
        stylesheets: Bootstrap 5.3 themes entirely off `data-bs-theme` on
-       <html>, and applying the stored preference only after
+       the root element, and applying the stored preference only after
        /assets/js/theme.js loads would paint one white frame first (the
        classic dark-mode flash). This block is the minimal read-and-apply
        duplicate of theme.js's own resolve logic; everything else (the
@@ -176,7 +176,7 @@
     <script src="/assets/js/toast.js"></script>
     <script src="/assets/js/confirm.js"></script>
     <script src="/assets/js/rich-text-link.js"></script>
-    {# Everything the inline <head> block above does not: the
+    {# Everything the inline head block above does not: the
        [data-theme-toggle] cycle buttons (partials/theme_toggle.html.twig),
        consent-gated persistence, live prefers-color-scheme follow-up. #}
     <script src="/assets/js/theme.js"></script>

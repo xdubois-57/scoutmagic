@@ -534,6 +534,55 @@ final class UxConventionsTest extends TestCase
         }
     }
 
+    /**
+     * A Twig comment must not contain a bare `<html>`, `<head>` or
+     * `<body>` in its prose.
+     *
+     * Static analysers read a .html.twig file as HTML, and none of them
+     * knows `{# … #}`. A comment in base.html.twig explaining that
+     * Bootstrap themes off `data-bs-theme` on `<html>` therefore reads as
+     * a SECOND <html> element, opened inside <head> — one with no `lang`
+     * and no <title>. SonarQube reported exactly that: two bugs on the
+     * comment line, plus a third blaming the real <head> for the title it
+     * does have, because the stray tag had broken the tree. Three
+     * reliability bugs, a failed quality gate, and nothing wrong with the
+     * page.
+     *
+     * The fix is free — write "the root element", or `html` without the
+     * angle brackets — so this keeps it from coming back. Only the three
+     * document-level tags are checked: they are the ones that make a
+     * parser think a new page started.
+     */
+    public function testNoTwigCommentContainsABarePageTag(): void
+    {
+        $found = [];
+
+        foreach (self::templates() as $rel) {
+            // The RAW source: templateSource() strips comments, which is
+            // exactly what this one needs to read.
+            $source = (string) file_get_contents(self::repoRoot() . '/' . $rel);
+            preg_match_all('/\{#.*?#\}/s', $source, $comments);
+            foreach ($comments[0] as $comment) {
+                if (preg_match('~</?(html|head|body)\b[^>]*>~i', $comment, $tag) === 1) {
+                    $line = substr_count(substr($source, 0, (int) strpos($source, $comment)), "\n") + 1;
+                    $found[$rel . ':' . $line] = $tag[0];
+                }
+            }
+        }
+
+        self::assertSame(
+            [],
+            $found,
+            "An HTML analyser reads this file as HTML and does not know {# … #}: a bare page tag\n"
+            . "in prose reads as a real element and breaks the parse. Write it without the angle\n"
+            . "brackets.\n  " . implode("\n  ", array_map(
+                static fn (string $k, string $v): string => "{$k} — {$v}",
+                array_keys($found),
+                $found
+            ))
+        );
+    }
+
     /** @return list<int> byte offsets of every match */
     private static function pregOffsets(string $pattern, string $subject): array
     {
