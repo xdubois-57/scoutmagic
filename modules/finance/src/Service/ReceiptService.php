@@ -135,15 +135,23 @@ class ReceiptService
         $this->assertMimeTypeAllowed($mimeType);
         $content = $this->correctOrientation($content, $mimeType);
 
+        // role_min stays the floor and is still checked first; the owner
+        // pair is what lets the FILE follow the account's section rule,
+        // which a hierarchical floor cannot express
+        // (File\FinanceAccountOwnershipChecker, ARCHITECTURE.md §8.70).
+        // ownerMemberId stays null: a receipt belongs to an account, not
+        // to the person who happened to upload it.
         $fileId = $this->fileStorage->store(
-            $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, $account->roleMinView, 'finance', $uploadedBy,
-            // role_min stays the floor and is still checked first; the
-            // owner pair is what lets the FILE follow the account's
-            // section rule, which a hierarchical floor cannot express
-            // (File\FinanceAccountOwnershipChecker, ARCHITECTURE.md §8.70).
-            // ownerMemberId stays null: a receipt belongs to an account,
-            // not to the person who happened to upload it.
-            null, FinanceAccountOwnershipChecker::OWNER_TYPE, $account->id
+            $content,
+            $mimeType,
+            $originalFilename,
+            self::STORAGE_SUBDIRECTORY,
+            $account->roleMinView,
+            'finance',
+            $uploadedBy,
+            null,
+            FinanceAccountOwnershipChecker::OWNER_TYPE,
+            $account->id
         );
 
         $suggestedSource = ($suggestedAmount !== null || $suggestedDate !== null) ? Attachment::SUGGESTED_SOURCE_MANUAL : null;
@@ -178,15 +186,23 @@ class ReceiptService
         $this->assertMimeTypeAllowed($mimeType);
         $content = $this->correctOrientation($content, $mimeType);
 
+        // role_min stays the floor and is still checked first; the owner
+        // pair is what lets the FILE follow the account's section rule,
+        // which a hierarchical floor cannot express
+        // (File\FinanceAccountOwnershipChecker, ARCHITECTURE.md §8.70).
+        // ownerMemberId stays null: a receipt belongs to an account, not
+        // to the person who happened to upload it.
         $fileId = $this->fileStorage->store(
-            $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, $account->roleMinView, 'finance', $uploadedBy,
-            // role_min stays the floor and is still checked first; the
-            // owner pair is what lets the FILE follow the account's
-            // section rule, which a hierarchical floor cannot express
-            // (File\FinanceAccountOwnershipChecker, ARCHITECTURE.md §8.70).
-            // ownerMemberId stays null: a receipt belongs to an account,
-            // not to the person who happened to upload it.
-            null, FinanceAccountOwnershipChecker::OWNER_TYPE, $account->id
+            $content,
+            $mimeType,
+            $originalFilename,
+            self::STORAGE_SUBDIRECTORY,
+            $account->roleMinView,
+            'finance',
+            $uploadedBy,
+            null,
+            FinanceAccountOwnershipChecker::OWNER_TYPE,
+            $account->id
         );
 
         $newId = $this->attachmentRepository->create(
