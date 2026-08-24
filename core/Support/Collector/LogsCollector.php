@@ -87,13 +87,16 @@ class LogsCollector implements SupportCollectorInterface
         $summary = [];
         $summary[] = '# Journaux serveur — ' . self::WINDOW_HOURS . ' dernières heures';
         $summary[] = '# Chaque fichier est tronqué à ' . self::MAX_BYTES_PER_FILE . ' octets au maximum.';
-        // The copied lines keep whatever clock the web server wrote them
-        // with, which is the server's local time and not the UTC of this
-        // archive's JSON files. Said here as well as in
-        // collection-status.json, because this is the file someone reads
-        // just before opening a log.
-        $summary[] = '# Horodatages : heure locale du serveur ('
-            . date_default_timezone_get() . ', UTC' . (new \DateTimeImmutable('now'))->format('P') . ').';
+        // The copied lines keep whatever clock wrote them, which is local
+        // time and not the UTC of this archive's JSON files. Both zones are
+        // named because they can differ: PHP runs on the application clock
+        // (Core\Config\AppClock), while the web server writes its own lines
+        // on the host's. Said here as well as in collection-status.json,
+        // because this is the file someone reads just before opening a log.
+        $hostTimezone = trim((string) ini_get('date.timezone'));
+        $summary[] = '# Horodatages : heure locale, jamais UTC. Application : '
+            . date_default_timezone_get() . ' (UTC' . (new \DateTimeImmutable('now'))->format('P') . ').'
+            . ($hostTimezone !== '' ? ' Hébergement (PHP) : ' . $hostTimezone . '.' : '');
         $summary[] = '';
 
         $collected = 0;
