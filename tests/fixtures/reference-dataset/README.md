@@ -68,6 +68,7 @@ tests/fixtures/reference-dataset/
   BankStatementBuilder / BnpCsvWriter / StatementDraft
   build.php              point d'entrée CLI du builder
   InstanceContext.php    ouvre l'installation cible et refuse les mauvaises
+  InstanceReset.php      vide l'installation cible pour --reset (§8.4)
   FinanceSeeder.php      comptes bancaires + import des six relevés
   DemoAccounts.php       LA TABLE : quel membre porte quel rôle de démo
   ExtrasBlueprint.php    LA TABLE : décalages, départs, badges, évènements
@@ -76,8 +77,6 @@ tests/fixtures/reference-dataset/
   bank/                  les six relevés BNP générés, commités
   photos/                le lot de photos (§4) + assignments.csv, généré
 ```
-
-Les entrées marquées d'une itération n'existent pas encore.
 
 Les classes sont autochargées par l'entrée `autoload-dev` de `composer.json`
 (`Tests\Fixtures\ReferenceDataset\`) : elles n'existent donc pas du tout dans
@@ -239,6 +238,7 @@ acceptaient déjà.
 ```bash
 php tests/fixtures/reference-dataset/build.php --yes
 php tests/fixtures/reference-dataset/build.php --yes --root=/chemin/vers/installation
+php tests/fixtures/reference-dataset/build.php --yes --reset
 ```
 
 Sans `--root`, le builder cible l'installation dans laquelle il se trouve.
@@ -246,9 +246,10 @@ Sans `--root`, le builder cible l'installation dans laquelle il se trouve.
 **Il est destructeur, pas idempotent** — et le chantier impose de choisir l'un
 ou l'autre, jamais l'entre-deux. Il refuse de tourner sur une installation qui
 contient déjà des membres, des mouvements financiers ou plus d'un compte
-utilisateur, et il ne fusionne rien. Pour reconstruire, repartez d'une
-installation vierge, ou restaurez la sauvegarde prise juste après la première
-construction (§11).
+utilisateur, et il ne fusionne rien. Trois sorties : repartir d'une
+installation vierge, restaurer la sauvegarde prise juste après la première
+construction (§11), ou **`--reset`**, qui vide l'installation ciblée avant de
+construire (§8.4).
 
 ### 8.1 Ce qu'il fait, dans cet ordre
 
@@ -337,6 +338,87 @@ que le module soit désactivé ou que le nom de table dans le code soit faux —
 il l'a été une fois (`calendars` au lieu de `calendar_calendars`), ce qui a
 silencieusement perdu neuf évènements sur une instance où le calendrier était
 actif depuis le début.
+
+### 8.4 `--reset` : reconstruire sur une instance qui a déjà servi
+
+```bash
+php tests/fixtures/reference-dataset/build.php --yes --reset --root=/chemin/vers/installation
+```
+
+Le refus du §8 disait quoi ne pas faire sans dire comment s'en sortir : la
+seule issue était une réinstallation, ou une sauvegarde prise au bon moment et
+pas un instant plus tard. `--reset` est la troisième issue. Il ne contourne pas
+le refus, il y répond : au lieu de fusionner dans des données existantes, il
+les enlève d'abord.
+
+**Ce n'est pas la « Réinitialisation complète » de l'application.**
+`Core\Maintenance\Task\FullResetHandler` supprime `secrets.enc` et vide
+`storage/` jusqu'à `keys/master.key` : le site repart sur l'assistant
+d'installation, état dans lequel le builder ne peut plus rien construire —
+il ouvre l'instance par `SecretManager`. Ici c'est plus étroit et volontairement
+nommé autrement : **les données partent, l'installation reste.**
+
+Dans cet ordre, par `InstanceReset` :
+
+1. **Une sauvegarde de sécurité**, par `BackupService::createDatabaseDump()` —
+   l'API de l'application, sans binaire `mysqldump`, et le même premier geste
+   que `FullResetHandler` et que `SetupController::backupAndEmptyDatabase()`
+   avant de détruire quoi que ce soit. Le fichier atterrit dans
+   `storage/maintenance/` et son chemin est affiché. Si le dump échoue, **rien
+   n'est vidé** : un `storage/` non inscriptible est précisément le moment où
+   le filet sert. Passer outre demande un second drapeau explicite,
+   `--no-backup`, exactement comme l'assistant d'installation exige un
+   `force_without_backup` avant de vider sans filet.
+2. **`TRUNCATE` sur toutes les tables sauf deux.** Le schéma reste debout — ce
+   qui distingue ce vidage du `DROP TABLE` de l'assistant : aucune migration
+   n'a besoin de re-tourner avant que le builder n'écrive, et la cible reste
+   une installation configurée du début à la fin. Les compteurs
+   `AUTO_INCREMENT` repartent à 1, et c'est voulu : deux constructions
+   `--reset` successives produisent les mêmes identifiants.
+3. **Les fichiers téléversés sous `storage/` sont supprimés**, sauf `keys/`,
+   `config/` et `maintenance/`. Une table `files` vidée avec les photos encore
+   sur le disque n'est pas une table rase, c'est un tas d'orphelins — et la
+   sauvegarde qui vient d'être écrite vit dans `maintenance/`.
+
+Les deux tables épargnées sont `settings` et `module_registry`, et la liste
+n'est pas une invention de ce répertoire : c'est
+`BackupService::CONFIG_ONLY_TABLES`, la réponse relue du projet à « quelles
+tables sont de la configuration et non des données ». Les vider emporterait le
+nom de l'unité, les réglages SMTP et — décisif — **quels modules sont
+activés**, alors que le jeu de données a besoin de finance et de calendrier
+pour construire quoi que ce soit. Un reset qui désactive la moitié du site
+n'est pas un reset, c'est une réinstallation, et l'application en a déjà une.
+Un test épingle les deux listes l'une à l'autre : si celle de `BackupService`
+gagne une troisième table, il échoue tant que le reset ne l'a pas suivie.
+
+`--reset` vide **même quand rien ne motivait un refus**. Les motifs de refus ne
+comptent que les membres, les mouvements et les comptes, alors qu'une instance
+peut très bien porter des sections, des années scoutes ou un calendrier sans un
+seul membre ; construire par-dessus ces restes-là, c'est exactement le
+demi-mélange que le builder refuse par principe.
+
+**Écrire du SQL à la main est la seule chose que le builder ne fait jamais** —
+mais un vidage n'a aucun service par où passer, et l'application procède
+elle-même exactement ainsi, aux deux mêmes instructions près, dans
+`FullResetHandler::truncateAllTables()` et dans
+`SetupController::backupAndEmptyDatabase()`. C'est le seul endroit du
+répertoire où la règle « toujours par les vrais services » n'a pas de service à
+nommer, et `InstanceReset` le dit dans son en-tête plutôt que de le laisser
+découvrir.
+
+Constaté sur une instance jetable provisionnée par `scripts/e2e-support.php`,
+puis construite, puis reconstruite par-dessus elle-même :
+
+| Contrôle | Valeur |
+|---|---|
+| Tables vidées | 152 |
+| Fichiers supprimés (2ᵉ passage) | 114 — les 117 de `storage/` moins `master.key`, `secrets.enc` et le dump du 1ᵉʳ passage |
+| `settings` après vidage | 90 lignes, intactes |
+| `module_registry` après vidage | 19 modules, tous encore activés |
+| Effectifs reconstruits | 178 / 180 / 180, identiques au premier passage |
+| Boot après reconstruction | 200 sur `/`, `/login`, `/sections`, `/contact` ; 302 sur `/upload` |
+
+---
 
 ## 9. Régénération des fichiers
 
@@ -480,6 +562,12 @@ l'instance sert de point de restauration jetable : elle se restaure sur la même
 installation, avec les mêmes clés, donc sans aucun des problèmes de portabilité
 décrits au §1. C'est la façon de récupérer la rapidité d'un dump sans en avoir les
 inconvénients.
+
+L'autre chemin, quand aucune sauvegarde n'a été prise ou qu'elle date d'un état
+qu'on ne veut plus, est `--reset` (§8.4) : il vide l'instance et reconstruit à
+partir de la recette. C'est plus long qu'une restauration — une quinzaine de
+secondes contre quelques-unes — mais cela ne suppose rien d'avoir été prévu à
+l'avance, et le vidage prend sa propre sauvegarde au passage.
 
 ---
 

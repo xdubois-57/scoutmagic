@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Integration;
 
+use Core\Database\Connection;
+use Core\Maintenance\BackupService;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Modules\Finance\Repository\AccountRepository;
@@ -18,6 +20,7 @@ use Tests\Fixtures\ReferenceDataset\ExtrasApplier;
 use Tests\Fixtures\ReferenceDataset\ExtrasBlueprint;
 use Tests\Fixtures\ReferenceDataset\PhotoLot;
 use Tests\Fixtures\ReferenceDataset\FinanceSeeder;
+use Tests\Fixtures\ReferenceDataset\InstanceReset;
 use Tests\Fixtures\ReferenceDataset\UnitBlueprint;
 use Tests\Modules\Finance\FinanceTestHelper;
 
@@ -285,6 +288,168 @@ final class ReferenceDatasetBuilderTest extends TestCase
             self::datasetRoot(),
             $superadminId,
         ))->apply($this->yearIds, $seeder->accountIds()['unite'] ?? 0);
+    }
+
+    public function testTheResetEmptiesTheDataAndLeavesTheConfigurationStanding(): void
+    {
+        $this->replayDesk();
+        $this->seedConfigurationRows();
+
+        self::assertGreaterThan(0, $this->rowsIn('members'), 'Le test part déjà d\'une base vide.');
+
+        $result = (new InstanceReset(
+            Connection::withPdo($this->pdo),
+            $this->storagePath,
+            dirname($this->storagePath),
+        ))->run(false);
+
+        self::assertSame(0, $this->rowsIn('members'), 'Le vidage a laissé des membres derrière lui.');
+        self::assertSame(0, $this->rowsIn('member_years'));
+        self::assertSame(0, $this->rowsIn('sections'));
+        self::assertSame(0, $this->rowsIn('user_accounts'));
+
+        // Ce qui doit survivre : le site reste installé et ses modules activés.
+        // Un reset qui désactive la moitié des modules n'est pas un reset,
+        // c'est une réinstallation — et le builder a besoin de finance et de
+        // calendrier pour construire quoi que ce soit.
+        self::assertTrue(
+            $this->configurationProbesSurvive(),
+            'Les réglages du site ou la liste des modules activés ont été effacés.',
+        );
+
+        self::assertNull($result['backupPath']);
+        self::assertNotNull($result['backupError'], 'Une sauvegarde sautée doit être dite, pas passée sous silence.');
+        self::assertGreaterThan(0, $result['tables']);
+    }
+
+    public function testTheResetPreservesExactlyWhatTheApplicationCallsConfiguration(): void
+    {
+        // La liste n'est pas une invention de InstanceReset : c'est celle de
+        // BackupService, seule réponse relue du projet à « quelles tables sont
+        // de la configuration et non des données ». Si elle gagne une
+        // troisième table, ce test échoue tant que le reset ne l'a pas suivie.
+        self::assertSame(
+            self::privateConstant(BackupService::class, 'CONFIG_ONLY_TABLES'),
+            self::privateConstant(InstanceReset::class, 'PRESERVED_TABLES'),
+            'InstanceReset et BackupService ne s\'accordent plus sur ce qui est de la configuration.',
+        );
+    }
+
+    public function testTheResetDeletesTheUploadedFilesButNeverTheKeys(): void
+    {
+        $this->writeStorageFile('keys/master.key', 'clé maîtresse');
+        $this->writeStorageFile('config/secrets.enc', 'secrets');
+        $this->writeStorageFile('maintenance/database_2026-08-24.sql', '-- dump');
+        $this->writeStorageFile('core/photos/2026/08/portrait.jpg', 'JPEG');
+        $this->writeStorageFile('modules/finance/releve.csv', 'CSV');
+        $this->seedConfigurationRows();
+
+        $result = (new InstanceReset(
+            Connection::withPdo($this->pdo),
+            $this->storagePath,
+            dirname($this->storagePath),
+        ))->run(false);
+
+        // Sans ces deux-là l'instance n'est plus installée : SecretManager
+        // ne trouve plus rien, et le prochain appel tombe sur l'assistant
+        // d'installation au lieu de construire.
+        self::assertFileExists($this->storagePath . '/keys/master.key');
+        self::assertFileExists($this->storagePath . '/config/secrets.enc');
+        // Et la sauvegarde de sécurité est écrite là : la supprimer juste
+        // après l'avoir prise serait une farce.
+        self::assertFileExists($this->storagePath . '/maintenance/database_2026-08-24.sql');
+
+        self::assertFileDoesNotExist($this->storagePath . '/core/photos/2026/08/portrait.jpg');
+        self::assertFileDoesNotExist($this->storagePath . '/modules/finance/releve.csv');
+        self::assertSame(2, $result['files']);
+
+        // Le pipeline de téléversement que le builder enchaîne juste après
+        // écrit dans storage/temp ; le vidage doit le rendre, pas le laisser
+        // manquant.
+        self::assertDirectoryExists($this->storagePath . '/temp');
+    }
+
+    public function testAFailedSafetyDumpAbortsTheResetWithoutEmptyingAnything(): void
+    {
+        $this->replayDesk();
+        $before = $this->rowsIn('members');
+
+        // Connection::withPdo() ne porte aucun identifiant : DatabaseDumper
+        // ouvre sa propre connexion MySQL depuis un DSN et échoue. C'est le
+        // scénario réel d'un storage/ non inscriptible ou d'une base
+        // injoignable, et il ne doit surtout pas se solder par un vidage.
+        $reset = new InstanceReset(
+            Connection::withPdo($this->pdo),
+            $this->storagePath,
+            dirname($this->storagePath),
+        );
+
+        try {
+            $reset->run(true);
+            self::fail('Un dump de sécurité en échec doit interrompre la réinitialisation.');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('--no-backup', $exception->getMessage());
+        }
+
+        self::assertSame($before, $this->rowsIn('members'), 'Des lignes ont été perdues malgré l\'échec du dump.');
+    }
+
+    private function rowsIn(string $table): int
+    {
+        $statement = $this->pdo->query('SELECT COUNT(*) AS n FROM "' . $table . '"');
+
+        return $statement === false ? 0 : (int) ($statement->fetch(\PDO::FETCH_ASSOC)['n'] ?? 0);
+    }
+
+    /**
+     * One recognisable row in each of the two tables the reset must not touch,
+     * so "they survived" can be asserted on a value rather than on a count the
+     * rest of the build also writes to.
+     */
+    private function seedConfigurationRows(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO settings (module_id, setting_key, setting_value, setting_type, label, description)"
+            . " VALUES (NULL, 'reset_probe_unit_name', 'Unité de test', 'text', 'Nom', 'Sonde du test')"
+        );
+        $this->pdo->exec(
+            "INSERT INTO module_registry (module_id, enabled, installed_version)"
+            . " VALUES ('reset_probe_finance', 1, '1.0.0')"
+        );
+    }
+
+    private function configurationProbesSurvive(): bool
+    {
+        $settings = $this->pdo->query(
+            "SELECT COUNT(*) AS n FROM settings WHERE setting_key = 'reset_probe_unit_name'"
+        );
+        $modules = $this->pdo->query(
+            "SELECT COUNT(*) AS n FROM module_registry WHERE module_id = 'reset_probe_finance'"
+        );
+
+        return $settings !== false && $modules !== false
+            && (int) ($settings->fetch(\PDO::FETCH_ASSOC)['n'] ?? 0) === 1
+            && (int) ($modules->fetch(\PDO::FETCH_ASSOC)['n'] ?? 0) === 1;
+    }
+
+    private function writeStorageFile(string $relativePath, string $contents): void
+    {
+        $absolute = $this->storagePath . '/' . $relativePath;
+        if (!is_dir(dirname($absolute))) {
+            mkdir(dirname($absolute), 0755, true);
+        }
+        file_put_contents($absolute, $contents);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function privateConstant(string $class, string $name): array
+    {
+        /** @var list<string> $value */
+        $value = (new \ReflectionClass($class))->getConstant($name);
+
+        return $value;
     }
 
     /**
