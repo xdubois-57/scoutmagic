@@ -22,6 +22,11 @@ use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\View\MonthGrid\DayStateGridBuilder;
 use Core\View\TwigFactory;
+use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\ExpectedReceivableRepository;
+use Modules\Finance\Repository\TransactionRepository;
+use Modules\Finance\Service\ExpectedReceivableService;
+use Modules\Finance\Service\StructuredCommunicationService;
 use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\ChangeRequestKind;
@@ -44,9 +49,11 @@ use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBlockService;
 use Modules\Rental\Service\RentalBookingService;
 use Modules\Rental\Service\RentalOperationsService;
+use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Modules\Finance\FinanceTestHelper;
 use Tests\Modules\Rental\RentalTestHelper;
 use Twig\Environment;
 
@@ -88,6 +95,8 @@ class RentalManagementControllerTest extends TestCase
     private \Core\File\FileRepository $fileRepository;
     private \Modules\Rental\Service\RentalDocumentService $documentService;
     private \Modules\Rental\Service\RentalStayService $stayService;
+    private RentalPaymentService $paymentService;
+    private int $financeAccountId;
     /** Every decision email the controller asked for, in order. */
     /** @var list<array{decision: string, token: ?string, word: ?string, booking_id: int}> */
     private array $renterEmails = [];
@@ -137,6 +146,26 @@ class RentalManagementControllerTest extends TestCase
             $journal
         );
 
+        // Finance, wired exactly as public/index.php does: the payment
+        // panel and the "still owed" warning are only real when the
+        // receivables behind them are.
+        FinanceTestHelper::createTables($this->pdo);
+        $this->financeAccountId = (new AccountRepository($this->pdo, $this->encryption))->create(
+            'Compte unité', 'bank', null, 'BE68539007547034', 'Unité Test', 'intendant'
+        );
+        $this->pdo->exec("UPDATE finance_accounts SET status = 'active'");
+        $receivableRepository = new ExpectedReceivableRepository($this->pdo, $this->encryption);
+        $this->paymentService = new RentalPaymentService(
+            new \Modules\Rental\Repository\RentalPaymentRepository($this->pdo, $this->encryption),
+            $eventRepository,
+            $journal,
+            new ExpectedReceivableService(
+                $receivableRepository,
+                new TransactionRepository($this->pdo, $this->encryption)
+            ),
+            new StructuredCommunicationService($receivableRepository)
+        );
+
         $this->operationsService = new RentalOperationsService(
             $this->bookingRepository,
             $eventRepository,
@@ -146,7 +175,7 @@ class RentalManagementControllerTest extends TestCase
             $this->pricingService,
             new QuoteEditor(),
             $journal,
-            null,
+            $this->paymentService,
             // Wired exactly as public/index.php does, so the inventory
             // snapshot at confirmation is genuinely covered here rather
             // than only in production.
@@ -198,7 +227,7 @@ class RentalManagementControllerTest extends TestCase
             $this->pricingService,
             $memberService,
             new DayStateGridBuilder(),
-            null,
+            $this->paymentService,
             $this->documentService,
             $this->recordingMailService(),
             new \Core\File\UploadHandler($this->fileRepository, $this->storagePath),
@@ -565,6 +594,91 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(BookingStatus::REVIEWING, $this->bookingRepository->findById($booking->id)?->status);
     }
 
+    /**
+     * A confirmed booking with a receivable raised against it and nothing
+     * received — the ordinary state of a rental a fortnight before the
+     * stay.
+     */
+    private function bookingOwedFor(int $totalCents = 46750): RentalBooking
+    {
+        $this->paymentService->saveSettings($this->assetId, new \Modules\Rental\Payment\PaymentSettings(
+            enabled: true,
+            financeAccountId: $this->financeAccountId
+        ));
+        $booking = $this->createBooking();
+        $this->bookingRepository->setAgreedPrice($booking->id, new \Modules\Rental\Pricing\PriceQuote(
+            lines: [new \Modules\Rental\Pricing\PriceLine('Séjour', 1, null, $totalCents, \Modules\Rental\Pricing\PriceLine::RULE_BASE)],
+            totalCents: $totalCents,
+            nights: 3,
+            persons: 20,
+            quantity: 1,
+            billingUnit: \Modules\Rental\Pricing\BillingUnit::FLAT_STAY
+        ));
+
+        $fresh = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($fresh);
+        $this->paymentService->ensureReceivables(
+            $fresh,
+            $this->paymentService->settingsFor($this->assetId),
+            new \DateTimeImmutable('2027-01-01 10:00:00')
+        );
+
+        return $fresh;
+    }
+
+    public function testCancellingABookingStillOwedMoneySaysSo(): void
+    {
+        // §6.17 is explicit that nothing computes a refund — but cancelling
+        // leaves the receivable exactly where it was, and "Réservation
+        // « Annulée »." on its own reads as "everything is settled".
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor();
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'cancelled',
+        ]);
+
+        $flash = (string) (\Core\Http\FlashMessage::get()['message'] ?? '');
+        $this->assertStringContainsString('Attention', $flash);
+        $this->assertStringContainsString('créance', $flash);
+    }
+
+    public function testAnOrdinaryTransitionSaysNothingAboutMoney(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor();
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'reviewing',
+        ]);
+
+        $this->assertStringNotContainsString(
+            'Attention',
+            (string) (\Core\Http\FlashMessage::get()['message'] ?? '')
+        );
+    }
+
+    public function testClosingABookingWithNothingOutstandingSaysNothing(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'cancelled',
+        ]);
+
+        $this->assertStringNotContainsString(
+            'Attention',
+            (string) (\Core\Http\FlashMessage::get()['message'] ?? '')
+        );
+    }
+
     public function testAnInvalidTransitionLeavesTheBookingAloneAndSaysSo(): void
     {
         $this->loginAsManager();
@@ -867,6 +981,72 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertStringContainsString($needsMe->reference, $body);
         $this->assertStringNotContainsString($done->reference, $body);
+    }
+
+    private function bookingsList(array $query = []): string
+    {
+        return (string) $this->get(
+            '/mes-locations/{slug}/reservations',
+            '/mes-locations/local-saint-georges/reservations',
+            'bookings',
+            $query
+        )->getBody();
+    }
+
+    public function testTheBookingsListSearchesByReferenceAndByName(): void
+    {
+        $this->loginAsManager();
+        $this->createBooking(null, 'LOC-2027-0001');
+        $this->createBooking(null, 'LOC-2028-0009');
+
+        $byReference = $this->bookingsList(['q' => '2028']);
+        $this->assertStringContainsString('LOC-2028-0009', $byReference);
+        $this->assertStringNotContainsString('LOC-2027-0001', $byReference);
+
+        // The renter's name is encrypted, so this can only ever be
+        // answered after hydration — which is exactly why the filtering
+        // happens in PHP.
+        $this->assertStringContainsString('LOC-2027-0001', $this->bookingsList(['q' => 'Jeanne']));
+        $this->assertStringNotContainsString('LOC-2027-0001', $this->bookingsList(['q' => 'Gudule']));
+    }
+
+    public function testTheBookingsListFiltersByYear(): void
+    {
+        $this->loginAsManager();
+        $this->createBooking(null, 'LOC-2027-0001');
+        $other = $this->bookingRepository->create(
+            $this->assetId, 'LOC-2029-0001', '2029-07-01', '2029-07-04', 1, 20, null,
+            ['name' => 'Marc', 'email' => 'marc@example.be', 'phone' => null,
+             'organisation' => null, 'purpose' => null, 'comment' => null],
+            null, null, null, 'v1', str_repeat('0', 64), 'v1', str_repeat('0', 64),
+            new \DateTimeImmutable('2029-01-01 10:00:00')
+        );
+        $this->assertGreaterThan(0, $other['id']);
+
+        $body = $this->bookingsList(['annee' => '2029']);
+
+        $this->assertStringContainsString('LOC-2029-0001', $body);
+        $this->assertStringNotContainsString('LOC-2027-0001', $body);
+    }
+
+    public function testTheBookingsListIsPaged(): void
+    {
+        // A hall let for ten years has hundreds of bookings, and the page
+        // used to render every single one of them.
+        $this->loginAsManager();
+        for ($i = 1; $i <= 27; $i++) {
+            $this->createBooking(null, sprintf('LOC-2027-%04d', $i));
+        }
+
+        $first = $this->bookingsList();
+        $second = $this->bookingsList(['page' => '2']);
+
+        $this->assertStringContainsString('Pagination des réservations', $first);
+        // 27 bookings, 25 per page, ordered by arrival date then id — the
+        // last two land on page two and nowhere else.
+        $this->assertSame(25, substr_count($first, '/reservations/'));
+        $this->assertSame(2, substr_count($second, '/reservations/'));
+        $this->assertStringContainsString('27 réservations', $first);
     }
 
     public function testTheCalendarDistinguishesBookingsFromBlocks(): void

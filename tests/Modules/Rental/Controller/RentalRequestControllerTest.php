@@ -757,6 +757,23 @@ class RentalRequestControllerTest extends TestCase
         $this->assertStringNotContainsString('/locations/suivi/', $managerMail['text']);
     }
 
+    public function testTheManagersNotificationLinksToTheBookingItself(): void
+    {
+        // The module's front door made a manager opening this on a phone
+        // land on a list and hunt for the request again. Deep-linking is
+        // safe precisely because the page behind it is behind a real
+        // permission check — which is also why the mail carries no renter
+        // identity of its own.
+        $assetId = $this->createAsset();
+        $this->addManager($assetId, 'gestionnaire@test.be');
+        $this->submit($this->validBody());
+
+        $managerMail = $this->mailTo('gestionnaire@test.be');
+        $this->assertNotNull($managerMail);
+        $this->assertStringContainsString('/mes-locations/local-saint-georges/reservations/1', $managerMail['html']);
+        $this->assertStringContainsString('/mes-locations/local-saint-georges/reservations/1', $managerMail['text']);
+    }
+
     public function testEachManagerIsMailedSeparatelySoTheirAddressesStayPrivate(): void
     {
         $assetId = $this->createAsset();

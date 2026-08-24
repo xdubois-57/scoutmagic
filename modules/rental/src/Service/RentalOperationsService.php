@@ -47,6 +47,15 @@ use Modules\Rental\Repository\RentalChangeRequestRepository;
  */
 class RentalOperationsService
 {
+    /**
+     * How many requests a renter may have waiting at once (§6.16).
+     *
+     * The renter's form is reached with a tracking token and no login, so
+     * nothing else bounds how often it can be posted — and every post
+     * lands in a manager's queue.
+     */
+    public const MAX_PENDING_RENTER_REQUESTS = 3;
+
     public function __construct(
         private RentalBookingRepository $bookingRepository,
         private RentalBookingEventRepository $eventRepository,
@@ -480,6 +489,31 @@ class RentalOperationsService
     ): int {
         if ($booking->status->isFinal()) {
             throw new RentalException(self::finalRefusal($booking->status));
+        }
+
+        // The renter's side of this form is anonymous: it is reached with a
+        // tracking token and nothing else, so a script — or an impatient
+        // person — can post it as often as it likes, and every post lands
+        // in a manager's queue. Three at once is already more than anybody
+        // answers in one go, and a manager can clear them by deciding.
+        // The manager's own proposals are not capped: they are made from
+        // behind a login, and a manager competing with themselves is not a
+        // failure mode.
+        if ($origin === ChangeRequestOrigin::RENTER) {
+            $pending = 0;
+            foreach ($this->changeRequestRepository->findPendingForBooking($booking->id) as $request) {
+                if ($request->origin === ChangeRequestOrigin::RENTER) {
+                    $pending++;
+                }
+            }
+
+            if ($pending >= self::MAX_PENDING_RENTER_REQUESTS) {
+                throw new RentalException(
+                    'Vous avez déjà ' . self::MAX_PENDING_RENTER_REQUESTS
+                    . ' demandes en attente de réponse pour cette réservation. '
+                    . "Attendez notre réponse avant d'en envoyer une autre."
+                );
+            }
         }
 
         if ($kind === ChangeRequestKind::DATES && ($arrivalDate === null || $departureDate === null)) {

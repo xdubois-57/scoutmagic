@@ -556,15 +556,17 @@ class RentalRequestController extends AbstractController
      */
     private function managerEmails(int $assetId, int $scoutYearId): array
     {
-        $emails = [];
-        foreach ($this->managerService->listManagersForAsset($assetId, $scoutYearId) as $row) {
-            $profile = $this->memberService->findProfileByMemberAndYear($row['manager']->memberId, $scoutYearId);
-            if ($profile?->email !== null && $profile->email !== '') {
-                $emails[] = $profile->email;
-            }
-        }
+        $memberIds = array_map(
+            static fn(array $row): int => $row['manager']->memberId,
+            $this->managerService->listManagersForAsset($assetId, $scoutYearId)
+        );
 
-        return array_values(array_unique($emails));
+        // One query for everybody, not one profile per manager: a profile
+        // lookup costs several queries each — for addresses, functions and
+        // badges nothing here reads — and this runs on the public request
+        // form, where a unit staff of fifteen turned one visitor's
+        // submission into dozens of queries.
+        return array_values(array_unique($this->memberService->findEmailsByMemberIds($memberIds, $scoutYearId)));
     }
 
     /**

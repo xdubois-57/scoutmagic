@@ -202,7 +202,14 @@ class RentalBookingMailService
         $context = [
             'booking' => $booking,
             'asset' => $asset,
-            'manage_url' => rtrim($this->baseUrl(), '/') . '/mes-locations',
+            // The booking itself, not the module's front door. A manager
+            // opening this mail on a phone was landing on a list and
+            // having to find the request again — and the link is safe to
+            // deep-link precisely because the page behind it is behind a
+            // real permission check, which is also why the mail carries no
+            // renter identity of its own.
+            'manage_url' => rtrim($this->baseUrl(), '/')
+                . '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id,
             'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
         ];
 

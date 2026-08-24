@@ -378,6 +378,44 @@ class MemberService
     }
 
     /**
+     * Email addresses for a batch of persistent member ids, in one query.
+     *
+     * The same trade as findDisplayNamesByMemberIds() above, for the other
+     * thing a page full of members usually wants: who to write to. A
+     * caller building a recipient list one findProfileByMemberAndYear()
+     * at a time issues several queries PER RECIPIENT for addresses,
+     * functions and badges it never reads — on a page that then sends one
+     * email each anyway.
+     *
+     * A member with no active member_year for the year, or none with an
+     * address, is simply absent from the result.
+     *
+     * @param int[] $memberIds
+     * @return array<int, string> members.id => email
+     */
+    public function findEmailsByMemberIds(array $memberIds, int $scoutYearId): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $emails = [];
+        foreach ($this->memberYearRepo->findAllByMemberIds($memberIds, $scoutYearId) as $row) {
+            if (($row['email_encrypted'] ?? null) === null) {
+                continue;
+            }
+
+            $email = trim($this->encryption->decrypt($row['email_encrypted'], 'member_years.email'));
+            if ($email !== '') {
+                $emails[(int) $row['member_id']] = $email;
+            }
+        }
+
+        return $emails;
+    }
+
+    /**
      * The active roster of one scout year, as picker entries.
      *
      * The batched counterpart to getLinkedMembers()/findProfileByMemberAndYear()

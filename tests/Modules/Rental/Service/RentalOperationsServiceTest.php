@@ -1079,6 +1079,79 @@ class RentalOperationsServiceTest extends TestCase
         $this->assertSame(ChangeRequestStatus::ACCEPTED, $this->changeRequestRepository->findById($id)?->status);
     }
 
+    public function testARenterMayNotStackMoreThanThreeRequestsAtOnce(): void
+    {
+        // The renter's form is reached with a tracking token and no login,
+        // so nothing else bounds how often it can be posted — and every
+        // post lands in a manager's queue.
+        $booking = $this->createBooking();
+        for ($i = 0; $i < RentalOperationsService::MAX_PENDING_RENTER_REQUESTS; $i++) {
+            $this->service->requestChange(
+                $booking, ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
+                null, null, null, 20 + $i, null, null
+            );
+        }
+
+        try {
+            $this->service->requestChange(
+                $booking, ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
+                null, null, null, 40, null, null
+            );
+            $this->fail('The fourth pending request must be refused.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('déjà 3 demandes en attente', $e->getMessage());
+        }
+
+        $this->assertCount(
+            RentalOperationsService::MAX_PENDING_RENTER_REQUESTS,
+            $this->changeRequestRepository->findPendingForBooking($booking->id)
+        );
+    }
+
+    public function testDecidingOneFreesTheRenterToAskAgain(): void
+    {
+        $booking = $this->createBooking();
+        $ids = [];
+        for ($i = 0; $i < RentalOperationsService::MAX_PENDING_RENTER_REQUESTS; $i++) {
+            $ids[] = $this->service->requestChange(
+                $booking, ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
+                null, null, null, 20 + $i, null, null
+            );
+        }
+
+        $first = $this->changeRequestRepository->findById($ids[0]);
+        $this->assertNotNull($first);
+        $this->service->refuseChange($first, ChangeRequestOrigin::MANAGER, 1);
+
+        $this->service->requestChange(
+            $booking, ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
+            null, null, null, 40, null, null
+        );
+
+        $this->assertCount(
+            RentalOperationsService::MAX_PENDING_RENTER_REQUESTS,
+            $this->changeRequestRepository->findPendingForBooking($booking->id)
+        );
+    }
+
+    public function testAManagersOwnProposalsAreNotCapped(): void
+    {
+        // A manager posts from behind a login, and competing with
+        // themselves is not a failure mode worth a refusal.
+        $booking = $this->createBooking();
+        for ($i = 0; $i < RentalOperationsService::MAX_PENDING_RENTER_REQUESTS + 2; $i++) {
+            $this->service->requestChange(
+                $booking, ChangeRequestOrigin::MANAGER, ChangeRequestKind::PERSONS,
+                null, null, null, 20 + $i, null, null, 1
+            );
+        }
+
+        $this->assertCount(
+            RentalOperationsService::MAX_PENDING_RENTER_REQUESTS + 2,
+            $this->changeRequestRepository->findPendingForBooking($booking->id)
+        );
+    }
+
     public function testADateRequestWithoutBothDatesIsRefused(): void
     {
         $this->expectException(RentalException::class);
