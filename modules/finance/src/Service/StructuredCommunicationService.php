@@ -41,6 +41,49 @@ class StructuredCommunicationService implements StructuredCommunicationInterface
     }
 
     /**
+     * Whether $communication is a well-formed Belgian structured
+     * communication — twelve digits whose last two check the first ten.
+     *
+     * Accepts every shape a human plausibly types or pastes: the
+     * canonical `+++123/4567/89012+++`, the `***…***` variant some banks
+     * print, twelve bare digits, and any spacing or punctuation in
+     * between. Everything that is not a digit is stripped first, so the
+     * only thing that ever decides is the twelve digits themselves.
+     *
+     * **The check digits run 01–97, never 00**, and that is the trap
+     * here: the format maps a remainder of 0 onto 97 (see format()
+     * below, which is where the rule is actually applied when issuing
+     * one). A naive `$base % 97 === $check` therefore rejects every
+     * perfectly valid communication whose key is 97 — roughly one in a
+     * hundred, which is frequent enough to be reported as a bug and rare
+     * enough to survive a hand test. Both halves of that rule are
+     * covered by a named test.
+     *
+     * Static, like format(), because it decides nothing that needs the
+     * database: it answers "is this a plausible communication", never
+     * "does this correspond to something we are waiting for" — that
+     * second question is Repository\ExpectedReceivableRepository::
+     * findByCommunication().
+     */
+    public static function isValid(string $communication): bool
+    {
+        $digits = preg_replace('/\D/', '', $communication) ?? '';
+        if (strlen($digits) !== 12) {
+            return false;
+        }
+
+        $base = substr($digits, 0, 10);
+        $check = (int) substr($digits, 10, 2);
+
+        $expected = ((int) $base) % 97;
+        if ($expected === 0) {
+            $expected = 97;
+        }
+
+        return $check === $expected;
+    }
+
+    /**
      * Formats a 10-digit base into "+++NNN/NNNN/NNNNN+++" with its mod-97
      * check digits appended. Public/static so tests can verify the
      * checksum math directly against known-good examples.
