@@ -199,6 +199,14 @@ The directory is in `phpstan.neon`'s `paths` on purpose: the builder composes
 core and module services by hand, exactly like the composition roots, and
 breaks the same way. Do not remove it from there.
 
+`build.php --reset` empties an instance that has already served, then builds
+into it (README §8.4, `InstanceReset`). It deliberately spares `settings` and
+`module_registry` — the same two tables as
+`Core\Maintenance\BackupService::CONFIG_ONLY_TABLES`, so that the site stays
+installed and its modules stay enabled. **If that whitelist grows a third
+table, the reset must follow**; a test pins the two lists to each other and
+fails until it does.
+
 ## RGPD — a new outbound flow is a documentation change
 
 Any new feature that sends data to a third party — an API call, a mail relay, a usage report, anything leaving the hosting network — requires updating `Core\View\RgpdContentService`'s default content **and** its AI system prompt in the same change, exactly as § RGPD page maintenance already requires for a new sub-processor. This holds even when the data is aggregated and carries no personal data: the site's own URL leaving the installation is a fact the RGPD page has to state (ARCHITECTURE.md §8.47), and describing it as "anonymous" when it isn't would be worse than not mentioning it at all.

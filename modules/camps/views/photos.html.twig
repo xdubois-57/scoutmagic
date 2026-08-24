@@ -28,7 +28,7 @@
                                  class="card-img-top" loading="lazy">
                             <div class="card-footer bg-transparent p-2">
                                 <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/photos/supprimer" data-confirm="Supprimer définitivement cette photo ?">
-                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                    {{ csrf_field() }}
                                     <input type="hidden" name="media_id" value="{{ item.id }}">
                                     <button type="submit" class="btn btn-sm btn-outline-danger w-100">Supprimer</button>
                                 </form>
@@ -43,7 +43,7 @@
               enctype="multipart/form-data" class="card">
             <div class="card-body">
                 <h2 class="h6 mb-3">Ajouter une photo</h2>
-                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                {{ csrf_field() }}
                 <div class="mb-3">
                     <label class="form-label small" for="photo-file">Photo</label>
                     <input type="file" name="photo" id="photo-file" accept="image/*"

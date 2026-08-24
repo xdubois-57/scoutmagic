@@ -265,7 +265,7 @@ class MovementController extends AbstractController
 
         $role = Role::fromString(AuthSession::getRole());
         $account = $this->financeService->getAccount($transaction->accountId);
-        if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
+        if (!$this->financeService->isAccountVisibleTo($account, $role)) {
             return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
         }
 
@@ -321,7 +321,7 @@ class MovementController extends AbstractController
 
         $role = Role::fromString(AuthSession::getRole());
         $account = $this->financeService->getAccount($transaction->accountId);
-        if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
+        if (!$this->financeService->isAccountVisibleTo($account, $role)) {
             return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
         }
 
@@ -371,7 +371,7 @@ class MovementController extends AbstractController
 
         $role = Role::fromString(AuthSession::getRole());
         $account = $this->financeService->getAccount($transaction->accountId);
-        if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
+        if (!$this->financeService->isAccountVisibleTo($account, $role)) {
             return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
         }
 

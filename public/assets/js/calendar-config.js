@@ -137,6 +137,28 @@
         });
     });
 
+    // The other half of the pair: who may MODIFY the events, as opposed to
+    // who sees the calendar. The server refuses a combination that would
+    // let a role write in a calendar it cannot see, and says so — surface
+    // that refusal rather than leaving the select showing a value the
+    // server did not keep.
+    /** @type {NodeListOf<HTMLSelectElement>} */ (document.querySelectorAll('.edit-role-select')).forEach(function (select) {
+        var lastAccepted = select.value;
+        select.addEventListener('change', async function () {
+            var res = await api.postJson('/config/calendar/edit-role', {
+                calendar_id: parseInt(select.dataset.calendarId, 10),
+                edit_role_min: select.value
+            });
+            if (succeeded(res)) {
+                lastAccepted = select.value;
+                toastSuccess('Droit de modification mis à jour.');
+            } else {
+                select.value = lastAccepted;
+                toastFailure(res);
+            }
+        });
+    });
+
     // --- ICS links ---
 
     /**

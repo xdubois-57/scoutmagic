@@ -50,12 +50,20 @@ class CalendarEventService
      * Calendars this viewer may create/edit/delete events in: a subset of
      * what they can see.
      *
-     * A **section** calendar is editable only by an animateur of that
-     * section — the blanket "any chief writes in any section" this page
-     * used to grant is exactly what IT-01's counterpart removed for section
-     * documents. A **supplementary** calendar has no section, so the
-     * visibility rule inherited from getViewableCalendars() is the whole
-     * rule for it.
+     * A conjunction of two independent conditions:
+     *
+     *  - the SECTION: a section calendar needs an animateur of that section
+     *    — the blanket "any chief writes in any section" this page used to
+     *    grant is exactly what IT-01's counterpart removed for section
+     *    documents. A supplementary calendar carries no section and passes
+     *    this half unconditionally.
+     *  - the ROLE: `calendar_calendars.edit_role_min`, the unit's own
+     *    answer to "who may modify the events here". It defaults to
+     *    'chief', which is what every calendar behaved like before the
+     *    column existed, and can be raised to 'admin' so a calendar stays
+     *    VISIBLE to the animateurs while only the chefs d'unité write in
+     *    it — a combination the single `visibility` column could not
+     *    express.
      *
      * $staffedSectionIds is resolved by the CONTROLLER (Core\Member\
      * SectionStaffAuthorizationService, ARCHITECTURE.md §8.33) and passed
@@ -71,8 +79,20 @@ class CalendarEventService
     {
         return array_values(array_filter(
             $this->getViewableCalendars($viewerRole),
-            fn(Calendar $c) => $c->sectionId === null || in_array($c->sectionId, $staffedSectionIds, true)
+            fn(Calendar $c) => $this->staffsThisCalendar($c, $staffedSectionIds)
+                && $viewerRole->hasAccess(Role::fromString($c->editRoleMin))
         ));
+    }
+
+    /**
+     * The section half of the conjunction. A supplementary calendar has no
+     * section, so it passes here and its edit_role_min is the whole rule.
+     *
+     * @param int[] $staffedSectionIds
+     */
+    private function staffsThisCalendar(Calendar $calendar, array $staffedSectionIds): bool
+    {
+        return $calendar->sectionId === null || in_array($calendar->sectionId, $staffedSectionIds, true);
     }
 
     /**

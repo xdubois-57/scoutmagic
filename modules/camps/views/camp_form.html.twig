@@ -11,7 +11,7 @@
     <form method="post"
           action="{{ camp ? '/chefs/camps/sejours/' ~ camp.id : '/chefs/camps' }}"
           class="mb-5">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        {{ csrf_field() }}
 
         {% if not camp %}
             <h2 class="h6 text-uppercase text-body-secondary mb-3">Lieu</h2>

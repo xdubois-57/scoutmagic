@@ -38,7 +38,13 @@ class ReceivablesOverviewServiceTest extends TestCase
         $this->service = new ReceivablesOverviewService(
             $repository,
             $this->receivableService,
-            new AccountRepository($this->pdo, $encryption)
+            new AccountRepository($this->pdo, $encryption),
+            new \Modules\Finance\Service\AccountVisibility(
+                // No badge assigned in these fixtures, so the treasurer
+                // rule is off and the module behaves exactly as it did
+                // before it existed — which is what these tests assert.
+                \Modules\Finance\Service\TreasurerScope::systemCaller()
+            )
         );
 
         $stmt = $this->pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Compte', 'bank')");

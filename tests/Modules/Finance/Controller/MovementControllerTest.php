@@ -75,7 +75,13 @@ class MovementControllerTest extends TestCase
         );
         $financeService = new FinanceService(
             $this->accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $sectionService, $this->transactionRepository, $balanceService,
-            $settingService, $categoryRuleRepository, $accountTransferCategoryService
+            $settingService, $categoryRuleRepository, $accountTransferCategoryService,
+            new \Modules\Finance\Service\AccountVisibility(
+                // No badge assigned in these fixtures, so the treasurer
+                // rule is off and the module behaves exactly as it did
+                // before it existed — which is what these tests assert.
+                \Modules\Finance\Service\TreasurerScope::systemCaller()
+            )
         );
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_movement_test_' . uniqid());
         $receiptService = new ReceiptService($attachmentRepository, $this->accountRepository, $transactionAttachmentRepository, $fileStorage, $this->transactionRepository);

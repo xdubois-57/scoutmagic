@@ -80,7 +80,13 @@ class ImportControllerTest extends TestCase
         );
         $financeService = new FinanceService(
             $this->accountRepository, $categoryRepository, $fiscalYearRepository, $sectionService, $transactionRepository, $balanceService,
-            $settingService, $categoryRuleRepository, $accountTransferCategoryService
+            $settingService, $categoryRuleRepository, $accountTransferCategoryService,
+            new \Modules\Finance\Service\AccountVisibility(
+                // No badge assigned in these fixtures, so the treasurer
+                // rule is off and the module behaves exactly as it did
+                // before it existed — which is what these tests assert.
+                \Modules\Finance\Service\TreasurerScope::systemCaller()
+            )
         );
         $receiptMatchingService = new ReceiptMatchingService(
             new AttachmentRepository($this->pdo, $encryption), $transactionRepository, new TransactionAttachmentRepository($this->pdo),

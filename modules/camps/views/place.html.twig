@@ -60,7 +60,7 @@
                         </span>
                         {% if summary_available %}
                             <form method="post" action="/chefs/camps/lieux/{{ place.id }}/resume">
-                                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                {{ csrf_field() }}
                                 <button type="submit" class="btn btn-link btn-sm p-0">Régénérer</button>
                             </form>
                         {% endif %}
@@ -71,7 +71,7 @@
                         des avis ou des prix à comparer.
                     </p>
                     <form method="post" action="/chefs/camps/lieux/{{ place.id }}/resume">
-                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                        {{ csrf_field() }}
                         <button type="submit" class="btn btn-link btn-sm p-0">Écrire le résumé maintenant</button>
                     </form>
                 {% endif %}
@@ -128,13 +128,13 @@
             </a>
             {% if place.isArchived %}
                 <form method="post" action="/chefs/camps/lieux/{{ place.id }}/restaurer">
-                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    {{ csrf_field() }}
                     <button type="submit" class="btn btn-outline-secondary btn-sm">Restaurer</button>
                 </form>
             {% else %}
                 <form method="post" action="/chefs/camps/lieux/{{ place.id }}/archiver"
                       data-confirm="Archiver ce lieu ? Il disparaîtra des écrans courants et de la recherche. Rien n'est supprimé.">
-                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    {{ csrf_field() }}
                     <button type="submit" class="btn btn-outline-secondary btn-sm">Archiver</button>
                 </form>
             {% endif %}

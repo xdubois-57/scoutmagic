@@ -507,7 +507,9 @@ et dans le README, et un test le tient.
    simple à vérifier, et c'est ce que sert une instance de test.
 2. **Le refus est absolu, sans option de forçage.** Trois signaux : des
    membres, des mouvements financiers, plus d'un compte utilisateur. Ajouter un
-   `--force` aurait transformé un garde-fou en formalité.
+   `--force` aurait transformé un garde-fou en formalité. *(Repris après coup,
+   voir « Suite — `--reset` » plus bas : la suite ne donne pas de `--force`,
+   elle donne un vidage.)*
 3. **Une table manquante compte pour zéro** dans ce garde plutôt que de lever :
    un module peut être désactivé sur la cible, et le builder n'a alors rien à
    vérifier de ce côté.
@@ -615,6 +617,90 @@ troncature silencieuse » — et c'est exactement la forme qu'elle avait prise.
 
 ---
 
+## Suite — `--reset` : vider l'installation cible avant de construire
+
+**Demandé après la livraison du chantier** : « je veux que le builder donne la
+possibilité de supprimer / réinitialiser la DB si elle est déjà peuplée. »
+
+Le refus de l'IT-05 disait quoi ne pas faire sans dire comment s'en sortir. Les
+deux issues existantes — réinstaller, ou restaurer une sauvegarde prise juste
+au bon moment — supposent toutes deux quelque chose qui a été prévu à l'avance.
+`--reset` est la troisième, et elle ne contourne pas le refus : elle y répond,
+en enlevant les données au lieu de fusionner dedans.
+
+**Livré.**
+
+- **`InstanceReset`** — sauvegarde de sécurité par
+  `BackupService::createDatabaseDump()`, `TRUNCATE` de toutes les tables sauf
+  deux, suppression des fichiers téléversés sous `storage/` sauf `keys/`,
+  `config/` et `maintenance/`.
+- **`InstanceContext::connection()`** — le `Connection` et non plus seulement
+  le `PDO` derrière lui : `BackupService` prend des identifiants, pas une
+  poignée, parce que `DatabaseDumper` ouvre sa propre connexion depuis un DSN.
+- **`build.php`** — `--reset`, `--no-backup`, le message de refus qui nomme
+  désormais la sortie, et un avertissement supplémentaire quand `--reset` est
+  passé sans `--yes`.
+- **Quatre tests** dans `ReferenceDatasetBuilderTest` : le vidage laisse la
+  configuration debout, il épargne exactement les tables que `BackupService`
+  appelle de la configuration, il supprime les fichiers sans jamais toucher aux
+  clés, et un dump de sécurité en échec interrompt tout sans rien vider.
+- **README §8.4**, plus §3, §8 et §11 mis à jour.
+
+**Décisions prises en autonomie.**
+
+1. **Ce n'est pas la « Réinitialisation complète » de l'application.**
+   `FullResetHandler` supprime `secrets.enc` et vide `storage/` jusqu'à
+   `keys/master.key` : le site repart sur l'assistant d'installation, état dans
+   lequel le builder ne peut plus rien construire puisqu'il ouvre l'instance
+   par `SecretManager`. D'où un vidage plus étroit, et volontairement nommé
+   autrement : les données partent, l'installation reste.
+2. **`TRUNCATE`, pas `DROP TABLE`.** L'assistant d'installation détruit les
+   tables parce que la migration les recrée juste après. Ici, personne ne
+   re-migre entre le vidage et la construction : le schéma doit rester debout.
+   Effet de bord voulu — les compteurs `AUTO_INCREMENT` repartent à 1, donc
+   deux constructions `--reset` successives produisent les mêmes identifiants.
+3. **`settings` et `module_registry` sont épargnées**, et la liste n'est pas
+   une invention : c'est `BackupService::CONFIG_ONLY_TABLES`, la réponse relue
+   du projet à « quelles tables sont de la configuration et non des données ».
+   Les vider emporterait quels modules sont activés, alors que le jeu de
+   données a besoin de finance et de calendrier. Un test épingle les deux
+   listes l'une à l'autre.
+4. **La sauvegarde est le défaut, la sauter demande un second drapeau.**
+   `--no-backup` existe parce qu'un `storage/` non inscriptible ne doit pas
+   rendre le vidage impossible — mais c'est exactement le raisonnement de
+   `force_without_backup` dans l'assistant d'installation, et il vaut ici pour
+   la même raison. Sans ce drapeau, un dump en échec abandonne le vidage.
+   `--no-backup` sans `--reset` est refusé plutôt qu'ignoré.
+5. **`--reset` vide même quand rien ne motivait un refus.** Les motifs ne
+   comptent que les membres, les mouvements et les comptes ; une instance peut
+   porter des sections, des années scoutes ou un calendrier sans un seul
+   membre, et construire par-dessus ces restes serait le demi-mélange que le
+   builder refuse par principe.
+6. **Écrire du SQL à la main, ici et nulle part ailleurs.** La règle « toujours
+   par les vrais services » n'a pas de service à nommer pour un vidage :
+   l'application procède elle-même aux deux mêmes instructions près, dans
+   `FullResetHandler::truncateAllTables()` et dans
+   `SetupController::backupAndEmptyDatabase()`. `InstanceReset` le dit dans son
+   en-tête plutôt que de le laisser découvrir.
+
+**Exécution réelle**, sur une instance jetable provisionnée par
+`scripts/e2e-support.php` — qui crée elle-même 2 membres et 2 comptes, donc
+tombait jusqu'ici sous le refus :
+
+| Contrôle | Valeur |
+|---|---|
+| Tables vidées | 152 |
+| Fichiers supprimés au 2ᵉ passage | 114 — les 117 de `storage/` moins `master.key`, `secrets.enc` et le dump du 1ᵉʳ passage |
+| `settings` / `module_registry` après vidage | 90 lignes / 19 modules, tous encore activés |
+| Effectifs reconstruits | 178 / 180 / 180, 125 mouvements, 12 doublons, 43 + 14 photos, 9 évènements, 17 créances — identiques au premier passage |
+| Boot après reconstruction | 200 sur `/`, `/login`, `/sections`, `/contact` ; 302 sur `/upload`, aucune fatale |
+
+Aucun défaut trouvé à l'exécution cette fois — le vidage a marché du premier
+coup sur MySQL, y compris le second passage par-dessus une instance que le
+builder venait lui-même de remplir, qui est le cas d'usage réel.
+
+---
+
 ## Récapitulatif final
 
 | # | Livré |
@@ -627,6 +713,7 @@ troncature silencieuse » — et c'est exactement la forme qu'elle avait prise.
 | IT-05 | Builder CLI : garde de production, imports, confirmation des rôles, finances, comptes de démonstration |
 | IT-06 | Extras déclaratifs : décalages, départs, badges, 57 photos, évènements, créances |
 | IT-07 | Rappels croisés, documentation, vérification transverse |
+| Suite | `--reset` : `InstanceReset`, sauvegarde de sécurité, vidage des données, quatre tests, README §8.4 |
 
 **Ce que le chantier a produit dans le code de production**, en plus du jeu de
 données : l'extraction de `PhotoIngestionService`, et deux vérifications

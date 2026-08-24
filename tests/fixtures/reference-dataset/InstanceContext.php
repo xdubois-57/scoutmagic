@@ -34,6 +34,8 @@ use Core\Security\SecretManager;
  */
 final class InstanceContext
 {
+    private ?Connection $connection = null;
+
     private ?\PDO $pdo = null;
 
     /** @var array<string, mixed>|null */
@@ -60,25 +62,38 @@ final class InstanceContext
     }
 
     /**
+     * The instance's own database handle, opened from its own secrets.
+     *
      * @throws \RuntimeException when the installation is not set up yet
      */
     public function pdo(): \PDO
     {
-        if ($this->pdo !== null) {
-            return $this->pdo;
+        return $this->pdo ??= $this->connection()->getPdo();
+    }
+
+    /**
+     * The Connection rather than the PDO behind it, because
+     * Core\Maintenance\BackupService takes credentials, not a handle: the
+     * safety dump that --reset writes (InstanceReset) is produced by the
+     * application's own backup service, which needs this object.
+     *
+     * @throws \RuntimeException when the installation is not set up yet
+     */
+    public function connection(): Connection
+    {
+        if ($this->connection !== null) {
+            return $this->connection;
         }
 
         $secrets = $this->secrets();
 
-        $connection = new Connection(
+        return $this->connection = new Connection(
             (string) ($secrets['db_host'] ?? 'localhost'),
             (int) ($secrets['db_port'] ?? 3306),
             (string) ($secrets['db_name'] ?? ''),
             (string) ($secrets['db_user'] ?? ''),
             (string) ($secrets['db_password'] ?? ''),
         );
-
-        return $this->pdo = $connection->getPdo();
     }
 
     public function encryption(): EncryptionService

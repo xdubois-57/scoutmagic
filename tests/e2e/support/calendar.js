@@ -15,6 +15,33 @@
 import { expect } from '@playwright/test';
 
 /**
+ * `display: grid`, waited for rather than sampled once.
+ *
+ * toBeVisible() passes on an UNSTYLED element — an unstyled div is a
+ * perfectly visible block — so it is no guarantee that components.css has
+ * been applied by the time the next line runs. A one-shot
+ * getComputedStyle() therefore reads `block` whenever the stylesheet is
+ * still in flight, and reports a correctly-built calendar as a stack of
+ * squares. That is the same one-shot hazard this file already documents
+ * for boundingBox() below, and the same remedy: poll the pair of
+ * questions until they answer, instead of asking once.
+ *
+ * It does NOT weaken what is being asserted. A page that genuinely
+ * forgets to link components.css never reaches `grid`, the poll times
+ * out, and the failure reads exactly as before.
+ *
+ * @param {import('@playwright/test').Locator} week
+ */
+async function expectWeekIsAGridRow(week) {
+    await expect
+        .poll(
+            () => week.evaluate((node) => getComputedStyle(node).display),
+            { message: 'components.css must be linked, or a week is a stack' }
+        )
+        .toBe('grid');
+}
+
+/**
  * @param {import('@playwright/test').Locator} grid A `.daygrid` element.
  */
 export async function expectRendersAsACalendar(grid) {
@@ -22,8 +49,7 @@ export async function expectRendersAsACalendar(grid) {
 
     const week = grid.locator('.daygrid-week').first();
 
-    const display = await week.evaluate((node) => getComputedStyle(node).display);
-    expect(display, 'components.css must be linked, or a week is a stack').toBe('grid');
+    await expectWeekIsAGridRow(week);
 
     // The observable consequence of that grid, stated in geometry: two
     // days of the same week sit side by side. A future CSS change that
@@ -85,16 +111,30 @@ export async function expectRendersAsAnEventCalendar(container) {
     const week = container.locator('.calendar-week').first();
     await expect(week).toBeVisible();
 
-    const display = await week.evaluate((node) => getComputedStyle(node).display);
-    expect(display, 'components.css must be linked, or a week is a stack').toBe('grid');
+    await expectWeekIsAGridRow(week);
 
     const days = week.locator('.calendar-day-cell');
     await expect(days).toHaveCount(7);
 
-    const first = await days.nth(0).boundingBox();
-    const second = await days.nth(1).boundingBox();
-    expect(first).not.toBeNull();
-    expect(second).not.toBeNull();
-    expect(second.x, 'two days of one week must sit side by side').toBeGreaterThan(first.x);
-    expect(Math.abs(second.y - first.y), 'and share a row').toBeLessThan(2);
+    // The same paired poll as the day grid above, for the same reason:
+    // this month is live too — public/assets/js/calendar-chief.js rebuilds
+    // it on a month change — so measuring the two cells separately can
+    // measure one that no longer exists.
+    /** @type {{first: {x: number, y: number}, second: {x: number, y: number}}} */
+    let box;
+    await expect
+        .poll(async () => {
+            const first = await days.nth(0).boundingBox();
+            const second = await days.nth(1).boundingBox();
+            if (first === null || second === null) {
+                return false;
+            }
+            box = { first, second };
+
+            return true;
+        }, { message: "the week's first two day cells must both be laid out at the same moment" })
+        .toBe(true);
+
+    expect(box.second.x, 'two days of one week must sit side by side').toBeGreaterThan(box.first.x);
+    expect(Math.abs(box.second.y - box.first.y), 'and share a row').toBeLessThan(2);
 }

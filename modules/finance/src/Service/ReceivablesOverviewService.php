@@ -32,7 +32,8 @@ class ReceivablesOverviewService
     public function __construct(
         private ExpectedReceivableRepository $repository,
         private ExpectedReceivableService $receivableService,
-        private AccountRepository $accountRepository
+        private AccountRepository $accountRepository,
+        private AccountVisibility $accountVisibility
     ) {
     }
 
@@ -138,12 +139,19 @@ class ReceivablesOverviewService
     }
 
     /**
-     * Ids of the accounts $viewerRole may see. Deliberately keyed on
-     * role_min_view alone, not on Account::STATUS_ACTIVE the way
-     * FinanceService::getAccountsForUser() is: a receivable booked against
-     * an account that has since been archived must still reconcile for
-     * someone allowed to see that account — hiding it would silently drop
-     * money from the totals rather than protect anything.
+     * Ids of the accounts $viewerRole may see, through the one predicate
+     * every finance route shares (Service\AccountVisibility) —
+     * role_min_view AND, for an account attached to a section, being that
+     * section's treasurer. Written here as a call rather than as a copy of
+     * the condition: a page that decided visibility its own way is exactly
+     * how this page came to be listing accounts no other page would show.
+     *
+     * Deliberately NOT narrowed to Account::STATUS_ACTIVE the way
+     * FinanceService::getAccountsForUser() is — AccountVisibility says
+     * nothing about status for this reason: a receivable booked against an
+     * account that has since been archived must still reconcile for
+     * someone allowed to see that account, and hiding it would silently
+     * drop money from the totals rather than protect anything.
      *
      * @return int[]
      */
@@ -151,7 +159,7 @@ class ReceivablesOverviewService
     {
         $ids = [];
         foreach ($this->accountRepository->findAllOrdered() as $account) {
-            if ($viewerRole->hasAccess(Role::fromString($account->roleMinView))) {
+            if ($this->accountVisibility->isVisibleTo($account, $viewerRole)) {
                 $ids[] = $account->id;
             }
         }

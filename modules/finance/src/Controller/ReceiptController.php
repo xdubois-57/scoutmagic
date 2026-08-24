@@ -229,7 +229,7 @@ class ReceiptController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $accountId = (int) $request->getBody('account_id', 0);
         $account = $this->financeService->getAccount($accountId);
-        if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
+        if (!$this->financeService->isAccountVisibleTo($account, $role)) {
             return $this->render('@finance/receipts/form.html.twig', ['error' => 'Compte invalide.']);
         }
 
@@ -533,7 +533,7 @@ class ReceiptController extends AbstractController
 
         $role = Role::fromString(AuthSession::getRole());
         $account = $this->financeService->getAccount($attachment->accountId);
-        if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
+        if (!$this->financeService->isAccountVisibleTo($account, $role)) {
             return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
         }
 
