@@ -17,16 +17,37 @@
   count against the thresholds in LeadershipRules). Everywhere else the
   value is 'normal' and nothing is coloured at all.
 
+  A list of people to contact is only useful if it can be acted on: every
+  name links to that person's fiche, every address is a `mailto:`, and one
+  button copies the whole list's addresses at once (public/assets/js/
+  leadership-copy-emails.js). The people Desk holds no address for are
+  COUNTED under the list rather than quietly dropped — a list that hides
+  them reads as a complete list of people who were written to.
+
   Usage:
   {% include '@leadership/partials/_person_list.html.twig' with {
       lines: to_convince,
+      list_id: 'training-to-convince',
       empty_message: 'Personne à convaincre cette année.',
   } only %}
+
+  `list_id` is optional; without it the copy button is not offered.
 #}
 {% if lines|length > 0 %}
-    <ul class="list-group list-group-flush">
+    {% set _with_email = lines|filter(l => l.email)|length %}
+    {% if list_id|default('') and _with_email > 0 %}
+        <div class="d-flex justify-content-end mb-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-copy-emails="{{ list_id }}">
+                <i class="bi bi-clipboard" aria-hidden="true"></i>
+                Copier les adresses
+            </button>
+        </div>
+    {% endif %}
+    <ul class="list-group list-group-flush" id="{{ list_id|default('') }}">
         {% for line in lines %}
-            <li class="list-group-item px-0 py-3">
+            <li class="list-group-item px-0 py-3"
+                {%- if line.email %} data-email="{{ line.email }}"{% endif %}>
                 <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
                     <div class="min-w-0">
                         {# Full legal name first: these lists exist to go and
@@ -35,9 +56,16 @@
                            second line only when there is one — see
                            Value\PersonLine::$totem for why it is not the
                            site's usual `totem ?? first_name`. #}
-                        <div class="fw-semibold">{{ line.fullName }}</div>
+                        <div class="fw-semibold">
+                            <a href="/members/{{ line.memberYearId }}">{{ line.fullName }}</a>
+                        </div>
                         {% if line.totem %}
                             <div class="small text-body-secondary">{{ line.totem }}</div>
+                        {% endif %}
+                        {% if line.email %}
+                            <div class="small">
+                                <a href="mailto:{{ line.email }}">{{ line.email }}</a>
+                            </div>
                         {% endif %}
                     </div>
                     {% if line.days is not null %}
@@ -60,6 +88,14 @@
             </li>
         {% endfor %}
     </ul>
+    {% if lines|length > _with_email %}
+        {# Dit à voix haute : sans cette phrase, une liste de seize personnes
+           dont on n'écrit qu'à douze se lit comme seize personnes prévenues. #}
+        <p class="small text-body-secondary mt-2 mb-0">
+            {{ lines|length - _with_email }} personne{{ lines|length - _with_email > 1 ? 's' : '' }}
+            sans adresse dans Desk : à contacter autrement.
+        </p>
+    {% endif %}
 {% else %}
     {% include 'partials/empty_state.html.twig' with {
         message: empty_message,

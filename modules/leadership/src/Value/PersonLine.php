@@ -53,6 +53,13 @@ final class PersonLine
         public readonly string $severity = 'normal',
         /** Days remaining/elapsed, when the line carries a count. */
         public readonly ?int $days = null,
+        /**
+         * The person's e-mail as Desk holds it, or null when Desk holds
+         * none. Null is a fact worth showing rather than hiding: a list
+         * that silently drops the four people it cannot reach reads as a
+         * complete list of people who were contacted.
+         */
+        public readonly ?string $email = null,
     ) {
     }
 }

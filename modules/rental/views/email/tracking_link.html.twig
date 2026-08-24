@@ -1,0 +1,28 @@
+{#
+  The renter's new tracking link, after a manager regenerated it (§8.52).
+
+  Its own message rather than a second acknowledgement: the one thing this
+  email has to be is unambiguous, and « Nous avons bien reçu votre demande »
+  on a booking confirmed three weeks ago is not.
+#}
+<p>Bonjour {{ booking.renterName }},</p>
+
+<p>
+    Le lien de suivi de votre demande a été remplacé. L'ancien ne fonctionne
+    plus ; voici le nouveau.
+</p>
+
+<p>
+    <strong>{{ asset.name }}</strong>, du {{ booking.arrivalDate|date_fr }}
+    au {{ booking.departureDate|date_fr }}<br>
+    Votre référence : <strong>{{ booking.reference }}</strong>
+</p>
+
+<p><a href="{{ tracking_url }}">Suivre ma demande</a></p>
+
+<p>
+    Conservez ce lien : il est personnel et c'est votre seul accès au suivi
+    de votre demande.
+</p>
+
+<p>À bientôt,<br>{{ site_name }}</p>

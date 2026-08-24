@@ -348,6 +348,15 @@
       "label": ""
     },
     {
+      "path": "/mes-locations/lien-suivi",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "regenerateTrackingLink",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/mes-locations/message/detacher",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",

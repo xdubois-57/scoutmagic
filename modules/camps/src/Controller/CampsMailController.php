@@ -35,6 +35,9 @@ use Twig\Environment;
  */
 class CampsMailController extends AbstractController
 {
+    /** How much of a message the card shows before it has to be opened. */
+    private const EXCERPT_LENGTH = 220;
+
     public function __construct(
         protected Environment $twig,
         private CampRepository $camps,
@@ -185,9 +188,14 @@ class CampsMailController extends AbstractController
             CampsMessageConsumer::CONSUMER_ID,
             CampsMessageConsumer::UNSORTED_REFERENCE
         ) as $message) {
+            $body = trim($message->bodyText);
             $rows[] = [
                 'message' => $message,
-                'excerpt' => mb_substr(trim($message->bodyText), 0, 220),
+                'excerpt' => mb_substr($body, 0, self::EXCERPT_LENGTH),
+                // Whether the excerpt actually cut something off, so the
+                // screen can promise "there is more" only when there is.
+                'truncated' => mb_strlen($body) > self::EXCERPT_LENGTH,
+                'has_body' => $body !== '' || trim($message->bodyHtml) !== '',
                 'attachment_count' => count($message->attachments),
             ];
         }

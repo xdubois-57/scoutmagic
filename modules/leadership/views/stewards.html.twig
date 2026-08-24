@@ -37,6 +37,7 @@
                 {% endif %}
                 {% include '@leadership/partials/_person_list.html.twig' with {
                     lines: registrations,
+                    list_id: 'stewards-registrations',
                     empty_message: "Aucune fonction d'intendance encodée pour cette année scoute.",
                 } only %}
             </div>
@@ -52,6 +53,7 @@
                     </p>
                     {% include '@leadership/partials/_person_list.html.twig' with {
                         lines: under_age,
+                        list_id: 'stewards-under-age',
                         empty_message: '',
                     } only %}
                 </div>
@@ -65,4 +67,7 @@
             rules_verified_on: rules_verified_on,
         } only %}
     </div>
+{% endblock %}
+{% block scripts %}
+<script src="/assets/js/leadership-copy-emails.js" defer></script>
 {% endblock %}

@@ -292,6 +292,72 @@ class CampsMessageConsumerTest extends TestCase
         );
     }
 
+    // ── The unsorted pile can become a stay (§ camps_auto_create_from_mail)
+
+    private function bookingMessage(string $reference): \Modules\InboundMail\Api\InboundMessage
+    {
+        return new \Modules\InboundMail\Api\InboundMessage(
+            id: 55,
+            mailboxId: self::DEDICATED_MAILBOX,
+            consumerId: CampsMessageConsumer::CONSUMER_ID,
+            businessReference: $reference,
+            linkOrigin: LinkOrigin::SENDER,
+            subject: 'Confirmation',
+            fromEmail: 'info@mozet.be',
+            fromName: 'Domaine de Mozet',
+            messageId: '<abc@mail>',
+            inReplyTo: null,
+            sentAt: new \DateTimeImmutable('2027-11-02 09:00:00'),
+            bodyText: 'Du 12 au 19 juillet 2028.',
+            bodyHtml: ''
+        );
+    }
+
+    public function testAnUnsortedMessageIsOfferedToTheStayCreator(): void
+    {
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->expects($this->once())->method('createFrom')->willReturn($this->campId);
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption, $this->settings,
+            null, null, null, $stayFromMail
+        );
+
+        $consumer->onMessageStored($this->bookingMessage(CampsMessageConsumer::UNSORTED_REFERENCE));
+    }
+
+    public function testAMessageAlreadyOnAStayIsNotOfferedToTheStayCreator(): void
+    {
+        // It has a stay; creating one from it would be a duplicate of the
+        // very thing it is already filed under.
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->expects($this->never())->method('createFrom');
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption, $this->settings,
+            null, null, null, $stayFromMail
+        );
+
+        $consumer->onMessageStored($this->bookingMessage('camp-' . $this->campId));
+    }
+
+    public function testAnUnsortedMessageNobodyCouldTurnIntoAStayIsLeftAlone(): void
+    {
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('createFrom')->willReturn(null);
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption, $this->settings,
+            null, null, null, $stayFromMail
+        );
+
+        $consumer->onMessageStored($this->bookingMessage(CampsMessageConsumer::UNSORTED_REFERENCE));
+
+        // Nothing attached, nothing thrown: the message stays where it is
+        // and a human decides.
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM camp_documents')->fetchColumn());
+    }
+
     /**
      * @param string[] $references
      */

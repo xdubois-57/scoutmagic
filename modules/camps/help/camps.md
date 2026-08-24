@@ -36,9 +36,21 @@ Elle montre le lieu lui-même, ses séjours à venir, et ses séjours passés
 que vous pouvez filtrer par statut. « Nouveau camp ici » crée un séjour
 sans redemander le lieu.
 
+Un terrain fréquenté depuis quinze ans n'affiche pas quinze fiches d'un
+coup : les séjours passés sont paginés, et le nombre par page se règle
+dans la configuration du module.
+
 ## Le détail d'un séjour
 
 Toutes les informations du séjour, la note libre, et son historique.
+
+Les **contacts** — le propriétaire, le gardien, le voisin qui a la clé —
+se corrigent avec le crayon et se retirent avec la corbeille. Supprimer
+un contact efface aussi ses coordonnées de l'historique du séjour : il
+n'en reste que son rôle.
+
+La **correspondance** rassemble les messages reçus au sujet de ce séjour.
+Chacun se déplie et se lit en entier, pièces jointes comprises.
 
 L'**historique** se déplie sous le séjour et raconte ce qui a changé,
 quand, et par qui — y compris ce que le site a modifié tout seul, marqué

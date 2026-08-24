@@ -352,6 +352,32 @@ class CampsAttachmentController extends AbstractController
         return $this->redirect($this->campUrl($camp));
     }
 
+    /**
+     * "Retirer l'avis" — the way back out of an opinion that was written
+     * about the wrong stay, or that the staff no longer stands behind.
+     *
+     * A stay is never deleted and a review is never one person's, so the
+     * only correction available otherwise was overwriting it with another
+     * opinion — which is not the same thing as having none.
+     *
+     * @param array<string, string> $params
+     */
+    public function deleteReview(Request $request, array $params): Response
+    {
+        [$camp, $error] = $this->requireCamp($params);
+        if ($camp === null) {
+            return $error;
+        }
+        if (($guard = $this->guardCsrf($request, $this->campUrl($camp))) !== null) {
+            return $guard;
+        }
+
+        $this->reviewService->delete($camp, AuthSession::getUserAccountId());
+        FlashMessage::set('success', 'Avis retiré.');
+
+        return $this->redirect($this->campUrl($camp));
+    }
+
     // ── Photos ──────────────────────────────────────────────────────
 
     /**

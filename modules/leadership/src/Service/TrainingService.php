@@ -193,6 +193,7 @@ class TrainingService
                 memberYearId: $row->memberYearId,
                 totem: $row->totem,
                 fullName: $row->fullName(),
+                email: $row->email,
                 sectionName: $row->sectionName,
                 detail: $row->functionLabel,
                 note: "Première année d'animation dans l'unité : le parcours peut commencer maintenant.",
@@ -247,6 +248,7 @@ class TrainingService
                     memberYearId: $row->memberYearId,
                     totem: $row->totem,
                     fullName: $row->fullName(),
+                    email: $row->email,
                     sectionName: $row->sectionName,
                     detail: $row->functionLabel,
                     note: $next === null

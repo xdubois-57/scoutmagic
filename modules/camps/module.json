@@ -269,6 +269,15 @@
       "label": ""
     },
     {
+      "path": "/chefs/camps/sejours/{id}/avis/supprimer",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "deleteReview",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
       "path": "/chefs/camps/lieux/{id}/fusionner",
       "method": "GET",
       "controller": "Modules\\Camps\\Controller\\CampsMergeController",

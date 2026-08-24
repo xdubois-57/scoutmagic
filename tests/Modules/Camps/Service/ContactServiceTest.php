@@ -69,7 +69,36 @@ class ContactServiceTest extends TestCase
     public function testAnUnknownRoleIsRefused(): void
     {
         $this->expectException(CampsException::class);
-        $this->service->validate(['phone' => '0478', 'role_label' => 'Concierge']);
+        $this->service->validate(['phone' => '0478', 'role_label' => 'concierge']);
+    }
+
+    public function testTheRolePickersKeyIsWhatTheFormPosts(): void
+    {
+        // The <select> is built from ContactService::ROLES, so the browser
+        // sends the KEY. Validating against the labels refused every real
+        // submission and accepted only a payload nothing on the site
+        // produces — which is exactly what the previous version of this
+        // test pinned.
+        $values = $this->service->validate(['phone' => '0478', 'role_label' => 'proprietaire']);
+
+        $this->assertSame('Propriétaire', $values['role_label']);
+    }
+
+    public function testTheLabelItselfIsNotAnAcceptedPayload(): void
+    {
+        // Nothing sends it, and accepting it would leave two spellings of
+        // one role reachable through a hand-crafted POST.
+        $this->expectException(CampsException::class);
+        $this->service->validate(['phone' => '0478', 'role_label' => 'Propriétaire']);
+    }
+
+    public function testEveryRoleKeyMapsBackToItsPickerEntry(): void
+    {
+        foreach (ContactService::ROLES as $key => $label) {
+            $this->assertSame($key, ContactService::roleKeyForLabel($label));
+        }
+        $this->assertSame('', ContactService::roleKeyForLabel(null));
+        $this->assertSame('', ContactService::roleKeyForLabel('Concierge'));
     }
 
     // ── Storage ─────────────────────────────────────────────────────
@@ -96,7 +125,7 @@ class ContactServiceTest extends TestCase
 
     public function testTheRoleLabelStaysInClear(): void
     {
-        $this->service->create(1, ['phone' => '0478', 'role_label' => 'Propriétaire'], 42);
+        $this->service->create(1, ['phone' => '0478', 'role_label' => 'proprietaire'], 42);
 
         $this->assertSame(
             'Propriétaire',
@@ -289,7 +318,7 @@ class ContactServiceTest extends TestCase
             1,
             [
                 'name' => 'Mme Lambert',
-                'role_label' => 'Propriétaire',
+                'role_label' => 'proprietaire',
                 'email' => 'lambert@example.org',
                 'phone' => '081 58 00 00',
             ],
