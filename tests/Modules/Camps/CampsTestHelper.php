@@ -38,6 +38,17 @@ class CampsTestHelper
             participant_count INTEGER NULL,
             booked_by_member_id INTEGER NULL,
             booked_by_name BLOB NULL,
+            review_notified_at TEXT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE camp_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            camp_id INTEGER NOT NULL UNIQUE,
+            rating INTEGER NULL,
+            comment TEXT NULL,
+            author_member_id INTEGER NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');

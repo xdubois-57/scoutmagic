@@ -8,6 +8,16 @@
         action_url: '/chefs/camps/nouveau?lieu=' ~ place.id,
     } only %}
 
+    {% if latest_rating %}
+        <p class="mb-3">
+            {% include '@camps/_stars.html.twig' with { rating: latest_rating.rating } only %}
+            <span class="small text-body-secondary">
+                — avis du séjour de {{ latest_rating.year }}. Ce lieu n'a pas de moyenne :
+                c'est le dernier avis chiffré qui compte.
+            </span>
+        </p>
+    {% endif %}
+
     <div class="d-flex flex-wrap gap-2 mb-4">
         {% if place.address %}
             <span class="badge text-bg-light border">
@@ -52,7 +62,11 @@
 
     <div class="row row-cols-1 row-cols-lg-2 g-3 mt-1">
         {% for entry in past %}
-            <div class="col">{% include '@camps/_camp_card.html.twig' with { entry: entry } only %}</div>
+            <div class="col">
+                {% include '@camps/_camp_card.html.twig' with {
+                    entry: entry|merge({ review: reviews[entry.camp.id]|default(null) })
+                } only %}
+            </div>
         {% else %}
             <div class="col-12">
                 {% include 'partials/empty_state.html.twig' with {

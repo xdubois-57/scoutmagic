@@ -108,6 +108,42 @@ class CampRepository
         return $counts;
     }
 
+    /**
+     * Stays whose review notification is due and has never been sent.
+     *
+     * "The day after the end date" is expressed as "the end date is
+     * strictly past" rather than "the end date was yesterday": the second
+     * form silently loses the notification on any day the scheduler did
+     * not run, and this module assumes installations without a real cron.
+     * A stay that ended a week ago on such a site is notified late, which
+     * is the right failure.
+     *
+     * Never a year-only stay — there is no day after a year — and never a
+     * cancelled one: there was no camp to have an opinion about.
+     *
+     * @return Camp[]
+     */
+    public function findAwaitingReviewNotification(\DateTimeImmutable $today): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT c.* FROM camp_camps c
+              WHERE c.review_notified_at IS NULL
+                AND c.status <> 'cancelled'
+                AND c.end_date IS NOT NULL
+                AND c.end_date < ?
+              ORDER BY c.end_date ASC, c.id ASC"
+        );
+        $stmt->execute([$today->format('Y-m-d')]);
+
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    public function markReviewNotified(int $campId, \DateTimeImmutable $at): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE camp_camps SET review_notified_at = ? WHERE id = ?');
+        $stmt->execute([$at->format('Y-m-d H:i:s'), $campId]);
+    }
+
     public function countByPlace(int $placeId): int
     {
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM camp_camps WHERE place_id = ?');

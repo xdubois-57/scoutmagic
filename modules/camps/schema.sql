@@ -84,6 +84,16 @@ CREATE TABLE IF NOT EXISTS camp_camps (
     booked_by_member_id INT UNSIGNED NULL,
     booked_by_name BLOB NULL,
 
+    -- When the "leave a review" notification went out, and the ONLY thing
+    -- that stops it going out twice: Core\Notification\
+    -- NotificationService::dispatch() deduplicates nothing, it always
+    -- creates the rows it is asked for. A column rather than a
+    -- "yesterday only" window in the task, because on an installation
+    -- with no real cron — which this module assumes elsewhere too — a
+    -- missed day would lose the notification silently and for good. With
+    -- this, a task that has not run for a week still sends it, late.
+    review_notified_at DATETIME NULL,
+
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
@@ -212,4 +222,38 @@ CREATE TABLE IF NOT EXISTS camp_documents (
     INDEX idx_camp_documents_camp (camp_id, sort_order),
     CONSTRAINT fk_camp_documents_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE,
     CONSTRAINT fk_camp_documents_file FOREIGN KEY (file_id) REFERENCES files(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- camp_reviews: what a staff thought of a stay, for the staff that comes
+-- after. One review per camp (UNIQUE on camp_id) — deliberately not one
+-- per chief: a unit speaks with one voice about a field it camped on, and
+-- five individual opinions would need averaging, which this module
+-- refuses to do (see the place sheet's "most recent rating", never a
+-- mean).
+--
+-- Every chief may write and edit it. The people who were there are the
+-- people who know, and locking a review to its author would leave a stale
+-- one uncorrectable the moment that author leaves the unit.
+CREATE TABLE IF NOT EXISTS camp_reviews (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    camp_id INT UNSIGNED NOT NULL,
+
+    -- NULL is a real value, not a missing one: a CANCELLED stay gets a
+    -- comment and never a rating (Service\ReviewService enforces it), and
+    -- a comment without a number is exactly what "annulé six semaines
+    -- avant le départ" needs to say.
+    rating TINYINT UNSIGNED NULL,
+    comment TEXT NULL,
+
+    -- Who wrote it, for the record. Nullable and ON DELETE SET NULL: a
+    -- review outlives its author's membership, and that is the point.
+    author_member_id INT UNSIGNED NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE INDEX idx_camp_reviews_camp (camp_id),
+    CONSTRAINT fk_camp_reviews_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE,
+    CONSTRAINT fk_camp_reviews_author FOREIGN KEY (author_member_id) REFERENCES members(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

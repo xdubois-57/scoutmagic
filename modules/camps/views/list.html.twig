@@ -77,8 +77,18 @@
                                 </div>
                                 <i class="bi bi-chevron-right text-body-secondary" aria-hidden="true"></i>
                             </div>
-                            <div class="small text-body-secondary mt-2">
-                                {{ entry.stay_count }} séjour{{ entry.stay_count > 1 ? 's' : '' }}
+                            <div class="d-flex justify-content-between align-items-center mt-2">
+                                {% if entry.latest_rating %}
+                                    <span>
+                                        {% include '@camps/_stars.html.twig' with { rating: entry.latest_rating.rating } only %}
+                                        <span class="small text-body-secondary">{{ entry.latest_rating.year }}</span>
+                                    </span>
+                                {% else %}
+                                    <span class="small text-body-secondary">Pas d'avis</span>
+                                {% endif %}
+                                <span class="small text-body-secondary">
+                                    {{ entry.stay_count }} séjour{{ entry.stay_count > 1 ? 's' : '' }}
+                                </span>
                             </div>
                         </div>
                     </a>

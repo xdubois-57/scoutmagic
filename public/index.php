@@ -3184,6 +3184,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     $campsContactRepo = new \Modules\Camps\Repository\ContactRepository($pdo, $encryptionService);
     $campsLinkRepo = new \Modules\Camps\Repository\LinkRepository($pdo);
     $campsDocumentRepo = new \Modules\Camps\Repository\DocumentRepository($pdo);
+    $campsReviewRepo = new \Modules\Camps\Repository\ReviewRepository($pdo);
 
     $campsSectionDescriber = new \Modules\Camps\Service\SectionDescriber($sectionService);
     $campsPlaceService = new \Modules\Camps\Service\PlaceService($campsPlaceRepo, $auditService);
@@ -3211,6 +3212,21 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         $auditService,
         $galleryDelegatedAlbumManager ?? null
     );
+    $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService);
+
+    // The "leave a review" notification re-arms itself (Task\
+    // ReviewReminderHandler), so it only needs seeding once — the very
+    // first page load after the module is enabled. Guarded on find()
+    // rather than scheduled blindly, or every request would queue one.
+    if ($schedulerService->find('camps', \Modules\Camps\Task\ReviewReminderHandler::TASK_KEY, \Modules\Camps\Task\ReviewReminderHandler::REFERENCE) === null) {
+        $schedulerService->schedule(
+            'camps',
+            \Modules\Camps\Task\ReviewReminderHandler::TASK_KEY,
+            new DateTimeImmutable('tomorrow 06:00'),
+            [],
+            \Modules\Camps\Task\ReviewReminderHandler::REFERENCE
+        );
+    }
 
     // BOTH file gates, because they guard different routes and a module
     // registering only one leaves its files reachable through the other:
@@ -3242,14 +3258,16 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Camps\Controller\CampsChiefController(
             $twig, $campsPlaceRepo, $campsCampRepo, $campsPlaceService, $campsCampService,
             $campsSectionDescriber, $sectionService, $editableContentService, $auditService, $settingService,
-            $campsContactRepo, $campsLinkRepo, $campsDocumentRepo, $campsAlbumService
+            $campsContactRepo, $campsLinkRepo, $campsDocumentRepo, $campsAlbumService,
+            $campsReviewRepo, $campsReviewService
         )
     );
     $frontController->registerController(
         \Modules\Camps\Controller\CampsAttachmentController::class,
         new \Modules\Camps\Controller\CampsAttachmentController(
             $twig, $campsCampRepo, $campsPlaceRepo, $campsContactRepo, $campsLinkRepo, $campsDocumentRepo,
-            $campsContactService, $campsLinkService, $campsDocumentService, $campsAlbumService
+            $campsContactService, $campsLinkService, $campsDocumentService, $campsAlbumService,
+            $campsReviewService, $campsReviewRepo
         )
     );
     $frontController->registerController(

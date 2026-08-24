@@ -20,12 +20,14 @@ use Modules\Camps\Repository\ContactRepository;
 use Modules\Camps\Repository\DocumentRepository;
 use Modules\Camps\Repository\LinkRepository;
 use Modules\Camps\Repository\PlaceRepository;
+use Modules\Camps\Repository\ReviewRepository;
 use Modules\Camps\Service\CampAlbumService;
 use Modules\Camps\Service\CampLabels;
 use Modules\Camps\Service\CampsException;
 use Modules\Camps\Service\ContactService;
 use Modules\Camps\Service\DocumentService;
 use Modules\Camps\Service\LinkService;
+use Modules\Camps\Service\ReviewService;
 use Twig\Environment;
 
 /**
@@ -50,7 +52,9 @@ class CampsAttachmentController extends AbstractController
         private ContactService $contactService,
         private LinkService $linkService,
         private DocumentService $documentService,
-        private CampAlbumService $albumService
+        private CampAlbumService $albumService,
+        private ReviewService $reviewService,
+        private ReviewRepository $reviews
     ) {
     }
 
@@ -312,6 +316,40 @@ class CampsAttachmentController extends AbstractController
         FlashMessage::set('success', 'Document supprimé.');
 
         return $this->redirect($target);
+    }
+
+    // ── Reviews ─────────────────────────────────────────────────────
+
+    /**
+     * @param array<string, string> $params
+     */
+    public function saveReview(Request $request, array $params): Response
+    {
+        [$camp, $error] = $this->requireCamp($params);
+        if ($camp === null) {
+            return $error;
+        }
+        if (($guard = $this->guardCsrf($request, $this->campUrl($camp))) !== null) {
+            return $guard;
+        }
+
+        try {
+            $this->reviewService->save(
+                $camp,
+                [
+                    'rating' => (string) $request->getBody('rating', ''),
+                    'comment' => (string) $request->getBody('comment', ''),
+                ],
+                $this->reviews->memberIdForMemberYears(AuthSession::getLinkedMembers()),
+                AuthSession::getUserAccountId(),
+                new \DateTimeImmutable('today')
+            );
+            FlashMessage::set('success', 'Avis enregistré. Merci pour les staffs suivants.');
+        } catch (CampsException $e) {
+            FlashMessage::set('error', $e->getMessage());
+        }
+
+        return $this->redirect($this->campUrl($camp));
     }
 
     // ── Photos ──────────────────────────────────────────────────────

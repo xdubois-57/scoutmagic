@@ -25,6 +25,21 @@
             } only %}
         </div>
 
+        {% if entry.review is defined and entry.review %}
+            <div class="mt-2">
+                {% if entry.review.rating is not null %}
+                    {% include '@camps/_stars.html.twig' with { rating: entry.review.rating } only %}
+                {% elseif entry.camp.isCancelled() %}
+                    <span class="small text-body-secondary">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i> Avis sans note
+                    </span>
+                {% endif %}
+                {% if entry.review.comment %}
+                    <p class="small text-body-secondary mb-0 mt-1">{{ entry.review.comment }}</p>
+                {% endif %}
+            </div>
+        {% endif %}
+
         {% if entry.sections is not empty %}
             <div class="d-flex flex-wrap gap-1 mt-2">
                 {% for section in entry.sections %}

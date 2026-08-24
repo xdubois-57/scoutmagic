@@ -100,6 +100,8 @@ class CampsRbacTest extends TestCase
         $documentRepo = new DocumentRepository($this->pdo);
         $contactService = new ContactService($contacts, $audit);
         $albumService = new CampAlbumService($audit, null);
+        $reviewRepo = new \Modules\Camps\Repository\ReviewRepository($this->pdo);
+        $reviewService = new \Modules\Camps\Service\ReviewService($reviewRepo, $audit);
         $this->contactId = $contacts->create($this->campId, 'Mme Lambert', 'Propriétaire', 'lambert@example.org', null, null);
 
         $this->attachmentController = new CampsAttachmentController(
@@ -111,7 +113,9 @@ class CampsRbacTest extends TestCase
                 new \Core\File\UploadHandler(new \Core\File\FileRepository($this->pdo), sys_get_temp_dir()),
                 $audit, sys_get_temp_dir()
             ),
-            $albumService
+            $albumService,
+            $reviewService,
+            $reviewRepo
         );
 
         $this->chiefController = new CampsChiefController(
@@ -126,7 +130,9 @@ class CampsRbacTest extends TestCase
             $contacts,
             $links,
             $documentRepo,
-            $albumService
+            $albumService,
+            $reviewRepo,
+            $reviewService
         );
         $this->configController = new CampsConfigController($twig, $settings);
 

@@ -201,6 +201,59 @@
         {% endif %}
     </div>
 
+    <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Avis</h2>
+    {% if not review_open %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: "L'avis s'ouvrira au retour du camp.",
+            compact: true,
+        } only %}
+    {% else %}
+        {% if review %}
+            <div class="card mb-3"><div class="card-body">
+                {% if review.rating is not null %}
+                    {% include '@camps/_stars.html.twig' with { rating: review.rating } only %}
+                {% elseif camp.camp.isCancelled() %}
+                    <div class="small text-body-secondary">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                        Séjour annulé — commentaire seul, sans note.
+                    </div>
+                {% endif %}
+                {% if review.comment %}
+                    <p class="mt-2 mb-0">{{ review.comment|nl2br }}</p>
+                {% endif %}
+            </div></div>
+        {% endif %}
+
+        <form method="post" action="/chefs/camps/sejours/{{ camp.camp.id }}/avis" class="card">
+            <div class="card-body">
+                <h3 class="h6 mb-3">{{ review ? "Modifier l'avis" : 'Laisser un avis' }}</h3>
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+                {% if review_allows_rating %}
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'review-rating', field_name: 'rating', label: 'Note', type: 'select',
+                        size: 'sm', options: rating_options,
+                    } only %}
+                {% else %}
+                    {# Server-side too (Service\ReviewService): a form is a
+                       suggestion, a service is the answer. #}
+                    <p class="small text-body-secondary">
+                        Ce séjour a été annulé : personne n'y a campé, il n'y a donc pas de note à
+                        donner. Le commentaire, lui, est précieux — dites ce qui s'est passé.
+                    </p>
+                {% endif %}
+
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'review-comment', field_name: 'comment', label: 'Commentaire',
+                    type: 'textarea', rows: 4, size: 'sm', value: review ? review.comment : '',
+                    help: 'Ce qu\'un staff qui ne connaît pas ce terrain devrait savoir avant d\'y aller.',
+                } only %}
+
+                <button type="submit" class="btn btn-primary btn-sm">Enregistrer l'avis</button>
+            </div>
+        </form>
+    {% endif %}
+
     <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Historique</h2>
     {% include 'partials/audit_timeline.html.twig' with {
         entity_type: 'camp_camp',

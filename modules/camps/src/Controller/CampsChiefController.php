@@ -25,12 +25,15 @@ use Modules\Camps\Repository\DocumentRepository;
 use Modules\Camps\Repository\LinkRepository;
 use Modules\Camps\Repository\Place;
 use Modules\Camps\Repository\PlaceRepository;
+use Modules\Camps\Repository\Review;
+use Modules\Camps\Repository\ReviewRepository;
 use Modules\Camps\Service\CampAlbumService;
 use Modules\Camps\Service\CampLabels;
 use Modules\Camps\Service\CampService;
 use Modules\Camps\Service\CampsException;
 use Modules\Camps\Service\ContactService;
 use Modules\Camps\Service\PlaceService;
+use Modules\Camps\Service\ReviewService;
 use Modules\Camps\Service\SectionDescriber;
 use Twig\Environment;
 
@@ -66,7 +69,9 @@ class CampsChiefController extends AbstractController
         private ContactRepository $contacts,
         private LinkRepository $links,
         private DocumentRepository $documents,
-        private CampAlbumService $albumService
+        private CampAlbumService $albumService,
+        private ReviewRepository $reviews,
+        private ReviewService $reviewService
     ) {
     }
 
@@ -181,8 +186,14 @@ class CampsChiefController extends AbstractController
             ? array_values(array_filter($split['past'], static fn(Camp $c): bool => $c->status === $statusFilter))
             : $split['past'];
 
+        $pastReviews = $this->reviews->findByCamps(
+            array_map(static fn(Camp $c): int => $c->id, $split['past'])
+        );
+
         return $this->render('@camps/place.html.twig', [
             'place' => $place,
+            'latest_rating' => $this->reviews->latestRatingForPlace($place->id),
+            'reviews' => $pastReviews,
             'breadcrumb_current' => $place->name,
             'breadcrumb_trail' => $this->trail(),
             'upcoming' => $this->decorateCamps($split['upcoming']),
@@ -251,6 +262,7 @@ class CampsChiefController extends AbstractController
         if ($place === null) {
             return $this->notFound();
         }
+        $today = $this->today();
 
         return $this->render('@camps/camp.html.twig', [
             'camp' => $this->decorateCamp($camp),
@@ -267,6 +279,10 @@ class CampsChiefController extends AbstractController
             // page anybody merely opens. The album is created on the
             // photos page instead, which is the page actually about them.
             'album_available' => $this->albumService->isAvailable(),
+            'review' => $this->reviews->findByCamp($camp->id),
+            'review_open' => $this->reviewService->isOpen($camp, $today),
+            'review_allows_rating' => $this->reviewService->allowsRating($camp),
+            'rating_options' => $this->ratingOptions($this->reviews->findByCamp($camp->id)),
             'links' => $this->links->findByCamp($camp->id),
             'document_count' => $this->documents->countByCamp($camp->id),
             'audit_page' => $this->audit->page(CampService::ENTITY_TYPE, $camp->id, 1, AuditService::DEFAULT_PER_PAGE),
@@ -438,6 +454,12 @@ class CampsChiefController extends AbstractController
             $decorated[] = [
                 'place' => $place,
                 'stay_count' => $this->camps->countByPlace($place->id),
+                // The most recent stay that actually carries a number,
+                // with its year — never an average across the years. A
+                // place is what it was like last time; a mean would let a
+                // bad 2019 drag down a field that has changed hands
+                // since, and would hide when the opinion is from.
+                'latest_rating' => $this->reviews->latestRatingForPlace($place->id),
             ];
         }
 
@@ -557,6 +579,27 @@ class CampsChiefController extends AbstractController
         }
 
         return $trail;
+    }
+
+    /**
+     * The rating picker, with "pas de note" first — a chief who wants to
+     * write only a comment must not have to give a number to do it.
+     *
+     * @return array<int, array{value: string, label: string, selected: bool}>
+     */
+    private function ratingOptions(?Review $review): array
+    {
+        $current = $review?->rating;
+        $options = [['value' => '', 'label' => 'Pas de note', 'selected' => $current === null]];
+        for ($i = Review::MIN_RATING; $i <= Review::MAX_RATING; $i++) {
+            $options[] = [
+                'value' => (string) $i,
+                'label' => $i . ' / ' . Review::MAX_RATING,
+                'selected' => $current === $i,
+            ];
+        }
+
+        return $options;
     }
 
     private function today(): \DateTimeImmutable

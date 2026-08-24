@@ -1744,6 +1744,16 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **Photos and documents need BOTH file gates registered.** `Core\File\FileOwnershipCheckerInterface` guards `/files/{id}`; `Modules\Gallery\Api\DelegatedAlbumAccessChecker` guards `/gallery/media/{id}`. A module registering only one leaves its media reachable through the other route. The album is resolved (and therefore CREATED — `ensureAlbum` is create-if-missing) only on the photos page, never on the stay's own page: doing it there would write one gallery row for every camp anybody merely opens.
 
+**One review per stay, editable by every chief.** Not one per person: a unit speaks with one voice about a field it camped on, and several opinions would need averaging — which this module refuses to do anywhere. Locking a review to its author would leave a stale one uncorrectable the moment that author leaves.
+
+**A cancelled stay gets a comment and never a rating**, enforced in `Service\ReviewService` and not only in the form. It CAN be reviewed — a place that cancelled three weeks before departure is the single most useful thing to know about that booking — but nobody camped there, so there is nothing to rate, and a number would let a cancellation become the place's displayed rating. `ReviewRepository::latestRatingForPlace()` excludes cancelled stays again on the read side, so a row that arrived some other way still cannot count.
+
+**A place shows the rating of its most recent RATED stay, with its year — never a mean.** A place is what it was like last time; an average would let a bad 2019 drag down a field that has changed hands since, and would hide when the opinion is from. A more recent comment-only review does not blank the older rating.
+
+**The review notification is sent once, and once is a column.** `camp_camps.review_notified_at`, not a "yesterday only" window in the task: `NotificationService::dispatch()` deduplicates nothing, and a date window silently loses the notification for good on any installation whose scheduler did not run that day — which this module assumes is common. With the column, a task that has not run for a week still sends it, late, which is the right failure. A stay with nobody to tell is marked anyway, or the task rebuilds that empty recipient list on every run for ever; a site with notifications switched off marks nothing, so it does not burn the one chance each stay gets.
+
+**Recipients are the animators of the stay's own sections, for the scout year the stay ended in** — not the current staff: the people who were there are the people who know. No section set falls back to the unit's chiefs only, never to every animator: a broadcast because somebody left a field empty is how a notification becomes noise. A stay whose end date predates every scout year row tells nobody rather than guessing a year.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
