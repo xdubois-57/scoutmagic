@@ -14,7 +14,9 @@ use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
+use Core\Member\MemberEmailRepository;
 use Core\Member\SectionService;
+use Core\Member\SectionStaffAuthorizationService;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -143,7 +145,13 @@ class CalendarChiefControllerTest extends TestCase
             $scoutYearResolver,
             $journalService,
             $settingService,
-            $moduleManager
+            $moduleManager,
+            new SectionStaffAuthorizationService(
+                $connection,
+                $encryption,
+                $sectionService,
+                new MemberEmailRepository($this->pdo, $encryption)
+            )
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -165,6 +173,40 @@ class CalendarChiefControllerTest extends TestCase
         $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
         $stmt->execute([$deskCode, $branchId, $name]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Gives $email a chief-role Desk function on $sectionId, which is the
+     * only thing that makes Core\Member\SectionStaffAuthorizationService
+     * treat the account as an animateur of it — and therefore the only
+     * thing that lets the writes below through since IT-02.
+     */
+    private function makeAnimateurOf(int $sectionId, string $email = 'chief@test.be'): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_blind_index) VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId,
+            $this->scoutYearId,
+            // Really encrypted, not a placeholder: "Mes évènements" walks
+            // MemberService::getLinkedMembers(), which decrypts these.
+            $encryption->encrypt('Alice', 'member_years.first_name'),
+            $encryption->encrypt('Dupont', 'member_years.last_name'),
+            $encryption->blindIndex(strtolower($email), 'email'),
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec("INSERT OR IGNORE INTO functions (desk_code, label, role) VALUES ('chief', 'Animateur', 'chief')");
+        $functionId = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'chief'")->fetchColumn();
+
+        $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)');
+        $stmt->execute([$memberYearId, $functionId, $sectionId]);
     }
 
     public function testIndexRendersPage(): void
@@ -329,6 +371,7 @@ class CalendarChiefControllerTest extends TestCase
     public function testCreateEventSucceeds(): void
     {
         $sectionId = $this->createSection('BAL01', 'Renards');
+        $this->makeAnimateurOf($sectionId);
         $this->calendarService->ensureSectionCalendars();
         $calendar = $this->calendarRepository->findBySectionId($sectionId);
 
@@ -371,6 +414,7 @@ class CalendarChiefControllerTest extends TestCase
     public function testUpdateEventSucceeds(): void
     {
         $sectionId = $this->createSection('BAL01', 'Renards');
+        $this->makeAnimateurOf($sectionId);
         $this->calendarService->ensureSectionCalendars();
         $calendar = $this->calendarRepository->findBySectionId($sectionId);
         $eventId = $this->eventRepository->create($calendar->id, 'Old', '2026-01-01', null, null, null, null, null, null);
@@ -395,6 +439,7 @@ class CalendarChiefControllerTest extends TestCase
     public function testDeleteEventSucceeds(): void
     {
         $sectionId = $this->createSection('BAL01', 'Renards');
+        $this->makeAnimateurOf($sectionId);
         $this->calendarService->ensureSectionCalendars();
         $calendar = $this->calendarRepository->findBySectionId($sectionId);
         $eventId = $this->eventRepository->create($calendar->id, 'Title', '2026-01-01', null, null, null, null, null, null);
@@ -408,6 +453,190 @@ class CalendarChiefControllerTest extends TestCase
         $decoded = json_decode($response->getBody(), true);
         $this->assertTrue($decoded['success']);
         $this->assertNull($this->eventRepository->findById($eventId));
+    }
+
+    // --- IT-02: the page SHOWS the whole unit, the dialog and the three
+    // writes are narrowed to the sections this account animates ---
+
+    public function testTheGridAndPickerStillShowASectionTheChiefDoesNotAnimate(): void
+    {
+        $mine = $this->createSection('BAL01', 'Renards');
+        $this->createSection('ECL01', 'Éclaireurs');
+        $this->makeAnimateurOf($mine);
+        $this->calendarService->ensureSectionCalendars();
+
+        $body = $this->controller->index(new Request('GET', '/chefs/calendar', [], [], [], []), [])->getBody();
+
+        // Narrowing the WRITE must never narrow the READ: the whole point of
+        // this page is that an animateur follows what the unit is doing.
+        $this->assertStringContainsString('Éclaireurs', $body);
+        $this->assertStringContainsString('Renards', $body);
+    }
+
+    public function testTheDialogOnlyOffersTheSectionsTheChiefAnimates(): void
+    {
+        $mine = $this->createSection('BAL01', 'Renards');
+        $theirs = $this->createSection('ECL01', 'Éclaireurs');
+        $this->makeAnimateurOf($mine);
+        $this->calendarService->ensureSectionCalendars();
+        $mineCalendar = $this->calendarRepository->findBySectionId($mine);
+        $theirsCalendar = $this->calendarRepository->findBySectionId($theirs);
+
+        $body = $this->controller->index(new Request('GET', '/chefs/calendar', [], [], [], []), [])->getBody();
+
+        // Scoped to the DIALOG's select on purpose: the page's own calendar
+        // picker above it lists the other section too, and must keep doing
+        // so — that is the read side, which this iteration does not touch.
+        $dialogSelect = $this->dialogCalendarSelect($body);
+        $this->assertStringContainsString('value="' . $mineCalendar->id . '"', $dialogSelect);
+        $this->assertStringNotContainsString('value="' . $theirsCalendar->id . '"', $dialogSelect);
+
+        // The same write set reaches the script that gates the dialog. It
+        // also carries the section-less "Animateurs" calendar, which is
+        // open to every chief — so assert on membership, not on the whole
+        // list.
+        $editableIds = $this->editableCalendarIdsFrom($body);
+        $this->assertContains($mineCalendar->id, $editableIds);
+        $this->assertNotContains($theirsCalendar->id, $editableIds);
+    }
+
+    public function testAnAnimateurWithNoSectionIsToldWhyNothingIsEditable(): void
+    {
+        $sectionId = $this->createSection('BAL01', 'Renards');
+        $this->calendarService->ensureSectionCalendars();
+        // chief@test.be is deliberately not linked to any Desk function.
+
+        $body = $this->controller->index(new Request('GET', '/chefs/calendar', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('aucune fonction d\'animateur ne vous est rattachée', $body);
+
+        // Not "nothing is editable": the supplementary "Animateurs"
+        // calendar has no section, so it stays open to them. What they lose
+        // is every SECTION calendar.
+        $sectionCalendar = $this->calendarRepository->findBySectionId($sectionId);
+        $this->assertNotContains($sectionCalendar->id, $this->editableCalendarIdsFrom($body));
+    }
+
+    public function testCreateEventInAnotherSectionsCalendarIsRefused(): void
+    {
+        $mine = $this->createSection('BAL01', 'Renards');
+        $theirs = $this->createSection('ECL01', 'Éclaireurs');
+        $this->makeAnimateurOf($mine);
+        $this->calendarService->ensureSectionCalendars();
+        $theirsCalendar = $this->calendarRepository->findBySectionId($theirs);
+
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        // The dialog never offers this calendar — the only way this request
+        // exists is forged, and the server refuses it on its own.
+        $request = $this->createJsonRequest([
+            'calendar_id' => $theirsCalendar->id,
+            'title' => 'Intrus',
+            'start_date' => '2026-03-15',
+            '_csrf_token' => $token,
+        ]);
+        $response = $this->controller->createEvent($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertFalse($this->eventRepository->calendarHasEvents($theirsCalendar->id));
+    }
+
+    public function testDeletingAnEventOfAnotherSectionIsRefused(): void
+    {
+        $mine = $this->createSection('BAL01', 'Renards');
+        $theirs = $this->createSection('ECL01', 'Éclaireurs');
+        $this->makeAnimateurOf($mine);
+        $this->calendarService->ensureSectionCalendars();
+        $theirsCalendar = $this->calendarRepository->findBySectionId($theirs);
+        $eventId = $this->eventRepository->create($theirsCalendar->id, 'Leur réunion', '2026-01-01', null, null, null, null, null, null);
+
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $response = $this->controller->deleteEvent($this->createJsonRequest(['event_id' => $eventId, '_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertNotNull($this->eventRepository->findById($eventId));
+    }
+
+    public function testAnEventCannotBeMovedIntoTheChiefsOwnSection(): void
+    {
+        $mine = $this->createSection('BAL01', 'Renards');
+        $theirs = $this->createSection('ECL01', 'Éclaireurs');
+        $this->makeAnimateurOf($mine);
+        $this->calendarService->ensureSectionCalendars();
+        $mineCalendar = $this->calendarRepository->findBySectionId($mine);
+        $theirsCalendar = $this->calendarRepository->findBySectionId($theirs);
+        $eventId = $this->eventRepository->create($theirsCalendar->id, 'Leur réunion', '2026-01-01', null, null, null, null, null, null);
+
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        // Both ends of the move are checked, so owning the DESTINATION is
+        // not enough to drag an event out of a section that isn't ours.
+        $response = $this->controller->updateEvent($this->createJsonRequest([
+            'event_id' => $eventId,
+            'calendar_id' => $mineCalendar->id,
+            'title' => 'Détourné',
+            'start_date' => '2026-01-02',
+            '_csrf_token' => $token,
+        ]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame($theirsCalendar->id, $this->eventRepository->findById($eventId)->calendarId);
+    }
+
+    public function testAChefDUniteWritesInEverySection(): void
+    {
+        AuthSession::login(2, 'cu@test.be', 'admin');
+        $theirs = $this->createSection('ECL01', 'Éclaireurs');
+        $this->calendarService->ensureSectionCalendars();
+        $theirsCalendar = $this->calendarRepository->findBySectionId($theirs);
+
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $response = $this->controller->createEvent($this->createJsonRequest([
+            'calendar_id' => $theirsCalendar->id,
+            'title' => 'Réunion d\'unité',
+            'start_date' => '2026-03-15',
+            '_csrf_token' => $token,
+        ]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success'], 'admin/superadmin get every section from the service itself');
+    }
+
+    /**
+     * The add/edit dialog's own calendar <select>, isolated from the page's
+     * calendar picker — two different lists with two different rules.
+     */
+    private function dialogCalendarSelect(string $body): string
+    {
+        $start = strpos($body, 'id="event-calendar"');
+        self::assertNotFalse($start, 'the dialog must render its calendar select');
+        $end = strpos($body, '</select>', $start);
+        self::assertNotFalse($end);
+
+        return substr($body, $start, $end - $start);
+    }
+
+    /**
+     * The editableCalendarIds the page hands calendar-chief.js, read back
+     * out of its JSON island.
+     *
+     * @return int[]
+     */
+    private function editableCalendarIdsFrom(string $body): array
+    {
+        self::assertMatchesRegularExpression('/"editableCalendarIds":\[[0-9,]*\]/', $body);
+        preg_match('/"editableCalendarIds":\[([0-9,]*)\]/', $body, $matches);
+
+        return $matches[1] === '' ? [] : array_map('intval', explode(',', $matches[1]));
     }
 
     /**

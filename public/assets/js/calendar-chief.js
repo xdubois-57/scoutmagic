@@ -58,6 +58,19 @@
     var defaultEndTime = pageData.defaultEndTime || '';
     var defaultLocation = pageData.defaultLocation || '';
     var defaultCalendarId = pageData.defaultCalendarId == null ? null : pageData.defaultCalendarId;
+    // The calendars this account may WRITE to — a subset of what the grid
+    // shows, since an animateur sees the whole unit but files events only
+    // in their own sections. The server refuses either way; this keeps the
+    // dialog from opening on an event it could never save.
+    var editableCalendarIds = (pageData.editableCalendarIds || []).map(Number);
+
+    /**
+     * @param {string|number|null|undefined} calendarId
+     * @returns {boolean}
+     */
+    function isEditableCalendar(calendarId) {
+        return calendarId != null && editableCalendarIds.indexOf(Number(calendarId)) !== -1;
+    }
 
     var modal = window.bootstrap ? new window.bootstrap.Modal(eventModalEl) : null;
 
@@ -173,7 +186,13 @@
     // already fire a click — no keyboard handler of our own, and none of the
     // inline onKeyDown attribute this site's CSP would refuse to run anyway.
     /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.calendar-day-cell--clickable')).forEach(function (cell) {
-        cell.addEventListener('click', function () { openAddModal(cell.dataset.date); });
+        cell.addEventListener('click', function () {
+            // Nowhere to file it: an animateur with no section of their own.
+            // The page says so in its own words; opening an empty dialog on
+            // top of that would only be a second, worse way of saying it.
+            if (!editableCalendarIds.length) return;
+            openAddModal(cell.dataset.date);
+        });
     });
 
     /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.calendar-event-bar--clickable')).forEach(function (bar) {
@@ -181,6 +200,11 @@
             // The bar sits on top of the day cell in the same grid, so without
             // this a click on a bar would also open the "add an event" modal.
             e.stopPropagation();
+            // Another section's event: the dialog's calendar list does not
+            // contain its calendar, so opening it would silently offer to
+            // MOVE the event into one of ours — and the server would refuse
+            // on submit. Do nothing instead.
+            if (!isEditableCalendar(bar.dataset.calendarId)) return;
             openEditModal(bar.dataset);
         });
     });
