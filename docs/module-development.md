@@ -640,7 +640,7 @@ Corps en Markdown…
 
 ## Recording an entity's change history (`Core\Audit`)
 
-When your module owns something a chief will ask questions about later — "who changed this price, and when?" — record the changes and render the timeline instead of inventing a per-module events table. `Core\Audit` is that table generalised (ARCHITECTURE.md §8.65).
+When your module owns something a chief will ask questions about later — "who changed this price, and when?" — record the changes and render the timeline instead of inventing a per-module events table. `Core\Audit` is that table generalised (ARCHITECTURE.md §8.66).
 
 ```php
 $this->auditService->record(

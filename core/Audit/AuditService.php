@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace Core\Audit;
 
 /**
- * A reusable per-entity change history (ARCHITECTURE.md §8.65), rendered
+ * A reusable per-entity change history (ARCHITECTURE.md §8.66), rendered
  * on the entity's own page by partials/audit_timeline.html.twig.
  *
  * NOT Core\Journal\JournalService. The journal is a global administrative

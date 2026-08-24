@@ -12,6 +12,7 @@ use Core\Badge\Badge;
 use Core\Badge\BadgeRepository;
 use Core\Badge\MemberBadgeRepository;
 use Core\Import\AgeBranchRepository;
+use Core\Module\FormationPathProvider;
 use Core\Module\SectionResponsableProvider;
 use Core\Security\Role;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
@@ -42,7 +43,8 @@ class MemberPageService
         private ?SectionResponsableProvider $sectionResponsableProvider = null,
         private ?MassMailQueryInterface $massMailQuery = null,
         private ?GalleryAlbumProvider $galleryAlbumProvider = null,
-        private ?CalendarEventLookupInterface $calendarEventLookup = null
+        private ?CalendarEventLookupInterface $calendarEventLookup = null,
+        private ?FormationPathProvider $formationPathProvider = null
     ) {
     }
 
@@ -100,6 +102,15 @@ class MemberPageService
             // alone can't distinguish the two.
             'mass_mail_enabled' => $this->massMailQuery !== null,
             'gallery_enabled' => $this->galleryAlbumProvider !== null,
+            // §6bis — the member's own training path (leadership module).
+            // Resolved only for the member themselves, here and not merely
+            // in the template: $showPersonal would have handed a chief the
+            // data and left the hiding to a Twig condition, and a block
+            // that is never built cannot leak through a later template
+            // edit. Same posture as member_documents above.
+            'formation_path' => $isSelf
+                ? $this->formationPathProvider?->getFormationPath($profile->memberId, $scoutYearId)
+                : null,
         ];
     }
 

@@ -3,7 +3,7 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// The camps map (ARCHITECTURE.md §8.66). Leaflet is vendored under
+// The camps map (ARCHITECTURE.md §8.67). Leaflet is vendored under
 // /assets/vendor/leaflet/ — no npm, no build step, no CDN, same treatment
 // as Bootstrap and Chart.js.
 //

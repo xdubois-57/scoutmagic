@@ -4,7 +4,7 @@
  */
 
 // "Afficher plus" for partials/audit_timeline.html.twig — appends the next
-// page of GET /api/audit/{type}/{id} in place. See ARCHITECTURE.md §8.65.
+// page of GET /api/audit/{type}/{id} in place. See ARCHITECTURE.md §8.66.
 //
 // This file builds the same <li> the server renders in
 // partials/audit_timeline_entry.html.twig. That duplication is the price of

@@ -17,6 +17,8 @@ use Core\Member\MemberPageService;
 use Core\Member\MemberProfile;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
+use Core\Module\FormationPathProvider;
+use Core\Module\FormationPathView;
 use Core\Module\SectionResponsableProvider;
 use Core\Security\EncryptionService;
 use Core\Security\Role;
@@ -100,7 +102,8 @@ class MemberPageServiceTest extends TestCase
         ?SectionResponsableProvider $responsableProvider = null,
         ?MassMailQueryInterface $massMailQuery = null,
         ?GalleryAlbumProvider $galleryAlbumProvider = null,
-        ?CalendarEventLookupInterface $calendarEventLookup = null
+        ?CalendarEventLookupInterface $calendarEventLookup = null,
+        ?FormationPathProvider $formationPathProvider = null
     ): MemberPageService {
         return new MemberPageService(
             $this->sectionService,
@@ -114,7 +117,8 @@ class MemberPageServiceTest extends TestCase
             $responsableProvider,
             $massMailQuery,
             $galleryAlbumProvider,
-            $calendarEventLookup
+            $calendarEventLookup,
+            $formationPathProvider
         );
     }
 
@@ -453,5 +457,44 @@ class MemberPageServiceTest extends TestCase
         $this->assertTrue($dataEnabled['gallery_enabled']);
         $this->assertSame([], $dataEnabled['recent_mass_mail_emails']);
         $this->assertSame([], $dataEnabled['gallery_albums']);
+    }
+
+    /**
+     * The training path is SELF ONLY, and the boundary lives here rather
+     * than in the template: a chief/admin viewing somebody else's page must
+     * never have the data in the first place, so a later template edit
+     * cannot leak it. Same posture as member_documents.
+     *
+     * This is the sharpest rule of the leadership module's member-page
+     * block — MemberController::show() admits a chief onto this page, so
+     * "the route authorized it" is not the same question as "this is their
+     * own file".
+     */
+    public function testTheFormationPathIsResolvedOnlyForTheMemberThemselves(): void
+    {
+        $profile = $this->createMemberInSection();
+
+        $view = new FormationPathView([], 'T2 atteint', 'T3', true);
+        $provider = $this->createMock(FormationPathProvider::class);
+        $provider->method('getFormationPath')->willReturn($view);
+
+        $service = $this->buildService(null, null, null, null, $provider);
+
+        $ownPage = $service->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
+        $this->assertSame($view, $ownPage['formation_path']);
+
+        // A chief d'unité looking at this member's page: authorized on the
+        // route, and still not shown this.
+        $staffView = $service->buildPageData($profile, $this->scoutYearId, false, true, Role::ADMIN);
+        $this->assertNull($staffView['formation_path']);
+    }
+
+    public function testTheFormationPathIsAbsentWhenTheLeadershipModuleIsDisabled(): void
+    {
+        $profile = $this->createMemberInSection();
+
+        $data = $this->buildService()->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
+
+        $this->assertNull($data['formation_path']);
     }
 }
