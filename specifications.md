@@ -98,7 +98,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Page | Role | Content |
 |---|---|---|
 | Staffs | intendant | SectionPicker + staff info per section (chief/chief-d'unité only — animés are not shown). Section's staff group photo, editable in configuration mode (one per scout year, falls back to the most recent earlier year). Badges assignable to staff (chief only, see Core\Badge). Section documents (an animateur of that section only, see §15.2): add/reorder/delete/update PDF attachments per section and scout year (e.g. planning, camp info sheets), displayed both on the Staffs page and the member page. Section name/email are configured from Config Desk (§4.5), not here. |
-| Finances (module) | intendant | Bank statement import, receivables, receipts, movements. `intendant` opens the module; which **accounts** it opens is narrower — see §28. |
+| Finances (module) | intendant | Bank statement import, receivables, receipts, movements, outils (§30). `intendant` opens the module; which **accounts** it opens is narrower — see §28. |
 | Statistiques (module) | chief | Member statistics |
 | Calendrier (module) | chief | Chiefs' calendar view (month grid, event edit) |
 | Camps (module) | chief | Camp sites and the stays made there. Search over places (name, address, postal code, city); "À venir" and "Lieux" lists; a collapsed map of the places that have coordinates. A place sheet shows its stays, the rating of its most recent RATED stay (never an average), an optional AI summary, and — for a chef d'unité only — merge and archive. A stay carries its sections, price, participant count, contacts, links, documents, photos, a free-text note, a review and its own change history. When a dedicated mailbox is configured, a "Courrier non classé" screen lists the inbound mail nobody could attribute. |
@@ -960,3 +960,32 @@ Le bouton n'existe pas et la page des réponses fonctionne exactement comme avan
 ### 29.6 Hors périmètre
 
 Choisir un sous-ensemble de répondants, un modèle de message prérempli, un envoi direct sans passer par l'écran de composition, et toute nouvelle règle de conservation — ces audiences sont purgées par le mécanisme existant du publipostage.
+
+
+## 30. Finances — la page « Outils » (module finance)
+
+### 30.1 Deux outils, une page
+
+Ils ne partagent que leur emplacement. Tous deux répondent à une question qu'un trésorier se pose son téléphone à la main.
+
+### 30.2 Code QR de paiement
+
+Bénéficiaire, IBAN, montant, communication libre → un code QR que n'importe quelle application bancaire européenne scanne pour préremplir un virement. À coller dans un courrier, une affiche ou un e-mail.
+
+**Il ne crée aucune créance.** Fabriquer un QR pour le montrer à quelqu'un n'est pas décider qu'un paiement est dû : enregistrer une attente au passage remplirait la page des paiements attendus d'argent que personne n'a promis, définitivement et sans rien pour y remonter.
+
+L'IBAN est réellement vérifié (longueur et clé de contrôle), pas seulement sa forme — un seul chiffre changé est refusé. Le montant accepte la virgule.
+
+### 30.3 Vérifier une communication
+
+Une communication structurée relevée sur un extrait : est-elle correcte, et à quoi correspond-elle ?
+
+Trois réponses possibles : **invalide** (ce n'est pas une communication structurée belge correcte), **valide mais inconnue ici**, ou **valide et reconnue** — avec alors ce qu'elle concerne, le compte et le montant attendu.
+
+Ce que la page montre suit exactement les règles d'accès aux comptes (§28) : un paiement attendu sur un compte que vous ne pouvez pas ouvrir est traité comme inconnu, sans même vous dire qu'il existe.
+
+Le journal du site retient qu'une vérification a eu lieu et son résultat, **jamais la communication saisie ni le libellé trouvé**.
+
+### 30.4 Hors périmètre
+
+Enregistrer un paiement, créer une créance depuis le générateur, un historique des QR produits, et la recherche par montant ou par nom — la communication est la seule clé.
