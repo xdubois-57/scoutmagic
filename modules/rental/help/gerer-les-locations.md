@@ -2,7 +2,7 @@
 id: gerer-les-locations
 title: Gérer les locations d'un bien
 summary: Les réservations, les paiements, les documents et le séjour.
-category: Espace animateurs
+category: Espace membres
 role_min: identified
 paths: /mes-locations, /mes-locations/*
 related: locations, config-locations, courrier-entrant
