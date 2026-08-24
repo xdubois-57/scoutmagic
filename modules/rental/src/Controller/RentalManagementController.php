@@ -89,6 +89,12 @@ class RentalManagementController extends AbstractController
     private const MONTHS_AHEAD = 36;
 
     /**
+     * Bookings per page on the list. A hall that has been let for ten
+     * years has hundreds, and the page used to render every one of them.
+     */
+    private const BOOKINGS_PER_PAGE = 25;
+
+    /**
      * What a manager may attach to a booking (§6.24).
      *
      * A closed list of document and image types, checked by
@@ -523,28 +529,86 @@ class RentalManagementController extends AbstractController
         }
 
         $filter = (string) $request->getQuery('statut', '');
-        $status = BookingStatus::tryFrom($filter);
-        $bookings = $this->bookingRepository->findAllForAssets([$asset->id], $status);
+        $year = (string) $request->getQuery('annee', '');
+        $search = trim((string) $request->getQuery('q', ''));
+
+        // ONE query, then every filter applied to its result. The status
+        // filter used to be pushed into the query and then thrown away
+        // whenever "à traiter" was chosen — a second full read of the same
+        // rows, in the same request. And the renter's name is encrypted,
+        // so searching it cannot happen in SQL at all: filtering here is
+        // what makes the reference and the name searchable by one box.
+        $all = $this->bookingRepository->findAllForAssets([$asset->id]);
 
         // "À traiter" is not a status but the union of three, so it is a
         // filter of its own rather than something the enum has to pretend
         // to model.
-        if ($filter === 'a_traiter') {
-            $bookings = array_values(array_filter(
-                $this->bookingRepository->findAllForAssets([$asset->id]),
-                static fn(RentalBooking $b) => $b->status->needsAttention()
-            ));
-        }
+        $status = BookingStatus::tryFrom($filter);
+        $matching = array_values(array_filter($all, static function (RentalBooking $b) use (
+            $filter,
+            $status,
+            $year,
+            $search
+        ): bool {
+            if ($filter === 'a_traiter' && !$b->status->needsAttention()) {
+                return false;
+            }
+            if ($status !== null && $b->status !== $status) {
+                return false;
+            }
+            if ($year !== '' && !str_starts_with($b->arrivalDate, $year . '-')) {
+                return false;
+            }
+            if ($search === '') {
+                return true;
+            }
+
+            $haystack = $b->reference . ' ' . $b->renterName . ' ' . ($b->renterOrganisation ?? '');
+
+            return mb_stripos($haystack, $search) !== false;
+        }));
+
+        $perPage = self::BOOKINGS_PER_PAGE;
+        $totalPages = max(1, (int) ceil(count($matching) / $perPage));
+        $page = min($totalPages, max(1, (int) $request->getQuery('page', 1)));
 
         return $this->render('@rental/management/bookings.html.twig', [
             'asset' => $asset,
             'breadcrumb_current' => 'Réservations',
             'breadcrumb_trail' => $this->assetSubPageTrail($asset),
-            'bookings' => $bookings,
+            'bookings' => array_slice($matching, ($page - 1) * $perPage, $perPage),
             'filter' => $filter,
+            'year' => $year,
+            'search' => $search,
+            // Only the years this asset actually has bookings in: an
+            // arbitrary range would offer a dozen empty answers.
+            'years' => self::bookingYears($all),
             'statuses' => BookingStatus::cases(),
+            'page' => $page,
+            'total_pages' => $totalPages,
+            'total_matching' => count($matching),
+            'pagination_base_url' => '/mes-locations/' . rawurlencode($asset->slug) . '/reservations?'
+                . http_build_query(['statut' => $filter, 'annee' => $year, 'q' => $search]) . '&page=',
             'nav_page' => 'bookings',
         ]);
+    }
+
+    /**
+     * The arrival years this asset has bookings in, newest first.
+     *
+     * @param RentalBooking[] $bookings
+     * @return string[]
+     */
+    private static function bookingYears(array $bookings): array
+    {
+        $years = [];
+        foreach ($bookings as $booking) {
+            $years[substr($booking->arrivalDate, 0, 4)] = true;
+        }
+        $years = array_keys($years);
+        rsort($years);
+
+        return $years;
     }
 
     /**
@@ -1675,8 +1739,48 @@ class RentalManagementController extends AbstractController
                 'success',
                 'Réservation « ' . $target->label() . ' ».'
                 . $this->tellRenter($booking, $asset, RenterDecision::forStatus($target), $word)
+                . $this->outstandingMoneyWarning($booking, $asset, $target)
             );
         });
+    }
+
+    /** `467,50 €` — for a flash message a human reads, never for arithmetic. */
+    private static function euros(int $cents): string
+    {
+        return number_format($cents / 100, 2, ',', ' ') . ' €';
+    }
+
+    /**
+     * The sentence a manager needs when they close a booking that is still
+     * owed money.
+     *
+     * Nothing here decides anything — §6.17 is explicit that there is no
+     * automatic cancellation scale and nothing computes a refund. But
+     * cancelling a booking leaves its receivable exactly where it was, and
+     * "Réservation « Annulée »." alone reads as "everything is settled".
+     * A manager who is not told has to remember to look.
+     */
+    private function outstandingMoneyWarning(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        BookingStatus $target
+    ): string {
+        if (!$target->isFinal() || $this->paymentService === null) {
+            return '';
+        }
+
+        $status = $this->paymentStatus($booking, $asset);
+        $due = (int) ($status['total_cents'] ?? 0);
+        $received = (int) ($status['received_cents'] ?? 0);
+        if ($due <= 0 || $received >= $due) {
+            return '';
+        }
+
+        return $received > 0
+            ? ' Attention : ' . self::euros($due - $received) . ' restent attendus sur cette réservation'
+                . ' — décidez ce qu\'il advient de la créance dans les Finances.'
+            : ' Attention : la créance de ' . self::euros($due)
+                . ' est toujours ouverte dans les Finances.';
     }
 
     /**

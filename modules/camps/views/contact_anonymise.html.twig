@@ -37,11 +37,20 @@
                 fiche</strong> sera anonymisée.
             </p>
         {% endif %}
-        <p class="mb-0">
+        <p class="mb-2">
             Son nom, son e-mail, son téléphone et ses précisions seront remplacés,
             ici et dans l'historique des séjours concernés. Ce qui reste : qu'un
             contact a existé, quand il a été ajouté et par qui — des faits sur le
             séjour, pas sur la personne.
+        </p>
+        {# Said plainly rather than left to be discovered: the e-mails
+           themselves are not touched by this button, and a chief who
+           believes otherwise would tell the person something false. #}
+        <p class="mb-0">
+            <strong>Les e-mails reçus de cette personne sont conservés</strong> :
+            cette anonymisation ne les touche pas. Ils restent rattachés aux
+            séjours concernés, avec leur expéditeur, leur contenu et leurs pièces
+            jointes.
         </p>
     </div>
 

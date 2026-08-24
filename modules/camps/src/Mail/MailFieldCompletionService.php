@@ -114,13 +114,35 @@ class MailFieldCompletionService
         // The MACHINE value, never the readable one: "12–19 juillet 2028"
         // is what a chief sees, and re-parsing it here would mean
         // teaching the reader to read its own output.
+        $written = false;
         if ($proposal->fieldKey === 'price' && ctype_digit($proposal->proposedMachineValue)) {
             $this->write($camp, ['price_cents' => (int) $proposal->proposedMachineValue]);
+            $written = true;
         } elseif ($proposal->fieldKey === 'dates') {
             $parts = explode('|', $proposal->proposedMachineValue);
             if (count($parts) === 2) {
                 $this->write($camp, ['start_date' => $parts[0], 'end_date' => $parts[1], 'year_only' => null]);
+                $written = true;
             }
+        }
+
+        // Nothing was written — an unreadable machine value, or a field key
+        // this method has no branch for. Recording "acceptée" and deleting
+        // the proposal anyway was the worst of both: the history claimed a
+        // chief's decision had been applied, the stay still said the old
+        // thing, and the proposal that would have let anyone notice was
+        // gone. Recorded as what it is instead, and still removed, because
+        // a proposal that cannot be applied is not worth offering twice.
+        if (!$written) {
+            $this->audit->record(
+                CampService::ENTITY_TYPE, $camp->id, $proposal->fieldKey,
+                $proposal->currentValue, $proposal->currentValue,
+                AuditSource::System, "Information du message inapplicable — proposition retirée",
+                $proposal->sourceReference, $actorUserAccountId
+            );
+            $this->proposals->delete($proposal->id);
+
+            return;
         }
 
         $this->audit->record(

@@ -198,7 +198,10 @@ class IcsBuilder
         // A cancelled event is PUBLISHED as cancelled, never omitted: a
         // subscriber who already has it needs to be told it is off, and
         // dropping it from the feed leaves it in their calendar forever.
-        $lines[] = $this->property('STATUS', $event->isCancelled ? 'CANCELLED' : 'CONFIRMED');
+        // A request nobody has agreed to yet is TENTATIVE, which is what
+        // stops a reader blocking a weekend for a booking that is refused
+        // the following week.
+        $lines[] = $this->property('STATUS', $event->icsStatus());
         $lines[] = $this->property('SEQUENCE', (string) $event->sequence);
         $lines[] = $this->property('LAST-MODIFIED', $this->formatUtc(
             ($event->updatedAt ?? new \DateTimeImmutable('now'))->setTimezone(new \DateTimeZone('UTC'))

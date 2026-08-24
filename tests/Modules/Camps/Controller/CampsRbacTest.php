@@ -107,7 +107,8 @@ class CampsRbacTest extends TestCase
         $duplicates = new \Modules\Camps\Service\DuplicatePlaceDetector($places, null);
         $mergeService = new \Modules\Camps\Service\MergeService(
             $places, $camps, $contacts, $links, $documentRepo, $reviewRepo,
-            new EditableContentService(new EditableContentRepository($this->pdo)), $audit, $albumService
+            new EditableContentService(new EditableContentRepository($this->pdo)), $audit, $albumService,
+            $this->pdo
         );
         $this->mergeController = new \Modules\Camps\Controller\CampsMergeController(
             $twig, $places, $camps, $mergeService, $archiveService

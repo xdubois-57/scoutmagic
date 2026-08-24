@@ -643,6 +643,113 @@ class RentalDocumentServiceTest extends TestCase
         $this->assertNull($this->service->absolutePath($document));
     }
 
+    // ── Deleting a document never blanks a message (§7.8, §8.59) ────────
+
+    private function createAttachmentFile(RentalBooking $booking, string $name = 'piece-jointe.pdf'): int
+    {
+        return $this->fileRepository->create(
+            'rental/documents/' . bin2hex(random_bytes(6)) . '.pdf',
+            $name,
+            'application/pdf',
+            1024,
+            'identified',
+            'rental',
+            null,
+            false,
+            null,
+            RentalDocumentService::OWNER_TYPE,
+            $booking->id
+        );
+    }
+
+    private function countFiles(int $fileId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM files WHERE id = ?');
+        $stmt->execute([$fileId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    public function testDeletingAnEmailSourcedDocumentLeavesTheMessagesFileAlone(): void
+    {
+        // An inbound message's attachment is registered by the very same
+        // `files` id the message serves it from. Deleting the bytes here
+        // would blank the message too — the manager who tidies up a
+        // "Non classé" row would silently destroy the correspondence it
+        // came from.
+        $booking = $this->createBooking();
+        $fileId = $this->createAttachmentFile($booking);
+        $documentId = $this->service->attachUploaded(
+            $booking,
+            $fileId,
+            DocumentType::UNSORTED,
+            false,
+            null,
+            \Modules\Rental\Document\RentalDocument::SOURCE_EMAIL
+        );
+        $document = $this->service->find($documentId);
+        $this->assertNotNull($document);
+        $this->assertFalse($document->ownsItsFile());
+
+        $this->service->delete($document);
+
+        $this->assertNull($this->service->find($documentId));
+        $this->assertSame(1, $this->countFiles($fileId), 'The message still owns and serves this file.');
+    }
+
+    public function testReclassifyingAnAttachmentDoesNotMakeItOursToDelete(): void
+    {
+        // Reclassification moves the type, never the ownership of the
+        // bytes: the message still carries the same attachment.
+        $booking = $this->createBooking();
+        $fileId = $this->createAttachmentFile($booking, 'contrat-signe.pdf');
+        $documentId = $this->service->attachUploaded(
+            $booking,
+            $fileId,
+            DocumentType::UNSORTED,
+            false,
+            null,
+            \Modules\Rental\Document\RentalDocument::SOURCE_EMAIL
+        );
+        $this->service->reclassify($booking, $documentId, DocumentType::EVIDENCE, false);
+
+        $document = $this->service->find($documentId);
+        $this->assertNotNull($document);
+        $this->service->delete($document);
+
+        $this->assertSame(1, $this->countFiles($fileId));
+    }
+
+    public function testDeletingAnUploadedDocumentStillTakesItsFileWithIt(): void
+    {
+        $booking = $this->createBooking();
+        $fileId = $this->createAttachmentFile($booking, 'etat-des-lieux.pdf');
+        $documentId = $this->service->attachUploaded($booking, $fileId, DocumentType::INVENTORY, false);
+        $document = $this->service->find($documentId);
+        $this->assertNotNull($document);
+        $this->assertTrue($document->ownsItsFile());
+
+        $this->service->delete($document);
+
+        $this->assertSame(0, $this->countFiles($fileId));
+    }
+
+    public function testAFileASecondDocumentStillPointsAtIsKept(): void
+    {
+        // Two rows can legitimately share one file. Deleting the bytes
+        // would turn the surviving row into a broken download.
+        $booking = $this->createBooking();
+        $fileId = $this->createAttachmentFile($booking, 'plan.pdf');
+        $first = $this->service->attachUploaded($booking, $fileId, DocumentType::OTHER, false);
+        $this->service->attachUploaded($booking, $fileId, DocumentType::OTHER, false);
+
+        $document = $this->service->find($first);
+        $this->assertNotNull($document);
+        $this->service->delete($document);
+
+        $this->assertSame(1, $this->countFiles($fileId));
+    }
+
     // ── Who may fetch a document (§6.24, §6.26) ─────────────────────────
 
     private function checkerFor(?string $email): RentalDocumentOwnershipChecker

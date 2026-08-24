@@ -227,13 +227,45 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Rental\Task\SendRentalRemindersHandler()
     );
 
-    // The retention purge (§6.35), same shape. Its self-built service
-    // reaches everything except `inbound_mail`; under a real crontab a
-    // purged booking's emails are cleaned up on the next web-path run.
+    // The retention purge (§6.35), same shape — and assembled here rather
+    // than left to the handler's self-built fallback, because that fallback
+    // cannot reach Finance either. A purged booking whose receivable
+    // survives leaves the unit being owed money by a stay that no longer
+    // exists, under a label carrying the renter's name: the deletion would
+    // be incomplete in exactly the way §6.35 forbids. `inbound_mail` is
+    // still absent from this construction; a purged booking's emails are
+    // cleaned up on the next web-path run.
+    $rentalPurgePaymentService = null;
+    if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
+        $rentalPurgePaymentService = new \Modules\Rental\Service\RentalPaymentService(
+            new \Modules\Rental\Repository\RentalPaymentRepository($pdo, $encryptionService),
+            new \Modules\Rental\Repository\RentalBookingEventRepository($pdo),
+            $journalService,
+            new \Modules\Finance\Service\ExpectedReceivableService(
+                new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryptionService),
+                new \Modules\Finance\Repository\TransactionRepository($pdo, $encryptionService)
+            )
+        );
+    }
+
     $runner->registerHandler(
         'rental',
         \Modules\Rental\Task\PurgeRentalBookingsHandler::TASK_KEY,
-        new \Modules\Rental\Task\PurgeRentalBookingsHandler()
+        new \Modules\Rental\Task\PurgeRentalBookingsHandler(
+            new \Modules\Rental\Service\RentalRetentionService(
+                new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService),
+                new \Modules\Rental\Repository\RentalDocumentRepository($pdo),
+                new \Modules\Rental\Repository\RentalAggregateRepository($pdo),
+                new \Modules\Rental\Repository\RentalReminderRepository($pdo),
+                $settingService,
+                $journalService,
+                $pdo,
+                new \Core\File\FileRepository($pdo),
+                null,
+                dirname(__DIR__) . '/storage',
+                $rentalPurgePaymentService
+            )
+        )
     );
 }
 

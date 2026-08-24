@@ -48,33 +48,43 @@ final class FormationLevelResolver
      * value announces itself on the Formations page and a
      * confidently-wrong one never does.
      *
-     * @var list<array{0: string, 1: FormationStep}>
+     * The third element says how the needle is matched. `t1`/`t2`/`t3` are
+     * two characters long and matched on WORD boundaries: as substrings
+     * they fire on "POST2015", on a reference number, on a room code —
+     * values that then resolve confidently to the wrong step and never
+     * appear on the Formations page as unrecognised, which is the one
+     * signal a unit has that the site did not understand something.
+     * Everything else is a phrase long enough for a substring match to be
+     * safe, and has to stay a substring so it survives the wording around
+     * it ("formation : deuxième étape (2026)").
+     *
+     * @var list<array{0: string, 1: FormationStep, 2: bool}>
      */
     private const PATTERNS = [
         // Brevet first — it is the end of the path and its wording often
         // carries the preceding step's name alongside it.
-        ['brevet', FormationStep::BREVET],
-        ['animateur brevete', FormationStep::BREVET],
+        ['brevet', FormationStep::BREVET, false],
+        ['animateur brevete', FormationStep::BREVET, false],
 
-        ['t3', FormationStep::T3],
-        ['troisieme etape', FormationStep::T3],
-        ['3eme etape', FormationStep::T3],
-        ['3e etape', FormationStep::T3],
+        ['t3', FormationStep::T3, true],
+        ['troisieme etape', FormationStep::T3, false],
+        ['3eme etape', FormationStep::T3, false],
+        ['3e etape', FormationStep::T3, false],
 
-        ['t2', FormationStep::T2],
-        ['deuxieme etape', FormationStep::T2],
-        ['2eme etape', FormationStep::T2],
-        ['2e etape', FormationStep::T2],
+        ['t2', FormationStep::T2, true],
+        ['deuxieme etape', FormationStep::T2, false],
+        ['2eme etape', FormationStep::T2, false],
+        ['2e etape', FormationStep::T2, false],
 
-        ['t1', FormationStep::T1],
-        ['premiere etape', FormationStep::T1],
-        ['1ere etape', FormationStep::T1],
-        ['1re etape', FormationStep::T1],
+        ['t1', FormationStep::T1, true],
+        ['premiere etape', FormationStep::T1, false],
+        ['1ere etape', FormationStep::T1, false],
+        ['1re etape', FormationStep::T1, false],
 
-        ['aucune formation', FormationStep::NONE],
-        ['pas de formation', FormationStep::NONE],
-        ['aucun', FormationStep::NONE],
-        ['neant', FormationStep::NONE],
+        ['aucune formation', FormationStep::NONE, false],
+        ['pas de formation', FormationStep::NONE, false],
+        ['aucun', FormationStep::NONE, false],
+        ['neant', FormationStep::NONE, false],
     ];
 
     /**
@@ -132,8 +142,12 @@ final class FormationLevelResolver
             }
         }
 
-        foreach (self::PATTERNS as [$needle, $step]) {
-            if (str_contains($folded, $needle)) {
+        foreach (self::PATTERNS as [$needle, $step, $wholeWord]) {
+            $matches = $wholeWord
+                ? preg_match('/(^| )' . $needle . '( |$)/', $folded) === 1
+                : str_contains($folded, $needle);
+
+            if ($matches) {
                 return $step;
             }
         }

@@ -763,6 +763,16 @@ CREATE TABLE IF NOT EXISTS rental_documents (
     version SMALLINT UNSIGNED NOT NULL DEFAULT 1,
     is_for_renter TINYINT(1) NOT NULL DEFAULT 0,
 
+    -- Who owns the bytes behind `file_id`.
+    --
+    -- 'manual': this module put them there (an upload, a generated PDF),
+    -- and deleting the document deletes the file with it. 'email': the row
+    -- points at an inbound message's OWN attachment, by the very same
+    -- `files` id the message serves it from (§8.59) — deleting the bytes
+    -- here would blank the message too, so only this row goes. Same
+    -- invariant, and the same wording, as camp_documents.source.
+    source ENUM('manual', 'email') NOT NULL DEFAULT 'manual',
+
     -- The values the document was rendered from, frozen (§6.25). Without
     -- it, "why does v1 say 467,50 € when the booking says 400,00 €?" has no
     -- answer six months later. Never personal data beyond what the document

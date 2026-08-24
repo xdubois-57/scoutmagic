@@ -213,6 +213,27 @@ class PlaceRepository
     }
 
     /**
+     * Puts an automatically-geocoded place back in the queue.
+     *
+     * `geocoded_at` means "we have tried this address", so it has to be
+     * cleared when the address itself changes — otherwise a place
+     * corrected from "Rue du Tronquoy" to "Rue du Tronquoy 4" keeps the
+     * pin the old, vaguer address produced, for ever, and the map quietly
+     * shows the wrong field.
+     *
+     * The `coordinates_are_manual = 0` clause is the same fence as
+     * `recordGeocoding()`: somebody who moved the pin onto the actual
+     * field knows something Nominatim does not.
+     */
+    public function clearGeocoding(int $id): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE camp_places SET geocoded_at = NULL WHERE id = ? AND coordinates_are_manual = 0'
+        );
+        $stmt->execute([$id]);
+    }
+
+    /**
      * Coordinates a human typed. Sets coordinates_are_manual, which is
      * never cleared — from here on, automatic geocoding leaves this place
      * alone.

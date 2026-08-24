@@ -102,4 +102,21 @@ class AuditService
     {
         return $this->repository->anonymiseValues($entityType, $entityIds, $fieldKeys);
     }
+
+    /**
+     * Anonymises only the entries that name one of $needles — for erasing
+     * one person out of a field several people share.
+     *
+     * @param int[]    $entityIds
+     * @param string[] $fieldKeys
+     * @param string[] $needles
+     */
+    public function anonymiseValuesMatching(
+        string $entityType,
+        array $entityIds,
+        array $fieldKeys,
+        array $needles
+    ): int {
+        return $this->repository->anonymiseValuesMatching($entityType, $entityIds, $fieldKeys, $needles);
+    }
 }

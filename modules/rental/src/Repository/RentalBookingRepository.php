@@ -624,10 +624,14 @@ class RentalBookingRepository
      * handed out and never comes back.
      *
      * Written as select-then-write inside a transaction so it behaves the
-     * same on MySQL and on the SQLite test database. Two concurrent
-     * submissions can still race here; the `UNIQUE` constraint on
-     * `rental_bookings.reference` is the real backstop, and the caller
-     * retries.
+     * same on MySQL and on the SQLite test database, and the read takes
+     * `FOR UPDATE` so a second submission waits for it rather than reading
+     * the same number — the same lock, and the same SQLite carve-out, as
+     * `withAssetLocked()`. The `UNIQUE` constraint on
+     * `rental_bookings.reference` remains the backstop, and
+     * `RentalBookingService::createFromPublicRequest()` retries once on it:
+     * a public visitor must never meet a 500 because two people pressed
+     * "Envoyer" in the same second.
      */
     public function claimNextReferenceSequence(int $year): int
     {
@@ -637,7 +641,15 @@ class RentalBookingRepository
         }
 
         try {
-            $stmt = $this->pdo->prepare('SELECT last_sequence FROM rental_reference_sequences WHERE year = ?');
+            // SQLite has no row locks and does not need them: its
+            // transactions are whole-database, so the guarantee is the
+            // same through a different mechanism rather than weaker.
+            $sql = 'SELECT last_sequence FROM rental_reference_sequences WHERE year = ?';
+            if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+                $sql .= ' FOR UPDATE';
+            }
+
+            $stmt = $this->pdo->prepare($sql);
             $stmt->execute([$year]);
             $current = $stmt->fetchColumn();
 

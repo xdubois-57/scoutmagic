@@ -262,6 +262,91 @@ class ContactServiceTest extends TestCase
         (new ContactService($this->contacts, $this->audit, $journal))->anonymise($contact, 42);
     }
 
+    // ── The contact deleted BEFORE the request ──────────────────────
+
+    /**
+     * @return string[] every value the camp's history still shows
+     */
+    private function historyValues(int $campId): array
+    {
+        $values = [];
+        foreach ($this->audit->page(CampService::ENTITY_TYPE, $campId, 1, 50)->entries as $entry) {
+            $values[] = (string) $entry->fromValue;
+            $values[] = (string) $entry->toValue;
+            $values[] = (string) $entry->summary;
+        }
+
+        return $values;
+    }
+
+    public function testDeletingAContactLeavesNoneOfTheirDetailsInTheHistory(): void
+    {
+        // `anonymisationScope()` is computed from the LIVING rows sharing
+        // an address, so a contact deleted before the request is out of
+        // every later erasure's reach — forever. Whatever the history
+        // holds about them at deletion time is what it holds for good.
+        $this->service->create(
+            1,
+            [
+                'name' => 'Mme Lambert',
+                'role_label' => 'Propriétaire',
+                'email' => 'lambert@example.org',
+                'phone' => '081 58 00 00',
+            ],
+            42
+        );
+        $contact = $this->contacts->findById(1);
+        $this->assertNotNull($contact);
+
+        $this->service->delete($contact, 42);
+
+        $values = implode("\n", $this->historyValues(1));
+        $this->assertStringNotContainsString('Lambert', $values);
+        $this->assertStringNotContainsString('lambert@example.org', $values);
+        $this->assertStringNotContainsString('081 58 00 00', $values);
+        // The role survives: it is a fact about the stay, not about the
+        // person, and it is what makes the entry readable at all.
+        $this->assertStringContainsString('Propriétaire', $values);
+    }
+
+    public function testDeletingOneContactKeepsTheOthersHistory(): void
+    {
+        // Erasing one person out of a field three people share must not
+        // destroy two histories nobody asked to lose.
+        $this->service->create(1, ['name' => 'Mme Lambert', 'email' => 'lambert@example.org'], 42);
+        $this->service->create(1, ['name' => 'M. Martin', 'email' => 'martin@example.org'], 42);
+
+        $contact = $this->contacts->findById(1);
+        $this->assertNotNull($contact);
+        $this->service->delete($contact, 42);
+
+        $this->assertStringContainsString('M. Martin', implode("\n", $this->historyValues(1)));
+    }
+
+    public function testAnErasureFromOneCampReachesNoNameLeftBehindOnAnother(): void
+    {
+        // The whole hole, end to end: created on camp A, deleted there,
+        // the same person recreated on camp B, and the request finally
+        // made from B. Camp A is not in scope and never will be — so camp
+        // A's timeline must already be clean.
+        $this->service->create(1, ['name' => 'Mme Lambert', 'email' => 'lambert@example.org'], 42);
+        $first = $this->contacts->findById(1);
+        $this->assertNotNull($first);
+        $this->service->delete($first, 42);
+
+        $this->service->create(2, ['name' => 'Mme Lambert', 'email' => 'lambert@example.org'], 42);
+        $second = $this->contacts->findById(2);
+        $this->assertNotNull($second);
+
+        $scope = $this->service->anonymisationScope($second);
+        $this->assertSame([2], $scope['camp_ids'], 'Camp A is out of reach — that is the premise.');
+
+        $this->service->anonymise($second, 42);
+
+        $this->assertStringNotContainsString('Lambert', implode("\n", $this->historyValues(1)));
+        $this->assertStringNotContainsString('Lambert', implode("\n", $this->historyValues(2)));
+    }
+
     public function testTheModuleWorksWithoutAJournalAtAll(): void
     {
         $service = new ContactService($this->contacts, $this->audit);

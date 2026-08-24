@@ -116,24 +116,37 @@ class ReviewRepository
         return $id !== false && $id !== null ? (int) $id : null;
     }
 
+    /**
+     * Writes the stay's one review, creating it or replacing it.
+     *
+     * An upsert rather than the select-then-branch this file used to use.
+     * `camp_reviews.camp_id` is UNIQUE, and two chiefs pressing
+     * « Enregistrer l'avis » within the same second both read "no review
+     * yet" and both INSERTed — the second one meeting the constraint as a
+     * PDOException, i.e. a 500 on a page where the only honest answer is
+     * "the other one won". The exception is the reason for the deviation
+     * from this codebase's usual portable select-then-write: here the race
+     * IS the bug, so the two dialects are written out rather than avoided.
+     */
     public function save(int $campId, ?int $rating, ?string $comment, ?int $authorMemberId): void
     {
-        $existing = $this->findByCamp($campId);
-        if ($existing !== null) {
-            $stmt = $this->pdo->prepare(
-                'UPDATE camp_reviews SET rating = ?, comment = ?, author_member_id = ?, updated_at = ? WHERE camp_id = ?'
-            );
-            $stmt->execute([$rating, $comment, $authorMemberId, date('Y-m-d H:i:s'), $campId]);
-
-            return;
-        }
-
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO camp_reviews (camp_id, rating, comment, author_member_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?)'
-        );
         $now = date('Y-m-d H:i:s');
-        $stmt->execute([$campId, $rating, $comment, $authorMemberId, $now, $now]);
+        $insert = 'INSERT INTO camp_reviews (camp_id, rating, comment, author_member_id, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)';
+
+        $sql = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite'
+            ? $insert . ' ON CONFLICT(camp_id) DO UPDATE SET
+                   rating = excluded.rating,
+                   comment = excluded.comment,
+                   author_member_id = excluded.author_member_id,
+                   updated_at = excluded.updated_at'
+            : $insert . ' ON DUPLICATE KEY UPDATE
+                   rating = VALUES(rating),
+                   comment = VALUES(comment),
+                   author_member_id = VALUES(author_member_id),
+                   updated_at = VALUES(updated_at)';
+
+        $this->pdo->prepare($sql)->execute([$campId, $rating, $comment, $authorMemberId, $now, $now]);
     }
 
     public function delete(int $campId): void

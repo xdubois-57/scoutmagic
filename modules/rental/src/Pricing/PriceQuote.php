@@ -72,6 +72,31 @@ final class PriceQuote
     }
 
     /**
+     * Whether this quote actually carries a price, as opposed to a table
+     * of lines adding up to nothing.
+     *
+     * An asset with no rate configured produces a quote whose every
+     * billable line is zero: rendered as a price table it reads "Total
+     * 0,00 €", which a renter takes as "free" and the unit then has to
+     * walk back. Everywhere that would show a total asks this first and
+     * says "Tarif sur demande" instead.
+     *
+     * Informational lines do not count: a meter fee is settled after the
+     * stay on a real reading, so a quote made only of those still has no
+     * price to show.
+     */
+    public function hasPricedLine(): bool
+    {
+        foreach ($this->billableLines() as $line) {
+            if ($line->amountCents !== 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Meter fees and anything else shown but not totalled — quoted as
      * "billed on actual consumption" and settled after the stay (§6.10).
      *

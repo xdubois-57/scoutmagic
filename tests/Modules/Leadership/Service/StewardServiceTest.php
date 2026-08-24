@@ -26,9 +26,20 @@ class StewardServiceTest extends TestCase
     private function service(array $firstSeenByMemberId = []): StewardService
     {
         $repository = $this->createStub(LeadershipRepository::class);
-        $repository->method('findEarliestSectionPeriodStart')
+        // One batched lookup for the whole list, not one call per line —
+        // the page's whole content is that list.
+        $repository->method('findEarliestSectionPeriodStarts')
             ->willReturnCallback(
-                static fn (int $memberId, int $scoutYearId): ?string => $firstSeenByMemberId[$memberId] ?? null
+                static function (array $memberIds, int $scoutYearId) use ($firstSeenByMemberId): array {
+                    $found = [];
+                    foreach ($memberIds as $memberId) {
+                        if (($firstSeenByMemberId[$memberId] ?? null) !== null) {
+                            $found[(int) $memberId] = (string) $firstSeenByMemberId[$memberId];
+                        }
+                    }
+
+                    return $found;
+                }
             );
 
         return new StewardService($repository, new ObligationsService(new CandidateDetector()));
@@ -171,15 +182,20 @@ class StewardServiceTest extends TestCase
         $this->assertStringContainsString('impossible de compter les jours', (string) $lines[0]->note);
     }
 
-    public function testAStartDateInTheFutureCountsZeroRatherThanNegative(): void
+    public function testAStartDateInTheFutureIsAnnouncedRatherThanCountedAsZero(): void
     {
+        // "Inscrit depuis 0 jour" reads as "registered today", which is a
+        // different — and wrong — statement about somebody whose function
+        // begins next month.
         $lines = $this->service()->registrations(
             [$this->steward(['functionStartDate' => '2026-04-01'])],
             self::SCOUT_YEAR_ID,
             $this->winter()
         );
 
-        $this->assertSame(0, $lines[0]->days);
+        $this->assertNull($lines[0]->days);
+        $this->assertSame('Inscription à partir du 01/04/2026.', $lines[0]->note);
+        $this->assertStringNotContainsString('Inscrit depuis', (string) $lines[0]->note);
     }
 
     /**

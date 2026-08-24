@@ -250,13 +250,45 @@ class CampService
             'status' => $status,
             'price_cents' => $this->cleanPrice($fields['price'] ?? null),
             'participant_count' => $this->cleanCount($fields['participant_count'] ?? null),
-            'booked_by_member_id' => $this->cleanId($fields['booked_by_member_id'] ?? null),
+            'booked_by_member_id' => $this->checkedMemberId($this->cleanId($fields['booked_by_member_id'] ?? null)),
             'booked_by_name' => $this->cleanText($fields['booked_by_name'] ?? null),
-            'section_ids' => array_values(array_filter(array_map(
+            'section_ids' => $this->checkedSectionIds(array_values(array_filter(array_map(
                 'intval',
                 is_array($fields['section_ids'] ?? null) ? $fields['section_ids'] : []
-            ))),
+            )))),
         ];
+    }
+
+    /**
+     * Both columns are foreign keys, so a value nobody offered used to
+     * reach MySQL and come back as a PDOException — a 500 on a chief's
+     * form, from a `<select>` somebody edited. The `<select>` is the
+     * client's copy of the list, not the list, so the list is asked here.
+     *
+     * @param int[] $sectionIds
+     * @return int[]
+     */
+    private function checkedSectionIds(array $sectionIds): array
+    {
+        if ($sectionIds === []) {
+            return [];
+        }
+
+        $known = $this->camps->existingSectionIds($sectionIds);
+        if (count($known) !== count(array_unique($sectionIds))) {
+            throw new CampsException('Une des sections choisies n\'existe pas.');
+        }
+
+        return $sectionIds;
+    }
+
+    private function checkedMemberId(?int $memberId): ?int
+    {
+        if ($memberId !== null && !$this->camps->memberExists($memberId)) {
+            throw new CampsException('Ce membre n\'existe pas.');
+        }
+
+        return $memberId;
     }
 
     private function recordChange(

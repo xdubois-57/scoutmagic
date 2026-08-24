@@ -889,6 +889,53 @@ class RentalVirtualEventProviderTest extends TestCase
         $this->assertStringContainsString('STATUS:CANCELLED', $ics);
     }
 
+    public function testARequestNobodyHasAgreedToYetIsPublishedAsTentative(): void
+    {
+        // Published as CONFIRMED it reads, in the renter's own calendar,
+        // exactly like the week they have been promised — and a refusal a
+        // fortnight later leaves them having planned around it.
+        $booking = $this->createBooking('LOC-2027-0001', null, BookingStatus::RECEIVED);
+        $asset = $this->assetRepository->findById($this->assetId);
+        $this->assertNotNull($asset);
+
+        $event = (new RenterFeedBuilder())->build($booking, $asset, 'the-token');
+        $ics = (new IcsBuilder())->build('Location', [], [$event]);
+
+        $this->assertTrue($event->isTentative);
+        $this->assertStringContainsString('STATUS:TENTATIVE', $ics);
+    }
+
+    public function testAConfirmedBookingIsPublishedAsConfirmed(): void
+    {
+        $booking = $this->createBooking('LOC-2027-0001', null, BookingStatus::CONFIRMED);
+        $asset = $this->assetRepository->findById($this->assetId);
+        $this->assertNotNull($asset);
+
+        $event = (new RenterFeedBuilder())->build($booking, $asset, 'the-token');
+        $ics = (new IcsBuilder())->build('Location', [], [$event]);
+
+        $this->assertFalse($event->isTentative);
+        $this->assertStringContainsString('STATUS:CONFIRMED', $ics);
+    }
+
+    public function testACancelledBookingIsCancelledEvenThoughItIsNotFirmEither(): void
+    {
+        // Cancelled wins: a subscriber who already has the event has to be
+        // told it is off, not that it is undecided.
+        $booking = $this->createBooking('LOC-2027-0001', null, BookingStatus::CANCELLED);
+        $asset = $this->assetRepository->findById($this->assetId);
+        $this->assertNotNull($asset);
+
+        $ics = (new IcsBuilder())->build(
+            'Location',
+            [],
+            [(new RenterFeedBuilder())->build($booking, $asset, 'the-token')]
+        );
+
+        $this->assertStringContainsString('STATUS:CANCELLED', $ics);
+        $this->assertStringNotContainsString('STATUS:TENTATIVE', $ics);
+    }
+
     public function testTheRenterFeedNeverCarriesAPrice(): void
     {
         $booking = $this->createBooking();

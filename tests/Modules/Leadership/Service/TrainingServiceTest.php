@@ -219,6 +219,130 @@ class TrainingServiceTest extends TestCase
         $this->assertCount(1, $lines);
     }
 
+    // --- the two lists are disjoint -------------------------------------
+
+    public function testAFirstYearAnimatorAlreadyOnThePathIsNotAskedToStartIt(): void
+    {
+        // "À convaincre de commencer" and "Parcours à terminer" answer two
+        // different questions. Telling a chief to convince somebody who
+        // arrived with a T1 is telling them to have a conversation that
+        // has already happened.
+        $newcomer = LeadershipTestHelper::staffRow([
+            'memberId' => 99,
+            'firstName' => 'Nouvelle',
+            'formationLevel' => 'T1',
+        ]);
+        $resolver = new FormationLevelResolver();
+
+        $convince = $this->service()->toConvince(
+            [$newcomer],
+            self::SCOUT_YEAR_ID,
+            self::SCOUT_YEAR_LABEL,
+            self::PREVIOUS_YEAR_ID,
+            $resolver
+        );
+        $finish = $this->service()->toFinish([$newcomer], $resolver);
+
+        $this->assertSame([], $convince);
+        $this->assertCount(1, $finish);
+    }
+
+    public function testABrevetedFirstYearAnimatorIsNotAskedToStartEither(): void
+    {
+        $newcomer = LeadershipTestHelper::staffRow(['memberId' => 99, 'formationLevel' => 'Brevet']);
+
+        $this->assertSame([], $this->service()->toConvince(
+            [$newcomer],
+            self::SCOUT_YEAR_ID,
+            self::SCOUT_YEAR_LABEL,
+            self::PREVIOUS_YEAR_ID,
+            new FormationLevelResolver()
+        ));
+    }
+
+    public function testAnUnrecognisedLevelStaysOnTheListToConvince(): void
+    {
+        // The module's standing doctrine: an unrecognised Desk value is
+        // never counted as anything, so it cannot be counted as "already
+        // started" either. The honest answer is to let a human look.
+        $newcomer = LeadershipTestHelper::staffRow(['memberId' => 99, 'formationLevel' => 'Zorglub']);
+
+        $this->assertCount(1, $this->service()->toConvince(
+            [$newcomer],
+            self::SCOUT_YEAR_ID,
+            self::SCOUT_YEAR_LABEL,
+            self::PREVIOUS_YEAR_ID,
+            new FormationLevelResolver()
+        ));
+    }
+
+    /**
+     * The invariant, over a whole staff at once: nobody may be on both
+     * lists. This is the property the two filters exist to produce, and
+     * the one a future change to either of them could break.
+     */
+    public function testTheTwoListsNeverNameTheSamePerson(): void
+    {
+        $rows = [];
+        foreach ([null, 'T1', 'T2', 'T3', 'Brevet', 'Zorglub', 'Aucune formation'] as $i => $level) {
+            $rows[] = LeadershipTestHelper::staffRow([
+                'memberId' => 100 + $i,
+                'memberYearId' => 200 + $i,
+                'lastName' => 'Personne' . $i,
+                'formationLevel' => $level,
+            ]);
+        }
+        $resolver = new FormationLevelResolver();
+        $service = $this->service();
+
+        $convince = $service->toConvince(
+            $rows,
+            self::SCOUT_YEAR_ID,
+            self::SCOUT_YEAR_LABEL,
+            self::PREVIOUS_YEAR_ID,
+            $resolver
+        );
+        $finish = $service->toFinish($rows, $resolver);
+
+        $ids = static fn (array $lines): array => array_map(static fn ($l) => $l->memberYearId, $lines);
+        $this->assertSame([], array_intersect($ids($convince), $ids($finish)));
+        // And the exercise is not vacuous: both lists have somebody on them.
+        $this->assertNotSame([], $convince);
+        $this->assertNotSame([], $finish);
+    }
+
+    public function testAPionnierInTwoPionnierSectionsIsListedOnce(): void
+    {
+        // `member_section_periods` has a row per period, so a pionnier who
+        // moved between two Pionniers sections comes back from the query
+        // twice — and was printed twice.
+        $service = $this->service(branchMembers: [
+            $this->branchMember(['section_id' => 4, 'section_name' => 'Pionniers A']),
+            $this->branchMember(['section_id' => 5, 'section_name' => 'Pionniers B']),
+        ]);
+
+        $this->assertCount(1, $service->toConvince([], self::SCOUT_YEAR_ID, self::SCOUT_YEAR_LABEL, null));
+    }
+
+    public function testAccentedNamesSortWhereAReaderLooksForThem(): void
+    {
+        // strcasecmp() compares bytes, so "Émilie" landed after "Zoé" and
+        // the list read as if the accented names had been appended.
+        $service = $this->service(previousAnimators: []);
+        $rows = [
+            LeadershipTestHelper::staffRow(['memberId' => 1, 'firstName' => 'Zoé', 'lastName' => 'Nom']),
+            LeadershipTestHelper::staffRow(['memberId' => 2, 'firstName' => 'Émilie', 'lastName' => 'Nom']),
+            LeadershipTestHelper::staffRow(['memberId' => 3, 'firstName' => 'Alix', 'lastName' => 'Nom']),
+        ];
+
+        $lines = $service->toConvince($rows, self::SCOUT_YEAR_ID, self::SCOUT_YEAR_LABEL, self::PREVIOUS_YEAR_ID);
+
+        $this->assertSame(
+            ['Alix Nom', 'Émilie Nom', 'Zoé Nom'],
+            array_map(static fn ($l) => $l->fullName, $lines)
+        );
+    }
+
     // --- "parcours à terminer" ------------------------------------------
 
     public function testToFinishKeepsOnlyTheStepsBetweenT1AndT3(): void

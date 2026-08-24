@@ -92,9 +92,10 @@ class RentalBookingService implements OccupancyProvider
             throw new RentalException('Vous devez confirmer avoir pris connaissance de la politique de confidentialité.');
         }
 
-        $created = $this->bookingRepository->create(
+        /** @return array{id: int, tracking_token: string} */
+        $write = fn(string $reference): array => $this->bookingRepository->create(
             $assetId,
-            $this->allocateReference($now),
+            $reference,
             $arrivalDate,
             $departureDate,
             max(1, $units),
@@ -118,6 +119,8 @@ class RentalBookingService implements OccupancyProvider
             $now
         );
 
+        $created = $this->writeWithFreshReference($write, $now);
+
         $booking = $this->bookingRepository->findById($created['id']);
         if ($booking === null) {
             throw new RentalException("La demande n'a pas pu être enregistrée.");
@@ -139,6 +142,66 @@ class RentalBookingService implements OccupancyProvider
     }
 
     /**
+     * Writes the booking, retrying **once** with a freshly claimed
+     * reference if the first one collided.
+     *
+     * `claimNextReferenceSequence()` takes a row lock, so the collision
+     * this covers is the narrow one it cannot: a reference already spent
+     * by a row the counter does not know about (a restored backup, a
+     * hand-inserted booking, a counter reset). One retry, not a loop — a
+     * second failure is a broken counter rather than contention, and
+     * hammering the table would only make it worse.
+     *
+     * **No `PDOException` may reach the visitor.** This runs on the public
+     * request form, where a driver-level message would be both a 500 and a
+     * leak of the schema to an anonymous stranger. Whatever happens, the
+     * visitor gets one French sentence and the detail goes to the journal
+     * through `$previous`.
+     *
+     * @param callable(string): array{id: int, tracking_token: string} $write
+     * @return array{id: int, tracking_token: string}
+     * @throws RentalException
+     */
+    private function writeWithFreshReference(callable $write, \DateTimeImmutable $now): array
+    {
+        try {
+            return $write($this->allocateReference($now));
+        } catch (\PDOException $first) {
+            if (!self::isDuplicateKey($first)) {
+                throw new RentalException(self::SUBMISSION_FAILED, 0, $first);
+            }
+        }
+
+        try {
+            return $write($this->allocateReference($now));
+        } catch (\PDOException $second) {
+            throw new RentalException(self::SUBMISSION_FAILED, 0, $second);
+        }
+    }
+
+    /**
+     * What the visitor is told when the write cannot be completed. One
+     * sentence, French, naming nothing internal — AGENTS.md § Exception
+     * messages that reach a visitor.
+     */
+    private const SUBMISSION_FAILED =
+        "Votre demande n'a pas pu être enregistrée. Réessayez dans un instant ; "
+        . "si le problème persiste, contactez l'unité.";
+
+    /**
+     * Whether a driver error is a unique-constraint violation.
+     *
+     * SQLSTATE 23000 covers it on MySQL/MariaDB and on SQLite alike, which
+     * is what lets the retry be exercised by the test database rather than
+     * only in production.
+     */
+    private static function isDuplicateKey(\PDOException $e): bool
+    {
+        return ($e->getCode() === '23000' || $e->getCode() === 23000)
+            || str_contains(strtolower($e->getMessage()), 'unique');
+    }
+
+    /**
      * Claims the next `LOC-YYYY-NNNN` for the year of $now.
      *
      * The number comes from a forward-only counter, never from a MAX() over
@@ -147,8 +210,10 @@ class RentalBookingService implements OccupancyProvider
      * renters. The year is when the request was *made*, so a reference stays
      * stable even for a stay in a later year.
      *
-     * The `UNIQUE` constraint on the column is the real backstop against two
-     * concurrent submissions racing; this is the normal path.
+     * The read takes a row lock, so two concurrent submissions queue rather
+     * than race; the `UNIQUE` constraint on the column remains the backstop
+     * against a number spent by a row the counter never saw, and
+     * `writeWithFreshReference()` is what retries on it.
      */
     public function allocateReference(\DateTimeImmutable $now): string
     {

@@ -61,7 +61,22 @@
             </div>
         </div>
 
-        {% if quote %}
+        {% if not quote or not quote.hasPricedLine %}
+            {# An asset with no tariff configured quotes every line at zero.
+               Rendered as a price table that reads "Total 0,00 €", a renter
+               takes it for "free" and the unit spends its first email
+               walking the figure back. Saying there is no price yet is both
+               true and what happens next. #}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Prix</h2>
+                    <p class="mb-0">
+                        <strong>Tarif sur demande</strong> — l'unité vous répondra avec une
+                        proposition de prix.
+                    </p>
+                </div>
+            </div>
+        {% else %}
             <div class="card mb-4">
                 <div class="card-body">
                     <h2 class="h5 mb-3">Détail du prix</h2>

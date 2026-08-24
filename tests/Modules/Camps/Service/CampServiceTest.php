@@ -32,6 +32,14 @@ class CampServiceTest extends TestCase
         $this->audit = new AuditService(new AuditRepository($this->pdo, $encryption));
         $this->service = new CampService($this->camps, $this->audit);
         $this->pdo->exec("INSERT INTO camp_places (name) VALUES ('Domaine de Mozet')");
+
+        // Real sections and a real member: both columns are foreign keys,
+        // and validate() now refuses an id nobody offers rather than
+        // letting MySQL answer with a 500.
+        $this->pdo->exec("INSERT INTO age_branches (id, desk_code, label, sort_order) VALUES (1, 'ECL', 'Éclaireurs', 1)");
+        $this->pdo->exec("INSERT INTO sections (id, age_branch_id, desk_code, name) VALUES (3, 1, 'ECL', 'Éclaireurs')");
+        $this->pdo->exec("INSERT INTO sections (id, age_branch_id, desk_code, name) VALUES (4, 1, 'PIO', 'Pionniers')");
+        $this->pdo->exec("INSERT INTO members (id, desk_id) VALUES (7, 'D-0000007')");
     }
 
     // ── The one structural rule: dates XOR year ──────────────────────
@@ -132,6 +140,49 @@ class CampServiceTest extends TestCase
     {
         $this->expectException(CampsException::class);
         $this->service->validate(['year_only' => '2029', 'price' => '-100']);
+    }
+
+    // ── Foreign keys are checked here, not by MySQL ──────────────────
+
+    public function testASectionThatDoesNotExistIsRefusedRatherThanSentToTheDatabase(): void
+    {
+        // camp_camp_sections.section_id is a foreign key. A `<select>`
+        // somebody edited used to reach MySQL and come back as a
+        // PDOException — a 500 on a chief's form.
+        $this->expectException(CampsException::class);
+        $this->expectExceptionMessageMatches('/section/');
+
+        $this->service->validate(['year_only' => '2029', 'section_ids' => [3, 999]]);
+    }
+
+    public function testTheRealSectionsAreKept(): void
+    {
+        $values = $this->service->validate(['year_only' => '2029', 'section_ids' => [3, 4]]);
+
+        $this->assertSame([3, 4], $values['section_ids']);
+    }
+
+    public function testAnInactiveSectionIsRefusedToo(): void
+    {
+        $this->pdo->exec('UPDATE sections SET is_active = 0 WHERE id = 4');
+
+        $this->expectException(CampsException::class);
+        $this->service->validate(['year_only' => '2029', 'section_ids' => [4]]);
+    }
+
+    public function testAMemberThatDoesNotExistIsRefused(): void
+    {
+        $this->expectException(CampsException::class);
+        $this->expectExceptionMessageMatches('/membre/');
+
+        $this->service->validate(['year_only' => '2029', 'booked_by_member_id' => '999']);
+    }
+
+    public function testARealMemberIsKept(): void
+    {
+        $values = $this->service->validate(['year_only' => '2029', 'booked_by_member_id' => '7']);
+
+        $this->assertSame(7, $values['booked_by_member_id']);
     }
 
     // ── Creation and the history it writes ───────────────────────────
