@@ -19,9 +19,10 @@ namespace Modules\Camps\Mail;
  *
  * No AI: a date in "du 12 au 19 juillet 2028" is a pattern, and a
  * pattern is cheaper, faster, offline and reviewable. The AI in this
- * module is reserved for the two jobs a pattern genuinely cannot do —
- * recognising that two place names are one field (§ IT-06) and writing a
- * summary (§ IT-09).
+ * module is reserved for the three jobs a pattern genuinely cannot do —
+ * recognising that two place names are one field (§ IT-06), writing a
+ * summary (§ IT-09), and reading a venue's name out of a message body
+ * (Mail\StayFromMailService).
  */
 class MessageReader
 {

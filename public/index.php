@@ -3356,11 +3356,14 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     );
     // `camps_auto_create_from_mail`: the SAME reading behind the automatic
     // stay and behind « Créer un camp depuis ce message », so the two can
-    // never disagree about what a message says.
+    // never disagree about what a message says. The connector is optional
+    // (ARCHITECTURE.md §7.5) and decides one thing only: with it, a NEW
+    // place may be named from the message body; without it, a message can
+    // still join a place already known, and nothing else is ever created.
     $campsStayFromMail = new \Modules\Camps\Mail\StayFromMailService(
         $campsCampRepo, $campsCampService, $campsPlaceService,
         $campsDuplicateDetector, $campsMessageReader, $settingService,
-        $inboundMailForOthers ?? null
+        $inboundMailForOthers ?? null, $llmConnectorForRgpd ?? null
     );
     $campsMailConsumer = isset($inboundMailForOthers)
         ? new \Modules\Camps\Mail\CampsMessageConsumer(
