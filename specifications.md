@@ -929,3 +929,34 @@ This covers the receipts already stored before the change, not only the new ones
 ### 28.6 Out of scope
 
 A treasurer who is not an animator of the section, a per-account list of named people, an accountant role spanning the whole unit but excluded from one section, and reassigning an existing receipt from one account to another.
+
+
+## 29. Écrire aux répondants d'un formulaire (modules news + mass_mail)
+
+### 29.1 Le besoin
+
+Écrire aux gens qui ont répondu au formulaire d'un article demandait quatre manipulations : exporter les réponses en Excel, ouvrir le publipostage, réimporter le fichier qu'on venait de télécharger, puis composer. Tout ce qu'il fallait existait déjà — sauf le chemin entre les deux.
+
+### 29.2 Ce que fait le bouton
+
+Depuis la page des réponses, « Écrire aux répondants » prépare un **brouillon** de publipostage adressé à tous ceux qui ont répondu, et ouvre l'écran de composition habituel. Rien n'est envoyé : le message reste à écrire, et il part comme n'importe quel autre publipostage.
+
+Chaque champ du formulaire devient une variable de personnalisation, dans le même ordre et avec les mêmes intitulés que l'export Excel — les deux surfaces lisent la même définition, elles ne peuvent pas décrire le même formulaire différemment. Les colonnes de paiement de l'export ne sont pas reprises : ce sont des chiffres de comptabilité, pas quelque chose à insérer dans un mail au répondant.
+
+### 29.3 L'adresse utilisée
+
+Celle avec laquelle la personne a répondu, et elle seule — même quand on la reconnaît comme membre. Écrire à toutes ses adresses connues alors qu'elle en a choisi une précise serait une surprise désagréable. Conséquence à connaître : sa désinscription est enregistrée pour cette adresse, et non sur sa fiche de membre.
+
+Deux réponses venues de la même adresse font un seul destinataire.
+
+### 29.4 Qui peut s'en servir
+
+La page des réponses s'ouvre aux intendants, le publipostage commence aux animateurs. Le bouton n'apparaît donc qu'à partir d'animateur, et la demande est refusée côté serveur pour un intendant même s'il la fabrique à la main. Les règles habituelles du publipostage s'appliquent ensuite : on envoie depuis sa propre section, sauf pour un chef d'unité.
+
+### 29.5 Module de publipostage désactivé
+
+Le bouton n'existe pas et la page des réponses fonctionne exactement comme avant. Rien ne casse, rien n'affiche d'erreur.
+
+### 29.6 Hors périmètre
+
+Choisir un sous-ensemble de répondants, un modèle de message prérempli, un envoi direct sans passer par l'écran de composition, et toute nouvelle règle de conservation — ces audiences sont purgées par le mécanisme existant du publipostage.
