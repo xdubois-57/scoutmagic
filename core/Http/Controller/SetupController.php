@@ -1381,9 +1381,9 @@ class SetupController extends AbstractController
      * First-time setup only: the site is almost always already reachable
      * at the URL the operator is filling in this form from (the whole
      * point of an FTP-uploaded installer is that DNS/hosting are already
-     * pointed here) — same HTTPS-detection convention as
-     * Core\Security\SessionManager's cookie_secure logic. Still an
-     * ordinary editable field, just pre-filled instead of blank.
+     * pointed here) — HTTPS detection goes through Core\Http\
+     * RequestScheme like every other call site. Still an ordinary
+     * editable field, just pre-filled instead of blank.
      */
     private function resolveDefaultBaseUrl(Request $request): string
     {
@@ -1392,10 +1392,6 @@ class SetupController extends AbstractController
             return '';
         }
 
-        $https = $request->getServer('HTTPS');
-        $isHttps = (is_string($https) && $https !== '' && strtolower($https) !== 'off')
-            || (int) $request->getServer('SERVER_PORT', 0) === 443;
-
-        return ($isHttps ? 'https://' : 'http://') . $host;
+        return ($request->isHttps() ? 'https://' : 'http://') . $host;
     }
 }

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Cookie;
 
+use Core\Http\RequestScheme;
+
 class CookieConsentService
 {
     private const CONSENT_COOKIE_NAME = 'cookie_consent';
@@ -206,8 +208,7 @@ class CookieConsentService
             return;
         }
 
-        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
+        $isHttps = RequestScheme::isHttps($_SERVER);
 
         setcookie($name, $value, [
             'expires' => time() + (self::CONSENT_DURATION_DAYS * 86400),

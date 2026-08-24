@@ -4,4 +4,13 @@ return [
     'debug' => false,
     'site_name' => 'Unité scoute',
     'base_url' => 'http://localhost',
+
+    // Trust the "X-Forwarded-Proto" header to tell whether the visitor
+    // reached the site over HTTPS. Leave this false unless a TLS
+    // terminator you control (load balancer, CDN, reverse proxy) sits in
+    // front of this installation AND rewrites that header on every
+    // request. See SECURITY.md § 9 — turning it on where no such
+    // terminator exists lets any visitor claim HTTPS, which breaks
+    // sessions and emits a bogus HSTS header.
+    'trust_forwarded_proto' => false,
 ];

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Security;
 
+use Core\Http\RequestScheme;
+
 class SessionManager
 {
     // 30 days (Notifications Lot 2 §8) — an installed PWA must not demand
@@ -30,8 +32,7 @@ class SessionManager
             return;
         }
 
-        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
+        $isHttps = RequestScheme::isHttps($_SERVER);
 
         // Use a dedicated session save path to avoid OS-level temp cleanup issues
         $savePath = dirname(__DIR__, 2) . '/storage/temp/sessions';

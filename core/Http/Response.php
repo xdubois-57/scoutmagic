@@ -138,7 +138,9 @@ class Response
             'Permissions-Policy' => 'camera=(), microphone=(), geolocation=()',
         ];
 
-        $isHttps = $this->forceHttps ?? (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+        // setHttps() still wins: an explicit override is a caller
+        // stating the scheme, not a guess to be re-derived.
+        $isHttps = $this->forceHttps ?? RequestScheme::isHttps($_SERVER);
         if ($isHttps) {
             $headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
         }

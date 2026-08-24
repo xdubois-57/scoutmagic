@@ -152,6 +152,11 @@ use Core\View\TwigFactory;
 $config = new AppConfig(__DIR__ . '/../config/app.php');
 \Core\Http\ErrorHandler::register($config->isDebug());
 
+// Whether X-Forwarded-Proto may be believed. Configured here, once, before
+// anything emits a cookie, a session or a security header — Core\Http\
+// RequestScheme is the single source of truth every one of those consults.
+\Core\Http\RequestScheme::setTrustForwardedProto((bool) $config->get('trust_forwarded_proto', false));
+
 // Generate per-request CSP nonce
 $cspNonce = base64_encode(random_bytes(16));
 
