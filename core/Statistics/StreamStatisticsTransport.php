@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Statistics;
 
+use Core\Http\StreamResponseHeaders;
+
 /**
  * The real transport: `file_get_contents()` + `stream_context_create()`,
  * the same approach as Core\Maintenance\GitHubReleaseClient and
@@ -42,13 +44,14 @@ final class StreamStatisticsTransport implements StatisticsTransportInterface
             ],
         ]);
 
+        StreamResponseHeaders::clear();
         $body = @file_get_contents($url, false, $context);
         if ($body === false) {
             return StatisticsTransportResponse::transportError('unreachable');
         }
 
         $status = 0;
-        foreach ($http_response_header as $header) {
+        foreach (StreamResponseHeaders::last() as $header) {
             if (preg_match('#^HTTP/\S+\s+(\d+)#', $header, $matches) === 1) {
                 $status = (int) $matches[1];
             }

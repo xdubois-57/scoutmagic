@@ -64,6 +64,17 @@ class LogsCollector implements SupportCollectorInterface
      */
     private const SUMMARY_NAME = 'summary.txt';
 
+    /** Reserved for the same reason as SUMMARY_NAME above. */
+    private const DIGEST_NAME = 'errors-resume.txt';
+
+    /** @var array<string, array{count: int, example: string}> keyed by signature */
+    private array $fatals = [];
+
+    /** @var array<string, int> level => occurrences, for the noise ratio */
+    private array $noise = [];
+
+    private int $fatalCount = 0;
+
     public function name(): string
     {
         return 'logs';
@@ -76,12 +87,22 @@ class LogsCollector implements SupportCollectorInterface
         $summary = [];
         $summary[] = '# Journaux serveur — ' . self::WINDOW_HOURS . ' dernières heures';
         $summary[] = '# Chaque fichier est tronqué à ' . self::MAX_BYTES_PER_FILE . ' octets au maximum.';
+        // The copied lines keep whatever clock wrote them, which is local
+        // time and not the UTC of this archive's JSON files. Both zones are
+        // named because they can differ: PHP runs on the application clock
+        // (Core\Config\AppClock), while the web server writes its own lines
+        // on the host's. Said here as well as in collection-status.json,
+        // because this is the file someone reads just before opening a log.
+        $hostTimezone = trim((string) ini_get('date.timezone'));
+        $summary[] = '# Horodatages : heure locale, jamais UTC. Application : '
+            . date_default_timezone_get() . ' (UTC' . (new \DateTimeImmutable('now'))->format('P') . ').'
+            . ($hostTimezone !== '' ? ' Hébergement (PHP) : ' . $hostTimezone . '.' : '');
         $summary[] = '';
 
         $collected = 0;
         $skippedForBudget = 0;
         $totalBytes = 0;
-        $usedNames = [self::SUMMARY_NAME => true];
+        $usedNames = [self::SUMMARY_NAME => true, self::DIGEST_NAME => true];
 
         foreach ($candidates as $path) {
             if (!is_file($path) || !is_readable($path)) {
@@ -103,6 +124,7 @@ class LogsCollector implements SupportCollectorInterface
 
             $name = $this->uniqueName($path, $usedNames);
             $context->addFileFromContent('logs/' . $name, $extract['content']);
+            $this->accumulateDigest($extract['content']);
             $collected++;
             $totalBytes += strlen($extract['content']);
 
@@ -123,10 +145,117 @@ class LogsCollector implements SupportCollectorInterface
         }
 
         $context->addFileFromContent('logs/' . self::SUMMARY_NAME, implode("\n", $summary) . "\n");
+        $context->addFileFromContent('logs/' . self::DIGEST_NAME, $this->renderDigest($context));
+
+        if ($this->fatalCount > 0) {
+            $context->addNote($this->fatalCount . ' erreur(s) fatale(s) dans les journaux — voir logs/' . self::DIGEST_NAME);
+        }
 
         if ($collected === 0) {
             $context->markUnavailable('no_readable_log_file');
         }
+    }
+
+    /**
+     * Counts and groups the lines that mean something broke, as each file
+     * is copied.
+     *
+     * Copying the logs is not the same as making them readable. The
+     * archive that prompted this carried 233 error-log lines, of which 230
+     * were the same PHP deprecation repeating and exactly one was an
+     * uncaught exception that had been returning 500 on every route —
+     * findable only by reading all 233. A support reader should meet the
+     * fatal first and the noise as a number.
+     *
+     * Deliberately signature-based rather than a parser: these files are
+     * written by whatever the host runs (Apache wrapping PHP messages,
+     * php-fpm, a bare error_log), and there is no format to parse. What
+     * every one of them has in common is the words PHP itself writes.
+     */
+    private function accumulateDigest(string $content): void
+    {
+        foreach (explode("\n", $content) as $line) {
+            if ($line === '' || str_starts_with($line, '#')) {
+                continue;
+            }
+
+            if (preg_match('/\b(PHP )?(Fatal error|Parse error|Recoverable fatal error)\b|\bUncaught\b/i', $line) === 1) {
+                $this->fatalCount++;
+                $key = self::signature($line);
+                $this->fatals[$key] ??= ['count' => 0, 'example' => self::firstLine($line)];
+                $this->fatals[$key]['count']++;
+                continue;
+            }
+
+            if (preg_match('/\bPHP (Deprecated|Warning|Notice)\b/i', $line, $m) === 1) {
+                $level = ucfirst(strtolower($m[1]));
+                $this->noise[$level] = ($this->noise[$level] ?? 0) + 1;
+            }
+        }
+    }
+
+    /**
+     * What makes two occurrences of the same fault the same fault: the
+     * message with everything that varies between occurrences removed —
+     * timestamps, request ids, IP addresses, line numbers, object hashes.
+     * Without that, one fault repeating a thousand times is a thousand
+     * entries and the digest is as unreadable as the log.
+     */
+    private static function signature(string $line): string
+    {
+        $line = self::firstLine($line);
+        $line = (string) preg_replace('/\b[0-9a-f]{8,}\b/i', 'X', $line);
+        $line = (string) preg_replace('/\b\d+\b/', 'N', $line);
+        $line = (string) preg_replace('/\s+/', ' ', $line);
+
+        return mb_substr(trim($line), 0, 400);
+    }
+
+    /**
+     * A stack trace is one log line with literal `\n` escapes in it. The
+     * first frame identifies the fault; the rest belongs in the copied
+     * log, not in a summary meant to be read at a glance.
+     */
+    private static function firstLine(string $line): string
+    {
+        $line = str_replace(['\\n', "\r"], "\n", $line);
+        $first = strtok($line, "\n");
+
+        return mb_substr($first === false ? $line : $first, 0, 500);
+    }
+
+    private function renderDigest(SupportCollectorContext $context): string
+    {
+        $lines = [
+            '# Journaux serveur — erreurs regroupées sur ' . self::WINDOW_HOURS . ' h',
+            '# Une ligne par erreur distincte, la plus fréquente en premier.',
+            '# Le détail complet est dans les fichiers copiés à côté.',
+            '',
+        ];
+
+        if ($this->fatals === []) {
+            $lines[] = 'Aucune erreur fatale ni exception non rattrapée sur la période.';
+        } else {
+            $lines[] = 'ERREURS FATALES ET EXCEPTIONS NON RATTRAPÉES';
+            $lines[] = '---------------------------------------------';
+            uasort($this->fatals, static fn(array $a, array $b): int => $b['count'] <=> $a['count']);
+            foreach ($this->fatals as $entry) {
+                $lines[] = sprintf('%6d ×  %s', $entry['count'], $context->redact($entry['example'], 500));
+            }
+        }
+
+        if ($this->noise !== []) {
+            arsort($this->noise);
+            $lines[] = '';
+            $lines[] = 'AVERTISSEMENTS ET DÉPRÉCIATIONS (volume seulement)';
+            $lines[] = '--------------------------------------------------';
+            $lines[] = "# Ces lignes n'indiquent pas une panne, mais leur volume peut noyer ce qui en est une.";
+            foreach ($this->noise as $level => $count) {
+                $lines[] = sprintf('%6d ×  PHP %s', $count, $level);
+            }
+        }
+
+        return implode("\n", $lines) . "\n";
     }
 
     /**

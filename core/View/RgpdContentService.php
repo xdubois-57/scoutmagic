@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\View;
 
+use Core\Config\AppClock;
 use Core\Config\SettingService;
 use Core\Module\ModuleManager;
 use Modules\Gallery\Repository\StorageLocationRepository;
@@ -78,7 +79,10 @@ class RgpdContentService
             $timestamp = time();
         }
 
-        return (new \DateTimeImmutable('@' . $timestamp))->setTimezone(new \DateTimeZone('UTC'));
+        // On the application clock, like the editable_contents.modified_at
+        // this alternates with on the RGPD page — the reader is Belgian and
+        // the two branches must not render on different clocks.
+        return (new \DateTimeImmutable('@' . $timestamp))->setTimezone(AppClock::zone());
     }
 
     /**

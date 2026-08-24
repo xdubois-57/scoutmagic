@@ -19,7 +19,7 @@
         <form method="post"
               action="{{ camp ? '/chefs/camps/sejours/' ~ camp.id : '/chefs/camps' }}"
               class="mb-5">
-            {{ csrf_field() }}
+            {{ csrf_field()|raw }}
 
             {% if not camp %}
                 {% if submitted.message_id %}

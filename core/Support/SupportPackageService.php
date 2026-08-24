@@ -229,6 +229,46 @@ class SupportPackageService
     }
 
     /**
+     * The clock every other file in the archive is written against.
+     *
+     * Two of them — the event journal and the copied server logs — carry
+     * bare `Y-m-d H:i:s` stamps in local time, while the JSON files here
+     * are ISO-8601 in UTC. Nothing said so, and reading one against the
+     * other is how an incident gets attributed to the wrong event: on the
+     * archive that prompted this, a fatal error and the update that caused
+     * it were 54 seconds apart in local time and two hours apart if the
+     * log was read as UTC — far enough to blame the previous update
+     * instead.
+     *
+     * **Two zones are reported, not one**, and the difference is the point.
+     * Core\Config\AppClock pins the application to Europe/Brussels at
+     * every entry point, so that is the clock the journal and everything
+     * PHP writes are on. The host's own `date.timezone` may be something
+     * else entirely — Europe/Paris on the installation that prompted this
+     * — and lines the WEB SERVER writes into its logs are on that one.
+     * Reporting only the application clock would misdate exactly the file
+     * this section exists to make readable.
+     *
+     * @return array<string, string>
+     */
+    private static function timezoneInfo(): array
+    {
+        $now = new \DateTimeImmutable('now');
+        $hostTimezone = trim((string) ini_get('date.timezone'));
+
+        return [
+            'application_timezone' => date_default_timezone_get(),
+            'utc_offset' => $now->format('P'),
+            'local_time_at_generation' => $now->format('Y-m-d H:i:s'),
+            'host_php_timezone' => $hostTimezone !== '' ? $hostTimezone : '(non défini)',
+            'note' => "Le journal des événements et tout ce qu'écrit PHP sont à l'heure de "
+                . "l'application (application_timezone). Les lignes écrites par le serveur web "
+                . 'lui-même peuvent suivre host_php_timezone si les deux diffèrent. Les dates de '
+                . 'ce fichier et de statistics.json sont en UTC (suffixe +00:00).',
+        ];
+    }
+
+    /**
      * @param array<int, SupportCollectionOutcome> $outcomes
      */
     private static function renderStatus(array $outcomes): string
@@ -236,6 +276,7 @@ class SupportPackageService
         return (string) json_encode(
             [
                 'generated_at' => self::nowIso(),
+                'clock' => self::timezoneInfo(),
                 'collectors' => array_map(
                     static fn(SupportCollectionOutcome $outcome): array => $outcome->toArray(),
                     $outcomes
@@ -256,6 +297,10 @@ class SupportPackageService
         $supportLine = $supportEmail !== ''
             ? "Adresse du support ScoutMagic : {$supportEmail}"
             : "Adresse du support ScoutMagic : non renseignée sur ce site.";
+
+        $clock = self::timezoneInfo();
+        $clockLine = "Fuseau horaire de l'application : {$clock['application_timezone']} "
+            . "(UTC{$clock['utc_offset']})\n        Fuseau horaire PHP de l'hébergement : {$clock['host_php_timezone']}";
 
         return <<<TXT
         ARCHIVE DE SUPPORT SCOUTMAGIC
@@ -281,7 +326,25 @@ class SupportPackageService
         - statistics.json : les mêmes informations agrégées que le rapport
           d'utilisation (version installée, modules, compteurs, environnement
           technique). Aucune donnée de membre, aucun identifiant de sécurité.
+        - logs/errors-resume.txt : les erreurs des journaux serveur regroupées,
+          la plus fréquente en premier. À lire avant les journaux eux-mêmes.
+        - update-history.xlsx : quelle version tournait à quel moment, et ce
+          qu'a fait chaque installation (y compris celles qui ont échoué).
+        - event-journal-resume.txt : ce que contiennent les 48 h du journal,
+          par type d'évènement, avant d'en lire le détail.
+        - opcache.json : l'état réel du cache de code compilé, notamment
+          combien de temps une mise à jour peut mettre à prendre effet.
         - README.txt : ce fichier.
+
+        HEURES
+        ------
+        {$clockLine}
+
+        Les horodatages du journal des événements sont à l'heure de
+        l'application. Les journaux serveur suivent le fuseau de l'hébergement
+        lorsqu'il diffère. Les dates des fichiers .json sont en UTC (suffixe
+        +00:00). Comparer les deux sans en tenir compte fait attribuer un
+        incident au mauvais évènement.
 
         AVERTISSEMENT — À LIRE AVANT ENVOI
         ----------------------------------

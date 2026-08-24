@@ -29,7 +29,7 @@
                                      class="card-img-top" loading="lazy">
                                 <div class="card-footer bg-transparent p-2">
                                     <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/photos/supprimer" data-confirm="Supprimer définitivement cette photo ?">
-                                        {{ csrf_field() }}
+                                        {{ csrf_field()|raw }}
                                         <input type="hidden" name="media_id" value="{{ item.id }}">
                                         <button type="submit" class="btn btn-sm btn-outline-danger w-100">Supprimer</button>
                                     </form>
@@ -44,7 +44,7 @@
                   enctype="multipart/form-data" class="card">
                 <div class="card-body">
                     <h2 class="h6 mb-3">Ajouter une photo</h2>
-                    {{ csrf_field() }}
+                    {{ csrf_field()|raw }}
                     <div class="mb-3">
                         {% include 'partials/drop_zone.html.twig' with {
                             id: 'photo-drop-zone',

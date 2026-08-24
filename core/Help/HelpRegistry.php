@@ -28,10 +28,15 @@ namespace Core\Help;
  * warrants it (~100+ topics).
  *
  * An id collision — two files, core or module, declaring the same id —
- * throws instead of last-one-wins: a silent overwrite would make one
- * module's help vanish depending on load order. The cross-corpus
- * uniqueness invariant is also pinned by tests/Core/Help/, so a collision
- * is caught long before a release.
+ * keeps the first and reports the second through loadErrors(), rather
+ * than last-one-wins: which file survives must not depend on module load
+ * order. The cross-corpus uniqueness invariant is also pinned by
+ * tests/Core/Help/, so a collision is caught long before a release.
+ *
+ * Nothing this class does can take a page down: a file it cannot parse,
+ * or a second file claiming an id already taken, costs that one topic and
+ * is recorded in loadErrors(). See load() for why that matters more here
+ * than the usual "fail loudly" instinct.
  *
  * Role filtering deliberately does NOT happen here: HelpService is the
  * single layer that filters by role, so there is exactly one place to
@@ -44,6 +49,9 @@ class HelpRegistry
 
     /** @var ?array<string, HelpTopic> id => topic, lazily built */
     private ?array $topics = null;
+
+    /** @var string[] one sentence per topic the last load() had to drop */
+    private array $loadErrors = [];
 
     public function __construct(
         private readonly string $coreDirectory,
@@ -78,19 +86,41 @@ class HelpRegistry
     }
 
     /**
+     * Why a broken topic is dropped rather than thrown out of:
+     *
+     * Help is a decorative feature — a button, a panel, an index at
+     * /aide. Loading it, however, happens on the hot path: Core\Http\
+     * FrontController builds the panel on EVERY GET, including API
+     * endpoints, so an exception escaping here is not "the help is
+     * broken", it is "the site is down", for every visitor and every
+     * route at once. That is not a hypothetical: one topic gaining a
+     * `paths` form its parser did not yet understand returned 500 site-
+     * wide until the next request compiled the new parser.
+     *
+     * A malformed file therefore costs exactly its own topic. The rest of
+     * the corpus loads, every page still answers, and the failure is kept
+     * — named, with its reason — in loadErrors() for /aide to show an
+     * administrator and for the support archive to carry to whoever is
+     * asked about it. The shipped corpus is validated in CI
+     * (tests/Core/Help/HelpInvariantsTest), so a topic that lands here in
+     * production means something the invariants cannot see: a half-copied
+     * update, a truncated file, a hosting quirk. None of those are worth a
+     * white page.
+     *
      * @return array<string, HelpTopic>
      */
     private function load(): array
     {
         $topics = [];
+        $this->loadErrors = [];
 
         foreach ($this->listTopicFiles($this->coreDirectory) as $file) {
-            $this->add($topics, $this->parser->parse($file, null));
+            $this->addParsed($topics, $file, null);
         }
 
         foreach ($this->moduleDirectories as $moduleId => $directory) {
             foreach ($this->listTopicFiles($directory) as $file) {
-                $this->add($topics, $this->parser->parse($file, $moduleId));
+                $this->addParsed($topics, $file, $moduleId);
             }
         }
 
@@ -98,7 +128,45 @@ class HelpRegistry
     }
 
     /**
+     * One file's worth of the scan, with the failure of that one file
+     * contained. error_log() rather than the journal: this runs on every
+     * request, and a corpus broken for an hour would write a journal row
+     * per page load — the administrative log is not a place to shout from
+     * a loop. The server error log is where Core\Http\ErrorHandler already
+     * writes, and where Core\Support's archive already looks.
+     *
      * @param array<string, HelpTopic> $topics
+     */
+    private function addParsed(array &$topics, string $file, ?string $moduleId): void
+    {
+        try {
+            $this->add($topics, $this->parser->parse($file, $moduleId));
+        } catch (HelpException $e) {
+            $this->loadErrors[] = $e->getMessage();
+            error_log('ScoutMagic help topic ignored: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Whatever the last load() could not use, one sentence each, in scan
+     * order. Empty on a healthy installation — which is the assertion the
+     * invariant test makes about the shipped corpus.
+     *
+     * @return string[]
+     */
+    public function loadErrors(): array
+    {
+        $this->all();
+
+        return $this->loadErrors;
+    }
+
+    /**
+     * @param array<string, HelpTopic> $topics
+     * @throws HelpException on a duplicate id — caught by addParsed(), so
+     *         a collision costs the SECOND file rather than the site. Not
+     *         last-one-wins: keeping the first is what makes the outcome
+     *         independent of module load order.
      */
     private function add(array &$topics, HelpTopic $topic): void
     {

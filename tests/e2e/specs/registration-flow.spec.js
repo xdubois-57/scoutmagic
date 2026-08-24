@@ -144,8 +144,14 @@ test('a family registers a child, follows the mailed tracking link, and the admi
 
         await familyPage.goto(trackingUrl, { waitUntil: 'domcontentloaded' });
         await expect(familyPage.getByRole('heading', { name: 'Suivi de votre demande' })).toBeVisible();
-        await expect(familyPage.getByText(CHILD_FIRST_NAME)).toBeVisible();
-        await expect(familyPage.getByText("En attente d'examen")).toBeVisible();
+        // Scoped to the page's own content, not the whole document: this
+        // page now carries a contextual help panel, and the topic covering
+        // it lists the very statuses asserted here — so an unscoped
+        // getByText() matches the page AND its help, and fails on strict
+        // mode. What is being asserted is what the family is shown.
+        const trackingMain = familyPage.locator('#main-content');
+        await expect(trackingMain.getByText(CHILD_FIRST_NAME)).toBeVisible();
+        await expect(trackingMain.getByText("En attente d'examen")).toBeVisible();
 
         const trackingBody = await familyPage.locator('main').innerText();
         for (const [label, value] of [['street', FAMILY_STREET], ['phone', FAMILY_PHONE], ['parent name', PARENT_NAME]]) {
@@ -174,7 +180,7 @@ test('a family registers a child, follows the mailed tracking link, and the admi
 
         await familyPage.goto(trackingUrl, { waitUntil: 'domcontentloaded' });
         await expect(
-            familyPage.getByText("En attente d'examen"),
+            familyPage.locator('#main-content').getByText("En attente d'examen"),
             'an unsent acceptance must stay invisible to the family',
         ).toBeVisible();
 
@@ -188,7 +194,7 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
 
         await familyPage.goto(trackingUrl, { waitUntil: 'domcontentloaded' });
-        await expect(familyPage.getByText('Retirée')).toBeVisible();
+        await expect(familyPage.locator('#main-content').getByText('Retirée')).toBeVisible();
 
         // ---------------------------------------------------------------
         // Close the form again, then in through the side door: the

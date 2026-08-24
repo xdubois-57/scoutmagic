@@ -4,7 +4,7 @@ title: Créer une rétrospective
 summary: Un tableau anonyme où chacun dépose un mot et vote, après une activité.
 category: Espace animateurs
 role_min: intendant
-paths: /retro, /retro/create
+paths: /retro, /retro/create, /retro/*/edit
 related: retro-participer, calendrier-animateurs
 ---
 

@@ -14,10 +14,20 @@ class HumanCheckRateLimitRepository
     {
     }
 
+    /**
+     * created_at is stamped from PHP rather than left to the column's
+     * DEFAULT CURRENT_TIMESTAMP, because countSince() and deleteOlderThan()
+     * below both filter on it with a bound value computed in PHP. One clock
+     * on both sides of that comparison is the whole point: a window whose
+     * lower bound sits ahead of every row in the table is a limiter that
+     * never fires.
+     */
     public function record(string $ipHash, string $formKey): void
     {
-        $stmt = $this->pdo->prepare('INSERT INTO human_check_rate_limits (ip_hash, form_key) VALUES (?, ?)');
-        $stmt->execute([$ipHash, $formKey]);
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO human_check_rate_limits (ip_hash, form_key, created_at) VALUES (?, ?, ?)'
+        );
+        $stmt->execute([$ipHash, $formKey, (new \DateTimeImmutable())->format('Y-m-d H:i:s')]);
     }
 
     /**

@@ -30,13 +30,26 @@ class UpdateHistoryRepository
     {
     }
 
+    /**
+     * started_at is stamped from PHP, not by the column's DEFAULT
+     * CURRENT_TIMESTAMP: isStale() below subtracts it from PHP's own "now"
+     * to decide whether a stuck update is still holding every visitor
+     * behind Core\Maintenance\MaintenanceGate. Two clocks there either
+     * declare a healthy update abandoned or leave the site gated.
+     */
     public function create(string $versionFrom, string $versionTo, bool $dependenciesChanged, ?int $requestedBy): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO update_history (version_from, version_to, dependencies_changed, requested_by)
-             VALUES (?, ?, ?, ?)'
+            'INSERT INTO update_history (version_from, version_to, dependencies_changed, requested_by, started_at)
+             VALUES (?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$versionFrom, $versionTo, $dependenciesChanged ? 1 : 0, $requestedBy]);
+        $stmt->execute([
+            $versionFrom,
+            $versionTo,
+            $dependenciesChanged ? 1 : 0,
+            $requestedBy,
+            self::now(),
+        ]);
 
         return (int) $this->pdo->lastInsertId();
     }
@@ -126,10 +139,10 @@ class UpdateHistoryRepository
             "UPDATE update_history
              SET status = 'failed',
                  error_message = 'Mise à jour abandonnée : une nouvelle mise à jour a démarré avant que celle-ci ne se termine.',
-                 completed_at = CURRENT_TIMESTAMP
+                 completed_at = ?
              WHERE id != ? AND status IN ('backing_up', 'downloading', 'installing', 'migrating')"
         );
-        $stmt->execute([$exceptId]);
+        $stmt->execute([self::now(), $exceptId]);
     }
 
     public function setStatus(int $id, string $status): void
@@ -146,20 +159,31 @@ class UpdateHistoryRepository
 
     public function markCompleted(int $id): void
     {
-        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?");
-        $stmt->execute([$id]);
+        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'completed', completed_at = ? WHERE id = ?");
+        $stmt->execute([self::now(), $id]);
     }
 
     public function markFailed(int $id, string $errorMessage): void
     {
-        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'failed', error_message = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?");
-        $stmt->execute([substr($errorMessage, 0, 500), $id]);
+        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'failed', error_message = ?, completed_at = ? WHERE id = ?");
+        $stmt->execute([substr($errorMessage, 0, 500), self::now(), $id]);
     }
 
     public function markRolledBack(int $id, string $errorMessage): void
     {
-        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'rolled_back', error_message = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?");
-        $stmt->execute([substr($errorMessage, 0, 500), $id]);
+        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'rolled_back', error_message = ?, completed_at = ? WHERE id = ?");
+        $stmt->execute([substr($errorMessage, 0, 500), self::now(), $id]);
+    }
+
+    /**
+     * The application clock — the one every timestamp in this table is on,
+     * written here rather than by MySQL so `started_at` and `completed_at`
+     * can never disagree with the PHP-side arithmetic in isStale() and in
+     * Http\Controller\MaintenanceController::elapsedLabel().
+     */
+    private static function now(): string
+    {
+        return (new \DateTimeImmutable())->format('Y-m-d H:i:s');
     }
 
     /**

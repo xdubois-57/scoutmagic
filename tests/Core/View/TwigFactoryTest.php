@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Core\View;
 
+use Core\Config\AppClock;
 use Core\View\EditableContentService;
 use Core\View\TwigFactory;
 use PHPUnit\Framework\TestCase;
@@ -43,16 +44,19 @@ class TwigFactoryTest extends TestCase
     }
 
     /**
-     * Stored timestamps are UTC everywhere in this codebase — parsing them
-     * under PHP's ambient timezone instead would put every age out by the
-     * server's offset, which is the whole reason the filter is explicit
-     * about it.
+     * A stored timestamp is a naive DATETIME on the application clock
+     * (Core\Config\AppClock) — both the PHP writers and the database's own
+     * CURRENT_TIMESTAMP put it there. Reading it under any other zone
+     * (this filter used to force UTC, from when the whole app ran on UTC)
+     * puts every age out by the offset, which is what this pins down: a
+     * value written two hours ago must read "il y a 2 heures" and not
+     * "il y a 4 heures".
      */
-    public function testRelativeDateReadsStoredTimestampsAsUtc(): void
+    public function testRelativeDateReadsStoredTimestampsOnTheApplicationClock(): void
     {
         $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
         $filter = $this->relativeDateFilter($twig);
-        $twoHoursAgo = (new \DateTimeImmutable('-2 hours', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
+        $twoHoursAgo = AppClock::now()->modify('-2 hours')->format('Y-m-d H:i:s');
 
         $this->assertSame('il y a 2 heures', $filter($twoHoursAgo));
     }
@@ -74,7 +78,7 @@ class TwigFactoryTest extends TestCase
     public function testRelativeDateRendersCoarseFrenchAges(string $offset, string $expected): void
     {
         $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
-        $stored = (new \DateTimeImmutable($offset, new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
+        $stored = AppClock::now()->modify($offset)->format('Y-m-d H:i:s');
 
         $this->assertSame($expected, $this->relativeDateFilter($twig)($stored));
     }
@@ -97,7 +101,7 @@ class TwigFactoryTest extends TestCase
     public function testRelativeDateHandlesAFutureTimestampWithoutGoingNegative(): void
     {
         $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
-        $future = (new \DateTimeImmutable('+2 minutes', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
+        $future = AppClock::now()->modify('+2 minutes')->format('Y-m-d H:i:s');
 
         $this->assertSame("à l'instant", $this->relativeDateFilter($twig)($future));
     }

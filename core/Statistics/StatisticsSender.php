@@ -46,6 +46,17 @@ class StatisticsSender
     private const STALE_AFTER_SECONDS = 21600;
 
     /**
+     * Skips that describe what an installation IS, rather than something
+     * that happened to it: reporting switched off by its unit, and being
+     * the receiver every other installation reports TO. Neither can be
+     * resolved by waiting or retrying, so neither is journaled daily and
+     * neither is recorded as the latest failure — a permanent condition
+     * displayed as a dated error is a support request waiting to happen,
+     * which is exactly what it became on the receiver.
+     */
+    private const STRUCTURAL_SKIPS = ['disabled', 'self_destination'];
+
+    /**
      * Host suffixes that can never designate a real, public installation.
      * A test or staging clone reporting under the production installation's
      * identity would silently corrupt the receiver's view of it.
@@ -402,7 +413,11 @@ class StatisticsSender
     {
         // A deliberate opt-out is not an event. Journaling it every single
         // day would fill the journal with the fact that nothing happened.
-        if ($reason !== 'disabled') {
+        // `self_destination` joins it for the same reason and a stronger
+        // one: on the receiver installation it is not a state that can
+        // change, it is what that installation IS. A row a day saying so
+        // is the definition of noise.
+        if (!in_array($reason, self::STRUCTURAL_SKIPS, true)) {
             $this->journalService->log(
                 'core',
                 'statistics_send_skipped',
@@ -413,10 +428,14 @@ class StatisticsSender
         }
 
         // Only the skips that mean something is genuinely in the way are
-        // surfaced on the Support page. "Reporting is off" and "already
-        // reported today" are the normal state of a healthy installation,
-        // and showing either as the latest problem would be misleading.
-        if (!in_array($reason, ['disabled', 'already_sent_today'], true)) {
+        // surfaced on the Support page. "Reporting is off", "already
+        // reported today" and "this installation is the receiver" are the
+        // normal state of a healthy installation, and showing any of them
+        // as the latest problem would be misleading. The receiver is the
+        // sharpest case: it can never send, so the failure it recorded on
+        // its first day sat under "État des envois" for ever, with a
+        // timestamp that made it look like something had just broken.
+        if (!in_array($reason, ['already_sent_today', ...self::STRUCTURAL_SKIPS], true)) {
             $this->writeSetting(StatisticsStateSettings::LAST_FAILURE_AT, self::nowIso());
             $this->writeSetting(StatisticsStateSettings::LAST_FAILURE_REASON, $reason);
         }
