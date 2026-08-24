@@ -210,17 +210,13 @@
         });
 
         // A PDF whose thumbnail was never generated (or failed) would show
-        // the browser's broken-image glyph — swap in the file icon instead.
-        /** @type {NodeListOf<HTMLImageElement>} */ (list.querySelectorAll('img.pdf-thumbnail')).forEach(img => {
-            img.addEventListener('error', () => {
-                const fallback = document.createElement('div');
-                fallback.className = 'd-flex align-items-center justify-content-center bg-body-secondary rounded';
-                fallback.style.width = '64px';
-                fallback.style.height = '64px';
-                fallback.innerHTML = '<i class="bi bi-file-earmark-pdf fs-4"></i>';
-                img.replaceWith(fallback);
-            }, { once: true });
-        });
+        // the browser's broken-image glyph — the shared toolbox swaps in
+        // the file icon instead, at this list's own 64px size.
+        if (window.ScoutMagicPdfThumbnail) {
+            window.ScoutMagicPdfThumbnail.bind(list, {
+                width: '64px', height: '64px', iconClass: 'fs-4'
+            });
+        }
 
         /** @type {NodeListOf<HTMLElement>} */ (list.querySelectorAll('.dissociate-btn')).forEach(btn => {
             btn.addEventListener('click', async () => {

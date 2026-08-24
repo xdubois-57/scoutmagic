@@ -1,0 +1,40 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# The contextual help button (ARCHITECTURE.md §8.64) — ALWAYS visible,
+   included once, at the right of the breadcrumb bar
+   (partials/breadcrumb_bar.html.twig), which since the mega-menu rework
+   shows at every width, mobile, desktop browser and installed PWA alike.
+   (The original plan doubled it into the desktop nav's right-hand group,
+   back when the breadcrumb bar was hidden in a desktop browser tab —
+   that would now put two identical buttons on screen at once.)
+
+   Two shapes, one look:
+   - A topic covers the current page → a <button> opening the offcanvas
+     panel (partials/help_panel.html.twig, rendered by base.html.twig
+     exactly when route_help is non-empty).
+   - No topic → a plain link to /aide, so the help index is reachable
+     from every page. Never hidden: a hidden button was the mockup's
+     behaviour, and it left /aide unreachable from anywhere.
+
+   `route_help` is the Twig global Core\Http\FrontController sets after
+   the RBAC guard — already role-filtered, already rendered. #}
+{% if route_help|default([]) is not empty %}
+    <button type="button"
+            class="btn btn-link p-1 border-0 text-body-secondary d-inline-flex align-items-center"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#help-panel"
+            aria-controls="help-panel"
+            title="Aide sur cette page">
+        <i class="bi bi-question-circle" aria-hidden="true"></i>
+        <span class="visually-hidden">Aide sur cette page</span>
+    </button>
+{% else %}
+    <a href="/aide"
+       class="btn btn-link p-1 border-0 text-body-secondary d-inline-flex align-items-center"
+       title="Aide">
+        <i class="bi bi-question-circle" aria-hidden="true"></i>
+        <span class="visually-hidden">Aide</span>
+    </a>
+{% endif %}

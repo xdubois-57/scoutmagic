@@ -25,7 +25,7 @@
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
-import { autoConfirm } from '../support/confirm-dialog.js';
+import { answerConfirmation, autoConfirm } from '../support/confirm-dialog.js';
 import { expectRendersAsAnEventCalendar } from '../support/calendar.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 
@@ -167,8 +167,11 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
             expect(feedText).toContain('BEGIN:VCALENDAR');
             expect(feedText, 'the member\'s personal feed must carry the event').toContain(EVENT_TITLE_EDITED);
 
-            memberPage.on('dialog', (dialog) => dialog.accept());
+            // Regenerating asks through the site's own dialog now
+            // (public/assets/js/calendar-public.js), which Playwright
+            // cannot see as a dialog at all.
             await memberPage.locator('#regenerate-personal-link').click();
+            await answerConfirmation(memberPage);
             // The script reloads the page with the fresh token.
             await expect(memberPage.locator('#personal-ics-link')).not.toHaveValue(feedUrl);
 

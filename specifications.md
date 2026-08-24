@@ -59,7 +59,8 @@ Site-wide settings, modules, functions.
 
 ### 3.6 Navigation
 - **Mobile**: hamburger (left), unit name (right). Offcanvas from left. User card, accordion sub-menus, login/logout. Every sub-page entry starts with an icon, in the same box the per-member entries use for their avatar, so all the labels in a menu line up.
-- **Desktop**: horizontal bar, wrapping sub-menu row below. User at right.
+- **Desktop**: horizontal bar, user at right. A menu opens a mega-menu panel under the bar — titled columns (at most four) of text rows, each with its icon; per-member entries keep their avatar and section. Click to open, click/Escape/outside press to close, never hover. No permanent sub-menu row.
+- **Breadcrumb**: visible at every width, on desktop as much as on mobile — with no permanent sub-menu row, it is what states the current page's ancestry.
 
 ### 3.7 How a person is shown
 
@@ -96,7 +97,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 
 | Page | Role | Content |
 |---|---|---|
-| Staffs | intendant | SectionPicker + staff info per section (chief/chief-d'unité only — animés are not shown). Section's staff group photo, editable in configuration mode (one per scout year, falls back to the most recent earlier year). Badges assignable to staff (chief only, see Core\Badge). Section documents (chief only): add/reorder/delete/update PDF attachments per section and scout year (e.g. planning, camp info sheets), displayed both on the Staffs page and the member page. Section name/email are configured from Config Desk (§4.5), not here. |
+| Staffs | intendant | SectionPicker + staff info per section (chief/chief-d'unité only — animés are not shown). Section's staff group photo, editable in configuration mode (one per scout year, falls back to the most recent earlier year). Badges assignable to staff (chief only, see Core\Badge). Section documents (an animateur of that section only, see §15.2): add/reorder/delete/update PDF attachments per section and scout year (e.g. planning, camp info sheets), displayed both on the Staffs page and the member page. Section name/email are configured from Config Desk (§4.5), not here. |
 | Finances (module) | intendant | Bank statement import, receivables, receipts, movements |
 | Statistiques (module) | chief | Member statistics |
 | Calendrier (module) | chief | Chiefs' calendar view (month grid, event edit) |
@@ -148,6 +149,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Page | Content |
 |---|---|
 | Connexion | Three-tab login (magic link / password / passkey). |
+| Aide | Index of every help topic the visitor's role may see (`/aide`), grouped by category with a `?q=` search, plus one page per topic (`/aide/{id}`). Fed by Markdown files shipped in the release (`docs/help/`, `modules/<id>/help/`) — help is product documentation, never unit-editable content. A per-page help button (right of the breadcrumb bar) opens the matching topic(s) in a panel without leaving the page; a topic below the visitor's role does not exist anywhere (404 by direct URL). |
 | Mon compte | Name, surname. Password. Passkeys. Notification preferences (link). Cookie preferences (link). |
 | Préférences cookies | Cookie categories with toggles. Accessible from banner, RGPD page, and Mon compte. |
 | Upload | Generic file upload (drag-drop, file selection, mobile camera). |
@@ -305,7 +307,8 @@ Chiefs can attach PDF documents to sections (per scout year), displayed on both 
 - Activity schedules
 - Parent information
 
-### 15.2 Management (Staffs page, chief only)
+### 15.2 Management (Staffs page, animateurs of that section only)
+- **Who**: an animateur manages the documents of the sections they staff, and only those — the four write operations below are all re-checked server-side against the account's own sections (a chef d'unité manages every section). Reading is unrestricted: every animateur sees every section's documents, whether or not they can edit them.
 - **Add**: upload PDF, enter title, select section and scout year
 - **Reorder**: drag-and-drop or move up/down to change display order
 - **Update**: change title or replace PDF file
@@ -759,7 +762,7 @@ Every Excel export of people the site produces — member exports ("Membres par 
 
 ## 25. Leadership module — three lists of people to contact (module leadership)
 
-A reading tool for the unit team. It turns the Desk import into three lists and stores almost nothing, which is what stops it ever disagreeing with Desk. Four pages, all reserved to the chefs d'unité, plus one card each member sees on their own page. See ARCHITECTURE.md §8.64 for implementation detail.
+A reading tool for the unit team. It turns the Desk import into three lists and stores almost nothing, which is what stops it ever disagreeing with Desk. Four pages, all reserved to the chefs d'unité, plus one card each member sees on their own page. See ARCHITECTURE.md §8.65 for implementation detail.
 
 ### 25.1 What it never says
 

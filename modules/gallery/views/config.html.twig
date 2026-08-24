@@ -39,8 +39,11 @@
                         </div>
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label small" for="gallery-max-media">Nombre maximum de médias par album</label>
-                        <input type="number" class="form-control" id="gallery-max-media" name="gallery_max_media_per_album" value="{{ gallery_max_media_per_album }}" min="1">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'gallery-max-media', field_name: 'gallery_max_media_per_album',
+                            label: 'Nombre maximum de médias par album', type: 'number', min: 1,
+                            value: gallery_max_media_per_album, size: 'sm', wrapper_class: '',
+                        } only %}
                     </div>
                 </div>
             </div>
@@ -261,17 +264,20 @@
                 <h2 class="h6 mb-3">Photos</h2>
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
-                        <label class="form-label small" for="photo-max-upload">Taille maximale d'envoi (Mo)</label>
-                        <input type="number" class="form-control" id="photo-max-upload" name="gallery_max_photo_upload_mb" value="{{ gallery_max_photo_upload_mb }}" min="1">
-                        <div class="form-text">Un fichier dépassant cette taille est refusé à l'envoi.</div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'photo-max-upload', field_name: 'gallery_max_photo_upload_mb',
+                            label: "Taille maximale d'envoi (Mo)", type: 'number', min: 1,
+                            value: gallery_max_photo_upload_mb, size: 'sm', wrapper_class: '',
+                            help: "Un fichier dépassant cette taille est refusé à l'envoi.",
+                        } only %}
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label small" for="photo-max-dimension">Dimension maximale (px, plus long côté)</label>
-                        <input type="number" class="form-control" id="photo-max-dimension" name="gallery_photo_max_dimension" value="{{ gallery_photo_max_dimension }}" min="500">
-                        <div class="form-text">
-                            La photo est redimensionnée (jamais recadrée, jamais rejetée) pour que son plus long côté ne
-                            dépasse pas cette valeur ; c'est cette version, plus légère, qui est ensuite servie.
-                        </div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'photo-max-dimension', field_name: 'gallery_photo_max_dimension',
+                            label: 'Dimension maximale (px, plus long côté)', type: 'number', min: 500,
+                            value: gallery_photo_max_dimension, size: 'sm', wrapper_class: '',
+                            help: 'La photo est redimensionnée (jamais recadrée, jamais rejetée) pour que son plus long côté ne dépasse pas cette valeur ; c\'est cette version, plus légère, qui est ensuite servie.',
+                        } only %}
                     </div>
                 </div>
             </div>
@@ -297,12 +303,18 @@
                         </div>
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label small" for="video-max-upload">Taille maximale d'envoi (Mo)</label>
-                        <input type="number" class="form-control" id="video-max-upload" name="gallery_max_video_upload_mb" value="{{ gallery_max_video_upload_mb }}" min="1">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'video-max-upload', field_name: 'gallery_max_video_upload_mb',
+                            label: "Taille maximale d'envoi (Mo)", type: 'number', min: 1,
+                            value: gallery_max_video_upload_mb, size: 'sm', wrapper_class: '',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label small" for="video-max-duration">Durée maximale (secondes)</label>
-                        <input type="number" class="form-control" id="video-max-duration" name="gallery_max_video_duration_sec" value="{{ gallery_max_video_duration_sec }}" min="1">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'video-max-duration', field_name: 'gallery_max_video_duration_sec',
+                            label: 'Durée maximale (secondes)', type: 'number', min: 1,
+                            value: gallery_max_video_duration_sec, size: 'sm', wrapper_class: '',
+                        } only %}
                     </div>
                 </div>
             </div>

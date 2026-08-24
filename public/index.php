@@ -1032,6 +1032,17 @@ $memberBadgeRepository = new MemberBadgeRepository($pdo);
 $sectionService = new SectionService($connection, $encryptionService, $memberBadgeRepository);
 $badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sectionService);
 
+// "Which sections is this account an animateur of" (ARCHITECTURE.md
+// §8.33) — a core service, built once here and shared by every consumer
+// (the Staffs page and its documents, the registration module's Départs
+// page). Never a second instance: each construction is another chance to
+// pass a different set of dependencies (one built without
+// $memberEmailRepository silently staffs fewer sections), and this
+// question must have exactly one answer site-wide.
+$sectionStaffAuthorizationService = new \Core\Member\SectionStaffAuthorizationService(
+    $connection, $encryptionService, $sectionService, $memberEmailRepository
+);
+
 // Member page (Espace membres) "Documents privés" storage — see
 // Core\Member\MemberDocumentService.
 $memberDocumentService = new \Core\Member\MemberDocumentService(new \Core\Member\MemberDocumentRepository($pdo));
@@ -1317,41 +1328,41 @@ $menuBuilder = new MenuBuilder(Role::fromString($currentRole));
 $dynamicMenuRegistrar = new DynamicMenuRegistrar();
 
 // Register core pages in menus
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-house');
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'public', 20, false, null, MenuBuilder::GROUP_CORE, 'bi-envelope');
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30, false, null, MenuBuilder::GROUP_CORE, 'bi-diagram-3');
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40, false, null, MenuBuilder::GROUP_CORE, 'bi-shield-check');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-people-fill');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Membres par section', '/chefs/membres', 'intendant', 11, false, null, MenuBuilder::GROUP_CORE, 'bi-list-ul');
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-house');
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'public', 20, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-envelope');
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-diagram-3');
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-shield-check');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-people-fill', null, 'ma_section');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Membres par section', '/chefs/membres', 'intendant', 11, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-list-ul', null, 'ma_section');
 // Édition du site — shrunk to just the configuration-mode toggle,
 // moved here from the Configuration menu and widened from superadmin to
 // admin (see /config-mode/activate|deactivate's own role_min and
 // Core\View\ConfigurationMode, widened the same way) so every chief
 // d'unité, not only a superadmin, can edit site content. First in this
 // menu (order 10) — the most-used entry for a chief d'unité.
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Édition du site', '/config/general', 'admin', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-pencil-square');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 20, false, null, MenuBuilder::GROUP_CORE, 'bi-cloud-arrow-down');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 30, false, null, MenuBuilder::GROUP_CORE, 'bi-person-lines-fill');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 40, false, null, MenuBuilder::GROUP_CORE, 'bi-calendar-range');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 50, false, null, MenuBuilder::GROUP_CORE, 'bi-journal-text');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Édition du site', '/config/general', 'admin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-pencil-square', null, 'contenu');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 20, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-cloud-arrow-down', null, 'membres_annee');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-person-lines-fill', null, 'membres_annee');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 40, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-calendar-range', null, 'membres_annee');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 50, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-journal-text', null, 'suivi');
 // Installation & serveur first (order 5, ahead of Modules/Badges below) —
 // the most-used entry for a superadmin; the rest of this menu keeps its
 // existing relative order.
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Installation & serveur', '/setup', 'superadmin', 5, false, null, MenuBuilder::GROUP_CORE, 'bi-sliders');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Modules', '/config/modules', 'superadmin', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-puzzle');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Badges', '/config/badges', 'superadmin', 12, false, null, MenuBuilder::GROUP_CORE, 'bi-award');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 20, false, null, MenuBuilder::GROUP_CORE, 'bi-diagram-2');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 30, false, null, MenuBuilder::GROUP_CORE, 'bi-gear-wide-connected');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35, false, null, MenuBuilder::GROUP_CORE, 'bi-shield-lock');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40, false, null, MenuBuilder::GROUP_CORE, 'bi-clock-history');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45, false, null, MenuBuilder::GROUP_CORE, 'bi-tools');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46, false, null, MenuBuilder::GROUP_CORE, 'bi-bell');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 47, false, null, MenuBuilder::GROUP_CORE, 'bi-life-preserver');
-// order 10, not a leftover "after the separator" number — GROUP_CORE
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Installation & serveur', '/setup', 'superadmin', 5, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-sliders', null, 'site');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Modules', '/config/modules', 'superadmin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-puzzle', null, 'site');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Badges', '/config/badges', 'superadmin', 12, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-award', null, 'unite_donnees');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 20, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-diagram-2', null, 'unite_donnees');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-gear-wide-connected', null, 'site');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-shield-lock', null, 'unite_donnees');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-clock-history', null, 'exploitation');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-tools', null, 'exploitation');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-bell', null, 'exploitation');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 47, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-life-preserver', null, 'exploitation');
+// order 10, not a leftover "after the separator" number — SORT_GROUP_CORE
 // (addPage()'s default) already sorts this after the dynamic member
 // entries/empty-state placeholder above regardless of the numeric order,
 // and it's currently the only core static page in this menu.
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 10, false, null, MenuBuilder::GROUP_CORE, 'bi-bell');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-bell', null, 'pages');
 
 // Create router early so ModuleManager can register routes
 $router = new Router();
@@ -1361,6 +1372,14 @@ $router = new Router();
 // as modules load) are visible both to the Twig global built later and to
 // FrontController's ETag logic (§8.25).
 $offlineWhitelist = new OfflineWhitelist();
+
+// Contextual help (Core\Help, ARCHITECTURE.md §8.64) — same single-shared-
+// instance reasoning as $offlineWhitelist just above: core topics live in
+// docs/help/, module topics are registered by ModuleManager as each
+// enabled module loads, and HelpService (built on top, below) is the one
+// role-filtering consumer.
+$helpRegistry = new \Core\Help\HelpRegistry(dirname(__DIR__) . '/docs/help');
+$helpService = new \Core\Help\HelpService($helpRegistry);
 
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
@@ -1377,7 +1396,8 @@ $moduleManager = new ModuleManager(
     $router,
     $notificationService,
     $offlineWhitelist,
-    $installationProfile
+    $installationProfile,
+    $helpRegistry
 );
 
 // Usage statistics (Core\Statistics, ARCHITECTURE.md §8.47). Built here
@@ -1481,7 +1501,7 @@ if ($schedulerService->find('core', \Core\Support\Task\PurgeSupportPackagesHandl
     $schedulerService->schedule('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE);
 }
 
-// Add dynamic member entries to Espace membres — group: GROUP_DYNAMIC keeps
+// Add dynamic member entries to Espace membres — group: SORT_GROUP_DYNAMIC keeps
 // these (and the empty-state placeholder below) sorted ahead of every core
 // static page and every module page in this menu regardless of numeric
 // `order` (Core\View\MenuBuilder::buildPages() sorts by group first). No
@@ -1501,17 +1521,18 @@ if (AuthSession::isAuthenticated()) {
             10 + $index,  // order: members first
             true,          // isDynamic = true (renders with the avatar-circle styling)
             $member->getMainSectionName(),  // subtitle
-            MenuBuilder::GROUP_DYNAMIC,
+            MenuBuilder::SORT_GROUP_DYNAMIC,
             null,
             // The persistent member id, never member_years.id: the avatar
             // draws this member's photo for the year in effect, and
             // Core\Photo\MemberPhotoService is keyed on members.id.
-            $member->memberId
+            $member->memberId,
+            'mes_membres'
         );
     }
 
     // Empty state message when no members are linked — conceptually the
-    // same "dynamic member list" slot (hence GROUP_DYNAMIC), but isDynamic
+    // same "dynamic member list" slot (hence SORT_GROUP_DYNAMIC), but isDynamic
     // stays false so it renders as a plain line, not a two-letter avatar
     // bubble carved out of this whole sentence.
     if (count($linkedMembers) === 0) {
@@ -1523,7 +1544,10 @@ if (AuthSession::isAuthenticated()) {
             10,
             false,
             null,
-            MenuBuilder::GROUP_DYNAMIC
+            MenuBuilder::SORT_GROUP_DYNAMIC,
+            null,
+            null,
+            'mes_membres'
         );
     }
 }
@@ -1620,6 +1644,14 @@ $router->addRoute('POST', '/config-mode/deactivate', ConfigModeController::class
 // A chief, one level below, is still refused by the RBAC guard on both.
 $router->addRoute('POST', '/api/editable-content', EditableContentController::class, 'update', 'admin');
 $router->addRoute('POST', '/api/rich-text-content', EditableContentController::class, 'updateField', 'admin');
+
+// Contextual help (Core\Help, ARCHITECTURE.md §8.64). Both routes are
+// role_min: public — HelpService's own role filter is the per-topic gate
+// (a below-role topic 404s exactly like an unknown id). `parents` stays
+// empty on purpose: the help belongs to no menu, and a `parents` entry
+// that matches no MenuBuilder label renders as dead text (design.md §7.3).
+$router->addRoute('GET', '/aide', \Core\Http\Controller\HelpController::class, 'index', 'public', ['label' => 'Aide', 'parents' => []]);
+$router->addRoute('GET', '/aide/{id}', \Core\Http\Controller\HelpController::class, 'show', 'public', ['label' => 'Aide', 'parents' => []]);
 
 // Cookie consent
 $router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public', ['label' => 'Préférences cookies', 'parents' => []]);
@@ -1887,7 +1919,15 @@ $rgpdContentService = new RgpdContentService($moduleManager, $settingService, $l
 
 // Handle the request
 $maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
-$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate);
+$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService);
+
+// Contextual help pages (Core\Http\Controller\HelpController) — needs the
+// HelpService built next to the registry above, after every enabled
+// module had its chance to register topics.
+$frontController->registerController(
+    \Core\Http\Controller\HelpController::class,
+    new \Core\Http\Controller\HelpController($twig, $helpService)
+);
 
 // Optional dependency on the trombinoscope module (ARCHITECTURE.md §7.4)
 // for the Sections page's "responsable" name — set below only when
@@ -2008,11 +2048,16 @@ $frontController->registerController(
     \Core\Http\Controller\MemberEmailAddressController::class,
     new \Core\Http\Controller\MemberEmailAddressController($twig, $memberEmailService, $memberService)
 );
-$frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService, $sectionDocumentService, $settingService));
+$frontController->registerController(StaffsController::class, new StaffsController(
+    $twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService,
+    $unitStaffSectionService, $sectionDocumentService, $settingService, $sectionStaffAuthorizationService
+));
 $frontController->registerController(\Core\Http\Controller\SectionRosterController::class, new \Core\Http\Controller\SectionRosterController(
     $twig, $sectionService, $sectionRosterService, $memberExportRowBuilder, $memberExportService, $scoutYearResolver, $journalService
 ));
-$frontController->registerController(\Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController($twig, $sectionDocumentService));
+$frontController->registerController(\Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController(
+    $twig, $sectionDocumentService, $sectionStaffAuthorizationService, $scoutYearResolver, $journalService
+));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
@@ -3310,17 +3355,16 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         )
     );
 
-    // Iteration 6 — Départs (Core\Member\SectionStaffAuthorizationService is
-    // core, first actually consumed by this page; DepartureService is also
-    // core but constructed once, up top, since Core\Http\Controller\
-    // MemberController's own departure endpoint needs it whether or not
-    // this module is even enabled) and Passage (own PassageService +
-    // SectionTransferRepository storage).
-    $registrationSectionStaffAuth = new \Core\Member\SectionStaffAuthorizationService($connection, $encryptionService, $sectionService);
+    // Iteration 6 — Départs (reusing the one core section-staff
+    // authorization service built up top, never a second instance;
+    // DepartureService is also core but constructed once, up top, since
+    // Core\Http\Controller\MemberController's own departure endpoint needs
+    // it whether or not this module is even enabled) and Passage (own
+    // PassageService + SectionTransferRepository storage).
     $frontController->registerController(
         \Modules\Registration\Controller\DeparturesController::class,
         new \Modules\Registration\Controller\DeparturesController(
-            $twig, $registrationSectionStaffAuth, $sectionService, $departureService, $scoutYearResolver
+            $twig, $sectionStaffAuthorizationService, $sectionService, $departureService, $scoutYearResolver
         )
     );
 
@@ -3890,7 +3934,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
 
 // Leadership ("Encadrement") — four read-only admin pages built entirely
 // from core tables, plus the member page's own training-path card through
-// Core\Module\FormationPathProvider (ARCHITECTURE.md §7.4/§8.64). The
+// Core\Module\FormationPathProvider (ARCHITECTURE.md §7.4/§8.65). The
 // module stores nothing but its formation-level vocabulary mapping, so
 // there is no cache to warm here and nothing to invalidate after an
 // import.

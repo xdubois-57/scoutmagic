@@ -6,11 +6,11 @@
 // partials/breadcrumb_bar.html.twig — a breadcrumb parent (e.g. "Espace
 // animés") never links to a specific page anymore: clicking it OPENS that
 // menu's section so the visitor picks the sub-page themselves, rather than
-// landing on a single, arbitrarily-chosen page within it. Desktop: shows
-// the menu's own submenu bar (public/assets/js/nav.js's showDesktopMenu(),
-// never a raw button click — that would toggle an already-open menu
-// closed instead of ensuring it's open). Mobile: opens the offcanvas and
-// expands the matching accordion section.
+// landing on a single, arbitrarily-chosen page within it. Desktop: opens
+// the menu's own mega-menu panel (public/assets/js/nav.js's
+// showDesktopMenu(), never a raw button click — that would toggle an
+// already-open menu closed instead of ensuring it's open). Mobile: opens
+// the offcanvas and expands the matching accordion section.
 (function () {
     var buttons = document.querySelectorAll('.breadcrumb-parent-btn');
     if (buttons.length === 0) {

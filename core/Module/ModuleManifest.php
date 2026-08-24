@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Module;
 
+use Core\View\MenuBuilder;
+
 class ModuleManifest
 {
     private const VALID_MENUS = [
@@ -44,7 +46,7 @@ class ModuleManifest
     private const VALID_OFFLINE_MATCH_VALUES = ['exact', 'child'];
 
     /**
-     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, breadcrumb: ?array{label: string, parents: array<string>}}> $routes
+     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, menu_group: ?string, breadcrumb: ?array{label: string, parents: array<string>}}> $routes
      * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string, validation_regex: ?string, editable: bool}> $settings
      * @param array<int, array{name: string, category: string, purpose: string, duration: string}> $cookies
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
@@ -89,7 +91,12 @@ class ModuleManifest
         // page, a menu, a route table or the scheduler. Same "last
         // parameter with a default" rule as $requires above, and for the
         // same reason.
-        public readonly array $visibleWhen = []
+        public readonly array $visibleWhen = [],
+        // Optional override of the module's help-topics directory name
+        // (module.json's `help.dir`, ARCHITECTURE.md §8.64). Null means
+        // the default: ModuleManager scans `help/` when it exists. Same
+        // "last parameter with a default" rule as the two above.
+        public readonly ?string $helpDirectory = null
     ) {
     }
 
@@ -280,12 +287,39 @@ class ModuleManifest
             }
         }
 
-        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline, $requires, $visibleWhen);
+        // Validate help (Core\Help\HelpRegistry aggregation, ARCHITECTURE.md
+        // §8.64). The section is OPTIONAL and only ever overrides the topics
+        // directory name — a module that simply ships a help/ directory needs
+        // no manifest section at all (ModuleManager scans the default name),
+        // so adding a topic never requires touching code or JSON.
+        $helpDirectory = null;
+        if (isset($data['help'])) {
+            // json_decode turns an empty JSON object into an empty PHP
+            // array, which array_is_list() reports as a list — accept it
+            // (it just selects the default directory name).
+            if (!is_array($data['help']) || ($data['help'] !== [] && array_is_list($data['help']))) {
+                throw new ModuleException("Module '{$id}' help must be an object");
+            }
+            foreach (array_keys($data['help']) as $key) {
+                if ($key !== 'dir') {
+                    throw new ModuleException("Module '{$id}' help declares an unknown key '{$key}' (only 'dir' is supported)");
+                }
+            }
+            $dir = $data['help']['dir'] ?? 'help';
+            // A bare directory name, never a path: the topics always live
+            // inside the module's own tree.
+            if (!is_string($dir) || $dir === '' || preg_match('#^[A-Za-z0-9_-]+$#', $dir) !== 1) {
+                throw new ModuleException("Module '{$id}' help.dir must be a plain directory name");
+            }
+            $helpDirectory = $dir;
+        }
+
+        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline, $requires, $visibleWhen, $helpDirectory);
     }
 
     /**
      * @param array<string, mixed>|mixed $route
-     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, breadcrumb: ?array{label: string, parents: array<string>}}
+     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, menu_group: ?string, breadcrumb: ?array{label: string, parents: array<string>}}
      */
     private static function validateRoute(string $moduleId, mixed $route, int $index): array
     {
@@ -360,10 +394,34 @@ class ModuleManifest
             $menuIcon = $route['menu_icon'] !== '' ? $route['menu_icon'] : null;
         }
 
+        // Optional: which named column of the menu this entry is drawn in
+        // on the desktop mega-menu (Core\View\MenuBuilder::MENU_GROUPS).
+        // A closed vocabulary per menu, exactly like `menu` itself above,
+        // and for the same reason: a free string would let two modules
+        // write "Gestion" and "gestion" and produce two columns meaning
+        // the same thing. Absent is fine — the entry then lands in that
+        // menu's last declared group (see MenuBuilder::addPage()).
+        $menuGroup = null;
+        if (isset($route['menu_group'])) {
+            if (!is_string($route['menu_group'])) {
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] 'menu_group' must be a string");
+            }
+
+            $validGroups = MenuBuilder::groupIdsFor($route['menu']);
+            if (!in_array($route['menu_group'], $validGroups, true)) {
+                throw new ModuleException(
+                    "Module '{$moduleId}' route[{$index}] invalid menu_group value '{$route['menu_group']}' for menu '{$route['menu']}'"
+                );
+            }
+
+            $menuGroup = $route['menu_group'];
+        }
+
         $breadcrumb = self::validateBreadcrumb($moduleId, $route['breadcrumb'] ?? null, $index);
 
         return [
             'menu_icon' => $menuIcon,
+            'menu_group' => $menuGroup,
             'path' => $route['path'],
             'method' => $method,
             'controller' => $route['controller'],

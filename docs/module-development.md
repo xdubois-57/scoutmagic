@@ -160,9 +160,11 @@ Two modules use it today: `support_dashboard` (`["statistics_receiver"]`) and `t
   - A route's `role_min` must not be more permissive than its menu's minimum role.
   - `method`: optional (defaults to `GET`).
   - `label`: if non-empty, the route is added to the menu with this label.
-  - `menu_order`: optional integer, defaults to `100`. **Read this carefully if you're used to an older version of this rule: `menu_order` no longer competes with core or dynamic entries at all, only with other modules.** `Core\View\MenuBuilder::buildPages()` sorts every menu by entry type first — dynamic entries (e.g. `espace_animes`'s per-member pages) always first, then core static pages, then every module's pages — and only uses `menu_order` to break ties *within* the module group. Setting a very low value (e.g. `5`) no longer places a module page ahead of a dynamic per-member entry or a core page, however low — it only affects that page's position relative to *other module pages* in the same menu. (An earlier version of this rule let a low `menu_order` do exactly that, and two real modules relied on it — `trombinoscope`/`gallery` both declared `menu_order: 5`/`6` in `espace_animes` expecting to sort before per-member pages that used order 10+; under the current rule they simply sort after every dynamic/core entry regardless, and their explicit `menu_order` only orders them against each other.) **This explicit value is still untouched by the module-to-module reordering described below** — only routes left at the plain default are affected by that.
+  - `menu_order`: optional integer, defaults to `100`. **Read this carefully if you're used to an older version of this rule: `menu_order` no longer competes with core or dynamic entries at all, only with other modules.** `Core\View\MenuBuilder::visibleEntries()` sorts every menu by entry type first — dynamic entries (e.g. `espace_animes`'s per-member pages) always first, then core static pages, then every module's pages — and only uses `menu_order` to break ties *within* the module group. Setting a very low value (e.g. `5`) no longer places a module page ahead of a dynamic per-member entry or a core page, however low — it only affects that page's position relative to *other module pages* in the same menu. (An earlier version of this rule let a low `menu_order` do exactly that, and two real modules relied on it — `trombinoscope`/`gallery` both declared `menu_order: 5`/`6` in `espace_animes` expecting to sort before per-member pages that used order 10+; under the current rule they simply sort after every dynamic/core entry regardless, and their explicit `menu_order` only orders them against each other.) **This explicit value is still untouched by the module-to-module reordering described below** — only routes left at the plain default are affected by that.
+  - `menu_group`: optional string, naming which **titled column** of its menu the entry is drawn in on the desktop mega-menu. Nothing to do with `menu_order` above: `menu_order` decides where in a list an entry lands, `menu_group` decides which column draws it. The vocabulary is closed per menu and declared once in `Core\View\MenuBuilder::MENU_GROUPS` — `espace_animes`: `mes_membres`, `pages`; `espace_chefs`: `ma_section`, `activites`, `communication`, `gestion`; `espace_admin`: `membres_annee`, `contenu`, `services`, `suivi`; `configuration`: `unite_donnees`, `site`, `modules`, `exploitation`; `notre_unite` is not grouped and accepts none. A value not declared for that route's own `menu` is a load-time `ModuleException`, exactly like an invalid `menu` — a free string would let two modules write "Gestion" and "gestion" and produce two columns meaning the same thing. Columns are drawn in `MENU_GROUPS`' declaration order, never by `menu_order`, which still sorts *within* a column — so a module page and a core page can share one (`finance`'s "Finances" sits under `gestion` beside core pages). Omitting the key is fine and lands the entry in that menu's **last** declared group, where the omission is at least visible; a module page in a real menu should normally declare one. A module's own configuration page under `configuration` belongs in `modules`.
+
   - Module-to-module ordering (for routes at the default `menu_order`): a superadmin can drag-and-drop reorder modules on the Modules configuration page (`/config/modules`, `module_registry.sort_order`). Each enabled module's position in that order becomes a base offset (`1000 * position`) added to its default-order routes' `menu_order` — so those pages sort by module order relative to each other; this offset, like any other `menu_order` value, only ever matters within the module group (see above), never against core or dynamic entries. See `Core\Module\ModuleManager::loadModule()`.
-  - `breadcrumb`: optional. When present, `label` is required (the page's own default breadcrumb label — a Controller can still override it per-request with a `breadcrumb_current` context variable, e.g. for a dynamic member/article title) and `parents` is an optional array of ancestor labels, each naming a *menu* (`Core\View\MenuBuilder`'s `label`, e.g. `"Espace animés"` — core routes derive this string from `Core\View\MenuBuilder::labelFor()` rather than hardcoding it, since `public/index.php` has PHP to call that from; a `module.json` breadcrumb has no such option, being plain JSON, so it keeps its own hardcoded copy of the label text — keep it in sync with `MenuBuilder::MENUS` by hand). A parent is never given its own URL in `module.json` — `partials/breadcrumb_bar.html.twig` matches it against `menus` (the same structure the nav renders from) and links it to that menu's first real page (skipping dynamic per-member entries and any `#` placeholder), or leaves it as plain text when the menu has none, or when the only such page is the one already being viewed (never a self-link, and never an invented URL like `/` or `#`). A route with no `breadcrumb` key is not an error — the breadcrumb bar simply stops at the home icon for that page. Rendered by `partials/breadcrumb_bar.html.twig`, included from `base.html.twig`, visible only when the site runs as an installed PWA (pure CSS `@media (display-mode: standalone)`, see `public/assets/css/app.css` — never a security boundary, same principle as menu visibility, SECURITY §3). Core routes declare the exact same shape as this route's 6th `Core\Http\Router::addRoute()` argument — see the core route table in `public/index.php`.
+  - `breadcrumb`: optional. When present, `label` is required (the page's own default breadcrumb label — a Controller can still override it per-request with a `breadcrumb_current` context variable, e.g. for a dynamic member/article title) and `parents` is an optional array of ancestor labels, each naming a *menu* (`Core\View\MenuBuilder`'s `label`, e.g. `"Espace animés"` — core routes derive this string from `Core\View\MenuBuilder::labelFor()` rather than hardcoding it, since `public/index.php` has PHP to call that from; a `module.json` breadcrumb has no such option, being plain JSON, so it keeps its own hardcoded copy of the label text — keep it in sync with `MenuBuilder::MENUS` by hand). A parent is never given its own URL in `module.json` — `partials/breadcrumb_bar.html.twig` matches it against `menus` (the same structure the nav renders from) and links it to that menu's first real page (skipping dynamic per-member entries and any `#` placeholder), or leaves it as plain text when the menu has none, or when the only such page is the one already being viewed (never a self-link, and never an invented URL like `/` or `#`). A route with no `breadcrumb` key is not an error — the breadcrumb bar simply stops at the home icon for that page. Rendered by `partials/breadcrumb_bar.html.twig`, included from `base.html.twig`, and visible at every width — mobile, desktop browser tab, installed PWA alike (pure CSS, see `public/assets/css/app.css` — never a security boundary, same principle as menu visibility, SECURITY §3). Core routes declare the exact same shape as this route's 6th `Core\Http\Router::addRoute()` argument — see the core route table in `public/index.php`.
 - **settings**: optional, each entry must have `key`, `type`, `label`, `description`, and may declare `default_value` and `editable` (bool, default `true`).
 - **cookies**: optional, each entry must have `name`, `category`, `purpose`, `duration`.
   - `category`: one of `necessary`, `functional`, `analytics`.
@@ -583,6 +585,55 @@ A module can make one or more of its own GET pages available for offline viewing
 - **Only declare a page that is actually safe to keep offline.** The whole point of this mechanism is that a module never needs core's permission to add a page — but that also means a module author is the one who has to apply the same judgment ARCHITECTURE.md §8.25 already applies to core pages: never a page carrying financial data, private documents, or content meant for one specific recipient only (mass-mail bodies, anything owner-scoped via `Core\File\FileAccessGuard`). If in doubt, don't declare it — an un-whitelisted page is never a bug, it just isn't cacheable, and falls back to the generic "unavailable offline" dialog/page like any other page a visitor tries to reach without a connection.
 - If your page renders any image through `member_photo()`/`section_photo()`/`editable_image()` (§8.39) and you want it to actually show a photo (not just render offline with everything missing), you need a way for `Core\Offline\OfflineManifestService` to know which image URLs to include in `GET /api/offline/manifest`'s response — today this is done ad hoc per core page inside that service (it has no generic per-module hook for this yet). If your module's whitelisted page shows a photo, either reuse an existing image source that service already resolves (e.g. staff photos via `Core\Module\StaffDirectoryProvider`, the same hook that already backs the trombinoscope's offline photos) or raise it with a maintainer — don't grow that service by guessing at conventions ad hoc.
 - Whitelisting a page doesn't change its `role_min`, its route, or anything about how it's served online — it only makes it eligible for the service worker's network-first-with-cache-fallback treatment and the pre-download script's proactive warming while offline.
+
+## Help topics (`Core\Help\HelpRegistry`)
+
+A module documents its own pages by shipping Markdown topics in a `help/`
+directory at the module root — same aggregation shape as `cookies`/
+`notifications`/`offline`: `Core\Module\ModuleManager` registers the
+directory into the single shared `Core\Help\HelpRegistry` while loading
+the module, and a disabled module's topics simply never exist. **No
+manifest section is needed**: dropping a `.md` file into `help/` is the
+whole integration. The optional `module.json` section only renames the
+directory:
+
+```json
+"help": { "dir": "help" }
+```
+
+One file per topic, named `{id}.md`, front matter between `---` lines
+(`key: value` per line, lists comma-separated — deliberately not YAML):
+
+```
+---
+id: reserver-un-local
+title: Demander la location d'un local
+summary: Choisir des dates libres et envoyer une demande.
+category: Notre unité
+role_min: public
+paths: /locations/*
+related: suivre-ma-demande
+---
+
+Corps en Markdown…
+```
+
+- `id` must match the file name and be unique across core + every module
+  — a collision is a load error, and `tests/Core/Help/HelpInvariantsTest`
+  pins the whole corpus.
+- `role_min`: below it the topic exists nowhere (panel, index, search,
+  direct URL — 404). Same role vocabulary as routes.
+- `paths`: pages the topic covers — exact (`/locations`) or direct child
+  (`/locations/*`, the path plus exactly one segment; `offline`'s
+  exact/child semantics). Every declared path must correspond to a real
+  registered GET route, or the invariant test fails. Empty is valid: the
+  topic is then only reachable from `/aide`.
+- Body sections start at `##` (the title already is the page's `<h1>`).
+  Write to the editorial charter in design.md §7.11 — vouvoiement, the
+  §7.1 lexicon, ~400 words, at most one `> ` warning callout, no external
+  link but the federation's.
+- A new end-user-facing page should ship with a topic covering it, in the
+  same change (AGENTS.md § Module creation checklist).
 
 ## Protecting a public form (`Core\Security\HumanCheck`)
 

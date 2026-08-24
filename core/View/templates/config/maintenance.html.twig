@@ -328,10 +328,11 @@
                                 </div>
                             {% endif %}
                         </div>
-                        <div class="mb-2">
-                            <label class="form-label small" for="full-backup-password">Mot de passe de l'archive</label>
-                            <input type="password" class="form-control form-control-sm" id="full-backup-password" required>
-                        </div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'full-backup-password', type: 'password',
+                            label: "Mot de passe de l'archive", required: true,
+                            size: 'sm', wrapper_class: 'mb-2',
+                        } only %}
                         <button type="submit" class="btn btn-primary btn-sm" id="full-backup-submit">
                             <i class="bi bi-shield-lock" aria-hidden="true"></i> Générer
                         </button>
@@ -460,8 +461,11 @@
                             <input type="file" class="form-control form-control-sm" name="backup_file" id="restore-backup-file" accept=".zip" aria-label="Fichier de sauvegarde">
                         </div>
                         <div class="mb-2">
-                            <label class="form-label small" for="restore-backup-password">Mot de passe de l'archive (si chiffrée)</label>
-                            <input type="password" class="form-control form-control-sm" name="password" id="restore-backup-password">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'restore-backup-password', field_name: 'password',
+                                type: 'password', label: "Mot de passe de l'archive (si chiffrée)",
+                                size: 'sm', wrapper_class: '',
+                            } only %}
                         </div>
                         <label class="form-label small" for="restore-backup-keyword">Tapez <strong>RESTAURER</strong> pour confirmer</label>
                         <input type="text" class="form-control form-control-sm mb-2" name="confirm_keyword" id="restore-backup-keyword" autocomplete="off">

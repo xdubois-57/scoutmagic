@@ -22,64 +22,11 @@ interface Window {
     // public/assets/vendor/chartjs/chart.umd.min.js — present only on the
     // pages that load it.
     Chart?: ChartConstructor;
-    // Modules\SupportDashboard — the two current-state chart series,
-    // computed server-side and handed over by an inline nonce-tagged script
-    // in modules/support_dashboard/views/index.html.twig.
-    supportDashboardCharts?: {
-        versions: Array<{ label: string, count: number }>;
-        autoUpdate: Array<{ label: string, count: number }>;
-        history: Array<{ month: string, count: number }>;
-    };
     // Bootstrap 5's global, also reachable as the bare `bootstrap` binding
     // (see types/bootstrap.d.ts) — declared here too for the scripts that
     // access it defensively through `window`, since a page may not have
     // loaded the bundle at all.
     bootstrap?: typeof bootstrap;
-    // modules/mass_mail/views/list.html.twig — server data handed to
-    // public/assets/js/mass-mail-list.js by an inline nonce-tagged script
-    // (the window.supportDashboardCharts precedent).
-    // Deliberately loose: the exact shape belongs to the page that
-    // serializes it, and mirroring it here would be a second, always-
-    // stale copy (the window.Chart precedent above).
-    massMailListData?: { [key: string]: any };
-    // modules/mass_mail/views/config.html.twig — the site-wide sending
-    // interval the speed form starts from, handed to
-    // public/assets/js/mass-mail-config.js by an inline nonce-tagged script
-    // (the window.supportDashboardCharts precedent).
-    massMailConfigData?: {
-        batchIntervalMinutes?: number | null;
-    };
-    // modules/llm_connector/views/config/index.html.twig — the per-driver
-    // model lists, handed to public/assets/js/llm-config.js by an inline
-    // nonce-tagged script (the window.supportDashboardCharts precedent).
-    // Deliberately loose on a model row, for the same reason as
-    // massMailListData above: the shape belongs to the page that
-    // serializes it.
-    llmConfigData?: {
-        modelsByDriver: { [driver: string]: Array<{ [key: string]: any }> };
-    };
-    // modules/calendar/views/chief.html.twig — the event defaults the
-    // add-event dialog pre-fills, handed to public/assets/js/calendar-chief.js
-    // by an inline nonce-tagged script (the window.llmConfigData precedent).
-    // defaultCalendarId is null when the unit has no default calendar, in
-    // which case the dialog leaves the select on its first option.
-    calendarChiefData?: {
-        defaultTitle?: string;
-        defaultStartTime?: string;
-        defaultEndTime?: string;
-        defaultLocation?: string;
-        defaultCalendarId?: number | null;
-    };
-    // core/View/templates/chefs/staffs.html.twig — the section-document
-    // upload thresholds, handed to public/assets/js/staffs.js by an inline
-    // nonce-tagged script (the window.llmConfigData precedent). Present
-    // only for a chief who can edit the section; oversizeWarningEnabled is
-    // false whenever the server has a PDF compression backend of its own,
-    // in which case the advisory warning never shows at all.
-    staffsData?: {
-        oversizeWarningEnabled?: boolean;
-        oversizeWarningMb?: number;
-    };
     // public/assets/js/api.js — the site-wide fetch toolbox, loaded by
     // base.html.twig on every page (see its header for the envelope).
     ScoutMagicApi?: {
@@ -89,6 +36,9 @@ interface Window {
         withDisabled: <T>(control: HTMLButtonElement | HTMLInputElement | null, run: () => Promise<T>) => Promise<T>;
         escapeHtml: (value: unknown) => string;
         debounce: (fn: (...args: any[]) => void, delayMs: number) => (...args: any[]) => void;
+        // Reads a `<script type="application/json" id="...">` island;
+        // null when it is absent or unparseable.
+        pageData: (id: string) => any;
         poll: (tick: () => (boolean | void | Promise<boolean | void>), options?: {
             intervalMs?: number;
             delaysMs?: number[];
@@ -104,6 +54,38 @@ interface Window {
         setPreference: (pref: string) => void;
         cycle: () => void;
         hasFunctionalConsent: () => boolean;
+    };
+    // public/assets/js/drop-zone.js — the shared « drop files here »
+    // zone (design.md §7.10), loaded only by the pages that show one.
+    ScoutMagicDropZone?: {
+        bind: (
+            zone: HTMLElement | null,
+            onFiles: (files: FileList) => void,
+            options?: { input?: HTMLInputElement | null, pickOnClick?: boolean }
+        ) => void;
+    };
+    // public/assets/js/sortable.js — drag-and-drop reordering of a list,
+    // loaded only by the pages that offer it.
+    ScoutMagicSortable?: {
+        bind: (
+            container: HTMLElement | null,
+            options: {
+                itemSelector: string;
+                axis?: string;
+                draggingClass?: string;
+                onReorder?: () => void;
+            }
+        ) => void;
+    };
+    // public/assets/js/pdf-thumbnail.js — the fallback for a PDF
+    // thumbnail the server could not render, loaded only by the pages
+    // that show receipts. `error` does not bubble, so every code path
+    // that INSERTS such an image calls bind() again for it.
+    ScoutMagicPdfThumbnail?: {
+        bind: (
+            root: ParentNode | null | undefined,
+            options?: { height?: string, width?: string, iconClass?: string }
+        ) => void;
     };
     // public/assets/js/toast.js — the non-blocking replacement for
     // alert(), loaded by base.html.twig on every page.
@@ -171,18 +153,5 @@ interface Window {
         newUploadId: () => string;
         CHUNK_SIZE: number;
         CHUNK_THRESHOLD: number;
-    };
-    // modules/sos_staff/views/admin.html.twig — the displayed month and the
-    // duty states it starts from, handed to public/assets/js/sos-admin.js by
-    // an inline nonce-tagged script (the window.llmConfigData precedent).
-    // states is keyed by ISO date then by member id, each value being one of
-    // the two duty states ('oncall' / 'unavailable'); an absent key means
-    // nothing is planned. No phone number ever travels in this payload
-    // (AGENTS.md § Security checklist).
-    sosAdminData?: {
-        year?: number;
-        month?: number;
-        monthParam?: string;
-        states?: { [date: string]: { [memberId: string]: string } };
     };
 }

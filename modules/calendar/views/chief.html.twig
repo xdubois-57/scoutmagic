@@ -52,47 +52,47 @@
                 <form id="event-form">
                         <input type="hidden" id="event-id" value="">
                         <div class="row g-2 mb-2">
+                            {# No `field_name` anywhere in this dialog:
+                               calendar-chief.js reads the fields by id and
+                               posts the event itself. #}
                             <div class="col-12 col-md-6">
-                                <label class="form-label small" for="event-title">Titre</label>
-                                <input type="text" class="form-control form-control-sm" id="event-title">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'event-title', label: 'Titre',
+                                    size: 'sm', wrapper_class: '',
+                                } only %}
                             </div>
                             <div class="col-12 col-md-6">
-                                <label class="form-label small" for="event-calendar">Calendrier</label>
-                                <select class="form-select form-select-sm" id="event-calendar">
-                                    {% for option in calendar_options %}
-                                        {% if option.id != 0 %}
-                                            <option value="{{ option.id }}">{{ option.label }}</option>
-                                        {% endif %}
-                                    {% endfor %}
-                                </select>
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'event-calendar', label: 'Calendrier',
+                                    type: 'select', size: 'sm', wrapper_class: '',
+                                    options: calendar_options|default([])|filter(option => option.id != 0)
+                                        |map(option => { value: option.id, label: option.label }),
+                                } only %}
                             </div>
                         </div>
                         <div class="row g-2 mb-2">
-                            <div class="col-6 col-md-3">
-                                <label class="form-label small" for="event-start-date">Date de début</label>
-                                <input type="date" class="form-control form-control-sm" id="event-start-date">
-                            </div>
-                            <div class="col-6 col-md-3">
-                                <label class="form-label small" for="event-end-date">Date de fin</label>
-                                <input type="date" class="form-control form-control-sm" id="event-end-date">
-                            </div>
-                            <div class="col-6 col-md-3">
-                                <label class="form-label small" for="event-start-time">Heure de début</label>
-                                <input type="time" class="form-control form-control-sm" id="event-start-time">
-                            </div>
-                            <div class="col-6 col-md-3">
-                                <label class="form-label small" for="event-end-time">Heure de fin</label>
-                                <input type="time" class="form-control form-control-sm" id="event-end-time">
-                            </div>
+                            {% for field in [
+                                { id: 'event-start-date', label: 'Date de début', type: 'date' },
+                                { id: 'event-end-date', label: 'Date de fin', type: 'date' },
+                                { id: 'event-start-time', label: 'Heure de début', type: 'time' },
+                                { id: 'event-end-time', label: 'Heure de fin', type: 'time' },
+                            ] %}
+                                <div class="col-6 col-md-3">
+                                    {% include 'partials/form_field.html.twig' with {
+                                        field_id: field.id, label: field.label, type: field.type,
+                                        size: 'sm', wrapper_class: '',
+                                    } only %}
+                                </div>
+                            {% endfor %}
                         </div>
-                        <div class="mb-2">
-                            <label class="form-label small" for="event-location">Localisation</label>
-                            <input type="text" class="form-control form-control-sm" id="event-location">
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label small" for="event-description">Description</label>
-                            <textarea class="form-control form-control-sm" id="event-description" rows="2"></textarea>
-                        </div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'event-location', label: 'Localisation',
+                            size: 'sm', wrapper_class: 'mb-2',
+                        } only %}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'event-description', label: 'Description',
+                            type: 'textarea', rows: 2, size: 'sm', wrapper_class: 'mb-2',
+                        } only %}
                         {% if retro_module_active %}
                             <div class="mb-2 d-none" id="event-retro-auto-create-wrap">
                                 <div class="form-check">
@@ -121,21 +121,21 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/calendar-chief.js" defer></script>
-<script nonce="{{ csp_nonce }}">
-{# Server data handed to calendar-chief.js — the llm_connector /
-   support_dashboard pattern (window.llmConfigData,
-   window.supportDashboardCharts). JSON_HEX_TAG/JSON_HEX_AMP: the default
-   event title and location are free text an admin types on the calendar
-   configuration page, so a value containing tag-closing characters must
-   not break out of this block. #}
+{# Server data as a JSON ISLAND, not an inline assignment: an island is
+   data to the parser, so the default event title or location — free text
+   an admin types on the calendar configuration page — cannot end the
+   block, and the template needs no nonce for it.
+   JSON_HEX_TAG/JSON_HEX_AMP escape those characters anyway.
+   calendar-chief.js reads it through ScoutMagicApi.pageData(). #}
 {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
-window.calendarChiefData = {
-    defaultTitle: {{ default_title|json_encode(json_flags)|raw }},
-    defaultStartTime: {{ default_start_time|json_encode(json_flags)|raw }},
-    defaultEndTime: {{ default_end_time|json_encode(json_flags)|raw }},
-    defaultLocation: {{ default_location|json_encode(json_flags)|raw }},
-    defaultCalendarId: {{ default_calendar_id|json_encode(json_flags)|raw }}
-};
+<script type="application/json" id="calendar-chief-data">
+{{ {
+    defaultTitle: default_title,
+    defaultStartTime: default_start_time,
+    defaultEndTime: default_end_time,
+    defaultLocation: default_location,
+    defaultCalendarId: default_calendar_id
+}|json_encode(json_flags)|raw }}
 </script>
+<script src="/assets/js/calendar-chief.js" defer></script>
 {% endblock %}

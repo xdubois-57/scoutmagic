@@ -7,6 +7,7 @@ namespace Tests\Core\Module;
 use Core\Module\InstallationProfile;
 use Core\Module\ModuleException;
 use Core\Module\ModuleManifest;
+use Core\View\MenuBuilder;
 use PHPUnit\Framework\TestCase;
 
 class ModuleManifestTest extends TestCase
@@ -284,6 +285,112 @@ class ModuleManifestTest extends TestCase
                 ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_animes', 'role_min' => 'identified', 'menu_icon' => 42],
             ],
         ]);
+    }
+
+    // --- menu_group -----------------------------------------------------
+
+    public function testRouteMenuGroupIsNullWhenNotDeclared(): void
+    {
+        $manifest = ModuleManifest::fromFile($this->fixturesDir . '/valid_module/module.json');
+
+        $this->assertNull($manifest->routes[0]['menu_group']);
+    }
+
+    public function testRouteMenuGroupIsKeptWhenDeclaredForThatMenu(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_animes', 'role_min' => 'identified', 'menu_group' => 'pages'],
+            ],
+        ]);
+
+        $this->assertSame('pages', $manifest->routes[0]['menu_group']);
+    }
+
+    /**
+     * The vocabulary is closed per menu (Core\View\MenuBuilder::MENU_GROUPS)
+     * exactly as `menu` itself is: a group that exists, but not in *this*
+     * menu, is still refused — otherwise two modules writing "gestion" and
+     * "Gestion" would draw two columns meaning the same thing.
+     */
+    public function testRouteMenuGroupRejectsAGroupNotDeclaredForThatMenu(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("invalid menu_group value 'gestion' for menu 'espace_animes'");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_animes', 'role_min' => 'identified', 'menu_group' => 'gestion'],
+            ],
+        ]);
+    }
+
+    /**
+     * "Notre unité" declares no group at all, so no value can be valid
+     * there — a module naming one is stating something the menu cannot
+     * honour, and finds out at load time rather than never.
+     */
+    public function testRouteMenuGroupRejectsAnyValueOnAnUngroupedMenu(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("invalid menu_group value 'pages' for menu 'notre_unite'");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'notre_unite', 'role_min' => 'public', 'menu_group' => 'pages'],
+            ],
+        ]);
+    }
+
+    public function testRouteMenuGroupRejectsNonString(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("'menu_group' must be a string");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_animes', 'role_min' => 'identified', 'menu_group' => 42],
+            ],
+        ]);
+    }
+
+    /**
+     * Every shipped module.json is loaded for real: a `menu_group` typo in
+     * any of them is a fatal boot, so it has to be caught here rather than
+     * on the first request after a deploy.
+     */
+    public function testEveryShippedModuleManifestDeclaresValidMenuGroups(): void
+    {
+        $manifests = glob(dirname(__DIR__, 3) . '/modules/*/module.json');
+        $this->assertNotEmpty($manifests);
+
+        foreach ($manifests as $path) {
+            $manifest = ModuleManifest::fromFile($path);
+
+            foreach ($manifest->routes as $route) {
+                if ($route['menu_group'] === null) {
+                    continue;
+                }
+
+                $this->assertContains(
+                    $route['menu_group'],
+                    MenuBuilder::groupIdsFor($route['menu']),
+                    "{$manifest->id}: '{$route['menu_group']}' is not a group of '{$route['menu']}'"
+                );
+            }
+        }
     }
 
     public function testEnabledByDefaultDefaultsToFalse(): void

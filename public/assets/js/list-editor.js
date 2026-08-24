@@ -20,33 +20,20 @@
     document.querySelectorAll('.list-editor').forEach(
         /** @param {HTMLElement} container */
         function (container) {
-        var itemsEl = container.querySelector('.list-editor-items');
+        var itemsEl = /** @type {HTMLElement|null} */ (container.querySelector('.list-editor-items'));
         var reorderUrl = container.dataset.reorderUrl;
         var activeUrl = container.dataset.activeUrl;
         var deleteUrl = container.dataset.deleteUrl;
         var addBtn = /** @type {HTMLButtonElement} */ (container.querySelector('.list-editor-add-btn'));
-        var draggedItem = null;
 
         // --- Drag-and-drop reorder ---
-        itemsEl.querySelectorAll('.list-editor-item').forEach(function (item) {
-            item.addEventListener('dragstart', function () {
-                draggedItem = item;
-                item.classList.add('list-editor-item--dragging');
-            });
-            item.addEventListener('dragend', function () {
-                item.classList.remove('list-editor-item--dragging');
-                draggedItem = null;
-                persistOrder();
-            });
-            item.addEventListener('dragover',
-                /** @param {DragEvent} e */
-                function (e) {
-                e.preventDefault();
-                if (!draggedItem || draggedItem === item) return;
-                var rect = item.getBoundingClientRect();
-                var after = (e.clientY - rect.top) > rect.height / 2;
-                itemsEl.insertBefore(draggedItem, after ? item.nextSibling : item);
-            });
+        // The shared toolbox (public/assets/js/sortable.js), delegated on
+        // the list, so an item added or removed after load needs no
+        // re-wiring.
+        window.ScoutMagicSortable.bind(itemsEl, {
+            itemSelector: '.list-editor-item',
+            draggingClass: 'list-editor-item--dragging',
+            onReorder: persistOrder,
         });
 
         function persistOrder() {

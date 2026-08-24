@@ -10,8 +10,8 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Espace membres' dynamic per-member entries — same production shape as
- * public/index.php's own registration (GROUP_DYNAMIC + isDynamic: true for
- * real member pages; GROUP_DYNAMIC + isDynamic: false for the empty-state
+ * public/index.php's own registration (SORT_GROUP_DYNAMIC + isDynamic: true for
+ * real member pages; SORT_GROUP_DYNAMIC + isDynamic: false for the empty-state
  * placeholder, which occupies the same sort slot but must not render with
  * the per-member avatar-circle styling). Broader group-vs-order sorting
  * coverage (dynamic/core/module, stability, labelFor()) lives in
@@ -36,7 +36,7 @@ class MenuBuilderDynamicTest extends TestCase
             10,
             true,  // isDynamic
             'Meute Akela',  // subtitle
-            MenuBuilder::GROUP_DYNAMIC
+            MenuBuilder::SORT_GROUP_DYNAMIC
         );
 
         $menus = $this->builder->build();
@@ -62,7 +62,7 @@ class MenuBuilderDynamicTest extends TestCase
     /**
      * No separator exists anymore (ARCHITECTURE §6.3) — the dynamic
      * member entry and the static page that follows it sort correctly
-     * purely by group (GROUP_DYNAMIC before GROUP_CORE), with nothing
+     * purely by group (SORT_GROUP_DYNAMIC before SORT_GROUP_CORE), with nothing
      * placed between them in the built pages array.
      */
     public function testDynamicEntryStillSortsBeforeAStaticEntryWithNoSeparatorBetweenThem(): void
@@ -75,7 +75,7 @@ class MenuBuilderDynamicTest extends TestCase
             10,
             true,
             null,
-            MenuBuilder::GROUP_DYNAMIC
+            MenuBuilder::SORT_GROUP_DYNAMIC
         );
 
         $this->builder->addPage(
@@ -117,7 +117,7 @@ class MenuBuilderDynamicTest extends TestCase
             10,
             true,
             'Sizaine Loups',
-            MenuBuilder::GROUP_DYNAMIC
+            MenuBuilder::SORT_GROUP_DYNAMIC
         );
 
         $menus = $this->builder->build();
@@ -146,7 +146,7 @@ class MenuBuilderDynamicTest extends TestCase
             100
         );
 
-        // Add dynamic entries (lower order) — group: GROUP_DYNAMIC, same as
+        // Add dynamic entries (lower order) — group: SORT_GROUP_DYNAMIC, same as
         // public/index.php's real registration.
         $this->builder->addPage(
             MenuBuilder::MENU_ESPACE_ANIMES,
@@ -156,7 +156,7 @@ class MenuBuilderDynamicTest extends TestCase
             10,
             true,
             null,
-            MenuBuilder::GROUP_DYNAMIC
+            MenuBuilder::SORT_GROUP_DYNAMIC
         );
 
         $this->builder->addPage(
@@ -167,7 +167,7 @@ class MenuBuilderDynamicTest extends TestCase
             20,
             true,
             null,
-            MenuBuilder::GROUP_DYNAMIC
+            MenuBuilder::SORT_GROUP_DYNAMIC
         );
 
         $menus = $this->builder->build();
@@ -219,7 +219,7 @@ class MenuBuilderDynamicTest extends TestCase
     }
 
     /**
-     * The "no linked members" placeholder — GROUP_DYNAMIC (so it still
+     * The "no linked members" placeholder — SORT_GROUP_DYNAMIC (so it still
      * occupies the front-of-menu slot real member entries would) but
      * isDynamic: false (so it renders as a plain line, not the per-member
      * avatar-circle treatment), matching public/index.php's own
@@ -235,7 +235,7 @@ class MenuBuilderDynamicTest extends TestCase
             10,
             false,
             null,
-            MenuBuilder::GROUP_DYNAMIC
+            MenuBuilder::SORT_GROUP_DYNAMIC
         );
 
         $menus = $this->builder->build();
@@ -260,7 +260,7 @@ class MenuBuilderDynamicTest extends TestCase
     /**
      * The empty-state placeholder must still sort ahead of a core static
      * page even though both would share the same numeric `order` (10) —
-     * it's GROUP_DYNAMIC, not GROUP_CORE.
+     * it's SORT_GROUP_DYNAMIC, not SORT_GROUP_CORE.
      */
     public function testEmptyStateMessageSortsBeforeACorePageAtTheSameOrder(): void
     {
@@ -272,7 +272,7 @@ class MenuBuilderDynamicTest extends TestCase
             10,
             false,
             null,
-            MenuBuilder::GROUP_DYNAMIC
+            MenuBuilder::SORT_GROUP_DYNAMIC
         );
         $this->builder->addPage(
             MenuBuilder::MENU_ESPACE_ANIMES,

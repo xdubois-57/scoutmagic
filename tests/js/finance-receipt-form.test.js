@@ -152,6 +152,7 @@ async function boot(buildDom, { withDataTransfer = true } = {}) {
     form().submit = vi.fn();
     vi.resetModules();
     await import('../../public/assets/js/api.js');
+    await import('../../public/assets/js/drop-zone.js');
     await import('../../public/assets/js/finance-receipt-form.js');
 }
 
@@ -197,6 +198,7 @@ describe('finance-receipt-form.js: boot guard', () => {
         document.body.innerHTML = '<div class="text-body-secondary">Aucun compte visible pour votre rôle.</div>';
         vi.resetModules();
         await import('../../public/assets/js/api.js');
+        await import('../../public/assets/js/drop-zone.js');
         await expect(import('../../public/assets/js/finance-receipt-form.js')).resolves.toBeDefined();
     });
 
@@ -207,6 +209,7 @@ describe('finance-receipt-form.js: boot guard', () => {
         form().submit = vi.fn();
         vi.resetModules();
         await import('../../public/assets/js/api.js');
+        await import('../../public/assets/js/drop-zone.js');
         await import('../../public/assets/js/finance-receipt-form.js');
 
         const event = submitForm();

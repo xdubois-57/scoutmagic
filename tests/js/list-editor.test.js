@@ -65,6 +65,7 @@ async function boot() {
     // page script — same order here.
     await import('../../public/assets/js/api.js');
     await import('../../public/assets/js/toast.js');
+    await import('../../public/assets/js/sortable.js');
     await import('../../public/assets/js/list-editor.js');
 }
 
@@ -153,13 +154,16 @@ describe('list-editor.js: drag-and-drop reorder', () => {
         const container = buildEditor({ items: [1, 2, 3] });
         await boot();
 
-        // Simulate a completed drag: item 3 moved to the front, THEN
-        // dragend fires (matching the real sequence: dragover mutates the
-        // DOM live, dragend is what persists it).
+        // Simulate a completed drag: dragstart, item 3 moved to the
+        // front, THEN dragend (the real sequence — dragover mutates the
+        // DOM live, dragend is what persists it). The events bubble: the
+        // shared toolbox (public/assets/js/sortable.js) delegates on the
+        // list rather than listening per item.
         const itemsEl = container.querySelector('.list-editor-items');
         const items = itemsEl.querySelectorAll('.list-editor-item');
+        items[2].dispatchEvent(new Event('dragstart', { bubbles: true }));
         itemsEl.insertBefore(items[2], items[0]);
-        items[2].dispatchEvent(new Event('dragend'));
+        items[2].dispatchEvent(new Event('dragend', { bubbles: true }));
 
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith('/reorder', expect.objectContaining({
             body: JSON.stringify({ ids: ['3', '1', '2'], _csrf_token: 'tok' }),
@@ -170,9 +174,9 @@ describe('list-editor.js: drag-and-drop reorder', () => {
         const container = buildEditor({ items: [1, 2] });
         await boot();
         const item = container.querySelector('.list-editor-item');
-        item.dispatchEvent(new Event('dragstart'));
+        item.dispatchEvent(new Event('dragstart', { bubbles: true }));
         expect(item.classList.contains('list-editor-item--dragging')).toBe(true);
-        item.dispatchEvent(new Event('dragend'));
+        item.dispatchEvent(new Event('dragend', { bubbles: true }));
         expect(item.classList.contains('list-editor-item--dragging')).toBe(false);
     });
 });
