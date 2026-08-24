@@ -27,12 +27,24 @@ class NotificationRecord
         public readonly string $body,
         public readonly ?string $url,
         public readonly ?string $readAt,
-        public readonly string $createdAt
+        public readonly string $createdAt,
+        /**
+         * When the email copy left, or null — see the `notifications`
+         * table comment in schema/core.sql. Null covers both "the email
+         * channel was off for this recipient" and "not sent yet"; nothing
+         * needs to tell those apart.
+         */
+        public readonly ?string $emailSentAt = null
     ) {
     }
 
     public function isRead(): bool
     {
         return $this->readAt !== null;
+    }
+
+    public function emailAlreadySent(): bool
+    {
+        return $this->emailSentAt !== null;
     }
 }

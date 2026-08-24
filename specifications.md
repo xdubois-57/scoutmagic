@@ -253,7 +253,7 @@ Three, and a type may offer any combination of them:
 
 - **In-app**: notification centre (bell icon in header, unread count badge). The bell's own panel previews the **five most recent unread** notifications under the count, and says how many more are pending; the full list is one click away.
 - **Push**: browser/mobile push notifications (Web Push API, opt-in via subscription)
-- **Email**: declared by every type and switchable per type on the preferences page — but **no delivery is implemented yet**. `NotificationService::dispatch()` consults the push channel only, so an account that switches Mail on today receives nothing extra. Every type therefore declares it `off` or `default_off`; the preference is stored against the day the channel is wired, and nothing else reads it.
+- **Email**: the same notification sent to the account's own sign-in address. The channel for somebody who never installed the site and never allowed push. Every type declares it `off` or `default_off`, so it is never a surprise: a recipient opts in, per type. Sent in the background like push, and never twice — each notification carries the moment its email copy left (`notifications.email_sent_at`), claimed before the message is handed to the transport.
 
 A type declares each channel as on, off, `default_on` or `default_off`: the first two are **locked** (the recipient's preference page shows the switch greyed out and cannot change it — a security alert about your own account is never switchable off), the last two are defaults the recipient may override.
 
@@ -272,7 +272,10 @@ Modules can dispatch typed notifications (e.g., calendar event reminder, news ar
 ### 13.4 Delivery
 - In-app: stored in database, displayed in notification centre, badge count in header
 - Push: sent via Web Push API (VAPID), respects quiet hours and discretion, and is simply skipped when the account has no subscription — the in-app and email copies are unaffected
-- Email: not implemented — see §13.1. Nothing is sent on this channel by any code path today
+- Email: rendered from a core template and sent through the ordinary mail service, to the account's own address — never a member's contact address. Handed to the scheduler (`core/send_notification_emails`), never sent inside the request that triggered the notification
+- Quiet hours hold back **push only**. An email is not what makes a device buzz at 3 a.m. in the way a push is, and delaying one by up to nine hours would make a time-sensitive notification useless without making anybody's night quieter
+- Discretion applies to push **and** email: with it on, the email carries the generic title, no body, and a link. It is a statement about screens other people can read, and a mail notification lands on the same lock screen a push does
+- A send that the transport refuses is journaled and never retried: a retry cannot tell "never left" from "left, then the connection dropped", and the notification is in the recipient's centre either way
 - All notifications logged in journal
 
 ## 14. Member email management
@@ -637,6 +640,8 @@ The **public space** (`/locations`) is for people outside the unit: an index, on
 
 **There is one authority, and the split between the two spaces is about what is being administered, not about who is trusted.** « Espace chefs d'U > Locations » answers "which assets exist and who runs each one": creating an asset, its general description, its managers, archiving it. Everything that is a property of one asset — its booking rules, its tariff, its deposit, its balance, its security deposit — is set in that asset's own managed space, by the people who run it; the Staff d'U reaches it there like any other manager. The one exception is the accounting **account** an asset's money is expected on, which stays with the Staff d'U: the account list carries the unit's IBANs, and a manager may be a parent or a former leader.
 
+**None of the managed space is available offline.** Every screen in it is a screen where somebody writes — a price, a reading, a decision — and a write made against a stale offline copy is worse than a page that plainly says it needs the network. The public space is not cached either: it is about availability, which is exactly the thing that must not be stale.
+
 **Designating a manager is a search, not a checklist**: a search-as-you-type box over the unit's members, showing a name, a section and a function — never an email address. Only members of a configurable minimum age (16 by default) are offered: a manager reaches renters' identities, the money and the contracts. The age is the real date of birth, and a member whose birth date is not encoded in Desk stays selectable rather than disappearing without explanation. A member the last Desk import dropped keeps their grant, shown as suspended: it can be removed deliberately, but never by a save that did not display it, and re-saving never silently reactivates it.
 
 ### 22.2 What the public sees, and what it never sees
@@ -665,6 +670,12 @@ A request holds the dates for a configurable period so two visitors cannot both 
 
 The renter's acknowledgement email carries a link to their own tracking page. **That link is the authorisation**: they have no account, and a lost email is answered by issuing a new one. The token is stored **encrypted, not hashed** — a hash can only ever answer « is this the token? », and every email a manager's decision sends has to answer a different question, « what is this booking's link? ». The cost is stated where it is paid (`modules/rental/schema.sql`): the column survives a database copy taken without the application key, and no longer one taken with it — which is where every other identity column of that table already stood. Their page shows the state of their request, what they owe and the practical information — never an internal comment, never a manager's note, never another booking.
 
+**What the visitor agreed to is provable afterwards.** Each tick-box on the request form is recorded with the version *and* a hash of the exact text that was on screen, so re-wording the conditions later never changes what a past renter accepted.
+
+**A booking moves through one lifecycle, and every step is on the booking.** Change requests and proposals are the same object seen from two ends — the renter asks for other dates, or the unit offers them — and either side's answer applies or closes it, never silently. Cancellation is available from every live state, confirmed included, and **computes no refund**: what is owed after a cancellation is a conversation, not an arithmetic rule the module could get right.
+
+**The milestone checklist is derived, never stored.** "Deposit paid", "contract sent", "inventory taken" are computed from the booking's own state every time they are shown, so they cannot drift from it and no scheduled task has to keep them in step. Every change a person makes to a booking is kept as the booking's own history, with the value before and after.
+
 ### 22.6 Documents
 
 A contract and an invoice are generated from a per-asset template, in three frozen levels: the asset's template, the booking's own copy of it (taken at first generation, so editing the template afterwards changes no existing booking), and the PDF. **Regenerating never overwrites**: v2 appears beside v1, because v1 may already be signed.
@@ -688,6 +699,8 @@ The final settlement never modifies the agreed price — it produces new lines b
 Occupancy can be published onto the unit's own calendar. Nothing is copied: it is computed on every generation, so turning publication off removes it with no cleanup and no orphans. An ordinary reader — member, parent, visitor — sees `Local Saint-Georges — loué` and nothing more; only a manager of that asset or the Staff d'U sees the organisation, the head count and the contact. **That distinction is applied before anything is serialised**, never by a template hiding a field it was given.
 
 A cancelled booking is published as cancelled rather than removed, so a subscriber's calendar drops it instead of keeping it forever.
+
+**A manual block over an already-booked period is accepted.** It neither fails nor overwrites the booking: a caretaker away during a letting is a real thing to record, and the two simply coexist. The public calendar shows the day as taken either way, which is all it ever says.
 
 ### 22.9 Correspondence
 

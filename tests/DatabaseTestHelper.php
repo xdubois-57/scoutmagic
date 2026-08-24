@@ -432,7 +432,8 @@ class DatabaseTestHelper
             body BLOB NOT NULL,
             url TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            read_at TEXT
+            read_at TEXT,
+            email_sent_at TEXT
         )');
 
         $pdo->exec('CREATE TABLE notification_preferences (
