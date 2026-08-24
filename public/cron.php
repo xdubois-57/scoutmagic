@@ -301,6 +301,30 @@ if (in_array('inbound_mail', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
+// Camps' summary refresher is the second hand-registered module task, for
+// the same reason and with the same failure mode: it consumes
+// `llm_connector`'s public API (ARCHITECTURE.md §7.5), only a composition
+// root knows whether that module is enabled, and a handler registered in
+// only one of the two entry points fails unconditionally under the other.
+// Null connector — llm_connector absent or disabled — means no summary is
+// written and every other camps screen is unaffected.
+if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
+    $campsLlmConnector = null;
+    if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
+        $campsLlmConnector = new \Modules\LlmConnector\Service\LlmConnectorService(
+            new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService),
+            new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo),
+            $journalService
+        );
+    }
+
+    $runner->registerHandler(
+        'camps',
+        \Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY,
+        new \Modules\Camps\Task\RefreshPlaceSummariesHandler($campsLlmConnector)
+    );
+}
+
 // Task handlers need the same shared services a real request builds (DB,
 // encryption, mail, journal, settings, and the super-admin lookup used for
 // system-alert emails) — see Core\Scheduler\TaskContext.

@@ -3322,6 +3322,20 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         }
     }
 
+    // The summary refresher is registered by hand rather than
+    // auto-resolved from the manifest, because it is the one camps task
+    // that consumes another module's public API (ARCHITECTURE.md §7.5):
+    // only a composition root knows whether `llm_connector` is enabled,
+    // and the handler must not reach into that module's own classes to
+    // find out. Registered in public/cron.php too — a handler registered
+    // in only one of the two entry points fails unconditionally under the
+    // other (§8.17/§8.20), which is why a test pins both.
+    $schedulerRunner->registerHandler(
+        'camps',
+        \Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY,
+        new \Modules\Camps\Task\RefreshPlaceSummariesHandler($llmConnectorForRgpd ?? null)
+    );
+
     // BOTH file gates, because they guard different routes and a module
     // registering only one leaves its files reachable through the other:
     // FileOwnershipChecker gates /files/{id} (documents, link preview
