@@ -993,3 +993,59 @@ Le journal du site retient qu'une vérification a eu lieu et son résultat, **ja
 ### 30.4 Hors périmètre
 
 Enregistrer un paiement, créer une créance depuis le générateur, un historique des QR produits, et la recherche par montant ou par nom — la communication est la seule clé.
+
+
+## 31. Cotisations — vérifier ce que la fédération facture (module fees)
+
+### 31.1 Ce que le module fait, et ce qu'il ne fait pas
+
+Il vérifie. Il confronte ce que l'unité a encodé dans Desk et ce que la
+fédération facture, et prépare les corrections à faire.
+
+**Il n'écrit jamais dans Desk** et ne propose aucune action qui prétende le
+faire : Desk est la source de vérité, le module la relit. **Il ne demande
+pas d'argent aux familles** non plus — appel de fonds, part unité par
+section, supplément précamp et page famille sont hors périmètre.
+
+Toutes ses pages sont dans l'espace des chefs d'unité, réservées au chef
+d'unité. Aucune route à un rôle inférieur, exports et points d'entrée
+internes compris.
+
+### 31.2 La photographie du roster
+
+Une facture reflète l'état de Desk à sa date d'émission. Le site, lui,
+réécrit la liste des membres à chaque import : il ne garde aucun état
+intermédiaire. Comparer une facture de février à la situation de mars
+fabriquerait de faux écarts, et ce sont ces faux écarts qui feraient
+abandonner l'outil.
+
+À chaque import Desk, le module fige donc la composition du roster.
+
+**Cette photographie ne contient aucune donnée personnelle** : pour chaque
+membre, son identifiant interne et des codes — catégorie tarifaire,
+section, rôle de sa fonction, niveau de formation, et le fait qu'un départ
+ait été annoncé. Les noms et les dates de naissance restent dans la fiche
+annuelle du membre, qui persiste toute l'année même pour quelqu'un devenu
+inactif.
+
+Le drapeau « départ annoncé » est enregistré tel quel, jamais utilisé
+comme filtre : Desk contient encore la personne, et la fédération la
+facture encore.
+
+Deux imports laissent deux photographies. Une photographie ancienne n'est
+jamais réécrite : c'est elle qui rend une facture ancienne vérifiable.
+
+### 31.3 La mémoire commence à l'activation
+
+**Les factures antérieures à la première photographie ne seront jamais
+vérifiables ligne par ligne.** La page d'accueil du module le dit, plutôt
+que de laisser l'utilisateur le découvrir. Opérationnellement, le module
+doit être activé avant la facture d'acompte de novembre pour que la saison
+soit exploitable.
+
+### 31.4 La page d'accueil
+
+Date de la dernière photographie et nombre de personnes qu'elle contient,
+nombre de photographies enregistrées pour l'année scoute en cours, date du
+dernier import Desk — rien de ce qui est affiché n'est plus frais que cet
+import — et la liste de ce que le module proposera.

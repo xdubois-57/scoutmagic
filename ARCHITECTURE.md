@@ -1972,6 +1972,24 @@ Two small utilities that share nothing but a page, both answers to a question a 
 
 **Validation is the real thing, not a pattern.** The IBAN goes through `isValidFullIban()`'s length-and-mod-97 check, so a single altered digit is refused; the amount accepts the comma every French-speaking keyboard produces and refuses zero, negatives and words.
 
+### 8.74 The fees module and the roster snapshot (`modules/fees`)
+
+What the federation invoices a unit is what **Desk** contained on the day the invoice was issued. This module exists to check that, and its first piece has to ship before anything it will eventually check exists — because it is the only thing that accumulates.
+
+**Why a snapshot at all.** `member_years` is overwritten wholesale at every import (`MemberYearRepository::upsert()`, `deactivateAllForYear()`, §8.1), so the site can only ever describe today's roster. Checking February's invoice against March's roster manufactures differences that were never real, and the first thing a verification tool shows a treasurer decides whether they open it a second time. `Modules\Fees\Service\FeesDeskImportListener` therefore freezes the composition at the end of **every** Desk import (`Core\Import\DeskImportListener`, §8.46).
+
+**No personal data in it, deliberately.** `fees_roster_snapshot_members` holds foreign keys and codes: `member_id`, `fee_category_id`, `section_id`, the function's site role, `formation_level`, `leaving`. Names and birth dates stay in `member_years`, which persists for the whole scout year even for a member gone inactive, so a screen that needs a readable person joins back on (member_id, the snapshot's scout year). The consequences are the point: no BLOB, no encryption, no retention rule to invent, and one paragraph to add to `RgpdContentService`.
+
+**One row per member, from the main function.** A member holding two functions gets one row, carrying their **main** function's section and role (their first function when Desk flagged none). An invoice bills a person once, under one section; two rows would report an expected quantity nobody could reconcile against it.
+
+**`leaving` is recorded, never applied.** Desk still holds a member whose departure has been announced and the federation still bills them (§8.34's Desk-vs-projected distinction, same reasoning). Filtering here would leave the snapshot unable to answer the one question it exists for.
+
+**Written as one `INSERT ... SELECT`.** The listener runs inside the import's transaction and a throw rolls the whole import back, so `RosterSnapshotRepository::capture()` is two bounded statements and an update — never a loop issuing one statement per member — and does nothing unreplayable: no mail, no HTTP call. The journal entry carries a count and two ids (SECURITY.md §11); who was on the roster is exactly what must not become readable there.
+
+**Two imports are two snapshots**, never one overwritten: an old snapshot is what makes an old invoice checkable.
+
+**The module has no memory before it is switched on**, and the home page says so rather than letting a treasurer find out in March. Operationally it has to be enabled before November's deposit invoice for the season to be usable.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

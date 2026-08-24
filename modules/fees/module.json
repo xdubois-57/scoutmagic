@@ -1,0 +1,24 @@
+{
+  "id": "fees",
+  "name": "Cotisations",
+  "description": "Vérifie les cotisations que la fédération facture : justesse des catégories tarifaires encodées dans Desk, et lecture des factures reçues. Le module n'écrit jamais dans Desk.",
+  "version": "1.0.0",
+  "routes": [
+    {
+      "path": "/admin/fees",
+      "method": "GET",
+      "controller": "Modules\\Fees\\Controller\\FeesController",
+      "action": "index",
+      "menu": "espace_admin",
+      "label": "Cotisations",
+      "menu_icon": "bi-cash-stack",
+      "menu_group": "suivi",
+      "role_min": "admin",
+      "breadcrumb": { "label": "Cotisations", "parents": ["Espace chefs d'U"] }
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

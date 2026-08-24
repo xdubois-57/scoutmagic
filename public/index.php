@@ -1862,6 +1862,15 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $journalService
     );
 }
+if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
+    // Freezes what Desk contained, which nothing else keeps: member_years
+    // is overwritten at every import, so an invoice can only be checked
+    // against a composition somebody wrote down at the time.
+    $deskImportListeners[] = new \Modules\Fees\Service\FeesDeskImportListener(
+        new \Modules\Fees\Repository\RosterSnapshotRepository($pdo),
+        $journalService
+    );
+}
 if ($deskImportListeners !== []) {
     $importService = new DeskImportService(
         $pdo, $encryptionService, $csvParser, $mappingResolver,
@@ -4342,6 +4351,18 @@ if (in_array('leadership', $moduleManager->getEnabledModuleIds(), true)) {
         $leadershipRepository,
         $leadershipMappingRepository,
         $leadershipResolver
+    );
+}
+
+if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
+    $frontController->registerController(
+        \Modules\Fees\Controller\FeesController::class,
+        new \Modules\Fees\Controller\FeesController(
+            $twig,
+            new \Modules\Fees\Repository\RosterSnapshotRepository($pdo),
+            new \Modules\Fees\Repository\FeesImportRepository($pdo),
+            $scoutYearResolver
+        )
     );
 }
 
