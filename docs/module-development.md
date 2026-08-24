@@ -449,7 +449,7 @@ $moved   = $this->delegatedAlbumManager->moveMedia('my_module_thing', $fromAlbum
 
 - **`moveMedia()` merges two albums you own** — for when the entities behind them merge. It re-parents every media and moves its renditions server-side (an S3 `CopyObject`, a filesystem copy), never re-uploading anything. It refuses, changing nothing, when either album is not yours, when both ids are the same album, or when the two sit on **different storage locations** — a rendition's bytes cannot cross backends without passing through PHP, and the location is resolved from the album, so a media left behind would be unservable the moment it landed. Do not work around that by moving rows yourself: a rendition's key embeds the album it was written under, and album deletion clears storage by prefix.
 
-The same module publishes `Api\LinkPreviewFetcher` for Open Graph title/description/image of a user-supplied URL. Use it rather than fetching a URL yourself — `Modules\Gallery\Service\OgScraperService` is the only place in this codebase allowed to make an outbound request to a member-supplied address, and it is hardened against SSRF in ways a second implementation would not be (SECURITY.md §17).
+Core publishes `Core\Http\LinkPreviewFetcher` for Open Graph title/description/image of a user-supplied URL, and `gallery` provides its one implementation. Take it as a nullable dependency and use it rather than fetching a URL yourself — `Modules\Gallery\Service\OgScraperService` is the only place in this codebase allowed to make an outbound request to a member-supplied address, and it is hardened against SSRF in ways a second implementation would not be (SECURITY.md §17).
 
 ## Database
 

@@ -6,13 +6,13 @@ namespace Tests\Modules\Camps\Service;
 
 use Core\Audit\AuditRepository;
 use Core\Audit\AuditService;
+use Core\Http\LinkPreview;
+use Core\Http\LinkPreviewFetcher;
 use Core\Security\EncryptionService;
 use Modules\Camps\Repository\LinkRepository;
 use Modules\Camps\Service\CampService;
 use Modules\Camps\Service\CampsException;
 use Modules\Camps\Service\LinkService;
-use Modules\Gallery\Api\LinkPreview;
-use Modules\Gallery\Api\LinkPreviewFetcher;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
