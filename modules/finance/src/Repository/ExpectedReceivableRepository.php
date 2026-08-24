@@ -25,6 +25,39 @@ class ExpectedReceivableRepository
         return $stmt->fetch() !== false;
     }
 
+    /**
+     * The receivable this communication is for, or null.
+     *
+     * **The input is re-canonicalised before the WHERE**, and that is the
+     * whole difficulty. The column stores the issued form,
+     * `+++NNN/NNNN/NNNNN+++`, while a human checking a payment types or
+     * pastes whatever their bank showed them: twelve bare digits, the
+     * `***…***` variant, a copy with stray spaces. Comparing the raw
+     * input would find nothing for every one of those, silently — the
+     * lookup would simply answer "unknown" and the person would conclude
+     * the payment is not expected.
+     *
+     * Twelve digits in, canonical form out, one exact match: no LIKE, no
+     * collation surprise, and the unique communication stays the key.
+     * A value that is not twelve digits cannot match anything issued, so
+     * it short-circuits rather than running a query that cannot succeed.
+     */
+    public function findByCommunication(string $communication): ?ExpectedReceivable
+    {
+        $digits = preg_replace('/\D/', '', $communication) ?? '';
+        if (strlen($digits) !== 12) {
+            return null;
+        }
+
+        $canonical = '+++' . substr($digits, 0, 3) . '/' . substr($digits, 3, 4) . '/' . substr($digits, 7, 5) . '+++';
+
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_expected_receivables WHERE communication = ?');
+        $stmt->execute([$canonical]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
     public function create(
         string $sourceModule,
         int $sourceReferenceId,

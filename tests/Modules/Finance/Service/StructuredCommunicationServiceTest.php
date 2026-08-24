@@ -77,4 +77,64 @@ class StructuredCommunicationServiceTest extends TestCase
 
         $this->assertCount(20, array_unique($communications));
     }
+
+    // --- isValid(): the other half of format() ---
+
+    public function testAKeyOf97IsValidAndIsWhereANaiveCheckFails(): void
+    {
+        // THE trap. The check digits run 01–97, never 00: format() maps a
+        // remainder of 0 onto 97. A `$base % 97 === $check` comparison
+        // rejects this one, and only this one in a hundred — often enough
+        // to be reported as a bug, rare enough to survive a hand test.
+        $communication = StructuredCommunicationService::format('0000000097');
+
+        $this->assertSame('+++000/0000/09797+++', $communication, 'precondition: this base really does key on 97');
+        $this->assertTrue(StructuredCommunicationService::isValid($communication));
+    }
+
+    public function testAKeyOf00IsNeverValid(): void
+    {
+        // The mirror of the case above: 00 is the value the naive
+        // computation would produce, and no issued communication carries it.
+        $this->assertFalse(StructuredCommunicationService::isValid('+++000/0000/09700+++'));
+    }
+
+    public function testEveryCommunicationItIssuesValidates(): void
+    {
+        // The two halves must agree, whatever the random base.
+        for ($i = 0; $i < 50; $i++) {
+            $communication = $this->service->generate();
+            $this->assertTrue(
+                StructuredCommunicationService::isValid($communication),
+                "generate() produced {$communication}, which isValid() rejects"
+            );
+        }
+    }
+
+    public function testItAcceptsEveryShapeSomebodyPlausiblyPastes(): void
+    {
+        $canonical = StructuredCommunicationService::format('1234567890');
+        $digits = preg_replace('/\D/', '', $canonical) ?? '';
+
+        $this->assertTrue(StructuredCommunicationService::isValid($canonical), 'canonical +++…+++');
+        $this->assertTrue(StructuredCommunicationService::isValid($digits), 'twelve bare digits');
+        $this->assertTrue(StructuredCommunicationService::isValid('***' . substr($digits, 0, 3) . '/' . substr($digits, 3, 4) . '/' . substr($digits, 7, 5) . '***'), '***…*** variant');
+        $this->assertTrue(StructuredCommunicationService::isValid(' ' . chunk_split($digits, 4, ' ')), 'spaced out');
+    }
+
+    public function testItRejectsAWrongKey(): void
+    {
+        $digits = preg_replace('/\D/', '', StructuredCommunicationService::format('1234567890')) ?? '';
+        $wrongKey = (int) substr($digits, 10, 2) === 42 ? '43' : '42';
+
+        $this->assertFalse(StructuredCommunicationService::isValid(substr($digits, 0, 10) . $wrongKey));
+    }
+
+    public function testItRejectsAnythingThatIsNotTwelveDigits(): void
+    {
+        $this->assertFalse(StructuredCommunicationService::isValid(''));
+        $this->assertFalse(StructuredCommunicationService::isValid('12345'), 'too short');
+        $this->assertFalse(StructuredCommunicationService::isValid('1234567890123'), 'too long');
+        $this->assertFalse(StructuredCommunicationService::isValid('Merci pour le camp'), 'a free-text communication');
+    }
 }
