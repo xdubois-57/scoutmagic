@@ -50,6 +50,82 @@ class GeocodingTest extends TestCase
         $this->assertFalse($this->places->findById($id)?->hasCoordinates());
     }
 
+    public function testChangingTheAddressPutsThePlaceBackInTheQueue(): void
+    {
+        // `geocoded_at` means "we have tried this address". Left stamped,
+        // a place corrected from "Rue du Tronquoy" to "Rue du Tronquoy 4"
+        // keeps the pin the old, vaguer address produced — for ever — and
+        // the map quietly shows the wrong field.
+        $id = $this->places->create('Domaine de Mozet', 'Rue du Tronquoy', '5340', 'Mozet', 'Belgique', null);
+        $this->places->recordGeocoding($id, 50.44, 5.00, new \DateTimeImmutable());
+        $this->assertNull($this->places->findNextToGeocode());
+
+        $place = $this->places->findById($id);
+        $this->assertNotNull($place);
+        $this->service()->update($place, [
+            'name' => 'Domaine de Mozet',
+            'address' => 'Rue du Tronquoy 4',
+            'postal_code' => '5340',
+            'city' => 'Mozet',
+            'country' => 'Belgique',
+        ], 42);
+
+        $this->assertSame($id, $this->places->findNextToGeocode()?->id);
+    }
+
+    public function testEditingSomethingOtherThanTheAddressDoesNotRequeueIt(): void
+    {
+        // Re-geocoding on every save would spend the queue on nothing and
+        // hand Nominatim a request per rename.
+        $id = $this->places->create('Domaine de Mozet', 'Rue du Tronquoy 4', '5340', 'Mozet', 'Belgique', null);
+        $this->places->recordGeocoding($id, 50.44, 5.00, new \DateTimeImmutable());
+
+        $place = $this->places->findById($id);
+        $this->assertNotNull($place);
+        $this->service()->update($place, [
+            'name' => 'Domaine de Mozet asbl',
+            'address' => 'Rue du Tronquoy 4',
+            'postal_code' => '5340',
+            'city' => 'Mozet',
+            'country' => 'Belgique',
+        ], 42);
+
+        $this->assertNull($this->places->findNextToGeocode());
+    }
+
+    public function testAHandPlacedPinSurvivesAnAddressCorrection(): void
+    {
+        // Somebody who moved the pin onto the actual field knows something
+        // Nominatim does not, and the whole feature is worthless if the
+        // next run puts it back on the village square.
+        $id = $this->places->create('Domaine de Mozet', 'Rue du Tronquoy', '5340', 'Mozet', 'Belgique', null);
+        $this->places->setManualCoordinates($id, 50.44, 5.00);
+
+        $place = $this->places->findById($id);
+        $this->assertNotNull($place);
+        $this->service()->update($place, [
+            'name' => 'Domaine de Mozet',
+            'address' => 'Rue du Tronquoy 4',
+            'postal_code' => '5340',
+            'city' => 'Mozet',
+            'country' => 'Belgique',
+        ], 42);
+
+        $this->assertNull($this->places->findNextToGeocode());
+        $this->assertTrue($this->places->findById($id)?->hasCoordinates());
+    }
+
+    private function service(): \Modules\Camps\Service\PlaceService
+    {
+        return new \Modules\Camps\Service\PlaceService(
+            $this->places,
+            new \Core\Audit\AuditService(new \Core\Audit\AuditRepository(
+                $this->pdo,
+                new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+            ))
+        );
+    }
+
     public function testManualCoordinatesAreNeverTouchedByGeocoding(): void
     {
         $id = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
