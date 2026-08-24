@@ -2271,7 +2271,8 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Calendar\Controller\CalendarChiefController::class,
         new \Modules\Calendar\Controller\CalendarChiefController(
             $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarEventService,
-            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager
+            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager,
+            $sectionStaffAuthorizationService
         )
     );
     $frontController->registerController(
@@ -3446,7 +3447,8 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Calendar\Controller\CalendarChiefController::class,
         new \Modules\Calendar\Controller\CalendarChiefController(
             $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarEventService,
-            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager
+            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager,
+            $sectionStaffAuthorizationService
         )
     );
 
