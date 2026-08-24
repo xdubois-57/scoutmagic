@@ -4080,7 +4080,11 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $pdo,
         $fileRepository,
         $inboundMailForOthers,
-        $storagePath
+        $storagePath,
+        // And its receivables: Finance's tables are outside every cascade
+        // this module's schema declares, so a purged booking would keep
+        // being owed for otherwise.
+        $rentalPaymentService
     );
     $schedulerRunner->registerHandler(
         'rental',

@@ -32,9 +32,10 @@ use Modules\Rental\Repository\RentalReminderRepository;
  * **Everything about the person goes.** The booking, its lines, its
  * documents and the files behind them, its tokens, its meter readings, its
  * inventory, its incidents, its settlements, and the emails
- * `inbound_mail` attached to it. The database cascades do most of it; the
- * files on disk and the other module's messages do not cascade and are
- * removed explicitly here.
+ * `inbound_mail` attached to it, and the receivables it raised in Finance.
+ * The database cascades do most of it; the files on disk, the other
+ * modules' rows and their messages do not cascade and are removed
+ * explicitly here.
  *
  * **One anonymous row stays**: asset, month, days, amount. Without it the
  * year's revenue would drop to zero on the morning the purge ran (§6.34) —
@@ -60,7 +61,8 @@ class RentalRetentionService
         private \PDO $pdo,
         private ?FileRepository $fileRepository = null,
         private ?InboundMailInterface $inboundMail = null,
-        private string $storagePath = ''
+        private string $storagePath = '',
+        private ?RentalPaymentService $payments = null
     ) {
     }
 
@@ -175,6 +177,15 @@ class RentalRetentionService
         }
 
         $this->reminderRepository->forgetSubject('booking', $booking->id);
+
+        // Finance lives in its own tables, so nothing about this booking
+        // cascades there: without this call the unit keeps being told it is
+        // owed money for a stay whose every other trace has just been
+        // erased, and the receivable's label carries the renter's name —
+        // which would make the purge incomplete in the one way that
+        // matters. Null when Finance is disabled, which is a normal
+        // installation and not an error.
+        $this->payments?->forgetBooking($booking->id);
 
         // Everything keyed on the booking cascades from here.
         $this->bookingRepository->deleteById($booking->id);
