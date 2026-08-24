@@ -11,10 +11,15 @@ namespace Core\Http\Controller;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Journal\JournalService;
 use Core\Member\SectionDocumentException;
 use Core\Member\SectionDocumentService;
+use Core\Member\SectionStaffAuthorizationService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\Role;
 use Twig\Environment;
 
 /**
@@ -23,14 +28,38 @@ use Twig\Environment;
  * see the block read-only via the Staffs page's own $can_edit_section).
  * Every route below is registered role_min: chief directly, same idiom
  * as StaffsController::toggleBadge().
+ *
+ * `role_min: chief` is the floor, not the answer (SECURITY.md §3): every
+ * write below additionally re-checks that the account really is an
+ * animateur of the section the document belongs to (Core\Member\
+ * SectionStaffAuthorizationService, ARCHITECTURE.md §8.33) — the same
+ * narrowing StaffsController applies to decide whether to render the
+ * controls at all. A masked button is not a boundary, so the check is
+ * repeated here rather than trusted from the page the request claims to
+ * come from.
+ *
+ * Only add() legitimately carries a section_id in its body; update(),
+ * delete() and reorder() carry document ids, and their section is
+ * resolved from the stored row. A section_id from a request body is never
+ * what authorizes that request.
  */
 class SectionDocumentController extends AbstractController
 {
     private const MAX_SIZE_BYTES = 20 * 1024 * 1024;
 
+    /**
+     * The AJAX writes surface their error in the page, so this one is
+     * read by a human and is French. add() answers a bare "Forbidden" —
+     * see the comment at its refusal.
+     */
+    private const DENIED_MESSAGE = "Vous n'animez pas cette section.";
+
     public function __construct(
         protected Environment $twig,
-        private SectionDocumentService $service
+        private SectionDocumentService $service,
+        private SectionStaffAuthorizationService $sectionStaffAuthorizationService,
+        private ScoutYearResolver $scoutYearResolver,
+        private JournalService $journalService
     ) {
     }
 
@@ -47,6 +76,18 @@ class SectionDocumentController extends AbstractController
 
         if (($guard = $this->guardCsrf($request, $this->staffsUrl($sectionId))) !== null) {
             return $guard;
+        }
+
+        // The one write whose target section legitimately comes from the
+        // body — and precisely for that reason, validated against the
+        // sections this account actually animates before anything is read
+        // from the upload.
+        if (!$this->staffsEverySection([$sectionId])) {
+            $this->journalRefusal('add', [$sectionId], []);
+            // A bare body, like every other forged-request refusal in
+            // core/Http/Controller: the page never offers this, so there
+            // is no legitimate reader to write a French sentence for.
+            return new Response('Forbidden', 403);
         }
 
         $file = $request->getFile('file');
@@ -104,6 +145,10 @@ class SectionDocumentController extends AbstractController
             return $guard;
         }
 
+        if (($denial = $this->guardDocuments('update', [$id])) !== null) {
+            return $denial;
+        }
+
         try {
             $this->service->updateTitleAndDescription(
                 $id, (string) ($data['title'] ?? ''), $data['description'] ?? null, AuthSession::getUserAccountId()
@@ -138,6 +183,10 @@ class SectionDocumentController extends AbstractController
         }
 
         $ids = array_map('intval', is_array($data['ids'] ?? null) ? $data['ids'] : []);
+        if (($denial = $this->guardDocuments('reorder', $ids)) !== null) {
+            return $denial;
+        }
+
         $this->service->reorder($ids);
 
         return $this->json(['success' => true]);
@@ -159,8 +208,13 @@ class SectionDocumentController extends AbstractController
             return $guard;
         }
 
+        $id = (int) ($data['id'] ?? 0);
+        if (($denial = $this->guardDocuments('delete', [$id])) !== null) {
+            return $denial;
+        }
+
         try {
-            $this->service->delete((int) ($data['id'] ?? 0), AuthSession::getUserAccountId());
+            $this->service->delete($id, AuthSession::getUserAccountId());
         } catch (SectionDocumentException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
         }
@@ -171,5 +225,101 @@ class SectionDocumentController extends AbstractController
     private function staffsUrl(int $sectionId): string
     {
         return '/chefs/staffs?section=' . $sectionId;
+    }
+
+    /**
+     * The shared refusal path for the three writes that name documents
+     * rather than a section: resolves each document's section FROM THE
+     * STORED ROW, refuses the whole request unless the account animates
+     * every one of them, and answers the same 403 whether the document
+     * belongs to another section or does not exist at all — an id probe
+     * learns nothing either way.
+     *
+     * @param int[] $documentIds
+     */
+    private function guardDocuments(string $operation, array $documentIds): ?Response
+    {
+        $sectionIds = $this->service->findSectionIdsForDocuments($documentIds);
+
+        if ($sectionIds === null || !$this->staffsEverySection($sectionIds)) {
+            $this->journalRefusal($operation, $sectionIds ?? [], $documentIds);
+            return $this->json(['success' => false, 'error' => self::DENIED_MESSAGE], 403);
+        }
+
+        return null;
+    }
+
+    /**
+     * The sections this account is an animateur of, for the same effective
+     * scout year the Staffs page itself renders — so what the page offers
+     * and what this controller accepts can never disagree.
+     *
+     * @return int[]
+     */
+    private function staffedSectionIds(): array
+    {
+        $role = AuthSession::getRole();
+        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(
+            ScoutYearSession::getPreviewId(),
+            Role::fromString($role)
+        );
+
+        return array_map(
+            static fn(array $section): int => (int) $section['id'],
+            $this->sectionStaffAuthorizationService->getStaffedSections(
+                AuthSession::getEmail() ?? '',
+                $role,
+                $effectiveYear->id
+            )
+        );
+    }
+
+    /**
+     * True when every one of $sectionIds is a section this account
+     * animates. All of them, deliberately: reorder() carries a whole
+     * list, and authorizing it partially would apply someone else's
+     * ordering to the documents that did pass and leave the list
+     * inconsistent. An empty set is never authorized.
+     *
+     * @param int[] $sectionIds
+     */
+    private function staffsEverySection(array $sectionIds): bool
+    {
+        if ($sectionIds === []) {
+            return false;
+        }
+
+        $staffed = $this->staffedSectionIds();
+        foreach ($sectionIds as $sectionId) {
+            if (!in_array($sectionId, $staffed, true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Journals a refusal at `security` level. Numeric identifiers only —
+     * never a title, a filename or anything else a document carries
+     * (SECURITY.md §11).
+     *
+     * @param int[] $sectionIds
+     * @param int[] $documentIds
+     */
+    private function journalRefusal(string $operation, array $sectionIds, array $documentIds): void
+    {
+        $this->journalService->log(
+            'core',
+            'section_document_access_denied',
+            'security',
+            'Écriture refusée sur un document de section',
+            [
+                'operation' => $operation,
+                'section_ids' => array_values($sectionIds),
+                'document_ids' => array_values($documentIds),
+            ],
+            AuthSession::getUserAccountId()
+        );
     }
 }

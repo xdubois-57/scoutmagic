@@ -308,19 +308,28 @@ class CalendarPublicControllerTest extends TestCase
         $response = $this->controller->index($request, []);
 
         $body = $response->getBody();
-        // One fill function, one query selecting both trigger sources — not
-        // two copies of the modal-filling logic.
-        $this->assertSame(1, substr_count($body, 'function showEventDetails('));
-        $this->assertStringContainsString(
-            "document.querySelectorAll('.calendar-event-bar--clickable, .calendar-upcoming-event-trigger')",
-            $body
-        );
-        $this->assertStringContainsString("data.color", $body);
+        // The behaviour lives in a file now (public/assets/js/calendar-public.js,
+        // spec tests/js/calendar-public.test.js) — the page's job is to load
+        // it and to carry no script of its own.
+        $this->assertStringContainsString('/assets/js/calendar-public.js', $body);
+        $this->assertStringNotContainsString('function showEventDetails(', $body);
         // Both triggers are real buttons, so Enter and Space activate them
         // with no script: the page must carry no keyboard handler of its own
         // for them (it used to, and an inline attribute could never work
         // under this site's CSP anyway).
         $this->assertStringNotContainsString("e.key === 'Enter'", $body);
+
+        $js = (string) file_get_contents(
+            dirname(__DIR__, 4) . '/public/assets/js/calendar-public.js'
+        );
+        // One fill function, one query selecting both trigger sources — not
+        // two copies of the modal-filling logic.
+        $this->assertSame(1, substr_count($js, 'showEventDetails = function ('));
+        $this->assertStringContainsString(
+            "'.calendar-event-bar--clickable, .calendar-upcoming-event-trigger'",
+            $js
+        );
+        $this->assertStringContainsString('data.color', $js);
     }
 
     public function testIndexDoesNotShowChiefOnlyCalendarToPublicVisitor(): void

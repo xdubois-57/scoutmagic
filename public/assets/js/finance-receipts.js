@@ -117,16 +117,14 @@
         return '<nav aria-label="Pagination des reçus"><ul class="pagination pagination-sm">' + items + '</ul></nav>';
     }
 
+    // A PDF whose thumbnail was never generated (or failed) would show
+    // the browser's broken-image glyph — the shared toolbox swaps in the
+    // file icon instead. `error` does not bubble, so every re-render has
+    // to wire the images it just inserted.
     function bindPdfThumbnailFallbacks(root) {
-        root.querySelectorAll('img.pdf-thumbnail').forEach(img => {
-            img.addEventListener('error', () => {
-                const fallback = document.createElement('div');
-                fallback.className = 'd-flex align-items-center justify-content-center bg-body-secondary rounded';
-                fallback.style.height = '160px';
-                fallback.innerHTML = '<i class="bi bi-file-earmark-pdf fs-1"></i>';
-                img.replaceWith(fallback);
-            }, { once: true });
-        });
+        if (window.ScoutMagicPdfThumbnail) {
+            window.ScoutMagicPdfThumbnail.bind(root, { height: '160px', iconClass: 'fs-1' });
+        }
     }
 
     function renderReceipts(data) {

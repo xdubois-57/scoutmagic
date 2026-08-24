@@ -123,6 +123,32 @@ class SectionDocumentService
     }
 
     /**
+     * The distinct sections these documents belong to — what a caller
+     * needs to decide whether the account may write to all of them
+     * (Core\Http\Controller\SectionDocumentController). Returns null as
+     * soon as one id doesn't exist, so a batch naming an unknown document
+     * is refused whole rather than authorized on the ids that happen to
+     * resolve.
+     *
+     * @param int[] $documentIds
+     * @return int[]|null
+     */
+    public function findSectionIdsForDocuments(array $documentIds): ?array
+    {
+        $documentIds = array_values(array_unique($documentIds));
+        if ($documentIds === []) {
+            return null;
+        }
+
+        $sectionIdsByDocument = $this->repository->findSectionIdsByIds($documentIds);
+        if (count($sectionIdsByDocument) !== count($documentIds)) {
+            return null;
+        }
+
+        return array_values(array_unique(array_values($sectionIdsByDocument)));
+    }
+
+    /**
      * @throws SectionDocumentException on an unsupported MIME type
      */
     public function upload(

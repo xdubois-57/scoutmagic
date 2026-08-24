@@ -20,16 +20,63 @@ class MenuBuilder
 
     // Sort groups for buildPages() below — see its own docblock. Lower
     // rank sorts earlier; a page's numeric `order` only breaks ties
-    // *within* a group, never across groups.
-    public const GROUP_DYNAMIC = 'dynamic';
-    public const GROUP_CORE = 'core';
-    public const GROUP_MODULE = 'module';
+    // *within* a sort group, never across sort groups.
+    //
+    // Deliberately named SORT_GROUP_*, not GROUP_*: this class carries a
+    // second, entirely unrelated notion of "group" — MENU_GROUPS below,
+    // the named columns the desktop mega-menu draws. A sort group decides
+    // *where in the list* an entry lands; a menu group decides *which
+    // titled column* it is drawn in. Nothing connects the two.
+    public const SORT_GROUP_DYNAMIC = 'dynamic';
+    public const SORT_GROUP_CORE = 'core';
+    public const SORT_GROUP_MODULE = 'module';
 
     /** @var array<string, int> */
-    private const GROUP_RANK = [
-        self::GROUP_DYNAMIC => 0,
-        self::GROUP_CORE => 1,
-        self::GROUP_MODULE => 2,
+    private const SORT_GROUP_RANK = [
+        self::SORT_GROUP_DYNAMIC => 0,
+        self::SORT_GROUP_CORE => 1,
+        self::SORT_GROUP_MODULE => 2,
+    ];
+
+    /**
+     * The named columns each menu is split into, in the order they are
+     * drawn — the single source of truth for both the group id vocabulary
+     * and its French label, closed exactly the way `menu` itself is closed
+     * (Core\Module\ModuleManifest::VALID_MENUS). A free string in
+     * module.json would let two modules write "Gestion" and "gestion" and
+     * produce two columns that mean the same thing.
+     *
+     * An empty list means "this menu is not grouped": build() then returns
+     * one untitled group holding every page, so a consumer never needs an
+     * "is this menu grouped?" branch. Grouping is opt-in per menu, never
+     * forced.
+     *
+     * @var array<string, array<array{id: string, label: string}>>
+     */
+    public const MENU_GROUPS = [
+        self::MENU_NOTRE_UNITE => [],
+        self::MENU_ESPACE_ANIMES => [
+            ['id' => 'mes_membres', 'label' => 'Mes membres'],
+            ['id' => 'pages',       'label' => 'Pages'],
+        ],
+        self::MENU_ESPACE_CHEFS => [
+            ['id' => 'ma_section',    'label' => 'Ma section'],
+            ['id' => 'activites',     'label' => 'Activités'],
+            ['id' => 'communication', 'label' => 'Communication'],
+            ['id' => 'gestion',       'label' => 'Gestion'],
+        ],
+        self::MENU_ESPACE_ADMIN => [
+            ['id' => 'membres_annee', 'label' => 'Membres & année'],
+            ['id' => 'contenu',       'label' => 'Contenu du site'],
+            ['id' => 'services',      'label' => 'Services'],
+            ['id' => 'suivi',         'label' => 'Suivi'],
+        ],
+        self::MENU_CONFIGURATION => [
+            ['id' => 'unite_donnees', 'label' => 'Unité & données'],
+            ['id' => 'site',          'label' => 'Site'],
+            ['id' => 'modules',       'label' => 'Réglages des modules'],
+            ['id' => 'exploitation',  'label' => 'Exploitation'],
+        ],
     ];
 
     /** @var array<array{id: string, label: string, icon: string, role_min: string}> */
@@ -41,7 +88,7 @@ class MenuBuilder
         ['id' => self::MENU_CONFIGURATION, 'label' => 'Configuration',     'icon' => 'bi-sliders',  'role_min' => 'superadmin'],
     ];
 
-    /** @var array<string, array<array{label: string, url: string, roleMin: string, order: int, isDynamic: bool, subtitle: ?string, group: string, icon: ?string, avatarMemberId: ?int}>> */
+    /** @var array<string, array<array{label: string, url: string, roleMin: string, order: int, isDynamic: bool, subtitle: ?string, sortGroup: string, icon: ?string, avatarMemberId: ?int, menuGroup: ?string}>> */
     private array $pages = [];
 
     public function __construct(
@@ -73,14 +120,14 @@ class MenuBuilder
     }
 
     /**
-     * Register a sub-page for a menu. $group controls sort placement
+     * Register a sub-page for a menu. $sortGroup controls sort placement
      * (see buildPages()) independently of $isDynamic, which only controls
      * rendering (nav.html.twig's avatar-circle-with-initials treatment for
      * per-member pages) — the two are deliberately separate: the "Espace
      * animés" empty-state placeholder (no linked members) is conceptually
      * part of the dynamic member-list slot for sorting purposes but must
      * never render with the per-member avatar styling, so it passes
-     * group: GROUP_DYNAMIC with isDynamic: false.
+     * sortGroup: SORT_GROUP_DYNAMIC with isDynamic: false.
      *
      * @param string|null $icon a Bootstrap Icons class ("bi-calendar3")
      *        shown in front of the entry, so every sub-page of a menu
@@ -92,6 +139,17 @@ class MenuBuilder
      *        own photo instead of two letters of their name
      *        (person_avatar(), Core\View\PersonAvatar). Only ever set on
      *        a dynamic entry.
+     * @param string|null $menuGroup which named column of MENU_GROUPS this
+     *        entry is drawn in — nothing to do with $sortGroup above, which
+     *        only orders the flat list. Must be a group declared for
+     *        $menuId; anything else is refused here rather than falling
+     *        back silently, so a typo'd id cannot ship as a page that
+     *        quietly moved column. Null on a grouped menu means the *last*
+     *        declared group: a core page added later and forgotten lands in
+     *        "Exploitation"/"Suivi", where the omission is visible, rather
+     *        than inventing an unnamed column of its own.
+     *
+     * @throws \InvalidArgumentException when $menuGroup is not a group declared for $menuId.
      */
     public function addPage(
         string $menuId,
@@ -101,10 +159,17 @@ class MenuBuilder
         int $order = 100,
         bool $isDynamic = false,
         ?string $subtitle = null,
-        string $group = self::GROUP_CORE,
+        string $sortGroup = self::SORT_GROUP_CORE,
         ?string $icon = null,
-        ?int $avatarMemberId = null
+        ?int $avatarMemberId = null,
+        ?string $menuGroup = null
     ): void {
+        if ($menuGroup !== null && !in_array($menuGroup, self::groupIdsFor($menuId), true)) {
+            throw new \InvalidArgumentException(
+                "Menu group '{$menuGroup}' is not declared for menu '{$menuId}' (Core\\View\\MenuBuilder::MENU_GROUPS)"
+            );
+        }
+
         $this->pages[$menuId][] = [
             'label' => $label,
             'url' => $url,
@@ -112,16 +177,38 @@ class MenuBuilder
             'order' => $order,
             'isDynamic' => $isDynamic,
             'subtitle' => $subtitle,
-            'group' => $group,
+            'sortGroup' => $sortGroup,
             'icon' => $icon,
             'avatarMemberId' => $avatarMemberId,
+            'menuGroup' => $menuGroup,
         ];
+    }
+
+    /**
+     * The group ids declared for a menu, in declaration order — empty for
+     * an ungrouped menu. Public because module.json's `menu_group` is
+     * validated against exactly this list at manifest load
+     * (Core\Module\ModuleManifest::validateRoute()), and a second copy of
+     * the vocabulary over there is precisely what MENU_GROUPS exists to
+     * prevent.
+     *
+     * @return array<string>
+     */
+    public static function groupIdsFor(string $menuId): array
+    {
+        return array_column(self::MENU_GROUPS[$menuId] ?? [], 'id');
     }
 
     /**
      * Build the complete menu structure filtered for the current role.
      *
-     * @return array<array{id: string, label: string, icon: string, pages: array<array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}>}>
+     * `pages` is the flat, sorted, role-filtered list every consumer has
+     * always read (the mobile offcanvas still does). `groups` is those very
+     * same pages split into the named columns of MENU_GROUPS, for the
+     * desktop mega-menu panel — one list seen two ways, never two lists
+     * that could disagree.
+     *
+     * @return array<array{id: string, label: string, icon: string, pages: array<array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}>, groups: array<array{id: ?string, label: ?string, pages: array<array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}>}>}>
      */
     public function build(): array
     {
@@ -134,9 +221,9 @@ class MenuBuilder
                 continue;
             }
 
-            $pages = $this->buildPages($menu['id']);
+            $entries = $this->visibleEntries($menu['id']);
 
-            if (count($pages) === 0) {
+            if (count($entries) === 0) {
                 continue;
             }
 
@@ -144,7 +231,8 @@ class MenuBuilder
                 'id' => $menu['id'],
                 'label' => $menu['label'],
                 'icon' => $menu['icon'],
-                'pages' => $pages,
+                'pages' => array_map(static fn(array $entry) => self::toPage($entry), $entries),
+                'groups' => self::buildGroups($menu['id'], $entries),
             ];
         }
 
@@ -152,18 +240,18 @@ class MenuBuilder
     }
 
     /**
-     * Build filtered and sorted pages for a menu. Sorted by GROUP_RANK
-     * first (dynamic entries, e.g. per-member pages, always before core
-     * static pages, always before module-provided pages), then by `order`
-     * within each group — a module's `menu_order` (however low) can no
-     * longer place it ahead of core pages or dynamic entries, only ahead
-     * of other modules. usort() has been stable since PHP 8.0, so two
-     * entries with the same group and order keep their registration
-     * order.
+     * Filter a menu's registered entries by role and sort them. Sorted by
+     * SORT_GROUP_RANK first (dynamic entries, e.g. per-member pages,
+     * always before core static pages, always before module-provided
+     * pages), then by `order` within each sort group — a module's
+     * `menu_order` (however low) can no longer place it ahead of core
+     * pages or dynamic entries, only ahead of other modules. usort() has
+     * been stable since PHP 8.0, so two entries with the same sort group
+     * and order keep their registration order.
      *
-     * @return array<array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}>
+     * @return array<array{label: string, url: string, roleMin: string, order: int, isDynamic: bool, subtitle: ?string, sortGroup: string, icon: ?string, avatarMemberId: ?int, menuGroup: ?string}>
      */
-    private function buildPages(string $menuId): array
+    private function visibleEntries(string $menuId): array
     {
         if (!isset($this->pages[$menuId])) {
             return [];
@@ -173,28 +261,89 @@ class MenuBuilder
 
         usort(
             $entries,
-            fn(array $a, array $b) => (self::GROUP_RANK[$a['group']] <=> self::GROUP_RANK[$b['group']])
+            fn(array $a, array $b) => (self::SORT_GROUP_RANK[$a['sortGroup']] <=> self::SORT_GROUP_RANK[$b['sortGroup']])
                 ?: ($a['order'] <=> $b['order'])
         );
 
-        $pages = [];
-        foreach ($entries as $entry) {
-            $pageRole = Role::fromString($entry['roleMin']);
+        return array_values(array_filter(
+            $entries,
+            fn(array $entry) => $this->currentRole->hasAccess(Role::fromString($entry['roleMin']))
+        ));
+    }
 
-            if (!$this->currentRole->hasAccess($pageRole)) {
+    /**
+     * Split already-filtered, already-sorted entries into the menu's
+     * declared columns.
+     *
+     * Column order is MENU_GROUPS' declaration order, never `order` /
+     * `menu_order` — those still sort *within* a column, which is what
+     * lets a module page and a core page share one (Finances belongs under
+     * "Gestion" whichever of the two registered it).
+     *
+     * Role filtering has already happened by the time this runs, so a
+     * column whose every page was filtered out is simply absent rather
+     * than present and empty: an intendant must never be shown a titled
+     * column with nothing under it.
+     *
+     * @param array<array{label: string, url: string, roleMin: string, order: int, isDynamic: bool, subtitle: ?string, sortGroup: string, icon: ?string, avatarMemberId: ?int, menuGroup: ?string}> $entries
+     * @return array<array{id: ?string, label: ?string, pages: array<array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}>}>
+     */
+    private static function buildGroups(string $menuId, array $entries): array
+    {
+        $declared = self::MENU_GROUPS[$menuId] ?? [];
+
+        // Ungrouped menu: one untitled column holding everything, so a
+        // template consumes a single shape and never branches on "is this
+        // menu grouped?".
+        if ($declared === []) {
+            return [[
+                'id' => null,
+                'label' => null,
+                'pages' => array_map(static fn(array $entry) => self::toPage($entry), $entries),
+            ]];
+        }
+
+        $fallbackId = $declared[count($declared) - 1]['id'];
+
+        /** @var array<string, array<array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}>> $byGroup */
+        $byGroup = [];
+        foreach ($entries as $entry) {
+            $byGroup[$entry['menuGroup'] ?? $fallbackId][] = self::toPage($entry);
+        }
+
+        $groups = [];
+        foreach ($declared as $group) {
+            if (!isset($byGroup[$group['id']])) {
                 continue;
             }
 
-            $pages[] = [
-                'label' => $entry['label'],
-                'url' => $entry['url'],
-                'isDynamic' => $entry['isDynamic'],
-                'subtitle' => $entry['subtitle'],
-                'icon' => $entry['icon'] ?? null,
-                'avatarMemberId' => $entry['avatarMemberId'] ?? null,
+            $groups[] = [
+                'id' => $group['id'],
+                'label' => $group['label'],
+                'pages' => $byGroup[$group['id']],
             ];
         }
 
-        return $pages;
+        return $groups;
+    }
+
+    /**
+     * The public shape of one entry — what both `pages` and a group's own
+     * `pages` carry, so a template reads the same page whichever way it
+     * reached it.
+     *
+     * @param array{label: string, url: string, roleMin: string, order: int, isDynamic: bool, subtitle: ?string, sortGroup: string, icon: ?string, avatarMemberId: ?int, menuGroup: ?string} $entry
+     * @return array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}
+     */
+    private static function toPage(array $entry): array
+    {
+        return [
+            'label' => $entry['label'],
+            'url' => $entry['url'],
+            'isDynamic' => $entry['isDynamic'],
+            'subtitle' => $entry['subtitle'],
+            'icon' => $entry['icon'] ?? null,
+            'avatarMemberId' => $entry['avatarMemberId'] ?? null,
+        ];
     }
 }

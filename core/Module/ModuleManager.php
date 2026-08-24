@@ -55,7 +55,12 @@ class ModuleManager
         // class only ever asks the profile whether a flag holds, and
         // deliberately has no business knowing what a statistics
         // destination or a reference host is.
-        private InstallationProfile $installationProfile = new InstallationProfile()
+        private InstallationProfile $installationProfile = new InstallationProfile(),
+        // Contextual help aggregation (Core\Help\HelpRegistry,
+        // ARCHITECTURE.md §8.64) — same optional-trailing-parameter
+        // pattern as $offlineWhitelist above; null (tests, callers that
+        // predate help) simply registers no module topics.
+        private ?\Core\Help\HelpRegistry $helpRegistry = null
     ) {
     }
 
@@ -516,11 +521,17 @@ class ModuleManager
                     $menuOrder,
                     false,
                     null,
-                    MenuBuilder::GROUP_MODULE,
+                    MenuBuilder::SORT_GROUP_MODULE,
                     // module.json's own `menu_icon` — null when the
                     // module declares none, which renders the neutral
                     // fallback rather than nothing (partials/nav.html.twig).
-                    $route['menu_icon'] ?? null
+                    $route['menu_icon'] ?? null,
+                    null,
+                    // module.json's own `menu_group`, already validated
+                    // against the menu's declared columns at manifest load
+                    // (ModuleManifest::validateRoute()). Null lands in the
+                    // menu's last declared group.
+                    $route['menu_group'] ?? null
                 );
             }
         }
@@ -553,6 +564,21 @@ class ModuleManager
         // Register offline-cacheable pages (Core\Offline\OfflineWhitelist)
         if (!empty($manifest->offline)) {
             $this->offlineWhitelist->registerModuleEntries($manifest->id, $manifest->offline);
+        }
+
+        // Register help topics (Core\Help\HelpRegistry, ARCHITECTURE.md
+        // §8.64) — the module's help/ directory (or the manifest's
+        // help.dir override) whenever it exists on disk. No manifest
+        // section is required for the default name: adding a topic to an
+        // existing module is dropping one .md file in help/, never a code
+        // or JSON change. A disabled module never reaches this line, so
+        // its topics simply don't exist — same aggregation shape as
+        // cookies/notifications/offline above.
+        if ($this->helpRegistry !== null) {
+            $helpDir = $this->modulesDir . '/' . $manifest->id . '/' . ($manifest->helpDirectory ?? 'help');
+            if (is_dir($helpDir)) {
+                $this->helpRegistry->registerModuleTopics($manifest->id, $helpDir);
+            }
         }
 
         // Register scheduled task handlers

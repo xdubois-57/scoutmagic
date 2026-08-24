@@ -41,11 +41,15 @@
                        zone still opens the picker; that part is script (below)
                        because a label element may not wrap this layout. #}
                     <label class="form-label small" for="receipt-files">Reçus (PDF, JPEG ou PNG) — jusqu'à 10 à la fois</label>
-                    <div id="drop-zone" class="receipt-drop-zone border border-2 border-dashed rounded-3 p-4 text-center text-body-secondary">
-                        <i class="bi bi-cloud-arrow-up fs-2 d-block mb-2" aria-hidden="true"></i>
-                        <span>Glissez-déposez vos reçus ici, ou cliquez pour parcourir</span>
-                        <input type="file" class="visually-hidden" id="receipt-files" name="receipts[]" accept=".pdf,.jpg,.jpeg,.png" multiple>
-                    </div>
+                    {% include 'partials/drop_zone.html.twig' with {
+                        id: 'drop-zone',
+                        class_extra: 'receipt-drop-zone',
+                        message: 'Glissez-déposez vos reçus ici, ou cliquez pour parcourir',
+                        input_id: 'receipt-files',
+                        input_name: 'receipts[]',
+                        accept: '.pdf,.jpg,.jpeg,.png',
+                        multiple: true,
+                    } only %}
                     <ul class="list-unstyled small mt-2 mb-0" id="receipt-files-list"></ul>
                     <div class="form-text small" id="receipt-file-status"></div>
                 </div>
@@ -74,6 +78,7 @@
    from the DOM (#receipt-file vs #drop-zone), where a Twig condition inside
    the script used to; there is no server-side value to hand over. #}
 {% if replace_id or accounts is not empty %}
+<script src="/assets/js/drop-zone.js" defer></script>
 <script src="/assets/js/finance-receipt-form.js" defer></script>
 {% endif %}
 {% endblock %}

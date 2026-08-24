@@ -8,8 +8,8 @@
 // sending wizard. Extracted from the template's inline <script> verbatim
 // so the Vitest suite can exercise the production code directly
 // (tests/js/mass-mail-list.test.js). Server-side data (sections, lists,
-// scout years…) is handed over by an inline nonce-tagged script setting
-// window.massMailListData — the support-dashboard pattern.
+// scout years…) arrives as a `<script type="application/json">` island,
+// read through ScoutMagicApi.pageData().
 //
 // Fetches ride the site-wide ScoutMagicApi envelope ({ok, status, data})
 // and success feedback goes through ScoutMagicToast; the two multipart
@@ -17,9 +17,9 @@
 // the JSON toolbox deliberately owns JSON bodies only.
 (function () {
     const mmModalEl = document.getElementById('mm-modal');
-    if (!mmModalEl || !window.massMailListData) return;
+    const MM_DATA = window.ScoutMagicApi.pageData('mass-mail-list-data');
+    if (!mmModalEl || !MM_DATA) return;
 
-    const MM_DATA = window.massMailListData;
     const api = window.ScoutMagicApi;
     const escapeHtml = api.escapeHtml;
 
@@ -103,18 +103,27 @@
         return false; // "Membres actifs" and every custom list
     }
 
+    // EVERY interpolated value goes through escapeHtml, ids and enums
+    // included. They are integers and server-side enums today, and that is
+    // exactly the kind of assumption that rots: the page's data now reaches
+    // this file as parsed JSON from a `<script type="application/json">`
+    // island, which is DOM text — a value that grew a « " » upstream would
+    // break out of the attribute it lands in.
     function populateListSelect() {
         const select = selectEl('mm-list');
         let html = '';
         MM_DATA.defaultLists.forEach(l => {
             const disabled = !isListAllowed(l.list_type, l.list_section_id) ? 'disabled' : '';
-            html += '<option value="' + l.list_type + ':' + (l.list_section_id ?? '') + '" data-type="' + l.list_type + '" '
-                + 'data-list-section-id="' + (l.list_section_id ?? '') + '" title="' + escapeHtml(l.description) + '" ' + disabled + '>'
+            const listType = escapeHtml(l.list_type);
+            const sectionId = escapeHtml(l.list_section_id ?? '');
+            html += '<option value="' + listType + ':' + sectionId + '" data-type="' + listType + '" '
+                + 'data-list-section-id="' + sectionId + '" title="' + escapeHtml(l.description) + '" ' + disabled + '>'
                 + escapeHtml(l.label) + '</option>';
         });
         MM_DATA.customLists.forEach(l => {
             const disabled = !isListAllowed('custom', null) ? 'disabled' : '';
-            html += '<option value="custom:' + l.id + '" data-type="custom" data-list-id="' + l.id + '" '
+            const listId = escapeHtml(l.id);
+            html += '<option value="custom:' + listId + '" data-type="custom" data-list-id="' + listId + '" '
                 + 'title="' + escapeHtml(l.description) + '" ' + disabled + '>' + escapeHtml(l.name) + '</option>';
         });
         html += '<option value="mail_merge:" data-type="mail_merge" '
@@ -139,9 +148,11 @@
         // temporary read-only lock — unlike a disabled *button*, a disabled
         // *checkbox* still shows its checked state clearly, so no extra
         // pointer-events workaround is needed for the read-only case below.
+        // e.key is a literal from `entries` just above; e.id and e.label
+        // come from the page's data island, so both are escaped.
         group.innerHTML = entries.map(e => (
             '<div class="form-check form-check-inline">'
-            + '<input class="form-check-input mm-year-checkbox" type="checkbox" value="' + e.id + '" id="mm-year-' + e.key + '" '
+            + '<input class="form-check-input mm-year-checkbox" type="checkbox" value="' + escapeHtml(e.id) + '" id="mm-year-' + e.key + '" '
             + (e.available ? '' : 'disabled title="Desk n\'a pas encore été importé pour cette année scoute."') + '>'
             + '<label class="form-check-label" for="mm-year-' + e.key + '">' + escapeHtml(e.label) + '</label>'
             + '</div>'

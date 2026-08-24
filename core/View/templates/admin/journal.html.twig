@@ -8,46 +8,57 @@
         <div class="card-body">
             <div class="row g-2 align-items-end">
                 <div class="col-12 col-md-2">
-                    <label class="form-label small" for="journal-filter-category">Catégorie</label>
-                    <select id="journal-filter-category" name="category" class="form-select form-select-sm">
-                        <option value="">Toutes</option>
-                        {% for cat in categories %}
-                            <option value="{{ cat }}" {{ filter_category == cat ? 'selected' : '' }}>{{ cat }}</option>
-                        {% endfor %}
-                    </select>
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'journal-filter-category', field_name: 'category',
+                        label: 'Catégorie', type: 'select', size: 'sm', wrapper_class: '',
+                        options: [{ value: '', label: 'Toutes', selected: filter_category == '' }]
+                            |merge(categories|default([])|map(cat => {
+                                value: cat, label: cat, selected: filter_category == cat,
+                            })),
+                    } only %}
                 </div>
                 <div class="col-6 col-md-2">
-                    <label class="form-label small" for="journal-filter-level">Niveau</label>
-                    <select id="journal-filter-level" name="level" class="form-select form-select-sm">
-                        <option value="">Tous</option>
-                        <option value="info" {{ filter_level == 'info' ? 'selected' : '' }}>Info</option>
-                        <option value="security" {{ filter_level == 'security' ? 'selected' : '' }}>Sécurité</option>
-                    </select>
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'journal-filter-level', field_name: 'level',
+                        label: 'Niveau', type: 'select', size: 'sm', wrapper_class: '',
+                        options: { '': 'Tous', 'info': 'Info', 'security': 'Sécurité' }
+                            |map((label, value) => {
+                                value: value, label: label, selected: filter_level == value,
+                            }),
+                    } only %}
                 </div>
                 <div class="col-12 col-md-3">
-                    <label class="form-label small" for="journal-filter-search">Recherche</label>
-                    <input type="text" id="journal-filter-search" name="search" class="form-control form-control-sm"
-                           value="{{ filter_search }}" placeholder="Texte...">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'journal-filter-search', field_name: 'search',
+                        label: 'Recherche', value: filter_search, placeholder: 'Texte...',
+                        size: 'sm', wrapper_class: '',
+                    } only %}
                 </div>
                 <div class="col-12 col-md-3">
-                    <label class="form-label small" for="journal-filter-email">Email</label>
-                    <input type="email" id="journal-filter-email" name="email" class="form-control form-control-sm"
-                           value="{{ filter_email }}" placeholder="nom@exemple.be">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'journal-filter-email', field_name: 'email', type: 'email',
+                        label: 'Email', value: filter_email, placeholder: 'nom@exemple.be',
+                        size: 'sm', wrapper_class: '',
+                    } only %}
                 </div>
                 <div class="col-6 col-md-2">
-                    <label class="form-label small" for="journal-filter-ip">Adresse IP</label>
-                    <input type="text" id="journal-filter-ip" name="ip" class="form-control form-control-sm"
-                           value="{{ filter_ip }}" placeholder="192.168...">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'journal-filter-ip', field_name: 'ip',
+                        label: 'Adresse IP', value: filter_ip, placeholder: '192.168...',
+                        size: 'sm', wrapper_class: '',
+                    } only %}
                 </div>
                 <div class="col-6 col-md-2">
-                    <label class="form-label small" for="journal-filter-date-from">Du</label>
-                    <input type="date" id="journal-filter-date-from" name="date_from" class="form-control form-control-sm"
-                           value="{{ filter_date_from }}">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'journal-filter-date-from', field_name: 'date_from', type: 'date',
+                        label: 'Du', value: filter_date_from, size: 'sm', wrapper_class: '',
+                    } only %}
                 </div>
                 <div class="col-6 col-md-2">
-                    <label class="form-label small" for="journal-filter-date-to">Au</label>
-                    <input type="date" id="journal-filter-date-to" name="date_to" class="form-control form-control-sm"
-                           value="{{ filter_date_to }}">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'journal-filter-date-to', field_name: 'date_to', type: 'date',
+                        label: 'Au', value: filter_date_to, size: 'sm', wrapper_class: '',
+                    } only %}
                 </div>
                 <div class="col-12 col-md-2">
                     <button type="submit" class="btn btn-primary btn-sm w-100">Filtrer</button>
@@ -74,7 +85,8 @@
                 </thead>
                 <tbody>
                     {% for entry in entries %}
-                    <tr class="journal-row" data-context='{{ entry.context|default("")|e('html_attr') }}' style="cursor:pointer;">
+                    <tr class="journal-row" data-context='{{ entry.context|default("")|e('html_attr') }}'
+                        data-reveal="next:.context-row" style="cursor:pointer;">
                         <td class="text-nowrap small">{{ entry.logged_at }}</td>
                         <td>
                             {% if entry.level == 'security' %}
@@ -109,7 +121,8 @@
     {# Mobile cards #}
     <div class="d-md-none">
         {% for entry in entries %}
-        <div class="card mb-2 journal-card" data-context='{{ entry.context|default("")|e('html_attr') }}'>
+        <div class="card mb-2 journal-card" data-context='{{ entry.context|default("")|e('html_attr') }}'
+             data-reveal=".context-detail">
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <span class="text-body-secondary" style="font-size:0.7rem;">{{ entry.logged_at }}</span>
@@ -150,20 +163,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-document.querySelectorAll('.journal-row').forEach(function(row) {
-    row.addEventListener('click', function() {
-        var next = row.nextElementSibling;
-        if (next && next.classList.contains('context-row')) {
-            next.classList.toggle('d-none');
-        }
-    });
-});
-document.querySelectorAll('.journal-card').forEach(function(card) {
-    card.addEventListener('click', function() {
-        var detail = card.querySelector('.context-detail');
-        if (detail) detail.classList.toggle('d-none');
-    });
-});
-</script>
+<script src="/assets/js/reveal-details.js" defer></script>
 {% endblock %}

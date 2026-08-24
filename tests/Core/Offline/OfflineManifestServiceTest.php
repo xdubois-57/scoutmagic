@@ -156,7 +156,7 @@ class OfflineManifestServiceTest extends TestCase
     {
         $manifest = $this->buildService()->buildManifest(Role::PUBLIC, null);
 
-        $this->assertSame(['/', '/contact', '/sections', '/rgpd'], $manifest['pages']);
+        $this->assertSame(['/', '/contact', '/sections', '/rgpd', '/aide'], $manifest['pages']);
     }
 
     public function testGuestNeverGetsAMemberPageEvenIfSomehowGivenAnEmail(): void

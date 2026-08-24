@@ -61,6 +61,7 @@
       "role_min": "chief",
       "label": "Calendrier",
       "menu_icon": "bi-calendar-week",
+      "menu_group": "activites",
       "breadcrumb": { "label": "Calendrier", "parents": ["Espace animateurs"] }
     },
     {
@@ -99,6 +100,7 @@
       "role_min": "superadmin",
       "label": "Calendrier",
       "menu_icon": "bi-calendar3",
+      "menu_group": "modules",
       "breadcrumb": { "label": "Calendrier", "parents": ["Configuration"] }
     },
     {

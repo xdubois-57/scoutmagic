@@ -17,6 +17,7 @@
       "role_min": "identified",
       "label": "Groupes",
       "menu_icon": "bi-chat-dots",
+      "menu_group": "pages",
       "menu_order": 7,
       "breadcrumb": {
         "label": "Groupes",

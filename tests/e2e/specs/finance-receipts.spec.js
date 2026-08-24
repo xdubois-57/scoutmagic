@@ -72,7 +72,7 @@ test('a statement imports, a receipt uploads through the client-side resize, and
     // ---------------------------------------------------------------
     await page.goto('/config/finance/accounts', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Nouveau compte' }).click();
-    await page.getByLabel('Nom', { exact: true }).fill(ACCOUNT_NAME);
+    await page.getByLabel(/^Nom \*$/).fill(ACCOUNT_NAME);
     await page.getByLabel('IBAN').fill(ACCOUNT_IBAN);
     await page.getByLabel('Nom du titulaire').fill('Unité de test E2E');
     await page.getByRole('button', { name: 'Enregistrer' }).click();

@@ -2,8 +2,9 @@
 // dialog on /support-dashboard.
 //
 // Everything shown here was computed server-side: the chart series arrive as
-// window.supportDashboardCharts (set by an inline, nonce-tagged script in the
-// page), and the dialog body is HTML rendered by Twig and fetched on click.
+// the `support-dashboard-data` JSON island the template renders, read
+// through ScoutMagicApi.pageData(); the dialog body is HTML rendered by
+// Twig and fetched on click.
 // Nothing on this page builds markup from a remote installation's own values
 // client-side — those values are untrusted text, and Twig's autoescaping is a
 // far better guarantee than an escaper written here (SECURITY.md § 28).
@@ -80,7 +81,7 @@
         });
     }
 
-    var charts = window.supportDashboardCharts;
+    var charts = window.ScoutMagicApi.pageData('support-dashboard-data');
     if (charts) {
         renderChart(charts.versions, 'chart-versions');
         renderChart(charts.autoUpdate, 'chart-auto-update');

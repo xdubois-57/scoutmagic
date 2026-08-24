@@ -328,6 +328,175 @@ final class SharedPartialsRenderingTest extends TestCase
         $this->assertStringNotContainsString('aria-describedby', $neither);
     }
 
+    public function testDropZoneRendersItsInputInsideTheZone(): void
+    {
+        $html = $this->render(
+            "{% include 'partials/drop_zone.html.twig' with {
+                id: 'drop-zone',
+                message: 'Glissez-déposez vos reçus ici, ou cliquez pour parcourir',
+                input_id: 'receipt-files',
+                input_name: 'receipts[]',
+                accept: '.pdf,.jpg,.jpeg,.png',
+                multiple: true,
+            } only %}"
+        );
+
+        $this->assertStringContainsString('id="drop-zone"', $html);
+        $this->assertStringContainsString('border-dashed', $html);
+        $this->assertStringContainsString('Glissez-déposez vos reçus ici', $html);
+        // Inside the zone and visually hidden — not d-none, so it stays
+        // focusable: a file input opens its picker on Enter and Space
+        // natively, which is the keyboard equivalent the CSP would not
+        // let an inline handler provide.
+        $this->assertStringContainsString('id="receipt-files"', $html);
+        $this->assertStringContainsString('visually-hidden', $html);
+        $this->assertStringNotContainsString('d-none', $html);
+        $this->assertStringContainsString('name="receipts[]"', $html);
+        $this->assertStringContainsString('accept=".pdf,.jpg,.jpeg,.png"', $html);
+        $this->assertStringContainsString('multiple', $html);
+        // Clicking anywhere in the zone opens that picker.
+        $this->assertStringContainsString('cursor:pointer', $html);
+    }
+
+    public function testDropZoneWithoutAnInputRendersNoneAndIsNotClickable(): void
+    {
+        // The generic uploader offers a picker AND a camera capture, so it
+        // renders its own two inputs in {% block actions %}; the partial
+        // must not add a third, nor claim the whole zone is clickable.
+        $html = $this->render(
+            "{% embed 'partials/drop_zone.html.twig' with { id: 'drop-zone', size: 'lg' } only %}
+                {% block message %}<p>Glissez-déposez un fichier ici</p>{% endblock %}
+                {% block actions %}<label class=\"btn\">Choisir<input type=\"file\" id=\"file-input\"></label>{% endblock %}
+            {% endembed %}"
+        );
+
+        $this->assertStringContainsString('id="file-input"', $html);
+        $this->assertStringNotContainsString('visually-hidden', $html);
+        $this->assertStringNotContainsString('cursor:pointer', $html);
+        // size: 'lg' is the roomier padding and the bigger icon.
+        $this->assertStringContainsString('p-5', $html);
+        $this->assertStringContainsString('display-4', $html);
+    }
+
+    public function testDropZoneCarriesTheCallersDataAttributesAndExtraBlock(): void
+    {
+        $html = $this->render(
+            "{% embed 'partials/drop_zone.html.twig' with {
+                id: 'gallery-upload-zone',
+                data: { 'upload-url': '/gallery/4/media' },
+                message: 'Glissez-déposez des fichiers ici',
+                input_id: 'gallery-upload-input',
+            } only %}
+                {% block extra %}<p class=\"text-warning\">Vidéos indisponibles.</p>{% endblock %}
+            {% endembed %}"
+        );
+
+        $this->assertStringContainsString('data-upload-url="/gallery/4/media"', $html);
+        $this->assertStringContainsString('Vidéos indisponibles.', $html);
+        // Default padding and icon when no size is given.
+        $this->assertStringContainsString('p-4', $html);
+        $this->assertStringNotContainsString('p-5', $html);
+    }
+
+    public function testFormFieldCarriesDataAttributesOnTheControlItself(): void
+    {
+        // A partial that could not emit data-* excluded every field a
+        // script grips — which is half the site's.
+        $html = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'passage-section-12', field_name: 'intended_section_id',
+                label: 'Section prévue', type: 'select',
+                options: [ { value: '4', label: 'Louveteaux' } ],
+                data: { endpoint: '/passage/inscription/12/section', field: 'intended_section_id' },
+            } only %}"
+        );
+
+        $this->assertStringContainsString('data-endpoint="/passage/inscription/12/section"', $html);
+        $this->assertStringContainsString('data-field="intended_section_id"', $html);
+        // On the CONTROL, not on the wrapper: that is where the script
+        // reads them from.
+        $this->assertMatchesRegularExpression('/<select[^>]*data-endpoint=/s', $html);
+    }
+
+    public function testFormFieldWrapperClassIsOverridableAndDefaultsToMb3(): void
+    {
+        $default = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'name', field_name: 'name', label: 'Nom',
+            } only %}"
+        );
+        $this->assertStringContainsString('<div class="mb-3">', $default);
+
+        // A field inside a grid column or a one-row filter bar supplies
+        // its own spacing rather than fight the margin with a second class.
+        $tight = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'name', field_name: 'name', label: 'Nom', wrapper_class: 'mb-0',
+            } only %}"
+        );
+        $this->assertStringContainsString('<div class="mb-0">', $tight);
+        $this->assertStringNotContainsString('mb-3', $tight);
+
+        $bare = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'name', field_name: 'name', label: 'Nom', wrapper_class: '',
+            } only %}"
+        );
+        $this->assertStringContainsString('<div>', $bare);
+    }
+
+    public function testFormFieldHidesTheLabelWithoutDroppingIt(): void
+    {
+        // A repeated row is named by the row, not by a label above each
+        // control — but a control with NO label is unreachable by name for
+        // a screen reader, and the hidden one must still say WHICH row it
+        // belongs to.
+        $html = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'confirmed-role-7', label: 'Rôle pour ANIM01',
+                label_visually_hidden: true, type: 'select', size: 'sm',
+                control_class_extra: 'w-auto role-select',
+                options: [ { value: 'chief', label: 'Animateur' } ],
+            } only %}"
+        );
+
+        $this->assertStringContainsString('<label class="visually-hidden" for="confirmed-role-7">', $html);
+        $this->assertStringContainsString('Rôle pour ANIM01', $html);
+        $this->assertStringNotContainsString('form-label', $html);
+        // The caller's layout classes ride ON the control, next to the
+        // size the partial owns.
+        $this->assertStringContainsString('class="form-select form-select-sm w-auto role-select"', $html);
+    }
+
+    public function testFormFieldRendersAPasswordAndItsRequiredMarker(): void
+    {
+        $html = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'full-backup-password', label: \"Mot de passe de l'archive\",
+                type: 'password', required: true, size: 'sm',
+            } only %}"
+        );
+
+        $this->assertStringContainsString('type="password"', $html);
+        $this->assertStringContainsString('required', $html);
+        $this->assertStringContainsString('<span class="text-danger" aria-hidden="true">*</span>', $html);
+    }
+
+    public function testFormFieldOmitsTheNameForAControlThatIsNeverSubmitted(): void
+    {
+        // A JS-driven settings panel reads its fields by id and builds the
+        // request itself; a stray `name` on such a control only invites a
+        // future GET to carry it.
+        $html = $this->render(
+            "{% include 'partials/form_field.html.twig' with {
+                field_id: 'event-title', label: 'Titre', size: 'sm',
+            } only %}"
+        );
+
+        $this->assertStringContainsString('id="event-title"', $html);
+        $this->assertStringNotContainsString('name=', $html);
+    }
+
     public function testPagePickerFeedsChipPickerAndMatchesPrefixes(): void
     {
         $html = $this->render(

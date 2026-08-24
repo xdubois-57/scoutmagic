@@ -124,14 +124,14 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/mass-mail-config.js" defer></script>
-<script nonce="{{ csp_nonce }}">
-{# Server data handed to mass-mail-config.js — the llm_connector /
-   support_dashboard pattern (window.llmConfigData,
-   window.supportDashboardCharts). #}
+{# Server data as a JSON ISLAND, read by mass-mail-config.js through
+   ScoutMagicApi.pageData(): data to the parser rather than code, so the
+   template needs no nonce for it. #}
 {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
-window.massMailConfigData = {
-    batchIntervalMinutes: {{ batch_interval_minutes|json_encode(json_flags)|raw }}
-};
+<script type="application/json" id="mass-mail-config-data">
+{{ {
+    batchIntervalMinutes: batch_interval_minutes
+}|json_encode(json_flags)|raw }}
 </script>
+<script src="/assets/js/mass-mail-config.js" defer></script>
 {% endblock %}

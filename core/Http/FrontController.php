@@ -9,13 +9,17 @@ declare(strict_types=1);
 namespace Core\Http;
 
 use Core\Config\AppConfig;
+use Core\Help\HelpService;
 use Core\Http\Controller\AbstractController;
+use Core\Http\Controller\HelpController;
 use Core\Maintenance\MaintenanceGate;
 use Core\Maintenance\UpdateHistory;
 use Core\Offline\OfflineWhitelist;
+use Core\Security\AuthSession;
 use Core\Security\RbacGuard;
 use Core\Security\Role;
 use Core\View\ConfigurationMode;
+use Core\View\MarkdownRenderer;
 use Twig\Environment;
 
 class FrontController
@@ -31,7 +35,13 @@ class FrontController
         private Environment $twig,
         private AppConfig $config, // @phpstan-ignore property.onlyWritten
         private ?OfflineWhitelist $offlineWhitelist = null,
-        private ?MaintenanceGate $maintenanceGate = null
+        private ?MaintenanceGate $maintenanceGate = null,
+        // Contextual help (ARCHITECTURE.md §8.64) — optional trailing
+        // parameter for the same backward-compatibility reason as
+        // $offlineWhitelist above: many test call sites build a
+        // FrontController with three arguments. Null means no help
+        // button/panel (route_help stays an empty list).
+        private ?HelpService $helpService = null
     ) {
         $this->rbacGuard = new RbacGuard();
     }
@@ -101,6 +111,15 @@ class FrontController
         // convenience (SECURITY §3), never a security boundary.
         $this->twig->addGlobal('route_breadcrumb', $resolvedRoute->breadcrumb);
 
+        // Contextual help (partials/help_button.html.twig / help_panel.
+        // html.twig) — the topics covering this path, filtered by the
+        // caller's CURRENT role (Core\Help\HelpService is the single role
+        // gate), each with its body already rendered so the panel works
+        // offline with zero network calls. Set after the RBAC guard for
+        // the same never-leak reason as route_breadcrumb above, and only
+        // the topics that matched are ever read past their front matter.
+        $this->twig->addGlobal('route_help', $this->buildRouteHelp($request));
+
         $controllerClass = $resolvedRoute->controllerClass;
         $action = $resolvedRoute->action;
 
@@ -115,6 +134,41 @@ class FrontController
         $response = $controller->$action($request, $resolvedRoute->params);
 
         return $this->applyEtagIfEligible($request, $response);
+    }
+
+    /**
+     * The `route_help` Twig global: the topics covering the current path
+     * for the current role, as ready-to-render arrays. Empty when no
+     * HelpService is wired (tests, non-web entry points), on non-GET
+     * requests (their responses are redirects or API payloads — no page
+     * to put a panel on), and on pages no topic covers (the help button
+     * then links to /aide instead of opening the panel).
+     *
+     * Bodies are rendered here, server-side, with the same options as
+     * /aide/{id} (HelpController::RENDER_OPTIONS) — the panel must work
+     * offline, so its content ships inside the page rather than being
+     * fetched on open.
+     *
+     * @return array<int, array{id: string, title: string, summary: string, html: string}>
+     */
+    private function buildRouteHelp(Request $request): array
+    {
+        if ($this->helpService === null || $request->getMethod() !== 'GET') {
+            return [];
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        $entries = [];
+        foreach ($this->helpService->findForPath($request->getPath(), $role) as $topic) {
+            $entries[] = [
+                'id' => $topic->id,
+                'title' => $topic->title,
+                'summary' => $topic->summary,
+                'html' => MarkdownRenderer::toHtml($topic->body(), HelpController::RENDER_OPTIONS),
+            ];
+        }
+
+        return $entries;
     }
 
     /**
