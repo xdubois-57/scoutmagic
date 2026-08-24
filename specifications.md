@@ -101,6 +101,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Finances (module) | intendant | Bank statement import, receivables, receipts, movements |
 | Statistiques (module) | chief | Member statistics |
 | Calendrier (module) | chief | Chiefs' calendar view (month grid, event edit) |
+| Camps (module) | chief | Camp sites and the stays made there. Search over places (name, address, postal code, city); "À venir" and "Lieux" lists; a collapsed map of the places that have coordinates. A place sheet shows its stays, the rating of its most recent RATED stay (never an average), an optional AI summary, and — for a chef d'unité only — merge and archive. A stay carries its sections, price, participant count, contacts, links, documents, photos, a free-text note, a review and its own change history. When a dedicated mailbox is configured, a "Courrier non classé" screen lists the inbound mail nobody could attribute. |
 | Envoi de mails (module) | chief | Mass email to selected members/sections across one or more scout years; a mail-merge mode sending one personalized email per row of an uploaded Excel file (see §24); when the Inscriptions module is also active, an extra predefined, non-editable "Inscriptions {année cible}" list is available (see §18.3) |
 | Rétrospectives (module) | intendant | Create/manage post-activity retrospective boards |
 | Galerie (module) | chief | Manage photo/video albums |
@@ -140,6 +141,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Finances (module) | Accounts, categories, categorization rules, danger zone |
 | Galerie (module) | Storage location (local/S3), default location for new albums. Each local location also shows the space still free on the disk that holds it — with the volume's size and the share in use, and a warning when what is left is smaller than the largest upload the gallery currently accepts. The page states that this is the whole volume, shared with the rest of the site, and not a quota reserved for the gallery; an S3 location shows nothing, its capacity being the provider's. |
 | Calendrier (module) | Default view, supplementary calendars, ICS feed links |
+| Camps (module) | Default country for a new place; how many past stays a place sheet shows. The dedicated camps mailboxes (empty by default, with the warning that any mailbox listed there must be excluded from the other modules that read mail); automatic creation of a stay from a message; unsorted-mail retention in months. Automatic geocoding of a place's address through OpenStreetMap; AI summaries of what a place's stays and reviews add up to. |
 | Envoi de mails (module) | Sender/attachment settings |
 | SOS Staff d'U (module) | Telephony provider credentials (OVH: application key/secret, consumer key, line selection), excluded sections |
 | Intelligence artificielle (module) | AI provider credentials and model selection, consumed optionally by other modules (RGPD text generation, retro moderation, finance receipt extraction, news summaries) |
@@ -806,3 +808,59 @@ The training path (T1 → T2 → T3 → Brevet) and the next known step, **visib
 ### 25.6 Out of scope
 
 No export of any kind (planned separately), no per-member or per-section note, no "wants to become an animateur" field, no rules engine, no score, no percentage, no widget on the Staffs page, no public route, and no offline caching of any of these pages.
+
+## 26. Camps module — the places the unit camps on (module camps)
+
+"Où est-on déjà allés, et est-ce que c'était bien ?" is the question a staff asks every winter, and the answer used to live in the outgoing staff's head. This module keeps it: the terrains, the stays made on them, who to call, what it cost, and what the previous staffs thought. Reserved to animateurs; a few actions to the chefs d'unité only. See ARCHITECTURE.md §8.67 for implementation detail.
+
+### 26.1 Two things, and neither is ever deleted
+
+A **lieu** is a plot of land. A **séjour** is one stay on it. A stay that did not happen is *annulé* — never removed, because a place that cancels on its guests six weeks before departure is exactly what a future staff needs to know. A place that has fallen out of favour is *archivé*: gone from every ordinary screen and from search, still readable from the Archives.
+
+Every field of a place is stored in clear: a plot of land is not a natural person, and its name and address are what the search runs on. Everything about the **people** attached to a stay is encrypted.
+
+### 26.2 Dates, or a year
+
+A stay carries real dates, or a bare year — never both, never neither. Half of what a unit remembers about its own past is "on est allés là en 2012", and refusing that would be refusing the memory. A year-only stay stays *à venir* for the whole of its year and becomes past on 1 January; nobody moves it by hand, and there is no status column for it.
+
+### 26.3 The people
+
+Contacts hang off the **stay**, not the place: they freeze the details used at the time of that booking, and a caretaker who has since left is a fact about that camp rather than an error to correct. They are the site's only **external third parties** — owners, caretakers, a neighbour with the key — with no relationship to the unit and no account here.
+
+A contact can be **anonymised** at their own request (chef d'unité). Every row sharing that e-mail anywhere in the module is blanked, and so are the values those rows left in each affected stay's history. The confirmation screen states how many contacts and how many stays before anything happens. What survives is that a contact existed, when and by whom it was added — facts about the stay, not about the person.
+
+### 26.4 The reviews
+
+One review per stay, written and editable by every animateur: a unit speaks with one voice about a field it camped on. A **cancelled** stay may be reviewed — that is often the most useful thing to record — but never rated: nobody camped there. A place shows the rating of its **most recent rated stay**, with its year, and never an average.
+
+The day after a stay ends, the animateurs of its sections are invited to write it — **once, with no reminder**. No section set sends it to the chefs d'unité only, never to everybody.
+
+### 26.5 Finding a place again
+
+Search covers a place's name, address, postal code and city. It deliberately does not reach the contacts or the booking person: those are encrypted, and the search box promises only what it delivers.
+
+A **map** shows the places that have coordinates, collapsed by default and loaded only when opened — drawing it contacts the tile provider with the reader's IP. Coordinates are found automatically from the address, one place at a time in the background; **the moment somebody types or corrects them by hand, the automatic search never touches that place again**.
+
+When a place is created, the ones that may already be it are offered. The comparison is textual first; an AI is asked only when that cannot decide, and it may only ever suggest.
+
+### 26.6 Putting things back together
+
+Two **lieux** that are one plot can be merged (chef d'unité): every stay follows, and the merged place is archived. Two **séjours** of the same place can be merged by any animateur — safe to open that wide because nothing is lost: every value the surviving stay already had is appended to its note, dated.
+
+Archiving a place is **refused** while a confirmed stay is still to come there. Hiding a terrain from search while the unit is booked to leave for it in July is how a staff loses the address of the field they are going to.
+
+### 26.7 The mail, when there is any
+
+With a **shared** mailbox the module claims narrowly: a reply in a known thread, or a known contact writing near their own stay. Never on a word in a subject.
+
+With a **dedicated** mailbox it takes everything, and what it cannot attribute goes to *Courrier non classé*, erased after a configurable delay. Such a mailbox must be excluded from the other modules that read mail.
+
+What a message says is read conservatively — a date range, a single price. **An empty field is filled; a field that already has a value is never overwritten.** The reading is parked beside the value it argues with, with Appliquer and Ignorer, and both answers are recorded.
+
+### 26.8 The summary
+
+With an AI connector active, a place carries a few sentences summing up what its stays and reviews add up to, regenerated daily when something changed and never on a page view. It receives reviews, ratings, prices, statuses, dates, participant counts and sections — **never the contacts, never the received mail**. It is shown dated and explicitly as not a source of truth.
+
+### 26.9 Out of scope
+
+Deposits, payment tracking, contractual deadlines, a reservation workflow, cost per participant, bulk import of old camps, sharing places between units, several individual reviews per stay, sub-scores, rating averages, full-text search inside e-mails, documents or review comments, and deleting a place or a stay.

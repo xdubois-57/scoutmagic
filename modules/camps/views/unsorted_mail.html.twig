@@ -1,0 +1,77 @@
+{% extends 'base.html.twig' %}
+{% block title %}Courrier non classé — {{ site_name }}{% endblock %}
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Courrier non classé',
+        subtitle: 'Les messages reçus sur une boîte dédiée aux camps que le site n\'a pas su rattacher.',
+    } only %}
+
+    {% if not has_dedicated_mailbox %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune boîte dédiée aux camps n\'est configurée : rien n\'arrive ici. Un administrateur peut en désigner une dans la configuration du module.',
+            icon: 'bi-envelope',
+        } only %}
+    {% elseif messages is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Tout est trié. Rien ne vous attend ici.',
+            icon: 'bi-envelope-check',
+        } only %}
+    {% else %}
+        <p class="text-body-secondary small">
+            Ces messages sont effacés après {{ retention_months }} mois.
+        </p>
+
+        <div class="d-flex flex-column gap-3">
+            {% for row in messages %}
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                            <div class="min-w-0">
+                                <div class="fw-semibold">{{ row.message.subject ?: 'Sans objet' }}</div>
+                                <div class="small text-body-secondary">{{ row.message.displayFrom() }}</div>
+                            </div>
+                            <span class="small text-body-secondary text-nowrap">
+                                {{ row.message.sentAt|date_fr }}
+                            </span>
+                        </div>
+
+                        {% if row.excerpt %}
+                            <p class="small text-body-secondary mt-2 mb-0">{{ row.excerpt }}…</p>
+                        {% endif %}
+
+                        {% if row.attachment_count > 0 %}
+                            <div class="small mt-2">
+                                <i class="bi bi-paperclip" aria-hidden="true"></i>
+                                {{ row.attachment_count }} pièce{{ row.attachment_count > 1 ? 's' : '' }} jointe{{ row.attachment_count > 1 ? 's' : '' }}
+                            </div>
+                        {% endif %}
+
+                        <div class="d-flex flex-wrap align-items-end gap-2 mt-3">
+                            <form method="post" action="/chefs/camps/courrier/{{ row.message.id }}/rattacher"
+                                  class="d-flex flex-wrap align-items-end gap-2 flex-grow-1">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                <div class="flex-grow-1" style="min-width: 14rem;">
+                                    {% include 'partials/form_field.html.twig' with {
+                                        field_id: 'camp-' ~ row.message.id,
+                                        field_name: 'camp_id',
+                                        label: 'Rattacher à',
+                                        type: 'select', size: 'sm',
+                                        options: camp_options,
+                                        wrapper_class: 'mb-0',
+                                    } only %}
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-sm">Rattacher</button>
+                            </form>
+
+                            <form method="post" action="/chefs/camps/courrier/{{ row.message.id }}/supprimer"
+                                  data-confirm="Supprimer définitivement ce message et ses pièces jointes ?">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                <button type="submit" class="btn btn-outline-danger btn-sm">Supprimer</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,338 @@
+-- ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+-- Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+--
+-- Camps module: the places a unit has camped, and every stay it has made
+-- there. See ARCHITECTURE.md §8.66.
+--
+-- ANY edit to this file MUST bump "version" in module.json in the same
+-- change: ModuleManager only re-applies a module schema when the declared
+-- version is greater than the recorded one, so editing this alone is a
+-- silent no-op on every already-enabled install.
+
+
+-- camp_places: a camp site. Kept indefinitely and never deleted — the
+-- whole value of the module is that a staff in 2035 can read what a staff
+-- in 2026 thought of a field in Vielsalm. Archiving hides it instead.
+--
+-- Every column here is in CLEAR, deliberately. A place is not a natural
+-- person: its name and address identify a plot of land, they are what the
+-- search runs on, and encrypting them would make the module's main screen
+-- impossible to build. The people attached to a place — its owner, its
+-- caretaker — are camp_contacts, and every one of their fields is a BLOB.
+CREATE TABLE IF NOT EXISTS camp_places (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+
+    -- All nullable: many camp sites are a field on a farm with no usable
+    -- address at all, only a point on a map. A module that demanded an
+    -- address would be unusable for exactly the places it exists to
+    -- remember.
+    address VARCHAR(255) NULL,
+    postal_code VARCHAR(20) NULL,
+    city VARCHAR(120) NULL,
+    country VARCHAR(80) NULL,
+    website_url VARCHAR(500) NULL,
+
+    -- Archived places disappear from every normal screen and from search,
+    -- and are reachable only from the Archives view. Never a deletion:
+    -- deleting a place would take its stays' history with it.
+    is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+
+    -- A point on a map. DECIMAL(9,6) is ~11 cm of precision, which is
+    -- more than a field needs and less than a float would silently lose.
+    latitude DECIMAL(9, 6) NULL,
+    longitude DECIMAL(9, 6) NULL,
+
+    -- Set the moment a chief types or corrects coordinates by hand, and
+    -- never cleared: automatic geocoding must not touch that place again.
+    -- A human who moved the pin onto the actual field knows something
+    -- Nominatim does not, and the whole feature is worthless if the next
+    -- task run puts it back on the village square.
+    coordinates_are_manual BOOLEAN NOT NULL DEFAULT FALSE,
+
+    -- A short summary of what the stays and reviews here add up to,
+    -- written by a model. TEXT and in clear: it is derived from data the
+    -- module already holds, contains no contact details by construction
+    -- (see the input list in Service\PlaceSummaryService), and is shown
+    -- to every chief anyway.
+    ai_summary TEXT NULL,
+    ai_summary_generated_at DATETIME NULL,
+
+    -- Set by any change to one of this place's stays or reviews. The
+    -- daily task regenerates ONLY stale summaries — never on a web
+    -- request, never on every edit: a model call on a page load makes the
+    -- page as slow as the slowest third party.
+    ai_summary_is_stale BOOLEAN NOT NULL DEFAULT FALSE,
+
+    -- When geocoding last ran for this place. Set even when the lookup
+    -- found nothing, so a place with no usable address is tried once and
+    -- then left alone instead of being retried on every task run for ever.
+    geocoded_at DATETIME NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    INDEX idx_camp_places_archived (is_archived, name),
+    INDEX idx_camp_places_geocoding (coordinates_are_manual, geocoded_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- camp_camps: one stay at one place. Never deleted either — a stay that
+-- did not happen is 'cancelled', which is itself worth recording (a place
+-- that cancels on its guests is exactly what a future staff needs to
+-- know).
+--
+-- There is deliberately NO scout_year_id. Real dates are the truth, and a
+-- camp from 2014 predates every scout year row this installation has. The
+-- scout year is resolved on demand from the end date, and only where it is
+-- genuinely needed (§ IT-04's review notification).
+CREATE TABLE IF NOT EXISTS camp_camps (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    place_id INT UNSIGNED NOT NULL,
+
+    stay_type ENUM('grand_camp', 'weekend', 'other') NOT NULL DEFAULT 'grand_camp',
+
+    -- Either (start_date AND end_date) or year_only, never both, never
+    -- neither — enforced in Service\CampService rather than by a CHECK
+    -- constraint, which Core\Database\SchemaComparator does not diff.
+    -- year_only exists because half of what a unit remembers about its
+    -- own past is "on est allés là en 2012", and refusing that would mean
+    -- refusing the memory.
+    start_date DATE NULL,
+    end_date DATE NULL,
+    year_only SMALLINT UNSIGNED NULL,
+
+    status ENUM('to_confirm', 'confirmed', 'cancelled') NOT NULL DEFAULT 'to_confirm',
+
+    -- Cents, as INT. Never a float, never a decimal string: same rule as
+    -- the rental module's own pricing.
+    price_cents INT UNSIGNED NULL,
+    participant_count SMALLINT UNSIGNED NULL,
+
+    -- Who booked it. The member id when that person is still in the member
+    -- history, and the encrypted name as the fallback for when they are
+    -- not — which for a camp booked eight years ago is the normal case,
+    -- not the exception.
+    booked_by_member_id INT UNSIGNED NULL,
+    booked_by_name BLOB NULL,
+
+    -- When the "leave a review" notification went out, and the ONLY thing
+    -- that stops it going out twice: Core\Notification\
+    -- NotificationService::dispatch() deduplicates nothing, it always
+    -- creates the rows it is asked for. A column rather than a
+    -- "yesterday only" window in the task, because on an installation
+    -- with no real cron — which this module assumes elsewhere too — a
+    -- missed day would lose the notification silently and for good. With
+    -- this, a task that has not run for a week still sends it, late.
+    review_notified_at DATETIME NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    INDEX idx_camp_camps_place (place_id, end_date),
+    INDEX idx_camp_camps_dates (end_date, year_only),
+    CONSTRAINT fk_camp_camps_place FOREIGN KEY (place_id) REFERENCES camp_places(id),
+    CONSTRAINT fk_camp_camps_member FOREIGN KEY (booked_by_member_id) REFERENCES members(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- camp_camp_sections: which sections went. Many-to-many, with no
+-- free-text fallback on purpose — a camp whose section no longer exists
+-- simply has none, which reads as "we no longer know" rather than as a
+-- section name that no picker will ever match again.
+CREATE TABLE IF NOT EXISTS camp_camp_sections (
+    camp_id INT UNSIGNED NOT NULL,
+    section_id INT UNSIGNED NOT NULL,
+    PRIMARY KEY (camp_id, section_id),
+    INDEX idx_camp_camp_sections_section (section_id),
+    CONSTRAINT fk_camp_camp_sections_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE,
+    CONSTRAINT fk_camp_camp_sections_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- camp_contacts: the people to call about ONE stay — attached to the
+-- camp, not to the place, deliberately. It freezes the details used at
+-- the time of that booking; there is no global address book here, and a
+-- caretaker who has since left is not an error to correct but a fact
+-- about a stay that already happened.
+--
+-- These are external third parties with no relationship to the unit: an
+-- owner, a caretaker, a neighbour with the key. That is a category of
+-- data subject the rest of this site does not have, and it is why every
+-- personal field below is a BLOB.
+CREATE TABLE IF NOT EXISTS camp_contacts (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    camp_id INT UNSIGNED NOT NULL,
+
+    name BLOB NULL,
+
+    -- In CLEAR: a function, not a person. "Propriétaire", "Gestionnaire
+    -- sur place". Encrypting a job title would protect nothing and would
+    -- stop the contact list from being grouped by role.
+    role_label VARCHAR(60) NULL,
+
+    email BLOB NULL,
+    -- The only searchable thing about a contact, and it exists for one
+    -- purpose: finding every row that belongs to the same person when
+    -- that person asks to be erased. Exact match only, by construction.
+    email_blind_index CHAR(64) NULL,
+
+    phone BLOB NULL,
+
+    -- A second number, a "demander Jean-Marie", anything. Never used for
+    -- matching or search — a free-text field is exactly where someone
+    -- writes something that must not become a lookup key, and the form's
+    -- help text says so.
+    other_details BLOB NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    INDEX idx_camp_contacts_camp (camp_id),
+    INDEX idx_camp_contacts_blind (email_blind_index),
+    CONSTRAINT fk_camp_contacts_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- camp_links: web pages worth keeping next to a stay — the site of the
+-- place, a weather page, a map.
+--
+-- The Open Graph metadata comes from Modules\Gallery\Api\
+-- LinkPreviewFetcher and from nowhere else: that service carries
+-- Core\Security\SsrfUrlValidator, and it is the only place in this
+-- codebase allowed to make an outbound request to an address a member
+-- typed (SECURITY.md §17). It is an OPTIONAL dependency — without the
+-- gallery module the link is stored and shown as a bare URL.
+--
+-- The preview image is a `files` row, not a URL: the fetcher returns
+-- bytes, and re-fetching a remote image on every render would leak every
+-- reader's IP to the linked site. image_file_id is scoped to this
+-- module's own access-control domain (Service\CampFileOwnershipChecker).
+CREATE TABLE IF NOT EXISTS camp_links (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    camp_id INT UNSIGNED NOT NULL,
+    url VARCHAR(1000) NOT NULL,
+    title VARCHAR(255) NULL,
+    description VARCHAR(500) NULL,
+    image_file_id INT UNSIGNED NULL,
+    site_name VARCHAR(120) NULL,
+    -- Null when no preview was ever obtained (gallery absent, the site
+    -- unreachable, no Open Graph tags). Distinct from "fetched and found
+    -- nothing", which is a row with a date and no title.
+    fetched_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_camp_links_camp (camp_id),
+    CONSTRAINT fk_camp_links_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE,
+    CONSTRAINT fk_camp_links_image FOREIGN KEY (image_file_id) REFERENCES files(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- camp_documents: a flat list of files attached to a stay — a contract, a
+-- quote, an invoice, a map of the field.
+--
+-- No classification taxonomy on purpose. "Contrat / devis / facture" is a
+-- vocabulary somebody has to maintain and everybody fills in differently,
+-- and a stay carries four documents, not four hundred: a title and an
+-- order are enough to find one.
+CREATE TABLE IF NOT EXISTS camp_documents (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    camp_id INT UNSIGNED NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    file_id INT UNSIGNED NOT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+
+    -- 'manual': a chief uploaded it, and deleting the document deletes
+    -- the file. 'email': it is an inbound message's own attachment, and
+    -- deleting the document removes only THIS row — the file stays
+    -- attached to the message it came from, which still owns it.
+    source ENUM('manual', 'email') NOT NULL DEFAULT 'manual',
+    source_reference VARCHAR(190) NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_camp_documents_camp (camp_id, sort_order),
+    CONSTRAINT fk_camp_documents_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE,
+    CONSTRAINT fk_camp_documents_file FOREIGN KEY (file_id) REFERENCES files(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- camp_reviews: what a staff thought of a stay, for the staff that comes
+-- after. One review per camp (UNIQUE on camp_id) — deliberately not one
+-- per chief: a unit speaks with one voice about a field it camped on, and
+-- five individual opinions would need averaging, which this module
+-- refuses to do (see the place sheet's "most recent rating", never a
+-- mean).
+--
+-- Every chief may write and edit it. The people who were there are the
+-- people who know, and locking a review to its author would leave a stale
+-- one uncorrectable the moment that author leaves the unit.
+CREATE TABLE IF NOT EXISTS camp_reviews (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    camp_id INT UNSIGNED NOT NULL,
+
+    -- NULL is a real value, not a missing one: a CANCELLED stay gets a
+    -- comment and never a rating (Service\ReviewService enforces it), and
+    -- a comment without a number is exactly what "annulé six semaines
+    -- avant le départ" needs to say.
+    rating TINYINT UNSIGNED NULL,
+    comment TEXT NULL,
+
+    -- Who wrote it, for the record. Nullable and ON DELETE SET NULL: a
+    -- review outlives its author's membership, and that is the point.
+    author_member_id INT UNSIGNED NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE INDEX idx_camp_reviews_camp (camp_id),
+    CONSTRAINT fk_camp_reviews_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE,
+    CONSTRAINT fk_camp_reviews_author FOREIGN KEY (author_member_id) REFERENCES members(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- camp_field_proposals: something read in an inbound message that
+-- CONTRADICTS what a stay already holds.
+--
+-- An empty field is filled automatically and that is the end of it. A
+-- field that already has a value is never overwritten — a chief typed
+-- 2 450 € because they read a contract, and a mail-parsing heuristic
+-- does not get to disagree silently. So the reading is parked here and
+-- shown inline next to the field on the stay's own page, with Appliquer
+-- and Ignorer.
+--
+-- Deliberately NOT a separate "to validate" queue: a queue is a place
+-- people stop going to, and the one screen where this reading matters is
+-- the one showing the value it disagrees with.
+CREATE TABLE IF NOT EXISTS camp_field_proposals (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    camp_id INT UNSIGNED NOT NULL,
+
+    -- Same machine names as the change history's field_key, so one
+    -- vocabulary (Service\CampLabels::FIELD_LABELS) labels both.
+    field_key VARCHAR(60) NOT NULL,
+
+    -- Both already formatted for a reader, and both encrypted for the
+    -- same reason Core\Audit encrypts its values: a proposal about
+    -- "booked_by" holds a person's name.
+    current_value BLOB NULL,
+    proposed_value BLOB NOT NULL,
+
+    -- The same reading in machine form ("2028-07-12|2028-07-19", "265000"),
+    -- because "Appliquer" has to write a DATE and an INT, not the sentence
+    -- a reader sees. Re-parsing the display string instead would mean
+    -- teaching the parser to read its own output — a second format to keep
+    -- in step with the first, for no gain.
+    proposed_machine_value BLOB NOT NULL,
+
+    -- The message this was read in, so the inline card can link to it.
+    source_reference VARCHAR(190) NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- One live proposal per field: a second reading of the same field
+    -- replaces the first rather than stacking. Three cards disagreeing
+    -- about one price is not more information, it is noise.
+    UNIQUE INDEX idx_camp_field_proposals_field (camp_id, field_key),
+    CONSTRAINT fk_camp_field_proposals_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

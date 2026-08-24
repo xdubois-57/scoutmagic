@@ -139,6 +139,7 @@ const APP_SHELL_BASE_URLS = [
     '/assets/js/cookie-consent.js',
     '/assets/js/breadcrumb.js',
     '/assets/js/chip-picker.js',
+    '/assets/js/audit-timeline.js',
     '/assets/js/help-panel.js',
     '/assets/js/notification-badge.js',
     '/assets/js/offline-cache.js',

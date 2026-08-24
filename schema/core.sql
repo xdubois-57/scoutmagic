@@ -863,3 +863,61 @@ CREATE TABLE human_check_rate_limits (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_human_check_rate_limits_lookup (ip_hash, form_key, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- entity_changes: the per-entity change history any module can render on
+-- an entity's own page (ARCHITECTURE.md §8.65). Deliberately NOT the
+-- journal: `event_log` is a global administrative log that forbids
+-- personal data and has no entity anchor, so it can answer "what happened
+-- on this installation" but never "what happened to THIS camp". Both
+-- coexist; a sensitive action typically writes to each, one line for the
+-- administrator and one for the entity's own timeline.
+--
+-- entity_type/entity_id mirror the files.owner_type/owner_id pair: a
+-- loose reference with no FK, because the referenced table varies by
+-- entity_type and a module's tables come and go with the module.
+CREATE TABLE entity_changes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    entity_type VARCHAR(50) NOT NULL,
+    entity_id INT UNSIGNED NOT NULL,
+
+    -- Machine name of what changed ('price', 'status', 'dates'), never the
+    -- label shown to a reader: the module owns the wording and can change
+    -- it without rewriting its history.
+    field_key VARCHAR(60) NOT NULL,
+
+    -- Encrypted unconditionally, including values that are not personal
+    -- data in themselves (a price, a status). One uniform rule beats a
+    -- per-field classification nobody maintains — and a history is exactly
+    -- where an innocuous-looking field ends up carrying a name someone
+    -- typed into it. The accepted cost is that this table is NOT
+    -- searchable or filterable on its values; it is read one entity at a
+    -- time, newest first, which needs no index on them.
+    from_value BLOB NULL,
+    to_value BLOB NULL,
+
+    -- An optional human sentence ("Contact ajouté"), shown under the
+    -- from → to line when the change needs words the two values can't
+    -- carry on their own.
+    summary BLOB NULL,
+
+    -- Who or what produced the change. 'human' is someone acting in the
+    -- interface; 'email' an inbound message; 'ai' a model's suggestion a
+    -- human accepted; 'system' the application on its own.
+    source ENUM('human', 'email', 'ai', 'system') NOT NULL DEFAULT 'human',
+
+    -- Opaque to this table: whatever lets the recording module point back
+    -- at the origin (an inbound message id, a task run). Never rendered
+    -- raw — the module turns it into a link if it wants one.
+    source_reference VARCHAR(190) NULL,
+
+    -- Null means nobody did it: an automatic entry, which the timeline
+    -- renders differently. Kept distinct from "the account was deleted"
+    -- only by the source column, which is why source is NOT NULL.
+    actor_user_account_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_entity_changes_entity (entity_type, entity_id, created_at),
+    CONSTRAINT fk_entity_changes_actor
+        FOREIGN KEY (actor_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
