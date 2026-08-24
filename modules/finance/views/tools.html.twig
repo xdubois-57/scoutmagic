@@ -1,0 +1,156 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Outils — Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with { title: 'Outils' } only %}
+
+    {% include '@finance/_nav.html.twig' %}
+
+    <p class="text-body-secondary small mb-4">
+        Deux petits outils indépendants. Ils ne modifient rien&nbsp;: aucun paiement n'est
+        enregistré et aucune créance n'est créée.
+    </p>
+
+    <div class="row g-4">
+        {# ── Payment QR ─────────────────────────────────────────────── #}
+        <div class="col-12 col-lg-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h2 class="h5 card-title">
+                        <i class="bi bi-qr-code" aria-hidden="true"></i> Code QR de paiement
+                    </h2>
+                    <p class="text-body-secondary small">
+                        Génère un QR que n'importe quelle application bancaire européenne peut
+                        scanner pour préremplir un virement. À coller dans un courrier, une
+                        affiche ou un e-mail.
+                    </p>
+
+                    {% if qr_error is defined %}
+                        <div class="alert alert-danger" role="alert">{{ qr_error }}</div>
+                    {% endif %}
+
+                    <form method="post" action="/finance/tools/qr" class="d-flex flex-column gap-3">
+                        {{ csrf_field() }}
+                        <div>
+                            <label for="qr-beneficiary" class="form-label">Bénéficiaire</label>
+                            <input type="text" class="form-control" id="qr-beneficiary" name="beneficiary"
+                                   maxlength="70" required
+                                   value="{{ qr_form.beneficiary|default('') }}">
+                        </div>
+                        <div>
+                            <label for="qr-iban" class="form-label">IBAN</label>
+                            <input type="text" class="form-control" id="qr-iban" name="iban"
+                                   inputmode="text" autocapitalize="characters" required
+                                   placeholder="BE71 0961 2345 6769"
+                                   value="{{ qr_form.iban|default('') }}">
+                        </div>
+                        <div>
+                            <label for="qr-amount" class="form-label">Montant (€)</label>
+                            <input type="text" class="form-control" id="qr-amount" name="amount"
+                                   inputmode="decimal" required placeholder="25,00"
+                                   value="{{ qr_form.amount|default('') }}">
+                        </div>
+                        <div>
+                            <label for="qr-communication" class="form-label">Communication</label>
+                            <input type="text" class="form-control" id="qr-communication" name="communication"
+                                   maxlength="140" placeholder="Camp 2026 — Alice"
+                                   value="{{ qr_form.communication|default('') }}">
+                            <div class="form-text">Libre, ou une communication structurée.</div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Générer le QR</button>
+                    </form>
+
+                    {% if qr_result is defined %}
+                        <hr class="my-4">
+                        <div class="text-center">
+                            <img src="{{ qr_result.data_uri }}"
+                                 alt="Code QR de paiement de {{ qr_result.amount_cents|money_cents }} vers {{ qr_result.iban }}"
+                                 class="img-fluid" style="max-width:260px;">
+                        </div>
+                        <dl class="row small mt-3 mb-0">
+                            <dt class="col-5">Bénéficiaire</dt>
+                            <dd class="col-7">{{ qr_result.beneficiary }}</dd>
+                            <dt class="col-5">IBAN</dt>
+                            <dd class="col-7 text-break">{{ qr_result.iban }}</dd>
+                            <dt class="col-5">Montant</dt>
+                            <dd class="col-7">{{ qr_result.amount_cents|money_cents }}</dd>
+                            {% if qr_result.communication %}
+                                <dt class="col-5">Communication</dt>
+                                <dd class="col-7 text-break">{{ qr_result.communication }}</dd>
+                            {% endif %}
+                        </dl>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {# ── Communication checker ──────────────────────────────────── #}
+        <div class="col-12 col-lg-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h2 class="h5 card-title">
+                        <i class="bi bi-search" aria-hidden="true"></i> Vérifier une communication
+                    </h2>
+                    <p class="text-body-secondary small">
+                        Une communication structurée vue sur un extrait&nbsp;: est-elle correcte,
+                        et à quoi correspond-elle&nbsp;?
+                    </p>
+
+                    {% if check_error is defined %}
+                        <div class="alert alert-danger" role="alert">{{ check_error }}</div>
+                    {% endif %}
+
+                    <form method="post" action="/finance/tools/communication" class="d-flex flex-column gap-3">
+                        {{ csrf_field() }}
+                        <div>
+                            <label for="check-communication" class="form-label">Communication</label>
+                            <input type="text" class="form-control" id="check-communication" name="communication"
+                                   inputmode="numeric" required placeholder="+++123/4567/89012+++"
+                                   value="{{ check_input|default('') }}">
+                            <div class="form-text">
+                                Les espaces, les <code>+++</code> et les <code>***</code> sont optionnels.
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Vérifier</button>
+                    </form>
+
+                    {% if check_result is defined %}
+                        <hr class="my-4">
+                        {% if not check_result.valid %}
+                            <div class="alert alert-warning mb-0" role="alert">
+                                <strong>Communication invalide.</strong>
+                                Ce n'est pas une communication structurée belge correcte —
+                                vérifiez la saisie&nbsp;: elle compte douze chiffres, dont les
+                                deux derniers contrôlent les dix premiers.
+                            </div>
+                        {% elseif check_result.match is null %}
+                            <div class="alert alert-info mb-0" role="alert">
+                                <strong>Communication valide, mais inconnue ici.</strong>
+                                Elle est bien formée, et aucun paiement attendu ne lui correspond
+                                parmi les comptes auxquels vous avez accès.
+                            </div>
+                        {% else %}
+                            <div class="alert alert-success" role="alert">
+                                <strong>Communication valide et reconnue.</strong>
+                            </div>
+                            <dl class="row small mb-0">
+                                {% if check_result.match.label %}
+                                    <dt class="col-5">Concerne</dt>
+                                    <dd class="col-7">{{ check_result.match.label }}</dd>
+                                {% endif %}
+                                <dt class="col-5">Compte</dt>
+                                <dd class="col-7">{{ check_result.match.account_name }}</dd>
+                                <dt class="col-5">Montant attendu</dt>
+                                <dd class="col-7">{{ check_result.match.amount_due_cents|money_cents }}</dd>
+                            </dl>
+                            <a href="/finance/receivables" class="btn btn-sm btn-outline-secondary mt-3">
+                                Voir les paiements attendus →
+                            </a>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

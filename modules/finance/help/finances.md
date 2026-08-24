@@ -5,7 +5,7 @@ summary: Le tableau de bord, les mouvements, les paiements attendus et qui voit 
 category: Espace animateurs
 role_min: intendant
 paths: /finance, /finance/movements, /finance/receivables
-related: importer-extraits, recus, config-finance, badges
+related: importer-extraits, recus, config-finance, badges, outils-finance
 ---
 
 Le module Finances suit les comptes de l'unité à partir des extraits
