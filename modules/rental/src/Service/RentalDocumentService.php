@@ -322,13 +322,19 @@ class RentalDocumentService
      * The upload itself is `UploadHandler`'s job (real MIME check,
      * regenerated file name, EXIF stripped, size cap, stored outside
      * `public/`); this only records what the file *is*.
+     *
+     * `$source` says who owns the bytes. `RentalDocument::SOURCE_EMAIL` is
+     * for an inbound message's own attachment, registered by the very same
+     * `files` id the message serves it from (§8.59) — the flag is what
+     * stops `delete()` from blanking that message later.
      */
     public function attachUploaded(
         RentalBooking $booking,
         int $fileId,
         DocumentType $type,
         bool $isForRenter,
-        ?int $actorMemberId = null
+        ?int $actorMemberId = null,
+        string $source = RentalDocument::SOURCE_MANUAL
     ): int {
         $documentId = $this->documentRepository->create(
             $booking->id,
@@ -337,7 +343,8 @@ class RentalDocumentService
             1,
             $isForRenter,
             null,
-            $actorMemberId
+            $actorMemberId,
+            $source
         );
 
         $this->eventRepository->record(
@@ -439,12 +446,27 @@ class RentalDocumentService
     }
 
     /**
+     * Removes a document, and its file ONLY when this module owns the
+     * bytes and nothing else points at them.
+     *
+     * A document whose source is `email` shares its `files` row with the
+     * inbound message the attachment arrived in (§8.59): the message still
+     * owns it and still serves it, so deleting the file here would blank
+     * the message's own attachment. Only the link between the booking and
+     * the file goes. Same invariant as `Modules\Camps\Service\
+     * DocumentService::delete()`.
+     *
      * @throws RentalException
      */
     public function delete(RentalDocument $document, ?int $actorMemberId = null): void
     {
         $this->documentRepository->delete($document->id);
-        $this->fileRepository->delete($document->fileId);
+
+        if ($document->ownsItsFile()
+            && !$this->documentRepository->isFileReferencedElsewhere($document->fileId, $document->id)
+        ) {
+            $this->fileRepository->delete($document->fileId);
+        }
 
         $this->journal->log(
             'rental',

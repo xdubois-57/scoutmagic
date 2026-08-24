@@ -530,6 +530,41 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame($message->attachments[0]->fileId, $document->fileId);
     }
 
+    public function testTheDocumentIsMarkedAsBelongingToTheMessage(): void
+    {
+        // Because the two share one `files` row, the document must never
+        // be allowed to delete the bytes: `RentalDocumentService::delete()`
+        // reads exactly this flag before touching them (§8.59).
+        $booking = $this->createBooking();
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+
+        $this->sync();
+
+        $document = $this->documentRepository->findForBooking($booking->id)[0];
+        $this->assertSame(\Modules\Rental\Document\RentalDocument::SOURCE_EMAIL, $document->source);
+        $this->assertFalse($document->ownsItsFile());
+    }
+
+    public function testDeletingTheDocumentLeavesTheMessagesAttachmentReadable(): void
+    {
+        // The bug this invariant exists to prevent: a manager tidying up a
+        // "Non classé" row silently destroyed the correspondence it came
+        // from — the message stayed, its attachment did not.
+        $booking = $this->createBooking();
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+        $this->sync();
+
+        $document = $this->documentRepository->findForBooking($booking->id)[0];
+        $this->documentService->delete($document);
+
+        $message = $this->communicationService->timeline($booking)[0];
+        $this->assertCount(1, $message->attachments);
+        $this->assertNotNull(
+            (new FileRepository($this->pdo))->findById($message->attachments[0]->fileId),
+            "The message's own attachment must still resolve to a file."
+        );
+    }
+
     public function testASignatureLogoNeverBecomesADocument(): void
     {
         $booking = $this->createBooking();
