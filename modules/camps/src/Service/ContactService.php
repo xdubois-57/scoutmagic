@@ -233,6 +233,30 @@ class ContactService
     }
 
     /**
+     * The picker's key for a stored label, so an edit form can re-select
+     * the role a contact already holds. Empty string when the contact has
+     * no role, or holds one this version no longer offers — the form then
+     * opens on "—" rather than silently pre-selecting something else.
+     */
+    public static function roleKeyForLabel(?string $label): string
+    {
+        if ($label === null) {
+            return '';
+        }
+        $key = array_search($label, self::ROLES, true);
+
+        return is_string($key) ? $key : '';
+    }
+
+    /**
+     * Validates the submitted fields and returns what to store.
+     *
+     * **The form posts a KEY and the table stores a LABEL.** The picker is
+     * built from `self::ROLES` — `proprietaire` on the wire, « Propriétaire »
+     * in the column — so validating against the labels refused every role
+     * the real form could send, and the only payload that got through was
+     * one nothing on the site produces.
+     *
      * @param array<string, string|null> $fields
      * @return array{name: ?string, role_label: ?string, email: ?string, phone: ?string, other_details: ?string}
      */
@@ -250,9 +274,13 @@ class ContactService
             throw new CampsException('Cette adresse e-mail n\'est pas une adresse valide.');
         }
 
-        $roleLabel = $this->clean($fields['role_label'] ?? null);
-        if ($roleLabel !== null && !in_array($roleLabel, self::ROLES, true)) {
-            throw new CampsException('Ce rôle de contact n\'existe pas.');
+        $roleKey = $this->clean($fields['role_label'] ?? null);
+        $roleLabel = null;
+        if ($roleKey !== null) {
+            if (!isset(self::ROLES[$roleKey])) {
+                throw new CampsException('Ce rôle de contact n\'existe pas.');
+            }
+            $roleLabel = self::ROLES[$roleKey];
         }
 
         return [
