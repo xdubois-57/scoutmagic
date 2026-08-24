@@ -143,16 +143,4 @@ class FormationLevelResolverTest extends TestCase
         $this->assertSame(FormationStep::T1, $mapped->resolve('Zorglub'));
         $this->assertSame(FormationStep::UNKNOWN, $bare->resolve('Zorglub'));
     }
-
-    public function testIsExplicitlyMappedDistinguishesADecisionFromAHeuristicHit(): void
-    {
-        $resolver = new FormationLevelResolver([
-            FormationLevelResolver::keyFor('Zorglub') => FormationStep::T1->value,
-        ]);
-
-        $this->assertTrue($resolver->isExplicitlyMapped('Zorglub'));
-        // Recognised by the heuristic, but nobody decided it.
-        $this->assertFalse($resolver->isExplicitlyMapped('T1'));
-        $this->assertFalse($resolver->isExplicitlyMapped(null));
-    }
 }

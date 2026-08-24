@@ -112,30 +112,6 @@ class DocumentServiceTest extends TestCase
         $this->assertNotNull($this->files->findById($fileId));
     }
 
-    public function testAnUploadedDocumentIsRecordedOnTheTimeline(): void
-    {
-        $fileId = $this->storeFile();
-        $id = $this->documents->create(1, 'Contrat 2028', $fileId);
-        $document = $this->documents->findById($id);
-        $this->assertNotNull($document);
-
-        $this->service->rename($document, 'Contrat signé 2028', 42);
-
-        $entry = $this->audit->page(CampService::ENTITY_TYPE, 1, 1, 10)->entries[0];
-        $this->assertSame('document', $entry->fieldKey);
-        $this->assertSame('Contrat 2028', $entry->fromValue);
-        $this->assertSame('Contrat signé 2028', $entry->toValue);
-    }
-
-    public function testRenamingToNothingIsRefused(): void
-    {
-        $document = $this->documents->findById($this->documents->create(1, 'Contrat', $this->storeFile()));
-        $this->assertNotNull($document);
-
-        $this->expectException(CampsException::class);
-        $this->service->rename($document, '   ', 42);
-    }
-
     public function testAttachingAnExistingFileNeverCopiesTheBytes(): void
     {
         $fileId = $this->storeFile();

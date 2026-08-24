@@ -72,7 +72,7 @@ class DuplicatePlaceDetector
      *         certainty: 'certain' (same normalised name and locality) or
      *         'possible' (a typo away, or the AI thinks so)
      */
-    public function findCandidates(array $fields, ?int $excludePlaceId = null): array
+    public function findCandidates(array $fields): array
     {
         $name = $this->normaliseName((string) ($fields['name'] ?? ''));
         if ($name === '') {
@@ -87,10 +87,6 @@ class DuplicatePlaceDetector
         $undecided = [];
 
         foreach ($this->places->findAllVisible() as $place) {
-            if ($excludePlaceId !== null && $place->id === $excludePlaceId) {
-                continue;
-            }
-
             $otherName = $this->normaliseName($place->name);
             $otherCity = $this->normaliseName($place->city ?? '');
             $otherPostal = preg_replace('/\s+/', '', $place->postalCode ?? '') ?? '';

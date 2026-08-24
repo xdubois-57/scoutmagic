@@ -124,23 +124,6 @@ class DocumentService
         );
     }
 
-    public function rename(Document $document, string $title, ?int $actorUserAccountId): void
-    {
-        $title = trim($title);
-        if ($title === '') {
-            throw new CampsException('Un document a besoin d\'un nom.');
-        }
-        if ($title === $document->title) {
-            return;
-        }
-
-        $this->documents->rename($document->id, $title);
-        $this->audit->record(
-            CampService::ENTITY_TYPE, $document->campId, 'document', $document->title, $title,
-            AuditSource::Human, null, null, $actorUserAccountId
-        );
-    }
-
     /**
      * @param array<string, mixed> $uploadedFile
      */
