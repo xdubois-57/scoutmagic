@@ -8,7 +8,7 @@
         } only %}
 
         <form method="post" action="/config/camps">
-            {{ csrf_field() }}
+            {{ csrf_field()|raw }}
 
             {% include 'partials/form_field.html.twig' with {
                 field_id: 'camps-default-country',

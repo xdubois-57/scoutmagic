@@ -29,7 +29,7 @@
                 {% if has_account_photo|default(false) %}
                     <form method="post" action="/account/photo/delete" class="m-0"
                           data-confirm="Retirer votre photo ? Vos initiales seront affichées à la place.">
-                        {{ csrf_field() }}
+                        {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-sm btn-outline-secondary">
                             Retirer la photo
                         </button>
@@ -44,7 +44,7 @@
         <div class="card-body">
             <h2 class="h5 mb-3">Profil</h2>
             <form method="post" action="/account/profile">
-                {{ csrf_field() }}
+                {{ csrf_field()|raw }}
                 <div class="row g-3 mb-3">
                     <div class="col-12 col-sm-6">
                         {% include 'partials/form_field.html.twig' with {
@@ -78,7 +78,7 @@
                     </p>
                 {% endif %}
                 <form method="post" action="/account/password" id="account-password-form">
-                    {{ csrf_field() }}
+                    {{ csrf_field()|raw }}
                     <div class="mb-3">
                         <label class="form-label" for="account-current-password">Mot de passe actuel</label>
                         <input type="password" name="current_password" id="account-current-password" class="form-control" required autocomplete="current-password">
@@ -97,7 +97,7 @@
                     Non configuré — le lien magique reste utilisable pour se connecter.
                 </p>
                 <form method="post" action="/account/password" id="account-password-form">
-                    {{ csrf_field() }}
+                    {{ csrf_field()|raw }}
                     {% include 'partials/password_field.html.twig' with {
                         field_id: 'account-new-password',
                         field_name: 'new_password',

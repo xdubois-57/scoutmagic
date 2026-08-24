@@ -42,7 +42,7 @@
                             <div class="small text-body-secondary">{{ candidate.reason }}</div>
                         </div>
                         <form method="post" action="/chefs/camps">
-                            {{ csrf_field() }}
+                            {{ csrf_field()|raw }}
                             {{ _self.submitted_fields(submitted, ['place_id']) }}
                             <input type="hidden" name="place_id" value="{{ candidate.place.id }}">
                             <button type="submit" class="btn btn-primary btn-sm">
@@ -55,7 +55,7 @@
         </div>
 
         <form method="post" action="/chefs/camps">
-            {{ csrf_field() }}
+            {{ csrf_field()|raw }}
             {{ _self.submitted_fields(submitted, []) }}
             <input type="hidden" name="confirm_new" value="1">
             <button type="submit" class="btn btn-outline-secondary">

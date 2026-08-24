@@ -229,10 +229,13 @@ Every `<form method="post">` carries one, no exceptions (`AGENTS.md`
 
 The function is registered with `['is_safe' => ['html']]`
 (`Core\View\TwigFactory`), so **`|raw` is a no-op** and plain
-`{{ csrf_field() }}` produces exactly the same markup — the filter is
-written out anyway because a reader scanning a template for `|raw` should
-find every place raw HTML is emitted, including the ones that are safe by
-construction. Whichever you write, do not mix the two inside one template.
+`{{ csrf_field() }}` produces exactly the same markup. Write the filter
+anyway, every time: a reader auditing which templates emit raw HTML greps
+for `|raw`, and a call site without it is one that grep misses — including
+the ones that are safe by construction. Precisely because nothing breaks
+when the two forms drift apart, they drift, so this is the one form and
+`Tests\Core\View\UxConventionsTest::testCsrfFieldIsAlwaysWrittenWithTheRawFilter`
+keeps it that way.
 
 Do NOT hand-write the input: the token itself comes from
 `Core\Security\CsrfGuard::generateToken()`, and a template composing the
