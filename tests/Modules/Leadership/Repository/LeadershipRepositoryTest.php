@@ -205,6 +205,36 @@ class LeadershipRepositoryTest extends TestCase
         $this->assertNull($this->repository->findEarliestSectionPeriodStart(999, $this->currentYearId));
     }
 
+    public function testFindEarliestSectionPeriodStartsAnswersForAWholeListAtOnce(): void
+    {
+        // The stewards page asked once per line, so a unit with a dozen
+        // intendants issued a dozen round trips to render one table.
+        $first = $this->insertMember('M1');
+        $second = $this->insertMember('M2');
+        $withoutPeriod = $this->insertMember('M3');
+
+        $this->insertPeriod($first, $this->louveteauxId, $this->currentYearId, '2025-11-04', null);
+        $this->insertPeriod($first, $this->pionniersId, $this->currentYearId, '2025-09-08', '2025-11-03');
+        $this->insertPeriod($second, $this->pionniersId, $this->currentYearId, '2025-10-01', null);
+        $this->insertPeriod($second, $this->louveteauxId, $this->previousYearId, '2024-09-02', null);
+
+        $starts = $this->repository->findEarliestSectionPeriodStarts(
+            [$first, $second, $withoutPeriod, 999],
+            $this->currentYearId
+        );
+
+        $this->assertSame(
+            [$first => '2025-09-08', $second => '2025-10-01'],
+            $starts,
+            'Same answer as the single-member version, for everybody at once.'
+        );
+    }
+
+    public function testFindEarliestSectionPeriodStartsWithNobodyAsksNothing(): void
+    {
+        $this->assertSame([], $this->repository->findEarliestSectionPeriodStarts([], $this->currentYearId));
+    }
+
     public function testFindLastImportAtTakesTheMostRecentOfTheYear(): void
     {
         $this->assertNull($this->repository->findLastImportAt($this->currentYearId));

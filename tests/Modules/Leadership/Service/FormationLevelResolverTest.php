@@ -31,6 +31,19 @@ class FormationLevelResolverTest extends TestCase
             'empty string' => ['', FormationStep::NONE],
             'whitespace only' => ['   ', FormationStep::NONE],
             'unrecognised wording' => ['Module transversal 4', FormationStep::UNKNOWN],
+
+            // A T-step is two characters long, so matched as a substring it
+            // fires on anything that happens to contain them: a year, a
+            // reference number, a room code. A confidently-wrong step never
+            // announces itself the way an unrecognised one does, so these
+            // have to stay whole-word matches.
+            'a year swallowing t2' => ['POST2015', FormationStep::UNKNOWN],
+            'a reference swallowing t1' => ['FORMAT1234', FormationStep::UNKNOWN],
+            'a code swallowing t3' => ['LOT3-B', FormationStep::UNKNOWN],
+            // …and the real wordings still resolve, including with the
+            // punctuation folding collapses to a space.
+            'a t-step with punctuation around it' => ['Formation : T2 (2026)', FormationStep::T2],
+            'a t-step at the end of a label' => ['Animateur — T3', FormationStep::T3],
         ];
     }
 

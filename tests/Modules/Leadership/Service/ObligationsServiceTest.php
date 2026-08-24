@@ -82,19 +82,46 @@ class ObligationsServiceTest extends TestCase
         $this->assertSame([3, 30], array_map(static fn ($l) => $l->days, $lines));
     }
 
-    public function testIgnoresStewardsAndMembersWithNoBirthDate(): void
+    public function testIgnoresMembersWithNoUsableBirthDate(): void
     {
         $lines = $this->service()->upcomingAdultBirthdays([
-            LeadershipTestHelper::staffRow([
-                'memberId' => 1,
-                'functionRole' => 'intendant',
-                'birthDate' => $this->birthdayIn(5),
-            ]),
             LeadershipTestHelper::staffRow(['memberId' => 2, 'birthDate' => null]),
             LeadershipTestHelper::staffRow(['memberId' => 3, 'birthDate' => 'pas une date']),
         ], $this->today());
 
         $this->assertSame([], $lines);
+    }
+
+    public function testAnIntendantTurningTwentyIsListedToo(): void
+    {
+        // The extrait is required because of contact with minors, not
+        // because of an animation function: filtering intendants out made
+        // this page answer a narrower question than its title asks.
+        $lines = $this->service()->upcomingAdultBirthdays([
+            LeadershipTestHelper::staffRow([
+                'memberId' => 1,
+                'functionRole' => 'intendant',
+                'functionLabel' => 'Intendant',
+                'birthDate' => $this->birthdayIn(5),
+            ]),
+        ], $this->today());
+
+        $this->assertCount(1, $lines);
+        $this->assertSame(5, $lines[0]->days);
+    }
+
+    public function testTheUnknownBirthDateCountIsPerPersonAndMatchesTheScan(): void
+    {
+        // An empty birthday block means "nobody turns 20 soon" only when
+        // every birth date is known.
+        $staff = [
+            LeadershipTestHelper::staffRow(['memberId' => 1, 'birthDate' => $this->birthdayIn(5)]),
+            LeadershipTestHelper::staffRow(['memberId' => 2, 'birthDate' => null]),
+            LeadershipTestHelper::staffRow(['memberId' => 2, 'birthDate' => null, 'functionLabel' => 'Autre']),
+            LeadershipTestHelper::staffRow(['memberId' => 3, 'birthDate' => 'pas une date']),
+        ];
+
+        $this->assertSame(2, $this->service()->countWithoutBirthDate($staff));
     }
 
     /**

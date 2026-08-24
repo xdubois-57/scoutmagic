@@ -66,13 +66,19 @@ class StewardService
         $today = $today->setTime(0, 0, 0);
         $summer = $this->isSummerRegime($today);
 
-        $entries = [];
-        foreach ($staff as $row) {
-            if (!$row->isSteward()) {
-                continue;
-            }
+        $stewards = array_values(array_filter($staff, static fn (StaffFunctionRow $r): bool => $r->isSteward()));
 
-            [$startDate, $isApproximate] = $this->resolveStart($row, $scoutYearId);
+        // Every fallback start date in one query, before the loop. Asked
+        // per line, it was one round trip per intendant on a page whose
+        // whole content is that list.
+        $fallbackStarts = $this->repository->findEarliestSectionPeriodStarts(
+            array_map(static fn (StaffFunctionRow $r): int => $r->memberId, $stewards),
+            $scoutYearId
+        );
+
+        $entries = [];
+        foreach ($stewards as $row) {
+            [$startDate, $isApproximate] = $this->resolveStart($row, $fallbackStarts);
 
             if ($summer) {
                 $entries[] = [
@@ -105,10 +111,27 @@ class StewardService
                 continue;
             }
 
-            $days = (int) $startDate->diff($today)->days;
+            // A start date in the future is not day zero of a countdown:
+            // "Inscrit depuis 0 jour" reads as "registered today", which
+            // is a different — and wrong — statement about somebody whose
+            // function begins next month. Said as what it is, and sorted
+            // with the shortest-running rather than pretending to a count.
             if ($today < $startDate) {
-                $days = 0;
+                $entries[] = [
+                    'days' => -1,
+                    'line' => new PersonLine(
+                        memberYearId: $row->memberYearId,
+                        totem: $row->totem,
+                        fullName: $row->fullName(),
+                        sectionName: $row->sectionName,
+                        detail: $row->functionLabel,
+                        note: $this->futureStartNote($startDate, $isApproximate),
+                    ),
+                ];
+                continue;
             }
+
+            $days = (int) $startDate->diff($today)->days;
 
             $entries[] = [
                 'days' => $days,
@@ -127,7 +150,7 @@ class StewardService
 
         usort($entries, static function (array $a, array $b): int {
             return ($b['days'] <=> $a['days'])
-                ?: strcasecmp($a['line']->fullName, $b['line']->fullName);
+                ?: TextMatcher::compareNames($a['line']->fullName, $b['line']->fullName);
         });
 
         return array_map(static fn (array $e): PersonLine => $e['line'], $entries);
@@ -169,7 +192,7 @@ class StewardService
             );
         }
 
-        usort($lines, static fn (PersonLine $a, PersonLine $b) => strcasecmp($a->fullName, $b->fullName));
+        usort($lines, static fn (PersonLine $a, PersonLine $b) => TextMatcher::compareNames($a->fullName, $b->fullName));
 
         return $lines;
     }
@@ -192,18 +215,18 @@ class StewardService
      * simply not a fact about this person. A steward with neither date gets
      * no countdown and is told so.
      *
+     * @param array<int, string> $fallbackStarts members.id => earliest
+     *        section-period start, resolved for the whole list at once
      * @return array{0: ?\DateTimeImmutable, 1: bool}
      */
-    private function resolveStart(StaffFunctionRow $row, int $scoutYearId): array
+    private function resolveStart(StaffFunctionRow $row, array $fallbackStarts): array
     {
         $deskDate = $this->parseDate($row->functionStartDate);
         if ($deskDate !== null) {
             return [$deskDate, false];
         }
 
-        $firstSeen = $this->parseDate(
-            $this->repository->findEarliestSectionPeriodStart($row->memberId, $scoutYearId)
-        );
+        $firstSeen = $this->parseDate($fallbackStarts[$row->memberId] ?? null);
 
         return [$firstSeen, $firstSeen !== null];
     }
@@ -224,6 +247,23 @@ class StewardService
         }
 
         return 'Début de fonction encodé dans Desk : ' . $startDate->format('d/m/Y') . '.';
+    }
+
+    /**
+     * A registration that has not started yet. No countdown, because there
+     * is nothing to count: the free window has not begun.
+     */
+    private function futureStartNote(\DateTimeImmutable $startDate, bool $isApproximate): string
+    {
+        $sentence = 'Inscription à partir du ' . $startDate->format('d/m/Y') . '.';
+
+        if ($isApproximate) {
+            $sentence .= " Aucune date de début n'est encodée dans Desk : "
+                . 'cette date est celle de la première apparition de la personne sur le site, '
+                . "pas une date d'inscription Desk.";
+        }
+
+        return $sentence;
     }
 
     private function countdownNote(int $days, \DateTimeImmutable $startDate, bool $isApproximate): string
