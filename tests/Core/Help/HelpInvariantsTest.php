@@ -137,7 +137,13 @@ final class HelpInvariantsTest extends TestCase
                 // request path would; a child rule ('/x/*', stored as
                 // '/x/') must have a route serving its parent plus exactly
                 // one segment — probe with a synthetic child.
-                $candidate = $rule['match'] === 'child' ? $rule['path'] . 'x-probe' : $rule['path'];
+                $candidate = match ($rule['match']) {
+                    'child' => $rule['path'] . 'x-probe',
+                    // Each `*` stands for one segment; a probe value in
+                    // each is what a real request path looks like.
+                    'pattern' => str_replace('/*', '/x-probe', $rule['path']),
+                    default => $rule['path'],
+                };
 
                 $matched = false;
                 foreach ($patterns as $pattern) {

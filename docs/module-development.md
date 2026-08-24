@@ -626,11 +626,16 @@ Corps en Markdown…
   pins the whole corpus.
 - `role_min`: below it the topic exists nowhere (panel, index, search,
   direct URL — 404). Same role vocabulary as routes.
-- `paths`: pages the topic covers — exact (`/locations`) or direct child
-  (`/locations/*`, the path plus exactly one segment; `offline`'s
-  exact/child semantics). Every declared path must correspond to a real
-  registered GET route, or the invariant test fails. Empty is valid: the
-  topic is then only reachable from `/aide`.
+- `paths`: pages the topic covers, in three forms — exact
+  (`/locations`), direct child (`/locations/*`, the path plus exactly one
+  segment; `offline`'s exact/child semantics), and a segment pattern
+  where a `*` stands for one whole segment anywhere
+  (`/mes-locations/*/reglages`, `/locations/suivi/*/*`). Use the third
+  for a page hanging off an id, which the first two cannot name at all.
+  A pattern matches segment count for segment count, so a rule for a page
+  never also claims the pages under it. Every declared path must
+  correspond to a real registered GET route, or the invariant test fails.
+  Empty is valid: the topic is then only reachable from `/aide`.
 - Body sections start at `##` (the title already is the page's `<h1>`).
   Write to the editorial charter in design.md §7.11 — vouvoiement, the
   §7.1 lexicon, ~400 words, at most one `> ` warning callout, no external

@@ -4,8 +4,8 @@ title: Gérer les locations d'un bien
 summary: Les réservations, les paiements, les documents et le séjour.
 category: Espace membres
 role_min: identified
-paths: /mes-locations, /mes-locations/*
-related: locations, config-locations, courrier-entrant
+paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/gabarits, /mes-locations/*/reservations, /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/sejour, /mes-locations/*/reservations/*/document/*
+related: locations, config-locations, courrier-entrant, locations-reglages, locations-conformite
 ---
 
 « Mes locations » est l'espace des gestionnaires : les personnes

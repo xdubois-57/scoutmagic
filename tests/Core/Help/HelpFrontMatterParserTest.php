@@ -129,12 +129,27 @@ class HelpFrontMatterParserTest extends TestCase
         $this->parser->parse($path);
     }
 
-    public function testRejectsAnInvalidPathForm(): void
+    public function testAStarStandsForOneWholeSegmentAnywhereInThePath(): void
     {
-        // '*' anywhere but as a trailing '/*' is neither of the two
-        // supported forms (exact / direct child).
+        // Half of the rental module's screens are
+        // /mes-locations/{slug}/reglages and half of camps' are
+        // /chefs/camps/sejours/{id}/documents. With only the exact and
+        // direct-child forms no rule could name any of them, so those
+        // pages could never carry a contextual help button however many
+        // topics were written for them.
         $dir = $this->makeTopicDir();
         $path = $this->writeTopic($dir, 'joker', ['paths' => '/admin/*/deep']);
+
+        $this->assertSame(
+            [['path' => '/admin/*/deep', 'match' => 'pattern']],
+            $this->parser->parse($path)->paths
+        );
+    }
+
+    public function testRejectsAStarThatIsNotAWholeSegment(): void
+    {
+        $dir = $this->makeTopicDir();
+        $path = $this->writeTopic($dir, 'joker-partiel', ['paths' => '/admin/loc*/deep']);
 
         $this->expectException(HelpException::class);
         $this->parser->parse($path);
