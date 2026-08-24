@@ -171,10 +171,22 @@ class CampsChiefController extends AbstractController
         }
 
         try {
+            // The stay's own fields are validated FIRST, before anything is
+            // written. resolvePlace() creates a place when the form carries
+            // a new one, and a stay refused afterwards used to leave that
+            // place behind — a row nobody asked for, on the places list, in
+            // the duplicate detector's candidates, and on the map.
+            //
+            // Validated here and again inside create(): the second call is
+            // the service's own contract with every other caller, and
+            // paying for it twice is cheaper than a place nobody wanted.
+            $campFields = $this->campFields($request);
+            $this->campService->validate($campFields);
+
             $placeId = $this->resolvePlace($request, $actorId);
             $campId = $this->campService->create(
                 $placeId,
-                $this->campFields($request),
+                $campFields,
                 $actorId,
                 fn(array $ids): ?string => $this->sectionDescriber->describeAsText($ids)
             );
