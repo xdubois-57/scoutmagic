@@ -142,6 +142,99 @@ class DocumentServiceTest extends TestCase
         );
     }
 
+    // ── upload() ────────────────────────────────────────────────────
+
+    /**
+     * The happy path, end to end: bytes land under storage/ (never under
+     * public/), a `files` row is written with this module's owner type so
+     * CampFileOwnershipChecker gates it, the document points at that row,
+     * and the stay's history records it.
+     */
+    public function testUploadingADocumentStoresTheBytesTheRowAndTheHistoryLine(): void
+    {
+        $id = $this->service->upload(1, $this->anUploadedPdf(), 'Contrat signé', 42);
+
+        $document = $this->documents->findById($id);
+        $this->assertNotNull($document);
+        $this->assertSame('Contrat signé', $document->title);
+        $this->assertSame(1, $document->campId);
+        $this->assertTrue($document->ownsItsFile(), 'a manual upload is this module\'s to delete');
+
+        $file = $this->files->findById($document->fileId);
+        $this->assertNotNull($file);
+        $this->assertSame('application/pdf', $file->mimeType);
+        $this->assertSame('chief', $file->roleMin);
+        $this->assertStringStartsWith('camps/1/documents/', $file->relativePath);
+        $this->assertFileExists($this->storagePath . '/' . $file->relativePath);
+
+        $entry = $this->audit->page(CampService::ENTITY_TYPE, 1, 1, 10)->entries[0];
+        $this->assertSame('document', $entry->fieldKey);
+        $this->assertNull($entry->fromValue);
+        $this->assertSame('Contrat signé', $entry->toValue);
+    }
+
+    /**
+     * The stored name is generated, never the visitor's — a filename is
+     * attacker-controlled text and the path it lands on must not be.
+     */
+    public function testTheStoredNameIsNeverTheNameTheBrowserSent(): void
+    {
+        $id = $this->service->upload(1, $this->anUploadedPdf('../../evil.pdf'), null, 42);
+
+        $file = $this->files->findById($this->documents->findById($id)?->fileId ?? 0);
+        $this->assertNotNull($file);
+        $this->assertStringNotContainsString('..', $file->relativePath);
+        $this->assertStringNotContainsString('evil', $file->relativePath);
+    }
+
+    /**
+     * Falling back to the original filename beats "Document 4": a chief who
+     * uploaded "contrat-mozet-2028.pdf" has already named it.
+     */
+    public function testAnUntitledUploadTakesItsNameFromTheFile(): void
+    {
+        $id = $this->service->upload(1, $this->anUploadedPdf('contrat-mozet-2028.pdf'), '   ', 42);
+
+        $this->assertSame('contrat-mozet-2028.pdf', $this->documents->findById($id)?->title);
+    }
+
+    public function testARefusedUploadWritesNoRowAtAll(): void
+    {
+        $path = $this->storagePath . '/refused.txt';
+        file_put_contents($path, 'not a pdf at all');
+
+        try {
+            $this->service->upload(
+                1,
+                ['tmp_name' => $path, 'name' => 'notes.txt', 'size' => filesize($path), 'error' => UPLOAD_ERR_OK],
+                'Notes',
+                42
+            );
+            $this->fail('a text file is not an allowed document type');
+        } catch (CampsException $e) {
+            $this->assertStringContainsString('Type de fichier', $e->getMessage());
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM camp_documents')->fetchColumn());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+    }
+
+    /**
+     * @return array<string, mixed> a $_FILES entry over a real temporary file
+     */
+    private function anUploadedPdf(string $browserName = 'contrat.pdf'): array
+    {
+        $path = $this->storagePath . '/incoming-' . bin2hex(random_bytes(6)) . '.pdf';
+        file_put_contents($path, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n");
+
+        return [
+            'tmp_name' => $path,
+            'name' => $browserName,
+            'size' => filesize($path),
+            'error' => UPLOAD_ERR_OK,
+        ];
+    }
+
     private function storeFile(): int
     {
         $relativePath = 'camps/1/documents/' . bin2hex(random_bytes(6)) . '.pdf';
