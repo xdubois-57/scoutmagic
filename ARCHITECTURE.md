@@ -1898,6 +1898,18 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **It is a draft.** Nothing is sent, the body starts empty, and the user lands in the ordinary composition screen.
 
+### 8.72 Three finance primitives, and the three ways to get them wrong
+
+No user-visible change of its own — these exist so §8.73's tools page has something correct to stand on. Each carries a trap that fails *silently*, which is why all three are written down rather than left as obvious one-liners.
+
+**`IbanNormalizer::format()` is display only.** It groups by four — `BE71 0961 2345 6769` — the way a bank statement prints it and therefore the way somebody checks one. The blind index is computed on the `normalize()`d form, so a formatted value reaching `blindIndex()` or a column makes every IBAN search stop matching, with nothing to see: no error, just a lookup that returns nothing from then on. Format at the last possible moment, in the template or the response, never on the way in. `IbanNormalizerTest` states this as an assertion rather than a comment — a formatted IBAN is deliberately *not* accepted by `isValidFullIban()`.
+
+**`StructuredCommunicationService::isValid()` must map a remainder of 0 onto 97.** The Belgian check digits run 01–97 and never 00, which is exactly what `format()` already does when issuing one. A `$base % 97 === $check` comparison therefore rejects every valid communication whose key is 97 — about one in a hundred: frequent enough to be reported as a bug, rare enough to survive a hand test. Both halves are named tests, and `testEveryCommunicationItIssuesValidates()` pins the two functions to each other so they cannot drift apart. It accepts every shape somebody plausibly pastes (canonical `+++…+++`, the `***…***` variant, bare digits, any spacing): non-digits are stripped first, so only the twelve digits ever decide.
+
+**`ExpectedReceivableRepository::findByCommunication()` re-canonicalises before the WHERE.** The column stores the issued `+++NNN/NNNN/NNNNN+++`; the person checking a payment types what their bank showed them. Comparing the raw input finds nothing for most real inputs, silently — the answer is "unknown", so they conclude the payment was never expected. Twelve digits in, canonical form out, one exact match: no `LIKE`, no collation surprise. An input that is not twelve digits short-circuits rather than running a query that cannot succeed.
+
+**None of the three makes a structured communication decodable.** The ten-digit base is random; a communication says nothing about who paid, and the correspondence is a database lookup. Nothing should try to encode a member in one.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
