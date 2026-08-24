@@ -34,7 +34,7 @@
     /** @param {string} topicId */
     function showTopic(topicId) {
         topics.forEach(function (article) {
-            article.classList.toggle('d-none', article.getAttribute('data-help-topic') !== topicId);
+            article.classList.toggle('d-none', /** @type {HTMLElement} */ (article).dataset.helpTopic !== topicId);
         });
         if (list) {
             list.classList.add('d-none');
@@ -72,9 +72,9 @@
             return;
         }
 
-        var opener = e.target.closest('[data-help-open]');
+        var opener = /** @type {HTMLElement|null} */ (e.target.closest('[data-help-open]'));
         if (opener) {
-            showTopic(opener.getAttribute('data-help-open') || '');
+            showTopic(opener.dataset.helpOpen || '');
             return;
         }
 

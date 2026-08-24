@@ -21,13 +21,17 @@ CREATE TABLE IF NOT EXISTS calendar_calendars (
     -- Who may WRITE, as opposed to visibility's who may SEE. The two used
     -- to be the same column, so "visible by the animateurs, editable by the
     -- chefs d'unité" was inexpressible: the only way to keep animateurs out
-    -- of the "Animateurs" calendar was to set it visibility = 'admin',
-    -- which also made it vanish from their screen.
+    -- of the "Animateurs" calendar was to set its visibility to the admin
+    -- level, which also made it vanish from their screen.
     --
-    -- DEFAULT 'chief' reproduces the previous behaviour exactly, so an
+    -- The default below reproduces the previous behaviour exactly, so an
     -- existing installation sees no change until somebody chooses one. It
-    -- is deliberately NOT migrated to 'admin' for the default calendar:
-    -- that is the chef d'unité's decision, not the migration's.
+    -- is deliberately NOT migrated to the admin level for the default
+    -- calendar: that is the chef d'unité's decision, not the migration's.
+    --
+    -- (Role names are spelled without quotes in this prose on purpose: the
+    -- static analyser counts a quoted literal inside a comment as a real
+    -- one — see the phantom findings in commit 164b71ab.)
     --
     -- Never more permissive than visibility (a role that cannot see a
     -- calendar must not write in it) — enforced in Service\CalendarService,
