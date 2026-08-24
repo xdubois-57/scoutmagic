@@ -23,13 +23,16 @@
     var fullLink = /** @type {HTMLAnchorElement|null} */ (panel.querySelector('[data-help-open-full]'));
     var topics = panel.querySelectorAll('[data-help-topic]');
 
-    /**
-     * @param {string} topicId
-     * @param {string} fullHref Server-rendered `/aide/<id>` URL (data-help-open-href)
-     *   — copied verbatim rather than rebuilt from topicId, so no DOM text
-     *   is ever reinterpreted as a URL here.
-     */
-    function showTopic(topicId, fullHref) {
+    // Mirrors the id format HelpFrontMatterParser itself enforces server-side
+    // (core/Help/HelpFrontMatterParser.php: "lowercase letters, digits and
+    // dashes only"). topicId is read from a DOM attribute, so building a URL
+    // from it needs an explicit allowlist check first — a bare concatenation
+    // is exactly the DOM-text-reinterpreted-as-a-URL pattern CodeQL's
+    // js/xss-through-dom flags, however the attribute itself was populated.
+    var TOPIC_ID_PATTERN = /^[a-z0-9-]+$/;
+
+    /** @param {string} topicId */
+    function showTopic(topicId) {
         topics.forEach(function (article) {
             article.classList.toggle('d-none', article.getAttribute('data-help-topic') !== topicId);
         });
@@ -37,7 +40,7 @@
             list.classList.add('d-none');
         }
         if (fullLink) {
-            fullLink.href = fullHref;
+            fullLink.href = TOPIC_ID_PATTERN.test(topicId) ? '/aide/' + topicId : '/aide';
             fullLink.classList.remove('invisible');
         }
         // The list view may have been scrolled — a freshly opened topic
@@ -71,7 +74,7 @@
 
         var opener = e.target.closest('[data-help-open]');
         if (opener) {
-            showTopic(opener.getAttribute('data-help-open') || '', opener.getAttribute('data-help-open-href') || '/aide');
+            showTopic(opener.getAttribute('data-help-open') || '');
             return;
         }
 
