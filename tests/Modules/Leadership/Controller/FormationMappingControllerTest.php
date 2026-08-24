@@ -70,6 +70,25 @@ class FormationMappingControllerTest extends TestCase
         $this->assertSame([['raw_value' => 'Zorglub', 'step' => 't2']], $this->repository->findAllRows());
     }
 
+    /**
+     * Back where the visitor was, with the block still open.
+     *
+     * The mapping block is collapsed by default and sits at the bottom of
+     * a long page, so redirecting to the bare page landed a chef d'unité
+     * at the top with the block shut: their rattachement had worked, and
+     * nothing on screen said so. The fragment scrolls; `mapping=1` is
+     * what opens the block, because a fragment never reaches the server.
+     */
+    public function testTheRedirectLandsBackInsideTheOpenMappingBlock(): void
+    {
+        $response = $this->controller->save($this->post(['raw_value' => 'Zorglub', 'step' => 't2']), []);
+
+        $this->assertSame(
+            '/admin/leadership/training?mapping=1#formation-mapping',
+            $response->getHeaders()['Location'] ?? null
+        );
+    }
+
     public function testAnEmptyStepRemovesTheMapping(): void
     {
         $this->controller->save($this->post(['raw_value' => 'Zorglub', 'step' => 't2']), []);

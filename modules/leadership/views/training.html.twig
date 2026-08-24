@@ -122,14 +122,15 @@
         <div class="card mb-4">
             <div class="card-body">
                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
-                        data-bs-target="#formation-mapping" aria-expanded="false" aria-controls="formation-mapping">
+                        data-bs-target="#formation-mapping" aria-controls="formation-mapping"
+                        aria-expanded="{{ mapping_open|default(false) ? 'true' : 'false' }}">
                     <i class="bi bi-tags" aria-hidden="true"></i>
                     Niveaux de formation encodés dans Desk
                     {% if unresolved_levels|length > 0 %}
                         <span class="badge text-bg-secondary ms-1">{{ unresolved_levels|length }} non reconnu{{ unresolved_levels|length > 1 ? 's' : '' }}</span>
                     {% endif %}
                 </button>
-                <div class="collapse mt-3" id="formation-mapping">
+                <div class="collapse{{ mapping_open|default(false) ? ' show' : '' }} mt-3" id="formation-mapping">
                     <p class="small text-body-secondary">
                         Desk exporte le libellé de la fédération, qui change d'un export à l'autre. Le site en reconnaît
                         les formulations courantes ; rattachez ici celles qu'il ne reconnaît pas. Un niveau non reconnu

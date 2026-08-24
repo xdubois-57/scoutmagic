@@ -31,7 +31,17 @@ use Twig\Environment;
  */
 class FormationMappingController extends AbstractController
 {
-    private const REDIRECT_TO = '/admin/leadership/training';
+    /**
+     * Back to the block the visitor was working in, open.
+     *
+     * The mapping block is collapsed by default and sits at the bottom of
+     * a long page, so a bare redirect to the page landed the visitor at
+     * the top with the block shut — their rattachement had worked and
+     * nothing on screen said so. The fragment scrolls, and `mapping=1`
+     * is what makes the block render already open: a collapse cannot be
+     * opened by a fragment, which never reaches the server at all.
+     */
+    private const REDIRECT_TO = '/admin/leadership/training?mapping=1#formation-mapping';
 
     public function __construct(
         protected Environment $twig,

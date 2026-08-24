@@ -224,6 +224,22 @@ class LeadershipRbacTest extends TestCase
         $this->assertStringNotContainsString('CQA ou extrait', $body);
     }
 
+    public function testTheMappingBlockOpensWhenTheRedirectSaysSo(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $shut = (string) $this->frontController('/admin/leadership/training', 'LeadershipController', 'training')
+            ->handle(new Request('GET', '/admin/leadership/training', [], [], [], []))
+            ->getBody();
+        $open = (string) $this->frontController('/admin/leadership/training', 'LeadershipController', 'training')
+            ->handle(new Request('GET', '/admin/leadership/training', ['mapping' => '1'], [], [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('<div class="collapse mt-3" id="formation-mapping">', $shut);
+        $this->assertStringContainsString('<div class="collapse show mt-3" id="formation-mapping">', $open);
+        $this->assertStringContainsString('aria-expanded="true"', $open);
+    }
+
     // --- Getting back out -----------------------------------------------
 
     /**

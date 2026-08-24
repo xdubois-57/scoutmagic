@@ -103,6 +103,10 @@ class LeadershipController extends AbstractController
 
         return $this->render('@leadership/training.html.twig', $this->withFooter($context, [
             'breadcrumb_trail' => $this->hubTrail(),
+            // FormationMappingController sends the visitor back here with
+            // this flag: a fragment cannot open a collapsed block, because
+            // a fragment never reaches the server.
+            'mapping_open' => $request->getQuery('mapping') === '1',
             'unit_note_key' => self::UNIT_NOTE_KEY,
             'unit_note' => $this->editableContentService->get(self::UNIT_NOTE_KEY),
             'to_convince' => $this->trainingService->toConvince(
