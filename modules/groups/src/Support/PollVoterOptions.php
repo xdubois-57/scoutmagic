@@ -34,10 +34,10 @@ use Modules\Groups\Service\MemberIdentityService;
  * Two rules live here and nowhere else:
  *
  * - **Who is offered** is Service\GroupAccessService::
- *   memberIdsAllowedToVoteAsBySide() — every member the account reaches,
- *   the group's own first, each carrying which side it is on. That
- *   docblock says why answering a poll is a wider question than
- *   publishing in the group.
+ *   memberIdsAllowedToVoteAsBySide() — the members this group would
+ *   normally count, each carrying which side of it they are on: its own
+ *   section for a section group, every member the account reaches for
+ *   any other. That docblock says why the two answers differ.
  * - **Nothing is offered when there is nothing to choose between.** One
  *   member is not a choice, and a dialog asking a question with one
  *   answer is a click for nothing.

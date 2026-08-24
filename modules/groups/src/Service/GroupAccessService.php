@@ -194,29 +194,34 @@ class GroupAccessService
     }
 
     /**
-     * Which members this account may answer a member-scoped poll for —
-     * ALL of its own linked members, not only the ones who belong to
-     * this group.
+     * Which members this account may answer a member-scoped poll for.
      *
-     * Deliberately WIDER than memberIdsAllowedToPostAs() above, because
-     * the two questions are different ones. Posting is signing: a
-     * message signed as a member of another section would be signed by
-     * somebody who is not here. Answering "un parent répond pour chaque
-     * enfant" is counting heads: the poll asks a parent about their
-     * children, and a family of four whose four children all reach this
-     * account has four answers to give. Offering two of them does not
-     * protect anything — it silently produces a count that is short, and
-     * a wrong count is worse than an answer somebody has to correct.
+     * The rule is the group's own reach, not the account's: a voter is
+     * offered every member of theirs who would normally be counted in
+     * THIS conversation.
      *
-     * What it does NOT widen is the gate. Nothing here is read before
-     * canParticipate() has said this account may write in this group,
-     * every answer is still recorded against a member this account
-     * really reaches, and one member still answers once. It is also the
-     * set the feed already reads its own answers back with — Service\
-     * GroupFeedService hands every linked member to the poll service —
-     * which is where the two used to disagree: an account could see its
-     * own answer highlighted on a poll the picker no longer let it
-     * change.
+     * - **A section group** is one section's conversation, so its poll is
+     *   that section's question. "Qui vient au week-end ?" asked in
+     *   Louveteaux is not asking about an éclaireur, and a parent
+     *   answering for one would put a head in a count that cannot use it.
+     *   Only the members this group actually holds are offered.
+     * - **Any other group** — an invitation group for a camp staff, a
+     *   project, the whole unit — draws no section boundary of its own,
+     *   so neither does its poll: every member this account reaches is
+     *   offered, including the ones the group does not hold. That is what
+     *   a parent of four needs when the unit asks a question of the
+     *   families; offering two of them silently produces a count that is
+     *   short, and a wrong count is worse than an answer somebody has to
+     *   correct.
+     *
+     * Wider than memberIdsAllowedToPostAs() in the second case, and
+     * deliberately so: posting is signing — a message signed as a member
+     * of another section would be signed by somebody who is not here —
+     * while answering a poll is counting heads. What it never widens is
+     * the gate: nothing here is read before canParticipate() has said
+     * this account may write in this group, every answer is still
+     * recorded against a member this account really reaches, and one
+     * member still answers once.
      *
      * The group's own members come first, so the picker's default — what
      * a no-JavaScript submit sends, and what Service\PollService falls
@@ -244,12 +249,19 @@ class GroupAccessService
      * the picker's two halves and the set a vote is checked against are
      * one membership resolution and can never disagree.
      *
+     * A section group has no second side at all (the rule above), which
+     * is also what stops its picker drawing a heading over a list with
+     * nothing to distinguish in it.
+     *
      * @return array{in_group: int[], elsewhere: int[]} members.id values,
      *         each side in the caller's own order
      */
     public function memberIdsAllowedToVoteAsBySide(DiscussionGroup $group, GroupSessionContext $context): array
     {
         $inGroup = $this->memberIdsAllowedToPostAs($group, $context);
+        if ($group->isSectionGroup()) {
+            return ['in_group' => $inGroup, 'elsewhere' => []];
+        }
 
         return [
             'in_group' => $inGroup,

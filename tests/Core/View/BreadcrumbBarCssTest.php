@@ -97,23 +97,29 @@ class BreadcrumbBarCssTest extends TestCase
     }
 
     /**
-     * And a little air back on the separator's left.
+     * And a little air back around the separator, on both sides.
      *
      * The two zeroed paddings above buy width; what they cost is the
-     * crumb before the « / » touching it, which is what a phone reported
-     * once they shipped. Four pixels go back on that side ALONE: the
-     * glyph leans right, so its ink sits hard against the word before it
-     * and already carries a gap towards the one after — and giving the
-     * space back on both sides would hand the width saving straight
-     * back. The three rules are one decision and have to be read
+     * crumbs touching the « / », which is what a phone reported once they
+     * shipped. Four pixels go back on each side — half of Bootstrap's
+     * eight, so the trail keeps most of the width the zeroing won — as
+     * margins rather than as restored padding, so the two decisions stay
+     * readable as two. The rules are one decision and have to be read
      * together, which is why they sit in one block.
      */
-    public function testTheSeparatorHasAirOnItsLeft(): void
+    public function testTheSeparatorHasAirOnBothSides(): void
     {
+        $rule = '/\.breadcrumb-bar \.breadcrumb-item \+ \.breadcrumb-item::before \{.*?%s/s';
+
         $this->assertMatchesRegularExpression(
-            '/\.breadcrumb-bar \.breadcrumb-item \+ \.breadcrumb-item::before \{.*?margin-left: 0\.25rem;/s',
+            sprintf($rule, 'margin-left: 0\.25rem;'),
             $this->css,
-            'The « / » needs a little more room on its left than the glyph leaves it.'
+            'The « / » needs room on its left: the zeroed padding above leaves it touching the crumb before it.'
+        );
+        $this->assertMatchesRegularExpression(
+            sprintf($rule, 'margin-right: 0\.25rem;'),
+            $this->css,
+            'And the same room on its right, or the crumb after it touches instead.'
         );
     }
 

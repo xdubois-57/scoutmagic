@@ -16,17 +16,19 @@
 
   - `vote_scope: member` means one answer per MEMBER rather than per
     login, so an account linked to several members picks whose answer it
-    is casting — every member it reaches, this group's own first
-    (Service\GroupAccessService::memberIdsAllowedToVoteAsBySide()). Those
-    from outside the group sit under a heading of their own: a parent
-    scanning four totems cannot otherwise tell which of them this group
-    is even about, and the answer they give for the wrong child is one
-    nobody can see is wrong. Both headings, or neither — with everybody
-    on the same side there is nothing to distinguish, and a lone heading
-    over a whole list says nothing. The picker below is a plain <select>
-    that works on its own; groups.js hides it and asks the same question
-    in a small dialog at the moment of voting, which is where it
-    belongs, reading the same two halves off the optgroups.
+    is casting. WHICH of them is
+    Service\GroupAccessService::memberIdsAllowedToVoteAsBySide(): a
+    section group's poll is that section's question and offers only the
+    members it holds; any other group offers every member the account
+    reaches, its own first. Those from outside sit under a heading of
+    their own — a parent scanning four totems cannot otherwise tell
+    which of them this group is even about. Both headings, or neither:
+    with everybody on the same side there is nothing to distinguish, and
+    a lone heading over a whole list says nothing (a section group is
+    always that case). The picker below is a plain <select> that works
+    on its own; groups.js hides it and asks the same question in a small
+    dialog at the moment of voting, which is where it belongs, reading
+    the same two halves off the optgroups.
   - `allow_multiple` means a voter may hold several options at once, and
     tapping one they already hold takes it back — so the buttons are
     "pressed or not" rather than "one of these".

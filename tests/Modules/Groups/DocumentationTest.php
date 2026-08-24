@@ -77,16 +77,17 @@ class DocumentationTest extends TestCase
     }
 
     /**
-     * The poll's voter picker offers every member the account reaches,
-     * not only the ones in the group — a rule a unit's staff has to be
-     * able to read in the functional spec, since it decides whether a
-     * count they act on is complete.
+     * Which of an account's members a poll may be answered for is a rule
+     * with two halves, and a unit's staff has to be able to read both in
+     * the functional spec: it decides whether a count they act on is
+     * complete, and whether it counts anybody it should not.
      */
     public function testSpecificationsSayWhichMembersAPollMayBeAnsweredFor(): void
     {
         $specs = $this->read('specifications.md');
 
-        $this->assertStringContainsString('every member that account reaches', $specs);
+        $this->assertStringContainsString("a section group asks its section's question", $specs);
+        $this->assertStringContainsString('offers every member the account reaches', $specs);
     }
 
     public function testTheReadmeListsTheModule(): void

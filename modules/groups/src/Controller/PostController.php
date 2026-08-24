@@ -510,12 +510,13 @@ class PostController extends AbstractController
             // whatever the form said (voter_member_id below is a
             // request, never an authority).
             //
-            // Every member this account reaches, not only the ones who
-            // belong to this group: a poll answered per member asks a
-            // parent about their children, and a family of four has four
-            // answers to give (Service\GroupAccessService::
-            // memberIdsAllowedToVoteAs(), which says why that is wider
-            // than what the composer offers).
+            // The members this group would normally count — its own
+            // section for a section group, every member this account
+            // reaches for any other (Service\GroupAccessService::
+            // memberIdsAllowedToVoteAs(), which says why the two answers
+            // differ). The same set the picker was built from, so a form
+            // naming anybody else falls back to one of the caller's own
+            // rather than being recorded as asked.
             $allowed = $this->accessService->memberIdsAllowedToVoteAs($group, $context);
             if ($this->pollService === null) {
                 return new Response('Ce message ne porte pas de sondage.', 400);

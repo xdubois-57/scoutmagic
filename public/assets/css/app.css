@@ -409,17 +409,18 @@ body:has(> #cookie-banner) {
 .breadcrumb-bar .breadcrumb-item + .breadcrumb-item::before {
     padding-right: 0;
     float: none;
-    /* And a little air back on its left, reported from a phone once the
+    /* And a little air back around it, reported from a phone once the
        zeroing above shipped: with both of Bootstrap's paddings gone, the
-       crumb before the « / » touched it.
+       crumbs touched the « / » on both sides.
 
-       Four pixels, on this side only, because the glyph is not
-       symmetric — "/" leans right, so its ink sits hard against the word
-       before it and already carries a gap towards the one after. Giving
-       the space back on both sides would hand the rule above its thirty
-       pixels straight back; one side reads as separated for a quarter of
-       the cost. */
+       Four pixels each side rather than Bootstrap's eight — half the
+       width the rule above just saved, given back where it is legible,
+       and a separator reads as separating at 4px. Margins rather than
+       restoring the padding, so the two decisions stay readable as two:
+       the zeroing says "not Bootstrap's spacing", this says "this much
+       instead". */
     margin-left: 0.25rem;
+    margin-right: 0.25rem;
 }
 
 /* A toast announces something; it must never intercept a click meant for

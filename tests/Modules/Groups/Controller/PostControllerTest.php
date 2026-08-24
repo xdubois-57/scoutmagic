@@ -310,9 +310,9 @@ class PostControllerTest extends TestCase
     /**
      * @return array<string, string>
      */
-    private function params(?int $postId = null): array
+    private function params(?int $postId = null, ?int $groupId = null): array
     {
-        $params = ['id' => (string) $this->groupId];
+        $params = ['id' => (string) ($groupId ?? $this->groupId)];
         if ($postId !== null) {
             $params['postId'] = (string) $postId;
         }
@@ -1101,20 +1101,19 @@ class PostControllerTest extends TestCase
     // --- a poll answered per member -------------------------------------
 
     /**
-     * A "une réponse par membre" poll asks a parent about their children,
-     * and a parent's children are not all in the same section. The picker
-     * offers every member this account reaches — the group's own first —
-     * rather than only the ones this group is built from: offering two of
-     * four does not protect anything, it quietly produces a count that is
-     * short.
+     * An invitation group draws no section boundary of its own, so its
+     * poll asks the whole family: every member this account reaches is
+     * offered, the group's own first. Offering only the ones it holds
+     * would quietly produce a count that is short.
      */
-    public function testAMemberScopedPollOffersEveryLinkedMemberAndNotOnlyTheGroupsOwn(): void
+    public function testAnInvitationGroupsPollOffersEveryLinkedMember(): void
     {
-        $this->seedPostWithMemberScopedPoll();
+        $groupId = $this->invitationGroup();
         $sibling = $this->siblingInAnotherSection();
+        $this->seedPostWithMemberScopedPoll($groupId);
 
         $body = $this->controller([$sibling, $this->memberId])
-            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())
+            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params(null, $groupId))
             ->getBody();
 
         $this->assertStringContainsString('<option value="' . $this->memberId . '"', $body);
@@ -1126,32 +1125,6 @@ class PostControllerTest extends TestCase
     }
 
     /**
-     * And the answer for that child is really recorded as that child's,
-     * not silently re-attributed to the one who is in the section.
-     */
-    public function testAParentAnswersForAChildWhoIsNotInThisGroupsSection(): void
-    {
-        $postId = $this->seedPostWithMemberScopedPoll();
-        $sibling = $this->siblingInAnotherSection();
-        $options = $this->pollOptionsOf($postId);
-        $this->withCsrf([
-            'option_id' => (string) $options[0]['id'],
-            'voter_member_id' => (string) $sibling,
-        ]);
-
-        $response = $this->controller([$this->memberId, $sibling])
-            ->vote($this->ajaxRequest(), $this->params($postId));
-
-        $this->assertSame(200, $response->getStatusCode());
-        $repo = new \Modules\Groups\Repository\PollRepository($this->pdo);
-        $pollId = $repo->findByPostId($postId)['id'];
-        $this->assertSame(
-            [$options[0]['id']],
-            $repo->ownBallots([$pollId], ['m:' . $sibling])[$pollId]['m:' . $sibling] ?? []
-        );
-    }
-
-    /**
      * And it says which is which. Four totems in one list tell a parent
      * nothing about which children this group is about; the two headings
      * do, and they are what the dialog groups.js opens reads its own
@@ -1159,11 +1132,12 @@ class PostControllerTest extends TestCase
      */
     public function testTheVoterPickerSeparatesTheGroupsOwnMembersFromTheRest(): void
     {
-        $this->seedPostWithMemberScopedPoll();
+        $groupId = $this->invitationGroup();
         $sibling = $this->siblingInAnotherSection();
+        $this->seedPostWithMemberScopedPoll($groupId);
 
         $body = $this->controller([$sibling, $this->memberId])
-            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())
+            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params(null, $groupId))
             ->getBody();
 
         $this->assertStringContainsString('<optgroup label="Dans ce groupe">', $body);
@@ -1180,25 +1154,117 @@ class PostControllerTest extends TestCase
     }
 
     /**
+     * And the answer for a child the group does not hold is really
+     * recorded as that child's, not silently re-attributed to the one who
+     * is in it.
+     */
+    public function testAParentAnswersForAChildTheInvitationGroupDoesNotHold(): void
+    {
+        $groupId = $this->invitationGroup();
+        $sibling = $this->siblingInAnotherSection();
+        $postId = $this->seedPostWithMemberScopedPoll($groupId);
+        $options = $this->pollOptionsOf($postId);
+        $this->withCsrf([
+            'option_id' => (string) $options[0]['id'],
+            'voter_member_id' => (string) $sibling,
+        ]);
+
+        $response = $this->controller([$this->memberId, $sibling])
+            ->vote($this->ajaxRequest(), $this->params($postId, $groupId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([$options[0]['id']], $this->ballotsOf($postId, $sibling));
+    }
+
+    /**
+     * A section group is ONE section's conversation, so its poll is that
+     * section's question: the animé from another section is not offered
+     * at all, and there is no second heading to draw.
+     */
+    public function testASectionGroupsPollOffersOnlyItsOwnSection(): void
+    {
+        $secondInSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SAME-SECTION', $this->sectionId, $this->currentYearId);
+        $sibling = $this->siblingInAnotherSection();
+        $this->seedPostWithMemberScopedPoll();
+
+        $body = $this->controller([$sibling, $this->memberId, $secondInSection])
+            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())
+            ->getBody();
+
+        $this->assertStringContainsString('<option value="' . $this->memberId . '"', $body);
+        $this->assertStringContainsString('<option value="' . $secondInSection . '"', $body);
+        $this->assertStringNotContainsString('<option value="' . $sibling . '"', $body);
+        $this->assertStringNotContainsString('<optgroup', $body);
+    }
+
+    /**
+     * The form carries a request, never an authority: a hand-made vote
+     * naming a child this section's group is not about is not recorded
+     * for them. It falls back to the caller's own first allowed member —
+     * the same thing a no-JavaScript submit with no picker sends — so the
+     * ballot is always somebody this account may really answer for.
+     */
+    public function testASectionGroupRefusesToRecordAVoteForAChildOutsideIt(): void
+    {
+        $sibling = $this->siblingInAnotherSection();
+        $postId = $this->seedPostWithMemberScopedPoll();
+        $options = $this->pollOptionsOf($postId);
+        $this->withCsrf([
+            'option_id' => (string) $options[0]['id'],
+            'voter_member_id' => (string) $sibling,
+        ]);
+
+        $response = $this->controller([$this->memberId, $sibling])
+            ->vote($this->ajaxRequest(), $this->params($postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([], $this->ballotsOf($postId, $sibling));
+        $this->assertSame([$options[0]['id']], $this->ballotsOf($postId, $this->memberId));
+    }
+
+    /**
      * With everybody on the same side there is nothing to distinguish,
      * and a lone heading over the whole list would say nothing at all.
      */
     public function testTheVoterPickerDrawsNoHeadingsWhenEveryMemberIsInTheGroup(): void
     {
-        $this->seedPostWithMemberScopedPoll();
-        $secondInSection = GroupsTestHelper::createMemberWithPeriod(
-            $this->pdo,
-            'SAME-SECTION',
-            $this->sectionId,
-            $this->currentYearId
-        );
+        $groupId = $this->invitationGroup();
+        $second = GroupsTestHelper::createMember($this->pdo, 'ALSO-INVITED');
+        (new GroupMemberRepository($this->pdo))->add($groupId, $second);
+        $this->seedPostWithMemberScopedPoll($groupId);
 
-        $body = $this->controller([$this->memberId, $secondInSection])
-            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())
+        $body = $this->controller([$this->memberId, $second])
+            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params(null, $groupId))
             ->getBody();
 
-        $this->assertStringContainsString('<option value="' . $secondInSection . '"', $body);
+        $this->assertStringContainsString('<option value="' . $second . '"', $body);
         $this->assertStringNotContainsString('<optgroup', $body);
+    }
+
+    /** @return int[] the option ids this member's ballots hold on the post's poll */
+    private function ballotsOf(int $postId, int $memberId): array
+    {
+        $repo = new \Modules\Groups\Repository\PollRepository($this->pdo);
+        $pollId = $repo->findByPostId($postId)['id'];
+
+        return $repo->ownBallots([$pollId], ['m:' . $memberId])[$pollId]['m:' . $memberId] ?? [];
+    }
+
+    /**
+     * A group belonging to no section, holding the fixture's own member
+     * so the account can read and write in it.
+     */
+    private function invitationGroup(): int
+    {
+        $groupId = $this->groupService->createInvitationGroup(
+            "Camp d'unité",
+            $this->currentYearId,
+            $this->moderatorMemberId,
+            self::OTHER_ACCOUNT
+        );
+        (new GroupMemberRepository($this->pdo))->add($groupId, $this->memberId);
+
+        return $groupId;
     }
 
     private function siblingInAnotherSection(): int
@@ -1211,17 +1277,18 @@ class PostControllerTest extends TestCase
         );
     }
 
-    private function seedPostWithMemberScopedPoll(): int
+    private function seedPostWithMemberScopedPoll(?int $groupId = null): int
     {
+        $groupId ??= $this->groupId;
         $this->withCsrf([
             'body' => 'Sondage',
             'poll_question' => 'Quel enfant vient ?',
             'poll_options' => ['Samedi', 'Dimanche'],
             'poll_vote_scope' => \Modules\Groups\Service\PollService::SCOPE_MEMBER,
         ]);
-        $this->controller([$this->memberId])->create($this->request(), $this->params());
+        $this->controller([$this->memberId])->create($this->request(), $this->params(null, $groupId));
 
-        return $this->postRepo->findPage($this->groupId, 10)[0]->id;
+        return $this->postRepo->findPage($groupId, 10)[0]->id;
     }
 
     public function testAnOptionFromAnotherPostsPollIsRefused(): void
