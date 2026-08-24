@@ -8,7 +8,9 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Service;
 
+use Core\Config\SettingService;
 use Core\File\EncryptedFileStorageService;
+use Modules\Finance\File\FinanceAccountOwnershipChecker;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\AccountRepository;
@@ -22,11 +24,22 @@ use Modules\Finance\Repository\TransactionRepository;
  * Core\Security\EncryptionService) — this module was the reason that
  * capability got built, per schema.sql's comment on finance_attachments.
  *
- * Every receipt is tied to an account: the underlying file's role_min is
- * set to that account's role_min_view at upload/replace time, so
- * downloading it via Core\File\FileAccessGuard enforces the same floor
- * as the account itself (Controller\ConfigAccountController re-syncs it
- * for existing receipts whenever an account's role_min_view changes).
+ * Every receipt is tied to an account, and the underlying file carries
+ * that link twice, for two different questions:
+ *
+ *  - `files.role_min` gets the account's `role_min_view` at upload/replace
+ *    time, so Core\File\FileAccessGuard enforces the same hierarchical
+ *    floor as the account itself (Controller\ConfigAccountController
+ *    re-syncs it for existing receipts whenever that value changes);
+ *  - `files.owner_type`/`owner_id` name the account itself, which is what
+ *    lets the file follow the account's SECTION rule — something a
+ *    hierarchical floor cannot express (File\FinanceAccountOwnershipChecker,
+ *    ARCHITECTURE.md §8.70).
+ *
+ * The two are not interchangeable and do not move together: role_min
+ * follows the account's setting and is re-synced when it changes, while
+ * the owner pair names the account and never moves — no route reassigns a
+ * receipt to a different account.
  */
 class ReceiptService
 {
@@ -49,8 +62,58 @@ class ReceiptService
         private AccountRepository $accountRepository,
         private TransactionAttachmentRepository $transactionAttachmentRepository,
         private EncryptedFileStorageService $fileStorage,
-        private TransactionRepository $transactionRepository
+        private TransactionRepository $transactionRepository,
+        private ?SettingService $settingService = null
     ) {
+    }
+
+    private const OWNERSHIP_BACKFILLED_SETTING_KEY = 'receipt_file_ownership_backfilled';
+
+    /**
+     * Gives every receipt file uploaded before the ownership rule existed
+     * the owner pair it would have got today — see
+     * Repository\AttachmentRepository::backfillFileOwnership() for what it
+     * does and why it is one statement rather than a loop.
+     *
+     * Called from the composition root's finance block, not from a page,
+     * and deliberately so. A backfill hung off the finance configuration
+     * screen would leave the hole open on every installation whose
+     * superadmin never opens it — and a hole that closes only for units
+     * that happen to visit the right page is not closed. Here it closes on
+     * the next page load of any kind.
+     *
+     * The `settings` flag is what makes that affordable: SettingService
+     * caches every setting once per request, so on all but the very first
+     * run this costs one array lookup and no query at all. Same
+     * register-then-setInternal, editable = false shape as
+     * FinanceService::ensureDefaultCategories()'s own seed flag.
+     *
+     * $settingService is optional only so a session-less fixture can build
+     * this service without one; a caller that omits it never reaches this
+     * method.
+     */
+    public function ensureReceiptFileOwnership(): void
+    {
+        if ($this->settingService === null
+            || $this->settingService->get(self::OWNERSHIP_BACKFILLED_SETTING_KEY, 'finance', '0') === '1'
+        ) {
+            return;
+        }
+
+        $this->attachmentRepository->backfillFileOwnership(FinanceAccountOwnershipChecker::OWNER_TYPE);
+
+        $this->settingService->register(
+            self::OWNERSHIP_BACKFILLED_SETTING_KEY,
+            '0',
+            'boolean',
+            'Justificatifs rattachés à leur compte',
+            'Indicateur interne — ne pas modifier.',
+            'finance',
+            null,
+            null,
+            false
+        );
+        $this->settingService->setInternal(self::OWNERSHIP_BACKFILLED_SETTING_KEY, '1', 'finance');
     }
 
     /**
@@ -72,8 +135,23 @@ class ReceiptService
         $this->assertMimeTypeAllowed($mimeType);
         $content = $this->correctOrientation($content, $mimeType);
 
+        // role_min stays the floor and is still checked first; the owner
+        // pair is what lets the FILE follow the account's section rule,
+        // which a hierarchical floor cannot express
+        // (File\FinanceAccountOwnershipChecker, ARCHITECTURE.md §8.70).
+        // ownerMemberId stays null: a receipt belongs to an account, not
+        // to the person who happened to upload it.
         $fileId = $this->fileStorage->store(
-            $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, $account->roleMinView, 'finance', $uploadedBy
+            $content,
+            $mimeType,
+            $originalFilename,
+            self::STORAGE_SUBDIRECTORY,
+            $account->roleMinView,
+            'finance',
+            $uploadedBy,
+            null,
+            FinanceAccountOwnershipChecker::OWNER_TYPE,
+            $account->id
         );
 
         $suggestedSource = ($suggestedAmount !== null || $suggestedDate !== null) ? Attachment::SUGGESTED_SOURCE_MANUAL : null;
@@ -108,8 +186,23 @@ class ReceiptService
         $this->assertMimeTypeAllowed($mimeType);
         $content = $this->correctOrientation($content, $mimeType);
 
+        // role_min stays the floor and is still checked first; the owner
+        // pair is what lets the FILE follow the account's section rule,
+        // which a hierarchical floor cannot express
+        // (File\FinanceAccountOwnershipChecker, ARCHITECTURE.md §8.70).
+        // ownerMemberId stays null: a receipt belongs to an account, not
+        // to the person who happened to upload it.
         $fileId = $this->fileStorage->store(
-            $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, $account->roleMinView, 'finance', $uploadedBy
+            $content,
+            $mimeType,
+            $originalFilename,
+            self::STORAGE_SUBDIRECTORY,
+            $account->roleMinView,
+            'finance',
+            $uploadedBy,
+            null,
+            FinanceAccountOwnershipChecker::OWNER_TYPE,
+            $account->id
         );
 
         $newId = $this->attachmentRepository->create(

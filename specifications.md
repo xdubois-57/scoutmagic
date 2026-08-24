@@ -920,6 +920,12 @@ This is deliberate and not a detail: without it, updating would lock a whole uni
 
 The narrowing is a rule about access, not a filtered dropdown. It holds on the dashboard, the movements list and its search, the receipts, the statement import and the reconciliation page — and it holds for a request aimed straight at an endpoint with somebody else's account number in it, not only for what the screen offers.
 
-### 28.5 Out of scope
+### 28.5 The receipts follow too
 
-A treasurer who is not an animator of the section, a per-account list of named people, an accountant role spanning the whole unit but excluded from one section, and the **receipt files themselves** — those follow in their own iteration, and until then a receipt's file remains reachable by its direct link to whoever the account's visibility level admits.
+A receipt is a file, and a file's own access level only knows about roles — it cannot say "the Louveteaux section". Left alone it would have made the whole rule cosmetic: the account disappears from the screen while its receipts stay downloadable by their direct link. Each receipt is therefore attached to its account, and asking for one asks the same question the screen asks.
+
+This covers the receipts already stored before the change, not only the new ones, and it applies from the next page load on any installation — nobody has to open a particular screen for it to take effect. A receipt attached to no account at all — which only very old or imported entries can be — becomes unreachable rather than open to everyone: nothing can say who is allowed to see it.
+
+### 28.6 Out of scope
+
+A treasurer who is not an animator of the section, a per-account list of named people, an accountant role spanning the whole unit but excluded from one section, and reassigning an existing receipt from one account to another.
