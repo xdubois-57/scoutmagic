@@ -365,6 +365,71 @@ class RentalBookingMailService
         return true;
     }
 
+    /**
+     * The renter's new tracking link, after a manager regenerated it.
+     *
+     * Its own message rather than a second acknowledgement: « Nous avons
+     * bien reçu votre demande » on a booking confirmed three weeks ago
+     * reads as a duplicate the renter has to work out, and the one thing
+     * this email has to be is unambiguous — the link they had has just
+     * stopped working.
+     *
+     * The manager never sees the token (§8.52): the only way it reaches
+     * anybody is this message, addressed to the renter.
+     *
+     * @return bool whether it went out — a manager who is told it did not
+     *         still knows the old link is dead.
+     */
+    public function sendTrackingLink(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        string $trackingToken
+    ): bool {
+        $context = [
+            'booking' => $booking,
+            'asset' => $asset,
+            'tracking_url' => $this->trackingUrl($booking, $trackingToken),
+            'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
+        ];
+
+        try {
+            $this->mailService->send(
+                $booking->renterEmail,
+                $this->subjectFor($booking, 'Votre nouveau lien de suivi'),
+                $this->twig->render('@rental/email/tracking_link.html.twig', $context),
+                $this->twig->render('@rental/email/tracking_link.text.twig', $context),
+                null,
+                [],
+                null,
+                null,
+                ['Message-ID' => $this->newMessageId()]
+            );
+        } catch (\Throwable) {
+            $this->journal->log(
+                'rental',
+                'rental_tracking_link_email_failed',
+                'warning',
+                "Le nouveau lien de suivi n'a pas pu partir pour " . $booking->reference,
+                ['booking_id' => $booking->id]
+            );
+
+            return false;
+        }
+
+        // The URL contains the token, so neither it nor the token is ever
+        // journaled — a journal entry carrying one is a permanent, readable
+        // copy of a credential.
+        $this->journal->log(
+            'rental',
+            'rental_tracking_link_sent',
+            'info',
+            'Nouveau lien de suivi envoyé pour ' . $booking->reference,
+            ['booking_id' => $booking->id]
+        );
+
+        return true;
+    }
+
     public function subjectFor(RentalBooking $booking, string $subject): string
     {
         return '[' . $booking->reference . '] ' . $subject;

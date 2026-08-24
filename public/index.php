@@ -4030,7 +4030,9 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             new \Modules\Rental\Service\RentalStatisticsService(
                 $rentalBookingRepository,
                 new \Modules\Rental\Repository\RentalAggregateRepository($pdo)
-            )
+            ),
+            // Only « Régénérer le lien de suivi » reaches it.
+            $rentalBookingService
         )
     );
     $frontController->registerController(

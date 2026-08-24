@@ -81,6 +81,23 @@
                         <dd class="col-sm-8">{{ booking.renterComment|nl2br }}</dd>
                     {% endif %}
                 </dl>
+
+                {# Le lien de suivi ne s'affiche nulle part : sa possession
+                   EST l'autorisation (§8.52). Il ne se récupère donc pas —
+                   il se remplace, et le nouveau part par email au locataire. #}
+                <form method="post" action="/mes-locations/lien-suivi" class="mt-3"
+                      data-confirm="Régénérer le lien ? L'ancien cessera de fonctionner et le locataire devra recevoir le nouveau.">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">
+                        Régénérer le lien de suivi
+                    </button>
+                    <div class="form-text">
+                        À faire si le locataire a perdu son lien, ou l'a transmis à quelqu'un
+                        qui ne devait pas le recevoir. Le nouveau lien lui est envoyé par email.
+                    </div>
+                </form>
             </div>
         </div>
 

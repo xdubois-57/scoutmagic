@@ -100,6 +100,9 @@ class RentalManagementControllerTest extends TestCase
     /** Every decision email the controller asked for, in order. */
     /** @var list<array{decision: string, token: ?string, word: ?string, booking_id: int}> */
     private array $renterEmails = [];
+    /** Every new tracking link the controller asked to be mailed out. */
+    /** @var list<array{booking_id: int, token: string}> */
+    private array $trackingLinkEmails = [];
 
     protected function setUp(): void
     {
@@ -231,7 +234,13 @@ class RentalManagementControllerTest extends TestCase
             $this->documentService,
             $this->recordingMailService(),
             new \Core\File\UploadHandler($this->fileRepository, $this->storagePath),
-            $this->stayService
+            $this->stayService,
+            null,
+            null,
+            null,
+            null,
+            // Only « Régénérer le lien de suivi » reaches it.
+            new RentalBookingService($this->bookingRepository, $journal)
         );
 
         $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
@@ -243,6 +252,7 @@ class RentalManagementControllerTest extends TestCase
         $_SESSION = [];
         $_POST = [];
         $this->renterEmails = [];
+        $this->trackingLinkEmails = [];
     }
 
     /**
@@ -270,6 +280,17 @@ class RentalManagementControllerTest extends TestCase
                     'word' => $managerWord,
                     'booking_id' => $booking->id,
                 ];
+
+                return true;
+            }
+        );
+        $mock->method('sendTrackingLink')->willReturnCallback(
+            function (
+                \Modules\Rental\Booking\RentalBooking $booking,
+                \Modules\Rental\Repository\RentalAsset $asset,
+                string $trackingToken
+            ): bool {
+                $this->trackingLinkEmails[] = ['booking_id' => $booking->id, 'token' => $trackingToken];
 
                 return true;
             }
@@ -1644,5 +1665,114 @@ class RentalManagementControllerTest extends TestCase
         ]);
 
         $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($foreign->id)?->status);
+    }
+
+    // ── Regenerating the tracking link (§8.52) ──────────────────────────
+
+    public function testAManagerCanReplaceALostTrackingLink(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $before = $this->bookingRepository->trackingTokenOf($booking->id);
+
+        $response = $this->post('/mes-locations/lien-suivi', 'regenerateTrackingLink', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $after = $this->bookingRepository->trackingTokenOf($booking->id);
+        $this->assertNotNull($after);
+        $this->assertNotSame($before, $after, 'The old link must stop working.');
+        // The manager never sees the token, so the only way it reaches
+        // anybody is the email addressed to the renter.
+        $this->assertCount(1, $this->trackingLinkEmails);
+        $this->assertSame($after, $this->trackingLinkEmails[0]['token']);
+        $this->assertSame($booking->id, $this->trackingLinkEmails[0]['booking_id']);
+    }
+
+    public function testTheNewTokenIsNeverRenderedOnTheBookingPage(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/lien-suivi', 'regenerateTrackingLink', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+        ]);
+        $token = (string) $this->bookingRepository->trackingTokenOf($booking->id);
+
+        $this->assertStringNotContainsString(
+            $token,
+            $this->bookingPage('local-saint-georges', $booking->id)->getBody()
+        );
+    }
+
+    public function testABookingOfAnotherAssetKeepsItsTrackingLink(): void
+    {
+        $this->loginAsManager();
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $before = $this->bookingRepository->trackingTokenOf($foreign->id);
+
+        $response = $this->post('/mes-locations/lien-suivi', 'regenerateTrackingLink', [
+            'asset_id' => (string) $this->otherAssetId,
+            'booking_id' => (string) $foreign->id,
+        ]);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame($before, $this->bookingRepository->trackingTokenOf($foreign->id));
+        $this->assertSame([], $this->trackingLinkEmails);
+    }
+
+    public function testAnAnonymousVisitorCannotReplaceATrackingLink(): void
+    {
+        // role_min identified, and one level below it is nobody at all.
+        $this->addManager($this->assetId, 'manager@test.be');
+        $booking = $this->createBooking();
+        $before = $this->bookingRepository->trackingTokenOf($booking->id);
+
+        $response = $this->post('/mes-locations/lien-suivi', 'regenerateTrackingLink', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+        ]);
+
+        // The guard answers with the login redirect rather than the
+        // action's own redirect — what matters is that nothing moved.
+        $this->assertStringContainsString('/login', (string) $response->getHeaders()['Location']);
+        $this->assertSame($before, $this->bookingRepository->trackingTokenOf($booking->id));
+        $this->assertSame([], $this->trackingLinkEmails);
+    }
+
+    public function testAnIdentifiedVisitorWhoManagesNothingCannotReplaceATrackingLink(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        $booking = $this->createBooking();
+        $before = $this->bookingRepository->trackingTokenOf($booking->id);
+        AuthSession::login(2, 'passerby@test.be', 'identified');
+
+        $response = $this->post('/mes-locations/lien-suivi', 'regenerateTrackingLink', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+        ]);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame($before, $this->bookingRepository->trackingTokenOf($booking->id));
+    }
+
+    public function testTheBookingPageOffersTheRegenerationWithItsConsequence(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $html = (string) preg_replace(
+            '/\\s+/',
+            ' ',
+            $this->bookingPage('local-saint-georges', $booking->id)->getBody()
+        );
+
+        $this->assertMatchesRegularExpression(
+            '#<form[^>]*action="/mes-locations/lien-suivi"[^>]*data-confirm="R[^"]*g[^"]*rer le lien#',
+            $html
+        );
     }
 }
