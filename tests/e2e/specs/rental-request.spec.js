@@ -49,6 +49,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { expectRendersAsACalendar } from '../support/calendar.js';
+import { openSectionEditor } from '../support/section-editor.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
 function isoDaysFromNow(days) {
@@ -227,6 +228,10 @@ test.describe('Rentals', () => {
  * @param {import('@playwright/test').Page} page
  */
 async function grantManagerBySearch(page) {
+    // The section is a read card; its form lives in the dialog behind
+    // « Modifier » (design.md §1.9).
+    const dialog = await openSectionEditor(page, 'gestionnaires-edit');
+
     const managers = page.locator('form[action="/admin/locations/managers"]');
     await expect(managers).toBeVisible();
 
@@ -245,6 +250,8 @@ async function grantManagerBySearch(page) {
         managers.locator('input[name="manager_member_ids[]"][value]').first(),
     ).toBeChecked();
 
-    await managers.getByRole('button', { name: 'Enregistrer les gestionnaires' }).click();
+    // The submit sits in the dialog's footer and reaches the form through
+    // `form="rental-managers-form"` — outside the <form> element itself.
+    await dialog.getByRole('button', { name: 'Enregistrer les gestionnaires' }).click();
     await expect(page.getByText('Les gestionnaires ont été enregistrés.')).toBeVisible();
 }
