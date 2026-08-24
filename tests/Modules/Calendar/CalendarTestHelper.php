@@ -22,6 +22,7 @@ class CalendarTestHelper
             color TEXT,
             is_default INTEGER NOT NULL DEFAULT 0,
             visibility TEXT NOT NULL DEFAULT \'public\',
+            edit_role_min TEXT NOT NULL DEFAULT \'chief\',
             ics_token_encrypted BLOB,
             ics_token_blind_index TEXT UNIQUE,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

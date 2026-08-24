@@ -86,15 +86,25 @@
     <p class="text-body-secondary small mb-3">
         Un calendrier est créé automatiquement pour chaque section active. Ces calendriers ne sont pas supprimables.
     </p>
+    <p class="text-body-secondary small mb-3">
+        Les deux réglages répondent à deux questions différentes&nbsp;: <strong>qui voit</strong> le calendrier, et
+        <strong>qui peut y modifier les évènements</strong>. Un calendrier de section n'est de toute façon modifiable
+        que par les animateurs de cette section&nbsp;; le second réglage permet de le réserver aux chefs d'unité.
+        Un calendrier ne peut pas être modifiable par un rôle qui ne le voit pas.
+    </p>
     <div class="d-flex flex-column gap-2 mb-4">
         {% for item in section_calendars %}
             <div class="border rounded-3 p-3 d-flex align-items-center gap-3">
                 <span class="d-inline-block rounded-circle" style="width:0.7rem;height:0.7rem;background-color:{{ item.color ?? '#6c757d' }};"></span>
                 <span class="fw-semibold flex-grow-1">{{ item.section_name }}</span>
-                <select class="form-select form-select-sm visibility-select" style="max-width:220px;" data-calendar-id="{{ item.calendar.id }}" aria-label="Visibilité du calendrier {{ item.section_name }}">
-                    <option value="public" {{ item.calendar.visibility == 'public' ? 'selected' : '' }}>Public</option>
-                    <option value="chief" {{ item.calendar.visibility == 'chief' ? 'selected' : '' }}>Animateur</option>
-                    <option value="admin" {{ item.calendar.visibility == 'admin' ? 'selected' : '' }}>Chef d'Unité</option>
+                <select class="form-select form-select-sm visibility-select" style="max-width:200px;" data-calendar-id="{{ item.calendar.id }}" aria-label="Visibilité du calendrier {{ item.section_name }}">
+                    <option value="public" {{ item.calendar.visibility == 'public' ? 'selected' : '' }}>Vu par tous</option>
+                    <option value="chief" {{ item.calendar.visibility == 'chief' ? 'selected' : '' }}>Vu par les animateurs</option>
+                    <option value="admin" {{ item.calendar.visibility == 'admin' ? 'selected' : '' }}>Vu par les chefs d'unité</option>
+                </select>
+                <select class="form-select form-select-sm edit-role-select" style="max-width:230px;" data-calendar-id="{{ item.calendar.id }}" aria-label="Modification du calendrier {{ item.section_name }}">
+                    <option value="chief" {{ item.calendar.editRoleMin == 'chief' ? 'selected' : '' }}>Modifié par ses animateurs</option>
+                    <option value="admin" {{ item.calendar.editRoleMin == 'admin' ? 'selected' : '' }}>Modifié par les chefs d'unité</option>
                 </select>
                 <span class="badge text-bg-secondary text-nowrap">Non supprimable</span>
             </div>
@@ -125,10 +135,14 @@
                     {% if calendar.isDefault %}
                         <span class="badge text-bg-secondary">Par défaut</span>
                     {% endif %}
-                    <select class="form-select form-select-sm visibility-select ms-auto" style="max-width:220px;" data-calendar-id="{{ calendar.id }}" aria-label="Visibilité du calendrier {{ calendar.name }}">
-                        <option value="public" {{ calendar.visibility == 'public' ? 'selected' : '' }}>Public</option>
-                        <option value="chief" {{ calendar.visibility == 'chief' ? 'selected' : '' }}>Animateur</option>
-                        <option value="admin" {{ calendar.visibility == 'admin' ? 'selected' : '' }}>Chef d'Unité</option>
+                    <select class="form-select form-select-sm visibility-select ms-auto" style="max-width:200px;" data-calendar-id="{{ calendar.id }}" aria-label="Visibilité du calendrier {{ calendar.name }}">
+                        <option value="public" {{ calendar.visibility == 'public' ? 'selected' : '' }}>Vu par tous</option>
+                        <option value="chief" {{ calendar.visibility == 'chief' ? 'selected' : '' }}>Vu par les animateurs</option>
+                        <option value="admin" {{ calendar.visibility == 'admin' ? 'selected' : '' }}>Vu par les chefs d'unité</option>
+                    </select>
+                    <select class="form-select form-select-sm edit-role-select" style="max-width:230px;" data-calendar-id="{{ calendar.id }}" aria-label="Modification du calendrier {{ calendar.name }}">
+                        <option value="chief" {{ calendar.editRoleMin == 'chief' ? 'selected' : '' }}>Modifié par les animateurs</option>
+                        <option value="admin" {{ calendar.editRoleMin == 'admin' ? 'selected' : '' }}>Modifié par les chefs d'unité</option>
                     </select>
                 </div>
                 <div class="input-group input-group-sm mb-2" style="max-width:520px;">

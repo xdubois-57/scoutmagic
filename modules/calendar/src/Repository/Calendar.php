@@ -14,6 +14,15 @@ class Calendar
     public const VISIBILITY_CHIEF = 'chief';
     public const VISIBILITY_ADMIN = 'admin';
 
+    /**
+     * The two halves of "who may touch this calendar", deliberately apart:
+     * $visibility answers who SEES it, $editRoleMin who WRITES in it. One
+     * column used to answer both, which made "visible by the animateurs,
+     * editable by the chefs d'unité" impossible to express.
+     */
+    public const EDIT_ROLE_CHIEF = 'chief';
+    public const EDIT_ROLE_ADMIN = 'admin';
+
     public function __construct(
         public readonly int $id,
         public readonly ?int $sectionId,
@@ -21,6 +30,7 @@ class Calendar
         public readonly ?string $color,
         public readonly bool $isDefault,
         public readonly string $visibility,
+        public readonly string $editRoleMin,
         public readonly ?string $icsToken
     ) {
     }

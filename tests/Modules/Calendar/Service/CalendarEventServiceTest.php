@@ -385,6 +385,83 @@ class CalendarEventServiceTest extends TestCase
         $this->service->deleteEvent($event->id, Role::CHIEF, [$mineId]);
     }
 
+    // --- IT-03: edit_role_min, the OTHER half of the conjunction. Seeing
+    // and writing are two questions, and this column answers the second ---
+
+    public function testTheDefaultEditRoleReproducesTheOldBehaviourExactly(): void
+    {
+        [$mineId, $mineCalendar] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
+
+        // Nothing set it: a freshly created calendar is 'chief', which is
+        // what every calendar behaved like before the column existed.
+        $this->assertSame(
+            Calendar::EDIT_ROLE_CHIEF,
+            $this->calendarService->findById($mineCalendar)->editRoleMin
+        );
+        $this->assertContains(
+            $mineCalendar,
+            array_map(static fn(Calendar $c) => $c->id, $this->service->getEditableCalendars(Role::CHIEF, [$mineId]))
+        );
+    }
+
+    public function testRaisingEditRoleToAdminKeepsTheCalendarVISIBLEToAnimateurs(): void
+    {
+        [$mineId, $mineCalendar] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
+        $this->calendarService->updateEditRoleMin($mineCalendar, Calendar::EDIT_ROLE_ADMIN);
+
+        // The whole point of the column: still seen, no longer written.
+        $this->assertContains(
+            $mineCalendar,
+            array_map(static fn(Calendar $c) => $c->id, $this->service->getViewableCalendars(Role::CHIEF))
+        );
+        $this->assertNotContains(
+            $mineCalendar,
+            array_map(static fn(Calendar $c) => $c->id, $this->service->getEditableCalendars(Role::CHIEF, [$mineId]))
+        );
+    }
+
+    public function testAChefDUniteStillWritesInAnAdminOnlyCalendar(): void
+    {
+        [, $mineCalendar] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
+        $this->calendarService->updateEditRoleMin($mineCalendar, Calendar::EDIT_ROLE_ADMIN);
+
+        $editable = array_map(
+            static fn(Calendar $c) => $c->id,
+            // admin/superadmin get every section from the authorization
+            // service, which the controller passes in.
+            $this->service->getEditableCalendars(Role::ADMIN, [1, 2, 3])
+        );
+
+        $this->assertContains($mineCalendar, $editable);
+    }
+
+    public function testTheWriteIsRefusedOnTheServerNotJustHiddenFromThePicker(): void
+    {
+        [$mineId, $mineCalendar] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
+        $this->calendarService->updateEditRoleMin($mineCalendar, Calendar::EDIT_ROLE_ADMIN);
+
+        $this->expectException(CalendarException::class);
+        $this->service->createEvent($mineCalendar, 'Intrus', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF, [$mineId]);
+    }
+
+    public function testBothHalvesAreRequired(): void
+    {
+        // Animating the section is not enough when edit_role_min says
+        // admin, and clearing edit_role_min is not enough without the
+        // section: the rule is a conjunction, not a fallback.
+        [$mineId, $mineCalendar] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
+        [, $theirsCalendar] = $this->createSectionWithCalendar('ECL01', 'Éclaireurs', 30);
+        $this->calendarService->updateEditRoleMin($mineCalendar, Calendar::EDIT_ROLE_ADMIN);
+
+        $editable = array_map(
+            static fn(Calendar $c) => $c->id,
+            $this->service->getEditableCalendars(Role::CHIEF, [$mineId])
+        );
+
+        $this->assertNotContains($mineCalendar, $editable, 'right section, wrong role');
+        $this->assertNotContains($theirsCalendar, $editable, 'right role, wrong section');
+    }
+
     /**
      * The system caller (Modules\SosStaff\Service\CalendarSyncService) acts
      * for the unit, not for a session: it passes no role, and the null

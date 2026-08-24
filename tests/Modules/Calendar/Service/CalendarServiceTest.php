@@ -546,4 +546,52 @@ class CalendarServiceTest extends TestCase
 
         $this->assertSame('Anniversaires', $labels[$calendar->id]);
     }
+
+    // --- IT-03: the pair "who sees" / "who writes" must never contradict
+    // itself, and the invariant is kept in the Service, not in the form ---
+
+    public function testNarrowingVisibilityToAdminRaisesTheWriteRoleWithIt(): void
+    {
+        $id = $this->service->addCalendar('Animateurs', Calendar::VISIBILITY_CHIEF)->id;
+        self::assertSame(Calendar::EDIT_ROLE_CHIEF, $this->service->findById($id)->editRoleMin);
+
+        $this->service->updateVisibility($id, Calendar::VISIBILITY_ADMIN);
+
+        // Implied, not refused: a calendar only the chefs d'unité can see
+        // cannot be left claiming the animateurs may edit it. Refusing
+        // would make this state unreachable in one step, since every
+        // calendar starts at 'chief'.
+        self::assertSame(Calendar::EDIT_ROLE_ADMIN, $this->service->findById($id)->editRoleMin);
+    }
+
+    public function testTheWriteRoleCannotBeWidenedBeyondWhoCanSeeTheCalendar(): void
+    {
+        $id = $this->service->addCalendar('Animateurs', Calendar::VISIBILITY_ADMIN)->id;
+
+        // The other direction is a request for something impossible, and
+        // granting it would silently widen the audience.
+        $this->expectException(CalendarException::class);
+        $this->service->updateEditRoleMin($id, Calendar::EDIT_ROLE_CHIEF);
+    }
+
+    public function testTheWriteRoleIsUnconstrainedOnAVisibleCalendar(): void
+    {
+        foreach ([Calendar::VISIBILITY_PUBLIC, Calendar::VISIBILITY_CHIEF] as $visibility) {
+            $id = $this->service->addCalendar('Cal ' . $visibility, $visibility)->id;
+
+            $this->service->updateEditRoleMin($id, Calendar::EDIT_ROLE_ADMIN);
+            self::assertSame(Calendar::EDIT_ROLE_ADMIN, $this->service->findById($id)->editRoleMin);
+
+            $this->service->updateEditRoleMin($id, Calendar::EDIT_ROLE_CHIEF);
+            self::assertSame(Calendar::EDIT_ROLE_CHIEF, $this->service->findById($id)->editRoleMin);
+        }
+    }
+
+    public function testAnInvalidWriteRoleIsRefused(): void
+    {
+        $id = $this->service->addCalendar('Animateurs', Calendar::VISIBILITY_CHIEF)->id;
+
+        $this->expectException(CalendarException::class);
+        $this->service->updateEditRoleMin($id, 'intendant');
+    }
 }

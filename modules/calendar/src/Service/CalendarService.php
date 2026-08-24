@@ -308,6 +308,14 @@ class CalendarService implements CalendarEventLookupInterface
         }
 
         $id = $this->calendarRepository->createSupplementaryCalendar($name, false, $visibility, $this->generateToken());
+
+        // Same implication as updateVisibility(): a calendar created for
+        // the chefs d'unité alone must not be born claiming the animateurs
+        // may edit it. The column's DEFAULT is 'chief', so without this the
+        // contradictory state would exist from the first INSERT.
+        if ($visibility === Calendar::VISIBILITY_ADMIN) {
+            $this->calendarRepository->updateEditRoleMin($id, Calendar::EDIT_ROLE_ADMIN);
+        }
         $calendar = $this->calendarRepository->findById($id);
         \assert($calendar !== null);
         return $calendar;
@@ -325,6 +333,33 @@ class CalendarService implements CalendarEventLookupInterface
         }
         $this->assertValidVisibility($visibility);
         $this->calendarRepository->updateVisibility($id, $visibility);
+
+        // Narrowing WHO SEES implies narrowing WHO WRITES: a calendar only
+        // the chefs d'unité can see cannot be left claiming the animateurs
+        // may edit it. The implication runs one way only — raising the
+        // write requirement never widens the audience — so this is applied
+        // here rather than refused. Refusing would make "visible by the
+        // chefs d'unité" unreachable in one step from the default, since
+        // every calendar starts at edit_role_min 'chief'.
+        if ($visibility === Calendar::VISIBILITY_ADMIN && $calendar->editRoleMin !== Calendar::EDIT_ROLE_ADMIN) {
+            $this->calendarRepository->updateEditRoleMin($id, Calendar::EDIT_ROLE_ADMIN);
+        }
+    }
+
+    /**
+     * "Who may modify the events", the other half of updateVisibility().
+     *
+     * @throws CalendarException
+     */
+    public function updateEditRoleMin(int $id, string $editRoleMin): void
+    {
+        $calendar = $this->calendarRepository->findById($id);
+        if ($calendar === null) {
+            throw new CalendarException('Calendrier introuvable.');
+        }
+        $this->assertValidEditRole($editRoleMin);
+        $this->assertEditRoleNotWiderThanVisibility($editRoleMin, $calendar->visibility);
+        $this->calendarRepository->updateEditRoleMin($id, $editRoleMin);
     }
 
     /**
@@ -620,6 +655,41 @@ class CalendarService implements CalendarEventLookupInterface
         $valid = [Calendar::VISIBILITY_PUBLIC, Calendar::VISIBILITY_CHIEF, Calendar::VISIBILITY_ADMIN];
         if (!in_array($visibility, $valid, true)) {
             throw new CalendarException('Visibilité invalide.');
+        }
+    }
+
+    private function assertValidEditRole(string $editRoleMin): void
+    {
+        if (!in_array($editRoleMin, [Calendar::EDIT_ROLE_CHIEF, Calendar::EDIT_ROLE_ADMIN], true)) {
+            throw new CalendarException('Droit de modification invalide.');
+        }
+    }
+
+    /**
+     * A role that cannot SEE a calendar must never be told it may write in
+     * it. Checked in the Service, not only in the form, because the pair
+     * arrives from a request body and the form is not the boundary
+     * (SECURITY.md §3).
+     *
+     * Only asked on the WRITE side. Lowering edit_role_min to 'chief' on a
+     * calendar the animateurs cannot see is a request for something
+     * impossible, and the only way to grant it would be to widen the
+     * audience — which the caller did not ask for and must not get by
+     * surprise. updateVisibility() handles the other direction by
+     * implication instead, since narrowing the audience genuinely does
+     * narrow the writers.
+     *
+     * Visibility 'public' and 'chief' constrain nothing here: both are at
+     * least as wide as either edit role.
+     *
+     * @throws CalendarException
+     */
+    private function assertEditRoleNotWiderThanVisibility(string $editRoleMin, string $visibility): void
+    {
+        if ($visibility === Calendar::VISIBILITY_ADMIN && $editRoleMin !== Calendar::EDIT_ROLE_ADMIN) {
+            throw new CalendarException(
+                "Un calendrier visible par les chefs d'unité seulement ne peut pas être modifiable par les animateurs."
+            );
         }
     }
 }

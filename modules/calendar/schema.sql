@@ -18,6 +18,21 @@ CREATE TABLE IF NOT EXISTS calendar_calendars (
     color VARCHAR(7) NULL,
     is_default BOOLEAN NOT NULL DEFAULT FALSE,
     visibility ENUM('public', 'chief', 'admin') NOT NULL DEFAULT 'public',
+    -- Who may WRITE, as opposed to visibility's who may SEE. The two used
+    -- to be the same column, so "visible by the animateurs, editable by the
+    -- chefs d'unité" was inexpressible: the only way to keep animateurs out
+    -- of the "Animateurs" calendar was to set it visibility = 'admin',
+    -- which also made it vanish from their screen.
+    --
+    -- DEFAULT 'chief' reproduces the previous behaviour exactly, so an
+    -- existing installation sees no change until somebody chooses one. It
+    -- is deliberately NOT migrated to 'admin' for the default calendar:
+    -- that is the chef d'unité's decision, not the migration's.
+    --
+    -- Never more permissive than visibility (a role that cannot see a
+    -- calendar must not write in it) — enforced in Service\CalendarService,
+    -- not only in the form.
+    edit_role_min ENUM('chief', 'admin') NOT NULL DEFAULT 'chief',
     ics_token_encrypted BLOB NULL,
     ics_token_blind_index CHAR(64) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
