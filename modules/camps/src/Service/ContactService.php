@@ -110,23 +110,48 @@ class ContactService
         );
     }
 
+    /**
+     * Removes a contact — and every trace of them this camp's history
+     * held.
+     *
+     * **The history entry names the role, never the person.** A deleted
+     * contact is out of `anonymisationScope()`'s reach forever: that scope
+     * is computed from the LIVING rows sharing an e-mail address, so a
+     * person deleted from camp A before asking to be erased would have
+     * their erasure granted on camp B and their name left standing in A's
+     * timeline, unreachable by any later request. Writing their details
+     * into the very entry that records their removal is what created that
+     * orphan.
+     *
+     * The same reasoning applies to what the earlier entries hold, so they
+     * are scrubbed here too — targeted on this contact's own values, so
+     * the other contacts of the same camp keep their history
+     * (`anonymiseValuesMatching()`, not `anonymiseValues()`).
+     */
     public function delete(Contact $contact, ?int $actorUserAccountId): void
     {
         $this->contacts->delete($contact->id);
+
+        $this->audit->anonymiseValuesMatching(
+            CampService::ENTITY_TYPE,
+            [$contact->campId],
+            ['contact'],
+            array_values(array_filter(
+                [$contact->name, $contact->email, $contact->phone],
+                static fn(?string $v): bool => $v !== null && trim($v) !== ''
+            ))
+        );
 
         $this->audit->record(
             CampService::ENTITY_TYPE,
             $contact->campId,
             'contact',
-            $this->describe([
-                'name' => $contact->name,
-                'role_label' => $contact->roleLabel,
-                'email' => $contact->email,
-                'phone' => $contact->phone,
-            ]),
+            $contact->roleLabel,
             null,
             AuditSource::Human,
-            'Contact supprimé',
+            $contact->roleLabel !== null
+                ? 'Contact supprimé (' . $contact->roleLabel . ')'
+                : 'Contact supprimé',
             null,
             $actorUserAccountId
         );

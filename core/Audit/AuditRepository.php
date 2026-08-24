@@ -135,6 +135,89 @@ class AuditRepository
     }
 
     /**
+     * The same replacement, but only on the rows whose own values name one
+     * of $needles.
+     *
+     * `anonymiseValues()` is the blunt instrument: it clears every row of a
+     * field, which is right when a person asks to be erased and every row
+     * of that field on those entities is about them. It is wrong when one
+     * person among several leaves — a camp's contact history holds three
+     * different people's details under the same `contact` field, and
+     * clearing all of them to erase one would destroy two histories nobody
+     * asked to lose.
+     *
+     * Matching happens in PHP because the values are encrypted with a
+     * random IV: no `LIKE` can reach inside them, and a blind index on a
+     * free-text history line would be a searchable index of exactly the
+     * personal data this column exists to protect. Comparison is
+     * accent-insensitive only in case, deliberately: a needle is a value
+     * this application itself wrote, not user-typed search input.
+     *
+     * @param int[]    $entityIds
+     * @param string[] $fieldKeys
+     * @param string[] $needles
+     */
+    public function anonymiseValuesMatching(
+        string $entityType,
+        array $entityIds,
+        array $fieldKeys,
+        array $needles
+    ): int {
+        $entityIds = array_values(array_unique(array_map('intval', $entityIds)));
+        $fieldKeys = array_values(array_unique($fieldKeys));
+        $needles = array_values(array_filter(
+            array_map(static fn(string $n): string => trim($n), $needles),
+            static fn(string $n): bool => $n !== ''
+        ));
+        if ($entityIds === [] || $fieldKeys === [] || $needles === []) {
+            return 0;
+        }
+
+        $idPlaceholders = implode(',', array_fill(0, count($entityIds), '?'));
+        $keyPlaceholders = implode(',', array_fill(0, count($fieldKeys), '?'));
+
+        $stmt = $this->pdo->prepare(
+            "SELECT id, from_value, to_value, summary
+               FROM entity_changes
+              WHERE entity_type = ?
+                AND entity_id IN ({$idPlaceholders})
+                AND field_key IN ({$keyPlaceholders})"
+        );
+        $stmt->execute(array_merge([$entityType], $entityIds, $fieldKeys));
+
+        $marker = $this->encryption->encrypt(self::ANONYMISED_MARKER, 'entity_changes.value');
+        $update = $this->pdo->prepare(
+            'UPDATE entity_changes
+                SET from_value = CASE WHEN from_value IS NULL THEN NULL ELSE ? END,
+                    to_value   = CASE WHEN to_value   IS NULL THEN NULL ELSE ? END,
+                    summary    = CASE WHEN summary    IS NULL THEN NULL ELSE ? END
+              WHERE id = ?'
+        );
+
+        $changed = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $haystack = implode("\n", array_filter([
+                $this->decryptNullable($row['from_value'], 'entity_changes.value'),
+                $this->decryptNullable($row['to_value'], 'entity_changes.value'),
+                $this->decryptNullable($row['summary'], 'entity_changes.value'),
+            ], static fn(?string $v): bool => $v !== null));
+            if ($haystack === '') {
+                continue;
+            }
+
+            foreach ($needles as $needle) {
+                if (mb_stripos($haystack, $needle) !== false) {
+                    $update->execute([$marker, $marker, $marker, (int) $row['id']]);
+                    $changed++;
+                    break;
+                }
+            }
+        }
+
+        return $changed;
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): AuditEntry
