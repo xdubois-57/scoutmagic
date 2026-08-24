@@ -60,7 +60,7 @@
                                 écrit automatiquement à partir des avis — à vérifier dans les avis eux-mêmes.
                             </span>
                             {% if summary_available %}
-                                <form method="post" action="/chefs/camps/lieux/{{ place.id }}/resume">
+                                <form method="post" action="/chefs/camps/lieux/{{ place.id }}/resume" data-summary-form>
                                     {{ csrf_field() }}
                                     <button type="submit" class="btn btn-link btn-sm p-0">Régénérer</button>
                                 </form>
@@ -71,7 +71,7 @@
                             Pas encore de résumé pour ce lieu. Il s'écrit tout seul une fois qu'il y a
                             des avis ou des prix à comparer.
                         </p>
-                        <form method="post" action="/chefs/camps/lieux/{{ place.id }}/resume">
+                        <form method="post" action="/chefs/camps/lieux/{{ place.id }}/resume" data-summary-form>
                             {{ csrf_field() }}
                             <button type="submit" class="btn btn-link btn-sm p-0">Écrire le résumé maintenant</button>
                         </form>
@@ -165,4 +165,11 @@
             collapsed: true,
         } only %}
     </div>
+{% endblock %}
+
+{% block scripts %}
+    {# The summary is written by the LLM connector, which takes seconds:
+       without a busy state the button looks inert and gets pressed twice,
+       which is a second paid call for the same place. #}
+    <script src="/assets/js/camps-place-summary.js" defer></script>
 {% endblock %}

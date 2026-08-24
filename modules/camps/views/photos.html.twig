@@ -46,13 +46,28 @@
                     <h2 class="h6 mb-3">Ajouter une photo</h2>
                     {{ csrf_field() }}
                     <div class="mb-3">
-                        <label class="form-label small" for="photo-file">Photo</label>
-                        <input type="file" name="photo" id="photo-file" accept="image/*"
-                               class="form-control form-control-sm" required>
+                        {% include 'partials/drop_zone.html.twig' with {
+                            id: 'photo-drop-zone',
+                            input_id: 'photo-file',
+                            input_name: 'photo',
+                            input_label: 'Photo à envoyer',
+                            accept: 'image/*',
+                            icon: 'bi-image',
+                            message: 'Déposez la photo ici, ou cliquez pour la choisir',
+                            data: { 'drop-zone-for': 'photo-file' },
+                        } only %}
+                        <div class="form-text" id="photo-drop-zone-selection" role="status"></div>
                     </div>
                     <button type="submit" class="btn btn-primary btn-sm">Envoyer</button>
                 </div>
             </form>
         {% endif %}
     </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/drop-zone.js" defer></script>
+    {# Names the file that was picked: the zone's input is visually hidden,
+       so a zone that says nothing looks the same before and after a drop. #}
+    <script src="/assets/js/upload-drop-zone.js" defer></script>
 {% endblock %}

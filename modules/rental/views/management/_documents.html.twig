@@ -159,9 +159,16 @@
             <input type="hidden" name="asset_id" value="{{ asset.id }}">
             <input type="hidden" name="booking_id" value="{{ booking.id }}">
             <div class="col-12 col-md-4">
-                <label class="form-label" for="document-file">Ajouter un document</label>
-                <input type="file" class="form-control form-control-sm" id="document-file" name="document"
-                       accept=".pdf,image/jpeg,image/png,image/webp,image/heic" required>
+                {% include 'partials/drop_zone.html.twig' with {
+                    id: 'document-drop-zone',
+                    input_id: 'document-file',
+                    input_name: 'document',
+                    input_label: 'Document à ajouter',
+                    accept: '.pdf,image/jpeg,image/png,image/webp,image/heic',
+                    message: 'Déposez le document ici, ou cliquez pour le choisir',
+                    data: { 'drop-zone-for': 'document-file' },
+                } only %}
+                <div class="form-text" id="document-drop-zone-selection" role="status"></div>
             </div>
             <div class="col-6 col-md-3">
                 <label class="form-label" for="document-type">Type</label>

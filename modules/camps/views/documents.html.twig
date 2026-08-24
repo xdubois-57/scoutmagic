@@ -46,10 +46,16 @@
                     help: 'Laissez vide pour reprendre le nom du fichier.',
                 } only %}
                 <div class="mb-3">
-                    <label class="form-label small" for="document-file">Fichier</label>
-                    <input type="file" name="document" id="document-file" class="form-control form-control-sm"
-                           required aria-describedby="document-file-help">
-                    <div class="form-text" id="document-file-help">
+                    {% include 'partials/drop_zone.html.twig' with {
+                        id: 'document-drop-zone',
+                        input_id: 'document-file',
+                        input_name: 'document',
+                        input_label: 'Fichier à joindre',
+                        message: 'Déposez le fichier ici, ou cliquez pour le choisir',
+                        data: { 'drop-zone-for': 'document-file' },
+                    } only %}
+                    <div class="form-text" id="document-drop-zone-selection" role="status"></div>
+                    <div class="form-text">
                         PDF, image ou document bureautique, 25 Mo maximum.
                     </div>
                 </div>
@@ -57,4 +63,11 @@
             </div>
         </form>
     </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/drop-zone.js" defer></script>
+    {# Names the file that was picked: the zone's input is visually hidden,
+       so a zone that says nothing looks the same before and after a drop. #}
+    <script src="/assets/js/upload-drop-zone.js" defer></script>
 {% endblock %}
