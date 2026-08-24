@@ -11,6 +11,7 @@ namespace Modules\Rental\Stay;
 use Modules\Rental\Pricing\PriceLine;
 use Modules\Rental\Pricing\PriceQuote;
 use Modules\Rental\Pricing\RentalFee;
+use Modules\Rental\Support;
 
 /**
  * What a stay comes to once it has happened (§6.21).
@@ -189,7 +190,7 @@ final class SettlementCalculator
                 SettlementLine::ORIGIN_METER,
                 $consumption->formattedConsumption()
                 . ($consumption->unitPriceCents !== null
-                    ? ' × ' . self::euros($consumption->unitPriceCents)
+                    ? ' × ' . Support::euros($consumption->unitPriceCents)
                     : '')
             );
         }
@@ -248,10 +249,5 @@ final class SettlementCalculator
         $text = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
 
         return mb_strlen($text) <= $length ? $text : rtrim(mb_substr($text, 0, $length)) . '…';
-    }
-
-    private static function euros(int $cents): string
-    {
-        return number_format($cents / 100, 2, ',', ' ') . ' €';
     }
 }

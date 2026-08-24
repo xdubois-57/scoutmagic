@@ -246,7 +246,7 @@
             } only %}
                 {% block body %}
                     <form method="post" action="/chefs/staffs/documents" enctype="multipart/form-data" id="section-document-add-form">
-                        {{ csrf_field() }}
+                        {{ csrf_field()|raw }}
                         <input type="hidden" name="section_id" value="{{ current_section.id }}">
                         <div class="mb-2">
                             <label class="form-label small" for="section-document-add-scout-year">Année scoute</label>

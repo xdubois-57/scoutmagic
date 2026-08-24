@@ -113,4 +113,52 @@ class TextNormalizerServiceTest extends TestCase
             'empty' => ['', ''],
         ];
     }
+
+    // ── fold() ──────────────────────────────────────────────────────────
+
+    /**
+     * @dataProvider foldProvider
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('foldProvider')]
+    public function testFold(?string $raw, string $expected): void
+    {
+        $this->assertSame($expected, TextNormalizerService::fold($raw));
+    }
+
+    /** @return array<string, array{?string, string}> */
+    public static function foldProvider(): array
+    {
+        return [
+            'null' => [null, ''],
+            'blank' => ['   ', ''],
+            'lowercases and trims' => ['  Domaine DE Mozet ', 'domaine de mozet'],
+            'strips accents' => ['Deuxième étape', 'deuxieme etape'],
+            'middle dot is not a word' => ['Candidat·e Animateur', 'candidat e animateur'],
+            'hyphen reads as a space' => ['CANDIDAT-ANIMATEUR', 'candidat animateur'],
+            'parenthesis collapses' => ['Ferme du Moulin (asbl)', 'ferme du moulin asbl'],
+            'ligatures expand' => ['Cœur & Sœur', 'coeur soeur'],
+            'eszett expands' => ['Straße', 'strasse'],
+            'digits survive' => ['POST2015', 'post2015'],
+            'runs collapse to one space' => ["A --  B\u{a0}C", 'a b c'],
+        ];
+    }
+
+    /**
+     * The whole reason the explicit map exists rather than
+     * iconv('ASCII//TRANSLIT'), whose output depends on the C library and
+     * the locale: the same input must fold the same way on every host.
+     */
+    public function testFoldNeverEmitsPunctuationForAnAccentedLetter(): void
+    {
+        $this->assertSame('eeae', TextNormalizerService::fold('ÉÈÆ'));
+    }
+
+    /** Two spellings of one place fold together — the duplicate detector's job. */
+    public function testTwoSpellingsOfOnePlaceFoldTogether(): void
+    {
+        $this->assertSame(
+            TextNormalizerService::fold('Domaine de Mozet'),
+            TextNormalizerService::fold('DOMAINE-DE-MOZET  ')
+        );
+    }
 }

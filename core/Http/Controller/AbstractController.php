@@ -132,4 +132,48 @@ abstract class AbstractController
         return (new Response(json_encode($data), $statusCode))
             ->setHeader('Content-Type', 'application/json');
     }
+
+    /**
+     * The site's own 404 page, for a route that exists but whose subject
+     * does not — a camp id nobody has, a document that was deleted while
+     * the page was open.
+     *
+     * **The same page the router serves for an unknown path** (`errors/
+     * 404.html.twig`), deliberately: a visitor who mistypes an id must not
+     * land on a bare "Not Found" with no navigation, no site name and no
+     * way back, which is what three controllers were handing them. It is
+     * also what makes "no such camp" and "not your camp" indistinguishable
+     * from outside, which is the point — a different-looking refusal maps
+     * out which ids exist.
+     *
+     * A JSON endpoint answers with `json([...], 404)` instead; this one
+     * renders HTML.
+     */
+    protected function notFound(): Response
+    {
+        return $this->render('errors/404.html.twig')->setStatusCode(404);
+    }
+
+    /**
+     * A label map as `<select>` options.
+     *
+     * Built in PHP rather than in Twig because turning a hash into an
+     * ordered list of option rows is data preparation, and a template
+     * doing it ends up depending on which filters this Twig version
+     * happens to ship. `partials/form_field.html.twig` takes exactly this
+     * shape.
+     *
+     * @param array<string, string> $labels value => label, in the order
+     *        they should appear
+     * @return array<int, array{value: string, label: string, selected: bool}>
+     */
+    protected function options(array $labels, string $selected): array
+    {
+        $options = [];
+        foreach ($labels as $value => $label) {
+            $options[] = ['value' => (string) $value, 'label' => $label, 'selected' => (string) $value === $selected];
+        }
+
+        return $options;
+    }
 }

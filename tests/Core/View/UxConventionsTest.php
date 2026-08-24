@@ -251,11 +251,7 @@ final class UxConventionsTest extends TestCase
      *
      * @var list<string> parent labels accepted besides MenuBuilder's
      */
-    private const EXTRA_ALLOWED_PARENT_LABELS = [
-        // Dynamic entries contributed by modules (MenuEntryProvider).
-        'Locations',
-        'Mes locations',
-    ];
+    private const EXTRA_ALLOWED_PARENT_LABELS = [];
 
     /** Menu labels a `parents` entry can point at (MenuBuilder::MENUS). */
     private const MENU_LABELS = [
@@ -388,6 +384,38 @@ final class UxConventionsTest extends TestCase
             self::CSRF_VARIABLE_ALLOWLIST,
             'A _csrf_token field must come from csrf_field(); {{ csrf_token }} is a variable lookup that renders empty '
                 . 'whenever the controller forgets it, and every POST then fails the CSRF guard'
+        );
+    }
+
+    /**
+     * One spelling of the call, everywhere: `{{ csrf_field()|raw }}`.
+     *
+     * The two forms are functionally identical — the function is
+     * registered with `['is_safe' => ['html']]` (Core\View\TwigFactory), so
+     * `|raw` is a no-op — and that is exactly why this is worth pinning
+     * rather than leaving to taste: nothing breaks when the two drift
+     * apart, so they drift. The filter is the documented form
+     * (docs/module-development.md § CSRF token in a form) for a reason that
+     * survives the no-op: someone auditing which templates emit raw HTML
+     * greps for `|raw`, and a call site without it is one the grep misses.
+     */
+    public function testCsrfFieldIsAlwaysWrittenWithTheRawFilter(): void
+    {
+        $found = [];
+        foreach (self::templates() as $rel) {
+            $count = preg_match_all(
+                '/csrf_field\(\)\s*(?!\|\s*raw)/',
+                self::templateSource($rel)
+            );
+            if ($count > 0) {
+                $found[$rel] = $count;
+            }
+        }
+        self::assertMatchesAllowlist(
+            $found,
+            [],
+            'csrf_field() is written {{ csrf_field()|raw }} — one form everywhere, so a |raw audit finds every '
+                . 'template that emits raw HTML, including the ones that are safe by construction'
         );
     }
 

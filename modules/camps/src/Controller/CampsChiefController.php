@@ -179,7 +179,7 @@ class CampsChiefController extends AbstractController
         }
 
         $values = $this->stayFromMail->readValues($message);
-        $placeId = $this->stayFromMail->matchExistingPlaceId($values['place_name']);
+        $placeId = $this->stayFromMail->matchPlaceIdFor($message, $values['place_name']);
 
         return array_merge($submitted, [
             // A place the module already knows is SELECTED rather than
@@ -387,6 +387,13 @@ class CampsChiefController extends AbstractController
             'note' => $this->editableContent->get(CampService::noteKey($camp->id), '') ?? '',
             'contacts' => $this->decorateContacts($this->contacts->findByCamp($camp->id)),
             'contact_role_options' => $this->options(ContactService::ROLES, ''),
+            // Decided here rather than by a role comparison in the
+            // template: what an anonymisation needs is a rule about a
+            // right, and a template spelling out which role strings pass
+            // is a rule nobody can change in one place. The route itself
+            // is the authority (module.json, role_min: admin); this only
+            // decides whether to OFFER what that route would allow.
+            'can_anonymise_contacts' => Role::fromString(AuthSession::getRole())->hasAccess(Role::ADMIN),
             // Only whether photos are POSSIBLE, never how many. Counting
             // them would mean resolving the album, and resolving it
             // CREATES it (DelegatedAlbumManager::ensureAlbum is
@@ -997,25 +1004,6 @@ class CampsChiefController extends AbstractController
     }
 
     /**
-     * A label map as <select> options, built here rather than in Twig:
-     * turning a hash into an ordered list of option rows is data
-     * preparation, and a template doing it ends up depending on which
-     * Twig filters this version happens to ship.
-     *
-     * @param array<string, string> $labels
-     * @return array<int, array{value: string, label: string, selected: bool}>
-     */
-    private function options(array $labels, string $selected): array
-    {
-        $options = [];
-        foreach ($labels as $value => $label) {
-            $options[] = ['value' => $value, 'label' => $label, 'selected' => $value === $selected];
-        }
-
-        return $options;
-    }
-
-    /**
      * The past-stays status filter, as partials/chip_picker.html.twig
      * wants it — "Tous" first, then one chip per status.
      *
@@ -1084,10 +1072,5 @@ class CampsChiefController extends AbstractController
     private function today(): \DateTimeImmutable
     {
         return new \DateTimeImmutable('today');
-    }
-
-    private function notFound(): Response
-    {
-        return (new Response('', 404))->setBody('Not Found');
     }
 }

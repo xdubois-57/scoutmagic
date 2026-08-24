@@ -329,7 +329,7 @@
                                     {% if row.status == 'pending' %}
                                         {% set cooldown = member_email_resend_cooldown_minutes[row.id] ?? 0 %}
                                         <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/resend">
-                                            {{ csrf_field() }}
+                                            {{ csrf_field()|raw }}
                                             <button type="submit" class="btn btn-sm btn-outline-secondary" {% if cooldown > 0 %}disabled title="Veuillez patienter avant de renvoyer"{% endif %}>
                                                 Renvoyer{% if cooldown > 0 %} (dans {{ cooldown }} min){% endif %}
                                             </button>
@@ -337,13 +337,13 @@
                                     {% endif %}
                                     {% if row.status == 'inactive' %}
                                         <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/reactivate">
-                                            {{ csrf_field() }}
+                                            {{ csrf_field()|raw }}
                                             <button type="submit" class="btn btn-sm btn-outline-primary">Réactiver</button>
                                         </form>
                                     {% endif %}
                                     {% if row.source != 'desk' %}
                                         <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/delete" data-confirm="{% if row.status == 'pending' %}Annuler l'ajout de cette adresse email ?{% else %}Supprimer cette adresse email ?{% endif %}">
-                                            {{ csrf_field() }}
+                                            {{ csrf_field()|raw }}
                                             <button type="submit" class="btn btn-sm btn-outline-danger">{% if row.status == 'pending' %}Annuler{% else %}Supprimer{% endif %}</button>
                                         </form>
                                     {% endif %}
@@ -352,7 +352,7 @@
                         {% endfor %}
 
                         <form method="post" action="/members/{{ member.memberYearId }}/emails" class="d-flex flex-wrap gap-2 mt-3">
-                            {{ csrf_field() }}
+                            {{ csrf_field()|raw }}
                             <input type="email" name="email" class="form-control form-control-sm" style="max-width:260px;" placeholder="nouvelle-adresse@example.com" aria-label="Nouvelle adresse email" required>
                             <button type="submit" class="btn btn-sm btn-primary text-nowrap">Ajouter une adresse</button>
                         </form>

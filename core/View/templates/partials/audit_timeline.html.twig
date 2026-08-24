@@ -61,10 +61,13 @@
 
         <div class="{{ _collapsed ? 'collapse' : '' }}" id="{{ _id }}">
             {# Each entry is rendered directly here rather than through a
-               separate {% include %}'d partial, so the <li> always sits in
-               the same file as the <ol> that wraps it — a standalone
-               partial file has no way to show a static HTML checker that
-               its own <li> is never rendered outside of one. #}
+               separate {% include %}'d partial, so every list item always
+               sits in the same file as the ordered list wrapping it — a
+               standalone partial file has no way to show a static HTML
+               checker that its own item is never rendered outside one.
+               (Tag names are spelled out in words on purpose here: that
+               same checker reads markup inside a Twig comment as real
+               markup — see the phantom findings in commit 164b71ab.) #}
             {% set _source_labels = {
                 'human': 'Modifié dans le site',
                 'email': 'Détecté dans un message reçu',

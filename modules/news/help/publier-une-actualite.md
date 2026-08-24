@@ -4,8 +4,8 @@ title: Publier une actualité avec formulaire
 summary: Rédiger un article, construire son formulaire, suivre les réponses.
 category: Espace animateurs
 role_min: chief
-paths: /news/manage, /news/create
-related: actualites, finances
+paths: /news/manage, /news/create, /news/*/edit
+related: actualites, publipostage, finances
 ---
 
 La page « Actualités » de l'espace animateurs liste les articles avec
@@ -47,3 +47,15 @@ liste chaque réponse avec, si l'évènement est payant, l'état du
 paiement (Payé, Partiel, Non payé) calculé depuis les extraits
 bancaires ; « Exporter en Excel » télécharge le tout — le fichier est
 réutilisable tel quel comme liste de publipostage.
+
+« Écrire aux répondants » va plus vite encore : le bouton prépare
+directement un brouillon de publipostage adressé à tous ceux qui ont
+répondu et vous dépose dans l'écran de composition, chaque champ du
+formulaire disponible comme variable. Rien n'est envoyé — le message
+reste à écrire, et il part ensuite comme n'importe quel publipostage.
+L'e-mail utilisé est celui avec lequel la personne a répondu, et deux
+réponses venues de la même adresse ne font qu'un destinataire.
+
+Ce bouton demande le rôle animateur (la page des réponses, elle,
+s'ouvre dès intendant) et n'apparaît pas si le module Envoi de mails
+est désactivé.

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Core\View;
 
+use Core\Config\AppClock;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\Http\Controller\PageController;
@@ -87,7 +88,11 @@ class RgpdPageTest extends TestCase
         $this->twig = $twig;
         $this->editableService = $editableService;
         $this->sectionRepo = $sectionRepo;
-        $this->defaultContentModifiedAt = new \DateTimeImmutable('2026-01-01T10:30:00+00:00');
+        // On the application clock, like the real
+        // RgpdContentService::getDefaultContentLastModified() — the page
+        // renders it unlabelled, so the zone it carries is the zone the
+        // reader sees (Core\Config\AppClock).
+        $this->defaultContentModifiedAt = new \DateTimeImmutable('2026-01-01 10:30:00', AppClock::zone());
     }
 
     /**
@@ -153,7 +158,7 @@ class RgpdPageTest extends TestCase
         $response = $controller->rgpd($request, []);
 
         $body = $response->getBody();
-        $this->assertStringContainsString('01/01/2026 10:30 UTC', $body);
+        $this->assertStringContainsString('01/01/2026 10:30', $body);
     }
 
     public function testDefaultModeDoesNotUseTodaysDate(): void
@@ -185,7 +190,7 @@ class RgpdPageTest extends TestCase
 
         $body = $response->getBody();
         $this->assertStringContainsString('Contenu personnalisé', $body);
-        $this->assertStringNotContainsString('01/01/2026 10:30 UTC', $body);
+        $this->assertStringNotContainsString('01/01/2026 10:30', $body);
     }
 
     public function testCustomModeFallsBackToDefaultDateWhenNoContentSaved(): void
@@ -196,7 +201,7 @@ class RgpdPageTest extends TestCase
         $response = $controller->rgpd($request, []);
 
         $body = $response->getBody();
-        $this->assertStringContainsString('01/01/2026 10:30 UTC', $body);
+        $this->assertStringContainsString('01/01/2026 10:30', $body);
     }
 
     public function testSavingIdenticalContentDoesNotBumpLastUpdatedDate(): void

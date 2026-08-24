@@ -55,4 +55,51 @@ class IbanNormalizerTest extends TestCase
     {
         $this->assertFalse(IbanNormalizer::looksLikeFullIban('BE710000'));
     }
+
+    // --- format(): display only ---
+
+    public function testFormatGroupsByFourForReading(): void
+    {
+        // How a bank statement prints it, and therefore how somebody
+        // checks it against one.
+        $this->assertSame('BE71 0961 2345 6769', IbanNormalizer::format('BE71096123456769'));
+    }
+
+    public function testFormatIsIdempotentAndTakesAnyInputShape(): void
+    {
+        $expected = 'BE71 0961 2345 6769';
+
+        $this->assertSame($expected, IbanNormalizer::format($expected), 'already grouped');
+        $this->assertSame($expected, IbanNormalizer::format('be71-0961.2345 6769'), 'other punctuation');
+        $this->assertSame($expected, IbanNormalizer::format('  BE710961 23456769  '), 'stray spacing');
+    }
+
+    public function testFormatLeavesNoTrailingSpaceOnALengthNotDivisibleByFour(): void
+    {
+        // 15 characters: chunk_split() would leave a trailing separator,
+        // which would then be stored or compared by an unwary caller.
+        $this->assertSame('NO93 8601 1117 947', IbanNormalizer::format('NO9386011117947'));
+    }
+
+    public function testFormatOfNothingIsNothing(): void
+    {
+        $this->assertSame('', IbanNormalizer::format(''));
+        $this->assertSame('', IbanNormalizer::format('   '));
+    }
+
+    public function testAFormattedIbanIsNotWhatGetsStoredOrIndexed(): void
+    {
+        // The point of the whole distinction: normalize() is what a
+        // column and a blind index see. A formatted value reaching either
+        // makes every IBAN search stop matching — silently, since nothing
+        // errors and the lookup merely returns nothing.
+        $formatted = IbanNormalizer::format('BE71096123456769');
+
+        $this->assertNotSame($formatted, IbanNormalizer::normalize($formatted));
+        $this->assertSame('BE71096123456769', IbanNormalizer::normalize($formatted));
+        // And it must not be mistaken for a valid IBAN in its own right:
+        // isValidFullIban() documents that it takes a normalize()d value.
+        $this->assertFalse(IbanNormalizer::isValidFullIban($formatted));
+        $this->assertTrue(IbanNormalizer::isValidFullIban(IbanNormalizer::normalize($formatted)));
+    }
 }

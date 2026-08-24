@@ -23,7 +23,7 @@
 // by confirm.js, which is why no confirmation lives in this file.
 (function () {
     /** @type {NodeListOf<HTMLInputElement>} */
-    var checkboxes = document.querySelectorAll('.js-step-checkbox');
+    const checkboxes = document.querySelectorAll('.js-step-checkbox');
 
     // A no-op on every other page of the site.
     if (!checkboxes.length) {
@@ -32,7 +32,7 @@
 
     checkboxes.forEach(function (checkbox) {
         checkbox.addEventListener('change', function () {
-            var form = /** @type {HTMLFormElement|null} */ (checkbox.closest('.js-step-form'));
+            const form = /** @type {HTMLFormElement|null} */ (checkbox.closest('.js-step-form'));
             if (form) {
                 form.submit();
             }

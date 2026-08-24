@@ -10,7 +10,6 @@ namespace Modules\Rental\Task;
 
 use Core\Import\MemberYearRepository;
 use Core\View\TwigFactory;
-use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
@@ -82,8 +81,8 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
         // marks a task done only after handle() returns, so this very task
         // is still `pending` right now and bootstrap()'s guard would find
         // it, skip, and end the chain after a single run.
-        $scheduler = new SchedulerService(new SchedulerRepository($pdo));
-        $scheduler->scheduleAfter('rental', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+        SchedulerService::forPdo($pdo)
+            ->scheduleAfter('rental', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
     }
 
     private function selfBuiltService(TaskContext $context): RentalReminderService
@@ -132,10 +131,11 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
      */
     public static function bootstrap(SchedulerService $scheduler): void
     {
-        if ($scheduler->find('rental', self::TASK_KEY, self::REFERENCE) !== null) {
-            return;
-        }
-
-        $scheduler->scheduleAfter('rental', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+        $scheduler->rearm(
+            'rental',
+            self::TASK_KEY,
+            self::REFERENCE,
+            new \DateTimeImmutable('+' . self::INTERVAL_SECONDS . ' seconds')
+        );
     }
 }

@@ -113,6 +113,50 @@ class HelpControllerTest extends TestCase
         $this->assertStringContainsString('>Module<', $body);
     }
 
+    /**
+     * A dropped topic is invisible by construction — it is not in the
+     * list, because it could not be read. /aide is the one screen that
+     * says so, and only to the person who can go and fix the file.
+     */
+    public function testIndexNamesUnreadableTopicsForASuperadmin(): void
+    {
+        $dir = $this->makeTopicDir();
+        $this->writeTopic($dir, 'sujet-sain');
+        $this->writeTopic($dir, 'sujet-casse', ['role_min' => 'inexistant']);
+        $this->loginAs('superadmin');
+
+        $body = $this->controller($dir)->index(new Request('GET', '/aide', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString("sujet(s) d'aide n'ont pas pu être lus", $body);
+        $this->assertStringContainsString('sujet-casse', $body);
+    }
+
+    public function testIndexNeverShowsAServerPathToAnyoneElse(): void
+    {
+        $dir = $this->makeTopicDir();
+        $this->writeTopic($dir, 'sujet-sain');
+        $this->writeTopic($dir, 'sujet-casse', ['role_min' => 'inexistant']);
+        $this->loginAs('chief');
+
+        $body = $this->controller($dir)->index(new Request('GET', '/aide', [], [], [], []), [])->getBody();
+
+        // The topic is missing for them too — but the reason, which names
+        // a path on the server, is not theirs to read.
+        $this->assertStringNotContainsString("n'ont pas pu être lus", $body);
+        $this->assertStringNotContainsString($dir, $body);
+    }
+
+    public function testIndexSaysNothingWhenEveryTopicLoads(): void
+    {
+        $dir = $this->makeTopicDir();
+        $this->writeTopic($dir, 'sujet-sain');
+        $this->loginAs('superadmin');
+
+        $body = $this->controller($dir)->index(new Request('GET', '/aide', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString("n'ont pas pu être lus", $body);
+    }
+
     // --- /aide/{id} ---
 
     public function testShowRendersTheTopicBodyAndRelatedLinks(): void

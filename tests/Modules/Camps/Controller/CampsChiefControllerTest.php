@@ -380,16 +380,87 @@ class CampsChiefControllerTest extends TestCase
         $this->assertStringContainsString("Retirer l'avis", html_entity_decode($html));
     }
 
+    /**
+     * The stay page keeps exactly one primary button of its own.
+     *
+     * It used to carry three: the page_header's « Modifier », « Ajouter
+     * le contact » at the bottom of a six-field form, and « Enregistrer
+     * l'avis » at the bottom of another — three ways of telling a chef
+     * d'unité « the main action is here » on one screen (design.md §7.4).
+     * Both forms are dialogs now, opened by outline buttons, and each
+     * holds the single primary of the dialog it lives in.
+     */
+    /**
+     * Whether to offer « Anonymiser » is decided by the controller, not by
+     * a role comparison spelled out in the template. The route itself is
+     * role_min: admin, so a chief offered the link would only be refused
+     * on the next click — and a template naming the role strings that pass
+     * is a rule nobody can change in one place.
+     */
+    public function testAChiefIsNotOfferedTheContactAnonymisation(): void
+    {
+        $campId = $this->aStay();
+        $contacts = new ContactRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
+        $contacts->create($campId, 'M. Delvaux', 'Propriétaire', null, null, null);
+
+        AuthSession::login(1, 'chief@test.com', 'chief');
+        $this->assertStringNotContainsString('Anonymiser', $this->stayPage($campId));
+
+        AuthSession::login(1, 'admin@test.com', 'admin');
+        $this->assertStringContainsString('Anonymiser', $this->stayPage($campId));
+    }
+
+    public function testTheStayPageOffersItsTwoFormsAsDialogs(): void
+    {
+        $campId = $this->aStay();
+
+        $html = (string) preg_replace('/\s+/', ' ', $this->stayPage($campId));
+
+        foreach (['#contact-add-modal', '#review-modal'] as $target) {
+            $this->assertStringContainsString('data-bs-target="' . $target . '"', $html, $target);
+        }
+        // The forms themselves are untouched — same action, same method.
+        $this->assertStringContainsString(
+            'action="/chefs/camps/sejours/' . $campId . '/contacts" id="contact-add-form"',
+            $html
+        );
+        $this->assertStringContainsString(
+            'action="/chefs/camps/sejours/' . $campId . '/avis" id="review-form"',
+            $html
+        );
+        // Their submit buttons reach them from the dialog footer.
+        $this->assertStringContainsString('form="contact-add-form"', $html);
+        $this->assertStringContainsString('form="review-form"', $html);
+    }
+
+    public function testTheStayPageShowsOneUnhiddenPrimaryAtATime(): void
+    {
+        $campId = $this->aStay();
+
+        $html = $this->stayPage($campId);
+        // Everything after the first dialog is inside a `.modal`, so what
+        // is left in the page body is the page_header's own action.
+        $body = substr($html, 0, strpos($html, '<div class="modal fade"') ?: strlen($html));
+
+        $this->assertSame(1, substr_count($body, 'btn-primary'), $body);
+    }
+
     // ── « Créer un camp depuis ce message » ─────────────────────────
 
     /**
      * A controller wired the way public/index.php wires it when
      * inbound_mail is enabled, with one unsorted message to read.
      *
+     * The connector is the same optional dependency as in production: with
+     * one, the place name is read out of the message body; without one,
+     * the form is pre-filled with everything except a place name.
+     *
      * @param list<array{from: string, to: string, message: int}> $moves
      */
-    private function controllerWithUnsortedMessage(array &$moves): CampsChiefController
-    {
+    private function controllerWithUnsortedMessage(
+        array &$moves,
+        ?\Modules\LlmConnector\Api\LlmConnectorInterface $llm = null
+    ): CampsChiefController {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $audit = new AuditService(new AuditRepository($this->pdo, $encryption));
         $settings = new SettingService(new SettingRepository($this->pdo));
@@ -469,15 +540,31 @@ class CampsChiefControllerTest extends TestCase
                 $duplicates,
                 new \Modules\Camps\Mail\MessageReader(),
                 $settings,
-                $inbound
+                $inbound,
+                $llm
             )
         );
+    }
+
+    /** A connector answering one place name, read out of the body. */
+    private function llmNaming(string $placeName): \Modules\LlmConnector\Api\LlmConnectorInterface
+    {
+        $llm = $this->createStub(\Modules\LlmConnector\Api\LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('complete')->willReturn(new \Modules\LlmConnector\Api\LlmResponse(
+            (string) json_encode(['place_name' => $placeName]),
+            ['place_name' => $placeName],
+            100,
+            10
+        ));
+
+        return $llm;
     }
 
     public function testTheCreationFormIsPreFilledFromAnUnsortedMessage(): void
     {
         $moves = [];
-        $controller = $this->controllerWithUnsortedMessage($moves);
+        $controller = $this->controllerWithUnsortedMessage($moves, $this->llmNaming('Domaine de Mozet'));
 
         $html = $controller->create(
             new Request('GET', '/chefs/camps/nouveau', ['message' => '42'], [], [], []),
@@ -488,6 +575,23 @@ class CampsChiefControllerTest extends TestCase
         $this->assertStringContainsString('2028-07-12', $html);
         $this->assertStringContainsString('2028-07-19', $html);
         $this->assertStringContainsString('name="message_id" value="42"', $html);
+    }
+
+    public function testWithoutTheConnectorTheFormArrivesWithoutAPlaceName(): void
+    {
+        $moves = [];
+        $controller = $this->controllerWithUnsortedMessage($moves);
+
+        $html = (string) preg_replace('/\s+/', ' ', $controller->create(
+            new Request('GET', '/chefs/camps/nouveau', ['message' => '42'], [], [], []),
+            []
+        )->getBody());
+
+        // The dates are patterns and still arrive; the name is not, and
+        // the sender's display name is never proposed as one — a chief
+        // types it, which is the validation this path exists for.
+        $this->assertStringContainsString('2028-07-12', $html);
+        $this->assertStringContainsString('name="place_name" value=""', $html);
     }
 
     public function testAKnownPlaceIsSelectedRatherThanDescribedAgain(): void

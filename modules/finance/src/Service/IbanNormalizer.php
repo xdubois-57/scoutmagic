@@ -57,6 +57,28 @@ class IbanNormalizer
     }
 
     /**
+     * Groups an IBAN into blocks of four for DISPLAY — "BE71 0961 2345
+     * 6769" — which is how the format is printed everywhere outside a
+     * database, and how somebody checks it against their bank statement.
+     *
+     * **Display only, and this matters.** The blind index is computed on
+     * the normalize()d form, so a formatted value reaching blindIndex()
+     * or a column would make every IBAN search silently stop matching —
+     * silently, because nothing errors: the lookup simply returns
+     * nothing, for ever. Format at the last possible moment, in the
+     * template or the response, never on the way in.
+     *
+     * normalize()s first, so it is safe to call on a value that is
+     * already grouped, differently grouped, or lower-case.
+     */
+    public static function format(string $iban): string
+    {
+        $normalized = self::normalize($iban);
+
+        return $normalized === '' ? '' : trim(chunk_split($normalized, 4, ' '));
+    }
+
+    /**
      * True length-and-checksum ISO 13616 validation — $iban must already
      * be normalize()d. Only call this against a value meant to be a
      * complete IBAN.

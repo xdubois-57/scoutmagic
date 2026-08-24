@@ -9,7 +9,6 @@ declare(strict_types=1);
 namespace Modules\Camps\Task;
 
 use Core\File\FileRepository;
-use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
@@ -114,17 +113,6 @@ class PurgeUnsortedMailHandler implements TaskHandlerInterface
 
     private function rescheduleTomorrow(\PDO $pdo): void
     {
-        $scheduler = new SchedulerService(new SchedulerRepository($pdo));
-        if ($scheduler->find('camps', self::TASK_KEY, self::REFERENCE) !== null) {
-            return;
-        }
-
-        $scheduler->schedule(
-            'camps',
-            self::TASK_KEY,
-            new \DateTimeImmutable('tomorrow 04:00'),
-            [],
-            self::REFERENCE
-        );
+        SchedulerService::forPdo($pdo)->rearm('camps', self::TASK_KEY, self::REFERENCE, 'tomorrow 04:00');
     }
 }

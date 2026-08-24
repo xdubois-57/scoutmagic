@@ -4,7 +4,7 @@ title: Publier des photos dans la galerie
 summary: Créer un album, téléverser photos et vidéos, choisir la couverture.
 category: Espace animateurs
 role_min: chief
-paths: /gallery/manage, /gallery/create
+paths: /gallery/manage, /gallery/create, /gallery/*/edit
 related: galerie, staffs
 ---
 

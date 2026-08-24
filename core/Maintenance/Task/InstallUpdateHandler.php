@@ -14,8 +14,10 @@ use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
 use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
+use Core\Http\StreamResponseHeaders;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\OpcodeCache;
 use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistory;
 use Core\Maintenance\UpdateHistoryRepository;
@@ -167,6 +169,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     : $extractedDir;
                 $this->installFiles($sourceRoot, $basePath);
                 $this->clearCompiledTemplateCache($context->storagePath);
+                $this->dropStaleCompiledCode();
 
                 $updateHistoryRepository->setStatus($historyId, 'migrating');
                 $migrationRunner = new MigrationRunner(
@@ -528,18 +531,21 @@ class InstallUpdateHandler implements TaskHandlerInterface
             ]);
 
             // file_get_contents() rather than copy(): both reach the same
-            // stream wrapper, but $http_response_header is only reliably
-            // populated after the former — same convention as Core\Maintenance\
-            // GitHubReleaseClient::httpGet().
+            // stream wrapper, but only the former reliably records the
+            // response headers — same convention as Core\Maintenance\
+            // GitHubReleaseClient::httpGet(). Cleared first so that one hop
+            // of this redirect chain can never be read as the next one's.
+            StreamResponseHeaders::clear();
             $body = @file_get_contents($currentUrl, false, $context);
             if ($body === false) {
                 return [false, null, 'connexion impossible'];
             }
 
-            $statusCode = $this->parseHttpStatus($http_response_header);
+            $responseHeaders = StreamResponseHeaders::last();
+            $statusCode = $this->parseHttpStatus($responseHeaders);
 
             if ($statusCode !== null && $statusCode >= 300 && $statusCode < 400) {
-                $location = $this->parseLocationHeader($http_response_header);
+                $location = $this->parseLocationHeader($responseHeaders);
                 if ($location === null) {
                     return [false, $statusCode, "redirection {$statusCode} sans destination"];
                 }
@@ -598,7 +604,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
         foreach ($headers as $header) {
             if (preg_match('#^HTTP/\S+\s+(\d+)#', $header, $m)) {
                 // The last status line wins (follow_location can leave
-                // several in $http_response_header after a redirect).
+                // several in the raw header list after a redirect).
                 $status = (int) $m[1];
             }
         }
@@ -633,12 +639,51 @@ class InstallUpdateHandler implements TaskHandlerInterface
     {
         $excludedTopLevel = ['storage', 'VERSION'];
 
+        $this->replacedPhpFiles = [];
+
         foreach (scandir($sourceDir) ?: [] as $entry) {
             if ($entry === '.' || $entry === '..' || in_array($entry, $excludedTopLevel, true)) {
                 continue;
             }
             $this->copyRecursive($sourceDir . '/' . $entry, $destDir . '/' . $entry, $destDir);
         }
+    }
+
+    /**
+     * Every `.php` path installFiles() has just overwritten, so the OPcache
+     * sweep below can name them instead of evicting the whole shared cache.
+     * Reset at the start of each installFiles() run rather than accumulated
+     * across the two entry points, since a resumed migration never re-runs
+     * the copy and must not re-invalidate a list from a previous attempt.
+     *
+     * @var string[]
+     */
+    private array $replacedPhpFiles = [];
+
+    /**
+     * The compiled-code half of clearCompiledTemplateCache(), and the
+     * reason it is not enough on its own.
+     *
+     * The copy above has replaced the source of every changed class, but
+     * OPcache re-reads a file's mtime at most once per
+     * `opcache.revalidate_freq` seconds — 60 on a stock installation. Left
+     * alone, the next minute of requests executes the PREVIOUS version of
+     * the application against the templates, help topics, manifests and
+     * schema that were just replaced on disk, which is precisely the mixed
+     * state that returned 500 on every route after a real update (see
+     * Core\Maintenance\OpcodeCache). Invalidating here closes that window
+     * to nothing.
+     *
+     * `clearstatcache()` goes with it: `realpath_cache_ttl` is 120 seconds
+     * by default, and the same request that copied the tree is about to
+     * run migrations and write VERSION through paths it stat'ed before the
+     * copy.
+     */
+    private function dropStaleCompiledCode(): void
+    {
+        clearstatcache(true);
+        OpcodeCache::invalidateFiles($this->replacedPhpFiles);
+        $this->replacedPhpFiles = [];
     }
 
     /**
@@ -720,6 +765,12 @@ class InstallUpdateHandler implements TaskHandlerInterface
             }
         } elseif (!@copy($source, $dest)) {
             throw new UpdateException(self::writeFailureMessage('remplacer le fichier', $dest, $root));
+        } elseif (str_ends_with($dest, '.php')) {
+            // Noted, not acted on: dropStaleCompiledCode() invalidates the
+            // whole list once the copy has succeeded end to end, so a file
+            // replaced just before an aborted install is never invalidated
+            // out from under the rollback that is about to restore it.
+            $this->replacedPhpFiles[] = $dest;
         }
     }
 

@@ -33,12 +33,17 @@
                                 finance/categories documents at length)
       size: 'lg'             -- '', 'sm', 'lg', 'xl'
       static_backdrop: true  -- data-bs-backdrop="static"
+      section_editor: true   -- marks a dialog that holds one section's
+                                editing form; section-editor.js focuses
+                                its first field on open and opens it when
+                                a link names its id (design.md §1.9)
 
   The title id is always '{{ id }}-title' — JS that needs to address the
   title can rely on that. Omit the footer block entirely for a modal with
   none (the wrapper div is skipped, not left empty).
 #}
 <div class="modal fade" id="{{ id }}" tabindex="-1" aria-labelledby="{{ id }}-title" aria-hidden="true"
+     {% if section_editor|default(false) %}data-section-editor{% endif %}
      {% if static_backdrop|default(false) %}data-bs-backdrop="static"{% endif %}>
     <div class="modal-dialog{{ (fullscreen_sm is defined ? fullscreen_sm : true) ? ' modal-fullscreen-sm-down' : '' }}{{ scrollable|default(false) ? ' modal-dialog-scrollable' : '' }}{{ size|default('') ? ' modal-' ~ size : '' }}">
         <div class="modal-content">

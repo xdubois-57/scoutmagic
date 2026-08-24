@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Groups\Controller;
 
+use Core\File\FileRepository;
+use Core\File\UploadHandler;
 use Core\Http\FlashMessage;
+use Core\Http\LinkPreviewFetcher;
 use Core\Http\Request;
 use Core\Member\MemberProfile;
 use Core\Member\MemberService;
@@ -15,12 +18,9 @@ use Core\Security\AuthSession;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
 use Core\View\TwigFactory;
-use Core\File\FileRepository;
-use Core\File\UploadHandler;
 use Modules\Gallery\Api\DelegatedAlbum;
 use Modules\Gallery\Api\DelegatedAlbumManager;
 use Modules\Gallery\Api\DelegatedMedia;
-use Modules\Gallery\Api\LinkPreviewFetcher;
 use Modules\Gallery\Service\GalleryException;
 use Modules\Groups\Controller\PostController;
 use Modules\Groups\Repository\GroupMemberRepository;
@@ -40,6 +40,7 @@ use Modules\Groups\Service\PostAuthorResolver;
 use Modules\Groups\Service\PostLinkService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
+use Modules\Groups\Support\Timestamps;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -322,7 +323,7 @@ class PostControllerTest extends TestCase
 
     private function seedPost(int $minutesAgo = 1, int $accountId = self::AUTHOR_ACCOUNT, bool $pinned = false): int
     {
-        $at = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify("-{$minutesAgo} minutes")->format('Y-m-d H:i:s');
+        $at = Timestamps::at("-{$minutesAgo} minutes");
 
         return GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', $at, $accountId, $this->memberId, $pinned);
     }
@@ -436,7 +437,7 @@ class PostControllerTest extends TestCase
     public function testCreateDetectsTheUrlInTheBodyStoresAndRendersThePreviewCardAndStripsItFromTheText(): void
     {
         $fetcher = $this->createMock(LinkPreviewFetcher::class);
-        $fetcher->method('fetch')->willReturn(new \Modules\Gallery\Api\LinkPreview('Un super lien', 'Une belle description', null));
+        $fetcher->method('fetch')->willReturn(new \Core\Http\LinkPreview('Un super lien', 'Une belle description', null));
         $this->withCsrf(['body' => 'Regarde ça: https://example.com/article trop bien']);
 
         $createResponse = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, $fetcher)
@@ -577,7 +578,7 @@ class PostControllerTest extends TestCase
     {
         $fetcher = $this->createMock(LinkPreviewFetcher::class);
         $fetcher->expects($this->once())->method('fetch')->with('https://example.com/article')
-            ->willReturn(new \Modules\Gallery\Api\LinkPreview('Titre', 'Description', base64_decode(
+            ->willReturn(new \Core\Http\LinkPreview('Titre', 'Description', base64_decode(
                 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
             )));
         $this->withCsrf(['body' => 'Regarde https://example.com/article trop bien']);
@@ -763,8 +764,8 @@ class PostControllerTest extends TestCase
         $this->withCsrf([
             'body' => 'Corrigé',
             // Everything a client could plausibly try to forge.
-            'created_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'),
-            'edited_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'),
+            'created_at' => Timestamps::now(),
+            'edited_at' => Timestamps::now(),
             'edit_window_minutes' => '600',
         ]);
 

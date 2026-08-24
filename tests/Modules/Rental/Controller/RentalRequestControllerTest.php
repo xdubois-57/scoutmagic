@@ -136,7 +136,7 @@ class RentalRequestControllerTest extends TestCase
         );
         $this->operationsService = new \Modules\Rental\Service\RentalOperationsService(
             $this->bookingRepository,
-            new \Modules\Rental\Repository\RentalBookingEventRepository($this->pdo),
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
             $this->commentRepository,
             $this->changeRequestRepository,
             $availabilityService,
@@ -183,7 +183,12 @@ class RentalRequestControllerTest extends TestCase
             ),
             $settingService,
             $this->operationsService,
-            $this->changeRequestRepository
+            $this->changeRequestRepository,
+            // §6.32: the renter's own ICS feed. Both handles are nullable
+            // and null without the `calendar` module — only the generator
+            // is borrowed, no calendar row is ever involved.
+            new \Modules\Calendar\Service\IcsBuilder(),
+            new \Modules\Rental\Calendar\RenterFeedBuilder('https://unite.test')
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -877,6 +882,25 @@ class RentalRequestControllerTest extends TestCase
         $this->assertStringContainsString('400,00', $body);
     }
 
+    public function testTheRenterReadsTheirDatesInFrenchNotAsStoredRows(): void
+    {
+        // The one page a renter ever sees was printing `arrivalDate` raw,
+        // so their acknowledgement email and their tracking page disagreed
+        // about what the same stay looks like.
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $arrival = new \DateTimeImmutable($this->arrival());
+        $departure = new \DateTimeImmutable($this->departure());
+
+        $this->assertStringContainsString($arrival->format('d/m/Y'), $body);
+        $this->assertStringContainsString($departure->format('d/m/Y'), $body);
+        $this->assertStringNotContainsString($arrival->format('Y-m-d'), $body);
+        $this->assertStringNotContainsString($departure->format('Y-m-d'), $body);
+    }
+
     public function testAWrongTokenIsA404(): void
     {
         $this->createAsset();
@@ -935,6 +959,131 @@ class RentalRequestControllerTest extends TestCase
         $this->assertStringContainsString('+32 470 00 00 00', $body);
         $this->assertStringContainsString('contact@test.be', $body);
         $this->assertStringNotContainsString('interne@test.be', $body);
+    }
+
+    // ── The renter's own ICS feed (§6.32) ───────────────────────────────
+
+    /**
+     * @param array<string, string> $params
+     */
+    private function feed(int $bookingId, string $token): \Core\Http\Response
+    {
+        return $this->controller->renterFeed(
+            new Request(
+                'GET',
+                '/locations/suivi/' . $bookingId . '/' . $token . '/calendrier.ics',
+                [],
+                [],
+                [],
+                []
+            ),
+            ['id' => (string) $bookingId, 'token' => $token]
+        );
+    }
+
+    public function testAValidTokenGetsAnIcsCarryingTheStay(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $response = $this->feed($bookingId, $token);
+        $body = (string) $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('text/calendar; charset=utf-8', $response->getHeaders()['Content-Type'] ?? null);
+        $this->assertStringContainsString('attachment; filename="location.ics"', (string) ($response->getHeaders()['Content-Disposition'] ?? ''));
+
+        $this->assertStringContainsString('BEGIN:VCALENDAR', $body);
+        $this->assertStringContainsString('END:VCALENDAR', $body);
+        $this->assertStringContainsString('BEGIN:VEVENT', $body);
+        $this->assertStringContainsString('DTSTART', $body);
+        // The stay itself, not an empty calendar.
+        $this->assertStringContainsString(str_replace('-', '', $this->arrival()), $body);
+    }
+
+    /**
+     * The same refusal as everywhere else on this controller, and for the
+     * same reason: a distinct answer for "no such booking" would map out
+     * which references exist.
+     */
+    public function testAWrongTokenGetsA404AndNoCalendarAtAll(): void
+    {
+        $this->createAsset();
+        [$bookingId] = $this->submitAndTrack();
+
+        $response = $this->feed($bookingId, str_repeat('f', 64));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertStringNotContainsString('BEGIN:VCALENDAR', (string) $response->getBody());
+    }
+
+    public function testAnUnknownBookingGetsTheSame404(): void
+    {
+        $this->createAsset();
+        [, $token] = $this->submitAndTrack();
+
+        $response = $this->feed(999999, $token);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testAnEmptyTokenOpensNothing(): void
+    {
+        $this->createAsset();
+        [$bookingId] = $this->submitAndTrack();
+
+        $this->assertSame(404, $this->feed($bookingId, '')->getStatusCode());
+    }
+
+    /**
+     * The failure that would matter most: one renter's token handing back
+     * another renter's stay. The feed is keyed on the booking id AND the
+     * token, and a valid token for booking A must not open booking B.
+     */
+    public function testOneRentersTokenNeverOpensAnotherRentersFeed(): void
+    {
+        $this->createAsset();
+        [$firstId, $firstToken] = $this->submitAndTrack();
+
+        $second = $this->submit($this->validBody([
+            'arrival' => $this->arrival(90),
+            'departure' => $this->departure(93),
+            'name' => 'Autre Locataire',
+            'email' => 'autre@example.org',
+        ]));
+        $this->assertSame(302, $second->getStatusCode(), (string) $second->getBody());
+        $secondId = $firstId + 1;
+        $secondToken = $this->tokenFromRedirect((string) $second->getHeaders()['Location']);
+
+        $this->assertSame(404, $this->feed($secondId, $firstToken)->getStatusCode());
+        $this->assertSame(404, $this->feed($firstId, $secondToken)->getStatusCode());
+
+        // And each one still opens its own.
+        $this->assertSame(200, $this->feed($firstId, $firstToken)->getStatusCode());
+        $this->assertSame(200, $this->feed($secondId, $secondToken)->getStatusCode());
+    }
+
+    /**
+     * One booking, one event — never the other renter's dates, name or
+     * reference alongside it.
+     */
+    public function testTheFeedCarriesThisBookingAndNothingElse(): void
+    {
+        $this->createAsset();
+        [$firstId, $firstToken] = $this->submitAndTrack();
+        $this->submit($this->validBody([
+            'arrival' => $this->arrival(90),
+            'departure' => $this->departure(93),
+            'name' => 'Autre Locataire',
+            'email' => 'autre@example.org',
+        ]));
+
+        $body = (string) $this->feed($firstId, $firstToken)->getBody();
+
+        $this->assertSame(1, substr_count($body, 'BEGIN:VEVENT'));
+        $this->assertStringNotContainsString('Autre Locataire', $body);
+        $this->assertStringNotContainsString('autre@example.org', $body);
+        $this->assertStringNotContainsString(str_replace('-', '', $this->arrival(90)), $body);
     }
 
     // ── Change requests from the renter's side (§6.16, §6.17) ───────────
@@ -1034,6 +1183,40 @@ class RentalRequestControllerTest extends TestCase
         ]);
 
         $this->assertSame($this->arrival(90), $this->bookingRepository->findById($bookingId)?->arrivalDate);
+    }
+
+    public function testRefusingAProposalAsksFirstAndAcceptingIsThePagesPrimary(): void
+    {
+        // Two identically-weighted small buttons, one of which closes the
+        // unit's proposal for good. §7.5: every POST that refuses asks
+        // first, and the question names the consequence.
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $booking = $this->bookingRepository->findById($bookingId);
+        $this->assertNotNull($booking);
+
+        $this->operationsService->requestChange(
+            $booking,
+            \Modules\Rental\Booking\ChangeRequestOrigin::MANAGER,
+            \Modules\Rental\Booking\ChangeRequestKind::DATES,
+            $this->arrival(90),
+            $this->departure(93),
+            null,
+            null,
+            null,
+            'Ces dates nous arrangeraient mieux.',
+            1
+        );
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '#<form[^>]*data-confirm="Refuser cette proposition \?[^"]+"#s',
+            $body
+        );
+        $this->assertStringContainsString('<button type="submit" class="btn btn-sm btn-primary">Accepter</button>', $body);
+        // And the refusal is not disguised as the neutral one of the pair.
+        $this->assertStringContainsString('<button type="submit" class="btn btn-sm btn-outline-secondary">Refuser</button>', $body);
     }
 
     public function testARenterCannotDecideTheirOwnRequest(): void

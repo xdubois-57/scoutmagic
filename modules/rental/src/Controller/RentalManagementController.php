@@ -8,7 +8,10 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Controller;
 
+use Core\Audit\AuditService;
 use Core\Config\ScoutYearService;
+use Core\File\UploadException;
+use Core\File\UploadHandler;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -16,19 +19,18 @@ use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Core\File\UploadException;
-use Core\File\UploadHandler;
 use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
+use Modules\Calendar\Service\CalendarService;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
-use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
-use Modules\Calendar\Service\CalendarService;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Calendar\PublishFrom;
 use Modules\Rental\Document\DocumentKeywords;
 use Modules\Rental\Document\DocumentType;
@@ -38,18 +40,17 @@ use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
-use Modules\Rental\Repository\RentalBookingEventRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalAuthorizationService;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBlockService;
-use Modules\Rental\Service\RentalCommunicationService;
-use Modules\Rental\Service\RentalComplianceService;
-use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalBookingMailService;
 use Modules\Rental\Service\RentalBookingService;
+use Modules\Rental\Service\RentalCommunicationService;
+use Modules\Rental\Service\RentalComplianceService;
 use Modules\Rental\Service\RentalDocumentService;
+use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
@@ -58,6 +59,7 @@ use Modules\Rental\Service\RentalStayService;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\ReadingPhase;
+use Modules\Rental\Support;
 use Twig\Environment;
 
 /**
@@ -136,7 +138,7 @@ class RentalManagementController extends AbstractController
         private ScoutYearService $scoutYearService,
         private RentalAssetRepository $assetRepository,
         private RentalBookingRepository $bookingRepository,
-        private RentalBookingEventRepository $eventRepository,
+        private AuditService $audit,
         private RentalBookingCommentRepository $commentRepository,
         private RentalChangeRequestRepository $changeRequestRepository,
         private RentalOperationsService $operationsService,
@@ -322,8 +324,8 @@ class RentalManagementController extends AbstractController
             $this->complianceService?->add(
                 $asset->id,
                 (string) $request->getBody('label', ''),
-                self::optionalString($request->getBody('expires_on')),
-                self::optionalString($request->getBody('remark')),
+                Support::optionalString($request->getBody('expires_on')),
+                Support::optionalString($request->getBody('remark')),
                 $fileId,
                 $this->actorMemberId()
             );
@@ -346,8 +348,8 @@ class RentalManagementController extends AbstractController
                 $asset->id,
                 $itemId,
                 (string) $request->getBody('label', ''),
-                self::optionalString($request->getBody('expires_on')),
-                self::optionalString($request->getBody('remark')),
+                Support::optionalString($request->getBody('expires_on')),
+                Support::optionalString($request->getBody('remark')),
                 $this->actorMemberId()
             );
 
@@ -653,10 +655,15 @@ class RentalManagementController extends AbstractController
             'quote' => $this->operationsService->workingQuote($booking, $asset),
             'price_is_agreed' => $booking->priceHasBeenAgreed(),
             'comments' => $this->decorateWithAuthors($this->commentRepository->findForBooking($booking->id)),
-            'history' => $this->decorateWithAuthors(
-                $this->eventRepository->findForBooking($booking->id),
-                'actor_member_id'
+            // The booking's own change history (§6.15), through Core\Audit
+            // (§8.66) like every other timeline on the site. The partial
+            // renders the first page server-side; later pages come from
+            // /api/audit/{type}/{id}, which is why the entity type has to be
+            // registered in AuditAccessResolver.
+            'audit_page' => $this->audit->page(
+                BookingAudit::ENTITY_TYPE, $booking->id, 1, AuditService::DEFAULT_PER_PAGE
             ),
+            'audit_labels' => BookingAudit::FIELD_LABELS,
             'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
             'is_in_progress' => $booking->isInProgress($now),
             'payment' => $this->paymentStatus($booking, $asset),
@@ -1057,13 +1064,13 @@ class RentalManagementController extends AbstractController
     {
         return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
             $this->bookingRepository->saveBillingIdentity($booking->id, [
-                'name' => self::optionalString($request->getBody('billing_name')),
-                'address' => self::optionalString($request->getBody('billing_address')),
-                'country' => self::optionalString($request->getBody('billing_country')),
-                'vat_number' => self::optionalString($request->getBody('billing_vat_number')),
-                'enterprise_number' => self::optionalString($request->getBody('billing_enterprise_number')),
-                'email' => self::optionalString($request->getBody('billing_email')),
-                'reference' => self::optionalString($request->getBody('billing_reference')),
+                'name' => Support::optionalString($request->getBody('billing_name')),
+                'address' => Support::optionalString($request->getBody('billing_address')),
+                'country' => Support::optionalString($request->getBody('billing_country')),
+                'vat_number' => Support::optionalString($request->getBody('billing_vat_number')),
+                'enterprise_number' => Support::optionalString($request->getBody('billing_enterprise_number')),
+                'email' => Support::optionalString($request->getBody('billing_email')),
+                'reference' => Support::optionalString($request->getBody('billing_reference')),
             ]);
 
             FlashMessage::set('success', 'Coordonnées de facturation enregistrées.');
@@ -1114,7 +1121,7 @@ class RentalManagementController extends AbstractController
             $this->paymentService->recordSecurityDepositReturn(
                 $booking,
                 RentalPricingService::parseAmountToCents((string) $request->getBody('returned', '')) ?? 0,
-                self::optionalString($request->getBody('note')),
+                Support::optionalString($request->getBody('note')),
                 $returnedAt,
                 $this->actorMemberId()
             );
@@ -1476,7 +1483,7 @@ class RentalManagementController extends AbstractController
         if ($type === DocumentType::INVOICE) {
             $this->assetRepository->saveVatExemptionNote(
                 $asset->id,
-                self::optionalString($request->getBody('vat_exemption_note'))
+                Support::optionalString($request->getBody('vat_exemption_note'))
             );
         }
 
@@ -1594,10 +1601,10 @@ class RentalManagementController extends AbstractController
                 $asset->id,
                 (int) $request->getBody('meter_id', 0),
                 $phase,
-                self::optionalString($request->getBody('value')),
+                Support::optionalString($request->getBody('value')),
                 $readAt,
                 $fileId,
-                self::optionalString($request->getBody('comment')),
+                Support::optionalString($request->getBody('comment')),
                 $this->actorMemberId()
             );
 
@@ -1624,7 +1631,7 @@ class RentalManagementController extends AbstractController
                 (int) $request->getBody('inventory_id', 0),
                 $phase,
                 $state,
-                self::optionalString($request->getBody('note'))
+                Support::optionalString($request->getBody('note'))
             );
 
             FlashMessage::set('success', "État des lieux mis à jour.");
@@ -1763,7 +1770,7 @@ class RentalManagementController extends AbstractController
             }
 
             $now = new \DateTimeImmutable();
-            $word = self::optionalString($request->getBody('message'));
+            $word = Support::optionalString($request->getBody('message'));
 
             if ($target === BookingStatus::CONFIRMED) {
                 $this->operationsService->confirm($booking, $asset, $this->actorMemberId(), $now);
@@ -1787,10 +1794,6 @@ class RentalManagementController extends AbstractController
     }
 
     /** `467,50 €` — for a flash message a human reads, never for arithmetic. */
-    private static function euros(int $cents): string
-    {
-        return number_format($cents / 100, 2, ',', ' ') . ' €';
-    }
 
     /**
      * The sentence a manager needs when they close a booking that is still
@@ -1819,9 +1822,9 @@ class RentalManagementController extends AbstractController
         }
 
         return $received > 0
-            ? ' Attention : ' . self::euros($due - $received) . ' restent attendus sur cette réservation'
+            ? ' Attention : ' . Support::euros($due - $received) . ' restent attendus sur cette réservation'
                 . ' — décidez ce qu\'il advient de la créance dans les Finances.'
-            : ' Attention : la créance de ' . self::euros($due)
+            : ' Attention : la créance de ' . Support::euros($due)
                 . ' est toujours ouverte dans les Finances.';
     }
 
@@ -1902,9 +1905,9 @@ class RentalManagementController extends AbstractController
                     $booking,
                     $asset,
                     $index,
-                    self::optionalString($request->getBody('label')),
+                    Support::optionalString($request->getBody('label')),
                     $request->getBody('quantity') !== null ? max(1, (int) $request->getBody('quantity')) : null,
-                    self::optionalString($request->getBody('amount')) !== null
+                    Support::optionalString($request->getBody('amount')) !== null
                         ? RentalPricingService::parseAmountToCents((string) $request->getBody('amount'))
                         : null,
                     $actor
@@ -1939,12 +1942,12 @@ class RentalManagementController extends AbstractController
                 $booking,
                 ChangeRequestOrigin::MANAGER,
                 $kind,
-                self::optionalString($request->getBody('arrival')),
-                self::optionalString($request->getBody('departure')),
+                Support::optionalString($request->getBody('arrival')),
+                Support::optionalString($request->getBody('departure')),
                 $request->getBody('units') !== null ? max(1, (int) $request->getBody('units')) : null,
                 $request->getBody('persons') !== null ? max(1, (int) $request->getBody('persons')) : null,
                 null,
-                self::optionalString($request->getBody('message')),
+                Support::optionalString($request->getBody('message')),
                 $this->actorMemberId()
             );
 
@@ -1957,7 +1960,7 @@ class RentalManagementController extends AbstractController
                     $booking,
                     $asset,
                     RenterDecision::PROPOSED,
-                    self::optionalString($request->getBody('message'))
+                    Support::optionalString($request->getBody('message'))
                 )
             );
         });
@@ -1976,7 +1979,7 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("Cette demande n'existe pas.");
             }
 
-            $word = self::optionalString($request->getBody('message'));
+            $word = Support::optionalString($request->getBody('message'));
 
             if ((string) $request->getBody('decision', '') === 'accept') {
                 $this->operationsService->acceptChange(
@@ -2032,7 +2035,7 @@ class RentalManagementController extends AbstractController
                 (string) $request->getBody('start', ''),
                 (string) $request->getBody('end', ''),
                 max(1, (int) $request->getBody('units', 1)),
-                self::optionalString($request->getBody('reason')),
+                Support::optionalString($request->getBody('reason')),
                 $this->actorMemberId()
             );
 
@@ -2112,7 +2115,6 @@ class RentalManagementController extends AbstractController
         return $prompts;
     }
 
-
     /**
      * Tells the renter what was just decided, and says so in the flash.
      *
@@ -2154,7 +2156,6 @@ class RentalManagementController extends AbstractController
             ? ' Le locataire a été prévenu par email.'
             : " L'email au locataire n'a pas pu partir : prévenez-le autrement.";
     }
-
 
     /**
      * The shared shape of every booking write: CSRF, authorisation, the
@@ -2420,16 +2421,5 @@ class RentalManagementController extends AbstractController
         }
 
         return $indexed;
-    }
-
-    private static function optionalString(mixed $value): ?string
-    {
-        if (!is_string($value)) {
-            return null;
-        }
-
-        $value = trim($value);
-
-        return $value !== '' ? $value : null;
     }
 }

@@ -20,8 +20,16 @@ class NotificationRepository
 
     public function create(int $userAccountId, ?int $memberId, string $typeId, string $title, string $body, ?string $url): int
     {
+        // created_at from PHP rather than the column's DEFAULT
+        // CURRENT_TIMESTAMP: the notification list groups rows into
+        // "Aujourd'hui" / "Hier" / a date by comparing this value against
+        // PHP's own idea of today (Http\Controller\NotificationController),
+        // and the retention purge cuts on it the same way — a notification
+        // written on a different clock lands under the wrong heading for
+        // the first hours of every day.
         $stmt = $this->pdo->prepare(
-            'INSERT INTO notifications (user_account_id, member_id, type_id, title, body, url) VALUES (?, ?, ?, ?, ?, ?)'
+            'INSERT INTO notifications (user_account_id, member_id, type_id, title, body, url, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $userAccountId,
@@ -30,6 +38,7 @@ class NotificationRepository
             $this->encryption->encrypt($title, 'notifications.title'),
             $this->encryption->encrypt($body, 'notifications.body'),
             $url,
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
         ]);
 
         return (int) $this->pdo->lastInsertId();

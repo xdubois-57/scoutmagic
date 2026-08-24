@@ -7,36 +7,113 @@
   notice window ends up shown to a visitor as "occupé", who then concludes
   the asset is booked and gives up on it (§6.7).
 
+  A READ card and a dialog rather than a form standing open (design.md
+  §1.9): six forms standing open meant six `btn-primary` on one screen,
+  which is six ways of saying « the main action is here ». What a manager
+  wants nine visits out of ten is to READ what the rules are.
+
   Requires `asset` and `constraints`.
 #}
+{% set weekday_names = {1: 'Lundi', 2: 'Mardi', 3: 'Mercredi', 4: 'Jeudi', 5: 'Vendredi', 6: 'Samedi', 7: 'Dimanche'} %}
 <div class="card mb-4" id="regles">
     <div class="card-body">
-        <h2 class="h5 mb-1">Règles de réservation</h2>
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+            <h2 class="h5 mb-0">Règles de réservation</h2>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#regles-edit">
+                <i class="bi bi-pencil" aria-hidden="true"></i>
+                Modifier
+            </button>
+        </div>
         <p class="text-body-secondary small mb-3">
             Ces règles décident de ce qu'un visiteur peut <em>demander</em>. Un jour à l'intérieur du
             préavis reste libre : il s'affiche comme une date passée, jamais comme « occupé ».
-            Laissez une valeur à zéro pour ne pas appliquer la règle.
         </p>
 
-        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/regles">
+        {# « Aucune » rather than « 0 » throughout: zero is how the rule is
+           stored when it does not apply, and « Durée minimum : 0 nuit »
+           reads as a rule that exists and demands nothing. #}
+        <dl class="row mb-0">
+            <dt class="col-sm-5 col-lg-4">Durée minimum</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {{ constraints.minNights ? constraints.minNights ~ ' nuit' ~ (constraints.minNights > 1 ? 's' : '') : 'Aucune' }}
+            </dd>
+
+            <dt class="col-sm-5 col-lg-4">Durée maximum</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {{ constraints.maxNights ? constraints.maxNights ~ ' nuit' ~ (constraints.maxNights > 1 ? 's' : '') : 'Aucune' }}
+            </dd>
+
+            <dt class="col-sm-5 col-lg-4">Préavis</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {{ constraints.minNoticeDays ? constraints.minNoticeDays ~ ' jour' ~ (constraints.minNoticeDays > 1 ? 's' : '') : 'Aucun' }}
+            </dd>
+
+            <dt class="col-sm-5 col-lg-4">Horizon</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {{ constraints.maxHorizonDays ? constraints.maxHorizonDays ~ ' jour' ~ (constraints.maxHorizonDays > 1 ? 's' : '') : 'Aucun' }}
+            </dd>
+
+            <dt class="col-sm-5 col-lg-4">Capacité maximum</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {{ constraints.maxPersons ?? 'La capacité du bien' }}
+            </dd>
+
+            <dt class="col-sm-5 col-lg-4">Battement</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {{ constraints.bufferNights ? constraints.bufferNights ~ ' nuit' ~ (constraints.bufferNights > 1 ? 's' : '') : 'Aucun' }}
+            </dd>
+
+            <dt class="col-sm-5 col-lg-4">Jours d'arrivée</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {% if constraints.allowedArrivalWeekdays is empty %}
+                    Tous les jours
+                {% else %}
+                    {% for number in constraints.allowedArrivalWeekdays %}
+                        {{ weekday_names[number] }}{{ loop.last ? '' : ', ' }}
+                    {% endfor %}
+                {% endif %}
+            </dd>
+        </dl>
+    </div>
+</div>
+
+{# Outside the card: a modal nested in one inherits its stacking context,
+   and Bootstrap's backdrop then renders above the dialog it is meant to
+   sit behind. #}
+{% embed 'partials/modal.html.twig' with {
+    id: 'regles-edit',
+    title: 'Règles de réservation',
+    section_editor: true,
+    size: 'lg',
+    asset: asset,
+    constraints: constraints,
+    weekday_names: weekday_names,
+} only %}
+    {% block body %}
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/regles" id="constraints-form">
             {{ csrf_field()|raw }}
 
-            <div class="row g-3 mb-3">
-                <div class="col-6 col-md-3">
+            <p class="text-body-secondary small">
+                Laissez une valeur à zéro pour ne pas appliquer la règle.
+            </p>
+
+            <div class="row g-3">
+                <div class="col-6 col-md-4">
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'min-nights', field_name: 'min_nights', type: 'number', min: 0,
                         label: 'Durée minimum (nuits)',
                         value: constraints.minNights,
                     } only %}
                 </div>
-                <div class="col-6 col-md-3">
+                <div class="col-6 col-md-4">
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'max-nights', field_name: 'max_nights', type: 'number', min: 0,
                         label: 'Durée maximum (nuits)',
                         value: constraints.maxNights,
                     } only %}
                 </div>
-                <div class="col-6 col-md-3">
+                <div class="col-6 col-md-4">
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'min-notice-days', field_name: 'min_notice_days', type: 'number', min: 0,
                         label: 'Préavis (jours)',
@@ -44,7 +121,7 @@
                         value: constraints.minNoticeDays,
                     } only %}
                 </div>
-                <div class="col-6 col-md-3">
+                <div class="col-6 col-md-4">
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'max-horizon-days', field_name: 'max_horizon_days', type: 'number', min: 0,
                         label: 'Horizon (jours)',
@@ -52,7 +129,7 @@
                         value: constraints.maxHorizonDays,
                     } only %}
                 </div>
-                <div class="col-6 col-md-3">
+                <div class="col-6 col-md-4">
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'max-persons', field_name: 'max_persons', type: 'number',
                         min: 1, inputmode: 'numeric',
@@ -61,7 +138,7 @@
                         value: constraints.maxPersons ?? '',
                     } only %}
                 </div>
-                <div class="col-6 col-md-3">
+                <div class="col-6 col-md-4">
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'buffer-nights', field_name: 'buffer_nights', type: 'number', min: 0,
                         label: 'Battement (nuits)',
@@ -71,13 +148,12 @@
                 </div>
             </div>
 
-            <fieldset class="mb-3">
+            <fieldset class="mb-0">
                 <legend class="form-label">Jours d'arrivée autorisés</legend>
                 <p class="form-text mt-0">
                     Aucun jour coché = tous les jours sont autorisés.
                 </p>
                 <div class="d-flex flex-wrap gap-3">
-                    {% set weekday_names = {1: 'Lundi', 2: 'Mardi', 3: 'Mercredi', 4: 'Jeudi', 5: 'Vendredi', 6: 'Samedi', 7: 'Dimanche'} %}
                     {% for number, name in weekday_names %}
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="weekday-{{ number }}"
@@ -88,8 +164,10 @@
                     {% endfor %}
                 </div>
             </fieldset>
-
-            <button type="submit" class="btn btn-primary">Enregistrer les règles</button>
         </form>
-    </div>
-</div>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" form="constraints-form" class="btn btn-primary">Enregistrer les règles</button>
+    {% endblock %}
+{% endembed %}

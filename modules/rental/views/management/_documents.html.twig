@@ -30,7 +30,7 @@
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                 <input type="hidden" name="document_type" value="contract">
-                <button type="submit" class="btn btn-sm btn-outline-primary">Générer le contrat</button>
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Générer le contrat</button>
             </form>
             <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/invoice"
                class="btn btn-sm btn-outline-secondary">Rédiger la facture</a>
@@ -39,7 +39,7 @@
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                 <input type="hidden" name="document_type" value="invoice">
-                <button type="submit" class="btn btn-sm btn-outline-primary">Générer la facture</button>
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Générer la facture</button>
             </form>
         </div>
 
@@ -66,7 +66,7 @@
                                 <td>
                                     {{ document.label }}
                                     {% if document.isForRenter %}
-                                        <span class="badge text-bg-light border ms-1"
+                                        <span class="badge bg-body-tertiary border text-body-secondary ms-1"
                                               title="Sera joint à un email — jamais téléchargeable par le locataire">
                                             Destiné au locataire
                                         </span>
@@ -91,7 +91,7 @@
                                                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                                 <input type="hidden" name="document_id" value="{{ document.id }}">
-                                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary">
                                                     {{ document.hasBeenSent ? 'Renvoyer' : 'Envoyer' }}
                                                 </button>
                                             </form>
@@ -159,9 +159,16 @@
             <input type="hidden" name="asset_id" value="{{ asset.id }}">
             <input type="hidden" name="booking_id" value="{{ booking.id }}">
             <div class="col-12 col-md-4">
-                <label class="form-label" for="document-file">Ajouter un document</label>
-                <input type="file" class="form-control form-control-sm" id="document-file" name="document"
-                       accept=".pdf,image/jpeg,image/png,image/webp,image/heic" required>
+                {% include 'partials/drop_zone.html.twig' with {
+                    id: 'document-drop-zone',
+                    input_id: 'document-file',
+                    input_name: 'document',
+                    input_label: 'Document à ajouter',
+                    accept: '.pdf,image/jpeg,image/png,image/webp,image/heic',
+                    message: 'Déposez le document ici, ou cliquez pour le choisir',
+                    data: { 'drop-zone-for': 'document-file' },
+                } only %}
+                <div class="form-text" id="document-drop-zone-selection" role="status"></div>
             </div>
             <div class="col-6 col-md-3">
                 <label class="form-label" for="document-type">Type</label>
@@ -180,7 +187,7 @@
                 </div>
             </div>
             <div class="col-12 col-md-2">
-                <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
+                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
             </div>
         </form>
     </div>
@@ -233,7 +240,7 @@
                        name="billing_reference" value="{{ billing.reference }}">
             </div>
             <div class="col-12">
-                <button type="submit" class="btn btn-sm btn-outline-primary">Enregistrer</button>
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer</button>
             </div>
         </form>
     </div>

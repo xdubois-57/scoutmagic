@@ -18,7 +18,7 @@
         </a>
         {% if unread_count > 0 %}
             <form method="post" action="/notifications/mark-all-read">
-                {{ csrf_field() }}
+                {{ csrf_field()|raw }}
                 <button type="submit" class="btn btn-outline-secondary btn-sm">Tout marquer comme lu</button>
             </form>
         {% endif %}
@@ -36,7 +36,7 @@
         <div class="list-group mb-3">
             {% for notification in group.notifications %}
                 <form method="post" action="/notifications/{{ notification.id }}/read" class="list-group-item list-group-item-action p-0 border-0 mb-2 rounded {% if not notification.isRead %}bg-primary-subtle{% else %}bg-body border{% endif %}">
-                    {{ csrf_field() }}
+                    {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-link text-decoration-none text-start text-body w-100 p-3 d-flex gap-2 align-items-start">
                         <span class="d-inline-block rounded-circle{% if not notification.isRead %} bg-primary{% endif %}" style="width:8px;height:8px;margin-top:6px;flex-shrink:0;" aria-hidden="true"></span>
                         <span class="flex-grow-1">

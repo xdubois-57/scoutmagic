@@ -55,7 +55,7 @@
                     } only %}
                     <span class="text-body-secondary small">
                         seuil de {{ payment.deposit_cents|money_cents }}
-                        {% if payment.deposit_due_date %}, attendu pour le {{ payment.deposit_due_date }}{% endif %}
+                        {% if payment.deposit_due_date %}, attendu pour le {{ payment.deposit_due_date|date_fr }}{% endif %}
                         — même communication que le solde
                     </span>
                 </p>
@@ -64,7 +64,7 @@
             {% if payment.fully_paid %}
                 <p class="mb-3">{% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Location intégralement payée' } only %}</p>
             {% elseif payment.balance_due_date %}
-                <p class="text-body-secondary small mb-3">Solde attendu pour le {{ payment.balance_due_date }}.</p>
+                <p class="text-body-secondary small mb-3">Solde attendu pour le {{ payment.balance_due_date|date_fr }}.</p>
             {% endif %}
 
             {% if payment.security_deposit.amount_cents is not null %}
@@ -94,7 +94,7 @@
                     {% if payment.security_deposit.returned_at %}
                         <dt class="col-sm-5">Restituée le</dt>
                         <dd class="col-sm-7">
-                            {{ payment.security_deposit.returned_at }} —
+                            {{ payment.security_deposit.returned_at|date_fr }} —
                             {{ payment.security_deposit.returned_cents|money_cents }}
                             {% if payment.security_deposit.withheld_cents %}
                                 (retenu {{ payment.security_deposit.withheld_cents|money_cents }})
@@ -132,7 +132,7 @@
                             <input type="text" class="form-control form-control-sm" id="deposit-note" name="note">
                         </div>
                         <div class="col-12 col-md-2">
-                            <button type="submit" class="btn btn-sm btn-outline-primary w-100">Enregistrer</button>
+                            <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Enregistrer</button>
                         </div>
                     </form>
                 {% endif %}

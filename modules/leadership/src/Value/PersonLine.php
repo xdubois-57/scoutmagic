@@ -24,6 +24,12 @@ namespace Modules\Leadership\Value;
  */
 final class PersonLine
 {
+    /** `$days` counts down to something that has not happened yet. */
+    public const DAYS_UNTIL = 'until';
+
+    /** `$days` counts up from something that already has. */
+    public const DAYS_SINCE = 'since';
+
     /**
      * @param string|null $detail  Secondary line: function, section, branch-year…
      * @param string|null $note    Fully-written French sentence explaining the entry.
@@ -60,6 +66,16 @@ final class PersonLine
          * complete list of people who were contacted.
          */
         public readonly ?string $email = null,
+        /**
+         * Whether `$days` counts down or up — « dans 12 j » against
+         * « depuis 12 j ».
+         *
+         * A bare « 12 j » beside a name says nothing about which: on the
+         * obligations page it is a birthday still to come, on the
+         * stewards page a registration already running, and the two
+         * chips looked identical while meaning opposite things.
+         */
+        public readonly string $daysDirection = self::DAYS_SINCE,
     ) {
     }
 }

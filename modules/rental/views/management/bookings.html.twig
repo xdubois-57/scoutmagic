@@ -103,7 +103,7 @@
                                     {% endif %}
                                 </td>
                                 <td class="small">
-                                    du {{ booking.arrivalDate }}<br>au {{ booking.departureDate }}
+                                    du {{ booking.arrivalDate|date_fr }}<br>au {{ booking.departureDate|date_fr }}
                                 </td>
                                 <td>{% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}</td>
                                 <td class="text-end">

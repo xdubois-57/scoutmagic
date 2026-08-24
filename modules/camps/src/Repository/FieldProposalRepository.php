@@ -45,31 +45,6 @@ class FieldProposalRepository
     }
 
     /**
-     * @param int[] $campIds
-     * @return array<int, int> camp id => pending proposal count
-     */
-    public function countByCamps(array $campIds): array
-    {
-        $campIds = array_values(array_unique(array_map('intval', $campIds)));
-        if ($campIds === []) {
-            return [];
-        }
-
-        $placeholders = implode(',', array_fill(0, count($campIds), '?'));
-        $stmt = $this->pdo->prepare(
-            "SELECT camp_id, COUNT(*) AS n FROM camp_field_proposals WHERE camp_id IN ({$placeholders}) GROUP BY camp_id"
-        );
-        $stmt->execute($campIds);
-
-        $counts = array_fill_keys($campIds, 0);
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $counts[(int) $row['camp_id']] = (int) $row['n'];
-        }
-
-        return $counts;
-    }
-
-    /**
      * Records a proposal, REPLACING any live one for the same field.
      * Three cards disagreeing about one price is not more information,
      * it is noise.

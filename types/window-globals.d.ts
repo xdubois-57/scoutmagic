@@ -64,6 +64,28 @@ interface Window {
             options?: { input?: HTMLInputElement | null, pickOnClick?: boolean }
         ) => void;
     };
+    // public/assets/js/upload-drop-zone.js — a drop_zone whose file rides
+    // the surrounding form's own multipart POST; loaded by the pages that
+    // show one (design.md §7.10).
+    ScoutMagicUploadDropZone?: {
+        bind: (root?: ParentNode) => void;
+        describe: (zone: HTMLElement, files: FileList) => void;
+    };
+    // public/assets/js/section-editor.js — the « Modifier » dialogs of a
+    // settings screen (design.md §1.9), loaded only by the pages that
+    // split their sections into read cards and editing dialogs.
+    ScoutMagicSectionEditor?: {
+        bind: (root?: ParentNode) => void;
+        focusFirstField: (modal: Element | null) => void;
+        openFromHash: (hash: string, root?: ParentNode) => boolean;
+    };
+    // public/assets/js/camps-place-summary.js — the busy state of the
+    // « Écrire le résumé » buttons on a camp place, loaded by that page.
+    ScoutMagicCampsPlaceSummary?: {
+        bind: (root?: ParentNode) => void;
+        markBusy: (form: HTMLFormElement) => void;
+        release: (form: HTMLFormElement) => void;
+    };
     // public/assets/js/sortable.js — drag-and-drop reordering of a list,
     // loaded only by the pages that offer it.
     ScoutMagicSortable?: {

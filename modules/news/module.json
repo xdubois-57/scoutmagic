@@ -153,6 +153,15 @@
       "label": ""
     },
     {
+      "path": "/news/{id}/form/responses/mail-draft",
+      "method": "POST",
+      "controller": "Modules\\News\\Controller\\FormController",
+      "action": "createMailDraft",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
       "path": "/news/{id}/form/responses/{response_id}/edit",
       "method": "GET",
       "controller": "Modules\\News\\Controller\\FormController",

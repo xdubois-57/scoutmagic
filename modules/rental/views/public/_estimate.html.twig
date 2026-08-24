@@ -87,7 +87,7 @@
 
         {% if estimate %}
             {% for error in estimate.errors %}
-                <div class="alert alert-warning py-2 small">{{ error }}</div>
+                <div class="alert alert-warning py-2 small" role="alert">{{ error }}</div>
             {% endfor %}
         {% endif %}
 
@@ -103,7 +103,7 @@
               « Dès 0,00 € » read as a price of zero; this says what is
               actually true and keeps the visitor moving (§6.7).
             #}
-            <div class="alert alert-info py-2">
+            <div class="alert alert-info py-2" role="status">
                 <strong>Tarif sur demande.</strong> L'unité n'a pas encore publié de tarif en ligne
                 pour ce bien : introduisez votre demande, elle vous répondra avec une proposition
                 de prix.
@@ -197,7 +197,7 @@
             {% elseif estimate_requested %}
                 {# « Estimer » was pressed with no usable dates. Answering
                    nothing here is what made the button look broken. #}
-                <div class="alert alert-warning py-2 small">
+                <div class="alert alert-warning py-2 small" role="alert">
                     Indiquez une date d'arrivée et une date de départ — dans le calendrier ou dans
                     les champs ci-dessus — pour obtenir une estimation.
                 </div>
@@ -214,7 +214,7 @@
               price it first, and a page whose only way forward is a
               form they did not ask for is a dead end.
             #}
-            <a class="btn btn-outline-primary" href="{{ request_url }}">Introduire une demande</a>
+            <a class="btn btn-primary" href="{{ request_url }}">Introduire une demande</a>
         {% endif %}
     </div>
 </div>

@@ -119,12 +119,85 @@ class CollectorBudgetsTest extends TestCase
 
         $result = $this->runCollector(new LogsCollector());
 
+        // The collector writes two files of its own alongside the copies —
+        // the summary and the grouped-errors digest — and neither is a
+        // host log file the budget applies to.
+        $generated = ['logs/summary.txt', 'logs/errors-resume.txt'];
         $copied = array_filter(
             array_keys($result['entries']),
-            static fn(string $name): bool => $name !== 'logs/summary.txt' && str_starts_with($name, 'logs/')
+            static fn(string $name): bool => !in_array($name, $generated, true) && str_starts_with($name, 'logs/')
         );
 
         $this->assertCount(LogsCollector::MAX_FILES, $copied);
+    }
+
+    /**
+     * Copying the logs is not the same as making them readable. The
+     * archive that prompted this carried 233 error-log lines, 230 of them
+     * one deprecation repeating and exactly one an uncaught exception that
+     * had been returning 500 on every route. The fatal goes on top; the
+     * noise becomes a number.
+     */
+    public function testTheFatalIsSurfacedAboveTheNoiseThatBuriesIt(): void
+    {
+        $now = date('Y-m-d H:i:s');
+        $lines = [];
+        for ($i = 0; $i < 40; $i++) {
+            $lines[] = "{$now} PHP Deprecated: something is deprecated in /htdocs/core/Thing.php on line {$i}";
+        }
+        $lines[] = "{$now} PHP message: Uncaught Core\\Help\\HelpException: Help topic declares an invalid path "
+            . "'/mes-locations/*/calendrier' in /htdocs/core/Help/HelpFrontMatterParser.php:193";
+        file_put_contents($this->storagePath . '/logs/error.log', implode("\n", $lines) . "\n");
+
+        $result = $this->runCollector(new LogsCollector());
+        $digest = $result['entries']['logs/errors-resume.txt'];
+
+        $this->assertStringContainsString('HelpException', $digest);
+        $this->assertStringContainsString('40 ×  PHP Deprecated', $digest);
+        // The fatal is stated before the noise, not after it.
+        $this->assertLessThan(
+            strpos($digest, 'DÉPRÉCIATIONS'),
+            (int) strpos($digest, 'HelpException'),
+            'the fault must come before the volume of noise'
+        );
+        $this->assertNotEmpty(array_filter(
+            $result['notes'],
+            static fn(string $note): bool => str_contains($note, 'fatale')
+        ));
+    }
+
+    /**
+     * One fault repeating a thousand times must be one line, or the digest
+     * is as unreadable as the log it summarises.
+     */
+    public function testRepeatsOfTheSameFaultAreOneGroupedLine(): void
+    {
+        $now = date('Y-m-d H:i:s');
+        $lines = [];
+        for ($i = 0; $i < 25; $i++) {
+            // Request ids and line numbers vary between occurrences; the
+            // fault does not.
+            $lines[] = "{$now} [req " . bin2hex(random_bytes(8)) . "] PHP Fatal error: "
+                . "Allowed memory size exhausted in /htdocs/core/Thing.php on line {$i}";
+        }
+        file_put_contents($this->storagePath . '/logs/error.log', implode("\n", $lines) . "\n");
+
+        $digest = $this->runCollector(new LogsCollector())['entries']['logs/errors-resume.txt'];
+
+        $this->assertSame(1, substr_count($digest, 'Allowed memory size'));
+        $this->assertStringContainsString('25 ×', $digest);
+    }
+
+    public function testAHealthyLogSaysSoRatherThanShowingAnEmptySection(): void
+    {
+        file_put_contents(
+            $this->storagePath . '/logs/error.log',
+            date('Y-m-d H:i:s') . " tout va bien\n"
+        );
+
+        $digest = $this->runCollector(new LogsCollector())['entries']['logs/errors-resume.txt'];
+
+        $this->assertStringContainsString('Aucune erreur fatale', $digest);
     }
 
     public function testWhatWasNotCopiedIsReportedRatherThanSilentlyDropped(): void

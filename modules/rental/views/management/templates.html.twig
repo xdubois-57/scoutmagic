@@ -46,7 +46,7 @@
                     <h2 class="h5 mb-3">{{ template.type.label }}</h2>
 
                     {% if template.unknown_keywords is not empty %}
-                        <div class="alert alert-warning">
+                        <div class="alert alert-warning" role="status">
                             Mots-clés non reconnus, qui apparaîtront tels quels dans le document :
                             {% for keyword in template.unknown_keywords %}
                                 <code>{{ '{{ ' ~ keyword ~ ' }}' }}</code>{{ not loop.last ? ', ' : '' }}
@@ -330,7 +330,7 @@
                         </div>
                     </div>
                     <div class="col-4 col-md-2">
-                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
                     </div>
                 </form>
             </div>
@@ -382,7 +382,7 @@
                                name="sort_order" value="0">
                     </div>
                     <div class="col-12 col-md-2">
-                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
                     </div>
                 </form>
             </div>

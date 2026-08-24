@@ -23,6 +23,11 @@ if (PHP_SAPI !== 'cli') {
 
 $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 
+// Same wall clock as public/index.php — a scheduled action written by a web
+// request and claimed by this pass has to be read on the clock it was
+// written on. See Core\Config\AppClock.
+\Core\Config\AppClock::apply();
+
 // Same safety net as public/index.php — see Core\System\ComposerAutoloadSync's
 // own docblock. Needed here too: a scheduled task from a module whose PSR-4
 // entry predates the last time vendor/ was regenerated would otherwise fail
@@ -239,7 +244,13 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         $rentalPurgePaymentService = new \Modules\Rental\Service\RentalPaymentService(
             new \Modules\Rental\Repository\RentalPaymentRepository($pdo, $encryptionService),
-            new \Modules\Rental\Repository\RentalBookingEventRepository($pdo),
+            // No ActorAccountResolver: nothing on the cron path has an
+            // actor to resolve. Every change it records is the application
+            // acting on its own, which Core\Audit renders as an automatic
+            // entry — the honest reading and the one a manager needs.
+            new \Modules\Rental\Audit\BookingAudit(
+                new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService))
+            ),
             $journalService,
             new \Modules\Finance\Service\ExpectedReceivableService(
                 new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryptionService),
@@ -263,7 +274,12 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
                 new \Core\File\FileRepository($pdo),
                 null,
                 dirname(__DIR__) . '/storage',
-                $rentalPurgePaymentService
+                $rentalPurgePaymentService,
+                // Its change history too: `entity_changes` carries no
+                // foreign key, so nothing about it cascades (§8.66).
+                new \Modules\Rental\Audit\BookingAudit(
+                    new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService))
+                )
             )
         )
     );
@@ -287,6 +303,30 @@ if (in_array('inbound_mail', $moduleManager->getEnabledModuleIds(), true)) {
         'inbound_mail',
         \Modules\InboundMail\Task\SyncMailboxesHandler::TASK_KEY,
         new \Modules\InboundMail\Task\SyncMailboxesHandler($inboundMailConsumerRegistry)
+    );
+}
+
+// Camps' summary refresher is the second hand-registered module task, for
+// the same reason and with the same failure mode: it consumes
+// `llm_connector`'s public API (ARCHITECTURE.md §7.5), only a composition
+// root knows whether that module is enabled, and a handler registered in
+// only one of the two entry points fails unconditionally under the other.
+// Null connector — llm_connector absent or disabled — means no summary is
+// written and every other camps screen is unaffected.
+if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
+    $campsLlmConnector = null;
+    if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
+        $campsLlmConnector = new \Modules\LlmConnector\Service\LlmConnectorService(
+            new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService),
+            new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo),
+            $journalService
+        );
+    }
+
+    $runner->registerHandler(
+        'camps',
+        \Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY,
+        new \Modules\Camps\Task\RefreshPlaceSummariesHandler($campsLlmConnector)
     );
 }
 

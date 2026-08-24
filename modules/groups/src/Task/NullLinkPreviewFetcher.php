@@ -8,8 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Task;
 
-use Modules\Gallery\Api\LinkPreview;
-use Modules\Gallery\Api\LinkPreviewFetcher;
+use Core\Http\LinkPreview;
+use Core\Http\LinkPreviewFetcher;
 
 /**
  * A fetcher that fetches nothing, for the retention purge.

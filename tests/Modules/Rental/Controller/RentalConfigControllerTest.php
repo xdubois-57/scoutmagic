@@ -18,6 +18,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\View\TwigFactory;
 use Modules\Rental\Controller\RentalConfigController;
+use Modules\Rental\Mail\MailboxSelection;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAssetService;
@@ -396,6 +397,69 @@ class RentalConfigControllerTest extends TestCase
         $this->assertStringContainsString('encore aucun tarif', $body);
     }
 
+    /**
+     * The park page reads as facts, and offers to change them
+     * (design.md §1.9).
+     *
+     * Five forms stood open at once — général, gestionnaires, compte,
+     * courrier, création — so five `btn-primary` competed on one screen.
+     * Only creating a bien is a creation action, which §7.4 keeps
+     * primary; every edit is a dialog now.
+     */
+    public function testTheParkPageEditsThroughDialogsAndKeepsOneCreationPrimary(): void
+    {
+        $this->createAsset();
+
+        $body = (string) preg_replace(
+            '/\s+/',
+            ' ',
+            $this->controllerWithPricing()
+                ->index(new Request('GET', '/admin/locations', [], [], [], []), [])
+                ->getBody()
+        );
+
+        foreach (['#general-edit', '#gestionnaires-edit'] as $target) {
+            $this->assertStringContainsString('data-bs-target="' . $target . '"', $body, $target);
+        }
+
+        // The forms are unchanged: same action, reachable from the
+        // dialog's own footer.
+        foreach ([
+            '/admin/locations/general' => 'asset-general-form',
+            '/admin/locations/managers' => 'rental-managers-form',
+        ] as $action => $formId) {
+            $this->assertStringContainsString('action="' . $action . '" id="' . $formId . '"', $body, $action);
+            $this->assertStringContainsString('form="' . $formId . '"', $body, $formId);
+        }
+
+        // Creating stays inline and stays the screen's one primary: it is
+        // the only submit outside a dialog.
+        $pageBody = substr($body, 0, strpos($body, '<div class="modal fade"') ?: strlen($body));
+        $this->assertDoesNotMatchRegularExpression(
+            '/<button[^>]*type="submit"[^>]*btn-primary/',
+            $pageBody
+        );
+        $this->assertStringContainsString('Créer le bien', $body);
+    }
+
+    public function testArchivingAnAssetSaysWhatItCostsBeforeItHappens(): void
+    {
+        // « Archiver » sat in `btn-outline-warning` and fired on the first
+        // click, right next to « Supprimer définitivement », which asked.
+        // The louder-looking of the two was the one that never asked.
+        $this->createAsset();
+
+        $body = (string) $this->controllerWithPricing()
+            ->index(new Request('GET', '/admin/locations', [], [], [], []), [])
+            ->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '#<form[^>]*action="/admin/locations/archive"[^>]*data-confirm="[^"]+"#s',
+            $body
+        );
+        $this->assertStringContainsString("Rien n'est supprimé.", $body);
+    }
+
     public function testAPricedAssetIsNotFlagged(): void
     {
         $assetId = $this->createAsset();
@@ -476,5 +540,309 @@ class RentalConfigControllerTest extends TestCase
         $this->assertNotNull($grant);
         $this->assertTrue($grant->isActive);
         $this->assertTrue($grant->isRenterContact);
+    }
+
+    // ── saveGeneral() (§6.11) ───────────────────────────────────────────
+
+    /**
+     * @param array<string, mixed> $body
+     */
+    private function postGeneral(array $body): \Core\Http\Response
+    {
+        $body['_csrf_token'] = CsrfGuard::generateToken();
+        $_POST = $body;
+
+        return $this->controller->saveGeneral(
+            new Request('POST', '/admin/locations/general', [], $body, [], []),
+            []
+        );
+    }
+
+    public function testSavingTheGeneralSectionWritesEveryFieldAndComesBackToTheAsset(): void
+    {
+        $assetId = $this->createAsset();
+
+        $response = $this->postGeneral([
+            'asset_id' => (string) $assetId,
+            'name' => 'Local Saint-Georges',
+            'asset_type' => 'Local',
+            'capacity' => '60',
+            'quantity' => '1',
+            'arrival_time' => '18:00',
+            'departure_time' => '11:00',
+            'emergency_phone' => '+32 470 11 22 33',
+            'is_public' => '1',
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/admin/locations?asset_id=' . $assetId, $response->getHeaders()['Location'] ?? null);
+
+        $asset = $this->assetRepository->findById($assetId);
+        $this->assertSame('Local Saint-Georges', $asset?->name);
+        $this->assertSame(60, $asset->capacity);
+        $this->assertSame('18:00', $asset->arrivalTime);
+        $this->assertSame('11:00', $asset->departureTime);
+        $this->assertTrue($asset->isPublic);
+    }
+
+    /**
+     * An unticked checkbox is not submitted at all, which is the whole
+     * reason `is_public` is read as "is the key present" rather than as a
+     * value: a form that can only ever turn a flag ON is a flag nobody can
+     * turn off.
+     */
+    public function testAnUntickedPublicBoxTakesTheAssetOffThePublicPage(): void
+    {
+        $assetId = $this->createAsset();
+
+        $this->postGeneral([
+            'asset_id' => (string) $assetId,
+            'name' => 'Local',
+            'asset_type' => 'Local',
+            'quantity' => '1',
+        ]);
+
+        $this->assertFalse($this->assetRepository->findById($assetId)?->isPublic);
+    }
+
+    public function testBlankOptionalFieldsAreStoredAsAbsentRatherThanAsEmptyStrings(): void
+    {
+        $assetId = $this->createAsset();
+
+        $this->postGeneral([
+            'asset_id' => (string) $assetId,
+            'name' => 'Local',
+            'asset_type' => 'Local',
+            'quantity' => '1',
+            'capacity' => '',
+            'arrival_time' => '   ',
+            'departure_time' => '',
+            'emergency_phone' => '  ',
+        ]);
+
+        $asset = $this->assetRepository->findById($assetId);
+        $this->assertNull($asset?->capacity);
+        $this->assertNull($asset->arrivalTime);
+        $this->assertNull($asset->departureTime);
+        $this->assertNull($asset->emergencyPhone);
+    }
+
+    public function testAQuantityBelowOneIsRaisedRatherThanStored(): void
+    {
+        $assetId = $this->createAsset();
+
+        $this->postGeneral([
+            'asset_id' => (string) $assetId,
+            'name' => 'Local',
+            'asset_type' => 'Local',
+            'quantity' => '0',
+        ]);
+
+        $this->assertSame(1, $this->assetRepository->findById($assetId)?->quantity);
+    }
+
+    public function testAnEmptyNameIsRefusedAndChangesNothing(): void
+    {
+        $assetId = $this->createAsset('Local original', 'local-original');
+
+        $response = $this->postGeneral([
+            'asset_id' => (string) $assetId,
+            'name' => '   ',
+            'asset_type' => 'Local',
+            'quantity' => '1',
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode(), 'a refusal is a flash, not a crash');
+        $this->assertSame('Local original', $this->assetRepository->findById($assetId)?->name);
+    }
+
+    public function testSavingWithoutACsrfTokenChangesNothing(): void
+    {
+        $assetId = $this->createAsset('Local original', 'local-original');
+        $_POST = [];
+
+        $this->controller->saveGeneral(
+            new Request('POST', '/admin/locations/general', [], ['asset_id' => (string) $assetId, 'name' => 'Volé'], [], []),
+            []
+        );
+
+        $this->assertSame('Local original', $this->assetRepository->findById($assetId)?->name);
+    }
+
+    // ── saveMailboxes() (§7.4) ──────────────────────────────────────────
+
+    /**
+     * @param array<int, string> $mailboxIds
+     */
+    private function postMailboxes(array $mailboxIds, ?MailboxSelection $selection = null): \Core\Http\Response
+    {
+        $this->settingService->register(
+            MailboxSelection::SETTING_KEY,
+            '',
+            'text',
+            'Boîtes surveillées',
+            'Les boîtes que ce module écoute.',
+            'rental'
+        );
+
+        $controller = new RentalConfigController(
+            $this->twig,
+            $this->assetRepository,
+            new RentalAssetService(
+                $this->assetRepository,
+                new RentalSlugGenerator($this->assetRepository),
+                new JournalService(new JournalRepository($this->pdo))
+            ),
+            $this->managerService,
+            new ScoutYearService($this->pdo),
+            $this->settingService,
+            null,
+            $selection
+        );
+
+        $body = ['mailbox_ids' => $mailboxIds, '_csrf_token' => CsrfGuard::generateToken()];
+        $_POST = $body;
+
+        return $controller->saveMailboxes(
+            new Request('POST', '/admin/locations/mailboxes', [], $body, [], []),
+            []
+        );
+    }
+
+    public function testSavingTheWatchedMailboxesStoresTheChosenOnes(): void
+    {
+        $selection = new MailboxSelection($this->settingService, new TwoMailboxes());
+
+        $response = $this->postMailboxes(['2'], $selection);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/admin/locations#courrier', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame([2], $selection->selectedIds());
+    }
+
+    /**
+     * Filtered against what actually exists: a stale id from a deleted box
+     * would silently narrow the selection to something no manager could
+     * see on the page, or undo.
+     */
+    public function testAnIdThatIsNotAKnownMailboxIsDropped(): void
+    {
+        $selection = new MailboxSelection($this->settingService, new TwoMailboxes());
+
+        $this->postMailboxes(['2', '999'], $selection);
+
+        $this->assertSame([2], $selection->selectedIds());
+    }
+
+    public function testSubmittingNothingClearsTheSelection(): void
+    {
+        $selection = new MailboxSelection($this->settingService, new TwoMailboxes());
+        $this->postMailboxes(['2', '3'], $selection);
+
+        $this->postMailboxes([], $selection);
+
+        $this->assertSame([], $selection->selectedIds());
+    }
+
+    /**
+     * Without `inbound_mail` there is nothing to select from, and the route
+     * answers as if it did not exist rather than storing a selection the
+     * module could never act on.
+     */
+    public function testTheRouteIsNotThereWithoutTheInboundMailModule(): void
+    {
+        $response = $this->postMailboxes(['2'], null);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testSavingMailboxesWithoutACsrfTokenStoresNothing(): void
+    {
+        $selection = new MailboxSelection($this->settingService, new TwoMailboxes());
+        $_POST = [];
+
+        $controller = new RentalConfigController(
+            $this->twig,
+            $this->assetRepository,
+            new RentalAssetService(
+                $this->assetRepository,
+                new RentalSlugGenerator($this->assetRepository),
+                new JournalService(new JournalRepository($this->pdo))
+            ),
+            $this->managerService,
+            new ScoutYearService($this->pdo),
+            $this->settingService,
+            null,
+            $selection
+        );
+        $controller->saveMailboxes(
+            new Request('POST', '/admin/locations/mailboxes', [], ['mailbox_ids' => ['2']], [], []),
+            []
+        );
+
+        $this->assertSame([], $selection->selectedIds());
+    }
+}
+
+/**
+ * Two configured mailboxes, as `listMailboxSummaries()` exposes them — a
+ * name and a state, never the host or the account (§8.58).
+ *
+ * @internal
+ */
+class TwoMailboxes implements \Modules\InboundMail\Api\InboundMailInterface
+{
+    /** @return \Modules\InboundMail\Api\InboundMessage[] */
+    public function findForReference(string $consumerId, string $businessReference): array
+    {
+        return [];
+    }
+
+    public function findOneForReference(
+        string $consumerId,
+        string $businessReference,
+        int $messageId
+    ): ?\Modules\InboundMail\Api\InboundMessage {
+        return null;
+    }
+
+    /** @param int[] $preserveFileIds */
+    public function detach(
+        string $consumerId,
+        string $businessReference,
+        int $messageId,
+        array $preserveFileIds = []
+    ): bool {
+        return false;
+    }
+
+    public function move(string $consumerId, string $fromReference, string $toReference, int $messageId): bool
+    {
+        return false;
+    }
+
+    public function purgeReference(string $consumerId, string $businessReference): int
+    {
+        return 0;
+    }
+
+    public function isCollecting(): bool
+    {
+        return true;
+    }
+
+    /** @param string[] $messageIds */
+    public function findReferenceByThread(string $consumerId, int $mailboxId, array $messageIds): ?string
+    {
+        return null;
+    }
+
+    /** @return array<int, array{name: string, state: string, is_enabled: bool}> */
+    public function listMailboxSummaries(): array
+    {
+        return [
+            2 => ['name' => 'Boîte location', 'state' => 'ok', 'is_enabled' => true],
+            3 => ['name' => 'Boîte unité', 'state' => 'ok', 'is_enabled' => true],
+        ];
     }
 }

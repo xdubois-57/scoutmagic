@@ -49,6 +49,13 @@ coverage/
 tests/e2e/test-results/
 tests/e2e/playwright-report/
 tests/e2e/.playwright-artifacts-*/
+# ...and the same output at the repository root, which is where Playwright
+# writes when it is invoked directly (`npx playwright test`) instead of
+# through scripts/e2e.sh: `outputDir` in tests/e2e/playwright.config.js is
+# relative to that config, so bypassing it falls back to Playwright's own
+# default of ./test-results. A failed run committed its traces here once.
+/test-results/
+/playwright-report/
 
 # PHPStan cache
 storage/temp/phpstan/

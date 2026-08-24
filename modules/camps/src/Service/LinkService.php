@@ -12,15 +12,15 @@ use Core\Audit\AuditService;
 use Core\Audit\AuditSource;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
+use Core\Http\LinkPreviewFetcher;
 use Modules\Camps\Repository\Link;
 use Modules\Camps\Repository\LinkRepository;
-use Modules\Gallery\Api\LinkPreviewFetcher;
 
 /**
  * Web pages kept next to a stay.
  *
  * Never fetches a URL itself. Every outbound request goes through
- * Modules\Gallery\Api\LinkPreviewFetcher, which is the ONLY place in this
+ * Core\Http\LinkPreviewFetcher, which is the ONLY place in this
  * codebase allowed to reach an address a member typed: it carries
  * Core\Security\SsrfUrlValidator, and a second implementation would not
  * (SECURITY.md §17). A URL box on a chief-only page is still an SSRF

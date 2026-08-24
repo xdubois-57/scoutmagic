@@ -12,6 +12,7 @@ use Core\Config\SettingService;
 use Core\File\FileRepository;
 use Core\Journal\JournalService;
 use Modules\InboundMail\Api\InboundMailInterface;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Mail\RentalMessageConsumer;
 use Modules\Rental\Repository\RentalAggregateRepository;
@@ -30,7 +31,8 @@ use Modules\Rental\Repository\RentalReminderRepository;
  * we kept 2027's paperwork long enough?" unanswerable.
  *
  * **Everything about the person goes.** The booking, its lines, its
- * documents and the files behind them, its tokens, its meter readings, its
+ * documents and the files behind them, its tokens, its change history, its
+ * meter readings, its
  * inventory, its incidents, its settlements, and the emails
  * `inbound_mail` attached to it, and the receivables it raised in Finance.
  * The database cascades do most of it; the files on disk, the other
@@ -62,7 +64,8 @@ class RentalRetentionService
         private ?FileRepository $fileRepository = null,
         private ?InboundMailInterface $inboundMail = null,
         private string $storagePath = '',
-        private ?RentalPaymentService $payments = null
+        private ?RentalPaymentService $payments = null,
+        private ?BookingAudit $bookingAudit = null
     ) {
     }
 
@@ -186,6 +189,13 @@ class RentalRetentionService
         // matters. Null when Finance is disabled, which is a normal
         // installation and not an error.
         $this->payments?->forgetBooking($booking->id);
+
+        // The booking's own change history (§6.15) lives in core's
+        // `entity_changes`, which carries no foreign key on purpose
+        // (§8.66) — so nothing about it cascades, and a purge that forgot
+        // it would leave a timeline of a stay that no longer exists, under
+        // an id the next booking will be given.
+        $this->bookingAudit?->forget($booking->id);
 
         // Everything keyed on the booking cascades from here.
         $this->bookingRepository->deleteById($booking->id);

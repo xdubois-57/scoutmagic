@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Camps\Repository;
 
 use Core\Security\EncryptionService;
+use Modules\Camps\Support;
 
 /**
  * camp_contacts. Encrypts and decrypts every personal field, and is the
@@ -186,20 +187,16 @@ class ContactRepository
 
     private function blindIndex(?string $email): ?string
     {
-        $email = $email !== null ? mb_strtolower(trim($email)) : null;
+        $email = EncryptionService::normalizeEmailForIndex($email);
 
-        return $email !== null && $email !== ''
-            ? $this->encryption->blindIndex($email, 'camp_contacts.email')
-            : null;
+        return $email !== '' ? $this->encryption->blindIndex($email, 'camp_contacts.email') : null;
     }
 
     private function encryptNullable(?string $value): ?string
     {
-        $value = $value !== null ? trim($value) : null;
+        $value = Support::clean($value);
 
-        return $value !== null && $value !== ''
-            ? $this->encryption->encrypt($value, 'camp_contacts.value')
-            : null;
+        return $value !== null ? $this->encryption->encrypt($value, 'camp_contacts.value') : null;
     }
 
     private function decryptNullable(mixed $value): ?string

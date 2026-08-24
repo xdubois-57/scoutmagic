@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Maintenance;
 
+use Core\Config\AppClock;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Scheduler\SchedulerService;
@@ -48,11 +49,17 @@ class GitHubWebhookService
     private const PUSH_INSTALL_REFERENCE = 'push_install';
 
     // Wall-clock timezone the admin's auto_update_day/auto_update_time are
-    // expressed in. Shared hosting routinely runs PHP with date.timezone
-    // UTC, and an admin typing "03:00" means 3 o'clock at night locally,
-    // not 04:00/05:00 — same "this platform serves Belgian scout units"
-    // rationale as Modules\Calendar\Service\IcsBuilder::TIMEZONE_ID.
-    public const SCHEDULE_TIMEZONE = 'Europe/Brussels';
+    // expressed in: the application clock, named explicitly rather than
+    // taken from date_default_timezone_get(), so a CLI pass launched with a
+    // different ambient zone cannot silently move the slot by hours. An
+    // admin typing "03:00" means 3 o'clock at night locally, not 04:00.
+    //
+    // nextOccurrence() below converts into this zone and back out into
+    // $now's — now that the two are normally the same zone that round trip
+    // is an identity rather than a shift, which is exactly what it must be:
+    // it corrects a mismatch when there is one and does nothing when there
+    // isn't. It must never become a second, unconditional correction.
+    public const SCHEDULE_TIMEZONE = AppClock::TIMEZONE;
 
     public function __construct(
         private SettingService $settings,

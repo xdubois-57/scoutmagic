@@ -20,6 +20,14 @@
             <a href="/news/{{ article.id }}/form/responses/export" class="btn btn-sm btn-outline-primary">
                 <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Exporter en Excel
             </a>
+            {% if mail_draft_available %}
+                <form method="post" action="/news/{{ article.id }}/form/responses/mail-draft" class="d-inline">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-envelope-paper" aria-hidden="true"></i> Écrire aux répondants
+                    </button>
+                </form>
+            {% endif %}
         </div>
     </div>
 

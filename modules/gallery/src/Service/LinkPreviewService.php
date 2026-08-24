@@ -8,8 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Gallery\Service;
 
-use Modules\Gallery\Api\LinkPreview;
-use Modules\Gallery\Api\LinkPreviewFetcher;
+use Core\Http\LinkPreview;
+use Core\Http\LinkPreviewFetcher;
 use Modules\Gallery\Repository\LinkPreviewCacheRepository;
 
 /**

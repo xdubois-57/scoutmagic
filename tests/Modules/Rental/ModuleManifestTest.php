@@ -41,7 +41,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.16.0', $this->manifest->version);
+        $this->assertSame('1.17.0', $this->manifest->version);
     }
 
     /**
@@ -168,6 +168,42 @@ class ModuleManifestTest extends TestCase
      * at load time; asserting it here turns a silently unreachable route
      * into a failing test instead of a 404 nobody can explain.
      */
+    /**
+     * The managed space's breadcrumbs stop repeating themselves.
+     *
+     * Eight route groups declared `parents: ["Espace membres", "Mes
+     * locations"]` while their controller already emitted « Mes
+     * locations » as a real ancestor link — so every page inside an
+     * asset read « Espace membres › Mes locations › Mes locations › Le
+     * Chalet › … ». `parents` is for menu sections; ancestor PAGES are
+     * `breadcrumb_trail`'s job (design.md §7.3).
+     */
+    public function testTheManagedSpaceDeclaresOnlyItsMenuSectionAsAParent(): void
+    {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 3) . '/modules/rental/module.json'),
+            true
+        );
+        $this->assertIsArray($manifest);
+
+        $managed = [];
+        foreach ($manifest['routes'] as $route) {
+            if (!str_starts_with((string) $route['path'], '/mes-locations') || !isset($route['breadcrumb'])) {
+                continue;
+            }
+            $managed[(string) $route['path']] = $route['breadcrumb']['parents'] ?? [];
+        }
+
+        $this->assertNotEmpty($managed);
+        foreach ($managed as $path => $parents) {
+            $this->assertSame(['Espace membres'], $parents, $path);
+        }
+        // Including the compliance register, which used to hang off
+        // « Espace chefs d'U › Locations » — neither of which is where it
+        // lives or how a manager reaches it.
+        $this->assertArrayHasKey('/mes-locations/{slug}/conformite', $managed);
+    }
+
     public function testNoRouteIsShadowedByAnEarlierOne(): void
     {
         // fromFile() runs validateNoShadowedRoutes() (among every other

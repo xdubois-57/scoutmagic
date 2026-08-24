@@ -168,11 +168,24 @@ class HelpFrontMatterParser
     }
 
     /**
-     * Two forms only, the exact/child semantics of
-     * Core\Offline\OfflineWhitelist: `/admin/import` (exact) and
-     * `/members/*` (the path plus exactly one extra segment — covers
-     * /members/12, not /members/12/emails/5). An empty value is valid: a
-     * purely documentary topic is only reachable from /aide.
+     * Three forms.
+     *
+     * `/admin/import` matches that path and nothing else. `/members/*`
+     * is the exact/child semantics of Core\Offline\OfflineWhitelist —
+     * the path plus exactly one extra segment, so /members/12 and not
+     * /members/12/emails/5. And a `*` standing for a whole segment
+     * anywhere in the path — `/chefs/camps/sejours/*` /documents' — where
+     * each `*` matches exactly one segment.
+     *
+     * The third form is what a module whose pages hang off an id needs.
+     * Half of `rental`'s screens are `/mes-locations/{slug}/reglages` and
+     * half of `camps`'s are `/chefs/camps/sejours/{id}/documents`; with
+     * only the first two forms no rule can name them at all, so those
+     * pages could never carry a contextual help button however many
+     * topics were written for them.
+     *
+     * An empty value is valid: a purely documentary topic is only
+     * reachable from /aide.
      *
      * @return array<int, array{path: string, match: string}>
      */
@@ -180,6 +193,16 @@ class HelpFrontMatterParser
     {
         $paths = [];
         foreach ($this->splitList($raw) as $declared) {
+            // A `*` anywhere but at the end: kept whole, matched segment
+            // by segment by Core\Help\HelpService.
+            if (str_contains($declared, '*') && !$this->isTrailingStarOnly($declared)) {
+                if (preg_match('#^(?:/(?:\*|[^\s*/]+))+$#', $declared) !== 1) {
+                    throw new HelpException("Help topic {$filePath} declares an invalid path '{$declared}' (a '*' stands for one whole segment)");
+                }
+                $paths[] = ['path' => $declared, 'match' => 'pattern'];
+                continue;
+            }
+
             if (str_ends_with($declared, '/*')) {
                 $base = substr($declared, 0, -1); // keep the trailing slash: '/members/*' → '/members/'
                 if (preg_match('#^/[^\s*]*/$#', $base) !== 1) {
@@ -190,12 +213,22 @@ class HelpFrontMatterParser
             }
 
             if (preg_match('#^/[^\s*]*$#', $declared) !== 1) {
-                throw new HelpException("Help topic {$filePath} declares an invalid path '{$declared}' (must start with '/', '*' only as a trailing '/*')");
+                throw new HelpException("Help topic {$filePath} declares an invalid path '{$declared}' (must start with '/', '*' only as a whole segment)");
             }
             $paths[] = ['path' => $declared, 'match' => 'exact'];
         }
 
         return $paths;
+    }
+
+    /**
+     * Whether the only `*` in a declared path is the trailing one — the
+     * `/members/*` form, which keeps its own storage shape so nothing
+     * that already reads it has to change.
+     */
+    private function isTrailingStarOnly(string $declared): bool
+    {
+        return str_ends_with($declared, '/*') && !str_contains(substr($declared, 0, -2), '*');
     }
 
     /**

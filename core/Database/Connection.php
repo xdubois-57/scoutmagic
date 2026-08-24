@@ -48,9 +48,48 @@ class Connection
             ]);
 
             $this->pdo->exec('SET NAMES utf8mb4');
+            self::alignSessionTimeZone($this->pdo);
         }
 
         return $this->pdo;
+    }
+
+    /**
+     * Make the server's idea of "now" the same as PHP's.
+     *
+     * Half of this codebase writes a timestamp from PHP (`date('Y-m-d H:i:s')`,
+     * `(new \DateTimeImmutable())->format(...)`) and the other half lets a
+     * column's `DEFAULT CURRENT_TIMESTAMP` — or a `NOW()` in a query — do it.
+     * Every rate limiter, retention cutoff and scheduler query in the tree then
+     * compares the two against each other. As long as both sides sat on UTC
+     * that worked by accident; the moment the application declares a local
+     * default zone (`Core\Config\AppClock`) it stops working, because only
+     * one of the two sides moves: a rate-limit window whose lower
+     * bound is computed in PHP lands one or two hours in the future relative to
+     * every row the database wrote, and the limiter silently never fires again.
+     *
+     * So the session's time zone is set, at connect time, to whatever numeric
+     * offset PHP's own default zone is on right now. A **numeric** offset, not
+     * the zone name: `SET time_zone = 'Europe/Brussels'` requires the server's
+     * `mysql.time_zone*` tables to be populated, which on shared hosting they
+     * routinely are not — it fails with SQLSTATE HY000 / 1298 and would take
+     * the whole install down. The offset is computed per connection, and a PHP
+     * process serving one request (or one cron pass) never spans a DST switch
+     * in practice.
+     *
+     * SQLite has no session time zone at all — its `CURRENT_TIMESTAMP` is UTC,
+     * always — so nothing is executed there. Tests running on SQLite must write
+     * their timestamps from PHP rather than leaning on a column default; that
+     * is the same rule module authors get in docs/module-development.md.
+     */
+    private static function alignSessionTimeZone(\PDO $pdo): void
+    {
+        if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'mysql') {
+            return;
+        }
+
+        $statement = $pdo->prepare('SET time_zone = ?');
+        $statement->execute([(new \DateTimeImmutable('now'))->format('P')]);
     }
 
     /**

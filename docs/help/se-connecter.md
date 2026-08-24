@@ -4,7 +4,7 @@ title: Se connecter au site
 summary: Le lien magique, le mot de passe et la clé numérique, pas à pas.
 category: Premiers pas
 role_min: public
-paths: /login
+paths: /login, /auth/verify, /password-reset/*
 related: un-email-plusieurs-animes, mon-compte, adresses-email
 ---
 

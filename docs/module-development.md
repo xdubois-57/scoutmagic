@@ -50,7 +50,7 @@ The directory name **must** match the `id` field in `module.json`.
       "label": "",
       "breadcrumb": {
         "label": "Activité",
-        "parents": ["Espace animés", "Calendrier"]
+        "parents": ["Espace membres"]
       }
     },
     {
@@ -161,10 +161,11 @@ Two modules use it today: `support_dashboard` (`["statistics_receiver"]`) and `t
   - `method`: optional (defaults to `GET`).
   - `label`: if non-empty, the route is added to the menu with this label.
   - `menu_order`: optional integer, defaults to `100`. **Read this carefully if you're used to an older version of this rule: `menu_order` no longer competes with core or dynamic entries at all, only with other modules.** `Core\View\MenuBuilder::visibleEntries()` sorts every menu by entry type first — dynamic entries (e.g. `espace_animes`'s per-member pages) always first, then core static pages, then every module's pages — and only uses `menu_order` to break ties *within* the module group. Setting a very low value (e.g. `5`) no longer places a module page ahead of a dynamic per-member entry or a core page, however low — it only affects that page's position relative to *other module pages* in the same menu. (An earlier version of this rule let a low `menu_order` do exactly that, and two real modules relied on it — `trombinoscope`/`gallery` both declared `menu_order: 5`/`6` in `espace_animes` expecting to sort before per-member pages that used order 10+; under the current rule they simply sort after every dynamic/core entry regardless, and their explicit `menu_order` only orders them against each other.) **This explicit value is still untouched by the module-to-module reordering described below** — only routes left at the plain default are affected by that.
+  - `menu_icon`: optional string, the Bootstrap Icons class drawn beside the entry — `"bi-calendar3"`, `"bi-mortarboard"`. Validated at load time against `/^bi-[a-z0-9-]+$/`, so a typo is a `ModuleException` rather than an invisible glyph, and an empty string is the same as omitting the key. **Declare one on every labelled route**: every sub-page entry starts with an icon, in the same box the per-member entries use for their avatar, so all the labels in a menu line up — an entry without one leaves a hole in that column, which reads as a rendering defect rather than as a choice. Pick from the vocabulary already on screen where one fits (`bi-people`, `bi-cash-coin`, `bi-images`, `bi-calendar3`); §7.4 of design.md fixes only the four action icons, not these.
   - `menu_group`: optional string, naming which **titled column** of its menu the entry is drawn in on the desktop mega-menu. Nothing to do with `menu_order` above: `menu_order` decides where in a list an entry lands, `menu_group` decides which column draws it. The vocabulary is closed per menu and declared once in `Core\View\MenuBuilder::MENU_GROUPS` — `espace_animes`: `mes_membres`, `pages`; `espace_chefs`: `ma_section`, `activites`, `communication`, `gestion`; `espace_admin`: `membres_annee`, `contenu`, `services`, `suivi`; `configuration`: `unite_donnees`, `site`, `modules`, `exploitation`; `notre_unite` is not grouped and accepts none. A value not declared for that route's own `menu` is a load-time `ModuleException`, exactly like an invalid `menu` — a free string would let two modules write "Gestion" and "gestion" and produce two columns meaning the same thing. Columns are drawn in `MENU_GROUPS`' declaration order, never by `menu_order`, which still sorts *within* a column — so a module page and a core page can share one (`finance`'s "Finances" sits under `gestion` beside core pages). Omitting the key is fine and lands the entry in that menu's **last** declared group, where the omission is at least visible; a module page in a real menu should normally declare one. A module's own configuration page under `configuration` belongs in `modules`.
 
   - Module-to-module ordering (for routes at the default `menu_order`): a superadmin can drag-and-drop reorder modules on the Modules configuration page (`/config/modules`, `module_registry.sort_order`). Each enabled module's position in that order becomes a base offset (`1000 * position`) added to its default-order routes' `menu_order` — so those pages sort by module order relative to each other; this offset, like any other `menu_order` value, only ever matters within the module group (see above), never against core or dynamic entries. See `Core\Module\ModuleManager::loadModule()`.
-  - `breadcrumb`: optional. When present, `label` is required (the page's own default breadcrumb label — a Controller can still override it per-request with a `breadcrumb_current` context variable, e.g. for a dynamic member/article title) and `parents` is an optional array of ancestor labels, each naming a *menu* (`Core\View\MenuBuilder`'s `label`, e.g. `"Espace animés"` — core routes derive this string from `Core\View\MenuBuilder::labelFor()` rather than hardcoding it, since `public/index.php` has PHP to call that from; a `module.json` breadcrumb has no such option, being plain JSON, so it keeps its own hardcoded copy of the label text — keep it in sync with `MenuBuilder::MENUS` by hand). A parent is never given its own URL in `module.json` — `partials/breadcrumb_bar.html.twig` matches it against `menus` (the same structure the nav renders from) and links it to that menu's first real page (skipping dynamic per-member entries and any `#` placeholder), or leaves it as plain text when the menu has none, or when the only such page is the one already being viewed (never a self-link, and never an invented URL like `/` or `#`). A route with no `breadcrumb` key is not an error — the breadcrumb bar simply stops at the home icon for that page. Rendered by `partials/breadcrumb_bar.html.twig`, included from `base.html.twig`, and visible at every width — mobile, desktop browser tab, installed PWA alike (pure CSS, see `public/assets/css/app.css` — never a security boundary, same principle as menu visibility, SECURITY §3). Core routes declare the exact same shape as this route's 6th `Core\Http\Router::addRoute()` argument — see the core route table in `public/index.php`.
+  - `breadcrumb`: optional. When present, `label` is required (the page's own default breadcrumb label — a Controller can still override it per-request with a `breadcrumb_current` context variable, e.g. for a dynamic member/article title) and `parents` is an optional array of ancestor labels, each naming a *menu* (`Core\View\MenuBuilder`'s `label`, e.g. `"Espace membres"` — core routes derive this string from `Core\View\MenuBuilder::labelFor()` rather than hardcoding it, since `public/index.php` has PHP to call that from; a `module.json` breadcrumb has no such option, being plain JSON, so it keeps its own hardcoded copy of the label text — keep it in sync with `MenuBuilder::MENUS` by hand). A parent is never given its own URL in `module.json` — `partials/breadcrumb_bar.html.twig` matches it against `menus` (the same structure the nav renders from) and links it to that menu's first real page (skipping dynamic per-member entries and any `#` placeholder), or leaves it as plain text when the menu has none, or when the only such page is the one already being viewed (never a self-link, and never an invented URL like `/` or `#`). A route with no `breadcrumb` key is not an error — the breadcrumb bar simply stops at the home icon for that page. Rendered by `partials/breadcrumb_bar.html.twig`, included from `base.html.twig`, and visible at every width — mobile, desktop browser tab, installed PWA alike (pure CSS, see `public/assets/css/app.css` — never a security boundary, same principle as menu visibility, SECURITY §3). Core routes declare the exact same shape as this route's 6th `Core\Http\Router::addRoute()` argument — see the core route table in `public/index.php`.
 - **settings**: optional, each entry must have `key`, `type`, `label`, `description`, and may declare `default_value` and `editable` (bool, default `true`).
 - **cookies**: optional, each entry must have `name`, `category`, `purpose`, `duration`.
   - `category`: one of `necessary`, `functional`, `analytics`.
@@ -213,6 +214,37 @@ class CalendarController extends AbstractController
     }
 }
 ```
+
+## CSRF token in a form (`csrf_field()`)
+
+Every `<form method="post">` carries one, no exceptions (`AGENTS.md`
+§ Security checklist). The Twig function writes the whole hidden input:
+
+```twig
+<form method="post" action="/mon-module/enregistrer">
+    {{ csrf_field()|raw }}
+    …
+</form>
+```
+
+The function is registered with `['is_safe' => ['html']]`
+(`Core\View\TwigFactory`), so **`|raw` is a no-op** and plain
+`{{ csrf_field() }}` produces exactly the same markup. Write the filter
+anyway, every time: a reader auditing which templates emit raw HTML greps
+for `|raw`, and a call site without it is one that grep misses — including
+the ones that are safe by construction. Precisely because nothing breaks
+when the two forms drift apart, they drift, so this is the one form and
+`Tests\Core\View\UxConventionsTest::testCsrfFieldIsAlwaysWrittenWithTheRawFilter`
+keeps it that way.
+
+Do NOT hand-write the input: the token itself comes from
+`Core\Security\CsrfGuard::generateToken()`, and a template composing the
+markup around it is a template that has to remember to escape it.
+`csrf_token()` exists for the one case that genuinely needs the bare value
+(a `<meta>` tag a fetch() reads).
+
+The controller side is `$this->guardCsrf($request, '/where/to/go/back')`
+— see `AbstractController`; the guard is never called by the router.
 
 ## Chip picker (`partials/chip_picker.html.twig`)
 
@@ -448,7 +480,7 @@ $moved   = $this->delegatedAlbumManager->moveMedia('my_module_thing', $fromAlbum
 
 - **`moveMedia()` merges two albums you own** — for when the entities behind them merge. It re-parents every media and moves its renditions server-side (an S3 `CopyObject`, a filesystem copy), never re-uploading anything. It refuses, changing nothing, when either album is not yours, when both ids are the same album, or when the two sit on **different storage locations** — a rendition's bytes cannot cross backends without passing through PHP, and the location is resolved from the album, so a media left behind would be unservable the moment it landed. Do not work around that by moving rows yourself: a rendition's key embeds the album it was written under, and album deletion clears storage by prefix.
 
-The same module publishes `Api\LinkPreviewFetcher` for Open Graph title/description/image of a user-supplied URL. Use it rather than fetching a URL yourself — `Modules\Gallery\Service\OgScraperService` is the only place in this codebase allowed to make an outbound request to a member-supplied address, and it is hardened against SSRF in ways a second implementation would not be (SECURITY.md §17).
+Core publishes `Core\Http\LinkPreviewFetcher` for Open Graph title/description/image of a user-supplied URL, and `gallery` provides its one implementation. Take it as a nullable dependency and use it rather than fetching a URL yourself — `Modules\Gallery\Service\OgScraperService` is the only place in this codebase allowed to make an outbound request to a member-supplied address, and it is hardened against SSRF in ways a second implementation would not be (SECURITY.md §17).
 
 ## Database
 
@@ -459,6 +491,23 @@ The same module publishes `Api\LinkPreviewFetcher` for Open Graph title/descript
 - Include a `scout_year_id` foreign key on member-related data tables.
 - A module that stores confidential *files* (not just database fields) — receipts, private documents, anything that must never be readable directly off disk — should use `Core\File\EncryptedFileStorageService` (`store()`/`retrieve()`/`delete()`) instead of `UploadHandler`. It uses the same master key as `EncryptionService` and integrates transparently with `FileAccessGuard`/`/files/{id}` — the caller never handles decryption itself.
 - **Editing `schema.sql` for a module that may already be enabled somewhere (i.e. any change after the module's first release — new column, new table, changed default, etc.)? Bump `version` in `module.json` in the same change.** `ModuleManager::loadEnabledModules()` only re-diffs and re-applies a module's `schema.sql` when the manifest's `version` compares greater than the version recorded in the module registry (`ModuleManager.php`, the "Auto-migrate when module version is newer than installed version" block). Editing `schema.sql` without bumping `version` is silently a no-op on every already-enabled installation — the new column/table only ever gets created for a *fresh* activation, never retrofitted onto an existing one. This has caused real `Unknown column` / `PDOException` production errors from schema changes that looked complete in code review but were never actually applied to the running database. There is no separate reminder or lint for this — bumping the version is the only signal that triggers migration, so treat "I touched schema.sql" and "I bump version" as inseparable.
+
+### Timestamps: one clock, `Europe/Brussels`
+
+**Every naive `DATETIME` in this database is Belgian local time, and both the PHP side and the database side are held to it.** The invariant has three parts, and a module author has to know all three:
+
+1. **PHP runs on `Europe/Brussels`.** `Core\Config\AppClock::apply()` is the first thing `public/index.php`, `public/cron.php` and `tests/bootstrap.php` do. So `date('Y-m-d H:i:s')`, `new \DateTimeImmutable('now')`, `new \DateTimeImmutable('today')` and `'tomorrow 04:00'` all mean what a Belgian reader thinks they mean. (`bootstrap/bootstrap.php` is the standalone FTP installer, not the running app — it has nothing to do with this.)
+2. **The MySQL session agrees.** `Core\Database\Connection::getPdo()` executes `SET time_zone = '<PHP's current numeric offset>'` on every connection it opens, so `NOW()` and a column's `DEFAULT CURRENT_TIMESTAMP` land on the same clock as PHP. A *numeric* offset deliberately, not `'Europe/Brussels'`: the named form needs the server's `mysql.time_zone*` tables, which shared hosting routinely does not load, and would fail the connection outright.
+3. **SQLite cannot join in, so PHP writes the timestamp.** The in-memory SQLite database the test suite runs on (`Tests\DatabaseTestHelper`) has no session timezone and its `CURRENT_TIMESTAMP` is UTC, full stop. **Any column whose value is ever compared against a PHP-computed instant is therefore written from PHP** — bound as a parameter, never left to the column default and never `NOW()` in the SQL. Keep the `DEFAULT CURRENT_TIMESTAMP` in `schema.sql` as a safety net for hand-written SQL; just don't rely on it.
+
+What that means when you write a module:
+
+- **Do** compute both ends of any window in PHP: `$since = (new \DateTimeImmutable('-10 minutes'))->format('Y-m-d H:i:s');` compared against a `created_at` your own `INSERT` supplied. Every rate limiter in the tree is built this way — `Core\Security\HumanCheck\HumanCheckRateLimitRepository` is the reference shape.
+- **Do** render with `|date_fr`, `|datetime_fr`, `|french_date`, `|relative_date`. They read a stored value under the default timezone and print it as-is, which is now already correct — no conversion at render time.
+- **Don't** write `gmdate()`, and don't parse a stored value with `new \DateTimeZone('UTC')`. Both used to be right, back when the whole application ran on UTC; both are now off by an hour or two. If you need a value that cannot drift when a caller changes the ambient timezone underneath you, name the zone explicitly with `AppClock::zone()` / `AppClock::now()` — `Modules\Groups\Support\Timestamps` is the worked example, and the module's edit-window tests exist to keep it honest.
+- **Don't** seed a test fixture with SQL time (`datetime('now', '-1 minute')`, `NOW()`) and then assert against a PHP-computed instant. That compares two clocks and passes or fails by accident; write the fixture the way the repository under test writes it.
+- **Don't** round-trip a date through a Unix timestamp when a library will read it back as UTC. `ExcelDate::PHPToExcel(strtotime('2015-03-21'))` produced 2015-03-20 the moment PHP stopped running on UTC; pass a `DateTimeInterface` instead, which is read by its calendar components (`Core\Member\Export\MemberExportService`).
+- Timestamps that leave the installation — an API payload, an `.ics` file, a support package — stay explicit UTC/ISO-8601 and convert at the boundary. That is a serialisation format, not storage.
 
 Example `schema.sql`:
 
@@ -626,11 +675,16 @@ Corps en Markdown…
   pins the whole corpus.
 - `role_min`: below it the topic exists nowhere (panel, index, search,
   direct URL — 404). Same role vocabulary as routes.
-- `paths`: pages the topic covers — exact (`/locations`) or direct child
-  (`/locations/*`, the path plus exactly one segment; `offline`'s
-  exact/child semantics). Every declared path must correspond to a real
-  registered GET route, or the invariant test fails. Empty is valid: the
-  topic is then only reachable from `/aide`.
+- `paths`: pages the topic covers, in three forms — exact
+  (`/locations`), direct child (`/locations/*`, the path plus exactly one
+  segment; `offline`'s exact/child semantics), and a segment pattern
+  where a `*` stands for one whole segment anywhere
+  (`/mes-locations/*/reglages`, `/locations/suivi/*/*`). Use the third
+  for a page hanging off an id, which the first two cannot name at all.
+  A pattern matches segment count for segment count, so a rule for a page
+  never also claims the pages under it. Every declared path must
+  correspond to a real registered GET route, or the invariant test fails.
+  Empty is valid: the topic is then only reachable from `/aide`.
 - Body sections start at `##` (the title already is the page's `<h1>`).
   Write to the editorial charter in design.md §7.11 — vouvoiement, the
   §7.1 lexicon, ~400 words, at most one `> ` warning callout, no external

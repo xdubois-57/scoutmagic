@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Repository;
 
+use Core\File\AttachedFileRepository;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 
@@ -22,7 +23,7 @@ use Modules\Rental\Document\RentalDocument;
  * Every timestamp is computed in PHP, never MySQL's `NOW()`, so this runs
  * unmodified against the SQLite test database.
  */
-class RentalDocumentRepository
+class RentalDocumentRepository implements AttachedFileRepository
 {
     public function __construct(private \PDO $pdo)
     {

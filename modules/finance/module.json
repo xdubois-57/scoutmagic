@@ -28,6 +28,36 @@
       "breadcrumb": { "label": "Paiements attendus", "parents": ["Espace animateurs"] }
     },
     {
+      "path": "/finance/tools",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ToolsController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "",
+      "breadcrumb": { "label": "Outils", "parents": ["Espace animateurs"] }
+    },
+    {
+      "path": "/finance/tools/qr",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ToolsController",
+      "action": "generateQr",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "",
+      "breadcrumb": { "label": "Outils", "parents": ["Espace animateurs"] }
+    },
+    {
+      "path": "/finance/tools/communication",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ToolsController",
+      "action": "checkCommunication",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "",
+      "breadcrumb": { "label": "Outils", "parents": ["Espace animateurs"] }
+    },
+    {
       "path": "/finance/movements",
       "method": "GET",
       "controller": "Modules\\Finance\\Controller\\MovementController",

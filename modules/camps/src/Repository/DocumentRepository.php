@@ -8,12 +8,14 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Repository;
 
+use Core\File\AttachedFileRepository;
+
 /**
  * camp_documents. No encryption: a document's TITLE is what a chief typed
  * to find it again, and the bytes themselves are guarded by
  * Core\File\FileAccessGuard through Service\CampFileOwnershipChecker.
  */
-class DocumentRepository
+class DocumentRepository implements AttachedFileRepository
 {
     public function __construct(private \PDO $pdo)
     {
@@ -49,31 +51,6 @@ class DocumentRepository
         return (int) $stmt->fetchColumn();
     }
 
-    /**
-     * @param int[] $campIds
-     * @return array<int, int> camp id => document count
-     */
-    public function countByCamps(array $campIds): array
-    {
-        $campIds = array_values(array_unique(array_map('intval', $campIds)));
-        if ($campIds === []) {
-            return [];
-        }
-
-        $placeholders = implode(',', array_fill(0, count($campIds), '?'));
-        $stmt = $this->pdo->prepare(
-            "SELECT camp_id, COUNT(*) AS n FROM camp_documents WHERE camp_id IN ({$placeholders}) GROUP BY camp_id"
-        );
-        $stmt->execute($campIds);
-
-        $counts = array_fill_keys($campIds, 0);
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $counts[(int) $row['camp_id']] = (int) $row['n'];
-        }
-
-        return $counts;
-    }
-
     public function create(
         int $campId,
         string $title,
@@ -91,11 +68,6 @@ class DocumentRepository
         ]);
 
         return (int) $this->pdo->lastInsertId();
-    }
-
-    public function rename(int $id, string $title): void
-    {
-        $this->pdo->prepare('UPDATE camp_documents SET title = ? WHERE id = ?')->execute([$title, $id]);
     }
 
     public function delete(int $id): void

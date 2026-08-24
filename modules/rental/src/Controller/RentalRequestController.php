@@ -19,22 +19,23 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
 use Core\View\EditableContentService;
+use Modules\Calendar\Service\IcsBuilder;
+use Modules\Rental\Booking\ChangeRequestKind;
+use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Calendar\RenterFeedBuilder;
 use Modules\Rental\Pricing\PricingRequest;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
+use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBookingMailService;
-use Modules\Rental\Booking\ChangeRequestKind;
-use Modules\Rental\Booking\ChangeRequestOrigin;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalBookingService;
-use Modules\Calendar\Service\IcsBuilder;
-use Modules\Rental\Calendar\RenterFeedBuilder;
-use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalManagerService;
+use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPricingService;
+use Modules\Rental\Support;
 use Twig\Environment;
 
 /**
@@ -195,7 +196,7 @@ class RentalRequestController extends AbstractController
         $units = max(1, (int) $request->getBody('units', 1));
         $categoryId = (string) $request->getBody('category', '');
 
-        if (!self::isDate($arrival) || !self::isDate($departure)) {
+        if (!Support::isDate($arrival) || !Support::isDate($departure)) {
             return $this->renderForm($asset, $request, ['Les dates ne sont pas valides.']);
         }
 
@@ -254,10 +255,10 @@ class RentalRequestController extends AbstractController
                 [
                     'name' => (string) $request->getBody('name', ''),
                     'email' => (string) $request->getBody('email', ''),
-                    'phone' => self::optionalString($request->getBody('phone')),
-                    'organisation' => self::optionalString($request->getBody('organisation')),
-                    'purpose' => self::optionalString($request->getBody('purpose')),
-                    'comment' => self::optionalString($request->getBody('comment')),
+                    'phone' => Support::optionalString($request->getBody('phone')),
+                    'organisation' => Support::optionalString($request->getBody('organisation')),
+                    'purpose' => Support::optionalString($request->getBody('purpose')),
+                    'comment' => Support::optionalString($request->getBody('comment')),
                 ],
                 $quote,
                 [
@@ -382,14 +383,14 @@ class RentalRequestController extends AbstractController
                 $booking,
                 ChangeRequestOrigin::RENTER,
                 $kind,
-                self::optionalString($request->getBody('arrival')),
-                self::optionalString($request->getBody('departure')),
+                Support::optionalString($request->getBody('arrival')),
+                Support::optionalString($request->getBody('departure')),
                 null,
                 $request->getBody('persons') !== null && (int) $request->getBody('persons') > 0
                     ? (int) $request->getBody('persons')
                     : null,
                 null,
-                self::optionalString($request->getBody('message'))
+                Support::optionalString($request->getBody('message'))
             );
 
             FlashMessage::set(
@@ -632,23 +633,5 @@ class RentalRequestController extends AbstractController
     private function privacyVersion(): string
     {
         return substr(RentalBookingService::hashAcceptedText($this->privacyText()), 0, 12);
-    }
-
-    private static function isDate(string $value): bool
-    {
-        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $value);
-
-        return $parsed !== false && $parsed->format('Y-m-d') === $value;
-    }
-
-    private static function optionalString(mixed $value): ?string
-    {
-        if (!is_string($value)) {
-            return null;
-        }
-
-        $value = trim($value);
-
-        return $value !== '' ? $value : null;
     }
 }

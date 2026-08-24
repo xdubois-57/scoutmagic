@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Service;
 
+use Core\Config\AppClock;
 use Core\Config\ScoutYearService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Config\SettingService;
@@ -266,7 +267,7 @@ class GroupLifecycleService
 
     private function now(): \DateTimeImmutable
     {
-        return new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+        return AppClock::now();
     }
 
     /**

@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.16.0",
+  "version": "1.17.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -412,8 +412,7 @@
       "breadcrumb": {
         "label": "Gestion",
         "parents": [
-          "Espace membres",
-          "Mes locations"
+          "Espace membres"
         ]
       }
     },
@@ -428,8 +427,7 @@
       "breadcrumb": {
         "label": "Gabarits",
         "parents": [
-          "Espace membres",
-          "Mes locations"
+          "Espace membres"
         ]
       }
     },
@@ -444,8 +442,7 @@
       "breadcrumb": {
         "label": "Réglages",
         "parents": [
-          "Espace membres",
-          "Mes locations"
+          "Espace membres"
         ]
       }
     },
@@ -460,8 +457,7 @@
       "breadcrumb": {
         "label": "Séjour",
         "parents": [
-          "Espace membres",
-          "Mes locations"
+          "Espace membres"
         ]
       }
     },
@@ -476,8 +472,7 @@
       "breadcrumb": {
         "label": "Document",
         "parents": [
-          "Espace membres",
-          "Mes locations"
+          "Espace membres"
         ]
       }
     },
@@ -492,8 +487,7 @@
       "breadcrumb": {
         "label": "Calendrier",
         "parents": [
-          "Espace membres",
-          "Mes locations"
+          "Espace membres"
         ]
       }
     },
@@ -508,8 +502,7 @@
       "breadcrumb": {
         "label": "Réservations",
         "parents": [
-          "Espace membres",
-          "Mes locations"
+          "Espace membres"
         ]
       }
     },
@@ -524,8 +517,7 @@
       "breadcrumb": {
         "label": "Réservation",
         "parents": [
-          "Espace membres",
-          "Mes locations"
+          "Espace membres"
         ]
       }
     },
@@ -752,8 +744,7 @@
       "breadcrumb": {
         "label": "Conformité",
         "parents": [
-          "Espace chefs d'U",
-          "Locations"
+          "Espace membres"
         ]
       }
     }

@@ -122,14 +122,15 @@
         <div class="card mb-4">
             <div class="card-body">
                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
-                        data-bs-target="#formation-mapping" aria-expanded="false" aria-controls="formation-mapping">
+                        data-bs-target="#formation-mapping" aria-controls="formation-mapping"
+                        aria-expanded="{{ mapping_open|default(false) ? 'true' : 'false' }}">
                     <i class="bi bi-tags" aria-hidden="true"></i>
                     Niveaux de formation encodés dans Desk
                     {% if unresolved_levels|length > 0 %}
                         <span class="badge text-bg-secondary ms-1">{{ unresolved_levels|length }} non reconnu{{ unresolved_levels|length > 1 ? 's' : '' }}</span>
                     {% endif %}
                 </button>
-                <div class="collapse mt-3" id="formation-mapping">
+                <div class="collapse{{ mapping_open|default(false) ? ' show' : '' }} mt-3" id="formation-mapping">
                     <p class="small text-body-secondary">
                         Desk exporte le libellé de la fédération, qui change d'un export à l'autre. Le site en reconnaît
                         les formulations courantes ; rattachez ici celles qu'il ne reconnaît pas. Un niveau non reconnu
@@ -148,31 +149,21 @@
                        lists on the rest of the page, which are lists too. #}
                     <h3 class="h6 mt-4">Valeurs non reconnues</h3>
                     {% if unresolved_levels|length > 0 %}
-                        <ul class="list-group list-group-flush">
-                            {% for level in unresolved_levels %}
-                                <li class="list-group-item px-0 py-3">
-                                    <div class="fw-semibold text-break"><code>{{ level.raw_value }}</code></div>
-                                    <div class="small text-body-secondary mb-2">
-                                        {{ level.holders }} personne{{ level.holders > 1 ? 's' : '' }} avec cette valeur
-                                    </div>
-                                    <form method="post" action="/admin/leadership/training/mapping"
-                                          class="d-flex flex-wrap gap-2 align-items-center">
-                                        {{ csrf_field()|raw }}
-                                        <input type="hidden" name="raw_value" value="{{ level.raw_value }}">
-                                        <label class="visually-hidden" for="step-new-{{ loop.index }}">
-                                            Étape pour « {{ level.raw_value }} »
-                                        </label>
-                                        <select class="form-select form-select-sm w-auto" name="step" id="step-new-{{ loop.index }}">
-                                            <option value="">Choisir une étape…</option>
-                                            {% for step in assignable_steps %}
-                                                <option value="{{ step.value }}">{{ step.label }}</option>
-                                            {% endfor %}
-                                        </select>
-                                        <button type="submit" class="btn btn-sm btn-outline-primary">Rattacher</button>
-                                    </form>
-                                </li>
-                            {% endfor %}
-                        </ul>
+                        {% set _unresolved_rows = [] %}
+                        {% for level in unresolved_levels %}
+                            {% set _unresolved_rows = _unresolved_rows|merge([{
+                                raw_value: level.raw_value,
+                                detail: level.holders ~ ' personne' ~ (level.holders > 1 ? 's' : '') ~ ' avec cette valeur',
+                                field_id: 'step-new-' ~ loop.index,
+                                selected: null,
+                            }]) %}
+                        {% endfor %}
+                        {% include '@leadership/partials/_mapping_list.html.twig' with {
+                            rows: _unresolved_rows,
+                            steps: assignable_steps|default([]),
+                            submit_label: 'Rattacher',
+                            removable: false,
+                        } only %}
                     {% else %}
                         {% include 'partials/empty_state.html.twig' with {
                             message: 'Toutes les valeurs encodées cette année sont reconnues.',
@@ -182,46 +173,25 @@
 
                     <h3 class="h6 mt-4">Rattachements déjà enregistrés</h3>
                     {% if decided_levels|length > 0 %}
-                        <ul class="list-group list-group-flush">
-                            {% for level in decided_levels %}
-                                <li class="list-group-item px-0 py-3">
-                                    <div class="fw-semibold text-break"><code>{{ level.raw_value }}</code></div>
-                                    <div class="small text-body-secondary mb-2">
-                                        Rattachée à « {{ level.step_label }} » —
-                                        {% if level.holders > 0 %}
-                                            {{ level.holders }} personne{{ level.holders > 1 ? 's' : '' }} avec cette valeur cette année
-                                        {% else %}
-                                            plus utilisée cette année
-                                        {% endif %}
-                                    </div>
-                                    <div class="d-flex flex-wrap gap-2 align-items-center">
-                                        <form method="post" action="/admin/leadership/training/mapping"
-                                              class="d-flex flex-wrap gap-2 align-items-center">
-                                            {{ csrf_field()|raw }}
-                                            <input type="hidden" name="raw_value" value="{{ level.raw_value }}">
-                                            <label class="visually-hidden" for="step-set-{{ loop.index }}">
-                                                Étape pour « {{ level.raw_value }} »
-                                            </label>
-                                            <select class="form-select form-select-sm w-auto" name="step" id="step-set-{{ loop.index }}">
-                                                {% for step in assignable_steps %}
-                                                    <option value="{{ step.value }}" {{ step.value == level.step ? 'selected' : '' }}>{{ step.label }}</option>
-                                                {% endfor %}
-                                            </select>
-                                            <button type="submit" class="btn btn-sm btn-outline-secondary">Modifier</button>
-                                        </form>
-                                        <form method="post" action="/admin/leadership/training/mapping"
-                                              data-confirm="Supprimer le rattachement de « {{ level.raw_value }} » ? Cette valeur redeviendra non reconnue tant qu'elle ne sera pas rattachée à nouveau.">
-                                            {{ csrf_field()|raw }}
-                                            <input type="hidden" name="raw_value" value="{{ level.raw_value }}">
-                                            <input type="hidden" name="step" value="">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger" aria-label="Supprimer le rattachement de {{ level.raw_value }}">
-                                                <i class="bi bi-trash" aria-hidden="true"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                </li>
-                            {% endfor %}
-                        </ul>
+                        {% set _decided_rows = [] %}
+                        {% for level in decided_levels %}
+                            {% set _decided_rows = _decided_rows|merge([{
+                                raw_value: level.raw_value,
+                                detail: 'Rattachée à « ' ~ level.step_label ~ ' » — ' ~ (
+                                    level.holders > 0
+                                        ? level.holders ~ ' personne' ~ (level.holders > 1 ? 's' : '') ~ ' avec cette valeur cette année'
+                                        : 'plus utilisée cette année'
+                                ),
+                                field_id: 'step-set-' ~ loop.index,
+                                selected: level.step,
+                            }]) %}
+                        {% endfor %}
+                        {% include '@leadership/partials/_mapping_list.html.twig' with {
+                            rows: _decided_rows,
+                            steps: assignable_steps|default([]),
+                            submit_label: 'Modifier',
+                            removable: true,
+                        } only %}
                     {% else %}
                         {% include 'partials/empty_state.html.twig' with {
                             message: 'Aucun rattachement enregistré pour le moment.',

@@ -17,6 +17,7 @@ use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\PostAuthorResolver;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\ReplyService;
+use Modules\Groups\Support\Timestamps;
 use PHPUnit\Framework\Attributes\Group;
 use Tests\Modules\Groups\GroupsTestHelper;
 
@@ -189,7 +190,7 @@ class ReplyControllerTest extends GroupsControllerTestCase
     public function testEditingAReplyViaAjaxReturnsTheReRenderedCard(): void
     {
         $replyId = GroupsTestHelper::createReplyAt(
-            $this->pdo, $this->postId, 'Avant', gmdate('Y-m-d H:i:s', time() - 60), self::AUTHOR_ACCOUNT, $this->memberId
+            $this->pdo, $this->postId, 'Avant', Timestamps::at('-60 seconds'), self::AUTHOR_ACCOUNT, $this->memberId
         );
         $this->withCsrf(['body' => 'Après correction']);
 
@@ -204,7 +205,7 @@ class ReplyControllerTest extends GroupsControllerTestCase
     public function testDeletingAReplyViaAjaxAcknowledgesInsteadOfRedirecting(): void
     {
         $replyId = GroupsTestHelper::createReplyAt(
-            $this->pdo, $this->postId, 'À supprimer', gmdate('Y-m-d H:i:s', time() - 60), self::AUTHOR_ACCOUNT, $this->memberId
+            $this->pdo, $this->postId, 'À supprimer', Timestamps::at('-60 seconds'), self::AUTHOR_ACCOUNT, $this->memberId
         );
         $this->withCsrf([]);
 
@@ -222,7 +223,7 @@ class ReplyControllerTest extends GroupsControllerTestCase
     public function testEditingAReplyViaAjaxStillRespectsTheEditWindow(): void
     {
         $replyId = GroupsTestHelper::createReplyAt(
-            $this->pdo, $this->postId, 'Trop vieux', gmdate('Y-m-d H:i:s', time() - 30 * 60), self::AUTHOR_ACCOUNT, $this->memberId
+            $this->pdo, $this->postId, 'Trop vieux', Timestamps::at('-30 minutes'), self::AUTHOR_ACCOUNT, $this->memberId
         );
         $this->withCsrf(['body' => 'Tentative']);
 
@@ -352,7 +353,7 @@ class ReplyControllerTest extends GroupsControllerTestCase
     public function testTheAuthorMayEditInsideTheWindow(): void
     {
         $replyId = GroupsTestHelper::createReplyAt(
-            $this->pdo, $this->postId, 'avant', gmdate('Y-m-d H:i:s', time() - 60), self::AUTHOR_ACCOUNT, $this->memberId
+            $this->pdo, $this->postId, 'avant', Timestamps::at('-60 seconds'), self::AUTHOR_ACCOUNT, $this->memberId
         );
         $this->withCsrf(['body' => 'après']);
 
@@ -365,7 +366,7 @@ class ReplyControllerTest extends GroupsControllerTestCase
     public function testTheAuthorMayNotEditOutsideTheWindow(): void
     {
         $replyId = GroupsTestHelper::createReplyAt(
-            $this->pdo, $this->postId, 'avant', gmdate('Y-m-d H:i:s', time() - 16 * 60), self::AUTHOR_ACCOUNT, $this->memberId
+            $this->pdo, $this->postId, 'avant', Timestamps::at('-16 minutes'), self::AUTHOR_ACCOUNT, $this->memberId
         );
         $this->withCsrf(['body' => 'après']);
 
@@ -384,12 +385,12 @@ class ReplyControllerTest extends GroupsControllerTestCase
     public function testAForgedClientSuppliedTimestampCannotReopenTheWindow(): void
     {
         $replyId = GroupsTestHelper::createReplyAt(
-            $this->pdo, $this->postId, 'avant', gmdate('Y-m-d H:i:s', time() - 60 * 60), self::AUTHOR_ACCOUNT, $this->memberId
+            $this->pdo, $this->postId, 'avant', Timestamps::at('-60 minutes'), self::AUTHOR_ACCOUNT, $this->memberId
         );
         $this->withCsrf([
             'body' => 'après',
-            'created_at' => gmdate('Y-m-d H:i:s'),
-            'edited_at' => gmdate('Y-m-d H:i:s'),
+            'created_at' => Timestamps::now(),
+            'edited_at' => Timestamps::now(),
         ]);
 
         $response = $this->controller([$this->memberId])->edit($this->request(), $this->params(null, $replyId));
@@ -401,7 +402,7 @@ class ReplyControllerTest extends GroupsControllerTestCase
     public function testSomeoneElseMayNotEditEvenInsideTheWindow(): void
     {
         $replyId = GroupsTestHelper::createReplyAt(
-            $this->pdo, $this->postId, 'avant', gmdate('Y-m-d H:i:s', time() - 60), self::AUTHOR_ACCOUNT, $this->memberId
+            $this->pdo, $this->postId, 'avant', Timestamps::at('-60 seconds'), self::AUTHOR_ACCOUNT, $this->memberId
         );
         $this->withCsrf(['body' => 'après']);
 
@@ -414,7 +415,7 @@ class ReplyControllerTest extends GroupsControllerTestCase
     public function testAnEditMayNotEmptyATextOnlyReply(): void
     {
         $replyId = GroupsTestHelper::createReplyAt(
-            $this->pdo, $this->postId, 'avant', gmdate('Y-m-d H:i:s', time() - 60), self::AUTHOR_ACCOUNT, $this->memberId
+            $this->pdo, $this->postId, 'avant', Timestamps::at('-60 seconds'), self::AUTHOR_ACCOUNT, $this->memberId
         );
         $this->withCsrf(['body' => '  ']);
 
@@ -426,7 +427,7 @@ class ReplyControllerTest extends GroupsControllerTestCase
     public function testTheAuthorMayDeleteTheirOwnReplyEvenAfterTheWindow(): void
     {
         $replyId = GroupsTestHelper::createReplyAt(
-            $this->pdo, $this->postId, 'à supprimer', gmdate('Y-m-d H:i:s', time() - 60 * 60), self::AUTHOR_ACCOUNT, $this->memberId
+            $this->pdo, $this->postId, 'à supprimer', Timestamps::at('-60 minutes'), self::AUTHOR_ACCOUNT, $this->memberId
         );
         $this->withCsrf([]);
 

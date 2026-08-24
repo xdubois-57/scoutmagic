@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Repository;
 
+use Modules\Groups\Support\Timestamps;
+
 /**
  * Reports on posts and on replies. Two tables (see their own schema.sql
  * comment for why they are not one polymorphic table), one class — the
@@ -69,7 +71,7 @@ class ReportRepository
                 "INSERT INTO {$this->table} ({$this->itemColumn}, reporter_member_id, created_at)
                  VALUES (?, ?, ?)"
             );
-            $stmt->execute([$itemId, $reporterMemberId, gmdate('Y-m-d H:i:s')]);
+            $stmt->execute([$itemId, $reporterMemberId, Timestamps::now()]);
 
             return true;
         } catch (\PDOException $e) {

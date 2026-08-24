@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Service;
 
+use Modules\Camps\Support;
+
 /**
  * Turns a place's address into a point, using Nominatim
  * (OpenStreetMap) — free, no key, no account.
@@ -92,17 +94,17 @@ class GeocodingService
      */
     private function buildQuery(?string $address, ?string $postalCode, ?string $city, ?string $country): ?string
     {
-        $city = $this->clean($city);
-        $postalCode = $this->clean($postalCode);
+        $city = Support::clean($city);
+        $postalCode = Support::clean($postalCode);
         if ($city === null && $postalCode === null) {
             return null;
         }
 
         $parts = array_values(array_filter([
-            $this->clean($address),
+            Support::clean($address),
             $postalCode,
             $city,
-            $this->clean($country),
+            Support::clean($country),
         ], static fn(?string $p): bool => $p !== null));
 
         return implode(', ', $parts);
@@ -125,12 +127,5 @@ class GeocodingService
         $body = @file_get_contents($url, false, $context);
 
         return is_string($body) && $body !== '' ? $body : null;
-    }
-
-    private function clean(?string $value): ?string
-    {
-        $value = $value !== null ? trim($value) : null;
-
-        return $value !== null && $value !== '' ? $value : null;
     }
 }

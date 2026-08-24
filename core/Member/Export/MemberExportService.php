@@ -101,12 +101,20 @@ final class MemberExportService
                     $sheet->setCellValueExplicit([$column, $row], '', DataType::TYPE_STRING);
                     return;
                 }
-                $timestamp = strtotime((string) $value);
-                if ($timestamp === false) {
+                // Converted through a DateTimeInterface, never through a
+                // Unix timestamp: PhpSpreadsheet reads an int as seconds
+                // since the epoch in UTC, so `strtotime('2015-03-21')` —
+                // local midnight — came back out of the spreadsheet as
+                // 2015-03-20 the moment PHP stopped running on UTC. A
+                // DateTimeInterface is read by its calendar components, so
+                // the date written is the date given, on any clock.
+                try {
+                    $date = new \DateTimeImmutable((string) $value);
+                } catch (\Exception) {
                     $sheet->setCellValueExplicit([$column, $row], (string) $value, DataType::TYPE_STRING);
                     return;
                 }
-                $sheet->setCellValueExplicit([$column, $row], ExcelDate::PHPToExcel($timestamp), DataType::TYPE_NUMERIC);
+                $sheet->setCellValueExplicit([$column, $row], ExcelDate::PHPToExcel($date), DataType::TYPE_NUMERIC);
                 $coordinate = Coordinate::stringFromColumnIndex($column) . $row;
                 $sheet->getStyle($coordinate)->getNumberFormat()->setFormatCode('dd/mm/yyyy');
                 return;

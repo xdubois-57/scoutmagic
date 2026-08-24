@@ -300,6 +300,132 @@ final class RentalBookingMailServiceTest extends TestCase
         $this->assertStringContainsString('Votre réservation est confirmée.', $this->onlyMail()['text']);
     }
 
+    /**
+     * Every sender of this service, keyed by the template it renders.
+     *
+     * @return array<string, \Closure(): mixed>
+     */
+    private function everySender(): array
+    {
+        return [
+            'acknowledgement' => fn () => $this->service->sendAcknowledgement(
+                $this->booking(),
+                $this->asset(),
+                str_repeat('a', 64)
+            ),
+            'decision' => fn () => $this->service->sendDecision(
+                $this->booking(),
+                $this->asset(),
+                RenterDecision::CONFIRMED,
+                str_repeat('a', 64),
+                null
+            ),
+            'manager_notification' => fn () => $this->service->sendManagerNotification(
+                $this->booking(),
+                $this->asset(),
+                ['gestion@example.test']
+            ),
+            'document' => fn () => $this->service->sendDocument(
+                $this->booking(),
+                $this->asset(),
+                'Contrat',
+                '/tmp/contract.pdf',
+                'contrat.pdf'
+            ),
+            'practical_info' => fn () => $this->service->sendPracticalInfo($this->booking(), $this->asset()),
+            'tracking_link' => fn () => $this->service->sendTrackingLink(
+                $this->booking(),
+                $this->asset(),
+                str_repeat('a', 64)
+            ),
+        ];
+    }
+
+    // ── The shared HTML frame ───────────────────────────────────────────
+
+    /**
+     * All six were bare `<p>` fragments handed to a mail client, each with
+     * its own hand-rolled « À bientôt, {{ site_name }} » — no doctype, no
+     * charset, no width, and a signature that drifted three ways
+     * (« À bientôt », « Bien à vous », « Bon séjour ») across messages
+     * about the same booking. `email/base.html.twig` is where every other
+     * module's mail already lives.
+     */
+    public function testEveryEmailIsRenderedThroughTheSharedFrame(): void
+    {
+        foreach ($this->everySender() as $name => $send) {
+            $this->sent = [];
+            $send();
+            $html = $this->onlyMail()['html'];
+
+            $this->assertStringStartsWith('<!DOCTYPE html>', trim($html), $name);
+            $this->assertStringContainsString('<meta charset="UTF-8">', $html, $name);
+            $this->assertStringContainsString('max-width:560px', $html, $name);
+            // The frame names the site twice and only twice: the document
+            // title, and the one footer it draws itself.
+            $this->assertStringContainsString('<title>Unité Test</title>', $html, $name);
+            $this->assertSame(2, substr_count($html, 'Unité Test'), $name);
+            $this->assertStringNotContainsString('À bientôt', $html, $name);
+            $this->assertStringNotContainsString('Bien à vous', $html, $name);
+            $this->assertStringNotContainsString('Bon séjour,', $html, $name);
+        }
+    }
+
+    // ── One booking, one date format ────────────────────────────────────
+
+    /**
+     * Every message this service sends, in both parts.
+     *
+     * The renter reads their acknowledgement, then their contract, then
+     * their confirmation. Three emails about one stay used to disagree
+     * about what its dates look like — « du 2027-08-14 au 2027-08-17 » in
+     * the first two, « du 14/08/2027 au 17/08/2027 » in the third —
+     * because only `decision` and `practical_info` had ever been given
+     * `|date_fr`. A stored `Y-m-d` string is a database value, not a date
+     * anybody reads.
+     */
+    public function testEveryEmailNamesTheStaysDatesTheFrenchWay(): void
+    {
+        foreach ($this->everySender() as $name => $send) {
+            $this->sent = [];
+            $send();
+            $mail = $this->onlyMail();
+
+            foreach (['html', 'text'] as $part) {
+                $this->assertStringNotContainsString('2027-08-14', $mail[$part], $name . '.' . $part);
+                $this->assertStringNotContainsString('2027-08-17', $mail[$part], $name . '.' . $part);
+            }
+        }
+    }
+
+    /**
+     * The five that actually spell the stay out say it in French.
+     *
+     * `tracking_link` is left out only because it is checked above like
+     * every other message; it names both dates too. What is checked here
+     * is the positive half — a template that simply stopped printing the
+     * dates would satisfy the assertion above and fail this one.
+     */
+    public function testTheEmailsThatNameBothDatesUseTheFrenchFormat(): void
+    {
+        foreach ($this->everySender() as $name => $send) {
+            if ($name === 'practical_info') {
+                // Names arrival and departure in two separate sentences
+                // rather than as a « du … au … » pair.
+                continue;
+            }
+
+            $this->sent = [];
+            $send();
+            $mail = $this->onlyMail();
+
+            foreach (['html', 'text'] as $part) {
+                $this->assertStringContainsString('14/08/2027', $mail[$part], $name . '.' . $part);
+                $this->assertStringContainsString('17/08/2027', $mail[$part], $name . '.' . $part);
+            }
+        }
+    }
+
     // ── Failure ─────────────────────────────────────────────────────────
 
     public function testAFailedEmailIsReportedRatherThanThrown(): void

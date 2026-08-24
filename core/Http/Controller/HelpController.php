@@ -73,6 +73,14 @@ class HelpController extends AbstractController
         return $this->render('help/index.html.twig', [
             'grouped_topics' => $grouped,
             'query' => $query,
+            // A topic the registry could not read costs only itself
+            // (Core\Help\HelpRegistry::load()) — which would make it
+            // invisible if nothing said so anywhere. /aide is where the
+            // corpus is on display, so this is where the gap is named,
+            // and only for the person who can act on it: the message
+            // carries a server file path, which no one else has any
+            // business seeing.
+            'load_errors' => $role === Role::SUPERADMIN ? $this->helpService->loadErrors() : [],
         ]);
     }
 

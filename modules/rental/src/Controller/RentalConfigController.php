@@ -17,14 +17,15 @@ use Core\Http\Response;
 use Core\Member\MemberDirectoryEntry;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Modules\Rental\Mail\MailboxSelection;
+use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAssetService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalManagerService;
-use Modules\Rental\Mail\MailboxSelection;
-use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
+use Modules\Rental\Support;
 use Twig\Environment;
 
 /**
@@ -267,8 +268,6 @@ class RentalConfigController extends AbstractController
         ], $matches));
     }
 
-
-
     /**
      * POST /admin/locations/create
      *
@@ -286,9 +285,9 @@ class RentalConfigController extends AbstractController
                 (string) $request->getBody('asset_type', ''),
                 self::optionalInt($request->getBody('capacity')),
                 max(1, (int) $request->getBody('quantity', 1)),
-                self::optionalString($request->getBody('arrival_time')),
-                self::optionalString($request->getBody('departure_time')),
-                self::optionalString($request->getBody('emergency_phone')),
+                Support::optionalString($request->getBody('arrival_time')),
+                Support::optionalString($request->getBody('departure_time')),
+                Support::optionalString($request->getBody('emergency_phone')),
                 $request->getBody('is_public') !== null,
                 AuthSession::getUserAccountId(),
                 // Asked at creation because it decides the calendar, the
@@ -331,9 +330,9 @@ class RentalConfigController extends AbstractController
                 (string) $request->getBody('asset_type', ''),
                 self::optionalInt($request->getBody('capacity')),
                 max(1, (int) $request->getBody('quantity', 1)),
-                self::optionalString($request->getBody('arrival_time')),
-                self::optionalString($request->getBody('departure_time')),
-                self::optionalString($request->getBody('emergency_phone')),
+                Support::optionalString($request->getBody('arrival_time')),
+                Support::optionalString($request->getBody('departure_time')),
+                Support::optionalString($request->getBody('emergency_phone')),
                 $request->getBody('is_public') !== null,
                 AuthSession::getUserAccountId()
             );
@@ -590,16 +589,5 @@ class RentalConfigController extends AbstractController
         $value = is_string($value) ? trim($value) : $value;
 
         return $value === null || $value === '' ? null : (int) $value;
-    }
-
-    private static function optionalString(mixed $value): ?string
-    {
-        if (!is_string($value)) {
-            return null;
-        }
-
-        $value = trim($value);
-
-        return $value !== '' ? $value : null;
     }
 }

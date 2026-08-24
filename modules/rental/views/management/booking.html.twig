@@ -16,7 +16,7 @@
     <div class="page-medium">
         {% include 'partials/page_header.html.twig' with {
             title: booking.reference,
-            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate ~ ' au ' ~ booking.departureDate,
+            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate|date_fr ~ ' au ' ~ booking.departureDate|date_fr,
         } only %}
         {% if is_in_progress %}
             <p class="mb-3">{% include 'partials/status_badge.html.twig' with { status: 'active', label: 'En cours' } only %}</p>
@@ -179,7 +179,7 @@
                             } only %}
                         </div>
                         <div class="col-12 col-sm-5">
-                            <button type="submit" class="btn btn-outline-primary w-100">Enregistrer l'option</button>
+                            <button type="submit" class="btn btn-outline-secondary w-100">Enregistrer l'option</button>
                         </div>
                     </form>
                 </div>
@@ -191,7 +191,7 @@
             <div class="card-body">
                 <h2 class="h5 mb-2">Prix</h2>
                 {% if booking.status.value == 'confirmed' %}
-                    <div class="alert alert-warning">
+                    <div class="alert alert-warning" role="status">
                         <strong>Cette réservation est confirmée.</strong> Modifier le prix maintenant :
                         <ul class="mb-0">
                             <li>le contrat sera à régénérer en nouvelle version ;</li>
@@ -270,7 +270,7 @@
                                                        inputmode="decimal">
                                             </div>
                                             <div class="col-12 col-md-2">
-                                                <button type="submit" class="btn btn-sm btn-outline-primary w-100">Modifier</button>
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Modifier</button>
                                             </div>
                                         </form>
                                     </td>
@@ -308,7 +308,7 @@
                                inputmode="decimal" placeholder="-50,00">
                     </div>
                     <div class="col-12 col-md-2">
-                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
                     </div>
                 </form>
 
@@ -337,7 +337,7 @@
                     </span>
                 </span>
                 <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/sejour"
-                   class="btn btn-outline-primary">Ouvrir</a>
+                   class="btn btn-outline-secondary">Ouvrir</a>
             </div>
         </div>
 
@@ -389,7 +389,7 @@
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                             <input type="hidden" name="request_id" value="{{ change.id }}">
                                             <input type="hidden" name="decision" value="accept">
-                                            <button type="submit" class="btn btn-sm btn-outline-success">Accepter</button>
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">Accepter</button>
                                         </form>
                                         <form method="post" action="/mes-locations/demande"
                                               data-confirm="Refuser cette demande ? La réservation reste inchangée, et le locataire en sera informé."
@@ -431,7 +431,7 @@
                             <div class="form-text" id="propose-message-help">Envoyé avec la proposition.</div>
                         </div>
                         <div class="col-12 col-md-2">
-                            <button type="submit" class="btn btn-sm btn-outline-primary w-100">Proposer</button>
+                            <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Proposer</button>
                         </div>
                     </form>
                 {% endif %}
@@ -471,7 +471,7 @@
                     <input type="hidden" name="booking_id" value="{{ booking.id }}">
                     <label class="form-label" for="comment-body">Ajouter un commentaire</label>
                     <textarea class="form-control mb-2" id="comment-body" name="body" rows="3"></textarea>
-                    <button type="submit" class="btn btn-sm btn-outline-primary">Enregistrer</button>
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer</button>
                 </form>
             </div>
         </div>
@@ -480,30 +480,20 @@
         <div class="card">
             <div class="card-body">
                 <h2 class="h5 mb-2">Historique</h2>
-                {% if history is empty %}
-                    {% include 'partials/empty_state.html.twig' with {
-                        message: 'Rien encore.',
-                        compact: true,
-                    } only %}
-                {% else %}
-                    <ul class="list-unstyled mb-0 small">
-                        {% for entry in history %}
-                            <li class="mb-1">
-                                <span class="text-body-secondary">{{ entry.created_at|datetime_fr }}</span>
-                                — {{ entry.summary ?: entry.event_type }}
-                                {% if entry.from_value or entry.to_value %}
-                                    <span class="text-body-secondary">
-                                        ({{ entry.from_value ?: '—' }} → {{ entry.to_value ?: '—' }})
-                                    </span>
-                                {% endif %}
-                                {% if entry.author_name %}
-                                    <span class="text-body-secondary">par {{ entry.author_name }}</span>
-                                {% endif %}
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% endif %}
+                {% include 'partials/audit_timeline.html.twig' with {
+                    entity_type: 'rental_booking',
+                    entity_id: booking.id,
+                    audit_page: audit_page,
+                    labels: audit_labels,
+                } only %}
             </div>
         </div>
     </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/drop-zone.js" defer></script>
+    {# Names the file that was picked: the zone's input is visually hidden,
+       so a zone that says nothing looks the same before and after a drop. #}
+    <script src="/assets/js/upload-drop-zone.js" defer></script>
 {% endblock %}

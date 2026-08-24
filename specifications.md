@@ -45,13 +45,13 @@ Five main menus, visibility by role:
 ### 3.1 Notre unité (public)
 Public pages.
 
-### 3.2 Espace des animés (identified)
+### 3.2 Espace membres (identified)
 **Dynamic entries** (one per member linked to email, named by totem/prénom, section subtitle; if the `registration` module is active, one more per registration request linked to the same email, for as long as that request stays visible there — see §17) + separator + **static entries** from active modules.
 
-### 3.3 Espace des chefs (intendant / chief)
+### 3.3 Espace animateurs (intendant / chief)
 Filtered by role — intendants see only `role_min: intendant` pages, chiefs see all.
 
-### 3.4 Espace admin (chief)
+### 3.4 Espace chefs d'U (admin)
 Administrative tools.
 
 ### 3.5 Configuration (admin)
@@ -82,7 +82,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Actualités (module) | Public news article list/detail, each with an optional registration form (fields, capacity, payment) |
 | Inscriptions (module) | Public form to request a spot for a child (open/closed by the admin, optionally on a schedule), with an optional availability display by birth year; a tracking link/page for the family (minimal view by token, full view once identified and linked); see §17 for the staff side |
 
-### 4.2 Espace des animés
+### 4.2 Espace membres
 
 | Page | Content |
 |---|---|
@@ -93,12 +93,12 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Groupes (module) | Private discussion groups the caller belongs to, most recently active first, plus an Archives tab for past-year ones. A group page is a feed: pinned posts, then posts newest-activity-first, each with up to four photos/videos, an optional link preview, one level of replies, and six fixed reactions. Members report; moderators restore or delete. See §20. |
 | Notifications | Notification centre: list of received notifications (read/unread state, mark read individually or all at once), notification preferences (channel selection per type, quiet hours for push), push subscription management. Unread count shown in header badge. |
 
-### 4.3 Espace des chefs
+### 4.3 Espace animateurs
 
 | Page | Role | Content |
 |---|---|---|
 | Staffs | intendant | SectionPicker + staff info per section (chief/chief-d'unité only — animés are not shown). Section's staff group photo, editable in configuration mode (one per scout year, falls back to the most recent earlier year). Badges assignable to staff (chief only, see Core\Badge). Section documents (an animateur of that section only, see §15.2): add/reorder/delete/update PDF attachments per section and scout year (e.g. planning, camp info sheets), displayed both on the Staffs page and the member page. Section name/email are configured from Config Desk (§4.5), not here. |
-| Finances (module) | intendant | Bank statement import, receivables, receipts, movements. `intendant` opens the module; which **accounts** it opens is narrower — see §28. |
+| Finances (module) | intendant | Bank statement import, receivables, receipts, movements, outils (§30). `intendant` opens the module; which **accounts** it opens is narrower — see §28. |
 | Statistiques (module) | chief | Member statistics |
 | Calendrier (module) | chief | Chiefs' calendar view (month grid, event edit) |
 | Camps (module) | chief | Camp sites and the stays made there. Search over places (name, address, postal code, city); "À venir" and "Lieux" lists; a collapsed map of the places that have coordinates. A place sheet shows its stays, the rating of its most recent RATED stay (never an average), an optional AI summary, and — for a chef d'unité only — merge and archive. A stay carries its sections, price, participant count, contacts, links, documents, photos, a free-text note, a review and its own change history. When a dedicated mailbox is configured, a "Courrier non classé" screen lists the inbound mail nobody could attribute. |
@@ -108,7 +108,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Départs (module registration) | chief | Mark which of this year's animés won't be back next scout year, per section — see §18.1 |
 | Prévisions (module registration) | chief | Read-only projected headcount for next scout year, per section and unit-wide — see §19.1 |
 
-### 4.4 Espace admin
+### 4.4 Espace chefs d'U
 
 | Page | Role | Content |
 |---|---|---|
@@ -339,7 +339,7 @@ For each request, the effective year is determined in order of precedence:
 2. Staff year (if role is chief/intendant and staff year is configured)
 3. Public year (fallback for all other users)
 
-### 16.3 Transition workflow (Espace admin > Année scoute)
+### 16.3 Transition workflow (Espace chefs d'U > Année scoute)
 
 The page walks a chef d'unité through the whole season, not only the four moments where the site itself changes year. Fourteen steps, grouped into the three phases the season actually has, in this order:
 
@@ -430,7 +430,7 @@ Sent explicitly from a request's fiche, never automatically at the moment of the
 
 ### 17.4 Reconciliation and manual linking
 
-At every Desk import, accepted requests for that scout year are compared against the freshly imported members by name + birth date. Exactly one match on each side migrates the request automatically: it becomes "encodée", any confirmed secondary tracking email moves to the real member's record, and the request's own page in Espace des animés is replaced by the real member page (the fiche itself stays staff-visible, see §17.5). No match leaves the request as "acceptée", surfaced to staff as unmatched. More than one possible match on either side (e.g. twins, or two families sharing a name) is never guessed — staff resolves it manually by entering the child's Desk "numéro de tiers", which goes through the exact same migration as an automatic match, refusing an unknown number or one already linked to another request.
+At every Desk import, accepted requests for that scout year are compared against the freshly imported members by name + birth date. Exactly one match on each side migrates the request automatically: it becomes "encodée", any confirmed secondary tracking email moves to the real member's record, and the request's own page in Espace membres is replaced by the real member page (the fiche itself stays staff-visible, see §17.5). No match leaves the request as "acceptée", surfaced to staff as unmatched. More than one possible match on either side (e.g. twins, or two families sharing a name) is never guessed — staff resolves it manually by entering the child's Desk "numéro de tiers", which goes through the exact same migration as an automatic match, refusing an unknown number or one already linked to another request.
 
 ### 17.5 Retention
 
@@ -438,24 +438,24 @@ Two durations, both admin-configurable and both counted from the moment a reques
 
 | Setting | Default | Effect |
 |---|---|---|
-| Disparition de l'Espace des animés | 3 months | A refused/retirée request stops appearing in the family's personal space (an encodée request disappears immediately, replaced by the real member page) |
+| Disparition de l'Espace membres | 3 months | A refused/retirée request stops appearing in the family's personal space (an encodée request disappears immediately, replaced by the real member page) |
 | Suppression définitive | 2 years | The request row is permanently deleted, regardless of state |
 
 A request still "en attente" or "acceptée" is never purged, however old.
 
 ### 17.6 Management page and fiche
 
-**Management page** (Espace admin > Inscriptions, §4.4): year selector (target year by default, plus the current and any past year still in the database — past years are consultation-only), the capacity/year-code configuration (§4.1 form setup; age brackets themselves are shown read-only — they're federation-fixed and shared with the Statistiques module, not something this screen configures), a capacity-verification table (capacity, projected headcount, accepted requests, remaining, and the same availability level shown to the public), the request list (searchable/filterable by state), and two encarts: unmatched accepted requests, and non-final requests with bulk "tout refuser"/"tout retirer" actions (each behind an explicit confirmation showing the exact count affected).
+**Management page** (Espace chefs d'U > Inscriptions, §4.4): year selector (target year by default, plus the current and any past year still in the database — past years are consultation-only), the capacity/year-code configuration (§4.1 form setup; age brackets themselves are shown read-only — they're federation-fixed and shared with the Statistiques module, not something this screen configures), a capacity-verification table (capacity, projected headcount, accepted requests, remaining, and the same availability level shown to the public), the request list (searchable/filterable by state), and two encarts: unmatched accepted requests, and non-final requests with bulk "tout refuser"/"tout retirer" actions (each behind an explicit confirmation showing the exact count affected).
 
 **Fiche** (one per request): fields in the same order Desk itself asks for them. Everything the family submitted is read-only except two staff-only fields — "section prévue" (the section actually offered, distinct from and never shown alongside the family's own "section souhaitée" to the family, restricted to the child's own age branch) and "tarif" (a household-size-based suggestion, always overridable, using the same estimation as an existing member's fee category — counting other accepted/encoded requests at the same address alongside existing members). A free-form internal notes field (never shown to the family) completes the fiche, alongside the status banner and its available transitions.
 
 ## 18. Registration module — Départs, Passage, mailing list (module registration)
 
-Two Espace des chefs pages that prepare the next scout year, plus an optional predefined list for the mass-mail module. See ARCHITECTURE.md §8.37 for implementation detail.
+Two Espace animateurs pages that prepare the next scout year, plus an optional predefined list for the mass-mail module. See ARCHITECTURE.md §8.37 for implementation detail.
 
 ### 18.1 Départs
 
-Espace des chefs, role `chief`. Scoped by section: an animateur/chief sees and can only act on the section(s) they staff; `admin`/`superadmin` see and can act on every section. For the selected section, lists this year's animés (never the section's own staff) with, per row, their year within their branch, a "won't be back next scout year" checkbox, and an optional comment that only appears once the checkbox is ticked.
+Espace animateurs, role `chief`. Scoped by section: an animateur/chief sees and can only act on the section(s) they staff; `admin`/`superadmin` see and can act on every section. For the selected section, lists this year's animés (never the section's own staff) with, per row, their year within their branch, a "won't be back next scout year" checkbox, and an optional comment that only appears once the checkbox is ticked.
 
 The mark applies to the current scout year only and resets itself automatically at the next Desk import — it never needs to be manually cleared from one year to the next, and the page says so explicitly. Saving is automatic (no save button); the checkbox and the comment save independently of each other, so two people editing the same section around the same time never have one field's save overwrite the other's. The comment is encrypted at rest and never appears in the audit journal, an error message, or a section its author doesn't staff.
 
@@ -481,7 +481,7 @@ The module's last piece: a read-only headcount projection for next scout year, a
 
 ### 19.1 Prévisions
 
-Espace des chefs, role `chief`, **not** scoped by section, same "public year plus one" targeting as Passage. Read-only — nothing on this page writes anything.
+Espace animateurs, role `chief`, **not** scoped by section, same "public year plus one" targeting as Passage. Read-only — nothing on this page writes anything.
 
 The projected headcount for next year combines, without counting anyone twice:
 1. Whatever is already re-imported from Desk for next year, if an import has happened — real, certain data.
@@ -499,7 +499,7 @@ The page shows: four headline numbers (projected total, variation vs. the curren
 
 This page's charts are its own — it does not depend on, and works identically whether or not, the Statistiques module (§4.3) is installed or enabled.
 
-### 19.2 Veto on the year transition (Espace admin > Année scoute, §16.3)
+### 19.2 Veto on the year transition (Espace chefs d'U > Année scoute, §16.3)
 
 While the Inscriptions module is active:
 - **Step 14** (activate the public year for everyone) is **refused** — checked on the server, not just by disabling the button — as long as any registration request is still `pending` or `accepted`, whichever scout year it originally targeted. The error message states how many requests are blocking and links to the registration management page, which is where they're resolved individually or in bulk ("tout refuser"/"tout retirer", §17).
@@ -655,7 +655,7 @@ A line a manager edited by hand is never re-priced, in either direction. When th
 
 A request holds the dates for a configurable period so two visitors cannot both be told yes. The hold lapsing releases the dates and **refuses nothing** — the request stays waiting, because nobody promised anything.
 
-The renter's acknowledgement email carries a link to their own tracking page. **That link is the authorisation**: they have no account, the token is stored only as a hash, and a lost email is answered by issuing a new one. Their page shows the state of their request, what they owe and the practical information — never an internal comment, never a manager's note, never another booking.
+The renter's acknowledgement email carries a link to their own tracking page. **That link is the authorisation**: they have no account, and a lost email is answered by issuing a new one. The token is stored **encrypted, not hashed** — a hash can only ever answer « is this the token? », and every email a manager's decision sends has to answer a different question, « what is this booking's link? ». The cost is stated where it is paid (`modules/rental/schema.sql`): the column survives a database copy taken without the application key, and no longer one taken with it — which is where every other identity column of that table already stood. Their page shows the state of their request, what they owe and the practical information — never an internal comment, never a manager's note, never another booking.
 
 ### 22.6 Documents
 
@@ -929,3 +929,63 @@ This covers the receipts already stored before the change, not only the new ones
 ### 28.6 Out of scope
 
 A treasurer who is not an animator of the section, a per-account list of named people, an accountant role spanning the whole unit but excluded from one section, and reassigning an existing receipt from one account to another.
+
+
+## 29. Écrire aux répondants d'un formulaire (modules news + mass_mail)
+
+### 29.1 Le besoin
+
+Écrire aux gens qui ont répondu au formulaire d'un article demandait quatre manipulations : exporter les réponses en Excel, ouvrir le publipostage, réimporter le fichier qu'on venait de télécharger, puis composer. Tout ce qu'il fallait existait déjà — sauf le chemin entre les deux.
+
+### 29.2 Ce que fait le bouton
+
+Depuis la page des réponses, « Écrire aux répondants » prépare un **brouillon** de publipostage adressé à tous ceux qui ont répondu, et ouvre l'écran de composition habituel. Rien n'est envoyé : le message reste à écrire, et il part comme n'importe quel autre publipostage.
+
+Chaque champ du formulaire devient une variable de personnalisation, dans le même ordre et avec les mêmes intitulés que l'export Excel — les deux surfaces lisent la même définition, elles ne peuvent pas décrire le même formulaire différemment. Les colonnes de paiement de l'export ne sont pas reprises : ce sont des chiffres de comptabilité, pas quelque chose à insérer dans un mail au répondant.
+
+### 29.3 L'adresse utilisée
+
+Celle avec laquelle la personne a répondu, et elle seule — même quand on la reconnaît comme membre. Écrire à toutes ses adresses connues alors qu'elle en a choisi une précise serait une surprise désagréable. Conséquence à connaître : sa désinscription est enregistrée pour cette adresse, et non sur sa fiche de membre.
+
+Deux réponses venues de la même adresse font un seul destinataire.
+
+### 29.4 Qui peut s'en servir
+
+La page des réponses s'ouvre aux intendants, le publipostage commence aux animateurs. Le bouton n'apparaît donc qu'à partir d'animateur, et la demande est refusée côté serveur pour un intendant même s'il la fabrique à la main. Les règles habituelles du publipostage s'appliquent ensuite : on envoie depuis sa propre section, sauf pour un chef d'unité.
+
+### 29.5 Module de publipostage désactivé
+
+Le bouton n'existe pas et la page des réponses fonctionne exactement comme avant. Rien ne casse, rien n'affiche d'erreur.
+
+### 29.6 Hors périmètre
+
+Choisir un sous-ensemble de répondants, un modèle de message prérempli, un envoi direct sans passer par l'écran de composition, et toute nouvelle règle de conservation — ces audiences sont purgées par le mécanisme existant du publipostage.
+
+
+## 30. Finances — la page « Outils » (module finance)
+
+### 30.1 Deux outils, une page
+
+Ils ne partagent que leur emplacement. Tous deux répondent à une question qu'un trésorier se pose son téléphone à la main.
+
+### 30.2 Code QR de paiement
+
+Bénéficiaire, IBAN, montant, communication libre → un code QR que n'importe quelle application bancaire européenne scanne pour préremplir un virement. À coller dans un courrier, une affiche ou un e-mail.
+
+**Il ne crée aucune créance.** Fabriquer un QR pour le montrer à quelqu'un n'est pas décider qu'un paiement est dû : enregistrer une attente au passage remplirait la page des paiements attendus d'argent que personne n'a promis, définitivement et sans rien pour y remonter.
+
+L'IBAN est réellement vérifié (longueur et clé de contrôle), pas seulement sa forme — un seul chiffre changé est refusé. Le montant accepte la virgule.
+
+### 30.3 Vérifier une communication
+
+Une communication structurée relevée sur un extrait : est-elle correcte, et à quoi correspond-elle ?
+
+Trois réponses possibles : **invalide** (ce n'est pas une communication structurée belge correcte), **valide mais inconnue ici**, ou **valide et reconnue** — avec alors ce qu'elle concerne, le compte et le montant attendu.
+
+Ce que la page montre suit exactement les règles d'accès aux comptes (§28) : un paiement attendu sur un compte que vous ne pouvez pas ouvrir est traité comme inconnu, sans même vous dire qu'il existe.
+
+Le journal du site retient qu'une vérification a eu lieu et son résultat, **jamais la communication saisie ni le libellé trouvé**.
+
+### 30.4 Hors périmètre
+
+Enregistrer un paiement, créer une créance depuis le générateur, un historique des QR produits, et la recherche par montant ou par nom — la communication est la seule clé.

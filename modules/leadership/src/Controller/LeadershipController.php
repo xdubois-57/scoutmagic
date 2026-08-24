@@ -102,6 +102,11 @@ class LeadershipController extends AbstractController
         $context = $this->context();
 
         return $this->render('@leadership/training.html.twig', $this->withFooter($context, [
+            'breadcrumb_trail' => $this->hubTrail(),
+            // FormationMappingController sends the visitor back here with
+            // this flag: a fragment cannot open a collapsed block, because
+            // a fragment never reaches the server.
+            'mapping_open' => $request->getQuery('mapping') === '1',
             'unit_note_key' => self::UNIT_NOTE_KEY,
             'unit_note' => $this->editableContentService->get(self::UNIT_NOTE_KEY),
             'to_convince' => $this->trainingService->toConvince(
@@ -150,6 +155,7 @@ class LeadershipController extends AbstractController
         $context = $this->context();
 
         return $this->render('@leadership/obligations.html.twig', $this->withFooter($context, [
+            'breadcrumb_trail' => $this->hubTrail(),
             'birthdays' => $this->obligationsService->upcomingAdultBirthdays($context['staff'], $context['today']),
             'candidates' => $this->obligationsService->candidates($context['staff'], $context['today']),
             // An empty birthday block means "nobody turns 20 soon" only
@@ -173,6 +179,7 @@ class LeadershipController extends AbstractController
         $summer = $this->stewardService->isSummerRegime($context['today']);
 
         return $this->render('@leadership/stewards.html.twig', $this->withFooter($context, [
+            'breadcrumb_trail' => $this->hubTrail(),
             'summer_regime' => $summer,
             'registrations' => $this->stewardService->registrations(
                 $context['staff'],
@@ -225,5 +232,21 @@ class LeadershipController extends AbstractController
             'rules_version' => LeadershipRules::VERSION,
             'rules_verified_on' => LeadershipRules::VERIFIED_ON,
         ];
+    }
+
+    /**
+     * The hub, as a real link, for the three pages hanging off it.
+     *
+     * Only `/admin/leadership` carries a menu entry, so its three
+     * sub-pages had « Espace chefs d'U › Formations » and no way back to
+     * the page whose three cards sent the visitor there — the breadcrumb
+     * being the site's only back affordance (design.md §7.3), that was a
+     * dead end reachable in one click.
+     *
+     * @return array<int, array{label: string, url: string}>
+     */
+    private function hubTrail(): array
+    {
+        return [['label' => 'Encadrement', 'url' => '/admin/leadership']];
     }
 }

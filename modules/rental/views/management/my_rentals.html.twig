@@ -30,7 +30,7 @@
                                     <span>
                                         <span class="fw-semibold">{{ booking.reference }}</span>
                                         <span class="text-body-secondary small d-block">
-                                            {{ booking_asset.name }} · du {{ booking.arrivalDate }} au {{ booking.departureDate }}
+                                            {{ booking_asset.name }} · du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}
                                         </span>
                                     </span>
                                     {% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}
@@ -60,7 +60,7 @@
                             {% if asset.isArchived %}
                                 {% include 'partials/status_badge.html.twig' with { status: 'archived', label: 'Archivé' } only %}
                             {% elseif not asset.isPublic %}
-                                <span class="badge text-bg-light border">Non public</span>
+                                <span class="badge bg-body-tertiary border text-body-secondary">Non public</span>
                             {% endif %}
                         </span>
                     </div>

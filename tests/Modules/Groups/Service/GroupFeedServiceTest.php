@@ -19,6 +19,7 @@ use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\PostAuthorResolver;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
+use Modules\Groups\Support\Timestamps;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -159,7 +160,7 @@ class GroupFeedServiceTest extends TestCase
                 $this->pdo,
                 $this->groupId,
                 'post ' . $i,
-                (new \DateTimeImmutable('2026-01-01 10:00:00', new \DateTimeZone('UTC')))
+                Timestamps::parse('2026-01-01 10:00:00')
                     ->modify('+' . $i . ' minutes')->format('Y-m-d H:i:s'),
                 $this->authorAccountId,
                 $this->authorMemberId

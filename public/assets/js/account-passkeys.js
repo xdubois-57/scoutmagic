@@ -67,6 +67,28 @@
             .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
+    /**
+     * What to tell the owner when navigator.credentials.create() throws.
+     * A function of its own so the registration handler reads as one
+     * sequence of steps rather than carrying this three-way branch inline.
+     *
+     * @param {unknown} err
+     * @returns {string}
+     */
+    function registrationErrorMessage(err) {
+        switch (err && /** @type {any} */ (err).name) {
+            // The platform authenticator already holds a key for this
+            // account on this device (excludeCredentials prevents a
+            // duplicate).
+            case 'InvalidStateError':
+                return 'Cet appareil possède déjà une clé enregistrée pour ce compte.';
+            case 'NotAllowedError':
+                return 'L\'enregistrement a été annulé.';
+            default:
+                return 'L\'enregistrement a échoué.';
+        }
+    }
+
     // A browser with no WebAuthn cannot be talked into it: say so, and
     // take the button out of the tab order rather than let it throw.
     if (!window.PublicKeyCredential) {
@@ -116,17 +138,7 @@
             try {
                 credential = await navigator.credentials.create({ publicKey: options });
             } catch (err) {
-                var name = err && /** @type {any} */ (err).name;
-                if (name === 'InvalidStateError') {
-                    // The platform authenticator already holds a key for
-                    // this account on this device (excludeCredentials
-                    // prevents a duplicate).
-                    toastError('Cet appareil possède déjà une clé enregistrée pour ce compte.');
-                } else if (name === 'NotAllowedError') {
-                    toastError('L\'enregistrement a été annulé.');
-                } else {
-                    toastError('L\'enregistrement a échoué.');
-                }
+                toastError(registrationErrorMessage(err));
                 return;
             }
 

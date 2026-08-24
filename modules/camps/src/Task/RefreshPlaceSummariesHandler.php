@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Task;
 
-use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
@@ -16,9 +15,7 @@ use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Repository\PlaceRepository;
 use Modules\Camps\Repository\ReviewRepository;
 use Modules\Camps\Service\PlaceSummaryService;
-use Modules\LlmConnector\Repository\ProviderModelRepository;
-use Modules\LlmConnector\Repository\ProviderRepository;
-use Modules\LlmConnector\Service\LlmConnectorService;
+use Modules\LlmConnector\Api\LlmConnectorInterface;
 
 /**
  * Regenerates the summaries of places whose stays or reviews changed,
@@ -33,6 +30,22 @@ use Modules\LlmConnector\Service\LlmConnectorService;
  * The batch cap is the other half of that: a unit that just imported
  * twenty years of camps must not turn one task run into twenty model
  * calls. What is left stays stale and is picked up tomorrow.
+ *
+ * **The connector is injected, never built here** (ARCHITECTURE.md §7.5).
+ * This module consumes `llm_connector`'s public API and must degrade to
+ * "no summary" when that module is absent or disabled — which it cannot
+ * do while reaching into that module's own repositories and services, as
+ * this handler used to: those classes stop existing the moment the module
+ * is removed from an install. Only a composition root knows
+ * whether it is enabled, so this handler is registered by hand in
+ * public/index.php AND public/cron.php, the same as `inbound_mail`'s
+ * polling task (§8.58): a handler registered in only one of the two fails
+ * unconditionally under the other, and a test pins both call sites.
+ *
+ * The nullable default keeps the manifest's auto-resolution (`new
+ * $handlerClass()`) working rather than fatal — an installation whose
+ * composition root somehow missed this handler gets no summaries, which
+ * is the same outcome as `llm_connector` being off.
  */
 class RefreshPlaceSummariesHandler implements TaskHandlerInterface
 {
@@ -40,6 +53,10 @@ class RefreshPlaceSummariesHandler implements TaskHandlerInterface
     public const REFERENCE = 'camps_refresh_place_summaries';
 
     private const MAX_PER_RUN = 10;
+
+    public function __construct(private ?LlmConnectorInterface $llm = null)
+    {
+    }
 
     /**
      * @param array<string, mixed> $payload
@@ -62,11 +79,7 @@ class RefreshPlaceSummariesHandler implements TaskHandlerInterface
             $places,
             new CampRepository($pdo, $context->encryption),
             new ReviewRepository($pdo),
-            new LlmConnectorService(
-                new ProviderRepository($pdo, $context->encryption),
-                new ProviderModelRepository($pdo),
-                $context->journal
-            )
+            $this->llm
         );
 
         if (!$service->isAvailable()) {
@@ -92,17 +105,6 @@ class RefreshPlaceSummariesHandler implements TaskHandlerInterface
 
     private function rescheduleTomorrow(\PDO $pdo): void
     {
-        $scheduler = new SchedulerService(new SchedulerRepository($pdo));
-        if ($scheduler->find('camps', self::TASK_KEY, self::REFERENCE) !== null) {
-            return;
-        }
-
-        $scheduler->schedule(
-            'camps',
-            self::TASK_KEY,
-            new \DateTimeImmutable('tomorrow 05:00'),
-            [],
-            self::REFERENCE
-        );
+        SchedulerService::forPdo($pdo)->rearm('camps', self::TASK_KEY, self::REFERENCE, 'tomorrow 05:00');
     }
 }

@@ -5,14 +5,15 @@
   needs the detail is one click from the page that shows it behind a real
   permission check.
 #}
-<p>Une nouvelle demande de location est arrivée.</p>
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <p>Une nouvelle demande de location est arrivée.</p>
 
-<ul>
-    <li><strong>Bien</strong> : {{ asset.name }}</li>
-    <li><strong>Référence</strong> : {{ booking.reference }}</li>
-    <li><strong>Dates</strong> : du {{ booking.arrivalDate }} au {{ booking.departureDate }}</li>
-</ul>
+    <ul>
+        <li><strong>Bien</strong> : {{ asset.name }}</li>
+        <li><strong>Référence</strong> : {{ booking.reference }}</li>
+        <li><strong>Dates</strong> : du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}</li>
+    </ul>
 
-<p><a href="{{ manage_url }}">Traiter la demande</a></p>
-
-<p>{{ site_name }}</p>
+    <p><a href="{{ manage_url }}">Traiter la demande</a></p>
+{% endblock %}

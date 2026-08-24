@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Journal\JournalService;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\ChangeRequest;
@@ -22,9 +23,9 @@ use Modules\Rental\Pricing\PricingRequest;
 use Modules\Rental\Pricing\QuoteEditor;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
-use Modules\Rental\Repository\RentalBookingEventRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Support;
 
 /**
  * Operating a booking day to day (§6.12, §6.15–§6.18): moving it through its
@@ -58,7 +59,7 @@ class RentalOperationsService
 
     public function __construct(
         private RentalBookingRepository $bookingRepository,
-        private RentalBookingEventRepository $eventRepository,
+        private BookingAudit $bookingAudit,
         private RentalBookingCommentRepository $commentRepository,
         private RentalChangeRequestRepository $changeRequestRepository,
         private RentalAvailabilityService $availabilityService,
@@ -285,9 +286,9 @@ class RentalOperationsService
         }
 
         $this->bookingRepository->setHold($booking->id, $until, HoldOrigin::MANAGER);
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::HOLD_PLACED,
+            BookingAudit::HOLD_PLACED,
             null,
             $until->format('d/m/Y H:i'),
             'Option posée',
@@ -302,9 +303,9 @@ class RentalOperationsService
         }
 
         $this->bookingRepository->clearHold($booking->id);
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::HOLD_CLEARED,
+            BookingAudit::HOLD_CLEARED,
             $booking->holdUntil->format('d/m/Y H:i'),
             null,
             'Blocage levé',
@@ -416,9 +417,9 @@ class RentalOperationsService
         // The history records that a comment exists, never a word of it —
         // the comment itself is encrypted precisely because it is not
         // something to scatter into a plain-text column (SECURITY.md §5).
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::COMMENT_ADDED,
+            BookingAudit::COMMENT_ADDED,
             null,
             null,
             'Commentaire interne ajouté',
@@ -547,9 +548,9 @@ class RentalOperationsService
         );
 
         $request = $this->changeRequestRepository->findById($id);
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::CHANGE_REQUESTED,
+            BookingAudit::CHANGE_REQUESTED,
             $origin->value,
             $kind->value,
             $request?->summary(),
@@ -680,9 +681,9 @@ class RentalOperationsService
                 $this->bookingRepository->setAgreedPrice($current->id, $request->proposedPrice);
             }
 
-            $this->eventRepository->record(
+            $this->bookingAudit->record(
                 $current->id,
-                RentalBookingEventRepository::DATES_CHANGED,
+                BookingAudit::DATES_CHANGED,
                 $current->arrivalDate . ' → ' . $current->departureDate,
                 $arrival . ' → ' . $departure,
                 null,
@@ -745,11 +746,11 @@ class RentalOperationsService
         $this->bookingRepository->setAgreedPrice($booking->id, $quote);
         $this->syncReceivableAmount($booking, $quote->totalCents, $actorMemberId);
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::PRICE_CHANGED,
-            $before !== null ? self::euros($before) : null,
-            self::euros($quote->totalCents),
+            BookingAudit::PRICE_CHANGED,
+            $before !== null ? Support::euros($before) : null,
+            Support::euros($quote->totalCents),
             null,
             $actorMemberId
         );
@@ -769,9 +770,9 @@ class RentalOperationsService
 
     private function recordStatusChange(RentalBooking $booking, BookingStatus $target, ?int $actorMemberId): void
     {
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             $booking->status->label(),
             $target->label(),
             null,
@@ -794,9 +795,9 @@ class RentalOperationsService
         ChangeRequestStatus $status,
         ?int $actorMemberId
     ): void {
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $request->bookingId,
-            RentalBookingEventRepository::CHANGE_DECIDED,
+            BookingAudit::CHANGE_DECIDED,
             $request->kind->value,
             $status->value,
             $request->summary(),
@@ -901,8 +902,4 @@ class RentalOperationsService
     }
 
     /** `467,50 €` — for a history line a human reads, never for arithmetic. */
-    private static function euros(int $cents): string
-    {
-        return number_format($cents / 100, 2, ',', ' ') . ' €';
-    }
 }

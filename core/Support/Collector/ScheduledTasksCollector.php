@@ -28,12 +28,19 @@ use Core\Support\SupportSpreadsheet;
  * neither concept exists in this scheduler (recurring tasks reschedule
  * themselves at the end of each run), and inventing columns for them would
  * describe a model the code does not have. Equally deliberately, there is
- * no full execution history — the last run and the next slot answer the
- * question; a thousand rows of past runs do not.
+ * no full execution history — the last run, the next slot and the counts
+ * answer the question; a thousand rows of past runs do not.
+ *
+ * The counts are the newest columns and the least obvious. A scheduler
+ * whose tasks re-arm themselves can run one of them far too often without
+ * anything else on this sheet looking wrong — see volume().
  */
 class ScheduledTasksCollector implements SupportCollectorInterface
 {
     private const ERROR_MAX_LENGTH = 300;
+
+    /** Same window as the event journal, so the two can be read together. */
+    private const VOLUME_WINDOW_HOURS = 48;
 
     public function __construct(private ?ModuleManager $moduleManager = null)
     {
@@ -65,6 +72,7 @@ class ScheduledTasksCollector implements SupportCollectorInterface
                     'Dernière exécution — statut', 'Dernière exécution — tentatives',
                     'Dernière exécution — erreur',
                     'Prochaine instance — prévue le', 'Prochaine instance — référence',
+                    'Exécutions sur 48 h', 'Échecs sur 48 h', 'En attente', 'Instances enregistrées',
                 ],
                 $rows,
                 'Tâches planifiées'
@@ -98,6 +106,7 @@ class ScheduledTasksCollector implements SupportCollectorInterface
     {
         $last = $this->lastExecuted($context, $source, $taskKey);
         $next = $this->nextPending($context, $source, $taskKey);
+        $volume = $this->volume($context, $source, $taskKey);
 
         return [
             $source,
@@ -110,6 +119,53 @@ class ScheduledTasksCollector implements SupportCollectorInterface
             $context->redact(self::asString($last['last_error'] ?? null), self::ERROR_MAX_LENGTH),
             self::asString($next['run_at'] ?? null),
             self::asString($next['reference'] ?? null),
+            (string) $volume['recent'],
+            (string) $volume['failed'],
+            (string) $volume['pending'],
+            (string) $volume['total'],
+        ];
+    }
+
+    /**
+     * How often this task actually runs, next to what it is supposed to do.
+     *
+     * "Last run" answers whether a task works. It cannot answer whether one
+     * is running far too often, and that is a real failure mode of a
+     * scheduler whose recurring tasks re-arm themselves: a task seeded as
+     * if it were periodic re-queues itself for ever, does nothing each
+     * time, and looks perfectly healthy in every other column. One did —
+     * 277 no-op runs in ten hours, a third of the event journal — and this
+     * sheet showed a single tidy "done" for it.
+     *
+     * A count over the same 48 hours as the journal makes it obvious: a
+     * daily task reads 1 or 2, an hourly one around 48, and anything in
+     * the hundreds is re-arming itself in a loop. `pending` catches the
+     * opposite fault — a queue nothing is draining, on an installation
+     * whose scheduler never fires.
+     *
+     * @return array{recent: int, failed: int, pending: int, total: int}
+     */
+    private function volume(SupportCollectorContext $context, string $moduleId, string $taskKey): array
+    {
+        $cutoff = (new \DateTimeImmutable('-' . self::VOLUME_WINDOW_HOURS . ' hours'))->format('Y-m-d H:i:s');
+
+        $stmt = $context->pdo()->prepare(
+            "SELECT
+                 SUM(CASE WHEN COALESCE(executed_at, run_at) >= ? THEN 1 ELSE 0 END) AS recent,
+                 SUM(CASE WHEN status = 'failed' AND COALESCE(executed_at, run_at) >= ? THEN 1 ELSE 0 END) AS failed,
+                 SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+                 COUNT(*) AS total
+             FROM scheduled_actions
+             WHERE module_id = ? AND task_key = ?"
+        );
+        $stmt->execute([$cutoff, $cutoff, $moduleId, $taskKey]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return [
+            'recent' => (int) (is_array($row) ? ($row['recent'] ?? 0) : 0),
+            'failed' => (int) (is_array($row) ? ($row['failed'] ?? 0) : 0),
+            'pending' => (int) (is_array($row) ? ($row['pending'] ?? 0) : 0),
+            'total' => (int) (is_array($row) ? ($row['total'] ?? 0) : 0),
         ];
     }
 

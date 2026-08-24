@@ -233,7 +233,7 @@ class CampsMessageConsumer implements MessageConsumerInterface
     private function campIdForSender(CandidateMessage $message): ?int
     {
         $index = $this->encryption->blindIndex(
-            mb_strtolower(trim($message->fromEmail)),
+            EncryptionService::normalizeEmailForIndex($message->fromEmail),
             'camp_contacts.email'
         );
 
