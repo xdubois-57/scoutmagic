@@ -339,7 +339,12 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     e2e_copy_public($repoRoot . '/public', $instanceDir . '/public');
     symlink($repoRoot . '/public/assets', $instanceDir . '/public/assets');
 
-    foreach (['core', 'modules', 'schema', 'vendor', 'composer.json', 'VERSION'] as $entry) {
+    // docs/ is part of a real install (scripts/release.sh does not exclude
+    // it, and asserts docs/help/ is in the artifact): the contextual help
+    // reads docs/help/*.md at runtime (Core\Help\HelpRegistry), so an
+    // instance without it silently loses every core help topic — the help
+    // button then renders as a bare /aide link on pages a topic covers.
+    foreach (['core', 'modules', 'schema', 'vendor', 'docs', 'composer.json', 'VERSION'] as $entry) {
         symlink($repoRoot . '/' . $entry, $instanceDir . '/' . $entry);
     }
 
