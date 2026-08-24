@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Repository;
 
+use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\HoldOrigin;
@@ -96,7 +97,7 @@ class RentalBookingRepository
         ?string $privacyHash,
         \DateTimeImmutable $now
     ): array {
-        $trackingToken = bin2hex(random_bytes(32));
+        $trackingToken = CapabilityToken::generate();
         $timestamp = $now->format('Y-m-d H:i:s');
 
         $stmt = $this->pdo->prepare(
@@ -170,8 +171,9 @@ class RentalBookingRepository
     /**
      * Verifies a presented tracking token against a booking's stored one.
      *
-     * `hash_equals()` against the decrypted token — constant-time, which is
-     * what stops the token being guessed one character at a time. See the
+     * Constant-time against the decrypted token (Core\Security\
+     * CapabilityToken), which is what stops the token being guessed one
+     * character at a time. See the
      * note in schema.sql for why this is encrypted rather than hashed: a
      * hash can answer "is this the token?" and nothing else, and every
      * email a manager's decision sends needs the answer to "what is this
@@ -187,7 +189,7 @@ class RentalBookingRepository
     {
         $stored = $this->trackingTokenOf($id);
 
-        return $stored !== null && $token !== '' && hash_equals($stored, $token);
+        return CapabilityToken::equalsConstantTime($stored, $token);
     }
 
     /**
@@ -227,7 +229,7 @@ class RentalBookingRepository
      */
     public function regenerateTrackingToken(int $id): string
     {
-        $token = bin2hex(random_bytes(32));
+        $token = CapabilityToken::generate();
         $stmt = $this->pdo->prepare('UPDATE rental_bookings SET tracking_token_encrypted = ?, updated_at = ? WHERE id = ?');
         $stmt->execute([
             $this->encryption->encrypt($token, self::CTX_TRACKING_TOKEN),

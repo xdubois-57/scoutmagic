@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Retro\Repository;
 
+use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
 
 /**
@@ -85,7 +86,7 @@ class BoardRepository
         // Verify exact match (blind index collisions are theoretically possible).
         $board = $this->hydrate($row);
 
-        return hash_equals($board->token, $token) ? $board : null;
+        return CapabilityToken::equalsConstantTime($board->token, $token) ? $board : null;
     }
 
     /**

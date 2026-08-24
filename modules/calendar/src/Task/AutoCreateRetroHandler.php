@@ -14,6 +14,7 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Security\CapabilityToken;
 use Modules\Calendar\Repository\Calendar;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarRepository;
@@ -78,7 +79,7 @@ class AutoCreateRetroHandler implements TaskHandlerInterface
         $voteBudget = (int) ($settingService->get('retro_default_vote_budget', 'retro') ?: 5);
 
         $title = "Rétrospective {$event->title} - {$calendarName} - {$event->startDate}";
-        $token = bin2hex(random_bytes(32));
+        $token = CapabilityToken::generate();
         $autoCloseAt = (new \DateTimeImmutable('+7 days'))->format('Y-m-d H:i:s');
 
         $boardId = $boardRepository->create(

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Calendar\Service;
 
 use Core\Member\SectionService;
+use Core\Security\CapabilityToken;
 use Core\Security\Role;
 use Core\View\MonthGrid\GridEvent;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
@@ -588,7 +589,7 @@ class CalendarService implements CalendarEventLookupInterface
 
     public function generateToken(): string
     {
-        return bin2hex(random_bytes(32));
+        return CapabilityToken::generate();
     }
 
     /**

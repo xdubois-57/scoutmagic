@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Registration\Repository;
 
 use Core\Member\AddressNormalizer;
+use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
 use Core\Service\TextNormalizerService;
 
@@ -48,7 +49,7 @@ class RegistrationRequestRepository
         ?int $desiredSectionId,
         array $siblingMemberIds
     ): array {
-        $trackingToken = bin2hex(random_bytes(32));
+        $trackingToken = CapabilityToken::generate();
         $trackingTokenHash = password_hash($trackingToken, PASSWORD_DEFAULT);
 
         $nameDobBlind = $this->encryption->blindIndex(self::normalizeForNameDobBlindIndex(

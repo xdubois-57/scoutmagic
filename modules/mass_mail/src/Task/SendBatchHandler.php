@@ -14,6 +14,7 @@ use Core\Mail\MailException;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Security\CapabilityToken;
 use Modules\MassMail\Repository\AudienceRepository;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\EmailAttachmentRepository;
@@ -127,8 +128,11 @@ class SendBatchHandler implements TaskHandlerInterface
             // hash_equals on verify) is as safe as bcrypt here and avoids a
             // per-request bcrypt on an anonymous endpoint — a needless
             // CPU-burn primitive an attacker could hammer (audit hardening).
-            $rawUnsubscribeToken = bin2hex(random_bytes(32));
-            $recipientRepository->setUnsubscribeTokenHash($recipient->id, hash('sha256', $rawUnsubscribeToken));
+            $rawUnsubscribeToken = CapabilityToken::generate();
+            $recipientRepository->setUnsubscribeTokenHash(
+                $recipient->id,
+                CapabilityToken::hash($rawUnsubscribeToken)
+            );
             $unsubscribeUrl = rtrim((string) $context->settings->get('base_url'), '/')
                 . '/mass-mail/unsubscribe/' . $recipient->id . '?token=' . $rawUnsubscribeToken;
 

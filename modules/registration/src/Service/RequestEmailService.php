@@ -11,6 +11,7 @@ namespace Modules\Registration\Service;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
+use Core\Security\CapabilityToken;
 use Core\View\EditableContentService;
 use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
@@ -107,7 +108,7 @@ class RequestEmailService
         // actually out (below). Persisting first — what this method used to
         // do — meant a delivery failure killed the link the family already
         // had while never handing them the replacement.
-        $trackingToken = bin2hex(random_bytes(32));
+        $trackingToken = CapabilityToken::generate();
         $trackingUrl = rtrim($this->baseUrl, '/') . "/inscriptions/suivi/{$request->id}/{$trackingToken}";
 
         $body = $this->substitute((string) $this->editableContentService->get($contentKey), [

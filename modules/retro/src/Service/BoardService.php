@@ -13,6 +13,7 @@ use Core\Mail\MailService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Scheduler\SchedulerService;
+use Core\Security\CapabilityToken;
 use Core\Security\Role;
 use Core\Url\ShortUrlService;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
@@ -551,7 +552,7 @@ class BoardService implements RetroEventLinkLookupInterface
 
     private function generateToken(): string
     {
-        return bin2hex(random_bytes(32));
+        return CapabilityToken::generate();
     }
 
     private function tryCreateShortLink(string $token, ?int $createdBy): ?string
