@@ -149,19 +149,21 @@
                        lists on the rest of the page, which are lists too. #}
                     <h3 class="h6 mt-4">Valeurs non reconnues</h3>
                     {% if unresolved_levels|length > 0 %}
-                        <ul class="list-group list-group-flush">
-                            {% for level in unresolved_levels %}
-                                {% include '@leadership/partials/_mapping_row.html.twig' with {
-                                    raw_value: level.raw_value,
-                                    detail: level.holders ~ ' personne' ~ (level.holders > 1 ? 's' : '') ~ ' avec cette valeur',
-                                    field_id: 'step-new-' ~ loop.index,
-                                    steps: assignable_steps|default([]),
-                                    selected: null,
-                                    submit_label: 'Rattacher',
-                                    removable: false,
-                                } only %}
-                            {% endfor %}
-                        </ul>
+                        {% set _unresolved_rows = [] %}
+                        {% for level in unresolved_levels %}
+                            {% set _unresolved_rows = _unresolved_rows|merge([{
+                                raw_value: level.raw_value,
+                                detail: level.holders ~ ' personne' ~ (level.holders > 1 ? 's' : '') ~ ' avec cette valeur',
+                                field_id: 'step-new-' ~ loop.index,
+                                selected: null,
+                            }]) %}
+                        {% endfor %}
+                        {% include '@leadership/partials/_mapping_list.html.twig' with {
+                            rows: _unresolved_rows,
+                            steps: assignable_steps|default([]),
+                            submit_label: 'Rattacher',
+                            removable: false,
+                        } only %}
                     {% else %}
                         {% include 'partials/empty_state.html.twig' with {
                             message: 'Toutes les valeurs encodées cette année sont reconnues.',
@@ -171,23 +173,25 @@
 
                     <h3 class="h6 mt-4">Rattachements déjà enregistrés</h3>
                     {% if decided_levels|length > 0 %}
-                        <ul class="list-group list-group-flush">
-                            {% for level in decided_levels %}
-                                {% include '@leadership/partials/_mapping_row.html.twig' with {
-                                    raw_value: level.raw_value,
-                                    detail: 'Rattachée à « ' ~ level.step_label ~ ' » — ' ~ (
-                                        level.holders > 0
-                                            ? level.holders ~ ' personne' ~ (level.holders > 1 ? 's' : '') ~ ' avec cette valeur cette année'
-                                            : 'plus utilisée cette année'
-                                    ),
-                                    field_id: 'step-set-' ~ loop.index,
-                                    steps: assignable_steps|default([]),
-                                    selected: level.step,
-                                    submit_label: 'Modifier',
-                                    removable: true,
-                                } only %}
-                            {% endfor %}
-                        </ul>
+                        {% set _decided_rows = [] %}
+                        {% for level in decided_levels %}
+                            {% set _decided_rows = _decided_rows|merge([{
+                                raw_value: level.raw_value,
+                                detail: 'Rattachée à « ' ~ level.step_label ~ ' » — ' ~ (
+                                    level.holders > 0
+                                        ? level.holders ~ ' personne' ~ (level.holders > 1 ? 's' : '') ~ ' avec cette valeur cette année'
+                                        : 'plus utilisée cette année'
+                                ),
+                                field_id: 'step-set-' ~ loop.index,
+                                selected: level.step,
+                            }]) %}
+                        {% endfor %}
+                        {% include '@leadership/partials/_mapping_list.html.twig' with {
+                            rows: _decided_rows,
+                            steps: assignable_steps|default([]),
+                            submit_label: 'Modifier',
+                            removable: true,
+                        } only %}
                     {% else %}
                         {% include 'partials/empty_state.html.twig' with {
                             message: 'Aucun rattachement enregistré pour le moment.',

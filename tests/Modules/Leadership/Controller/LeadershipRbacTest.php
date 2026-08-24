@@ -243,7 +243,7 @@ class LeadershipRbacTest extends TestCase
     /**
      * The mapping block, all the way through `training()` and out of the
      * template — the two lists it renders are the same row with a
-     * different verb (`partials/_mapping_row.html.twig`), and nothing
+     * different verb (`partials/_mapping_list.html.twig`), and nothing
      * before this test rendered either of them.
      */
     public function testTheMappingBlockRendersBothListsThroughTheSharedRow(): void

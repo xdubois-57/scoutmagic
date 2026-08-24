@@ -1,0 +1,90 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  One list of the formation-mapping block: for each raw Desk value, what
+  the site currently knows about it, and the form that decides (or
+  re-decides) which step it means.
+
+  Written once because the two lists it serves — « Valeurs non reconnues »
+  and « Rattachements déjà enregistrés » — are the same row with a
+  different verb. They had drifted already: only one of them offered a
+  placeholder option, and only one had a remove button, which is correct;
+  but the select's width, its visually-hidden label and its size were
+  three chances for them to stop matching for no reason.
+
+  This partial owns the surrounding list as well as each item, rather than
+  taking one row and letting the caller supply the list around it. Both
+  are needed for the markup to be checkable: a partial holding a bare item
+  has no way to show a static HTML checker that it is only ever rendered
+  inside a list, and the checker reads each template file on its own.
+
+  A list, not a table, deliberately (see training.html.twig): four columns
+  of a select, a button and a variable-length Desk string do not fit a
+  375px screen, and a control a chief has to scroll sideways to reach is
+  not "lisible sur téléphone".
+
+  Parameters:
+    rows             -- [{ raw_value, detail, field_id, selected }, …]
+                        raw_value  the Desk string itself
+                        detail     the French sentence under it (how many
+                                   people, or which step it is attached to)
+                        field_id   unique id for that row's select
+                        selected   the step value currently chosen, or null
+                                   for a value nobody has decided yet
+    steps            -- assignable_steps: [{ value, label }, …]
+    submit_label     -- « Rattacher » or « Modifier »
+    removable        -- whether to offer the trash button (only a decision
+                        can be undone; there is nothing to remove from a
+                        value nobody decided)
+#}
+<ul class="list-group list-group-flush">
+    {% for row in rows %}
+        {% set _selected = row.selected|default(null) %}
+        {% set _options = steps|default([])|map(step => {
+            value: step.value,
+            label: step.label,
+            selected: _selected is not null and step.value == _selected,
+        }) %}
+        {% if _selected is null %}
+            {% set _options = [{ value: '', label: 'Choisir une étape…' }]|merge(_options) %}
+        {% endif %}
+
+        <li class="list-group-item px-0 py-3">
+            <div class="fw-semibold text-break"><code>{{ row.raw_value }}</code></div>
+            <div class="small text-body-secondary mb-2">{{ row.detail }}</div>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <form method="post" action="/admin/leadership/training/mapping"
+                      class="d-flex flex-wrap gap-2 align-items-center">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="raw_value" value="{{ row.raw_value }}">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: row.field_id,
+                        field_name: 'step',
+                        label: 'Étape pour « ' ~ row.raw_value ~ ' »',
+                        label_visually_hidden: true,
+                        type: 'select',
+                        size: 'sm',
+                        control_class_extra: 'w-auto',
+                        wrapper_class: 'mb-0',
+                        options: _options,
+                    } only %}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">{{ submit_label }}</button>
+                </form>
+                {% if removable|default(false) %}
+                    <form method="post" action="/admin/leadership/training/mapping"
+                          data-confirm="Supprimer le rattachement de « {{ row.raw_value }} » ? Cette valeur redeviendra non reconnue tant qu'elle ne sera pas rattachée à nouveau.">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="raw_value" value="{{ row.raw_value }}">
+                        <input type="hidden" name="step" value="">
+                        <button type="submit" class="btn btn-sm btn-outline-danger"
+                                aria-label="Supprimer le rattachement de {{ row.raw_value }}">
+                            <i class="bi bi-trash" aria-hidden="true"></i>
+                        </button>
+                    </form>
+                {% endif %}
+            </div>
+        </li>
+    {% endfor %}
+</ul>
