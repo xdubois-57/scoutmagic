@@ -29,7 +29,9 @@ use Modules\Groups\Support\Timestamps;
  *   the people reading the group.
  * - `member` — one answer per member. What a parent of three needs for
  *   "quel enfant vient ?": the same login answers once per child, and
- *   says which child each answer is for.
+ *   says which child each answer is for. Every child that login reaches,
+ *   not only the ones this group is built from — see
+ *   Service\GroupAccessService::memberIdsAllowedToVoteAs().
  *
  * And how many answers each voter may give: one (the default, a change of
  * mind replacing the previous answer) or several (a second tap on an
@@ -129,7 +131,8 @@ class PollService
      * member id was posted, and a member-scoped one records a member the
      * caller has already been confirmed to be able to act for.
      *
-     * @param int[] $allowedMemberIds the caller's own members in this group
+     * @param int[] $allowedMemberIds every member the caller may act for
+     *        (Service\GroupAccessService::memberIdsAllowedToVoteAs())
      * @return bool false when there was nothing legitimate to record
      */
     public function vote(
@@ -182,7 +185,7 @@ class PollService
      * number of queries for the whole page rather than per post.
      *
      * @param int[] $postIds
-     * @param int[] $memberIds this account's members in the group, for
+     * @param int[] $memberIds every member this account may act for, for
      *        "what did I answer" and for the member-scoped picker
      * @return array<int, array{
      *     id: int,
@@ -311,7 +314,9 @@ class PollService
         if ($scope === self::SCOPE_MEMBER) {
             // The requested member, but only if the caller really is one
             // of that member's people — otherwise the first of their own,
-            // which is what a no-JS submit with no picker sends.
+            // which is what a no-JS submit with no picker sends. That
+            // fallback is a member of this group whenever the caller has
+            // one, which is the order memberIdsAllowedToVoteAs() returns.
             $memberId = in_array($requestedMemberId, $allowedMemberIds, true)
                 ? $requestedMemberId
                 : ($allowedMemberIds[0] ?? 0);

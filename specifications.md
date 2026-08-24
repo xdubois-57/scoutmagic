@@ -545,7 +545,7 @@ A message may carry a poll: a question and from 2 to 10 answers. The composer al
 
 Two choices belong to the poll itself, made when it is written:
 
-- **Who counts as one voter**: the connected person (the default — one answer per email address), or the member. Per member is what a parent of several children needs; when their account is linked to more than one member of the group, a small dialog asks whose answer is being given at the moment of voting.
+- **Who counts as one voter**: the connected person (the default — one answer per email address), or the member. Per member is what a parent of several children needs; when their account is linked to more than one member the group counts, a small dialog asks whose answer is being given at the moment of voting. **Which of their members the group counts is the group's own affair**: a section group asks its section's question, so only the children who are in it may be answered for; any other group — a camp staff, a project, the whole unit — draws no such boundary and offers every member the account reaches, the group's own first. A family of four reachable through one address therefore has four answers to give when the unit asks, and two when their own section does. The dialog says which is which: the members the group holds first, the others under a heading of their own (« Dans ce groupe » / « Hors de ce groupe »), and no heading at all when everybody is on the same side.
 - **How many answers each voter may give**: one (the default, changeable at any time) or several, where tapping an answer again takes it back.
 
 Results show how many people (or members) answered, never who answered what.

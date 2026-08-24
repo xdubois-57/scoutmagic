@@ -36,6 +36,7 @@ use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\ReplyService;
 use Modules\Groups\Service\ReportService;
 use Modules\Groups\Service\SeenByService;
+use Modules\Groups\Support\PollVoterOptions;
 use Modules\Groups\Support\RejectedDraft;
 use Twig\Environment;
 
@@ -508,7 +509,15 @@ class PostController extends AbstractController
             // and Service\PollService re-checks that it is one of theirs
             // whatever the form said (voter_member_id below is a
             // request, never an authority).
-            $allowed = $this->accessService->memberIdsAllowedToPostAs($group, $context);
+            //
+            // The members this group would normally count — its own
+            // section for a section group, every member this account
+            // reaches for any other (Service\GroupAccessService::
+            // memberIdsAllowedToVoteAs(), which says why the two answers
+            // differ). The same set the picker was built from, so a form
+            // naming anybody else falls back to one of the caller's own
+            // rather than being recorded as asked.
+            $allowed = $this->accessService->memberIdsAllowedToVoteAs($group, $context);
             if ($this->pollService === null) {
                 return new Response('Ce message ne porte pas de sondage.', 400);
             }
@@ -755,34 +764,17 @@ class PostController extends AbstractController
     }
 
     /**
-     * The members this account may answer a member-scoped poll for, named
-     * the way this module names anybody — the account first, narrowed to
-     * the one membership each option stands for ("Marie Dupont (Akéla)").
+     * What the member-scoped poll's picker offers, for each of the three
+     * fragments this Controller renders one into — the "Charger plus"
+     * page, the card a new post returns, and the poll re-rendered after a
+     * vote. Support\PollVoterOptions holds the rules, and Controller\
+     * GroupController's page calls the same one.
      *
-     * Empty when there is only one: there is nothing to pick between, and
-     * a dialog asking a question with one answer is a click for nothing.
-     *
-     * @return array<int, array{id: int, name: string}>
+     * @return array<int, array{id: int, name: string, in_group: bool}>
      */
     private function voteMemberOptions(DiscussionGroup $group, GroupSessionContext $context): array
     {
-        $memberIds = $this->accessService->memberIdsAllowedToPostAs($group, $context);
-        if (count($memberIds) < 2) {
-            return [];
-        }
-
-        $labels = $this->identityService?->accountLabelForMembers(
-            $memberIds,
-            $group->scoutYearId ?? $context->effectiveScoutYearId
-        ) ?? [];
-
-        return array_map(
-            static fn(int $memberId): array => [
-                'id' => $memberId,
-                'name' => ($labels[$memberId] ?? '') !== '' ? $labels[$memberId] : ('Membre #' . $memberId),
-            ],
-            $memberIds
-        );
+        return PollVoterOptions::forGroup($this->accessService, $this->identityService, $group, $context);
     }
 
     private function context(): GroupSessionContext
