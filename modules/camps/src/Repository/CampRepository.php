@@ -144,6 +144,19 @@ class CampRepository
         $stmt->execute([$at->format('Y-m-d H:i:s'), $campId]);
     }
 
+    /**
+     * Removes a stay. The ONLY caller is Service\MergeService: a stay is
+     * never deleted through the interface — one that did not happen is
+     * cancelled, which is itself worth recording. Here the row disappears
+     * because its contents have just been moved into another stay, and
+     * its losing values written into that stay's note.
+     */
+    public function delete(int $campId): void
+    {
+        $this->pdo->prepare('DELETE FROM camp_camp_sections WHERE camp_id = ?')->execute([$campId]);
+        $this->pdo->prepare('DELETE FROM camp_camps WHERE id = ?')->execute([$campId]);
+    }
+
     public function countByPlace(int $placeId): int
     {
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM camp_camps WHERE place_id = ?');

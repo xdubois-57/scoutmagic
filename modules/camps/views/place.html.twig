@@ -83,6 +83,29 @@
         {% endfor %}
     </div>
 
+    {% if is_unit_chief %}
+        <div class="d-flex flex-wrap gap-2 mt-4 pt-3 border-top">
+            <a class="btn btn-outline-secondary btn-sm" href="/chefs/camps/lieux/{{ place.id }}/fusionner">
+                <i class="bi bi-signpost-split" aria-hidden="true"></i> Fusionner ce lieu
+            </a>
+            {% if place.isArchived %}
+                <form method="post" action="/chefs/camps/lieux/{{ place.id }}/restaurer">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">Restaurer</button>
+                </form>
+            {% else %}
+                <form method="post" action="/chefs/camps/lieux/{{ place.id }}/archiver"
+                      data-confirm="Archiver ce lieu ? Il disparaîtra des écrans courants et de la recherche. Rien n'est supprimé.">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">Archiver</button>
+                </form>
+            {% endif %}
+        </div>
+        {% if archive_warning %}
+            <p class="small text-body-secondary mt-2">{{ archive_warning }}</p>
+        {% endif %}
+    {% endif %}
+
     <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Historique</h2>
     {% include 'partials/audit_timeline.html.twig' with {
         entity_type: 'camp_place',

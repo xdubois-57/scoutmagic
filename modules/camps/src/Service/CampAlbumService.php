@@ -70,6 +70,29 @@ class CampAlbumService
     }
 
     /**
+     * The stay's album id ONLY if it already exists — never creating one.
+     *
+     * Distinct from albumIdFor() on purpose: that one is
+     * create-if-missing, which is right on the photos page and wrong
+     * anywhere else. A merge asking "does the losing stay have photos"
+     * must not answer by creating an empty album for it.
+     */
+    public function existingAlbumIdFor(Camp $camp): ?int
+    {
+        if ($this->albums === null) {
+            return null;
+        }
+
+        try {
+            $album = $this->albums->findAlbum(CampAlbumAccessChecker::OWNER_TYPE, $camp->id);
+        } catch (GalleryException) {
+            return null;
+        }
+
+        return $album?->id;
+    }
+
+    /**
      * @return DelegatedMedia[]
      */
     public function listMedia(?int $albumId): array

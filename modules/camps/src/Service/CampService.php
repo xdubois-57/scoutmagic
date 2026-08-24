@@ -29,6 +29,20 @@ class CampService
 {
     public const ENTITY_TYPE = 'camp_camp';
 
+    /**
+     * A stay's free-text note lives in the core editable-content store
+     * under this key rather than in a column — one rich-text mechanism on
+     * this site, not two. The constant lives here rather than on the
+     * controller because Service\MergeService needs it too, and a service
+     * reaching into a controller for a storage key would be backwards.
+     */
+    public const NOTE_KEY_PREFIX = 'camp_note_';
+
+    public static function noteKey(int $campId): string
+    {
+        return self::NOTE_KEY_PREFIX . $campId;
+    }
+
     public function __construct(
         private CampRepository $camps,
         private AuditService $audit

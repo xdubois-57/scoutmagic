@@ -17,6 +17,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\SectionService;
 use Core\Security\AuthSession;
+use Core\Security\Role;
 use Core\View\EditableContentService;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
@@ -32,6 +33,8 @@ use Modules\Camps\Service\CampLabels;
 use Modules\Camps\Service\CampService;
 use Modules\Camps\Service\CampsException;
 use Modules\Camps\Service\ContactService;
+use Modules\Camps\Service\DuplicatePlaceDetector;
+use Modules\Camps\Service\PlaceArchiveService;
 use Modules\Camps\Service\PlaceService;
 use Modules\Camps\Service\ReviewService;
 use Modules\Camps\Service\SectionDescriber;
@@ -45,16 +48,6 @@ use Twig\Environment;
  */
 class CampsChiefController extends AbstractController
 {
-    /**
-     * A camp's free-text note lives in the core editable-content store
-     * under this key rather than in a column of camp_camps — one rich-text
-     * mechanism on this site, not two. It is written through THIS
-     * controller's own form (role_min chief), never through
-     * /api/rich-text-content, which is superadmin-only and would refuse
-     * every chief who ever wrote a note.
-     */
-    public const NOTE_KEY_PREFIX = 'camp_note_';
-
     public function __construct(
         protected Environment $twig,
         private PlaceRepository $places,
@@ -71,7 +64,9 @@ class CampsChiefController extends AbstractController
         private DocumentRepository $documents,
         private CampAlbumService $albumService,
         private ReviewRepository $reviews,
-        private ReviewService $reviewService
+        private ReviewService $reviewService,
+        private DuplicatePlaceDetector $duplicates,
+        private PlaceArchiveService $archiveService
     ) {
     }
 
@@ -151,6 +146,23 @@ class CampsChiefController extends AbstractController
         }
 
         $actorId = AuthSession::getUserAccountId();
+
+        // Creating a new place: offer the ones that may already be it,
+        // once. "Créer quand même" comes back with confirm_new=1 and the
+        // check is skipped — a warning that cannot be dismissed is a
+        // warning that gets worked around.
+        if ((int) $request->getBody('place_id', 0) <= 0 && $request->getBody('confirm_new') !== '1') {
+            $candidates = $this->duplicates->findCandidates($this->placeFields($request));
+            if ($candidates !== []) {
+                return $this->render('@camps/place_duplicate.html.twig', [
+                    'candidates' => $candidates,
+                    'submitted' => $request->getBodyAll(),
+                    'breadcrumb_current' => 'Ce lieu existe peut-être déjà',
+                    'breadcrumb_trail' => $this->trail(),
+                ]);
+            }
+        }
+
         try {
             $placeId = $this->resolvePlace($request, $actorId);
             $campId = $this->campService->create(
@@ -195,6 +207,11 @@ class CampsChiefController extends AbstractController
         return $this->render('@camps/place.html.twig', [
             'place' => $place,
             'latest_rating' => $this->reviews->latestRatingForPlace($place->id),
+            // Merging and archiving are the module's admin-only actions:
+            // not rendered below that role rather than rendered disabled,
+            // because a visible button that always refuses is a trap.
+            'is_unit_chief' => Role::fromString(AuthSession::getRole())->hasAccess(Role::ADMIN),
+            'archive_warning' => $this->archiveService->pendingWarning($place, $today),
             'reviews' => $pastReviews,
             'breadcrumb_current' => $place->name,
             'breadcrumb_trail' => $this->trail(),
@@ -271,7 +288,7 @@ class CampsChiefController extends AbstractController
             'place' => $place,
             'breadcrumb_current' => CampLabels::dateRange($camp->startDate, $camp->endDate, $camp->yearOnly),
             'breadcrumb_trail' => $this->trail($place),
-            'note' => $this->editableContent->get(self::NOTE_KEY_PREFIX . $camp->id, '') ?? '',
+            'note' => $this->editableContent->get(CampService::noteKey($camp->id), '') ?? '',
             'contacts' => $this->contacts->findByCamp($camp->id),
             'contact_role_options' => $this->options(ContactService::ROLES, ''),
             // Only whether photos are POSSIBLE, never how many. Counting
@@ -313,7 +330,7 @@ class CampsChiefController extends AbstractController
             'default_country' => '',
             'stay_type_options' => $this->options(CampLabels::STAY_TYPES, $camp->stayType),
             'status_options' => $this->options(CampLabels::STATUSES, $camp->status),
-            'note' => $this->editableContent->get(self::NOTE_KEY_PREFIX . $camp->id, '') ?? '',
+            'note' => $this->editableContent->get(CampService::noteKey($camp->id), '') ?? '',
         ]);
     }
 
@@ -341,7 +358,7 @@ class CampsChiefController extends AbstractController
             $this->saveNote(
                 $camp->id,
                 (string) $request->getBody('note', ''),
-                $this->editableContent->get(self::NOTE_KEY_PREFIX . $camp->id, '') ?? '',
+                $this->editableContent->get(CampService::noteKey($camp->id), '') ?? '',
                 $actorId
             );
         } catch (CampsException $e) {
@@ -387,7 +404,7 @@ class CampsChiefController extends AbstractController
             return;
         }
 
-        $key = self::NOTE_KEY_PREFIX . $campId;
+        $key = CampService::noteKey($campId);
         if ($note === '') {
             $this->editableContent->delete($key);
         } else {

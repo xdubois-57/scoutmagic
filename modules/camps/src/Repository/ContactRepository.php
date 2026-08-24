@@ -108,6 +108,14 @@ class ContactRepository
         $this->pdo->prepare('DELETE FROM camp_contacts WHERE id = ?')->execute([$id]);
     }
 
+    public function moveCamp(int $fromCampId, int $toCampId): int
+    {
+        $stmt = $this->pdo->prepare('UPDATE camp_contacts SET camp_id = ? WHERE camp_id = ?');
+        $stmt->execute([$toCampId, $fromCampId]);
+
+        return $stmt->rowCount();
+    }
+
     /**
      * Every contact row that is the SAME PERSON as this one, anywhere in
      * the module — the whole point of the blind index.

@@ -108,6 +108,13 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         return $this->toAlbumDto($created);
     }
 
+    public function findAlbum(string $ownerType, int $ownerId): ?DelegatedAlbum
+    {
+        $album = $this->albumRepository->findByOwner($ownerType, $ownerId);
+
+        return $album !== null ? $this->toAlbumDto($album) : null;
+    }
+
     public function addMedia(int $albumId, array $uploadedFile, ?int $accountId): DelegatedMedia
     {
         $album = $this->resolveDelegatedAlbum($albumId);

@@ -2,7 +2,7 @@
   "id": "camps",
   "name": "Camps",
   "description": "Les lieux de camp de l'unité et les séjours qu'elle y a faits — passés et à venir : dates, sections, prix, contacts sur place, avis des staffs précédents. Un staff qui cherche un terrain lit ce que les staffs d'avant en ont pensé, au lieu de repartir de zéro.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -264,6 +264,72 @@
       "method": "POST",
       "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
       "action": "saveReview",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}/fusionner",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsMergeController",
+      "action": "choosePlaceMerge",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Fusionner un lieu",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}/fusionner",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMergeController",
+      "action": "mergePlace",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}/archiver",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMergeController",
+      "action": "archivePlace",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}/restaurer",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMergeController",
+      "action": "restorePlace",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/fusionner",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsMergeController",
+      "action": "chooseCampMerge",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Fusionner un séjour",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/fusionner",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMergeController",
+      "action": "mergeCamp",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""

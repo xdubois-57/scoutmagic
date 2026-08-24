@@ -59,6 +59,7 @@ class CampsRbacTest extends TestCase
     private int $campId;
     private int $contactId;
     private CampsAttachmentController $attachmentController;
+    private \Modules\Camps\Controller\CampsMergeController $mergeController;
 
     protected function setUp(): void
     {
@@ -102,6 +103,15 @@ class CampsRbacTest extends TestCase
         $albumService = new CampAlbumService($audit, null);
         $reviewRepo = new \Modules\Camps\Repository\ReviewRepository($this->pdo);
         $reviewService = new \Modules\Camps\Service\ReviewService($reviewRepo, $audit);
+        $archiveService = new \Modules\Camps\Service\PlaceArchiveService($places, $camps, $audit);
+        $duplicates = new \Modules\Camps\Service\DuplicatePlaceDetector($places, null);
+        $mergeService = new \Modules\Camps\Service\MergeService(
+            $places, $camps, $contacts, $links, $documentRepo, $reviewRepo,
+            new EditableContentService(new EditableContentRepository($this->pdo)), $audit, $albumService
+        );
+        $this->mergeController = new \Modules\Camps\Controller\CampsMergeController(
+            $twig, $places, $camps, $mergeService, $archiveService
+        );
         $this->contactId = $contacts->create($this->campId, 'Mme Lambert', 'Propriétaire', 'lambert@example.org', null, null);
 
         $this->attachmentController = new CampsAttachmentController(
@@ -132,7 +142,9 @@ class CampsRbacTest extends TestCase
             $documentRepo,
             $albumService,
             $reviewRepo,
-            $reviewService
+            $reviewService,
+            $duplicates,
+            $archiveService
         );
         $this->configController = new CampsConfigController($twig, $settings);
 
@@ -163,6 +175,11 @@ class CampsRbacTest extends TestCase
             // Erasure is the module's one admin-only action: it is
             // irreversible and reaches every stay that person appears on.
             'anonymise a contact' => ['/chefs/camps/contacts/{contact}/anonymiser', 'attachment', 'confirmAnonymise', 'admin', 'chief'],
+            // Merging PLACES moves whole stays and touches every screen
+            // the place appears on — admin only. Merging STAYS loses
+            // nothing (values go into the note) and is open to chiefs.
+            'merge a place' => ['/chefs/camps/lieux/{place}/fusionner', 'merge', 'choosePlaceMerge', 'admin', 'chief'],
+            'merge a stay' => ['/chefs/camps/sejours/{camp}/fusionner', 'merge', 'chooseCampMerge', 'chief', 'intendant'],
             'configuration' => ['/config/camps', 'config', 'index', 'superadmin', 'admin'],
         ];
     }
@@ -245,6 +262,7 @@ class CampsRbacTest extends TestCase
         $class = match ($controller) {
             'config' => CampsConfigController::class,
             'attachment' => CampsAttachmentController::class,
+            'merge' => \Modules\Camps\Controller\CampsMergeController::class,
             default => CampsChiefController::class,
         };
         $routePath = str_replace(['{place}', '{camp}', '{contact}'], ['{id}', '{id}', '{id}'], $path);
@@ -259,6 +277,7 @@ class CampsRbacTest extends TestCase
         $fc->registerController($class, match ($controller) {
             'config' => $this->configController,
             'attachment' => $this->attachmentController,
+            'merge' => $this->mergeController,
             default => $this->chiefController,
         });
 

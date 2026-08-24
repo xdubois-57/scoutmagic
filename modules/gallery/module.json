@@ -2,7 +2,7 @@
   "id": "gallery",
   "name": "Galerie photos et vidéos",
   "description": "Albums photo/vidéo (envoi local avec redimensionnement/transcodage automatique, ou lien vers un album externe) visibles par les membres identifiés.",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -16,7 +16,12 @@
       "menu_icon": "bi-images",
       "menu_group": "pages",
       "menu_order": 6,
-      "breadcrumb": { "label": "Galerie", "parents": ["Espace membres"] }
+      "breadcrumb": {
+        "label": "Galerie",
+        "parents": [
+          "Espace membres"
+        ]
+      }
     },
     {
       "path": "/gallery/manage",
@@ -28,7 +33,12 @@
       "label": "Galerie",
       "menu_icon": "bi-image",
       "menu_group": "activites",
-      "breadcrumb": { "label": "Galerie", "parents": ["Espace animateurs"] }
+      "breadcrumb": {
+        "label": "Galerie",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/gallery/create",
@@ -38,7 +48,12 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Nouvel album", "parents": ["Espace animateurs"] }
+      "breadcrumb": {
+        "label": "Nouvel album",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/gallery/{id}",
@@ -48,7 +63,12 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": "",
-      "breadcrumb": { "label": "Album", "parents": ["Espace membres"] }
+      "breadcrumb": {
+        "label": "Album",
+        "parents": [
+          "Espace membres"
+        ]
+      }
     },
     {
       "path": "/gallery/{id}/download",
@@ -85,7 +105,12 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Nouvel album", "parents": ["Espace animateurs"] }
+      "breadcrumb": {
+        "label": "Nouvel album",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/gallery/{id}/edit",
@@ -95,7 +120,12 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Modifier l'album", "parents": ["Espace animateurs"] }
+      "breadcrumb": {
+        "label": "Modifier l'album",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/gallery/{id}",
@@ -105,7 +135,12 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Modifier l'album", "parents": ["Espace animateurs"] }
+      "breadcrumb": {
+        "label": "Modifier l'album",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/gallery/{id}/delete",
@@ -171,7 +206,12 @@
       "label": "Galerie",
       "menu_icon": "bi-images",
       "menu_group": "modules",
-      "breadcrumb": { "label": "Galerie", "parents": ["Configuration"] }
+      "breadcrumb": {
+        "label": "Galerie",
+        "parents": [
+          "Configuration"
+        ]
+      }
     },
     {
       "path": "/config/gallery",
@@ -208,7 +248,12 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": { "label": "Nouvel emplacement", "parents": ["Configuration"] }
+      "breadcrumb": {
+        "label": "Nouvel emplacement",
+        "parents": [
+          "Configuration"
+        ]
+      }
     },
     {
       "path": "/config/gallery/locations",
@@ -227,7 +272,12 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": { "label": "Modifier l'emplacement", "parents": ["Configuration"] }
+      "breadcrumb": {
+        "label": "Modifier l'emplacement",
+        "parents": [
+          "Configuration"
+        ]
+      }
     },
     {
       "path": "/config/gallery/locations/{id}",
@@ -360,7 +410,11 @@
       "description": "Un nouvel album photo/vidéo a été publié dans la galerie.",
       "group": "Galerie",
       "role_min": "identified",
-      "channels": { "in_app": "default_on", "push": "default_on", "email": "default_off" }
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
     }
   ]
 }

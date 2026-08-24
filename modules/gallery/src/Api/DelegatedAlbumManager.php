@@ -54,6 +54,19 @@ interface DelegatedAlbumManager
     ): DelegatedAlbum;
 
     /**
+     * The delegated album owned by (ownerType, ownerId), or null when
+     * there is none — WITHOUT creating one.
+     *
+     * ensureAlbum() is create-if-missing, which is right on a page about
+     * photos and wrong everywhere else: a caller merely asking "does this
+     * thing have an album" would otherwise answer its own question by
+     * creating one, writing a row for every entity anybody looks at. Any
+     * read-only path — a counter, a merge deciding whether there is
+     * anything to move — belongs here.
+     */
+    public function findAlbum(string $ownerType, int $ownerId): ?DelegatedAlbum;
+
+    /**
      * @param array<string, mixed> $uploadedFile $_FILES entry
      * @throws \Modules\Gallery\Service\GalleryException on an invalid
      *         file, a disabled type, over-quota, or an unknown/

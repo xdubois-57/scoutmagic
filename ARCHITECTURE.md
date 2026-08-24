@@ -1762,6 +1762,16 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **The tile provider is named once** (`Service\MapTiles`) because three languages have to agree about it and none can check the others: the CSP built in PHP, the tile URL in JavaScript, and the subprocessor prose in `rgpd_default.html`. A mismatch gives a grey box with blocked requests in a console nobody opens — or an RGPD page naming the wrong company. `Tests\Modules\Camps\Service\MapTilesTest` is what keeps the three in step, and it also asserts the RGPD *prompt* tells the model to remove that subprocessor when the module is off.
 
+**Duplicate detection runs at creation, in two levels.** Textual first, always: fold case, accents, punctuation and whitespace after `Core\Service\TextNormalizerService` has run, then compare name, address, postal code and city — exact, contained-at-a-word-boundary, or a typo away (`levenshtein()`, tolerance as a RATIO of length, because two characters apart is a slip in "Domaine de Mozet" and a different place in "Ry"). The AI is asked ONLY when level 1 could not decide and `llm_connector` is enabled, degrades to level 1 alone when absent, disabled or failing, and **never produces a `certain` verdict** — it suggests, a human accepts or refuses. A hint that broke the creation form would be worse than no hint.
+
+**The two merges are deliberately asymmetric.** Merging PLACES is admin-only: it moves whole stays and touches every screen the place appears on. Merging STAYS is open to every chief, and is safe to be, because **nothing is silently lost** — every losing value is appended to the surviving stay's note, timestamped. Field resolution is the same on both sides and is chosen for predictability over cleverness: filled on one side only → keep it; filled on both → the more recently updated wins. Coordinates are the one exception: a point a human placed beats an automatic one whatever the timestamps say, and it stays manual on the way over, or the next geocoding run would silently undo the correction.
+
+**A place merge moves no media at all** — the stays change place and their albums travel with them, which is the dividend of hanging photos off the stay rather than the place. A stay merge does move them, through `moveMedia()` (§ gallery), and asks whether the losing stay has an album with `findAlbum()` rather than `ensureAlbum()`: asking with the create-if-missing call would answer by creating one.
+
+**A surviving review is never overwritten by a merge.** Two reviews of one field are two opinions, and silently replacing one would lose exactly what the module exists to keep. The incoming review moves only into a stay that has none.
+
+**Archiving refuses while a CONFIRMED upcoming stay exists.** Not a warning: a place hidden from search while the unit is booked to leave for it in July is how a staff loses the address of the field they are going to. An unconfirmed stay only warns — that booking is often precisely what somebody is archiving the place to get away from. Places are never deleted; stays are never deleted either, except as the losing half of a merge whose contents have just been moved.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

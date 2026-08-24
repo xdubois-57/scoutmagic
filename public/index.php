@@ -3213,6 +3213,22 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         $galleryDelegatedAlbumManager ?? null
     );
     $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService);
+    $campsArchiveService = new \Modules\Camps\Service\PlaceArchiveService(
+        $campsPlaceRepo, $campsCampRepo, $auditService
+    );
+    $campsMergeService = new \Modules\Camps\Service\MergeService(
+        $campsPlaceRepo, $campsCampRepo, $campsContactRepo, $campsLinkRepo, $campsDocumentRepo,
+        $campsReviewRepo, $editableContentService, $auditService, $campsAlbumService
+    );
+
+    // Duplicate detection: the AI half is an optional dependency on
+    // llm_connector and degrades to the textual comparison alone
+    // (ARCHITECTURE.md §7.4). The model only ever SUGGESTS — a human
+    // accepts or refuses, and nothing here can merge on its own.
+    $campsDuplicateDetector = new \Modules\Camps\Service\DuplicatePlaceDetector(
+        $campsPlaceRepo,
+        $llmConnectorForRgpd ?? null
+    );
 
     // The "leave a review" notification re-arms itself (Task\
     // ReviewReminderHandler), so it only needs seeding once — the very
@@ -3262,7 +3278,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $campsPlaceRepo, $campsCampRepo, $campsPlaceService, $campsCampService,
             $campsSectionDescriber, $sectionService, $editableContentService, $auditService, $settingService,
             $campsContactRepo, $campsLinkRepo, $campsDocumentRepo, $campsAlbumService,
-            $campsReviewRepo, $campsReviewService
+            $campsReviewRepo, $campsReviewService, $campsDuplicateDetector, $campsArchiveService
         )
     );
     $frontController->registerController(
@@ -3271,6 +3287,12 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $campsCampRepo, $campsPlaceRepo, $campsContactRepo, $campsLinkRepo, $campsDocumentRepo,
             $campsContactService, $campsLinkService, $campsDocumentService, $campsAlbumService,
             $campsReviewService, $campsReviewRepo
+        )
+    );
+    $frontController->registerController(
+        \Modules\Camps\Controller\CampsMergeController::class,
+        new \Modules\Camps\Controller\CampsMergeController(
+            $twig, $campsPlaceRepo, $campsCampRepo, $campsMergeService, $campsArchiveService
         )
     );
     $frontController->registerController(

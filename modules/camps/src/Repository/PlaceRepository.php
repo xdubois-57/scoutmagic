@@ -226,6 +226,31 @@ class PlaceRepository
     }
 
     /**
+     * Takes another place's point during a merge, preserving whether a
+     * human had placed it: a manual pin that became automatic on the way
+     * over would be re-geocoded on the next task run, silently undoing
+     * the very correction somebody made.
+     */
+    public function copyCoordinates(int $id, float $latitude, float $longitude, bool $manual): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE camp_places SET latitude = ?, longitude = ?, coordinates_are_manual = ?, updated_at = ? WHERE id = ?'
+        );
+        $stmt->execute([$latitude, $longitude, $manual ? 1 : 0, date('Y-m-d H:i:s'), $id]);
+    }
+
+    /**
+     * Archiving hides a place from every normal screen and from search.
+     * Never a deletion: deleting a place would take its stays' history
+     * with it, and the history is the module.
+     */
+    public function archive(int $id, bool $archived): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE camp_places SET is_archived = ?, updated_at = ? WHERE id = ?');
+        $stmt->execute([$archived ? 1 : 0, date('Y-m-d H:i:s'), $id]);
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): Place

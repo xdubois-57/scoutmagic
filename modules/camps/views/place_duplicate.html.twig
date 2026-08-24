@@ -1,0 +1,64 @@
+{% extends 'base.html.twig' %}
+{% block title %}Ce lieu existe peut-être déjà — {{ site_name }}{% endblock %}
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Ce lieu semble peut-être déjà exister',
+        subtitle: 'Une unité retourne souvent sur le même terrain, encodé autrement des années plus tard.',
+    } only %}
+
+    <div class="list-group mb-4">
+        {% for candidate in candidates %}
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                    <div>
+                        <div class="fw-semibold">{{ candidate.place.name }}</div>
+                        {% if candidate.place.locality() %}
+                            <div class="small text-body-secondary">{{ candidate.place.locality() }}</div>
+                        {% endif %}
+                        <div class="small text-body-secondary">{{ candidate.reason }}</div>
+                    </div>
+                    <form method="post" action="/chefs/camps">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                        {# The whole submitted camp travels through, so
+                           choosing an existing place costs nothing the
+                           chief already typed. #}
+                        {% for key, value in submitted %}
+                            {% if key != '_csrf_token' and key != 'place_id' %}
+                                {% if value is iterable %}
+                                    {% for item in value %}
+                                        <input type="hidden" name="{{ key }}[]" value="{{ item }}">
+                                    {% endfor %}
+                                {% else %}
+                                    <input type="hidden" name="{{ key }}" value="{{ value }}">
+                                {% endif %}
+                            {% endif %}
+                        {% endfor %}
+                        <input type="hidden" name="place_id" value="{{ candidate.place.id }}">
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            C'est ce lieu
+                        </button>
+                    </form>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <form method="post" action="/chefs/camps">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        {% for key, value in submitted %}
+            {% if key != '_csrf_token' %}
+                {% if value is iterable %}
+                    {% for item in value %}
+                        <input type="hidden" name="{{ key }}[]" value="{{ item }}">
+                    {% endfor %}
+                {% else %}
+                    <input type="hidden" name="{{ key }}" value="{{ value }}">
+                {% endif %}
+            {% endif %}
+        {% endfor %}
+        <input type="hidden" name="confirm_new" value="1">
+        <button type="submit" class="btn btn-outline-secondary">
+            Non, créer un nouveau lieu
+        </button>
+    </form>
+{% endblock %}
