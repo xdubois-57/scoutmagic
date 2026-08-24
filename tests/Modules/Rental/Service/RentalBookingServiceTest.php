@@ -133,6 +133,126 @@ class RentalBookingServiceTest extends TestCase
         ]);
     }
 
+    public function testACollidingReferenceIsRetriedRatherThanShownToTheVisitor(): void
+    {
+        // The counter can hand out a number a row already holds — a
+        // restored backup, a hand-inserted booking, a reset counter. The
+        // visitor on the public request form must never meet the driver's
+        // "Integrity constraint violation" as a 500.
+        $service = new RentalBookingService(
+            $this->repositoryHandingOut([1, 2]),
+            new JournalService($this->silentJournal())
+        );
+        $this->submit();
+
+        $result = $service->createFromPublicRequest(
+            $this->assetId,
+            '2027-08-01',
+            '2027-08-04',
+            1,
+            20,
+            null,
+            ['name' => 'Marie Dupont', 'email' => 'marie@example.org', 'phone' => null,
+             'organisation' => null, 'purpose' => null, 'comment' => null],
+            null,
+            ['conditions_version' => '2027-01', 'conditions_text' => 'x',
+             'privacy_version' => '2027-01', 'privacy_text' => 'y'],
+            $this->now()
+        );
+
+        $this->assertSame('LOC-2027-0002', $result['booking']->reference);
+    }
+
+    public function testACounterStuckOnATakenNumberRefusesInFrenchNeverWithAPdoException(): void
+    {
+        // Two failures in a row is a broken counter, not contention. The
+        // visitor still gets one French sentence, and the driver's message
+        // goes to the journal through $previous.
+        $service = new RentalBookingService(
+            $this->repositoryHandingOut([1, 1]),
+            new JournalService($this->silentJournal())
+        );
+        $this->submit();
+
+        try {
+            $service->createFromPublicRequest(
+                $this->assetId,
+                '2027-08-01',
+                '2027-08-04',
+                1,
+                20,
+                null,
+                ['name' => 'Marie Dupont', 'email' => 'marie@example.org', 'phone' => null,
+                 'organisation' => null, 'purpose' => null, 'comment' => null],
+                null,
+                ['conditions_version' => '2027-01', 'conditions_text' => 'x',
+                 'privacy_version' => '2027-01', 'privacy_text' => 'y'],
+                $this->now()
+            );
+            $this->fail('The second collision must be refused.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString("n'a pas pu être enregistrée", $e->getMessage());
+            $this->assertInstanceOf(\PDOException::class, $e->getPrevious());
+        }
+    }
+
+    public function testTheSequenceClaimTakesARowLockOutsideSqlite(): void
+    {
+        // SQLite has no row locks and does not need them — its
+        // transactions are whole-database. MySQL does, and without the
+        // lock two submissions read the same last_sequence.
+        $source = file_get_contents(
+            dirname(__DIR__, 4) . '/modules/rental/src/Repository/RentalBookingRepository.php'
+        );
+        $this->assertNotFalse($source);
+        $this->assertStringContainsString("\$sql .= ' FOR UPDATE';", $source);
+    }
+
+    /**
+     * A repository whose counter hands out $sequences in order, so a
+     * collision can be reproduced without two real processes.
+     *
+     * @param int[] $sequences
+     */
+    private function repositoryHandingOut(array $sequences): RentalBookingRepository
+    {
+        return new class ($this->pdo, $this->encryption, $sequences) extends RentalBookingRepository {
+            /** @param int[] $sequences */
+            public function __construct(
+                \PDO $pdo,
+                EncryptionService $encryption,
+                private array $sequences
+            ) {
+                parent::__construct($pdo, $encryption);
+            }
+
+            public function claimNextReferenceSequence(int $year): int
+            {
+                return (int) (array_shift($this->sequences) ?? 99);
+            }
+        };
+    }
+
+    private function silentJournal(): JournalRepository
+    {
+        return new class extends JournalRepository {
+            public function __construct()
+            {
+            }
+
+            public function insert(
+                string $category,
+                string $type,
+                string $level,
+                string $description,
+                ?string $context = null,
+                ?int $userId = null,
+                ?string $ipAddress = null
+            ): void {
+            }
+        };
+    }
+
     public function testTheSequenceRestartsInANewYear(): void
     {
         $this->submit();
