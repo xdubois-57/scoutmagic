@@ -3,10 +3,13 @@
 
 {% block content %}
     {# The h1 follows the page's <title> and breadcrumb label (design.md
-       §7.6); the year detail lives in the subtitle. #}
+       §7.6); the scout year these figures are computed on rides beside it
+       as the header's badge, where it is read before the first number
+       rather than in the middle of the subtitle sentence. #}
     {% include 'partials/page_header.html.twig' with {
         title: 'Statistiques',
-        subtitle: 'Répartition des animés par branche — année ' ~ scout_year_label ~ '.',
+        badge: scout_year_label,
+        subtitle: 'Répartition des animés par branche.',
     } only %}
 
     {# Summary tiles — this page's data shape is the stat_tiles model. #}
@@ -45,8 +48,14 @@
                     {% set width = stats.max_count > 0 ? (row.total / stats.max_count * 100) : 0 %}
                     <div>
                         {# Collapsible bar row #}
+                        {# bg-body-tertiary, never btn-light: `.btn-light`
+                           keeps its near-white background in dark mode
+                           while `text-body` beside it turns near-white
+                           too, which is how this row became white text on
+                           a white bar (design.md §7.8 — semantic
+                           utilities, never a fixed light/dark colour). #}
                         <button type="button"
-                                class="btn btn-light w-100 border p-0 overflow-hidden text-start collapsed d-flex align-items-center gap-2"
+                                class="btn bg-body-tertiary w-100 border p-0 overflow-hidden text-start collapsed d-flex align-items-center gap-2"
                                 data-bs-toggle="collapse" data-bs-target="#{{ panel_id }}"
                                 aria-expanded="false" aria-controls="{{ panel_id }}">
                             {# Fixed left column: the year label #}

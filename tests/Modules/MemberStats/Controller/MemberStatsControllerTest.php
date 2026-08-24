@@ -148,6 +148,40 @@ class MemberStatsControllerTest extends TestCase
         $this->assertStringContainsString('Répartition des animés par branche', $response->getBody());
     }
 
+    /**
+     * The scout year these figures are computed on is stated in the page
+     * header itself (page_header's `badge`), not only mid-sentence in the
+     * grey subtitle where a reader misses it before reading the numbers.
+     */
+    public function testThePageHeaderNamesTheScoutYearTheFiguresAreComputedOn(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'chief@test.be', 'chief');
+
+        $body = $this->buildFrontController()->handle(new Request('GET', '/chiefs/stats', [], [], [], []))->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '#<h1[^>]*>Statistiques</h1>\s*<span class="badge text-bg-secondary">\d{4}-\d{4}</span>#',
+            $body
+        );
+    }
+
+    /**
+     * The collapsible year rows used `.btn-light`, whose near-white
+     * background stays near-white in dark mode while `text-body` beside it
+     * turns near-white too — white on white (design.md §7.8: semantic
+     * utilities, never a fixed light colour).
+     */
+    public function testTheYearRowsUseAThemeAwareSurfaceRatherThanAFixedLightOne(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'chief@test.be', 'chief');
+
+        $body = $this->buildFrontController()->handle(new Request('GET', '/chiefs/stats', [], [], [], []))->getBody();
+
+        $this->assertStringNotContainsString('btn-light', $body);
+    }
+
     public function testIntendantIsDenied(): void
     {
         $this->startTestSession();

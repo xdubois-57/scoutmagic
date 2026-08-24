@@ -69,7 +69,6 @@ class CalendarNotificationServiceTest extends TestCase
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
         $this->settingService->register('notify_multiday_events_enabled', '0', 'boolean', 'Rappels', 'desc', 'calendar');
         $this->settingService->register('notify_multiday_events_days_before', '14', 'text', 'Délai', 'desc', 'calendar');
-        $this->settingService->register('event_reminder_hour', '18:00', 'text', 'Heure du rappel', 'desc', 'calendar');
 
         $this->schedulerRepository = new SchedulerRepository($this->pdo);
         $this->service = new CalendarNotificationService(
@@ -432,9 +431,15 @@ class CalendarNotificationServiceTest extends TestCase
         $this->assertSame(1, $this->reminderRowCount());
     }
 
-    public function testActivityReminderHourSettingIsRespected(): void
+    /**
+     * The reminder hour is a constant, not a setting: the calendar page
+     * configures exactly one notification (the multi-day reminder), and a
+     * second configurable one no page exposed was only a stray row on
+     * Configuration > Réglages. 18:00 is the hour that setting shipped
+     * with, so no installation's reminders moved when it went away.
+     */
+    public function testActivityReminderIsScheduledAtTheFixedEveningHour(): void
     {
-        $this->settingService->set('event_reminder_hour', '09:30', 'calendar');
         $start = (new \DateTimeImmutable('+10 days'))->format('Y-m-d');
         $eventId = $this->createEvent($this->sectionCalendarId, $start, null);
         $event = $this->eventRepository->findById($eventId);
@@ -442,7 +447,7 @@ class CalendarNotificationServiceTest extends TestCase
         $this->serviceWithNotifications->syncActivityReminderForEvent($event);
 
         $row = $this->pdo->query("SELECT run_at FROM scheduled_actions WHERE task_key = 'event_reminder' AND status = 'pending'")->fetch(\PDO::FETCH_ASSOC);
-        $expected = (new \DateTimeImmutable($start))->modify('-1 day')->setTime(9, 30);
+        $expected = (new \DateTimeImmutable($start))->modify('-1 day')->setTime(18, 0);
         $this->assertSame($expected->format('Y-m-d H:i:s'), $row['run_at']);
     }
 }

@@ -37,6 +37,15 @@ class StatisticsSender
     private const MAX_REASON_LENGTH = 200;
 
     /**
+     * Past this, an `update_history` row still sitting in a non-terminal
+     * status is debris from a crashed install, not maintenance in
+     * progress — see isMaintenanceInProgress(). Six hours is far beyond
+     * any real install, migration resumes included, and the cost of
+     * getting it wrong in this direction is one skipped daily report.
+     */
+    private const STALE_AFTER_SECONDS = 21600;
+
+    /**
      * Host suffixes that can never designate a real, public installation.
      * A test or staging clone reporting under the production installation's
      * identity would silently corrupt the receiver's view of it.
@@ -263,14 +272,42 @@ class StatisticsSender
      * D-02: an installation busy updating, restoring or resetting itself is
      * skipped rather than reported on — its database and files are mid-flight
      * and whatever we measured would be a snapshot of a half-applied state.
+     *
+     * The question this answers is therefore "is one running RIGHT NOW",
+     * not "does a row about one exist".
+     *
+     * Both halves used to answer "yes" far too readily, and between them
+     * they could block reporting permanently — the guard that is supposed
+     * to skip a report for the few minutes an install takes was the reason
+     * a site never sent one at all, and the same reason the Support page's
+     * "envoyer un rapport de test" button always answered « Une opération
+     * de maintenance est en cours ».
+     *
+     * - An `update_history` row that is neither completed, failed nor
+     *   rolled back is only in progress while it is plausibly still
+     *   moving. A row left mid-status by a crashed install (an install
+     *   that died in `installing` writes no terminal status, and nothing
+     *   ever comes back to close it) is not maintenance, it is debris —
+     *   hence STALE_AFTER_SECONDS, well past the longest real install
+     *   including a resumed migration.
+     * - A `scheduled_actions` row that is merely *pending* for a future
+     *   run_at is not maintenance either: with automatic updates enabled,
+     *   an install waiting for its weekly slot sits pending for up to a
+     *   week, which silenced reporting for that entire week. Only a row
+     *   already claimed ('processing') or already due counts.
      */
     private function isMaintenanceInProgress(): bool
     {
         try {
-            $stmt = $this->pdo->query(
-                "SELECT COUNT(*) FROM update_history WHERE status NOT IN ('completed', 'failed', 'rolled_back')"
+            $stmt = $this->pdo->prepare(
+                "SELECT COUNT(*) FROM update_history
+                 WHERE status NOT IN ('completed', 'failed', 'rolled_back')
+                   AND started_at >= ?"
             );
-            if ($stmt !== false && (int) $stmt->fetchColumn() > 0) {
+            $stmt->execute([
+                (new \DateTimeImmutable())->modify('-' . self::STALE_AFTER_SECONDS . ' seconds')->format('Y-m-d H:i:s'),
+            ]);
+            if ((int) $stmt->fetchColumn() > 0) {
                 return true;
             }
 
@@ -278,9 +315,9 @@ class StatisticsSender
                 "SELECT COUNT(*) FROM scheduled_actions
                  WHERE module_id = 'core'
                    AND task_key IN ('install_update', 'restore_backup', 'full_reset')
-                   AND status IN ('pending', 'processing')"
+                   AND (status = 'processing' OR (status = 'pending' AND run_at <= ?))"
             );
-            $stmt->execute();
+            $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s')]);
 
             return (int) $stmt->fetchColumn() > 0;
         } catch (\Throwable) {

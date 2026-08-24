@@ -57,7 +57,9 @@
                                 <input type="text" class="form-control" name="summary" id="summary" maxlength="300" placeholder="Ex : Venez nombreux au camp d'été 2026 !"
                                        value="{{ summary_value }}" required>
                                 {% if seo_ai_available %}
-                                    <button type="button" class="btn btn-outline-secondary text-nowrap" id="news-ai-summary-btn" disabled>Générer avec l'IA</button>
+                                    {% include 'partials/ai_button.html.twig' with {
+                                        id: 'news-ai-summary-btn', label: "Générer avec l'IA", disabled: true,
+                                    } only %}
                                 {% endif %}
                             </div>
                             <div class="form-text">Affiché dans la liste des actualités, sur l'affiche, et lors du partage sur les réseaux sociaux. Doit donner envie de cliquer !</div>
@@ -118,7 +120,9 @@
                             <div class="d-flex gap-2">
                                 <input type="text" class="form-control" name="seo_keywords" id="seo_keywords" value="{{ seo_keywords_value }}" placeholder="camp, été, inscription">
                                 {% if seo_ai_available %}
-                                    <button type="button" class="btn btn-outline-secondary text-nowrap" id="news-ai-keywords-btn" disabled>Générer avec l'IA</button>
+                                    {% include 'partials/ai_button.html.twig' with {
+                                        id: 'news-ai-keywords-btn', label: "Générer les mots-clés avec l'IA", disabled: true,
+                                    } only %}
                                 {% endif %}
                             </div>
                         </div>

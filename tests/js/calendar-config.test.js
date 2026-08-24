@@ -57,24 +57,24 @@ function buildDom() {
         </form>
 
         <select class="visibility-select" data-calendar-id="3">
-            <option value="public" selected>Public</option>
-            <option value="chief">Animateur</option>
-            <option value="admin">Chef d'Unité</option>
+            <option value="public" selected>Tous</option>
+            <option value="chief">Les animateurs</option>
+            <option value="admin">Les chefs d'unité</option>
         </select>
         <select class="edit-role-select" data-calendar-id="3">
-            <option value="chief" selected>Modifié par ses animateurs</option>
-            <option value="admin">Modifié par les chefs d'unité</option>
+            <option value="chief" selected>Ses animateurs</option>
+            <option value="admin">Les chefs d'unité</option>
         </select>
 
         <div id="supplementary-calendar-list">
             <div class="border" data-calendar-id="7">
                 <select class="visibility-select" data-calendar-id="7">
-                    <option value="public" selected>Public</option>
-                    <option value="admin">Chef d'Unité</option>
+                    <option value="public" selected>Tous</option>
+                    <option value="admin">Les chefs d'unité</option>
                 </select>
                 <select class="edit-role-select" data-calendar-id="7">
-                    <option value="chief" selected>Modifié par les animateurs</option>
-                    <option value="admin">Modifié par les chefs d'unité</option>
+                    <option value="chief" selected>Les animateurs</option>
+                    <option value="admin">Les chefs d'unité</option>
                 </select>
                 <div class="input-group">
                     <input type="text" class="ics-link-input" readonly value="https://example.test/calendar/feed/abc.ics">

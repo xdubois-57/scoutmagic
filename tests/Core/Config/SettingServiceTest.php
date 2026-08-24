@@ -45,6 +45,69 @@ class SettingServiceTest extends TestCase
         $this->assertSame('modified', $this->service->get('existing'));
     }
 
+    // --- pruneUndeclared(): a setting dropped from a module.json ---
+
+    public function testPruneUndeclaredRemovesAModuleSettingTheManifestNoLongerDeclares(): void
+    {
+        $this->service->register('kept', '1', 'text', 'Gardé', 'Desc', 'calendar');
+        $this->service->register('event_reminder_hour', '18:00', 'text', 'Heure', 'Desc', 'calendar');
+
+        $this->assertSame(1, $this->service->pruneUndeclared('calendar', ['kept']));
+
+        $this->assertNotNull($this->repo->findByModuleAndKey('calendar', 'kept'));
+        $this->assertNull($this->repo->findByModuleAndKey('calendar', 'event_reminder_hour'));
+    }
+
+    /**
+     * The restriction that makes this safe: every setting a module
+     * registers at runtime rather than from its manifest (finance's
+     * seeded/running bookkeeping flags) is registered non-editable, and is
+     * therefore never a candidate for pruning.
+     */
+    public function testPruneUndeclaredNeverTouchesANonEditableInternalFlag(): void
+    {
+        $this->service->register('declared', '1', 'text', 'Déclaré', 'Desc', 'finance');
+        $this->service->register('finance_seeded', '1', 'boolean', 'Interne', 'Desc', 'finance', null, null, false);
+
+        $this->assertSame(0, $this->service->pruneUndeclared('finance', ['declared']));
+        $this->assertNotNull($this->repo->findByModuleAndKey('finance', 'finance_seeded'));
+    }
+
+    public function testPruneUndeclaredLeavesOtherModulesAndCoreAlone(): void
+    {
+        $this->service->register('core_key', '1', 'text', 'Coeur', 'Desc');
+        $this->service->register('other_key', '1', 'text', 'Autre', 'Desc', 'gallery');
+        $this->service->register('declared', '1', 'text', 'Déclaré', 'Desc', 'calendar');
+
+        $this->assertSame(0, $this->service->pruneUndeclared('calendar', ['declared']));
+
+        $this->assertNotNull($this->repo->findByModuleAndKey(null, 'core_key'));
+        $this->assertNotNull($this->repo->findByModuleAndKey('gallery', 'other_key'));
+    }
+
+    /**
+     * An empty declared list is a caller mistake far more often than a
+     * deliberate "clear this module's settings", so it deletes nothing.
+     */
+    public function testPruneUndeclaredIsANoOpWhenNothingIsDeclared(): void
+    {
+        $this->service->register('some_key', '1', 'text', 'Label', 'Desc', 'calendar');
+
+        $this->assertSame(0, $this->service->pruneUndeclared('calendar', []));
+        $this->assertNotNull($this->repo->findByModuleAndKey('calendar', 'some_key'));
+    }
+
+    public function testPruneUndeclaredClearsTheCacheSoAPrunedSettingStopsResolving(): void
+    {
+        $this->service->register('declared', '1', 'text', 'Déclaré', 'Desc', 'calendar');
+        $this->service->register('gone', 'x', 'text', 'Parti', 'Desc', 'calendar');
+        $this->assertSame('x', $this->service->get('gone', 'calendar'));
+
+        $this->service->pruneUndeclared('calendar', ['declared']);
+
+        $this->assertNull($this->service->get('gone', 'calendar'));
+    }
+
     public function testRegisterSelfHealsDefaultValueOnAnAlreadyExistingRow(): void
     {
         $this->service->register('existing', 'original', 'text', 'Label', 'Desc');

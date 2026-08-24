@@ -603,6 +603,57 @@ final class UxConventionsTest extends TestCase
         self::assertMatchesAllowlist($found, self::INLINE_TOUCH_PATCH_ALLOWLIST, "Touch sizing lives in app.css's pointer:coarse block, never inline");
     }
 
+    /**
+     * Every Bootstrap Icons class the site names must exist in the
+     * VENDORED stylesheet. An icon class that does not exist renders
+     * nothing at all — no box, no fallback, no console error — so the
+     * menu entry simply has no icon and nobody notices until a user says
+     * so. That is exactly how the Camps module shipped with `bi-tent`,
+     * an icon added upstream after the version vendored here.
+     *
+     * Scans both the manifests' `menu_icon` and every `bi-…` class written
+     * in a template, so an icon picked from the current bootstrap-icons
+     * website while the site ships an older release fails here rather
+     * than in production. Upgrading the vendored library (AGENTS.md
+     * § CSS / frontend) is what widens the set.
+     */
+    public function testEveryIconClassExistsInTheVendoredStylesheet(): void
+    {
+        $root = self::repoRoot();
+        $css = (string) file_get_contents($root . '/public/assets/vendor/bootstrap-icons/bootstrap-icons.min.css');
+        preg_match_all('/\.(bi-[a-z0-9-]+)/', $css, $cssMatches);
+        $available = array_flip($cssMatches[1]);
+
+        /** @var array<string, string> $used icon class => where it was found */
+        $used = [];
+        foreach (glob($root . '/modules/*/module.json') ?: [] as $manifest) {
+            $data = json_decode((string) file_get_contents($manifest), true);
+            self::assertIsArray($data, $manifest);
+            foreach ($data['routes'] ?? [] as $route) {
+                if (($route['menu_icon'] ?? '') !== '') {
+                    $used[$route['menu_icon']] = basename(dirname($manifest)) . '/module.json';
+                }
+            }
+        }
+        foreach (self::templates() as $rel) {
+            preg_match_all('/\b(bi-[a-z0-9-]+)/', self::templateSource($rel), $matches);
+            foreach ($matches[1] as $icon) {
+                $used[$icon] = $used[$icon] ?? $rel;
+            }
+        }
+
+        $missing = [];
+        foreach ($used as $icon => $where) {
+            // `bi` alone is the font's own base class, never an icon.
+            if ($icon === 'bi-' || isset($available[$icon])) {
+                continue;
+            }
+            $missing[$where . ': ' . $icon] = 1;
+        }
+
+        self::assertMatchesAllowlist($missing, [], 'This icon does not exist in the vendored Bootstrap Icons release — it renders as nothing at all');
+    }
+
     public function testModulePageRoutesDeclareABreadcrumb(): void
     {
         $root = self::repoRoot();

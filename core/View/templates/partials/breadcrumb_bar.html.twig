@@ -68,11 +68,7 @@
    truncates before the button ever leaves the screen. #}
 <nav class="breadcrumb-bar{{ breadcrumb_trail|default([]) is not empty ? ' breadcrumb-bar--has-trail' : '' }} border-bottom bg-body-tertiary px-3 py-2 align-items-center" aria-label="Fil d'Ariane">
     <ol class="breadcrumb mb-0 small align-items-center flex-grow-1" style="min-width:0;">
-        <li class="breadcrumb-item">
-            <a href="/" class="text-decoration-none" aria-label="Accueil">
-                <i class="bi bi-house-door" aria-hidden="true"></i>
-            </a>
-        </li>
+        <li class="breadcrumb-item"><a href="/" class="text-decoration-none" aria-label="Accueil"><i class="bi bi-house-door" aria-hidden="true"></i></a></li>
         {% set breadcrumb = route_breadcrumb|default(null) %}
         {% if breadcrumb is not null %}
             {% for parent in breadcrumb.parents %}
@@ -83,21 +79,21 @@
                     {% endif %}
                 {% endfor %}
                 {% if parentMenuId is not null %}
-                    <li class="breadcrumb-item">
-                        <button type="button" class="btn btn-link p-0 border-0 align-baseline text-decoration-none breadcrumb-parent-btn" data-open-menu="{{ parentMenuId }}">{{ parent }}</button>
-                    </li>
+                    <li class="breadcrumb-item"><button type="button" class="btn btn-link p-0 border-0 align-baseline text-decoration-none breadcrumb-parent-btn" data-open-menu="{{ parentMenuId }}">{{ parent }}</button></li>
                 {% else %}
                     <li class="breadcrumb-item text-body-secondary">{{ parent }}</li>
                 {% endif %}
             {% endfor %}
             {% for crumb in breadcrumb_trail|default([]) %}
-                <li class="breadcrumb-item text-truncate">
-                    <a href="{{ crumb.url }}" class="text-decoration-none">{{ crumb.label }}</a>
-                </li>
+                <li class="breadcrumb-item text-truncate"><a href="{{ crumb.url }}" class="text-decoration-none">{{ crumb.label }}</a></li>
             {% endfor %}
-            <li class="breadcrumb-item active text-truncate" aria-current="page">
-                {{ breadcrumb_current|default(breadcrumb.label) }}
-            </li>
+            {# On one line on purpose: the indentation around this
+               expression used to collapse into a real text node, so the
+               last crumb rendered as "/&nbsp;&nbsp;Label" — one space from
+               Bootstrap's divider padding and a second from the template's
+               own whitespace. Every other crumb above already hugs its
+               value for the same reason. #}
+            <li class="breadcrumb-item active text-truncate" aria-current="page">{{ breadcrumb_current|default(breadcrumb.label) }}</li>
         {% endif %}
     </ol>
     {% include 'partials/help_button.html.twig' %}
