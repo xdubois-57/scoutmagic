@@ -16,7 +16,7 @@
 // and the alternative — interpolating an id into a script — is exactly
 // the inline JavaScript this file replaces.
 (function () {
-    var target = document.querySelector('[data-scroll-focus]');
+    const target = document.querySelector('[data-scroll-focus]');
     if (!target) {
         return;
     }

@@ -824,7 +824,13 @@ if command -v gh &> /dev/null; then
     # that moves this dataset out from under tests/ (or a -x list someone
     # trims) fails the release here instead of shipping a builder into an
     # installable artifact.
-    if grep -q 'reference-dataset' "${LISTING_FILE}"; then
+    #
+    # Matched as a DIRECTORY (trailing slash), not as a bare substring: the
+    # dataset is always a directory of files, whereas
+    # docs/chantiers/reference-dataset.md — documentation ABOUT it, which
+    # does ship and should — carries the same word in its filename and
+    # blocked a release here once, after every gate had already passed.
+    if grep -q 'reference-dataset/' "${LISTING_FILE}"; then
         echo "ERROR: release artifact contains reference-dataset — the test dataset must never ship; aborting release." >&2
         rm -f "${ARTIFACT}"
         exit 1
