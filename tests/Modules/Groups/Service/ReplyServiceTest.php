@@ -16,6 +16,7 @@ use Modules\Groups\Service\GroupActivityService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\ReplyService;
+use Modules\Groups\Support\Timestamps;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -123,14 +124,14 @@ class ReplyServiceTest extends TestCase
 
     public function testTheAuthorMayEditInsideTheWindow(): void
     {
-        $reply = $this->replyCreatedAt(gmdate('Y-m-d H:i:s', time() - 60));
+        $reply = $this->replyCreatedAt(Timestamps::at('-60 seconds'));
 
         $this->assertTrue($this->service->canEdit($reply, $this->context()));
     }
 
     public function testTheAuthorMayNotEditOutsideTheWindow(): void
     {
-        $reply = $this->replyCreatedAt(gmdate('Y-m-d H:i:s', time() - 16 * 60));
+        $reply = $this->replyCreatedAt(Timestamps::at('-16 minutes'));
 
         $this->assertFalse($this->service->canEdit($reply, $this->context()));
     }
@@ -141,7 +142,7 @@ class ReplyServiceTest extends TestCase
         // such field is ever read: the comparison uses only the stored
         // created_at and the server's own clock.
         $reply = $this->replyCreatedAt('2020-01-01 00:00:00');
-        $forgedNow = new \DateTimeImmutable('2020-01-01 00:00:05', new \DateTimeZone('UTC'));
+        $forgedNow = Timestamps::parse('2020-01-01 00:00:05');
 
         $this->assertFalse($this->service->canEdit($reply, $this->context()));
         // Passing an explicit "now" is how the test controls the clock —
@@ -152,8 +153,8 @@ class ReplyServiceTest extends TestCase
     public function testTheWindowBoundaryIsInclusive(): void
     {
         $reply = $this->replyCreatedAt('2026-01-01 10:00:00');
-        $exactly = new \DateTimeImmutable('2026-01-01 10:15:00', new \DateTimeZone('UTC'));
-        $justAfter = new \DateTimeImmutable('2026-01-01 10:15:01', new \DateTimeZone('UTC'));
+        $exactly = Timestamps::parse('2026-01-01 10:15:00');
+        $justAfter = Timestamps::parse('2026-01-01 10:15:01');
 
         $this->assertTrue($this->service->isWithinEditWindow($reply, $exactly));
         $this->assertFalse($this->service->isWithinEditWindow($reply, $justAfter));
@@ -161,14 +162,14 @@ class ReplyServiceTest extends TestCase
 
     public function testSomeoneElseMayNeverEditEvenInsideTheWindow(): void
     {
-        $reply = $this->replyCreatedAt(gmdate('Y-m-d H:i:s', time() - 60));
+        $reply = $this->replyCreatedAt(Timestamps::at('-60 seconds'));
 
         $this->assertFalse($this->service->canEdit($reply, $this->context(self::OTHER_ACCOUNT)));
     }
 
     public function testTheAuthorMayDeleteEvenAfterTheEditWindow(): void
     {
-        $reply = $this->replyCreatedAt(gmdate('Y-m-d H:i:s', time() - 60 * 60));
+        $reply = $this->replyCreatedAt(Timestamps::at('-60 minutes'));
 
         $this->assertTrue($this->service->canDelete($reply, $this->context(), false));
     }

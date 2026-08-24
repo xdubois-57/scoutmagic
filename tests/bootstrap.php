@@ -41,6 +41,23 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 /**
+ * The suite runs under the application's own wall clock.
+ *
+ * public/index.php and public/cron.php both call this; a suite left on the
+ * host's `date.timezone` (UTC in CI, anything at all on a developer's
+ * machine) would be testing a regime the application never runs in.
+ *
+ * Note what this does NOT fix, because it cannot: SQLite's CURRENT_TIMESTAMP
+ * is UTC and it has no session timezone to align the way MySQL's is
+ * (Core\Database\Connection). A test on the in-memory SQLite database
+ * (Tests\DatabaseTestHelper) must therefore write its timestamps from PHP
+ * rather than leaning on a column default or on `datetime('now')` whenever
+ * it later compares them against a PHP-computed instant — which is exactly
+ * the rule the repositories under test follow. See Core\Config\AppClock.
+ */
+\Core\Config\AppClock::apply();
+
+/**
  * When this bootstrap ran. Tests\Bootstrap\TwigCacheFreshnessTest asserts
  * that every compiled template the suite has produced is newer than this,
  * which is what keeps the drop below from being quietly reverted.

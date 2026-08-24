@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Calendar\Service;
 
+use Core\Config\AppClock;
 use Modules\Calendar\Api\VirtualEvent;
 use Modules\Calendar\Repository\CalendarEvent;
 
@@ -132,8 +133,13 @@ class IcsBuilder
         }
 
         $lines[] = $this->property('SEQUENCE', (string) $event->sequence);
+        // updated_at is a naive DATETIME on the application clock
+        // (Core\Config\AppClock) — read as such and then converted, rather
+        // than relabelled as UTC, which would put LAST-MODIFIED an hour or
+        // two ahead of the change it describes.
         $lines[] = $this->property('LAST-MODIFIED', $this->formatUtc(
-            new \DateTimeImmutable($event->updatedAt, new \DateTimeZone('UTC'))
+            (new \DateTimeImmutable($event->updatedAt, AppClock::zone()))
+                ->setTimezone(new \DateTimeZone('UTC'))
         ));
 
         $lines[] = 'END:VEVENT';

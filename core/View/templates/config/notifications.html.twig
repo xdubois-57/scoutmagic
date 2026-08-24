@@ -36,7 +36,7 @@
         <form method="post" action="/config/notifications/rotate-vapid" id="rotate-vapid-form"
               data-confirm="Régénérer les clés VAPID ? Cela déconnectera immédiatement {{ device_count }} appareil{{ device_count > 1 ? 's' : '' }}."
               data-confirm-label="Régénérer">
-            {{ csrf_field() }}
+            {{ csrf_field()|raw }}
             <button type="submit" class="btn btn-outline-danger">Régénérer les clés VAPID</button>
         </form>
     </div>
@@ -47,7 +47,7 @@
         <h2 class="h5 mb-3">Notification test</h2>
         <p class="small text-body-secondary">Envoie une notification push à tes propres appareils inscrits.</p>
         <form method="post" action="/config/notifications/test">
-            {{ csrf_field() }}
+            {{ csrf_field()|raw }}
             <button type="submit" class="btn btn-outline-primary">Envoyer une notification test</button>
         </form>
     </div>

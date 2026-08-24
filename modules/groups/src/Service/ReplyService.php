@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Service;
 
+use Core\Config\AppClock;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\Reply;
 use Modules\Groups\Repository\ReplyRepository;
@@ -107,15 +108,15 @@ class ReplyService
     }
 
     /**
-     * Computed from the stored created_at every single time, both sides in
-     * UTC (Support\Timestamps). Nothing the client sends takes part in
+     * Computed from the stored created_at every single time, both sides on
+     * the application clock (Support\Timestamps). Nothing the client sends takes part in
      * this: a forged "created 10 seconds ago" field changes nothing,
      * because no such field is ever read.
      */
     public function isWithinEditWindow(Reply $reply, ?\DateTimeImmutable $now = null): bool
     {
-        $now ??= new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
-        $deadline = Timestamps::toUtc($reply->createdAt)->modify('+' . self::EDIT_WINDOW_MINUTES . ' minutes');
+        $now ??= AppClock::now();
+        $deadline = Timestamps::parse($reply->createdAt)->modify('+' . self::EDIT_WINDOW_MINUTES . ' minutes');
 
         return $now <= $deadline;
     }

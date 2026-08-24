@@ -13,7 +13,7 @@
         {% endfor %}
 
         <form method="post" action="/chefs/camps/lieux/{{ place.id }}" class="mb-5">
-            {{ csrf_field() }}
+            {{ csrf_field()|raw }}
 
             {% include 'partials/form_field.html.twig' with {
                 field_id: 'place-name', field_name: 'place_name', label: 'Nom du lieu',

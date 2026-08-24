@@ -52,18 +52,30 @@ class EditableContentRepository
                 return;
             }
 
-            $now = gmdate('Y-m-d H:i:s');
+            $now = self::now();
             $stmt = $this->pdo->prepare(
                 'UPDATE editable_contents SET content_type = ?, content_value = ?, modified_at = ?, modified_by = ? WHERE content_key = ?'
             );
             $stmt->execute([$type, $value, $now, $modifiedBy, $key]);
         } else {
-            $now = gmdate('Y-m-d H:i:s');
+            $now = self::now();
             $stmt = $this->pdo->prepare(
                 'INSERT INTO editable_contents (content_key, content_type, content_value, module_id, modified_at, modified_by)
                  VALUES (?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([$key, $type, $value, $moduleId, $now, $modifiedBy]);
         }
+    }
+
+    /**
+     * modified_at is on the application clock like every other naive
+     * DATETIME in this database (Core\Config\AppClock), not UTC: the RGPD
+     * page renders it straight to a Belgian reader, and a value written on
+     * a different clock than the one it is read back on is the whole class
+     * of bug that clock exists to close.
+     */
+    private static function now(): string
+    {
+        return (new \DateTimeImmutable())->format('Y-m-d H:i:s');
     }
 }

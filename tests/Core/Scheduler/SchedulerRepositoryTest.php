@@ -50,21 +50,27 @@ class SchedulerRepositoryTest extends TestCase
         $this->assertNull($row['requested_by_user_account_id']);
     }
 
+    /**
+     * run_at is written from PHP, exactly the way SchedulerRepository::
+     * create() and every real caller writes it — never SQLite's own
+     * datetime('now'), which is UTC and has no session timezone to align
+     * (Core\Config\AppClock). Seeding with SQL time and asserting against
+     * claimOverdue()'s PHP-computed "now" compares two different clocks:
+     * an event an hour in the future read as already due.
+     */
+    private function insertAction(string $taskKey, string $modifier): void
+    {
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO scheduled_actions (module_id, task_key, run_at, status)
+             VALUES ('core', ?, ?, 'pending')"
+        );
+        $stmt->execute([$taskKey, (new \DateTimeImmutable($modifier))->format('Y-m-d H:i:s')]);
+    }
+
     public function testClaimOverdueReturnsOnlyDue(): void
     {
-        // Insert a due action
-        $stmt = $this->pdo->prepare(
-            "INSERT INTO scheduled_actions (module_id, task_key, run_at, status)
-             VALUES ('core', 'due_task', datetime('now', '-1 minute'), 'pending')"
-        );
-        $stmt->execute();
-
-        // Insert a future action
-        $stmt = $this->pdo->prepare(
-            "INSERT INTO scheduled_actions (module_id, task_key, run_at, status)
-             VALUES ('core', 'future_task', datetime('now', '+1 hour'), 'pending')"
-        );
-        $stmt->execute();
+        $this->insertAction('due_task', '-1 minute');
+        $this->insertAction('future_task', '+1 hour');
 
         $due = $this->repo->claimOverdue();
         $this->assertCount(1, $due);
@@ -73,11 +79,7 @@ class SchedulerRepositoryTest extends TestCase
 
     public function testClaimOverdueMovesRowsToProcessing(): void
     {
-        $stmt = $this->pdo->prepare(
-            "INSERT INTO scheduled_actions (module_id, task_key, run_at, status)
-             VALUES ('core', 'due_task', datetime('now', '-1 minute'), 'pending')"
-        );
-        $stmt->execute();
+        $this->insertAction('due_task', '-1 minute');
 
         $due = $this->repo->claimOverdue();
 
@@ -99,11 +101,7 @@ class SchedulerRepositoryTest extends TestCase
      */
     public function testClaimOverdueNeverReturnsARowAlreadyClaimedByAnEarlierCall(): void
     {
-        $stmt = $this->pdo->prepare(
-            "INSERT INTO scheduled_actions (module_id, task_key, run_at, status)
-             VALUES ('core', 'due_task', datetime('now', '-1 minute'), 'pending')"
-        );
-        $stmt->execute();
+        $this->insertAction('due_task', '-1 minute');
 
         $firstCaller = $this->repo->claimOverdue();
         $secondCaller = $this->repo->claimOverdue();

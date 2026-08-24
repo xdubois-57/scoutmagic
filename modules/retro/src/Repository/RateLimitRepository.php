@@ -14,10 +14,19 @@ class RateLimitRepository
     {
     }
 
+    /**
+     * created_at is stamped from PHP rather than left to the column's
+     * DEFAULT CURRENT_TIMESTAMP: countSince() and deleteOlderThan() both
+     * filter on it against a value Service\RateLimitService computed in
+     * PHP, and the two have to be on the same clock — see Core\Security\
+     * HumanCheck\HumanCheckRateLimitRepository::record().
+     */
     public function record(string $identifierHash, string $actionType): void
     {
-        $stmt = $this->pdo->prepare('INSERT INTO retro_rate_limits (identifier_hash, action_type) VALUES (?, ?)');
-        $stmt->execute([$identifierHash, $actionType]);
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO retro_rate_limits (identifier_hash, action_type, created_at) VALUES (?, ?, ?)'
+        );
+        $stmt->execute([$identifierHash, $actionType, (new \DateTimeImmutable())->format('Y-m-d H:i:s')]);
     }
 
     /**
