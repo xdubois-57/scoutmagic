@@ -33,6 +33,15 @@ final class StaffFunctionRow
         public readonly ?string $totem,
         /** Decrypted birth date as Desk stored it, or null when not encoded. */
         public readonly ?string $birthDate,
+        /**
+         * Decrypted personal e-mail as Desk holds it, or null when the
+         * member has none there.
+         *
+         * Carried so the lists this module draws can be acted on: a page
+         * that names sixteen people to talk to and gives no way to reach
+         * any of them sends a chef d'unité back to Desk sixteen times.
+         */
+        public readonly ?string $email,
         public readonly int $scoutYearOffset,
         /** Raw `member_years.formation_level`, verbatim. */
         public readonly ?string $formationLevel,

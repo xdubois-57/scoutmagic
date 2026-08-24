@@ -13,6 +13,11 @@ listes de personnes à contacter. Elle n'enregistre presque rien et ne
 décide rien : elle lit. Chaque page rappelle en bas la date de l'import
 dont elle parle — au-delà, elle ne sait pas ce qui a changé dans Desk.
 
+Chaque nom ouvre la fiche de la personne, chaque adresse ouvre votre
+messagerie, et « Copier les adresses » copie toute la liste d'un coup.
+Les personnes dont Desk ne connaît pas l'adresse sont comptées sous la
+liste : elles ne sont pas dans ce que vous collez.
+
 ## Formations
 
 Deux listes. **À convaincre de commencer** ne retient que deux

@@ -80,6 +80,7 @@ class ObligationsService
                     memberYearId: $row->memberYearId,
                     totem: $row->totem,
                     fullName: $row->fullName(),
+                    email: $row->email,
                     sectionName: $row->sectionName,
                     detail: $row->functionLabel,
                     note: $days === 0
@@ -150,6 +151,7 @@ class ObligationsService
                 memberYearId: $row->memberYearId,
                 totem: $row->totem,
                 fullName: $row->fullName(),
+                email: $row->email,
                 sectionName: $row->sectionName,
                 detail: $age === null
                     ? $row->functionLabel . ' — âge inconnu'
