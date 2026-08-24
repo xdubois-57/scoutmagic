@@ -147,6 +147,15 @@ class MergeService
         if ($from->id === $to->id) {
             throw new CampsException('Un lieu ne peut pas être fusionné avec lui-même.');
         }
+        // Merging INTO an archived place would move live stays onto a row
+        // that no ordinary screen shows: the stays would simply vanish
+        // from the module, and the chief who pressed the button would have
+        // no way of guessing where they went.
+        if ($to->isArchived) {
+            throw new CampsException(
+                'Ce lieu est archivé : désarchivez-le d\'abord si vous voulez y regrouper des séjours.'
+            );
+        }
 
         $winner = $from->updatedAt > $to->updatedAt ? $from : $to;
         $loser = $winner === $from ? $to : $from;
@@ -190,6 +199,14 @@ class MergeService
                 'Lieu fusionné dans un autre et archivé',
                 null, $actorUserAccountId
             );
+
+            // What the AI wrote about either place describes stays that
+            // have just moved. Left alone, the surviving place's summary
+            // goes on describing a shorter history than it now has, and
+            // nothing would ever mark it stale — no stay was created or
+            // edited, only re-parented.
+            $this->places->markSummaryStale($to->id);
+            $this->places->markSummaryStale($from->id);
 
             return $moved;
         });
@@ -247,6 +264,11 @@ class MergeService
                 'Séjour fusionné depuis un autre — les valeurs remplacées sont reprises dans la note',
                 null, $actorUserAccountId
             );
+
+            // The place has one stay fewer, and the surviving one carries
+            // different dates: whatever the AI wrote about the place is now
+            // describing a history that no longer exists.
+            $this->places->markSummaryStale($to->placeId);
         });
 
         // Another module's write, after the commit and explicitly
@@ -289,34 +311,56 @@ class MergeService
     }
 
     /**
-     * The values the losing stay carried that the surviving one already
-     * had. These are what get written into the note — nothing is silently
+     * The values a side carried that the merged stay will NOT carry.
+     *
+     * These are what get written into the note — nothing is silently
      * dropped, which is precisely what makes camp merges safe to open to
-     * every chief.
+     * every chief. So they are computed against the row the merge actually
+     * produces, never against the surviving row as it stands beforehand:
+     * every field resolves to $to's value only when $to HAS one, and the
+     * dates resolve across both sides at once. A bare year on the
+     * surviving stay next to a real range on the losing one produces a
+     * merged stay carrying the range — and it is then the surviving stay's
+     * year that was dropped, which comparing $from against $to could never
+     * say.
      *
      * @return array<int, string>
      */
     private function losingValues(Camp $from, Camp $to): array
     {
+        $price = $to->priceCents ?? $from->priceCents;
+        $participants = $to->participantCount ?? $from->participantCount;
+        $bookedBy = $to->bookedByName ?? $from->bookedByName;
+        $dates = CampLabels::dateRange(
+            $to->startDate ?? $from->startDate,
+            $to->endDate ?? $from->endDate,
+            $to->endDate === null && $from->endDate === null ? ($to->yearOnly ?? $from->yearOnly) : null
+        );
+
         $lost = [];
-        if ($from->priceCents !== null && $to->priceCents !== null && $from->priceCents !== $to->priceCents) {
-            $lost[] = 'prix précédent : ' . CampLabels::money($from->priceCents);
+        foreach ([$from, $to] as $side) {
+            if ($side->priceCents !== null && $side->priceCents !== $price) {
+                $lost[] = 'prix précédent : ' . CampLabels::money($side->priceCents);
+            }
         }
-        if ($from->participantCount !== null && $to->participantCount !== null
-            && $from->participantCount !== $to->participantCount
-        ) {
-            $lost[] = 'participants précédents : ' . $from->participantCount;
+        foreach ([$from, $to] as $side) {
+            if ($side->participantCount !== null && $side->participantCount !== $participants) {
+                $lost[] = 'participants précédents : ' . $side->participantCount;
+            }
         }
-        if ($from->bookedByName !== null && $to->bookedByName !== null
-            && $from->bookedByName !== $to->bookedByName
-        ) {
-            $lost[] = 'réservation faite par : ' . $from->bookedByName;
+        foreach ([$from, $to] as $side) {
+            if ($side->bookedByName !== null && $side->bookedByName !== $bookedBy) {
+                $lost[] = 'réservation faite par : ' . $side->bookedByName;
+            }
         }
-        $fromDates = CampLabels::dateRange($from->startDate, $from->endDate, $from->yearOnly);
-        $toDates = CampLabels::dateRange($to->startDate, $to->endDate, $to->yearOnly);
-        if ($fromDates !== '' && $toDates !== '' && $fromDates !== $toDates) {
-            $lost[] = 'dates précédentes : ' . $fromDates;
+        foreach ([$from, $to] as $side) {
+            $sideDates = CampLabels::dateRange($side->startDate, $side->endDate, $side->yearOnly);
+            if ($sideDates !== '' && $sideDates !== $dates) {
+                $lost[] = 'dates précédentes : ' . $sideDates;
+            }
         }
+        // The status is the one field the surviving stay always keeps, so
+        // only the losing side's can be dropped.
         if ($from->status !== $to->status) {
             $lost[] = 'statut précédent : ' . CampLabels::status($from->status);
         }
@@ -370,7 +414,14 @@ class MergeService
             if ($fromAlbum === null) {
                 return;
             }
-            $toAlbum = $this->albums->albumIdFor($to, 'Camp', 0);
+            // Named the way every other album of a stay is named
+            // (CampsAttachmentController::albumId()): "Domaine de Mozet —
+            // 12–19 juillet 2027". An album called "Camp" tells a reader
+            // browsing the gallery nothing at all, and this is the ONE
+            // place that could create one. Re-read, because the merge has
+            // just changed the surviving stay's dates.
+            $merged = $this->camps->findById($to->id) ?? $to;
+            $toAlbum = $this->albums->albumIdFor($merged, $this->albumTitleFor($merged), 0);
             if ($toAlbum === null) {
                 return;
             }
@@ -379,6 +430,17 @@ class MergeService
         } catch (\Throwable) {
             // Non-fatal, by design. See the docblock above.
         }
+    }
+
+    private function albumTitleFor(Camp $camp): string
+    {
+        $place = $this->places->findById($camp->placeId);
+
+        return trim(
+            ($place !== null ? $place->name : 'Camp')
+            . ' — '
+            . CampLabels::dateRange($camp->startDate, $camp->endDate, $camp->yearOnly)
+        );
     }
 
     /**

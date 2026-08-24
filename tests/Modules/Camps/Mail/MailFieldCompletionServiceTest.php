@@ -177,6 +177,54 @@ class MailFieldCompletionServiceTest extends TestCase
         $this->assertSame('Information du message ignorée', $entry->summary);
     }
 
+    public function testAnUnwritableProposalIsNotRecordedAsAccepted(): void
+    {
+        // Nothing to write: the machine value is not a number, so no
+        // branch of accept() can apply it. Recording "acceptée" and
+        // deleting the proposal anyway was the worst of both — the history
+        // claimed a chief's decision had been applied, the stay still said
+        // the old thing, and the proposal that would have let anybody
+        // notice was gone.
+        $camp = $this->camp(245000);
+        $this->proposals->save(
+            $camp->id,
+            'price',
+            '2 450,00 €',
+            'deux mille six cent cinquante euros',
+            'deux mille six cent cinquante',
+            'inbound-message-9'
+        );
+        $proposal = $this->proposals->findByCamp($camp->id)[0];
+
+        $this->service->accept($proposal, 42);
+
+        $this->assertSame(245000, $this->camps->findById($camp->id)?->priceCents);
+        $this->assertSame([], $this->proposals->findByCamp($camp->id));
+        $entry = $this->audit->page(CampService::ENTITY_TYPE, $camp->id, 1, 10)->entries[0];
+        $this->assertStringContainsString('inapplicable', (string) $entry->summary);
+        $this->assertNotSame('Information du message acceptée', $entry->summary);
+    }
+
+    public function testAProposedDatePairThatIsNotAPairIsNotRecordedAsAcceptedEither(): void
+    {
+        $camp = $this->camp(null, '2028-07-19');
+        $this->proposals->save(
+            $camp->id,
+            'dates',
+            '12–19 juillet 2028',
+            'cet été',
+            'cet-ete',
+            'inbound-message-9'
+        );
+        $proposal = $this->proposals->findByCamp($camp->id)[0];
+
+        $this->service->accept($proposal, 42);
+
+        $this->assertSame('2028-07-19', $this->camps->findById($camp->id)?->startDate);
+        $entry = $this->audit->page(CampService::ENTITY_TYPE, $camp->id, 1, 10)->entries[0];
+        $this->assertStringContainsString('inapplicable', (string) $entry->summary);
+    }
+
     public function testAProposalForAStayThatDisappearedIsJustDropped(): void
     {
         $camp = $this->camp(245000);

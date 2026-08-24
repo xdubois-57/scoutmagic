@@ -157,6 +157,47 @@ class CampRepository
         $this->pdo->prepare('DELETE FROM camp_camps WHERE id = ?')->execute([$campId]);
     }
 
+    /**
+     * Which of $sectionIds are real, active sections.
+     *
+     * `camp_camp_sections.section_id` is a foreign key, so an id nobody
+     * offers turns a forged POST into a PDOException — a 500 on a chief's
+     * form. Checked here rather than by trusting the `<select>`: the
+     * `<select>` is the client's copy of the list, not the list.
+     *
+     * Deliberately not filtered on `is_visible`: visibility is a display
+     * choice that changes, and refusing to save an unrelated correction on
+     * a 2019 camp because one of its sections was hidden last month would
+     * be a worse rule than the one it enforces.
+     *
+     * @param int[] $sectionIds
+     * @return int[]
+     */
+    public function existingSectionIds(array $sectionIds): array
+    {
+        $sectionIds = array_values(array_unique(array_map('intval', $sectionIds)));
+        if ($sectionIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($sectionIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT id FROM sections WHERE id IN ({$placeholders}) AND is_active = 1"
+        );
+        $stmt->execute($sectionIds);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /** Whether `members` really holds this id — same reason as above. */
+    public function memberExists(int $memberId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM members WHERE id = ?');
+        $stmt->execute([$memberId]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
     public function countByPlace(int $placeId): int
     {
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM camp_camps WHERE place_id = ?');

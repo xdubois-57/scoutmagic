@@ -125,6 +125,29 @@ class ReviewNotificationServiceTest extends TestCase
         );
     }
 
+    public function testAFailedDispatchLeavesTheStayDueRatherThanSilentlySpent(): void
+    {
+        // The other order was at-most-zero: the stay was marked notified,
+        // the dispatch then failed, and the one notification every stay
+        // gets was gone for good with nothing anywhere saying so.
+        $campId = $this->camp('2026-07-19');
+        $this->linkAnimatorAccount();
+        $notifications = $this->createStub(NotificationService::class);
+        $notifications->method('dispatch')->willThrowException(new \RuntimeException('push is down'));
+
+        try {
+            $this->service($notifications)->dispatchDue($this->today());
+            $this->fail('The failing dispatch must surface.');
+        } catch (\RuntimeException) {
+            // Expected.
+        }
+
+        $this->assertCount(1, $this->camps->findAwaitingReviewNotification($this->today()));
+        $this->assertNull(
+            $this->pdo->query("SELECT review_notified_at FROM camp_camps WHERE id = {$campId}")->fetchColumn() ?: null
+        );
+    }
+
     public function testWithoutANotificationServiceNothingIsSentAndNothingIsMarked(): void
     {
         $this->camp('2026-07-19');

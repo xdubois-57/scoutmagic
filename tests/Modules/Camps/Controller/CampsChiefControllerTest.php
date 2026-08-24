@@ -169,4 +169,26 @@ class CampsChiefControllerTest extends TestCase
 
         $this->assertSame(0, $this->countPlaces());
     }
+
+    public function testAStayCannotBeAttachedToAnArchivedPlace(): void
+    {
+        // An archived place is off every ordinary screen, and the picker
+        // never offers it — so the stay would be invisible the moment it
+        // was saved.
+        $placeId = $this->places->create('Ferme du Bois', null, null, 'Mozet', null, null);
+        $this->places->archive($placeId, true);
+
+        $this->post(['place_id' => (string) $placeId, 'confirm_new' => '0']);
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM camp_camps')->fetchColumn());
+    }
+
+    public function testAStayIsStillAttachableToALivePlace(): void
+    {
+        $placeId = $this->places->create('Ferme du Bois', null, null, 'Mozet', null, null);
+
+        $this->post(['place_id' => (string) $placeId, 'confirm_new' => '0']);
+
+        $this->assertCount(1, $this->camps->findByPlace($placeId));
+    }
 }

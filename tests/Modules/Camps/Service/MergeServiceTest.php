@@ -295,6 +295,125 @@ class MergeServiceTest extends TestCase
         $this->service->mergeCamps($this->camp($id), $this->camp($id), 42, $this->today());
     }
 
+    // ── What a merge must refuse, and what it must invalidate ───────
+
+    public function testMergingIntoAnArchivedPlaceIsRefused(): void
+    {
+        // The stays would land on a row no ordinary screen shows: they
+        // would simply vanish from the module, and the chief who pressed
+        // the button would have no way of guessing where they went.
+        $from = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
+        $to = $this->places->create('Domaine de Mozet asbl', null, null, 'Mozet', null, null);
+        $this->stay($from, '2024-07-19');
+        $this->places->archive($to, true);
+
+        try {
+            $this->service->mergePlaces($this->place($from), $this->place($to), 42);
+            $this->fail('An archived target must be refused.');
+        } catch (CampsException $e) {
+            $this->assertStringContainsString('archivé', $e->getMessage());
+        }
+
+        $this->assertSame(1, $this->camps->countByPlace($from));
+    }
+
+    public function testAPlaceMergeMarksBothSummariesStale(): void
+    {
+        // No stay was created or edited, only re-parented — so nothing
+        // else would ever mark the surviving place's AI summary stale, and
+        // it would go on describing a shorter history than the place has.
+        $from = $this->places->create('A', null, null, 'X', null, null);
+        $to = $this->places->create('B', null, null, 'X', null, null);
+        $this->stay($from, '2024-07-19');
+        $this->pdo->exec('UPDATE camp_places SET ai_summary_is_stale = 0');
+
+        $this->service->mergePlaces($this->place($from), $this->place($to), 42);
+
+        $this->assertSame(
+            [1, 1],
+            array_map('intval', $this->pdo
+                ->query('SELECT ai_summary_is_stale FROM camp_places ORDER BY id')
+                ->fetchAll(\PDO::FETCH_COLUMN))
+        );
+    }
+
+    public function testACampMergeMarksThePlacesSummaryStale(): void
+    {
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $from = $this->stay($place, '2024-07-19');
+        $to = $this->stay($place, '2024-07-26');
+        $this->pdo->exec('UPDATE camp_places SET ai_summary_is_stale = 0');
+
+        $this->service->mergeCamps($this->camp($from), $this->camp($to), 42, $this->today());
+
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT ai_summary_is_stale FROM camp_places WHERE id = ' . $place)->fetchColumn()
+        );
+    }
+
+    public function testTheYearDroppedByAMergeIsWrittenIntoTheNote(): void
+    {
+        // The surviving stay knows only its year; the losing one has real
+        // dates. The merged stay takes the dates — so what was dropped is
+        // the surviving stay's YEAR, which comparing the losing side
+        // against the surviving one could never say.
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $from = $this->stay($place, '2024-07-19');
+        $to = $this->camps->create(
+            $place, Camp::STAY_GRAND_CAMP, null, null, 2024, Camp::STATUS_CONFIRMED,
+            null, null, null, null, []
+        );
+
+        $lost = $this->service->mergeCamps($this->camp($from), $this->camp($to), 42, $this->today());
+
+        $this->assertNotSame([], $lost);
+        $this->assertStringContainsString('2024', implode(' ', $lost));
+        // And never the dates the merged stay actually carries.
+        $this->assertStringNotContainsString('dates précédentes : 19 juillet 2024', implode(' ', $lost));
+    }
+
+    public function testAValueTheMergedStayKeepsIsNotReportedAsLost(): void
+    {
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $from = $this->stay($place, '2024-07-19', 45000);
+        $to = $this->stay($place, '2024-07-19');
+
+        $lost = $this->service->mergeCamps($this->camp($from), $this->camp($to), 42, $this->today());
+
+        // The surviving stay had no price, so it takes the losing one's:
+        // nothing was lost, and saying "prix précédent" would be a lie.
+        $this->assertSame([], $lost);
+    }
+
+    public function testTheMergedStaysAlbumIsNamedLikeEveryOtherAlbumOfAStay(): void
+    {
+        // This is the ONE place that could create an album for a stay
+        // outside the photos page. Called "Camp", it tells a reader
+        // browsing the gallery nothing at all — every other album of a
+        // stay is "{lieu} — {dates}".
+        $place = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
+        $from = $this->stay($place, '2024-07-19');
+        $to = $this->stay($place, '2024-07-26');
+
+        $albums = $this->createMock(\Modules\Gallery\Api\DelegatedAlbumManager::class);
+        $albums->method('findAlbum')->willReturn(new \Modules\Gallery\Api\DelegatedAlbum(1, 'x', '2024-07-19'));
+        $albums->expects($this->once())
+            ->method('ensureAlbum')
+            ->with(
+                $this->anything(),
+                $this->anything(),
+                $this->stringContains('Domaine de Mozet — '),
+                $this->anything(),
+                $this->anything()
+            )
+            ->willReturn(new \Modules\Gallery\Api\DelegatedAlbum(2, 'y', '2024-07-26'));
+
+        $audit = $this->audit();
+        $this->serviceWith(audit: $audit, albums: new CampAlbumService($audit, $albums))
+            ->mergeCamps($this->camp($from), $this->camp($to), 42, $this->today());
+    }
+
     // ── The correspondence follows the stay ─────────────────────────
 
     public function testEveryMessageOfTheLosingStayMovesToTheSurvivingOne(): void

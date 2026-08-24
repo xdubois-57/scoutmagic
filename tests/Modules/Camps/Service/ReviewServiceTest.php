@@ -170,6 +170,27 @@ class ReviewServiceTest extends TestCase
         $this->assertSame(5, $this->reviews->findByCamp($camp->id)?->rating);
     }
 
+    public function testTwoChiefsSavingAtOnceLeaveOneReviewAndNoError(): void
+    {
+        // camp_reviews.camp_id is UNIQUE, and a select-then-branch write
+        // let both chiefs read "no review yet" and both INSERT — the second
+        // meeting the constraint as a PDOException, i.e. a 500 on a page
+        // whose only honest answer is "the other one won".
+        $camp = $this->camp('2026-07-19');
+        $reader = new ReviewRepository($this->pdo);
+
+        // The second writer holding the same "nothing there yet" reading
+        // the first one had, which is exactly what concurrency produces.
+        $this->reviews->save($camp->id, 3, 'Premier avis.', 1);
+        $reader->save($camp->id, 5, 'Second avis.', 2);
+
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM camp_reviews')->fetchColumn());
+        $review = $this->reviews->findByCamp($camp->id);
+        $this->assertSame(5, $review?->rating);
+        $this->assertSame('Second avis.', $review->comment);
+        $this->assertSame(2, $review->authorMemberId);
+    }
+
     public function testTheHistoryRecordsTheRatingButNeverTheComment(): void
     {
         $camp = $this->camp('2026-07-19');

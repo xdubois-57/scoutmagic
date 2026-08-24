@@ -405,6 +405,15 @@ class CampsChiefController extends AbstractController
             if ($place === null) {
                 throw new CampsException('Ce lieu n\'existe pas ou plus.');
             }
+            // An archived place is off every ordinary screen. A stay
+            // attached to one would be invisible the moment it was saved,
+            // and the picker never offers it — so an id that names one came
+            // from a stale page or a forged POST either way.
+            if ($place->isArchived) {
+                throw new CampsException(
+                    'Ce lieu est archivé : désarchivez-le d\'abord si vous voulez y rattacher un séjour.'
+                );
+            }
 
             return $place->id;
         }

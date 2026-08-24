@@ -60,27 +60,45 @@ class ReviewNotificationService
         foreach ($this->camps->findAwaitingReviewNotification($today) as $camp) {
             $recipients = $this->recipientsFor($camp);
 
-            // Marked either way. A stay whose sections have no animators
-            // this year — or whose unit has no chief account at all — has
-            // nobody to tell, and leaving it unmarked would make the task
-            // rebuild that empty list on every single run, for ever.
-            $this->camps->markReviewNotified($camp->id, $today);
+            // Nobody to tell — a stay whose sections have no animators this
+            // year, or a unit with no chief account at all. Marked anyway,
+            // or the task rebuilds that empty list on every single run, for
+            // ever.
             if ($recipients === []) {
+                $this->camps->markReviewNotified($camp->id, $today);
                 continue;
             }
 
-            $this->notifications->dispatch(
-                self::TYPE_ID,
-                $recipients,
-                [
-                    'title' => 'Racontez ce camp',
-                    'body' => sprintf(
-                        'Le séjour %s est terminé. Laissez un avis pour les staffs suivants.',
-                        CampLabels::dateRange($camp->startDate, $camp->endDate, $camp->yearOnly)
-                    ),
-                    'url' => rtrim($baseUrl, '/') . '/chefs/camps/sejours/' . $camp->id,
-                ]
-            );
+            // Dispatch FIRST, then the mark, and both in one transaction.
+            // The other order was at-most-zero: a stay was marked notified
+            // and a dispatch that then failed left it marked for good, with
+            // nothing ever sent and no way to notice. This order is
+            // at-least-once — the worst case is a second notification about
+            // a camp, which somebody can ignore, rather than none at all.
+            $this->pdo->beginTransaction();
+            try {
+                $this->notifications->dispatch(
+                    self::TYPE_ID,
+                    $recipients,
+                    [
+                        'title' => 'Racontez ce camp',
+                        'body' => sprintf(
+                            'Le séjour %s est terminé. Laissez un avis pour les staffs suivants.',
+                            CampLabels::dateRange($camp->startDate, $camp->endDate, $camp->yearOnly)
+                        ),
+                        'url' => rtrim($baseUrl, '/') . '/chefs/camps/sejours/' . $camp->id,
+                    ]
+                );
+                $this->camps->markReviewNotified($camp->id, $today);
+                $this->pdo->commit();
+            } catch (\Throwable $e) {
+                if ($this->pdo->inTransaction()) {
+                    $this->pdo->rollBack();
+                }
+
+                throw $e;
+            }
+
             $sent++;
         }
 
