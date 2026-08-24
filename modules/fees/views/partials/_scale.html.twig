@@ -1,0 +1,70 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The barème, folded away.
+
+  It answers two questions a unit only has to settle once: which of its own
+  Desk tariffs means "couple", and what one person on each tariff costs. The
+  first is pre-filled by Modules\Fees\Service\FeeCategoryClassifier, so a
+  unit whose wording is ordinary never opens this. The second exists only to
+  turn a discrepancy into euros — nothing is computed from it and no screen
+  presents it as an amount owed.
+#}
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none"
+                data-bs-toggle="collapse" data-bs-target="#fees-scale"
+                aria-expanded="false" aria-controls="fees-scale">
+            <i class="bi bi-sliders" aria-hidden="true"></i> Barème des cotisations
+        </button>
+        <div class="collapse mt-3" id="fees-scale">
+            <p class="small text-body-secondary">
+                Saisi à la main, uniquement pour traduire un écart en euros. Laissé vide, un écart s'affiche sans
+                montant plutôt qu'avec un montant faux. La catégorie Desk n'est à préciser que si le site s'est
+                trompé en la devinant.
+            </p>
+            <form method="post" action="/admin/fees/tarifs/bareme">
+                {{ csrf_field()|raw }}
+                <div class="row g-3">
+                    {% for key, line in tariff_panel %}
+                        <div class="col-12 col-md-4">
+                            <div class="border rounded p-2">
+                                <p class="fw-semibold small mb-2">{{ category_labels[key] }}</p>
+                                {% set _options = [{ value: '', label: '— Deviné par le site —', selected: line.fee_category_id is null }] %}
+                                {% for category in fee_categories %}
+                                    {% set _suffix = category.id == line.suggested_fee_category_id ? ' (deviné)' : '' %}
+                                    {% set _options = _options|merge([{
+                                        value: category.id,
+                                        label: category.label ~ _suffix,
+                                        selected: category.id == line.fee_category_id,
+                                    }]) %}
+                                {% endfor %}
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'fees-category-' ~ key,
+                                    field_name: 'fee_category_' ~ key,
+                                    label: 'Tarif Desk correspondant',
+                                    type: 'select',
+                                    options: _options,
+                                    size: 'sm',
+                                } only %}
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'fees-amount-' ~ key,
+                                    field_name: 'amount_' ~ key,
+                                    label: 'Montant par personne (€)',
+                                    type: 'text',
+                                    inputmode: 'decimal',
+                                    value: line.amount_cents is null ? '' : (line.amount_cents / 100)|number_format(2, ',', ''),
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+                <button type="submit" class="btn btn-sm btn-outline-secondary mt-3">Enregistrer le barème</button>
+            </form>
+        </div>
+    </div>
+</div>

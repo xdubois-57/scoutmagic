@@ -1965,6 +1965,15 @@ $feeEstimationService = new \Core\Member\FeeEstimationService(
     $encryptionService,
     $householdRegistrationCount
 );
+// Its twin, and core for the same reason: the two counts a household has
+// (what Desk holds, what it will hold) are not the fees module's notion,
+// they are the roster's. Built here so a module can consume it without
+// owning it.
+$householdService = new \Core\Member\Household\HouseholdService(
+    new \Core\Member\Household\HouseholdRepository($pdo),
+    $encryptionService,
+    $householdRegistrationCount
+);
 
 // Handle the request
 $maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
@@ -4355,13 +4364,40 @@ if (in_array('leadership', $moduleManager->getEnabledModuleIds(), true)) {
 }
 
 if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
+    $feesImportRepo = new \Modules\Fees\Repository\FeesImportRepository($pdo);
+    $feesIgnoredHouseholdRepo = new \Modules\Fees\Repository\IgnoredHouseholdRepository($pdo, $encryptionService);
+    $feesTariffService = new \Modules\Fees\Service\HouseholdTariffService(
+        new \Modules\Fees\Repository\HouseholdTariffRepository($pdo),
+        $feeCategoryRepo
+    );
+
     $frontController->registerController(
         \Modules\Fees\Controller\FeesController::class,
         new \Modules\Fees\Controller\FeesController(
             $twig,
             new \Modules\Fees\Repository\RosterSnapshotRepository($pdo),
-            new \Modules\Fees\Repository\FeesImportRepository($pdo),
+            $feesImportRepo,
             $scoutYearResolver
+        )
+    );
+    $frontController->registerController(
+        \Modules\Fees\Controller\FeeAccuracyController::class,
+        new \Modules\Fees\Controller\FeeAccuracyController(
+            $twig,
+            new \Modules\Fees\Service\FeeAccuracyService(
+                $householdService,
+                new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService),
+                $feesTariffService,
+                $feesIgnoredHouseholdRepo,
+                $feeCategoryRepo
+            ),
+            $feesTariffService,
+            $feesIgnoredHouseholdRepo,
+            $householdService,
+            $feesImportRepo,
+            $feeCategoryRepo,
+            $scoutYearResolver,
+            $journalService
         )
     );
 }

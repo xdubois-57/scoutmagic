@@ -11,6 +11,8 @@
             subtitle: "Vérifier ce que la fédération facture. Ce module lit Desk et les factures reçues ; il n'écrit jamais dans Desk et ne demande jamais d'argent aux familles.",
         } only %}
 
+        {% include '@fees/partials/_nav.html.twig' %}
+
         <div class="alert alert-warning" role="alert">
             <h2 class="h6 alert-heading">
                 <i class="bi bi-clock-history" aria-hidden="true"></i>
@@ -51,11 +53,11 @@
 
         <div class="card mb-4">
             <div class="card-body">
-                <h2 class="h6 mb-3">Ce que cette page proposera</h2>
+                <h2 class="h6 mb-3">Les fonctions du module</h2>
                 <ul class="mb-0">
-                    <li><strong>Justesse des tarifs</strong> — les foyers dont la catégorie encodée
-                        dans Desk ne correspond pas au nombre de personnes qui y vivent, et ceux qui
-                        basculeront plus tard.</li>
+                    <li><a href="/admin/fees/tarifs">Justesse des tarifs</a> — les foyers dont la
+                        catégorie encodée dans Desk ne correspond pas au nombre de personnes qui y
+                        vivent, et ceux qui basculeront plus tard. <em>Disponible.</em></li>
                     <li><strong>Factures de la fédération</strong> — l'acompte, les factures finales
                         et la régularisation de la saison, avec leur total et leur statut.</li>
                     <li><strong>Rapport de vérification</strong> — ce que la fédération a compté,

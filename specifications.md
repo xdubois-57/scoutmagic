@@ -1049,3 +1049,69 @@ Date de la dernière photographie et nombre de personnes qu'elle contient,
 nombre de photographies enregistrées pour l'année scoute en cours, date du
 dernier import Desk — rien de ce qui est affiché n'est plus frais que cet
 import — et la liste de ce que le module proposera.
+
+### 31.5 Justesse des tarifs
+
+L'écran confronte la catégorie tarifaire encodée dans Desk à celle
+qu'implique le nombre de personnes au même foyer. On corrige ensuite dans
+Desk ; le site n'y écrit jamais.
+
+**Deux onglets d'action, et c'est la correction d'une erreur de
+conception.** Un foyer dont un départ est annoncé n'est *pas* en écart
+aujourd'hui : Desk contient encore l'ancienne composition, et c'est celle-là
+que la fédération facture.
+
+- **« À corriger dans Desk »** — l'encodage ne correspond pas au compte
+  *Desk*. Action immédiate, chiffrée en euros parce qu'elle pèse sur la
+  prochaine facture.
+- **« À prévoir »** — le foyer est correct aujourd'hui et basculera quand le
+  fait sera acté. Chaque carte nomme son déclencheur (« Camille — départ
+  annoncé le 06/01/2026 »). Montant étiqueté « à la bascule », jamais « en
+  écart », sous un bandeau qui dit de ne pas y toucher maintenant.
+
+Un foyer peut légitimement figurer dans les deux : l'écran affiche
+l'arbitrage — corriger maintenant puis à la bascule fait deux modifications,
+attendre n'en fait qu'une au prix d'une facture intermédiaire inexacte — et
+ne tranche pas à la place du trésorier.
+
+Deux onglets de contexte complètent l'écran : **« Ignorés »** et **« Sans
+adresse »**.
+
+Un changement de compte qui ne change pas de catégorie (quatre personnes qui
+passent à trois restent « famille ») n'apparaît nulle part : ce ne serait pas
+une action.
+
+### 31.6 Ce que chaque foyer affiche
+
+Une ligne de décompte explicite — « 3 membres dans Desk — tarif attendu
+Famille » — qui porte l'explication, puis la comparaison membre par membre :
+l'encodé barré, l'attendu à côté.
+
+Un membre sur un tarif qui n'est pas un tarif de foyer (animateur, réduit,
+iAM) est **compté** dans le foyer — la fédération compte des personnes — mais
+n'est jamais comparé ni signalé comme une erreur.
+
+**« Copier pour Desk »** met le foyer dans le presse-papiers, volontairement
+bête. **« Ignorer ce foyer »** le met de côté avec un motif libre : c'est la
+réponse à la garde alternée et aux colocations, sans construire de fusion ni
+de séparation de foyers. Le foyer réapparaît si sa composition change. Un
+export tableur reprend les mêmes lignes.
+
+### 31.7 Le barème, et ce qu'il ne fait pas
+
+Trois montants (normal / couple / famille), repliés, saisis à la main, qui ne
+servent qu'à traduire un écart en euros. Sans eux, un écart s'affiche sans
+montant plutôt qu'avec un montant faux.
+
+Le site devine seul lequel des tarifs Desk de l'unité signifie « couple » ou
+« famille » ; le sélecteur n'existe que pour le corriger.
+
+**L'écart va dans les deux sens** et le signe n'est jamais masqué :
+sous-déclarer revient dans la facture de régularisation, sur-déclarer non.
+
+### 31.8 Ce que l'écran ne prétend pas savoir
+
+Un foyer sans adresse exploitable n'est ni conforme ni en écart : il a son
+onglet, et le résumé ne le compte pas comme vérifié. La date de l'import Desk
+sur lequel l'écran se fonde est affichée : rien de ce qui est montré n'est
+plus frais que cet import.

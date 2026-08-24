@@ -21,6 +21,28 @@ class FeesTestHelper
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id)
         )');
 
+        $pdo->exec('CREATE TABLE fees_household_tariffs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            household_category TEXT NOT NULL UNIQUE,
+            fee_category_id INTEGER,
+            amount_cents INTEGER,
+            updated_at TEXT,
+            FOREIGN KEY (fee_category_id) REFERENCES fee_categories(id)
+        )');
+
+        $pdo->exec('CREATE TABLE fees_ignored_households (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scout_year_id INTEGER NOT NULL,
+            address_blind_index TEXT NOT NULL,
+            composition_hash TEXT NOT NULL,
+            reason_encrypted BLOB NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER,
+            UNIQUE(scout_year_id, address_blind_index),
+            FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+            FOREIGN KEY (created_by) REFERENCES user_accounts(id)
+        )');
+
         $pdo->exec('CREATE TABLE fees_roster_snapshot_members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             snapshot_id INTEGER NOT NULL,

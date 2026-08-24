@@ -1990,6 +1990,28 @@ What the federation invoices a unit is what **Desk** contained on the day the in
 
 **The module has no memory before it is switched on**, and the home page says so rather than letting a treasurer find out in March. Operationally it has to be enabled before November's deposit invoice for the season to be usable.
 
+### 8.75 « Justesse des tarifs » (`Modules\Fees\Service\FeeAccuracyService`)
+
+The encoded fee category against the number of people at the same address, and the correction of a design mistake worth stating first.
+
+**Two tabs, not a badge.** A household whose departure has been announced is **not** in breach today: Desk still holds the old composition, and the federation bills Desk. So « À corriger dans Desk » (the encoding does not match the **Desk** count, §8.34 — costed in euros because it is on the next invoice) and « À prévoir » (correct today, will move when the fact is acted on — labelled *à la bascule*, never *en écart*, under a banner saying not to touch it yet) are two independent verdicts on the same `Value\HouseholdReview`, and a household legitimately carries both. The screen then shows the arbitrage rather than making it: correct now and again at the switch is two edits, waiting is one at the price of one inexact invoice. Two context tabs complete it — « Ignorés » and « Sans adresse ».
+
+**The counts differing is not the categories differing.** Four people becoming three is *famille* both times; `Household::categoriesDiffer()` is what decides whether a household is in « À prévoir », so the screen never offers a change that changes nothing.
+
+**Which Desk tariff means what.** `member_years.fee_category_id` points at whatever string the CSV's "Tarif" column carried, and only the unit knows which of its own codes means "couple". `Service\FeeCategoryClassifier` recognises the usual wordings from the folded text (`TextNormalizerService::fold()`, §8.0) so the screen works the day the module is enabled; `fees_household_tariffs` overrides it per category for a unit whose wording it misses. Same heuristic-plus-hand-mapping shape as `leadership_formation_levels` (§8.65), and for the same reason.
+
+**A tariff outside the three is not judged.** "Tarif animateur", "Tarif réduit", an iAM membership: their holder is **counted** in the household — the federation counts people at an address, not tariffs — but is never reported as being on the wrong one. Reporting them would be a false positive on every unit, on the first screen a treasurer opens.
+
+**The barème prices a discrepancy and nothing else.** Three hand-entered amounts in the same table, folded away, read from the invoices themselves from IT-05 on. Absent, a discrepancy is shown **without a figure** rather than as `0,00 €`. The sign is never hidden: positive means the unit is declaring less than it owes, which comes back in the regularisation invoice and is the more urgent of the two directions. `fee_categories` is a core table and is not extended for this (AGENTS.md § Architecture) — hence a module table pointing at it.
+
+**A household with no usable address is neither compliant nor in breach.** `HouseholdService::memberYearIdsWithoutUsableAddress()` (§8.34) feeds a tab of its own and a line in the summary, so the page never reads as "everybody was checked".
+
+**« Ignorer ce foyer » is the answer to shared custody**, and deliberately not a merge/split of households — a data model nobody could keep true. The reason is free text about a family's arrangements, so it is BLOB + encrypted in `Repository\IgnoredHouseholdRepository` and **never journaled**: the journal records that a household was set aside, not which one nor why. The decision carries a `composition_hash` of the member ids it was taken about, so an arrival or a departure brings the household back rather than leaving it silently excluded on the strength of a judgement about different people.
+
+**« Copier pour Desk » is volontairement bête**: a plain text block assembled server-side (`Service\DeskClipboardText`, where the names are already decrypted), carried in a JSON island and copied by `public/assets/js/fees-copy.js` — the `leadership-copy-emails.js` shape, fallback included.
+
+**Four views, four real URLs** (`?vue=`), drawn through the site's own chip picker (§8.30) rather than a fifth tab style: the page works with no JavaScript and a treasurer keeps it open beside Desk. The date of the import it reads is on the page, because nothing on it is fresher than that.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

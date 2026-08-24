@@ -38,7 +38,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.0.0', $this->manifest->version);
+        $this->assertSame('1.1.0', $this->manifest->version);
     }
 
     /**
@@ -92,26 +92,34 @@ class ModuleManifestTest extends TestCase
     }
 
     /**
-     * Two tables, and the second one is the whole reason this module ships
-     * before it has a screen worth opening: the composition of the roster
-     * at each import is the only past state of Desk the site will ever
-     * hold.
+     * The snapshot pair is the whole reason this module shipped before it
+     * had a screen worth opening: the composition of the roster at each
+     * import is the only past state of Desk the site will ever hold. The
+     * other two carry the barème and the households a chef d'unité set
+     * aside.
      */
-    public function testTheSchemaDeclaresTheTwoSnapshotTables(): void
+    public function testTheSchemaDeclaresTheTablesTheModuleOwns(): void
     {
         $schema = file_get_contents(dirname(__DIR__, 3) . '/modules/fees/schema.sql');
         $this->assertNotFalse($schema);
 
-        $this->assertSame(2, preg_match_all('/^CREATE TABLE/mi', $schema));
+        $this->assertSame(4, preg_match_all('/^CREATE TABLE/mi', $schema));
         $this->assertStringContainsString('fees_roster_snapshots', $schema);
         $this->assertStringContainsString('fees_roster_snapshot_members', $schema);
+        $this->assertStringContainsString('fees_household_tariffs', $schema);
+        $this->assertStringContainsString('fees_ignored_households', $schema);
     }
 
     /**
      * The snapshot holds foreign keys and codes, never a person. Names and
      * birth dates stay in `member_years`, which persists all year — so
-     * there is no BLOB here, nothing encrypted, and one line to add to the
-     * RGPD page instead of a retention rule to invent.
+     * there is no BLOB in either snapshot table, and one paragraph to add
+     * to the RGPD page instead of a retention rule to invent.
+     *
+     * The module's one encrypted column lives elsewhere, in
+     * `fees_ignored_households`: a chief's free-text reason about a
+     * family's arrangements, held to the same rule as
+     * `member_years.leaving_comment_encrypted`.
      */
     public function testTheSnapshotStoresNoPersonalData(): void
     {
@@ -121,8 +129,32 @@ class ModuleManifestTest extends TestCase
         // assert on the DDL itself, not on the prose above it.
         $ddl = (string) preg_replace('/^\s*--.*$/m', '', $schema);
 
-        $this->assertStringNotContainsString('BLOB', $ddl);
-        $this->assertStringNotContainsString('_encrypted', $ddl);
-        $this->assertStringNotContainsString('blind_index', $ddl);
+        $snapshotTables = self::tableDdl($ddl, 'fees_roster_snapshots')
+            . self::tableDdl($ddl, 'fees_roster_snapshot_members');
+
+        $this->assertStringNotContainsString('BLOB', $snapshotTables);
+        $this->assertStringNotContainsString('_encrypted', $snapshotTables);
+        $this->assertStringNotContainsString('blind_index', $snapshotTables);
+    }
+
+    /**
+     * The only free text this module stores is encrypted, and never
+     * journaled — a reason written about a family's arrangements is exactly
+     * the kind of sentence SECURITY.md §5 is about.
+     */
+    public function testTheIgnoredHouseholdReasonIsEncrypted(): void
+    {
+        $schema = file_get_contents(dirname(__DIR__, 3) . '/modules/fees/schema.sql');
+        $this->assertNotFalse($schema);
+        $ddl = self::tableDdl((string) preg_replace('/^\s*--.*$/m', '', $schema), 'fees_ignored_households');
+
+        $this->assertStringContainsString('reason_encrypted BLOB NOT NULL', $ddl);
+    }
+
+    private static function tableDdl(string $ddl, string $table): string
+    {
+        preg_match('/CREATE TABLE IF NOT EXISTS ' . preg_quote($table, '/') . '\s*\((.*?)\n\)/s', $ddl, $matches);
+
+        return $matches[1] ?? '';
     }
 }

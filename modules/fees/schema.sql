@@ -83,3 +83,70 @@ CREATE TABLE IF NOT EXISTS fees_roster_snapshot_members (
     CONSTRAINT fk_frsm_fee FOREIGN KEY (fee_category_id) REFERENCES fee_categories(id),
     CONSTRAINT fk_frsm_section FOREIGN KEY (section_id) REFERENCES sections(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The three household tariffs, as this unit's Desk encodes them and as the
+-- federation prices them.
+--
+-- Two different jobs sit in one table because a chief sets them on one
+-- collapsed panel, in one gesture:
+--
+--   fee_category_id — WHICH `fee_categories` row means "couple" here. The
+--   comparison is impossible without it: `member_years.fee_category_id`
+--   points at whatever string Desk exported ("Tarif normal",
+--   "N_N_COTISATION NORMALE"), and only the unit knows which of its own
+--   codes carries the household meaning. It is an OVERRIDE, not a
+--   requirement: `Modules\Fees\Service\FeeCategoryClassifier` recognises
+--   the usual wordings on its own, so a unit whose codes are ordinary never
+--   opens this panel. Same shape, and the same reason, as
+--   `leadership_formation_levels`.
+--
+--   amount_cents — what one person on that tariff costs. It exists ONLY to
+--   turn a discrepancy into euros; nothing is computed from it and no
+--   screen presents it as an amount owed. Absent, a discrepancy is shown
+--   without a figure rather than with a wrong one. From IT-05 on it is read
+--   off the invoices themselves.
+--
+-- `fee_categories` is a core table and is not extended for a module's need
+-- (AGENTS.md § Architecture) — hence a table here, pointing at it.
+CREATE TABLE IF NOT EXISTS fees_household_tariffs (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- One of Core\Member\HouseholdFeeCategory: normal, couple, family.
+    household_category VARCHAR(10) NOT NULL,
+    fee_category_id INT UNSIGNED NULL,
+    amount_cents INT UNSIGNED NULL,
+    updated_at DATETIME NULL,
+    UNIQUE INDEX idx_fht_category (household_category),
+    CONSTRAINT fk_fht_fee FOREIGN KEY (fee_category_id) REFERENCES fee_categories(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- A household a chef d'unité has set aside, with the reason they gave.
+--
+-- This is the answer to shared custody and to two families at one number:
+-- an address that normalizes to one string but is not one household. Rather
+-- than build a merge/split of households — a data model nobody could keep
+-- true — the screen lets a human say "not this one" and why.
+--
+-- **It comes back when the household changes.** `composition_hash` is a
+-- fingerprint of the member ids that were at the address when the decision
+-- was taken; a new arrival or a departure no longer matches it, and the
+-- household reappears rather than staying silently excluded on the strength
+-- of a judgement about a different set of people.
+--
+-- The reason is free text written by a chief about a family situation — a
+-- separation, an arrangement, an illness — so it is BLOB + encrypted like
+-- `member_years.leaving_comment_encrypted`, decrypted only in
+-- `Modules\Fees\Repository\IgnoredHouseholdRepository`, and never journaled.
+CREATE TABLE IF NOT EXISTS fees_ignored_households (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    scout_year_id INT UNSIGNED NOT NULL,
+    -- The same HMAC blind index member_addresses carries: the household's
+    -- identity, never a readable address.
+    address_blind_index CHAR(64) NOT NULL,
+    composition_hash CHAR(64) NOT NULL,
+    reason_encrypted BLOB NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INT UNSIGNED NULL,
+    UNIQUE INDEX idx_fih_year_address (scout_year_id, address_blind_index),
+    CONSTRAINT fk_fih_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE,
+    CONSTRAINT fk_fih_account FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
