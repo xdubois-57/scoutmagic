@@ -1,0 +1,49 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  One line of partials/audit_timeline.html.twig, in its own file so the
+  server can render a single entry — that is what makes the markup here
+  the ONE definition of what an audit line looks like, mirrored by
+  public/assets/js/audit-timeline.js for the pages it appends.
+
+  Human and automatic entries must read as different things at a glance
+  (Core\Audit's whole point is that a price can move without anybody
+  touching it): the marker's colour and the icon carry that, never colour
+  alone — the two icons differ, and the source is spelled out in words.
+#}
+{% set _automatic = entry.isAutomatic() %}
+{% set _source_labels = {
+    'human': 'Modifié dans le site',
+    'email': 'Détecté dans un message reçu',
+    'ai': 'Proposé automatiquement',
+    'system': 'Modification automatique',
+} %}
+<li class="mb-3 position-relative audit-entry" data-source="{{ entry.source.value }}">
+    <span class="audit-entry-marker position-absolute translate-middle-x rounded-circle {{ _automatic ? 'bg-warning' : 'bg-primary' }}"
+          aria-hidden="true"></span>
+
+    <div class="small text-body-secondary d-flex align-items-center gap-1 flex-wrap">
+        <i class="bi {{ _automatic ? 'bi-robot' : 'bi-person' }}" aria-hidden="true"></i>
+        <span>{{ entry.actorName ?: _source_labels[entry.source.value]|default('Modification automatique') }}</span>
+        <span aria-hidden="true">·</span>
+        <span>{{ entry.createdAt|datetime_fr }}</span>
+    </div>
+
+    <div class="mt-1">
+        <span class="fw-medium">{{ labels[entry.fieldKey]|default(entry.fieldKey) }}</span>
+        {% if entry.fromValue is not null %}
+            <span class="text-body-secondary" aria-hidden="true">·</span>
+            <span class="text-body-secondary text-decoration-line-through">{{ entry.fromValue }}</span>
+        {% endif %}
+        {% if entry.toValue is not null %}
+            <i class="bi bi-arrow-right mx-1 small" aria-hidden="true"></i>
+            <span>{{ entry.toValue }}</span>
+        {% endif %}
+    </div>
+
+    {% if entry.summary %}
+        <div class="small text-body-secondary">{{ entry.summary }}</div>
+    {% endif %}
+</li>

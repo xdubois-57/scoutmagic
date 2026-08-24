@@ -301,6 +301,10 @@ class MigrateAlbumStorageHandlerTest extends TestCase
                 {
                     return $this->real->getRange($key, $offset, $length);
                 }
+                public function copy(string $fromKey, string $toKey): void
+                {
+                    $this->real->copy($fromKey, $toKey);
+                }
                 public function delete(string $key): void
                 {
                     $this->real->delete($key);
@@ -369,6 +373,10 @@ class MigrateAlbumStorageHandlerTest extends TestCase
                 public function getRange(string $key, int $offset, int $length): string
                 {
                     return substr($this->get($key), $offset, $length);
+                }
+                public function copy(string $fromKey, string $toKey): void
+                {
+                    $this->real->copy($fromKey, $toKey);
                 }
                 public function delete(string $key): void
                 {

@@ -1,0 +1,14 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# A section's badge, in the section's OWN colour — resolved by
+   Service\SectionDescriber through Core\Member\SectionService::
+   colorForSection(), never from a name.
+
+   The colour is an inline style because it is data, not a theme choice:
+   it comes from the federation's branch colours or from an
+   administrator's explicit override, and there is no utility class for
+   "whatever this unit configured". White text is safe on all of them —
+   every branch colour is a mid-to-dark tone. #}
+<span class="badge rounded-pill text-white" style="background-color: {{ section.color }}">{{ section.name }}</span>
