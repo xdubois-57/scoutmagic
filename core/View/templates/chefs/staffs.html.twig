@@ -33,7 +33,7 @@
             <div class="alert alert-warning small py-2 mb-3">
                 <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                 Cette section n'a pas encore de nom configuré.
-                {% if can_edit_section %}
+                {% if is_chief %}
                     Ce réglage se fait sur la page « Config Desk ».
                 {% endif %}
             </div>
@@ -66,7 +66,7 @@
                             </div>
                         </div>
 
-                        {% if can_edit_section and available_badges|length > 0 %}
+                        {% if is_chief and available_badges|length > 0 %}
                             {% set badge_items = [] %}
                             {% for badge in available_badges %}
                                 {% set assigned = false %}
@@ -145,11 +145,18 @@
                     {% endif %}
                 </div>
 
+                {% if chief_without_staffed_section %}
+                    <div class="alert alert-info small py-2 mb-3">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                        Vous ne pouvez ajouter ou modifier des documents que dans les sections que vous animez, et aucune fonction d'animateur ne vous est rattachée à une section pour l'année en cours. Faites compléter votre fonction dans le Desk, puis relancez l'import&nbsp;: le bouton apparaîtra. Un chef d'unité peut le faire pour vous.
+                    </div>
+                {% endif %}
+
                 {% if section_document_compression_backend_none %}
                     <div class="alert alert-warning small py-2 mb-3">
                         <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                         Aucun outil de compression PDF n'est disponible sur ce serveur — les documents PDF ajoutés ne seront pas compressés automatiquement.
-                        {% if can_edit_section %}
+                        {% if is_chief %}
                             Pour l'activer&nbsp;: installez Ghostscript (<code>apt install ghostscript</code> ou <code>yum install ghostscript</code>) sur le serveur, ou vérifiez que <code>proc_open</code> n'est pas désactivé dans la configuration PHP (<code>disable_functions</code>). Sur un hébergement mutualisé où vous ne pouvez pas installer de logiciel, contactez votre hébergeur.
                         {% endif %}
                     </div>
@@ -282,17 +289,24 @@
 {% endblock %}
 
 {% block scripts %}
-{% if can_edit_section is defined and can_edit_section %}
+{# staffs.js drives both the per-member badge picker and the section
+   documents' auto-save, so it loads for any animateur — the documents half
+   simply finds nothing to bind when can_edit_section is false. #}
+{% if is_chief is defined and is_chief %}
 {# Server data handed to staffs.js — the window.llmConfigData pattern.
    oversizeWarningEnabled is the module addendum's rule: the advisory
    warning exists only when the server has no PDF compression backend of
    its own. #}
-<script nonce="{{ csp_nonce }}">
-window.staffsData = {{ {
+{# Server data as a JSON ISLAND, read by staffs.js through
+   ScoutMagicApi.pageData(). #}
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+<script type="application/json" id="staffs-data">
+{{ {
     oversizeWarningEnabled: section_document_compression_backend_none|default(false),
     oversizeWarningMb: section_document_oversize_warning_mb|default(5)
-}|json_encode|raw }};
+}|json_encode(json_flags)|raw }}
 </script>
+<script src="/assets/js/sortable.js" defer></script>
 <script src="/assets/js/list-editor.js" defer></script>
 <script src="/assets/js/staffs.js" defer></script>
 {% endif %}

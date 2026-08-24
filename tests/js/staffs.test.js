@@ -14,6 +14,23 @@
 // .badge-picker wrapping a chip-picker.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+/**
+ * Installs a page's server data the way the template does — a
+ * `<script type="application/json">` island — rather than an inline
+ * assignment to a window global. ScoutMagicApi.pageData() reads it.
+ */
+function installIsland(id, data) {
+    document.getElementById(id)?.remove();
+    if (data === undefined) {
+        return;
+    }
+    const el = document.createElement('script');
+    el.type = 'application/json';
+    el.id = id;
+    el.textContent = JSON.stringify(data);
+    document.body.appendChild(el);
+}
+
 const DOCUMENT_ROW = `
     <div class="section-document-row" data-id="12">
         <input type="text" class="section-document-title-input" data-id="12" value="Charte de section">
@@ -74,7 +91,7 @@ describe('staffs.js', () => {
         window.ScoutMagicToast = { show: vi.fn() };
         window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
         window.ChipPicker = { setSelected: vi.fn() };
-        delete window.staffsData;
+        installIsland('staffs-data', undefined);
     });
 
     async function boot() {
@@ -186,7 +203,7 @@ describe('staffs.js', () => {
             + 'Attention si ce document contient des données personnelles avant de le transmettre à un service en ligne tiers.';
 
         function enableWarning(mb = 5) {
-            window.staffsData = { oversizeWarningEnabled: true, oversizeWarningMb: mb };
+            installIsland('staffs-data', { oversizeWarningEnabled: true, oversizeWarningMb: mb });
         }
 
         it('never asks when the server has a compression backend of its own', async () => {

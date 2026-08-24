@@ -11,9 +11,13 @@ Primary device is mobile. Base CSS for mobile, `min-width` breakpoints for large
 
 **Mobile**: hamburger left, unit name right. Offcanvas from left: user card (initials, display name, role, member count), accordion sub-menus (one open), login/logout at bottom.
 
-**Desktop**: horizontal bar (unit name left, menus center, user right). Sub-menu bar below, wraps to multiple lines.
+**Desktop**: horizontal bar (unit name left, menus center, user right). No permanent sub-menu row: a menu opens a **mega-menu panel** floating under the bar — titled columns of text rows, one column per declared group (`MenuBuilder::MENU_GROUPS`), at most four. Opens on click, never on hover; closes on a second click, on Escape (focus returns to the tab), or on a press outside the bar. The tab of the menu the current page belongs to keeps its underline whatever is open. An ungrouped menu ("Notre unité") draws one untitled column.
 
-**Espace des animés sub-menu**: dynamic member entries (totem/prénom + section) → separator → static module pages.
+The row this replaced wrapped to three lines at Configuration's nineteen entries, changed height with the active menu, and gave "Maintenance" and "Galerie" exactly the same weight.
+
+**Espace membres panel**: a "Mes membres" column (dynamic member entries — avatar, totem/prénom, section) beside a "Pages" column of static and module pages.
+
+**Breadcrumb**: visible at every width, desktop included — with the sub-menu row gone, it is the only thing on screen naming the current page's ancestry (§7.3).
 
 ### 1.3 Configuration mode
 Banner when active. Text: click → rich text editor. Images: click → upload page (drag-drop, file picker, camera).
@@ -200,12 +204,14 @@ pass comfortably. Concretely:
 
 ### 7.3 Going back
 
-The breadcrumb bar is the site's **only** back affordance. No « Retour »
-buttons — a destination that matters belongs in the breadcrumb trail
-(`parents` for menu sections, `breadcrumb_trail` for real ancestor pages).
-Documented exceptions live in `UxConventionsTest::BACK_BUTTON_EXCEPTIONS`.
-A `parents` entry must exactly match a `MenuBuilder` label, or it renders
-as dead text.
+The breadcrumb bar is the site's **only** back affordance, and it shows at
+every width — mobile, desktop browser, installed PWA alike. (It used to be
+hidden on a desktop browser, where the permanent sub-menu row stated the
+current section; that row is gone.) No « Retour » buttons — a destination
+that matters belongs in the breadcrumb trail (`parents` for menu sections,
+`breadcrumb_trail` for real ancestor pages). Documented exceptions live in
+`UxConventionsTest::BACK_BUTTON_EXCEPTIONS`. A `parents` entry must exactly
+match a `MenuBuilder` label, or it renders as dead text.
 
 ### 7.4 Buttons
 
@@ -237,6 +243,17 @@ add, `bi-three-dots-vertical` overflow menus.
   consequence: « {Verbe} {objet} ? {Conséquence concrète}. »
 - Never `on*=` attributes in templates — the CSP (`script-src 'self'
   'nonce-…'`) makes inline handlers dead code, silently.
+- **Behaviour lives in `public/assets/js/`, never in a template's own
+  `<script>` block.** A template is the one place JavaScript cannot be
+  tested — Vitest imports files, not Twig output — and every duplicated
+  behaviour this codebase has found was living in one. Server data goes
+  in a `<script type="application/json" id="…">` island, read with
+  `window.ScoutMagicApi.pageData(id)`: data to the parser, so a value
+  containing `</script` cannot end the block mid-statement, and no nonce
+  is needed. Pinned by
+  `UxConventionsTest::testBehaviourLivesInFilesNotInTemplates`; the two
+  exceptions (the anti-FOUC theme bootstrap and the service-worker
+  registration, both in `base.html.twig`) are listed there with reasons.
 - Never `alert()`/`confirm()`/`prompt()`, in a template or in
   `public/assets/js/`. The site has one of each:
   - **`window.ScoutMagicToast.show(message, {variant})`** for a result —
@@ -314,7 +331,43 @@ size would be the relapse.
 A field's `id` is what JavaScript and tests grip. Renaming one is a
 breaking change — grep `public/assets/js/` and `tests/` before touching it.
 
-### 7.10 Rich text
+Four escape hatches, each for a real shape and none for a preference:
+`field_name` is optional (a JS-driven panel reads its fields by id and
+posts them itself — a stray `name` only invites a future GET to carry
+it); `data: {…}` puts `data-*` on the control, and on an `<option>`,
+because half the site's fields are gripped by a script through one;
+`wrapper_class` replaces the default `mb-3` for a field inside a grid
+column that supplies its own spacing; `label_visually_hidden` renders the
+label and hides it, for a repeated row the row itself names — the label
+is hidden, never dropped, and still says WHICH row it belongs to.
+`control_class_extra` takes layout classes the caller owns (`w-auto`, a
+script's hook) and never a size: that is `size`'s job.
+
+Genuinely out of reach, and why: `setup/index.html.twig` (the installer
+renders before the theme exists), a label carrying markup (« Tapez
+**EFFACER** pour confirmer »), and a `<select>` with `<optgroup>`.
+
+### 7.10 Files and lists
+
+`partials/drop_zone.html.twig` is the one « déposez un fichier ici » zone
+— dashed border, centred icon, one padding scale of two (`md`, `lg`), and
+`border-primary` while a file hovers. Its behaviour is
+`window.ScoutMagicDropZone.bind(zone, onFiles, {input, pickOnClick})`
+(`public/assets/js/drop-zone.js`). Three screens used to draw and wire it
+separately, and only one of the three remembered that `dragover` must
+call `preventDefault()` — without it the browser refuses the drop and
+opens the file in a new tab, so the zone looks alive and does nothing.
+
+`window.ScoutMagicSortable.bind(container, {itemSelector, axis,
+draggingClass, onReorder})` (`public/assets/js/sortable.js`) is the one
+drag-and-drop reordering. It saves on `dragend`, never on the item's own
+`drop`: `drop` only fires when the pointer is released ON a sibling, so a
+release just outside the list left two of the three previous
+implementations visually reordered and the server none the wiser. Every
+sortable list also offers up/down buttons — dragging is not available to
+a finger or a keyboard (§7.2).
+
+### 7.11 Rich text
 
 The « lien » button in every rich-text toolbar goes through
 `window.ScoutMagicRichText.insertLink()`
@@ -324,3 +377,38 @@ selection survives the dialog (a modal takes focus, and a contenteditable
 that loses focus loses its range), a bare host becomes `https://…` rather
 than a relative link that 404s, and a `javascript:` URL is refused with a
 reason rather than silently stripped later by the server-side sanitiser.
+
+### 7.11 Contextual help
+
+One help button per page, always visible, at the right of the breadcrumb
+bar (`partials/help_button.html.twig` — the bar shows at every width, so
+this single placement covers mobile, desktop and installed PWA). When a
+topic covers the page it opens the help panel
+(`partials/help_panel.html.twig`: bottom sheet on mobile,
+right-hand drawer at lg and up), whose content is server-rendered into
+the page so it works offline; otherwise it links to `/aide`, which the
+mobile offcanvas footer also links, next to connexion/déconnexion.
+Topics are Markdown files in `docs/help/` (core) or `modules/<id>/help/`
+(modules) — see ARCHITECTURE.md §8.64; a new end-user-facing page must be
+covered by a topic, existing or new (AGENTS.md checklists).
+
+**Charte rédactionnelle** — enforced mechanically where possible by
+`tests/Core/Help/HelpInvariantsTest.php`, by review otherwise:
+
+- Vouvoiement, phrases courtes, voix active. Le ton d'un collègue qui
+  explique, jamais d'un manuel.
+- Vocabulaire du §7.1 : **animé**, **animateur**, **chef d'unité**,
+  **Staff d'Unité**. Jamais « chef » seul, jamais « utilisateur ».
+- On décrit ce que la personne contrôle et ce qui se passe à l'écran.
+  Jamais un nom de classe, de table, de route ou de réglage technique.
+- ~400 mots par sujet maximum. Au-delà, c'est deux sujets.
+- Les sections commencent à `##` (le titre du sujet est déjà le `<h1>`
+  de la page) ; jamais de `#` seul.
+- Pas de capture d'écran en v1 : elles périment à chaque évolution de
+  l'UI et alourdissent l'artefact. Le rendu supporte les images
+  (`/assets/` uniquement) pour le jour où un écran est réellement
+  inexplicable en mots.
+- Un encadré d'avertissement (`> `) par sujet au maximum, réservé à ce
+  qui est irréversible ou contre-intuitif.
+- Pas de lien externe, sauf vers le site de la fédération
+  (lesscouts.be).

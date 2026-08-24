@@ -147,23 +147,205 @@ class NavRenderingTest extends TestCase
         $this->assertStringContainsString('desktop-menu-btn', $html);
     }
 
+    /**
+     * The offcanvas iterates `menu.pages` — the flat, sorted list — and
+     * knows nothing about the named columns MenuBuilder also returns
+     * (`menu.groups`, for the desktop panel). Splitting a menu into
+     * columns must never reach the mobile navigation: it lists every page
+     * of a menu, in one list, in that list's own order.
+     */
+    public function testMobileOffcanvasListsEveryPageOfAMenuFlat(): void
+    {
+        $html = $this->renderNav(Role::SUPERADMIN, true);
+
+        $offcanvasStart = strpos($html, 'id="navOffcanvas"');
+        $offcanvasEnd = strpos($html, 'id="desktopNav"');
+        $this->assertIsInt($offcanvasStart);
+        $this->assertIsInt($offcanvasEnd);
+        $offcanvas = substr($html, $offcanvasStart, $offcanvasEnd - $offcanvasStart);
+
+        $notreUnite = substr($offcanvas, (int) strpos($offcanvas, 'id="mob-notre_unite"'));
+        $this->assertLessThan(
+            strpos($notreUnite, 'Contact'),
+            strpos($notreUnite, 'Accueil'),
+            'the offcanvas keeps the flat page order'
+        );
+        // No column title of any kind between the two.
+        $this->assertStringNotContainsString('Unité & données', $offcanvas);
+    }
+
+    /**
+     * Renders the nav from a builder the caller fills itself, for the
+     * cases where the shape of the menus — which groups, at which role —
+     * is the thing under test.
+     */
+    private function renderNavFrom(MenuBuilder $builder, string $currentPath = '/'): string
+    {
+        return $this->twig->render('partials/nav.html.twig', [
+            'menus' => $builder->build(),
+            'current_path' => $currentPath,
+            'is_authenticated' => true,
+            'current_user_display_name' => 'test@example.com',
+            'current_user_role_label' => 'Admin',
+            'site_name' => 'Test Scout',
+            'active_menu_id' => '',
+            'active_page_url' => '',
+        ]);
+    }
+
+    // --- desktop mega-menu panel ----------------------------------------
+
+    /**
+     * The permanent second row of pills is gone entirely — a floating
+     * panel replaces it, so nothing must be left rendering the old row
+     * (it would sit under the panel, permanently, at every page load).
+     */
+    public function testNoSubMenuRowIsRenderedAnyMore(): void
+    {
+        $html = $this->renderNav(Role::SUPERADMIN, true, '/setup');
+
+        $this->assertStringNotContainsString('desktop-submenu', $html);
+        $this->assertStringNotContainsString('data-submenu-id', $html);
+    }
+
+    public function testEachMenuGetsAPanelWiredToItsTab(): void
+    {
+        $html = $this->renderNav(Role::SUPERADMIN, true);
+
+        $this->assertMatchesRegularExpression(
+            '/data-menu-id="configuration"\s+aria-expanded="false"\s+aria-controls="megamenu-configuration"/',
+            $html
+        );
+        $this->assertStringContainsString('id="megamenu-configuration"', $html);
+        // Closed until its tab is clicked (public/assets/js/nav.js).
+        $this->assertStringContainsString('class="desktop-megamenu d-none', $html);
+    }
+
+    public function testThePanelRendersOneTitledColumnPerGroup(): void
+    {
+        $builder = new MenuBuilder(Role::SUPERADMIN);
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-diagram-2', null, 'unite_donnees');
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 20, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-gear-wide-connected', null, 'site');
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'superadmin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-tools', null, 'exploitation');
+
+        $panel = $this->panelOf($this->renderNavFrom($builder), 'configuration');
+
+        $this->assertSame(3, substr_count($panel, 'desktop-megamenu-title'));
+        $this->assertMatchesRegularExpression(
+            '/Unité &amp; données.*Site.*Exploitation/s',
+            $panel,
+            'columns follow MENU_GROUPS declaration order'
+        );
+        $this->assertStringContainsString('bi-tools', $panel);
+    }
+
+    /**
+     * Role filtering happens before grouping (MenuBuilder::build()), so a
+     * column whose every page the visitor may not see is not rendered at
+     * all — never a title with nothing under it.
+     */
+    public function testAGroupLeftEmptyByRoleFilteringRendersNoColumn(): void
+    {
+        $builder = new MenuBuilder(Role::INTENDANT);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-people-fill', null, 'ma_section');
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Finances', '/finance', 'chief', 20, false, null, MenuBuilder::SORT_GROUP_MODULE, 'bi-cash', null, 'gestion');
+
+        $panel = $this->panelOf($this->renderNavFrom($builder), 'espace_chefs');
+
+        $this->assertStringContainsString('Ma section', $panel);
+        $this->assertStringNotContainsString('Gestion', $panel);
+        $this->assertSame(1, substr_count($panel, 'desktop-megamenu-title'));
+    }
+
+    /**
+     * "Notre unité" declares no group at all: one untitled column, no
+     * heading invented for it.
+     */
+    public function testAnUngroupedMenuRendersOneColumnWithNoTitle(): void
+    {
+        $builder = new MenuBuilder(Role::PUBLIC);
+        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-house');
+        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'public', 20, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-envelope');
+
+        $panel = $this->panelOf($this->renderNavFrom($builder), 'notre_unite');
+
+        $this->assertStringNotContainsString('desktop-megamenu-title', $panel);
+        $this->assertStringContainsString('Accueil', $panel);
+        $this->assertStringContainsString('Contact', $panel);
+    }
+
+    /**
+     * A per-member entry keeps the avatar and the section subtitle it has
+     * in the offcanvas — the panel is a different layout of the same
+     * entries, not a plainer copy of them.
+     */
+    public function testAMemberEntryKeepsItsAvatarAndSubtitleInThePanel(): void
+    {
+        $builder = new MenuBuilder(Role::IDENTIFIED);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Baloo', '/members/1', 'identified', 10, true, 'Meute Akela', MenuBuilder::SORT_GROUP_DYNAMIC, null, 7, 'mes_membres');
+
+        $panel = $this->panelOf($this->renderNavFrom($builder, '/members/1'), 'espace_animes');
+
+        $this->assertStringContainsString('Mes membres', $panel);
+        $this->assertStringContainsString('Meute Akela', $panel);
+        $this->assertStringContainsString('BA', $panel, 'the shared person avatar draws the initials');
+        $this->assertStringContainsString('fw-semibold text-primary', $panel);
+        $this->assertStringContainsString('aria-current="page"', $panel);
+    }
+
+    /**
+     * The panel's entries are text rows, never the pills the sub-menu row
+     * used: a pill grid is exactly what stopped scaling at nineteen
+     * entries.
+     */
+    public function testPanelEntriesAreTextRowsNotPills(): void
+    {
+        $panel = $this->panelOf($this->renderNav(Role::SUPERADMIN, true), 'configuration');
+
+        $this->assertStringNotContainsString('btn-outline-secondary', $panel);
+        $this->assertStringNotContainsString('btn btn-sm', $panel);
+    }
+
+    /**
+     * The markup of one menu's panel, from its opening tag to the end of
+     * the nav — enough to assert on that menu alone.
+     */
+    private function panelOf(string $html, string $menuId): string
+    {
+        $start = strpos($html, 'data-megamenu-id="' . $menuId . '"');
+        $this->assertIsInt($start, "no panel for '{$menuId}'");
+
+        $next = strpos($html, 'data-megamenu-id="', (int) $start + 1);
+
+        return $next === false
+            ? substr($html, (int) $start)
+            : substr($html, (int) $start, $next - (int) $start);
+    }
+
     public function testActivePageHighlighted(): void
     {
         $html = $this->renderNav(Role::SUPERADMIN, true, '/setup');
-        // The active submenu bar should not have d-none
-        $this->assertStringContainsString('data-submenu-id="configuration"', $html);
+
+        // Every panel starts closed — it floats over the page now, so an
+        // open one on load would cover the first thing the visitor reads.
+        // The menu the current page belongs to is stated by its tab.
+        $this->assertStringContainsString('data-megamenu-id="configuration"', $html);
+        $this->assertMatchesRegularExpression(
+            '/class="btn btn-sm desktop-menu-btn active"\s+data-menu-id="configuration"/',
+            $html
+        );
     }
 
     public function testSubPageOfARegisteredPageKeepsItHighlighted(): void
     {
         // /chefs/staffs/5 isn't itself a registered page (it's a detail
         // sub-route, no menu entry of its own — same shape as finance's
-        // /finance/movements under /finance) — the "Staffs" button/list
-        // item must still show as active while browsing it.
+        // /finance/movements under /finance) — the "Staffs" entry must
+        // still show as active while browsing it.
         $html = $this->renderNav(Role::INTENDANT, true, '/chefs/staffs/5');
-        $this->assertStringContainsString('data-submenu-id="espace_chefs"', $html);
-        $this->assertMatchesRegularExpression(
-            '/href="\/chefs\/staffs"\s+class="btn btn-sm btn-primary"/',
+        $this->assertStringContainsString('data-megamenu-id="espace_chefs"', $html);
+        $this->assertStringContainsString(
+            '<a href="/chefs/staffs" class="d-flex align-items-center gap-2 py-1 text-decoration-none fw-semibold text-primary" aria-current="page">',
             $html
         );
     }
@@ -173,10 +355,11 @@ class NavRenderingTest extends TestCase
         // /chefs/staffs2 shares the "/chefs/staffs" text as a raw prefix
         // but is NOT a sub-path of it (no "/" boundary) — must not match.
         $html = $this->renderNav(Role::INTENDANT, true, '/chefs/staffs2');
-        $this->assertDoesNotMatchRegularExpression(
-            '/href="\/chefs\/staffs"\s+class="btn btn-sm btn-primary"/',
+        $this->assertStringContainsString(
+            '<a href="/chefs/staffs" class="d-flex align-items-center gap-2 py-1 text-decoration-none text-body">',
             $html
         );
+        $this->assertStringNotContainsString('aria-current="page"', $html);
     }
 
     public function testActiveStaticEntryTextIsVisibleNotBlueOnBlue(): void

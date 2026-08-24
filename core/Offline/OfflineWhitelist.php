@@ -61,6 +61,13 @@ class OfflineWhitelist
         ['path' => '/notifications', 'label' => 'Notifications', 'match' => 'exact', 'role_min' => 'identified'],
         ['path' => '/members/', 'label' => 'Membre', 'match' => 'child', 'role_min' => 'identified'],
         ['path' => '/chefs/staffs', 'label' => 'Staffs', 'match' => 'exact', 'role_min' => 'intendant'],
+        // Contextual help (ARCHITECTURE.md §8.64) — product documentation
+        // shipped with the release, so keeping it readable offline costs
+        // nothing sensitive. role_min public on both: a topic page a role
+        // may not see is already a 404 (HelpService), so there is nothing
+        // narrower to declare here.
+        ['path' => '/aide', 'label' => 'Aide', 'match' => 'exact', 'role_min' => 'public'],
+        ['path' => '/aide/', 'label' => 'Aide', 'match' => 'child', 'role_min' => 'public'],
     ];
 
     /** @var array<int, array{path: string, label: string, match: string, role_min: string}> */

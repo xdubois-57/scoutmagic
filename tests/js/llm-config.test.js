@@ -15,6 +15,23 @@
 // the deliberate save-then-test flow that now owns activation.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+/**
+ * Installs a page's server data the way the template does — a
+ * `<script type="application/json">` island — rather than an inline
+ * assignment to a window global. ScoutMagicApi.pageData() reads it.
+ */
+function installIsland(id, data) {
+    document.getElementById(id)?.remove();
+    if (data === undefined) {
+        return;
+    }
+    const el = document.createElement('script');
+    el.type = 'application/json';
+    el.id = id;
+    el.textContent = JSON.stringify(data);
+    document.body.appendChild(el);
+}
+
 const MODELS_BY_DRIVER = {
     anthropic: [
         {
@@ -112,7 +129,7 @@ describe('llm-config.js', () => {
         vi.restoreAllMocks();
         document.head.innerHTML = '<meta name="csrf-token" content="tok-123">';
         document.body.innerHTML = PAGE_DOM;
-        global.window.llmConfigData = { modelsByDriver: structuredClone(MODELS_BY_DRIVER) };
+        installIsland('llm-config-data', { modelsByDriver: structuredClone(MODELS_BY_DRIVER) });
         global.fetch = mockFetch({});
         // A successful test reloads the page; jsdom does not implement
         // navigation and would log "Not implemented".
@@ -230,7 +247,7 @@ describe('llm-config.js', () => {
 
     describe('the models list never parses provider text as markup', () => {
         it('escapes a display name containing HTML', async () => {
-            global.window.llmConfigData = {
+            installIsland('llm-config-data', {
                 modelsByDriver: {
                     anthropic: [{
                         display_name: '<img src=x onerror=alert(1)>Claude',
@@ -240,7 +257,7 @@ describe('llm-config.js', () => {
                         is_tier_ocr: false,
                     }],
                 },
-            };
+            });
             await boot();
 
             const container = document.getElementById('models-container');

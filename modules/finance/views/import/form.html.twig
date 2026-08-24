@@ -19,29 +19,40 @@
         {{ csrf_field() }}
         <div class="row g-2">
             <div class="col-12 col-md-4">
-                <label class="form-label small" for="import-account">Compte</label>
-                <select class="form-select form-select-sm" id="import-account" name="account_id">
-                    {% for account in accounts %}
-                        <option value="{{ account.id }}" data-first-import="{{ first_import_by_account_id[account.id] ? '1' : '0' }}" {{ selected_account and account.id == selected_account.id ? 'selected' : '' }}>{{ account.name }}</option>
-                    {% endfor %}
-                </select>
+                {# `data-first-import` per option: finance-import-form.js reads
+                   it to decide whether the opening balance is required. #}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'import-account', field_name: 'account_id',
+                    label: 'Compte', type: 'select', size: 'sm', wrapper_class: '',
+                    options: accounts|default([])|map(account => {
+                        value: account.id,
+                        label: account.name,
+                        selected: selected_account and account.id == selected_account.id,
+                        data: { 'first-import': first_import_by_account_id[account.id] ? '1' : '0' },
+                    }),
+                } only %}
             </div>
             <div class="col-12 col-md-4">
-                <label class="form-label small" for="import-bank">Banque</label>
-                <select class="form-select form-select-sm" id="import-bank" name="bank_code">
-                    {% for code in bank_codes %}
-                        <option value="{{ code }}">{{ code|upper }}</option>
-                    {% endfor %}
-                </select>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'import-bank', field_name: 'bank_code',
+                    label: 'Banque', type: 'select', size: 'sm', wrapper_class: '',
+                    options: bank_codes|default([])|map(code => { value: code, label: code|upper }),
+                } only %}
             </div>
             <div class="col-12 col-md-4">
                 <label class="form-label small" for="import-file">Fichier CSV</label>
                 <input type="file" class="form-control form-control-sm" id="import-file" name="statement" accept=".csv" required>
             </div>
             <div class="col-12 col-md-6">
-                <label class="form-label small" for="import-balance">Solde après ce relevé</label>
-                <input type="text" class="form-control form-control-sm" id="import-balance" name="balance" placeholder="1234,56">
-                <div class="form-text small" id="import-balance-hint"></div>
+                {# The help line is rewritten by finance-import-form.js on
+                   every account change; the partial names it
+                   `import-balance-help` and wires aria-describedby to it. #}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'import-balance', field_name: 'balance',
+                    label: 'Solde après ce relevé', placeholder: '1234,56',
+                    size: 'sm', wrapper_class: '',
+                    help: 'Facultatif — laissez vide pour recalculer le solde automatiquement depuis les mouvements.',
+                } only %}
             </div>
             <div class="col-12">
                 <button type="submit" class="btn btn-sm btn-primary">Importer</button>
@@ -51,21 +62,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-const accountSelect = document.getElementById('import-account');
-const balanceInput = document.getElementById('import-balance');
-const balanceHint = document.getElementById('import-balance-hint');
-
-function updateBalanceRequirement() {
-    const option = accountSelect.options[accountSelect.selectedIndex];
-    const isFirstImport = option && option.dataset.firstImport === '1';
-    balanceInput.required = isFirstImport;
-    balanceHint.textContent = isFirstImport
-        ? "Premier import pour ce compte : le solde est obligatoire."
-        : "Facultatif — laissez vide pour recalculer le solde automatiquement depuis les mouvements.";
-}
-
-accountSelect.addEventListener('change', updateBalanceRequirement);
-updateBalanceRequirement();
-</script>
+<script src="/assets/js/finance-import-form.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

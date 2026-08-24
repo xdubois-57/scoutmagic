@@ -13,6 +13,7 @@
       "role_min": "superadmin",
       "label": "Intelligence artificielle",
       "menu_icon": "bi-cpu",
+      "menu_group": "modules",
       "breadcrumb": { "label": "Intelligence artificielle", "parents": ["Configuration"] }
     },
     {

@@ -42,12 +42,13 @@
                 <form method="post" action="/groups/{{ group.id }}/invite-section" class="row g-2 mt-2">
                     {{ csrf_field()|raw }}
                     <div class="col-12 col-md-8">
-                        <label class="form-label small mb-1" for="invite-section">Ajouter une section</label>
-                        <select class="form-select" id="invite-section" name="section_id">
-                            {% for section in sections %}
-                                <option value="{{ section.id }}">{{ section.name ?? section.desk_code }}</option>
-                            {% endfor %}
-                        </select>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'invite-section', field_name: 'section_id',
+                            label: 'Ajouter une section', type: 'select', wrapper_class: '',
+                            options: sections|default([])|map(section => {
+                                value: section.id, label: section.name ?? section.desk_code,
+                            }),
+                        } only %}
                     </div>
                     <div class="col-12 col-md-4 d-flex align-items-end">
                         <button type="submit" class="btn btn-outline-primary w-100">Ajouter</button>

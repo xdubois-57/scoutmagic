@@ -24,6 +24,7 @@
       "role_min": "superadmin",
       "label": "Tableau de bord support",
       "menu_icon": "bi-speedometer2",
+      "menu_group": "exploitation",
       "breadcrumb": { "label": "Tableau de bord support", "parents": ["Configuration"] }
     },
     {

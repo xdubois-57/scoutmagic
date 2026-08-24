@@ -359,35 +359,22 @@ body:has(> #cookie-banner) {
     z-index: 1030;
 }
 
-/* Breadcrumb bar (partials/breadcrumb_bar.html.twig) — always visible on
-   mobile viewports (below the site's lg breakpoint, 992px, same as
-   nav.html.twig's own d-lg-none/d-none d-lg-block split and
-   chip-picker.js's LG_BREAKPOINT_PX), since a mobile browser tab has no
-   persistent back affordance of its own. At lg and up, still gated to an
-   installed PWA (display-mode: standalone) — hidden in an ordinary
-   desktop browser tab, which already has its own back button and more
-   screen for the nav itself. Pure CSS: no server-side flag, no JS
-   "is this installed?" detection. */
+/* Breadcrumb bar (partials/breadcrumb_bar.html.twig) — visible at every
+   width, in an ordinary browser tab as much as in an installed PWA.
+
+   It used to be hidden at lg and up unless the site ran standalone, on
+   the reasoning that the desktop nav's own permanent sub-menu row already
+   showed where you were and reached every ancestor a `parents` entry
+   names. That row is gone: the desktop menus are now panels that open on
+   click and close again (.desktop-megamenu below), so nothing on a
+   desktop screen states the current page's ancestry any more. The
+   breadcrumb is what states it, and it is the same one crumb-height bar
+   mobile has always carried.
+
+   (.breadcrumb-bar--has-trail is still emitted by the template — a
+   `breadcrumb_trail` drives real ancestor-page links and stays meaningful
+   — but it no longer needs a rule of its own to force the bar visible.) */
 .breadcrumb-bar {
-    display: none;
-}
-@media (max-width: 991.98px) {
-    .breadcrumb-bar {
-        display: flex;
-    }
-}
-@media (display-mode: standalone) {
-    .breadcrumb-bar {
-        display: flex;
-    }
-}
-/* A trail of real ancestor PAGES shows at every width, desktop included.
-   The rule above hides the bar on a desktop browser because the nav's own
-   submenus already reach everything a `parents` entry names; ancestor
-   pages nested under ONE menu entry (a group, a lettable asset, one of its
-   bookings) are not in any menu, so hiding them leaves no way back up at
-   all. See partials/breadcrumb_bar.html.twig. */
-.breadcrumb-bar--has-trail {
     display: flex;
 }
 
@@ -408,9 +395,19 @@ body:has(> #cookie-banner) {
 
    float: none puts the separator back in the crumb's own line box, on
    the same baseline as the text, whatever height the crumb ends up
-   with. Nothing else about the bar changes: the tap target stays 44px,
-   and `padding-left` on the crumb keeps the spacing Bootstrap intends. */
+   with. The tap target stays 44px.
+
+   The zeroed padding is a separate matter, and about width rather than
+   height: Bootstrap puts 0.5rem on each side of every « / » — a full rem
+   of empty space per separator, which on a 375px screen costs a
+   three-crumb trail some thirty pixels it has nothing to spend them on.
+   The separator glyph already carries its own visual gap. Scoped to this
+   bar so any other breadcrumb on the site keeps Bootstrap's spacing. */
+.breadcrumb-bar .breadcrumb-item + .breadcrumb-item {
+    padding-left: 0;
+}
 .breadcrumb-bar .breadcrumb-item + .breadcrumb-item::before {
+    padding-right: 0;
     float: none;
     /* And a little air on its left. Bootstrap spaces the separator
        symmetrically (0.5rem each side, from --bs-breadcrumb-item-padding-x),
@@ -585,4 +582,117 @@ body:has(> #cookie-banner) {
     color: var(--bs-primary);
     border-bottom-color: var(--bs-primary);
     font-weight: 600;
+}
+/* The tab whose panel is currently open, which is NOT the same thing as
+   `.active` above (the menu the current page lives in). Both can be true
+   at once, and either can be true alone. */
+.desktop-menu-btn[aria-expanded="true"] {
+    background-color: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+}
+
+/* Desktop mega-menu panel (partials/nav.html.twig, opened by
+   public/assets/js/nav.js).
+
+   Custom CSS rather than a Bootstrap component because Bootstrap 5 has no
+   multi-column mega-menu: `.dropdown-menu` is a single column sized to its
+   content, and forcing nineteen entries into four titled columns inside one
+   would be fighting it the whole way. This duplicates nothing (AGENTS.md,
+   § CSS / frontend).
+
+   #desktopNav is the positioning context (position: relative below), so
+   the panel hangs under the menu bar across the full width without
+   pushing the page down — the permanent sub-menu row this replaced did
+   push it down, by a height that changed with the active menu.
+
+   z-index 1030 sits above page content and below Bootstrap's offcanvas
+   backdrop (1040) and the toast container: a panel must never cover a
+   message about what just happened, or survive over an opening
+   offcanvas. */
+#desktopNav {
+    position: relative;
+}
+.desktop-megamenu {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    z-index: 1030;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+.desktop-megamenu-grid {
+    display: grid;
+    /* auto-fit collapses the tracks a menu has no group for, so the real
+       column count is the number of groups — at most four, the widest
+       Core\View\MenuBuilder::MENU_GROUPS declares. 200px is the point
+       below which a two-word French label starts wrapping. */
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.25rem 2rem;
+    align-items: start;
+}
+.desktop-megamenu-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding-bottom: 0.25rem;
+    margin-bottom: 0.25rem;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+/* Contextual help panel (partials/help_panel.html.twig, ARCHITECTURE.md
+   §8.64) — one offcanvas element, two placements: a bottom sheet below
+   lg (the chip picker's sheet precedent), a right-hand drawer at lg and
+   up. Bootstrap 5 has no responsive offcanvas placement of its own, so
+   the element keeps .offcanvas-bottom for its mobile default and this
+   block re-shapes it into an .offcanvas-end-alike on desktop — Bootstrap's
+   generic `.offcanvas.show { transform: none }` still lands it on screen
+   whichever initial transform applies. This duplicates no Bootstrap
+   component (AGENTS.md § CSS / frontend): it parameterizes one. */
+.help-offcanvas {
+    /* Bootstrap's --bs-offcanvas-height drives .offcanvas-bottom; the
+       default 30vh fits a toolbar, not a help text. */
+    --bs-offcanvas-height: 75vh;
+}
+@media (min-width: 992px) {
+    .help-offcanvas.offcanvas-bottom {
+        top: 0;
+        right: 0;
+        left: auto;
+        bottom: 0;
+        width: 420px;
+        max-width: 100%;
+        height: 100%;
+        max-height: none;
+        border-top: 0;
+        border-left: var(--bs-border-width) solid var(--bs-border-color-translucent);
+        transform: translateX(100%);
+    }
+}
+
+/* Help topic content — the Markdown body of a topic, rendered by
+   Core\View\MarkdownRenderer with heading_base_level 2 (the page's real
+   <h1> is the topic title). Scoped sizes keep those <h2>/<h3> reading as
+   section titles inside a narrow column or the panel, not competing with
+   the page header; semantic levels stay intact for assistive tech. */
+.help-content h2 {
+    font-size: 1.15rem;
+}
+.help-content h3 {
+    font-size: 1rem;
+}
+.help-content h4,
+.help-content h5,
+.help-content h6 {
+    font-size: 0.95rem;
+}
+/* The charter's single warning callout per topic (design.md §7.11) —
+   `> ` in the topic source, rendered as a <blockquote>. Theme-safe
+   colours only (design.md §7.8). */
+.help-content blockquote {
+    border-left: 4px solid var(--bs-warning);
+    background-color: var(--bs-warning-bg-subtle);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--bs-border-radius);
+    margin: 0.75rem 0;
 }

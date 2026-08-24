@@ -80,7 +80,7 @@ This is not optional. A PR that adds personal data processing without updating t
 
 When creating a new module:
 
-1. ☐ `module.json` with `id`, `name`, `version`, `routes` (each with `role_min` and `menu`).
+1. ☐ `module.json` with `id`, `name`, `version`, `routes` (each with `role_min` and `menu`; each route that carries a `label` also declares `menu_group`, the named column it belongs to — see `Core\View\MenuBuilder::MENU_GROUPS` and `docs/module-development.md`).
 2. ☐ `schema.sql` with complete table definitions.
 3. ☐ `settings` section with `description` (NOT NULL) on every parameter.
 4. ☐ `cookies` section declaring every cookie the module uses, with category, purpose, and duration.
@@ -92,6 +92,7 @@ When creating a new module:
 10. ☐ RGPD documentation updated if the module processes personal data.
 11. ☐ Automated tests written for all module functionality.
 12. ☐ If the module has an optional dependency on another module, it must degrade gracefully when that other module is absent or disabled — never a hard coupling (see `ARCHITECTURE.md` §7.5).
+13. ☐ Every new page meant for an end user is covered by a help topic, existing or new — a `.md` file in the module's `help/` directory (or `docs/help/` for a core page), per `design.md` §7.11's charter and `docs/module-development.md` § Help topics. This applies to core pages too, not only modules.
 
 ## Tests
 
@@ -157,6 +158,46 @@ Mechanism: the TypeScript compiler used purely as a development-time checker ove
 `settings.setting_type` drives validation (`Core\Config\SettingService`) and rendering. Beyond the usual `text`/`textarea`/`boolean`/`number`/`select`/`email`/`url`/`tel`/`date`/`color`, one type carries a security meaning:
 
 - **`secret`** — a setting whose *value* must never be displayed or exported. It is filtered out of Configuration > Réglages entirely (`SettingsController::index()`), and the support package's `configuration-parameters.xlsx` writes `[REDACTED]` in its place while keeping the key and label visible (ARCHITECTURE.md §8.48). Use it for any setting that is a credential, a token, or anything a screenshot of the settings page must not reveal. **No setting carries it today** — every real credential lives outside `settings` (`secrets.enc`, or an encrypted BLOB column) and should keep doing so; `secret` is the safety net for the case where that isn't practical, not an invitation to start storing credentials in `settings`.
+
+## Reference dataset — a change to the import pipeline is a change to it
+
+`tests/fixtures/reference-dataset/` holds a reproducible dataset for a test
+instance: three scout years of a fictional Belgian unit, its Desk exports, its
+bank statements, its photos, and a CLI builder that replays all of it through
+the application's own services. Its own `README.md` is the manual.
+
+**Changing any of the following means checking that dataset in the same
+change**, not in a follow-up:
+
+- the Desk export format, or `Core\Import\DeskCsvParser` — its
+  `EXPECTED_HEADERS`, its delimiter detection, its boolean parsing, the
+  one-row-per-(function × address) shape;
+- the bank statement parser, `Modules\Finance\Parser\BnpParser` — its column
+  map, its amount parsing, the `REFERENCE BANQUE` deduplication key;
+- the import pipeline itself (`Core\Import\DeskImportService`,
+  `MappingResolver`, `MemberYearRepository`), including anything about how
+  sections are deactivated, how `scout_year_offset` is inherited, or how
+  Staff d'U membership is synced;
+- the schema of a member-related table (`members`, `member_years`,
+  `member_functions`, `member_addresses`, `sections`, `functions`,
+  `age_branches`, `member_photos`, `section_staff_photos`).
+
+Two tests hold the line and will tell you: `Tests\Integration\
+ReferenceDatasetFormatTest` (every committed file still goes through the real
+parsers, and still matches its generator byte for byte) and `Tests\Integration\
+ReferenceDatasetImportTest` (the exports still MEAN what they say — the branch
+passages happened, the emptied section went inactive, the returning member
+inherited their offset). `Tests\Integration\ReferenceDatasetBuilderTest`
+covers what the builder writes on top.
+
+The generated files are committed. If you change the generator, re-run
+`php tests/fixtures/reference-dataset/generate.php` and commit what it wrote —
+`--check` compares byte for byte and fails otherwise, the same mechanism as
+`js-typecheck-baseline.json`.
+
+The directory is in `phpstan.neon`'s `paths` on purpose: the builder composes
+core and module services by hand, exactly like the composition roots, and
+breaks the same way. Do not remove it from there.
 
 ## RGPD — a new outbound flow is a documentation change
 

@@ -524,6 +524,12 @@
 
     // --- Field builder ---
     var fieldsListEl = document.getElementById('news-fields-list');
+    // The editor's server data — the article, its form fields, the
+    // finance accounts — arrives as a `news-editor-data` JSON island
+    // (ScoutMagicApi.pageData()): data to the parser rather than code, so
+    // a field label containing a tag-closing sequence cannot end the
+    // block in the middle of an object literal.
+    var NEWS_EDITOR_DATA = window.ScoutMagicApi.pageData('news-editor-data');
     var fieldState = [];
     var expandedKey = null;
     var nextKey = 1;
@@ -547,8 +553,8 @@
     var TYPE_LABELS = {};
     FIELD_TYPES.forEach(function (t) { TYPE_LABELS[t.type] = t.label; });
 
-    if (fieldsListEl && /** @type {any} */ (window).NEWS_EDITOR_DATA) {
-        fieldState = (/** @type {any} */ (window).NEWS_EDITOR_DATA.fields || []).map(function (f) {
+    if (fieldsListEl && NEWS_EDITOR_DATA) {
+        fieldState = (NEWS_EDITOR_DATA.fields || []).map(function (f) {
             f._key = nextKey++;
             return f;
         });
@@ -656,7 +662,7 @@
         }
 
         function persistReorderIfSaved() {
-            var articleId = /** @type {any} */ (window).NEWS_EDITOR_DATA.articleId;
+            var articleId = NEWS_EDITOR_DATA.articleId;
             var ids = fieldState.filter(function (f) { return f.id; }).map(function (f) { return f.id; });
             if (!articleId || ids.length !== fieldState.length) return;
             window.ScoutMagicApi.postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids });
@@ -879,6 +885,31 @@
         }
 
         /**
+         * One edit-panel row holding a CAPTION — a <span> that names a group
+         * of controls where a <label for> cannot reach (a button group, a
+         * contenteditable). Built node by node rather than through
+         * addFieldEditRow()'s innerHTML: the id is derived from the field
+         * and the text is a sentence, and neither has any business being
+         * parsed as markup.
+         *
+         * @param {HTMLElement} panel
+         * @param {string} captionId
+         * @param {string} text
+         * @returns {HTMLElement} the row, for a caller appending to it
+         */
+        function addFieldCaptionRow(panel, captionId, text) {
+            var div = document.createElement('div');
+            div.className = 'mb-2';
+            var caption = document.createElement('span');
+            caption.className = 'form-label small d-block';
+            caption.id = captionId;
+            caption.textContent = text;
+            div.appendChild(caption);
+            panel.appendChild(div);
+            return div;
+        }
+
+        /**
          * A DOM id for one control of one field's edit panel.
          *
          * Every control below needs one, because a <label> only names a
@@ -1027,7 +1058,7 @@
             capRow.appendChild(capInput);
             addFieldEditRow(panel, '<span class="form-text">Le nombre maximum est le cumul de toutes les réponses. Exemple : si la limite est 50 et que 48 ont déjà été réservés, le prochain répondant verra « Il reste 2 places ».</span>');
 
-            if (/** @type {any} */ (window).NEWS_EDITOR_DATA.financeAvailable) {
+            if (NEWS_EDITOR_DATA.financeAvailable) {
                 var priceId = fieldControlId(field, 'price');
                 var priceRow = addLabelledFieldEditRow(panel, 'Prix unitaire (€)', priceId);
                 var priceInput = document.createElement('input');
@@ -1052,10 +1083,7 @@
             // group carries role="group" + aria-labelledby instead, which is
             // how a set of controls gets one shared name.
             var sourceCaptionId = fieldControlId(field, 'options-source');
-            var sourceRow = addFieldEditRow(
-                panel,
-                '<span class="form-label small d-block" id="' + sourceCaptionId + '">Source des options</span>'
-            );
+            var sourceRow = addFieldCaptionRow(panel, sourceCaptionId, 'Source des options');
             var sourceGroup = document.createElement('div');
             sourceGroup.className = 'btn-group';
             sourceGroup.setAttribute('role', 'group');
@@ -1150,10 +1178,7 @@
                 // "Source des options" above: what it names is a
                 // contenteditable, which no <label for> can reach.
                 var contentCaptionId = fieldControlId(field, 'content');
-                addFieldEditRow(
-                    panel,
-                    '<span class="form-label small d-block" id="' + contentCaptionId + '">Contenu</span>'
-                );
+                addFieldCaptionRow(panel, contentCaptionId, 'Contenu');
                 buildRichTextEditor(panel, field, contentCaptionId);
             }
 

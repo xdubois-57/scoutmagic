@@ -14,6 +14,7 @@
       "role_min": "identified",
       "label": "Galerie",
       "menu_icon": "bi-images",
+      "menu_group": "pages",
       "menu_order": 6,
       "breadcrumb": { "label": "Galerie", "parents": ["Espace membres"] }
     },
@@ -26,6 +27,7 @@
       "role_min": "chief",
       "label": "Galerie",
       "menu_icon": "bi-image",
+      "menu_group": "activites",
       "breadcrumb": { "label": "Galerie", "parents": ["Espace animateurs"] }
     },
     {
@@ -168,6 +170,7 @@
       "role_min": "superadmin",
       "label": "Galerie",
       "menu_icon": "bi-images",
+      "menu_group": "modules",
       "breadcrumb": { "label": "Galerie", "parents": ["Configuration"] }
     },
     {

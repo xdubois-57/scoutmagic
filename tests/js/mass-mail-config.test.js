@@ -18,6 +18,23 @@
 // both read as failures, never as success.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+/**
+ * Installs a page's server data the way the template does — a
+ * `<script type="application/json">` island — rather than an inline
+ * assignment to a window global. ScoutMagicApi.pageData() reads it.
+ */
+function installIsland(id, data) {
+    document.getElementById(id)?.remove();
+    if (data === undefined) {
+        return;
+    }
+    const el = document.createElement('script');
+    el.type = 'application/json';
+    el.id = id;
+    el.textContent = JSON.stringify(data);
+    document.body.appendChild(el);
+}
+
 function jsonResponse(body, status = 200) {
     return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
 }
@@ -83,7 +100,7 @@ describe('mass-mail-config.js', () => {
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
         window.ScoutMagicToast = { show: vi.fn() };
         window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)), prompt: vi.fn() };
-        window.massMailConfigData = { batchIntervalMinutes: 15 };
+        installIsland('mass-mail-config-data', { batchIntervalMinutes: 15 });
         delete window.bootstrap;
         Object.defineProperty(window, 'location', {
             configurable: true,
@@ -125,13 +142,13 @@ describe('mass-mail-config.js', () => {
     });
 
     describe('server data', () => {
-        it('pre-fills the interval field from window.massMailConfigData', async () => {
+        it('pre-fills the interval field from the page data island', async () => {
             await boot();
             expect(document.getElementById('cfg-batch-interval').value).toBe('15');
         });
 
         it('leaves the field alone when the page shipped no data block', async () => {
-            delete window.massMailConfigData;
+            installIsland('mass-mail-config-data', undefined);
             await boot();
             expect(document.getElementById('cfg-batch-interval').value).toBe('');
         });
