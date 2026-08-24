@@ -8,12 +8,14 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Repository;
 
+use Core\File\AttachedFileRepository;
+
 /**
  * camp_documents. No encryption: a document's TITLE is what a chief typed
  * to find it again, and the bytes themselves are guarded by
  * Core\File\FileAccessGuard through Service\CampFileOwnershipChecker.
  */
-class DocumentRepository
+class DocumentRepository implements AttachedFileRepository
 {
     public function __construct(private \PDO $pdo)
     {

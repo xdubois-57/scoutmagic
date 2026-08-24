@@ -120,9 +120,12 @@ class CampsRbacTest extends TestCase
             $contactService,
             new LinkService($links, $audit, null, null),
             new DocumentService(
-                $documentRepo, new \Core\File\FileRepository($this->pdo),
+                $documentRepo,
+                new \Core\File\AttachedFileRemover(
+                    new \Core\File\FileRepository($this->pdo), sys_get_temp_dir()
+                ),
                 new \Core\File\UploadHandler(new \Core\File\FileRepository($this->pdo), sys_get_temp_dir()),
-                $audit, sys_get_temp_dir()
+                $audit
             ),
             $albumService,
             $reviewService,

@@ -1089,6 +1089,10 @@ $memberExportService = new \Core\Member\Export\MemberExportService();
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
+// The shared "attached document" invariant (Core\File\AttachedFileRemover):
+// row first, bytes second, bytes only when the module owns them and nobody
+// else points at them. Camps and Locations both use this one instance.
+$attachedFileRemover = new \Core\File\AttachedFileRemover($fileRepository, $storagePath);
 $uploadHandler = new UploadHandler($fileRepository, $storagePath);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
 
@@ -3260,7 +3264,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         $campsContactRepo, $auditService, $journalService
     );
     $campsDocumentService = new \Modules\Camps\Service\DocumentService(
-        $campsDocumentRepo, $fileRepository, $uploadHandler, $auditService, $storagePath
+        $campsDocumentRepo, $attachedFileRemover, $uploadHandler, $auditService
     );
 
     // Two OPTIONAL gallery capabilities, both nullable and both degrading
@@ -3932,6 +3936,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $rentalEventRepository,
         $editableContentService,
         $fileRepository,
+        $attachedFileRemover,
         new \Core\Pdf\DocumentPdfService(),
         new \Core\Security\HtmlSanitizer(),
         $settingService,

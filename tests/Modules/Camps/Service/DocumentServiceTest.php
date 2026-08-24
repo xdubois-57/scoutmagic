@@ -41,10 +41,9 @@ class DocumentServiceTest extends TestCase
 
         $this->service = new DocumentService(
             $this->documents,
-            $this->files,
+            new \Core\File\AttachedFileRemover($this->files, $this->storagePath),
             new UploadHandler($this->files, $this->storagePath),
-            $this->audit,
-            $this->storagePath
+            $this->audit
         );
 
         $this->pdo->exec("INSERT INTO camp_places (name) VALUES ('Domaine de Mozet')");

@@ -88,6 +88,7 @@ class RentalDocumentServiceTest extends TestCase
             new RentalBookingEventRepository($this->pdo),
             $this->editableContentService,
             $this->fileRepository,
+            new \Core\File\AttachedFileRemover($this->fileRepository, $this->storagePath),
             new DocumentPdfService(),
             new HtmlSanitizer(),
             $settingService,
