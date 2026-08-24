@@ -72,7 +72,13 @@ class DashboardControllerTest extends TestCase
         );
         $financeService = new FinanceService(
             $this->accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $sectionService, $this->transactionRepository, $balanceService,
-            $settingService, $categoryRuleRepository, $accountTransferCategoryService
+            $settingService, $categoryRuleRepository, $accountTransferCategoryService,
+            new \Modules\Finance\Service\AccountVisibility(
+                // No badge assigned in these fixtures, so the treasurer
+                // rule is off and the module behaves exactly as it did
+                // before it existed — which is what these tests assert.
+                \Modules\Finance\Service\TreasurerScope::systemCaller()
+            )
         );
 
         $this->attachmentRepository = new AttachmentRepository($this->pdo, $encryption);

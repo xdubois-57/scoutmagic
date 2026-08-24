@@ -19,8 +19,20 @@ use Core\Member\UnitStaffSectionService;
  */
 class BadgeService
 {
+    /**
+     * The two seeded badges, by the exact name they carry in the `badges`
+     * table. Public because a consumer that has to FIND one of them has no
+     * other handle: a default badge cannot be renamed or deleted (only
+     * deactivated), so its name is a stable key — but a second spelling of
+     * it somewhere else would silently stop matching. Today's consumer is
+     * Modules\Finance\Service\TreasurerScopeService, which asks "who is a
+     * treasurer this year".
+     */
+    public const BADGE_NURSE = 'Infirmier';
+    public const BADGE_TREASURER = 'Trésorier';
+
     /** @var array<int, string> */
-    private const DEFAULT_BADGES = ['Infirmier', 'Trésorier'];
+    private const DEFAULT_BADGES = [self::BADGE_NURSE, self::BADGE_TREASURER];
     private const REFERENT_PREFIX = 'Référent ';
 
     public function __construct(

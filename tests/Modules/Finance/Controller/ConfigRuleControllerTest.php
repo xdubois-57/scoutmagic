@@ -71,7 +71,13 @@ class ConfigRuleControllerTest extends TestCase
 
         $this->financeService = new FinanceService(
             $this->accountRepository, $this->categoryRepository, $fiscalYearRepository, $sectionService, $transactionRepository, $balanceService,
-            $settingService, $this->categoryRuleRepository, $accountTransferCategoryService
+            $settingService, $this->categoryRuleRepository, $accountTransferCategoryService,
+            new \Modules\Finance\Service\AccountVisibility(
+                // No badge assigned in these fixtures, so the treasurer
+                // rule is off and the module behaves exactly as it did
+                // before it existed — which is what these tests assert.
+                \Modules\Finance\Service\TreasurerScope::systemCaller()
+            )
         );
 
         $ruleEngine = new CategoryRuleEngine($transactionRepository, $this->categoryRuleRepository);

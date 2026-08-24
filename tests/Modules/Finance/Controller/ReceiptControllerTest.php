@@ -76,7 +76,13 @@ class ReceiptControllerTest extends TestCase
         );
         $financeService = new FinanceService(
             $this->accountRepository, $categoryRepository, $fiscalYearRepository, $sectionService, $this->transactionRepository, $balanceService,
-            $settingService, $categoryRuleRepository, $accountTransferCategoryService
+            $settingService, $categoryRuleRepository, $accountTransferCategoryService,
+            new \Modules\Finance\Service\AccountVisibility(
+                // No badge assigned in these fixtures, so the treasurer
+                // rule is off and the module behaves exactly as it did
+                // before it existed — which is what these tests assert.
+                \Modules\Finance\Service\TreasurerScope::systemCaller()
+            )
         );
 
         $this->storagePath = sys_get_temp_dir() . '/finance_receipt_controller_test_' . uniqid();

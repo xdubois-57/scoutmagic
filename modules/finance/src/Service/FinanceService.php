@@ -103,16 +103,18 @@ class FinanceService
         private BalanceService $balanceService,
         private SettingService $settingService,
         private CategoryRuleRepository $categoryRuleRepository,
-        private AccountTransferCategoryService $accountTransferCategoryService
+        private AccountTransferCategoryService $accountTransferCategoryService,
+        private AccountVisibility $accountVisibility
     ) {
     }
 
     // --- Accounts ---
 
     /**
-     * Active accounts visible to $role — role_min_view is the floor a
-     * viewer's own role must clear; draft/archived accounts never appear
-     * here regardless of role (they're not ready for day-to-day use).
+     * Active accounts visible to $role — draft/archived accounts never
+     * appear here regardless of role (they're not ready for day-to-day
+     * use). Which of the active ones survive is isAccountVisibleTo()
+     * below, the one place that answers that question.
      *
      * @return Account[]
      */
@@ -121,8 +123,24 @@ class FinanceService
         return array_values(array_filter(
             $this->accountRepository->findAllOrdered(),
             fn(Account $account) => $account->status === Account::STATUS_ACTIVE
-                && $role->hasAccess(Role::fromString($account->roleMinView))
+                && $this->isAccountVisibleTo($account, $role)
         ));
+    }
+
+    /**
+     * "May this session use this account at all" — role_min_view AND, for
+     * an account attached to a section, being that section's treasurer.
+     * Delegates to Service\AccountVisibility, which is where the rule
+     * actually lives and which the reconciliation page consults directly;
+     * this method exists so a controller that already holds the finance
+     * service needs no new dependency for it.
+     *
+     * Every finance route that resolves an account from client input calls
+     * this. Filtering a picker is UI, not authorization (SECURITY.md §3).
+     */
+    public function isAccountVisibleTo(?Account $account, Role $role): bool
+    {
+        return $this->accountVisibility->isVisibleTo($account, $role);
     }
 
     /**

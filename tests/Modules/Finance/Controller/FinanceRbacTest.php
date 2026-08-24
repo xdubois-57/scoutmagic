@@ -69,6 +69,12 @@ class FinanceRbacTest extends TestCase
     private \PDO $pdo;
     private Environment $twig;
     private FinanceService $financeService;
+    private \Modules\Finance\Service\AccountVisibility $accountVisibility;
+    private \Modules\Finance\Service\TreasurerScopeService $treasurerScopeService;
+    /** @var \Closure(\Modules\Finance\Service\AccountVisibility): FinanceService */
+    private \Closure $financeServiceFactory;
+    private ExpectedReceivableRepository $expectedReceivableRepository;
+    private ExpectedReceivableService $expectedReceivableService;
     private BalanceService $balanceService;
     private TransactionRepository $transactionRepository;
     private AttachmentRepository $attachmentRepository;
@@ -106,6 +112,7 @@ class FinanceRbacTest extends TestCase
 
         $accountRepository = new AccountRepository($this->pdo, $encryption);
         $this->accountRepository = $accountRepository;
+        $this->accountRepository = $accountRepository;
         $this->fileRepository = new FileRepository($this->pdo);
         $this->categoryRepository = new CategoryRepository($this->pdo);
         $this->fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
@@ -123,10 +130,26 @@ class FinanceRbacTest extends TestCase
         $accountTransferCategoryService = new \Modules\Finance\Service\AccountTransferCategoryService(
             $this->categoryRepository, $this->categoryRuleRepository, $this->transactionRepository
         );
-        $this->financeService = new FinanceService(
+        // Rebuildable, because the treasurer-rule tests at the bottom of
+        // this file need the SAME wiring with a different scope, and
+        // instantiateController() below reads $this->financeService.
+        $this->financeServiceFactory = fn(\Modules\Finance\Service\AccountVisibility $visibility): FinanceService => new FinanceService(
             $accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $this->sectionService, $this->transactionRepository, $this->balanceService,
-            $settingService, $this->categoryRuleRepository, $accountTransferCategoryService
+            $settingService, $this->categoryRuleRepository, $accountTransferCategoryService, $visibility
         );
+
+        // No badge is assigned in these fixtures, so the treasurer rule is
+        // off and the module behaves exactly as it did before it existed —
+        // which is what every test above scopeToTreasurerOf() asserts.
+        $this->treasurerScopeService = new \Modules\Finance\Service\TreasurerScopeService(
+            Connection::withPdo($this->pdo),
+            new \Core\Badge\BadgeRepository($this->pdo),
+            new MemberBadgeRepository($this->pdo)
+        );
+        $this->accountVisibility = new \Modules\Finance\Service\AccountVisibility(
+            \Modules\Finance\Service\TreasurerScope::systemCaller()
+        );
+        $this->financeService = ($this->financeServiceFactory)($this->accountVisibility);
         $this->categoryRuleEngine = new CategoryRuleEngine($this->transactionRepository, $this->categoryRuleRepository);
         $aiSuggestionRepository = new \Modules\Finance\Repository\AiCategorySuggestionRepository($this->pdo);
         $aiCategorizationService = new \Modules\Finance\Service\AiCategorizationService(
@@ -178,9 +201,11 @@ class FinanceRbacTest extends TestCase
         $this->importService = $importService;
         $this->parserFactory = $parserFactory;
 
-        $expectedReceivableRepository = new ExpectedReceivableRepository($this->pdo, $encryption);
-        $expectedReceivableService = new ExpectedReceivableService($expectedReceivableRepository, $this->transactionRepository);
-        $this->receivablesOverviewService = new ReceivablesOverviewService($expectedReceivableRepository, $expectedReceivableService, $accountRepository);
+        $this->expectedReceivableRepository = new ExpectedReceivableRepository($this->pdo, $encryption);
+        $this->expectedReceivableService = new ExpectedReceivableService($this->expectedReceivableRepository, $this->transactionRepository);
+        $this->receivablesOverviewService = new ReceivablesOverviewService(
+            $this->expectedReceivableRepository, $this->expectedReceivableService, $accountRepository, $this->accountVisibility
+        );
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -288,5 +313,276 @@ class FinanceRbacTest extends TestCase
             'ReceivablesController' => new ReceivablesController($this->twig, $this->receivablesOverviewService),
             default => throw new \RuntimeException("Unknown controller {$name}"),
         };
+    }
+
+    // ------------------------------------------------------------------
+    // The section boundary — an intendant is a treasurer of the sections
+    // they animate, and of no others.
+    //
+    // Every test below is a ROUTE, not a list: filtering the account
+    // picker is UI, and the picker is not what an attacker uses. Each of
+    // these endpoints receives an account id from the client, which is
+    // exactly where "the list was filtered" stops being an answer
+    // (SECURITY.md §3). The pairs are deliberate — the same request is run
+    // once as the section's own treasurer (expected through) and once as
+    // the treasurer of the other section (expected refused), so a check
+    // that simply always denied would fail just as loudly as one that
+    // always allowed.
+    // ------------------------------------------------------------------
+
+    public function testTheAccountPickerOffersOnlyTheSectionsThisTreasurerAnimates(): void
+    {
+        [$mineAccount, $theirsAccount] = $this->twoSectionAccounts();
+        $this->scopeToTreasurerOf(self::SECTION_MINE);
+
+        $visible = array_map(
+            static fn($account) => $account->id,
+            $this->financeService->getAccountsForUser(\Core\Security\Role::INTENDANT)
+        );
+
+        $this->assertContains($mineAccount, $visible);
+        $this->assertNotContains($theirsAccount, $visible);
+    }
+
+    public function testTheUnitsOwnAccountStaysVisibleToEveryIntendant(): void
+    {
+        $this->twoSectionAccounts();
+        $unitAccount = $this->createAccount('Unité', null);
+        $this->scopeToTreasurerOf(self::SECTION_MINE);
+
+        $visible = array_map(
+            static fn($account) => $account->id,
+            $this->financeService->getAccountsForUser(\Core\Security\Role::INTENDANT)
+        );
+
+        $this->assertContains($unitAccount, $visible);
+    }
+
+    public function testTheChefDUniteStillSeesEverySectionsAccount(): void
+    {
+        [$mineAccount, $theirsAccount] = $this->twoSectionAccounts();
+        $this->scopeToTreasurerOf(self::SECTION_MINE);
+
+        $visible = array_map(
+            static fn($account) => $account->id,
+            $this->financeService->getAccountsForUser(\Core\Security\Role::ADMIN)
+        );
+
+        $this->assertContains($mineAccount, $visible);
+        $this->assertContains($theirsAccount, $visible);
+    }
+
+    public function testWithNoBadgeAssignedAnywhereNothingChangesAtAll(): void
+    {
+        [$mineAccount, $theirsAccount] = $this->twoSectionAccounts();
+        // Deliberately no scopeToTreasurerOf(): no badge holder, rule off.
+        $visible = array_map(
+            static fn($account) => $account->id,
+            $this->financeService->getAccountsForUser(\Core\Security\Role::INTENDANT)
+        );
+
+        $this->assertContains($mineAccount, $visible);
+        $this->assertContains($theirsAccount, $visible);
+    }
+
+    public function testImportRefusesAnAccountThisTreasurerDoesNotHold(): void
+    {
+        [$mineAccount, $theirsAccount] = $this->twoSectionAccounts();
+        $this->scopeToTreasurerOf(self::SECTION_MINE);
+        AuthSession::login(1, 'tresorier@test.be', 'intendant');
+
+        $allowed = $this->importInto($mineAccount);
+        $refused = $this->importInto($theirsAccount);
+
+        // Not the same message: "no file" means the account check passed.
+        $this->assertStringNotContainsString('Accès refusé.', $allowed->getBody());
+        $this->assertStringContainsString('Accès refusé.', $refused->getBody());
+    }
+
+    public function testUpdatingAMovementRefusesAnAccountThisTreasurerDoesNotHold(): void
+    {
+        [$mineAccount, $theirsAccount] = $this->twoSectionAccounts();
+        $mineMovement = $this->createMovement($mineAccount);
+        $theirsMovement = $this->createMovement($theirsAccount);
+        $this->scopeToTreasurerOf(self::SECTION_MINE);
+        AuthSession::login(1, 'tresorier@test.be', 'intendant');
+
+        $this->assertSame(200, $this->patchMovement($mineMovement)->getStatusCode());
+        $this->assertSame(403, $this->patchMovement($theirsMovement)->getStatusCode());
+    }
+
+    public function testReadingAMovementsAttachmentsRefusesAnAccountThisTreasurerDoesNotHold(): void
+    {
+        [$mineAccount, $theirsAccount] = $this->twoSectionAccounts();
+        $mineMovement = $this->createMovement($mineAccount);
+        $theirsMovement = $this->createMovement($theirsAccount);
+        $this->scopeToTreasurerOf(self::SECTION_MINE);
+        AuthSession::login(1, 'tresorier@test.be', 'intendant');
+
+        $controller = $this->instantiateController('MovementController');
+
+        $this->assertSame(200, $controller->attachments(new Request('GET', '/x', [], [], [], []), ['id' => (string) $mineMovement])->getStatusCode());
+        $this->assertSame(403, $controller->attachments(new Request('GET', '/x', [], [], [], []), ['id' => (string) $theirsMovement])->getStatusCode());
+    }
+
+    public function testTheMovementSearchNeverReachesOutsideThisTreasurersSections(): void
+    {
+        [$mineAccount, $theirsAccount] = $this->twoSectionAccounts();
+        $mineMovement = $this->createMovement($mineAccount, 'Achat foulards');
+        $this->createMovement($theirsAccount, 'Achat foulards');
+        $this->scopeToTreasurerOf(self::SECTION_MINE);
+        AuthSession::login(1, 'tresorier@test.be', 'intendant');
+
+        $controller = $this->instantiateController('MovementController');
+
+        // Asking explicitly for the other section's account must not widen
+        // the search: an id the caller may not use falls back to their own
+        // accounts rather than being honoured. The two movements carry the
+        // same label on purpose — only the account tells them apart, and
+        // the payload does not name it, so the id is what is asserted.
+        $body = $controller->search(
+            new Request('GET', '/finance/movements/search', ['q' => 'foulards', 'account_id' => (string) $theirsAccount], [], [], []),
+            []
+        )->getBody();
+        $decoded = json_decode($body, true);
+
+        $this->assertSame(
+            [$mineMovement],
+            array_map(static fn(array $movement): int => $movement['id'], $decoded['movements'])
+        );
+    }
+
+    public function testReceivablesOnAnotherSectionsAccountDisappearFromTheOverview(): void
+    {
+        [$mineAccount, $theirsAccount] = $this->twoSectionAccounts();
+        $this->createReceivable($mineAccount, 'MINE');
+        $this->createReceivable($theirsAccount, 'THEIRS');
+        $this->scopeToTreasurerOf(self::SECTION_MINE);
+
+        // The reconciliation page decided visibility on its own before the
+        // shared predicate existed — the exact defect that made it list
+        // accounts no other page would show.
+        $body = json_encode($this->receivablesOverviewService->buildOverview(\Core\Security\Role::INTENDANT));
+
+        $this->assertStringContainsString('MINE', (string) $body);
+        $this->assertStringNotContainsString('THEIRS', (string) $body);
+    }
+
+    // --- treasurer-rule fixtures ---
+
+    private const SECTION_MINE = 1;
+    private const SECTION_THEIRS = 2;
+
+    /**
+     * Rebuilds the finance service — and therefore every controller
+     * instantiateController() hands out — with the rule ON and this
+     * session holding the badge for $sectionId.
+     */
+    private function scopeToTreasurerOf(int $sectionId): void
+    {
+        $memberId = $this->createTreasurer($sectionId);
+        $this->accountVisibility = new \Modules\Finance\Service\AccountVisibility(
+            \Modules\Finance\Service\TreasurerScope::forSession($this->treasurerScopeService, [$memberId], 1)
+        );
+        $this->financeService = ($this->financeServiceFactory)($this->accountVisibility);
+        $this->receivablesOverviewService = new ReceivablesOverviewService(
+            $this->expectedReceivableRepository,
+            $this->expectedReceivableService,
+            $this->accountRepository,
+            $this->accountVisibility
+        );
+    }
+
+    /** @return array{int, int} the section accounts, mine then theirs */
+    private function twoSectionAccounts(): array
+    {
+        $this->pdo->exec("INSERT INTO scout_years (id, label, start_date, end_date, is_current) VALUES (1, '2025-2026', '2025-09-01', '2026-08-31', 1)");
+        $this->pdo->exec("INSERT INTO age_branches (id, desk_code, label, sort_order) VALUES (1, 'LOU', 'Louveteaux', 20), (2, 'ECL', 'Éclaireurs', 30)");
+        $this->pdo->exec("INSERT INTO sections (id, age_branch_id, desk_code, name) VALUES (1, 1, 'LOU01', 'Louveteaux'), (2, 2, 'ECL01', 'Éclaireurs')");
+        $this->pdo->exec("INSERT INTO functions (id, desk_code, label, role) VALUES (1, 'ANIM', 'Animateur', 'chief')");
+        $this->pdo->exec("INSERT INTO badges (name, is_default, is_active) VALUES ('" . \Core\Badge\BadgeService::BADGE_TREASURER . "', 1, 1)");
+
+        return [
+            $this->createAccount('Louveteaux', self::SECTION_MINE),
+            $this->createAccount('Éclaireurs', self::SECTION_THEIRS),
+        ];
+    }
+
+    private function createAccount(string $name, ?int $sectionId): int
+    {
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO finance_accounts (name, account_type, section_id, role_min_view, status) VALUES (?, 'bank', ?, 'intendant', 'active')"
+        );
+        $stmt->execute([$name, $sectionId]);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    private function createTreasurer(int $sectionId): int
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('desk-" . uniqid() . "')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, is_active) VALUES (?, 1, ?, ?, 1)'
+        );
+        $stmt->execute([$memberId, 'x', 'y']);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, 1, ?)');
+        $stmt->execute([$memberYearId, $sectionId]);
+
+        $badgeId = (int) $this->pdo->query("SELECT id FROM badges WHERE name = '" . \Core\Badge\BadgeService::BADGE_TREASURER . "'")->fetchColumn();
+        $stmt = $this->pdo->prepare('INSERT INTO member_badges (member_year_id, badge_id) VALUES (?, ?)');
+        $stmt->execute([$memberYearId, $badgeId]);
+
+        return $memberId;
+    }
+
+    private function createMovement(int $accountId, string $label = 'Mouvement'): int
+    {
+        return $this->transactionRepository->create(
+            $accountId,
+            1,
+            null,
+            '2026-01-15',
+            $label,
+            -10.0,
+            null,
+            null,
+            \Modules\Finance\Repository\Transaction::SOURCE_MANUAL,
+            null
+        );
+    }
+
+    private function createReceivable(int $accountId, string $label): void
+    {
+        $this->expectedReceivableRepository->create('news', 1, $accountId, 1000, $label, $label);
+    }
+
+    private function importInto(int $accountId): \Core\Http\Response
+    {
+        return $this->instantiateController('ImportController')->upload(
+            new Request('POST', '/finance/import', [], ['account_id' => (string) $accountId, '_csrf_token' => $this->csrfToken()], [], []),
+            []
+        );
+    }
+
+    private function patchMovement(int $movementId): \Core\Http\Response
+    {
+        $request = $this->getMockBuilder(Request::class)
+            ->setConstructorArgs(['PATCH', '/finance/movements/' . $movementId, [], [], [], []])
+            ->onlyMethods(['getRawBody'])
+            ->getMock();
+        $request->method('getRawBody')->willReturn(
+            (string) json_encode(['comment' => 'x', '_csrf_token' => $this->csrfToken()])
+        );
+
+        return $this->instantiateController('MovementController')->update($request, ['id' => (string) $movementId]);
+    }
+
+    private function csrfToken(): string
+    {
+        $_SESSION['_csrf_token'] ??= bin2hex(random_bytes(32));
+        return (string) $_SESSION['_csrf_token'];
     }
 }
