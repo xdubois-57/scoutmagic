@@ -598,6 +598,63 @@ class RentalRequestControllerTest extends TestCase
         $this->assertSame(36000, $booking->estimatedPrice->totalCents);
     }
 
+    public function testAnAssetWithNoTariffSnapshotsNoPriceAtAll(): void
+    {
+        // The public estimate block already refuses to show a 0,00 € table
+        // (RentalPublicController's `has_tariff`). Snapshotting it at
+        // submission froze the same figure onto the booking, where the
+        // renter reads it as the price agreed.
+        $this->createAssetWithoutTariff();
+
+        $this->submit($this->validBody());
+
+        $booking = $this->bookingRepository->findById(1);
+        $this->assertNotNull($booking);
+        $this->assertNull($booking->estimatedPrice);
+    }
+
+    public function testTheTrackingPageOffersATariffOnRequestRatherThanZeroEuros(): void
+    {
+        $this->createAssetWithoutTariff();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $this->assertStringContainsString('Tarif sur demande', $body);
+        $this->assertStringContainsString('proposition de prix', $body);
+        $this->assertStringNotContainsString('0,00', $body);
+    }
+
+    public function testTheTrackingPageStillShowsARealPriceWhenThereIsOne(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $this->assertStringContainsString('360,00', $body);
+        $this->assertStringNotContainsString('Tarif sur demande', $body);
+    }
+
+    /**
+     * Public, bookable, and with no rate configured at all — the state a
+     * unit is in between publishing an asset and filling in its tariffs.
+     */
+    private function createAssetWithoutTariff(): int
+    {
+        return $this->assetRepository->create(
+            'Local',
+            'Local Saint-Georges',
+            'local-saint-georges',
+            null,
+            1,
+            null,
+            null,
+            '+32 470 00 00 00',
+            true
+        );
+    }
+
     public function testNoRenterIdentityIsStoredInClear(): void
     {
         $this->createAsset();
