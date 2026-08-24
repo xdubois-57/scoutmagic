@@ -224,6 +224,95 @@ class LeadershipRbacTest extends TestCase
         $this->assertStringNotContainsString('CQA ou extrait', $body);
     }
 
+    public function testTheMappingBlockOpensWhenTheRedirectSaysSo(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $shut = (string) $this->frontController('/admin/leadership/training', 'LeadershipController', 'training')
+            ->handle(new Request('GET', '/admin/leadership/training', [], [], [], []))
+            ->getBody();
+        $open = (string) $this->frontController('/admin/leadership/training', 'LeadershipController', 'training')
+            ->handle(new Request('GET', '/admin/leadership/training', ['mapping' => '1'], [], [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('<div class="collapse mt-3" id="formation-mapping">', $shut);
+        $this->assertStringContainsString('<div class="collapse show mt-3" id="formation-mapping">', $open);
+        $this->assertStringContainsString('aria-expanded="true"', $open);
+    }
+
+    // --- Getting back out -----------------------------------------------
+
+    /**
+     * Only `/admin/leadership` carries a menu entry, so its three
+     * sub-pages showed « Espace chefs d'U › Formations » and offered no
+     * way back to the hub whose card had just sent the visitor there. The
+     * breadcrumb is the site's only back affordance (design.md §7.3),
+     * which made a one-click page a dead end.
+     */
+    #[DataProvider('subPageProvider')]
+    public function testEverySubPageLinksBackToItsHub(string $path, string $controller, string $action): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $body = (string) preg_replace(
+            '/\s+/',
+            ' ',
+            (string) $this->withBreadcrumb($path, $controller, $action)
+                ->handle(new Request('GET', $path, [], [], [], []))
+                ->getBody()
+        );
+
+        $this->assertStringContainsString('<a href="/admin/leadership" class="text-decoration-none">Encadrement</a>', $body, $path);
+    }
+
+    public function testTheHubItselfCarriesNoTrail(): void
+    {
+        // It IS the ancestor; a link back to itself would be noise.
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $body = (string) $this->withBreadcrumb('/admin/leadership', 'LeadershipController', 'index')
+            ->handle(new Request('GET', '/admin/leadership', [], [], [], []))
+            ->getBody();
+
+        $this->assertStringNotContainsString('breadcrumb-bar--has-trail', $body);
+    }
+
+    /**
+     * The same front controller as `frontController()`, with the route's
+     * real `breadcrumb` declaration attached — without it the bar renders
+     * the home icon and stops, and a trail assertion would pass on an
+     * empty bar.
+     */
+    private function withBreadcrumb(string $path, string $controller, string $action): FrontController
+    {
+        $class = "Modules\\Leadership\\Controller\\{$controller}";
+
+        $router = new Router();
+        $router->addRoute('GET', $path, $class, $action, 'admin', [
+            'label' => 'Encadrement',
+            'parents' => ["Espace chefs d'U"],
+        ]);
+
+        $configFile = sys_get_temp_dir() . '/test_leadership_config_' . uniqid() . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+
+        $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
+        $frontController->registerController($class, $this->instantiate($controller));
+
+        return $frontController;
+    }
+
+    /**
+     * @return array<string, array{string, string, string}>
+     */
+    public static function subPageProvider(): array
+    {
+        $routes = self::routeProvider();
+        unset($routes['overview']);
+
+        return $routes;
+    }
+
     // --- The lists can be acted on --------------------------------------
 
     /**

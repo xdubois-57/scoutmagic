@@ -54,6 +54,36 @@ class HelpServiceTest extends TestCase
         $this->assertCount(0, $service->findForPath('/members/12/emails/5', Role::IDENTIFIED));
     }
 
+    public function testASegmentPatternCoversAPageHangingOffAnId(): void
+    {
+        // The form the deep screens of `rental` and `camps` need: their
+        // pages are /mes-locations/{slug}/reglages and
+        // /chefs/camps/sejours/{id}/documents, which neither an exact
+        // rule nor a direct-child rule can ever name.
+        $dir = $this->makeTopicDir();
+        $this->writeTopic($dir, 'reglages', ['paths' => '/mes-locations/*/reglages']);
+        $service = $this->service($dir);
+
+        $this->assertCount(1, $service->findForPath('/mes-locations/le-chalet/reglages', Role::IDENTIFIED));
+        $this->assertCount(1, $service->findForPath('/mes-locations/la-ferme/reglages', Role::IDENTIFIED));
+        // Same number of segments on both sides: a rule for a page must
+        // not also claim the pages under it.
+        $this->assertCount(0, $service->findForPath('/mes-locations/le-chalet', Role::IDENTIFIED));
+        $this->assertCount(0, $service->findForPath('/mes-locations/le-chalet/reglages/tarif', Role::IDENTIFIED));
+        $this->assertCount(0, $service->findForPath('/mes-locations/le-chalet/gabarits', Role::IDENTIFIED));
+    }
+
+    public function testASegmentPatternTakesSeveralStars(): void
+    {
+        // The renter's tracking page is /locations/suivi/{id}/{token}.
+        $dir = $this->makeTopicDir();
+        $this->writeTopic($dir, 'suivi', ['paths' => '/locations/suivi/*/*']);
+        $service = $this->service($dir);
+
+        $this->assertCount(1, $service->findForPath('/locations/suivi/42/' . str_repeat('a', 64), Role::PUBLIC));
+        $this->assertCount(0, $service->findForPath('/locations/suivi/42', Role::PUBLIC));
+    }
+
     public function testAnUnrelatedPathMatchesNothing(): void
     {
         $dir = $this->makeTopicDir();

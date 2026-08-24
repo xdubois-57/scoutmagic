@@ -78,6 +78,11 @@ class ModuleManifestTest extends TestCase
         $this->assertCount(1, $labelled);
         $this->assertSame('/admin/leadership', $labelled[0]['path']);
         $this->assertSame('Encadrement', $labelled[0]['label']);
+        // AGENTS.md: a labelled route names the mega-menu column it is
+        // drawn in. Without one it fell into the untitled remainder of
+        // « Espace chefs d'U » — a module about following the staff, next
+        // to nothing, while « Suivi » stood right beside it.
+        $this->assertSame('suivi', $labelled[0]['menu_group']);
     }
 
     /**

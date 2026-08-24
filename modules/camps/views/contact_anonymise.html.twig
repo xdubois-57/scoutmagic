@@ -1,78 +1,80 @@
 {% extends 'base.html.twig' %}
 {% block title %}Anonymiser un contact — {{ site_name }}{% endblock %}
 {% block content %}
-    {% include 'partials/page_header.html.twig' with {
-        title: 'Anonymiser un contact',
-        subtitle: 'À la demande de la personne concernée. L\'opération est définitive.',
-    } only %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Anonymiser un contact',
+            subtitle: 'À la demande de la personne concernée. L\'opération est définitive.',
+        } only %}
 
-    <div class="card mb-4">
-        <div class="card-body">
-            <div class="fw-semibold">{{ contact.displayName() }}</div>
-            {% if contact.roleLabel %}
-                <div class="small text-body-secondary">{{ contact.roleLabel }}</div>
-            {% endif %}
-            <div class="mt-2 small">
-                {% if contact.email %}<div>{{ contact.email }}</div>{% endif %}
-                {% if contact.phone %}<div>{{ contact.phone }}</div>{% endif %}
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="fw-semibold">{{ contact.displayName() }}</div>
+                {% if contact.roleLabel %}
+                    <div class="small text-body-secondary">{{ contact.roleLabel }}</div>
+                {% endif %}
+                <div class="mt-2 small">
+                    {% if contact.email %}<div>{{ contact.email }}</div>{% endif %}
+                    {% if contact.phone %}<div>{{ contact.phone }}</div>{% endif %}
+                </div>
             </div>
         </div>
-    </div>
 
-    {# The point of this screen: erasure reaches beyond the stay the chief
-       came from, and the count has to be visible BEFORE the button, not
-       in the confirmation message afterwards. #}
-    <div class="alert alert-warning" role="alert">
-        {% if has_email %}
+        {# The point of this screen: erasure reaches beyond the stay the chief
+           came from, and the count has to be visible BEFORE the button, not
+           in the confirmation message afterwards. #}
+        <div class="alert alert-warning" role="alert">
+            {% if has_email %}
+                <p class="mb-2">
+                    Cette personne apparaît sur <strong>{{ contact_count }} fiche{{ contact_count > 1 ? 's' : '' }}
+                    de contact</strong>, réparties sur
+                    <strong>{{ camps|length }} séjour{{ camps|length > 1 ? 's' : '' }}</strong>.
+                    Toutes seront anonymisées, pas seulement celle d'où vous venez.
+                </p>
+            {% else %}
+                <p class="mb-2">
+                    Ce contact n'a pas d'adresse e-mail : il n'y a aucun moyen fiable de
+                    reconnaître la même personne ailleurs dans le module. <strong>Seule cette
+                    fiche</strong> sera anonymisée.
+                </p>
+            {% endif %}
             <p class="mb-2">
-                Cette personne apparaît sur <strong>{{ contact_count }} fiche{{ contact_count > 1 ? 's' : '' }}
-                de contact</strong>, réparties sur
-                <strong>{{ camps|length }} séjour{{ camps|length > 1 ? 's' : '' }}</strong>.
-                Toutes seront anonymisées, pas seulement celle d'où vous venez.
+                Son nom, son e-mail, son téléphone et ses précisions seront remplacés,
+                ici et dans l'historique des séjours concernés. Ce qui reste : qu'un
+                contact a existé, quand il a été ajouté et par qui — des faits sur le
+                séjour, pas sur la personne.
             </p>
-        {% else %}
-            <p class="mb-2">
-                Ce contact n'a pas d'adresse e-mail : il n'y a aucun moyen fiable de
-                reconnaître la même personne ailleurs dans le module. <strong>Seule cette
-                fiche</strong> sera anonymisée.
+            {# Said plainly rather than left to be discovered: the e-mails
+               themselves are not touched by this button, and a chief who
+               believes otherwise would tell the person something false. #}
+            <p class="mb-0">
+                <strong>Les e-mails reçus de cette personne sont conservés</strong> :
+                cette anonymisation ne les touche pas. Ils restent rattachés aux
+                séjours concernés, avec leur expéditeur, leur contenu et leurs pièces
+                jointes.
             </p>
+        </div>
+
+        {% if camps is not empty %}
+            <h2 class="h6 text-uppercase text-body-secondary mb-2">Séjours concernés</h2>
+            <ul class="list-group mb-4">
+                {% for entry in camps %}
+                    <li class="list-group-item">
+                        <a href="/chefs/camps/sejours/{{ entry.camp.id }}">{{ entry.label }}</a>
+                        <span class="text-body-secondary">· {{ entry.place_name }}</span>
+                    </li>
+                {% endfor %}
+            </ul>
         {% endif %}
-        <p class="mb-2">
-            Son nom, son e-mail, son téléphone et ses précisions seront remplacés,
-            ici et dans l'historique des séjours concernés. Ce qui reste : qu'un
-            contact a existé, quand il a été ajouté et par qui — des faits sur le
-            séjour, pas sur la personne.
-        </p>
-        {# Said plainly rather than left to be discovered: the e-mails
-           themselves are not touched by this button, and a chief who
-           believes otherwise would tell the person something false. #}
-        <p class="mb-0">
-            <strong>Les e-mails reçus de cette personne sont conservés</strong> :
-            cette anonymisation ne les touche pas. Ils restent rattachés aux
-            séjours concernés, avec leur expéditeur, leur contenu et leurs pièces
-            jointes.
-        </p>
-    </div>
 
-    {% if camps is not empty %}
-        <h2 class="h6 text-uppercase text-body-secondary mb-2">Séjours concernés</h2>
-        <ul class="list-group mb-4">
-            {% for entry in camps %}
-                <li class="list-group-item">
-                    <a href="/chefs/camps/sejours/{{ entry.camp.id }}">{{ entry.label }}</a>
-                    <span class="text-body-secondary">· {{ entry.place_name }}</span>
-                </li>
-            {% endfor %}
-        </ul>
-    {% endif %}
-
-    <div class="d-flex flex-wrap gap-2">
-        <form method="post" action="/chefs/camps/contacts/{{ contact.id }}/anonymiser" data-confirm="Anonymiser définitivement ce contact partout dans le module ?">
-            {{ csrf_field() }}
-            <button type="submit" class="btn btn-danger">
-                Anonymiser définitivement
-            </button>
-        </form>
-        <a class="btn btn-outline-secondary" href="/chefs/camps/sejours/{{ contact.campId }}">Annuler</a>
+        <div class="d-flex flex-wrap gap-2">
+            <form method="post" action="/chefs/camps/contacts/{{ contact.id }}/anonymiser" data-confirm="Anonymiser définitivement ce contact partout dans le module ?">
+                {{ csrf_field() }}
+                <button type="submit" class="btn btn-danger">
+                    Anonymiser définitivement
+                </button>
+            </form>
+            <a class="btn btn-outline-secondary" href="/chefs/camps/sejours/{{ contact.campId }}">Annuler</a>
+        </div>
     </div>
 {% endblock %}

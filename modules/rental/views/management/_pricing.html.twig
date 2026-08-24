@@ -1,21 +1,35 @@
 {#
-  The pricing section of "Espace chefs d'U > Locations" — the four
-  configuration blocks of module spec §6.10.
+  The pricing section of an asset's own Réglages — the four configuration
+  blocks of module spec §6.10.
 
   Each block is its own <form> posting to its own action (§6.4): saving the
   fees can never blank the grid, and vice versa.
 
-  Requires `asset`, `pricing` (a Pricing\PricingSettings),
-  `billing_units`, `fee_natures`, and optionally `simulation`.
+  What a manager does here nine visits out of ten is READ the tariff, so
+  every block is a read card with its own « Modifier »/« Ajouter » dialog
+  (design.md §1.9). Five forms standing open meant five `btn-primary` on
+  one screen; now the only primary on screen is the one belonging to
+  whichever dialog is open.
 
-  The simulator at the bottom is a GET form: its result is computed
-  server-side by the same engine that prices the public page and the
-  contract. That identity is the entire point — a client-side re-computation
-  would be a guard-rail against nothing.
+  Requires `asset`, `pricing` (a Pricing\PricingSettings), `billing_units`,
+  and optionally `simulation`.
+
+  The simulator at the bottom stays a plain inline GET form: it is a
+  question, not a setting, and its answer renders directly underneath. Its
+  result is computed server-side by the same engine that prices the public
+  page and the contract. That identity is the entire point — a client-side
+  re-computation would be a guard-rail against nothing.
 #}
 <div class="card mb-4" id="tarification">
     <div class="card-body">
-        <h2 class="h5 mb-1">Tarification</h2>
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+            <h2 class="h5 mb-0">Tarification</h2>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#tarification-edit">
+                <i class="bi bi-pencil" aria-hidden="true"></i>
+                Modifier
+            </button>
+        </div>
         <p class="text-body-secondary small">
             C'est ici que se décide ce que paie un locataire&nbsp;: à la nuit, par personne
             et par nuit, au forfait ou à l'exemplaire, avec un tarif par période et par
@@ -24,96 +38,61 @@
             que verra un visiteur.
         </p>
 
-        {# ── Block 1 + 3: billing unit, default rate, billable minimum ── #}
-        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/tarif" class="mb-4">
-            {{ csrf_field()|raw }}
+        <dl class="row mb-0">
+            <dt class="col-sm-5 col-lg-4">Unité de facturation</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {{ pricing.billingUnit.label }}
+                <span class="form-text d-block">{{ pricing.billingUnit.availabilityExplanation }}</span>
+            </dd>
 
-            <div class="row g-3 mb-2">
-                <div class="col-12 col-md-6">
-                    <label class="form-label" for="billing-unit">Unité de facturation</label>
-                    {# Each option carries its own consequence text, rendered
-                       from Pricing\BillingUnit so the server stays the single
-                       source of truth; select-explanation.js only moves the
-                       selected one into the note below. #}
-                    <select class="form-select" id="billing-unit" name="billing_unit"
-                            data-explanation-target="billing-unit-explanation">
-                        {% for unit in billing_units %}
-                            <option value="{{ unit.value }}"
-                                    data-explanation="{{ unit.availabilityExplanation }}"
-                                    {{ pricing.billingUnit.value == unit.value ? 'selected' : '' }}>
-                                {{ unit.label }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                    <div class="form-text" id="billing-unit-explanation">
-                        {{ pricing.billingUnit.availabilityExplanation }}
-                    </div>
-                </div>
+            <dt class="col-sm-5 col-lg-4">Tarif par défaut</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {% if pricing.defaultUnitPriceCents is not null %}
+                    {{ pricing.defaultUnitPriceCents|money_cents }}
+                {% else %}
+                    <span class="text-body-secondary">Aucun — la grille ci-dessous doit tout couvrir.</span>
+                {% endif %}
+            </dd>
 
-                <div class="col-12 col-md-6">
-                    {% include 'partials/form_field.html.twig' with {
-                        field_id: 'default-unit-price', field_name: 'default_unit_price',
-                        label: 'Tarif par défaut (€)', inputmode: 'decimal',
-                        help: 'Utilisé quand la grille ci-dessous n\'a pas de case pour la période et la
-                               catégorie concernées. Laissez vide si toute la grille est remplie.',
-                        value: pricing.defaultUnitPriceCents is not null ? (pricing.defaultUnitPriceCents / 100)|number_format(2, ',', ' ') : '',
-                    } only %}
-                </div>
-            </div>
-
-            <fieldset class="mb-3">
-                <legend class="form-label">Minimum facturable</legend>
-                <p class="form-text mt-0">
-                    Un montant plancher <strong>ou</strong> un nombre de personnes plancher — jamais les
-                    deux. Ce seul champ remplace les tranches d'occupation et le « prix de base incluant
-                    N personnes ».
-                </p>
-                <div class="form-check">
-                    <input class="form-check-input" type="radio" name="minimum_mode" id="minimum-none"
-                           value="none" {{ not pricing.hasMinimum ? 'checked' : '' }}>
-                    <label class="form-check-label" for="minimum-none">Aucun minimum</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="radio" name="minimum_mode" id="minimum-amount-mode"
-                           value="amount" {{ pricing.minimumAmountCents is not null ? 'checked' : '' }}>
-                    <label class="form-check-label" for="minimum-amount-mode">Montant minimum (€)</label>
-                    <input type="text" inputmode="decimal" class="form-control mt-1" name="minimum_amount"
-                           aria-label="Montant minimum en euros"
-                           value="{{ pricing.minimumAmountCents is not null ? (pricing.minimumAmountCents / 100)|number_format(2, ',', ' ') : '' }}">
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="radio" name="minimum_mode" id="minimum-persons-mode"
-                           value="persons" {{ pricing.minimumPersons is not null ? 'checked' : '' }}>
-                    <label class="form-check-label" for="minimum-persons-mode">Nombre de personnes minimum</label>
-                    <input type="number" inputmode="numeric" min="1" class="form-control mt-1" name="minimum_persons"
-                           aria-label="Nombre de personnes minimum"
-                           value="{{ pricing.minimumPersons ?? '' }}">
-                    <div class="form-text">
-                        Ne s'applique qu'à un tarif par personne. La ligne du devis affichera
-                        explicitement « 25 pers. (minimum) × 3 nuits ».
-                    </div>
-                </div>
-            </fieldset>
-
-            <button type="submit" class="btn btn-primary">Enregistrer la tarification</button>
-        </form>
+            <dt class="col-sm-5 col-lg-4">Minimum facturable</dt>
+            <dd class="col-sm-7 col-lg-8 mb-0">
+                {% if pricing.minimumAmountCents is not null %}
+                    {{ pricing.minimumAmountCents|money_cents }}
+                {% elseif pricing.minimumPersons is not null %}
+                    {{ pricing.minimumPersons }} personnes
+                {% else %}
+                    Aucun
+                {% endif %}
+            </dd>
+        </dl>
 
         <hr>
 
         {# ── Block 2, axis 1: periods ─────────────────────────────────── #}
-        <h3 class="h6">Périodes tarifaires</h3>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <h3 class="h6 mb-0">Périodes tarifaires</h3>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#periode-add">
+                <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                Ajouter une période
+            </button>
+        </div>
         <p class="form-text mt-0">
             Premier axe de la grille. Une période récurrente se répète chaque année et peut chevaucher
             le nouvel an (20 décembre → 5 janvier).
         </p>
-        {% if pricing.periods is not empty %}
-            <ul class="list-group mb-2">
+        {% if pricing.periods is empty %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucune période tarifaire.', compact: true,
+            } only %}
+        {% else %}
+            <ul class="list-group mb-4">
                 {% for period in pricing.periods %}
                     <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
                         <span>
                             <span class="fw-semibold">{{ period.label }}</span>
                             <span class="text-body-secondary small d-block">
-                                {{ period.startDate }} → {{ period.endDate }}{{ period.recursYearly ? ' · chaque année' : '' }}
+                                {{ period.startDate|date_fr }} → {{ period.endDate|date_fr }}{{ period.recursYearly ? ' · chaque année' : '' }}
                             </span>
                         </span>
                         <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/periode-supprimer"
@@ -126,48 +105,31 @@
                 {% endfor %}
             </ul>
         {% endif %}
-        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/periode" class="row g-2 align-items-end mb-4">
-            {{ csrf_field()|raw }}
-            <div class="col-12 col-md-4">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'period-label', field_name: 'label',
-                    label: 'Nom', required: true,
-                } only %}
-            </div>
-            <div class="col-6 col-md-3">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'period-start', field_name: 'start_date', type: 'date',
-                    label: 'Début', required: true,
-                } only %}
-            </div>
-            <div class="col-6 col-md-3">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'period-end', field_name: 'end_date', type: 'date',
-                    label: 'Fin', required: true,
-                } only %}
-            </div>
-            <div class="col-12 col-md-2">
-                <div class="form-check mb-2">
-                    <input class="form-check-input" type="checkbox" id="period-recurs" name="recurs_yearly">
-                    <label class="form-check-label" for="period-recurs">Chaque année</label>
-                </div>
-                <button type="submit" class="btn btn-outline-primary w-100">Ajouter</button>
-            </div>
-        </form>
 
         {# ── Block 2, axis 2: renter categories ───────────────────────── #}
-        <h3 class="h6">Catégories de locataire</h3>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <h3 class="h6 mb-0">Catégories de locataire</h3>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#categorie-add">
+                <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                Ajouter une catégorie
+            </button>
+        </div>
         <p class="form-text mt-0">
             Second axe de la grille : mouvement de jeunesse, ASBL, particulier, entreprise, interne…
         </p>
-        {% if pricing.categories is not empty %}
-            <ul class="list-group mb-2">
+        {% if pricing.categories is empty %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucune catégorie de locataire.', compact: true,
+            } only %}
+        {% else %}
+            <ul class="list-group mb-4">
                 {% for category in pricing.categories %}
                     <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
                         <span>
                             {{ category.label }}
                             {% if category.isDefault %}
-                                <span class="badge text-bg-secondary">Proposée par défaut</span>
+                                <span class="badge bg-body-tertiary border text-body-secondary">Proposée par défaut</span>
                             {% endif %}
                         </span>
                         <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/categorie-supprimer"
@@ -180,84 +142,78 @@
                 {% endfor %}
             </ul>
         {% endif %}
-        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/categorie" class="row g-2 align-items-end mb-4">
-            {{ csrf_field()|raw }}
-            <div class="col-12 col-md-6">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'category-label', field_name: 'label',
-                    label: 'Nom', required: true,
-                } only %}
-            </div>
-            <div class="col-12 col-md-4">
-                <div class="form-check mb-2">
-                    <input class="form-check-input" type="checkbox" id="category-default" name="is_default">
-                    <label class="form-check-label" for="category-default">Proposée par défaut</label>
-                </div>
-            </div>
-            <div class="col-12 col-md-2">
-                <button type="submit" class="btn btn-outline-primary w-100">Ajouter</button>
-            </div>
-        </form>
 
         {# ── Block 2: the grid itself ─────────────────────────────────── #}
-        <h3 class="h6">Grille des prix unitaires (€)</h3>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <h3 class="h6 mb-0">Grille des prix unitaires</h3>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#grille-edit">
+                <i class="bi bi-pencil" aria-hidden="true"></i>
+                Modifier la grille
+            </button>
+        </div>
         <p class="form-text mt-0">
-            Deux axes, et deux seulement. Une case laissée vide utilise le tarif par défaut ci-dessus.
+            Deux axes, et deux seulement. Une case vide utilise le tarif par défaut ci-dessus.
         </p>
-        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/grille" class="mb-4">
-            {{ csrf_field()|raw }}
-            <div class="table-responsive">
-                <table class="table table-sm align-middle">
-                    <thead>
+        {% set period_rows = pricing.periods is empty ? [null] : pricing.periods %}
+        {% set category_cols = pricing.categories is empty ? [null] : pricing.categories %}
+        <div class="table-responsive mb-4">
+            <table class="table table-sm align-middle">
+                <caption class="visually-hidden">Tarifs unitaires par période et par catégorie</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Période</th>
+                        {% if pricing.categories is empty %}
+                            <th scope="col">Tarif</th>
+                        {% else %}
+                            {% for category in pricing.categories %}
+                                <th scope="col">{{ category.label }}</th>
+                            {% endfor %}
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for period in period_rows %}
                         <tr>
-                            <th scope="col">Période</th>
-                            {% if pricing.categories is empty %}
-                                <th scope="col">Tarif</th>
-                            {% else %}
-                                {% for category in pricing.categories %}
-                                    <th scope="col">{{ category.label }}</th>
-                                {% endfor %}
-                            {% endif %}
+                            <th scope="row" class="fw-normal">
+                                {{ period ? period.label : 'Toute l\'année' }}
+                            </th>
+                            {% for category in category_cols %}
+                                {% set key = (period ? period.id : 0) ~ ':' ~ (category ? category.id : 0) %}
+                                {% set cents = pricing.priceGridCents[key] ?? null %}
+                                <td>
+                                    {% if cents is not null %}
+                                        {{ cents|money_cents }}
+                                    {% else %}
+                                        <span class="text-body-secondary">—</span>
+                                    {% endif %}
+                                </td>
+                            {% endfor %}
                         </tr>
-                    </thead>
-                    <tbody>
-                        {% set period_rows = pricing.periods is empty ? [null] : pricing.periods %}
-                        {% set category_cols = pricing.categories is empty ? [null] : pricing.categories %}
-                        {% for period in period_rows %}
-                            <tr>
-                                <th scope="row" class="fw-normal">
-                                    {{ period ? period.label : 'Toute l\'année' }}
-                                </th>
-                                {% for category in category_cols %}
-                                    {% set key = (period ? period.id : 0) ~ ':' ~ (category ? category.id : 0) %}
-                                    {% set cents = pricing.priceGridCents[key] ?? null %}
-                                    <td>
-                                        <label class="visually-hidden" for="grid-{{ key|replace({':': '-'}) }}">
-                                            Tarif {{ period ? period.label : 'toute l\'année' }}
-                                            {{ category ? '· ' ~ category.label : '' }}
-                                        </label>
-                                        <input type="text" inputmode="decimal" class="form-control form-control-sm"
-                                               id="grid-{{ key|replace({':': '-'}) }}"
-                                               name="grid[{{ key }}]"
-                                               value="{{ cents is not null ? (cents / 100)|number_format(2, ',', ' ') : '' }}">
-                                    </td>
-                                {% endfor %}
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <button type="submit" class="btn btn-primary">Enregistrer la grille</button>
-        </form>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
 
         {# ── Block 4: fees ────────────────────────────────────────────── #}
-        <h3 class="h6">Frais</h3>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <h3 class="h6 mb-0">Frais</h3>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#frais-add">
+                <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                Ajouter un frais
+            </button>
+        </div>
         <p class="form-text mt-0">
             Trois natures seulement. Un frais au compteur n'entre <strong>jamais</strong> dans le devis :
             son montant vient du relevé réel, après le séjour.
         </p>
-        {% if pricing.fees is not empty %}
-            <ul class="list-group mb-2">
+        {% if pricing.fees is empty %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucun frais.', compact: true,
+            } only %}
+        {% else %}
+            <ul class="list-group mb-4">
                 {% for fee in pricing.fees %}
                     <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
                         <span>
@@ -267,7 +223,8 @@
                                 {{ fee.amountCents|money_cents }}{{ fee.meterUnit ? ' / ' ~ fee.meterUnit : '' }}
                             </span>
                         </span>
-                        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/frais-supprimer">
+                        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/frais-supprimer"
+                              data-confirm="Supprimer ce frais ? Il disparaît des prochains devis ; les réservations en cours gardent le leur.">
                             {{ csrf_field()|raw }}
                             <input type="hidden" name="fee_id" value="{{ fee.id }}">
                             <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer</button>
@@ -276,42 +233,6 @@
                 {% endfor %}
             </ul>
         {% endif %}
-        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/frais" class="row g-2 align-items-end mb-4">
-            {{ csrf_field()|raw }}
-            <div class="col-12 col-md-4">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'fee-label', field_name: 'label',
-                    label: 'Libellé', required: true,
-                } only %}
-            </div>
-            <div class="col-6 col-md-3">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'fee-nature', field_name: 'nature', type: 'select',
-                    label: 'Nature',
-                    options: [
-                        { value: 'fixed', label: 'Montant fixe' },
-                        { value: 'per_person', label: 'Montant par personne' },
-                        { value: 'meter', label: 'Relevé de compteur' },
-                    ],
-                } only %}
-            </div>
-            <div class="col-6 col-md-2">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'fee-amount', field_name: 'amount',
-                    label: 'Montant (€)', inputmode: 'decimal', required: true,
-                } only %}
-            </div>
-            <div class="col-6 col-md-2">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'fee-meter-unit', field_name: 'meter_unit',
-                    label: 'Unité', placeholder: 'kWh',
-                    help: 'Compteur uniquement.',
-                } only %}
-            </div>
-            <div class="col-6 col-md-1">
-                <button type="submit" class="btn btn-outline-primary w-100">Ajouter</button>
-            </div>
-        </form>
 
         <hr>
 
@@ -325,21 +246,21 @@
             <div class="col-6 col-md-3">
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'sim-arrival', field_name: 'sim_arrival', type: 'date',
-                    label: 'Arrivée',
+                    label: 'Arrivée', wrapper_class: 'mb-0',
                     value: simulation ? simulation.request.arrivalDate : '',
                 } only %}
             </div>
             <div class="col-6 col-md-3">
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'sim-departure', field_name: 'sim_departure', type: 'date',
-                    label: 'Départ',
+                    label: 'Départ', wrapper_class: 'mb-0',
                     value: simulation ? simulation.request.departureDate : '',
                 } only %}
             </div>
             <div class="col-4 col-md-2">
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'sim-persons', field_name: 'sim_persons', type: 'number',
-                    label: 'Participants', min: 0, inputmode: 'numeric',
+                    label: 'Participants', min: 0, inputmode: 'numeric', wrapper_class: 'mb-0',
                     value: simulation ? simulation.request.persons : '',
                 } only %}
             </div>
@@ -348,7 +269,7 @@
                    placeholder: the simulator legitimately prices without one. #}
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'sim-category', field_name: 'sim_category', type: 'select',
-                    label: 'Catégorie',
+                    label: 'Catégorie', wrapper_class: 'mb-0',
                     options: [{ value: '', label: '—' }]|merge(pricing.categories|map(c => {
                         value: c.id,
                         label: c.label,
@@ -357,7 +278,10 @@
                 } only %}
             </div>
             <div class="col-4 col-md-2">
-                <button type="submit" class="btn btn-outline-primary w-100">Calculer</button>
+                {# A question, not a setting: the answer renders right
+                   underneath, and this screen's primary belongs to whichever
+                   editing dialog is open. #}
+                <button type="submit" class="btn btn-outline-secondary w-100">Calculer</button>
             </div>
         </form>
 
@@ -366,7 +290,7 @@
             <div class="card bg-body-tertiary">
                 <div class="card-body">
                     {% for warning in quote.warnings %}
-                        <div class="alert alert-warning py-2 small mb-2">{{ warning }}</div>
+                        <div class="alert alert-warning py-2 small mb-2" role="alert">{{ warning }}</div>
                     {% endfor %}
 
                     <div class="table-responsive">
@@ -382,7 +306,7 @@
                         </thead>
                         <tbody>
                             {% for line in quote.lines %}
-                                <tr{{ line.isInformational ? ' class="text-body-secondary fst-italic"' : '' }}>
+                                <tr{% if line.isInformational %} class="text-body-secondary fst-italic"{% endif %}>
                                     <td>{{ line.label }}</td>
                                     <td class="text-end">{{ line.isInformational ? '—' : line.quantity }}</td>
                                     <td class="text-end">
@@ -426,3 +350,271 @@
         {% endif %}
     </div>
 </div>
+
+{# The dialogs sit outside the card: a modal nested in one inherits its
+   stacking context, and Bootstrap's backdrop then renders above the dialog
+   it is meant to sit behind. #}
+
+{# ── Block 1 + 3: billing unit, default rate, billable minimum ──────── #}
+{% embed 'partials/modal.html.twig' with {
+    id: 'tarification-edit',
+    title: 'Modifier la tarification',
+    section_editor: true,
+    size: 'lg',
+    asset: asset,
+    pricing: pricing,
+    billing_units: billing_units,
+} only %}
+    {% block body %}
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/tarif" id="pricing-form">
+            {{ csrf_field()|raw }}
+
+            <div class="row g-3 mb-2">
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="billing-unit">Unité de facturation</label>
+                    {# Each option carries its own consequence text, rendered
+                       from Pricing\BillingUnit so the server stays the single
+                       source of truth; select-explanation.js only moves the
+                       selected one into the note below. #}
+                    <select class="form-select" id="billing-unit" name="billing_unit"
+                            data-explanation-target="billing-unit-explanation">
+                        {% for unit in billing_units %}
+                            <option value="{{ unit.value }}"
+                                    data-explanation="{{ unit.availabilityExplanation }}"
+                                    {{ pricing.billingUnit.value == unit.value ? 'selected' : '' }}>
+                                {{ unit.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text" id="billing-unit-explanation">
+                        {{ pricing.billingUnit.availabilityExplanation }}
+                    </div>
+                </div>
+
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'default-unit-price', field_name: 'default_unit_price',
+                        label: 'Tarif par défaut (€)', inputmode: 'decimal',
+                        help: 'Utilisé quand la grille n\'a pas de case pour la période et la
+                               catégorie concernées. Laissez vide si toute la grille est remplie.',
+                        value: pricing.defaultUnitPriceCents is not null ? (pricing.defaultUnitPriceCents / 100)|number_format(2, ',', ' ') : '',
+                    } only %}
+                </div>
+            </div>
+
+            <fieldset class="mb-0">
+                <legend class="form-label">Minimum facturable</legend>
+                <p class="form-text mt-0">
+                    Un montant plancher <strong>ou</strong> un nombre de personnes plancher — jamais les
+                    deux. Ce seul champ remplace les tranches d'occupation et le « prix de base incluant
+                    N personnes ».
+                </p>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="minimum_mode" id="minimum-none"
+                           value="none" {{ not pricing.hasMinimum ? 'checked' : '' }}>
+                    <label class="form-check-label" for="minimum-none">Aucun minimum</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="minimum_mode" id="minimum-amount-mode"
+                           value="amount" {{ pricing.minimumAmountCents is not null ? 'checked' : '' }}>
+                    <label class="form-check-label" for="minimum-amount-mode">Montant minimum (€)</label>
+                    <input type="text" inputmode="decimal" class="form-control mt-1" name="minimum_amount"
+                           aria-label="Montant minimum en euros"
+                           value="{{ pricing.minimumAmountCents is not null ? (pricing.minimumAmountCents / 100)|number_format(2, ',', ' ') : '' }}">
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="minimum_mode" id="minimum-persons-mode"
+                           value="persons" {{ pricing.minimumPersons is not null ? 'checked' : '' }}>
+                    <label class="form-check-label" for="minimum-persons-mode">Nombre de personnes minimum</label>
+                    <input type="number" inputmode="numeric" min="1" class="form-control mt-1" name="minimum_persons"
+                           aria-label="Nombre de personnes minimum"
+                           value="{{ pricing.minimumPersons ?? '' }}">
+                    <div class="form-text">
+                        Ne s'applique qu'à un tarif par personne. La ligne du devis affichera
+                        explicitement « 25 pers. (minimum) × 3 nuits ».
+                    </div>
+                </div>
+            </fieldset>
+        </form>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" form="pricing-form" class="btn btn-primary">Enregistrer la tarification</button>
+    {% endblock %}
+{% endembed %}
+
+{% embed 'partials/modal.html.twig' with {
+    id: 'periode-add',
+    title: 'Ajouter une période tarifaire',
+    section_editor: true,
+    asset: asset,
+} only %}
+    {% block body %}
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/periode" id="period-form">
+            {{ csrf_field()|raw }}
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'period-label', field_name: 'label',
+                label: 'Nom', required: true,
+            } only %}
+            <div class="row g-3">
+                <div class="col-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'period-start', field_name: 'start_date', type: 'date',
+                        label: 'Début', required: true,
+                    } only %}
+                </div>
+                <div class="col-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'period-end', field_name: 'end_date', type: 'date',
+                        label: 'Fin', required: true,
+                    } only %}
+                </div>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="period-recurs" name="recurs_yearly">
+                <label class="form-check-label" for="period-recurs">Chaque année</label>
+            </div>
+        </form>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" form="period-form" class="btn btn-primary">Ajouter</button>
+    {% endblock %}
+{% endembed %}
+
+{% embed 'partials/modal.html.twig' with {
+    id: 'categorie-add',
+    title: 'Ajouter une catégorie de locataire',
+    section_editor: true,
+    asset: asset,
+} only %}
+    {% block body %}
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/categorie" id="category-form">
+            {{ csrf_field()|raw }}
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'category-label', field_name: 'label',
+                label: 'Nom', required: true,
+            } only %}
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="category-default" name="is_default">
+                <label class="form-check-label" for="category-default">Proposée par défaut</label>
+            </div>
+        </form>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" form="category-form" class="btn btn-primary">Ajouter</button>
+    {% endblock %}
+{% endembed %}
+
+{% embed 'partials/modal.html.twig' with {
+    id: 'grille-edit',
+    title: 'Modifier la grille des prix',
+    section_editor: true,
+    size: 'xl',
+    scrollable: true,
+    asset: asset,
+    pricing: pricing,
+} only %}
+    {% block body %}
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/grille" id="grid-form">
+            {{ csrf_field()|raw }}
+            <p class="form-text mt-0">
+                Une case laissée vide utilise le tarif par défaut du bien.
+            </p>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <caption class="visually-hidden">Tarifs unitaires par période et par catégorie</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Période</th>
+                            {% if pricing.categories is empty %}
+                                <th scope="col">Tarif</th>
+                            {% else %}
+                                {% for category in pricing.categories %}
+                                    <th scope="col">{{ category.label }}</th>
+                                {% endfor %}
+                            {% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set period_rows = pricing.periods is empty ? [null] : pricing.periods %}
+                        {% set category_cols = pricing.categories is empty ? [null] : pricing.categories %}
+                        {% for period in period_rows %}
+                            <tr>
+                                <th scope="row" class="fw-normal">
+                                    {{ period ? period.label : 'Toute l\'année' }}
+                                </th>
+                                {% for category in category_cols %}
+                                    {% set key = (period ? period.id : 0) ~ ':' ~ (category ? category.id : 0) %}
+                                    {% set cents = pricing.priceGridCents[key] ?? null %}
+                                    <td>
+                                        <label class="visually-hidden" for="grid-{{ key|replace({':': '-'}) }}">
+                                            Tarif {{ period ? period.label : 'toute l\'année' }}
+                                            {{ category ? '· ' ~ category.label : '' }}
+                                        </label>
+                                        <input type="text" inputmode="decimal" class="form-control form-control-sm"
+                                               id="grid-{{ key|replace({':': '-'}) }}"
+                                               name="grid[{{ key }}]"
+                                               value="{{ cents is not null ? (cents / 100)|number_format(2, ',', ' ') : '' }}">
+                                    </td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </form>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" form="grid-form" class="btn btn-primary">Enregistrer la grille</button>
+    {% endblock %}
+{% endembed %}
+
+{% embed 'partials/modal.html.twig' with {
+    id: 'frais-add',
+    title: 'Ajouter un frais',
+    section_editor: true,
+    asset: asset,
+} only %}
+    {% block body %}
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/frais" id="fee-form">
+            {{ csrf_field()|raw }}
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'fee-label', field_name: 'label',
+                label: 'Libellé', required: true,
+            } only %}
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'fee-nature', field_name: 'nature', type: 'select',
+                        label: 'Nature',
+                        options: [
+                            { value: 'fixed', label: 'Montant fixe' },
+                            { value: 'per_person', label: 'Montant par personne' },
+                            { value: 'meter', label: 'Relevé de compteur' },
+                        ],
+                    } only %}
+                </div>
+                <div class="col-6 col-md-3">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'fee-amount', field_name: 'amount',
+                        label: 'Montant (€)', inputmode: 'decimal', required: true,
+                    } only %}
+                </div>
+                <div class="col-6 col-md-3">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'fee-meter-unit', field_name: 'meter_unit',
+                        label: 'Unité', placeholder: 'kWh',
+                        help: 'Compteur uniquement.',
+                    } only %}
+                </div>
+            </div>
+        </form>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" form="fee-form" class="btn btn-primary">Ajouter</button>
+    {% endblock %}
+{% endembed %}

@@ -5,7 +5,7 @@ summary: Les biens à louer, le calendrier, l'estimation et la demande.
 category: Premiers pas
 role_min: public
 paths: /locations, /locations/*
-related: gerer-les-locations
+related: gerer-les-locations, locations-demande, locations-suivi
 ---
 
 La page Locations présente ce que l'unité met en location : local,

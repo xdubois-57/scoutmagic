@@ -81,11 +81,11 @@
                                     <li class="d-flex flex-wrap align-items-center gap-2 mb-1">
                                         <span>{{ attachment.filename }}</span>
                                         {% if document %}
-                                            <span class="badge text-bg-light">{{ document.type.label }}</span>
+                                            <span class="badge bg-body-tertiary border text-body-secondary">{{ document.type.label }}</span>
                                             <a href="{{ file_url(attachment.fileId) }}"
                                                class="btn btn-sm btn-outline-secondary">Ouvrir</a>
                                         {% else %}
-                                            <span class="badge text-bg-light">Non classé</span>
+                                            <span class="badge bg-body-tertiary border text-body-secondary">Non classé</span>
                                         {% endif %}
                                     </li>
                                 {% endfor %}
@@ -124,7 +124,7 @@
                                        from a global one (§7.7). #}
                                     {% for target in move_targets %}
                                         <option value="{{ target.id }}">
-                                            {{ target.reference }} — {{ target.arrivalDate }}
+                                            {{ target.reference }} — {{ target.arrivalDate|date_fr }}
                                         </option>
                                     {% endfor %}
                                 </select>

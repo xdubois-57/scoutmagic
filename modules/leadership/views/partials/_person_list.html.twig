@@ -69,19 +69,35 @@
                         {% endif %}
                     </div>
                     {% if line.days is not null %}
+                        {# « 12 j » alone says nothing: on the obligations
+                           page it is a birthday still to come, on the
+                           stewards page a registration already running.
+                           And the colour is the whole of the severity for
+                           a sighted reader and none of it for anybody
+                           else, so the word goes with it. #}
                         <span class="small fw-semibold flex-shrink-0
                             {%- if line.severity == 'critical' %} text-danger
                             {%- elseif line.severity == 'warning' %} text-warning-emphasis
                             {%- else %} text-body-secondary{% endif %}">
-                            {{ line.days }} j
+                            {% if line.severity == 'critical' %}
+                                <span class="visually-hidden">Critique :</span>
+                            {% elseif line.severity == 'warning' %}
+                                <span class="visually-hidden">Attention :</span>
+                            {% endif %}
+                            {{ line.daysDirection == 'until' ? 'dans' : 'depuis' }} {{ line.days }} j
                         </span>
                     {% endif %}
                 </div>
-                <div class="small text-body-secondary mt-1">
-                    {% if line.sectionName %}{{ line.sectionName }}{% endif %}
-                    {%- if line.sectionName and line.detail %} — {% endif %}
-                    {%- if line.detail %}{{ line.detail }}{% endif %}
-                </div>
+                {# Conditioned, not always drawn: a row with neither a
+                   section nor a detail used to render an empty div, whose
+                   only visible effect was a gap under the name. #}
+                {% if line.sectionName or line.detail %}
+                    <div class="small text-body-secondary mt-1">
+                        {% if line.sectionName %}{{ line.sectionName }}{% endif %}
+                        {%- if line.sectionName and line.detail %} — {% endif %}
+                        {%- if line.detail %}{{ line.detail }}{% endif %}
+                    </div>
+                {% endif %}
                 {% if line.note %}
                     <div class="small mt-1">{{ line.note }}</div>
                 {% endif %}

@@ -1,38 +1,40 @@
 {% extends 'base.html.twig' %}
 {% block title %}Fusionner un séjour — {{ site_name }}{% endblock %}
 {% block content %}
-    {% include 'partials/page_header.html.twig' with {
-        title: 'Fusionner ce séjour',
-        subtitle: camp_label ~ (place ? ' · ' ~ place.name : ''),
-    } only %}
-
-    {% if siblings is empty %}
-        {# Only stays of the SAME place are offered: merging across places
-           is not supported, and a picker that offered it would teach the
-           wrong mental model before the service refused. #}
-        {% include 'partials/empty_state.html.twig' with {
-            message: 'Ce lieu n\'a pas d\'autre séjour avec lequel fusionner celui-ci. Pour rapprocher deux séjours de lieux différents, fusionnez d\'abord les deux lieux.',
-            icon: 'bi-signpost-split',
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Fusionner ce séjour',
+            subtitle: camp_label ~ (place ? ' · ' ~ place.name : ''),
         } only %}
-    {% else %}
-        <div class="alert alert-info" role="alert">
-            Rien n'est perdu : les valeurs que le séjour conservé avait déjà seront ajoutées
-            à sa note, datées. C'est ce qui rend cette fusion sûre pour tous les animateurs.
-        </div>
 
-        <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/fusionner"
-              data-confirm="Fusionner ce séjour dans celui que vous avez choisi ?">
-            {{ csrf_field() }}
-            {% include 'partials/form_field.html.twig' with {
-                field_id: 'merge-target', field_name: 'target_id',
-                label: 'Conserver ce séjour', type: 'select',
-                options: sibling_options,
-                help: 'Le séjour choisi est celui qui reste ; celui-ci disparaît, son contenu repris.',
+        {% if siblings is empty %}
+            {# Only stays of the SAME place are offered: merging across places
+               is not supported, and a picker that offered it would teach the
+               wrong mental model before the service refused. #}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Ce lieu n\'a pas d\'autre séjour avec lequel fusionner celui-ci. Pour rapprocher deux séjours de lieux différents, fusionnez d\'abord les deux lieux.',
+                icon: 'bi-signpost-split',
             } only %}
-            <div class="d-flex flex-wrap gap-2">
-                <button type="submit" class="btn btn-danger">Fusionner</button>
-                <a class="btn btn-outline-secondary" href="/chefs/camps/sejours/{{ camp.id }}">Annuler</a>
+        {% else %}
+            <div class="alert alert-info" role="alert">
+                Rien n'est perdu : les valeurs que le séjour conservé avait déjà seront ajoutées
+                à sa note, datées. C'est ce qui rend cette fusion sûre pour tous les animateurs.
             </div>
-        </form>
-    {% endif %}
+
+            <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/fusionner"
+                  data-confirm="Fusionner ce séjour dans celui que vous avez choisi ?">
+                {{ csrf_field() }}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'merge-target', field_name: 'target_id',
+                    label: 'Conserver ce séjour', type: 'select',
+                    options: sibling_options,
+                    help: 'Le séjour choisi est celui qui reste ; celui-ci disparaît, son contenu repris.',
+                } only %}
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="submit" class="btn btn-danger">Fusionner</button>
+                    <a class="btn btn-outline-secondary" href="/chefs/camps/sejours/{{ camp.id }}">Annuler</a>
+                </div>
+            </form>
+        {% endif %}
+    </div>
 {% endblock %}

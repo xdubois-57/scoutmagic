@@ -36,7 +36,7 @@ locataires, à l'argent et aux contrats. L'interrupteur « Contact du
 locataire » décide qui apparaît sur la page de suivi du locataire.
 
 Un gestionnaire absent du dernier import de la fédération est signalé
-« suspendu » : son accès est coupé mais sa désignation conservée —
+« Désactivé » : son accès est coupé mais sa désignation conservée —
 retirez-la explicitement si le départ est définitif.
 
 ## Le compte des paiements

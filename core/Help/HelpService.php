@@ -182,8 +182,8 @@ class HelpService
     /**
      * 'exact' when any declared path matches the request path literally,
      * 'child' when a child rule covers it (parent path plus exactly one
-     * extra segment — Core\Offline\OfflineWhitelist's semantics), null
-     * otherwise.
+     * extra segment — Core\Offline\OfflineWhitelist's semantics) or a
+     * segment pattern matches it, null otherwise.
      */
     private static function bestMatch(HelpTopic $topic, string $path): ?string
     {
@@ -192,6 +192,13 @@ class HelpService
             if ($rule['match'] === 'exact') {
                 if ($path === $rule['path']) {
                     return 'exact';
+                }
+                continue;
+            }
+
+            if ($rule['match'] === 'pattern') {
+                if (self::segmentsMatch($rule['path'], $path)) {
+                    $best = 'child';
                 }
                 continue;
             }
@@ -206,6 +213,33 @@ class HelpService
         }
 
         return $best;
+    }
+
+    /**
+     * A declared path whose `*` segments each stand for exactly one
+     * segment of the request path — `/mes-locations/*` /reglages' against
+     * `/mes-locations/le-chalet/reglages`.
+     *
+     * Same number of segments on both sides, deliberately: a rule for a
+     * page must not also claim the pages under it, which is the whole
+     * reason the `/x/*` form counts segments rather than prefixing.
+     */
+    private static function segmentsMatch(string $rule, string $path): bool
+    {
+        $ruleSegments = explode('/', trim($rule, '/'));
+        $pathSegments = explode('/', trim($path, '/'));
+
+        if (count($ruleSegments) !== count($pathSegments)) {
+            return false;
+        }
+
+        foreach ($ruleSegments as $index => $segment) {
+            if ($segment !== '*' && $segment !== $pathSegments[$index]) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static function byId(HelpTopic $a, HelpTopic $b): int

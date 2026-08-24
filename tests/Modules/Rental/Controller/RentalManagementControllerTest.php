@@ -237,7 +237,13 @@ class RentalManagementControllerTest extends TestCase
             $this->stayService,
             null,
             null,
-            null,
+            // The paperwork register: the compliance page 404s without it.
+            new \Modules\Rental\Service\RentalComplianceService(
+                new \Modules\Rental\Repository\RentalComplianceRepository($this->pdo),
+                new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                $journal,
+                $this->fileRepository
+            ),
             null,
             // Only « Régénérer le lien de suivi » reaches it.
             new RentalBookingService($this->bookingRepository, $journal)
@@ -1774,5 +1780,52 @@ class RentalManagementControllerTest extends TestCase
             '#<form[^>]*action="/mes-locations/lien-suivi"[^>]*data-confirm="R[^"]*g[^"]*rer le lien#',
             $html
         );
+    }
+    // ── Fields the site renders the same way everywhere ─────────────────
+
+    /**
+     * The calendar's blocking form and the compliance register were the
+     * last two hand-written control stacks in the managed space: labels
+     * whose classes did not match the rest of the site, and help texts no
+     * screen reader ever announced because nothing pointed at them. The
+     * `form_field` partial renders label, control, help text and required
+     * marker as one unit with `aria-describedby` wired (design.md §7.9).
+     */
+    public function testTheBlockingFormIsRenderedThroughTheSharedField(): void
+    {
+        $this->loginAsManager();
+
+        $html = (string) $this->get(
+            '/mes-locations/{slug}/calendrier',
+            '/mes-locations/local-saint-georges/calendrier',
+            'calendar'
+        )->getBody();
+
+        // The required marker comes from the partial, not from a « * »
+        // somebody typed into the label.
+        $this->assertMatchesRegularExpression(
+            '#<label class="form-label small" for="block-start">\s*Du\s*<span class="text-danger" aria-hidden="true">\*</span>#',
+            $html
+        );
+        $this->assertMatchesRegularExpression(
+            '#<input type="date" class="form-control form-control-sm" id="block-end"\s+name="end"\s+value=""\s+required#',
+            $html
+        );
+    }
+
+    public function testTheComplianceFormWiresItsHelpTextToItsField(): void
+    {
+        $this->loginAsManager();
+
+        $html = (string) $this->get(
+            '/mes-locations/{slug}/conformite',
+            '/mes-locations/local-saint-georges/conformite',
+            'compliance'
+        )->getBody();
+
+        $this->assertStringContainsString('aria-describedby="new-document-help"', $html);
+        $this->assertStringContainsString('<div class="form-text" id="new-document-help">', $html);
+        // The datalist the intitulé field reads still reaches it.
+        $this->assertStringContainsString('list="compliance-suggestions"', $html);
     }
 }

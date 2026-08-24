@@ -251,11 +251,7 @@ final class UxConventionsTest extends TestCase
      *
      * @var list<string> parent labels accepted besides MenuBuilder's
      */
-    private const EXTRA_ALLOWED_PARENT_LABELS = [
-        // Dynamic entries contributed by modules (MenuEntryProvider).
-        'Locations',
-        'Mes locations',
-    ];
+    private const EXTRA_ALLOWED_PARENT_LABELS = [];
 
     /** Menu labels a `parents` entry can point at (MenuBuilder::MENUS). */
     private const MENU_LABELS = [

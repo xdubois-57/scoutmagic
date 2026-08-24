@@ -1,32 +1,34 @@
 {% extends 'base.html.twig' %}
 {% block title %}Camps — {{ site_name }}{% endblock %}
 {% block content %}
-    {% include 'partials/page_header.html.twig' with {
-        title: 'Camps',
-        subtitle: 'Réglages du module des lieux de camp et des séjours.',
-    } only %}
-
-    <form method="post" action="/config/camps">
-        {{ csrf_field() }}
-
-        {% include 'partials/form_field.html.twig' with {
-            field_id: 'camps-default-country',
-            field_name: 'camps_default_country',
-            label: 'Pays par défaut d\'un nouveau lieu',
-            value: default_country,
-            maxlength: 80,
-            help: 'Pré-rempli à la création d\'un lieu. Reste modifiable lieu par lieu.',
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Camps',
+            subtitle: 'Réglages du module des lieux de camp et des séjours.',
         } only %}
 
-        {% include 'partials/form_field.html.twig' with {
-            field_id: 'camps-past-stays-per-page',
-            field_name: 'camps_past_stays_per_page',
-            label: 'Séjours passés affichés par lieu',
-            type: 'number', min: 5, max: 100, step: 1,
-            value: past_stays_per_page,
-            help: 'Entre 5 et 100. Une valeur hors de ces bornes est ramenée à la plus proche.',
-        } only %}
+        <form method="post" action="/config/camps">
+            {{ csrf_field() }}
 
-        <button type="submit" class="btn btn-primary">Enregistrer</button>
-    </form>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'camps-default-country',
+                field_name: 'camps_default_country',
+                label: 'Pays par défaut d\'un nouveau lieu',
+                value: default_country,
+                maxlength: 80,
+                help: 'Pré-rempli à la création d\'un lieu. Reste modifiable lieu par lieu.',
+            } only %}
+
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'camps-past-stays-per-page',
+                field_name: 'camps_past_stays_per_page',
+                label: 'Séjours passés affichés par lieu',
+                type: 'number', min: 5, max: 100, step: 1,
+                value: past_stays_per_page,
+                help: 'Entre 5 et 100. Une valeur hors de ces bornes est ramenée à la plus proche.',
+            } only %}
+
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </form>
+    </div>
 {% endblock %}

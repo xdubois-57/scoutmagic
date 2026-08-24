@@ -14,7 +14,7 @@ attend. Il répond aux questions qu'on se pose avant de commencer.
   l'unité. Une page par bien, un calendrier de disponibilité, une
   estimation de prix, un formulaire de demande. Personne n'a besoin d'un
   compte.
-- **L'espace de gestion** (`Espace animés > Mes locations`) : les
+- **L'espace de gestion** (`Espace membres > Mes locations`) : les
   réservations, l'argent, les documents, le séjour — et les réglages du
   bien lui-même : règles de réservation, tarif, acompte et caution.
   Réservé aux gestionnaires du bien.

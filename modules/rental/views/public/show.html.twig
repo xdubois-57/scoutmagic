@@ -42,12 +42,12 @@
                page's primary: the visitor-facing estimate/request flow
                keeps the one btn-primary of this screen. #}
             <p class="mb-3">
-                <a href="/mes-locations/{{ asset.slug }}" class="btn btn-outline-primary">Gérer ce bien</a>
+                <a href="/mes-locations/{{ asset.slug }}" class="btn btn-outline-secondary">Gérer ce bien</a>
             </p>
         {% endif %}
 
         {% if not asset.isPubliclyVisible %}
-            <div class="alert alert-warning">
+            <div class="alert alert-warning" role="status">
                 Ce bien n'est pas visible publiquement. Vous le voyez parce que vous le gérez.
             </div>
         {% endif %}

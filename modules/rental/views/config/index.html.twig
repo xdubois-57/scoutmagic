@@ -55,7 +55,7 @@
 
         {% if selected_asset %}
             {% if selected_asset.isArchived %}
-                <div class="alert alert-warning">
+                <div class="alert alert-warning" role="status">
                     Ce bien est archivé : il n'apparaît plus publiquement et n'accepte plus de nouvelle
                     réservation. Ses gestionnaires y gardent accès pour clôturer l'historique.
                 </div>
@@ -65,7 +65,7 @@
                 {# The setup gap a visitor meets first: public, but priced by
                    nobody. Every estimate answers « Tarif sur demande » until
                    somebody fills the tariff in the asset's own managed space. #}
-                <div class="alert alert-warning">
+                <div class="alert alert-warning" role="status">
                     <strong>Ce bien est visible publiquement mais n'a encore aucun tarif.</strong>
                     Les visiteurs voient « Tarif sur demande » à la place d'une estimation. Le tarif
                     se règle par ses gestionnaires (ou par vous) dans
@@ -75,20 +75,80 @@
             {% endif %}
 
             {# ── Section: général ─────────────────────────────────────── #}
-            <div class="card mb-4">
+            {#
+              A READ card and a dialog rather than a form standing open
+              (design.md §1.9): this page carried five `btn-primary` at
+              once, which is five ways of saying « the main action is
+              here ». Creating a bien stays the one primary of the screen,
+              because §7.4 makes a creation action primary; every edit
+              lives in a dialog and holds the only primary on screen while
+              it is open.
+            #}
+            <div class="card mb-4" id="general">
                 <div class="card-body">
-                    <h2 class="h5 mb-3">Général</h2>
-                    <form method="post" action="/admin/locations/general">
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                        <h2 class="h5 mb-0">Général</h2>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                data-bs-toggle="modal" data-bs-target="#general-edit">
+                            <i class="bi bi-pencil" aria-hidden="true"></i>
+                            Modifier
+                        </button>
+                    </div>
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Nom</dt>
+                        <dd class="col-sm-8">{{ selected_asset.name }}</dd>
+                        <dt class="col-sm-4">Type</dt>
+                        <dd class="col-sm-8">{{ selected_asset.assetType }}</dd>
+                        <dt class="col-sm-4">Capacité</dt>
+                        <dd class="col-sm-8">{{ selected_asset.capacity ?? '—' }}</dd>
+                        <dt class="col-sm-4">Exemplaires</dt>
+                        <dd class="col-sm-8">{{ selected_asset.quantity }}</dd>
+                        <dt class="col-sm-4">Horaires</dt>
+                        <dd class="col-sm-8">
+                            {% if selected_asset.arrivalTime or selected_asset.departureTime %}
+                                arrivée {{ selected_asset.arrivalTime ?? '—' }} ·
+                                départ {{ selected_asset.departureTime ?? '—' }}
+                            {% else %}
+                                Non précisés
+                            {% endif %}
+                        </dd>
+                        <dt class="col-sm-4">Numéro d'urgence</dt>
+                        <dd class="col-sm-8">{{ selected_asset.emergencyPhone ?? '—' }}</dd>
+                        <dt class="col-sm-4">Visibilité</dt>
+                        <dd class="col-sm-8 mb-0">
+                            {{ selected_asset.isPublic
+                                ? 'Visible sur le site public'
+                                : 'Non publié — visible seulement de ses gestionnaires' }}
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+
+            {% embed 'partials/modal.html.twig' with {
+                id: 'general-edit',
+                title: 'Modifier le bien',
+                section_editor: true,
+                size: 'lg',
+                selected_asset: selected_asset,
+                type_suggestions: type_suggestions,
+            } only %}
+                {% block body %}
+                    <form method="post" action="/admin/locations/general" id="asset-general-form">
                         {{ csrf_field()|raw }}
                         <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
                         {% include '@rental/config/_asset_fields.html.twig' with {
                             asset: selected_asset,
                             type_suggestions: type_suggestions,
                         } %}
-                        <button type="submit" class="btn btn-primary">Enregistrer le général</button>
                     </form>
-                </div>
-            </div>
+                {% endblock %}
+                {% block footer %}
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <button type="submit" form="asset-general-form" class="btn btn-primary">
+                        Enregistrer le général
+                    </button>
+                {% endblock %}
+            {% endembed %}
 
             {# ── Section: gestionnaires ───────────────────────────────── #}
             {#
@@ -104,9 +164,16 @@
               comments, so an analyser reading the rendered-source text would
               take one for a real unlabelled control.
             #}
-            <div class="card mb-4">
+            <div class="card mb-4" id="gestionnaires">
                 <div class="card-body">
-                    <h2 class="h5 mb-1">Gestionnaires</h2>
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+                        <h2 class="h5 mb-0">Gestionnaires</h2>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                data-bs-toggle="modal" data-bs-target="#gestionnaires-edit">
+                            <i class="bi bi-pencil" aria-hidden="true"></i>
+                            Modifier
+                        </button>
+                    </div>
                     <p class="text-body-secondary small mb-3">
                         Les gestionnaires exploitent le bien au quotidien : les demandes, l'argent, les
                         documents, le séjour, et les réglages du bien (règles, tarif, acompte). Ce ne sont
@@ -114,6 +181,43 @@
                         Staff d'U est gestionnaire de tous les biens sans devoir être ajouté ici.
                     </p>
 
+                    {% if managers is empty %}
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucun gestionnaire désigné. Seul le Staff d\'U gère ce bien.',
+                            compact: true,
+                        } only %}
+                    {% else %}
+                        <ul class="list-group mb-0">
+                            {% for row in managers %}
+                                <li class="list-group-item d-flex flex-wrap align-items-center gap-2">
+                                    <span class="me-auto">{{ row.display_name }}</span>
+                                    {% if not row.manager.isActive %}
+                                        <span class="badge text-bg-warning">Désactivé</span>
+                                    {% endif %}
+                                    {% if row.manager.isRenterContact %}
+                                        <span class="badge bg-body-tertiary border text-body-secondary">
+                                            Contact du locataire
+                                        </span>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% embed 'partials/modal.html.twig' with {
+                id: 'gestionnaires-edit',
+                title: 'Gestionnaires du bien',
+                section_editor: true,
+                size: 'lg',
+                scrollable: true,
+                selected_asset: selected_asset,
+                managers: managers,
+                candidates: candidates,
+                manager_minimum_age: manager_minimum_age,
+            } only %}
+                {% block body %}
                     {% set inactive_managers = [] %}
                     {% set current_ids = [] %}
                     {% for row in managers %}
@@ -123,7 +227,7 @@
                         {% endif %}
                     {% endfor %}
                     {% if inactive_managers is not empty %}
-                        <div class="alert alert-warning small">
+                        <div class="alert alert-warning small" role="status">
                             {{ inactive_managers|length }} gestionnaire(s) n'apparaissent plus dans le
                             dernier import Desk et sont donc désactivés. Leur accès est suspendu, mais
                             l'attribution est conservée : elle se réactive d'elle-même s'ils
@@ -243,11 +347,16 @@
                                 locataire sur sa page de suivi et dans l'email d'informations pratiques. Cela
                                 ne les rend jamais publiques.
                             </p>
-                            <button type="submit" class="btn btn-primary">Enregistrer les gestionnaires</button>
                         {% endif %}
                     </form>
-                </div>
-            </div>
+                {% endblock %}
+                {% block footer %}
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <button type="submit" form="rental-managers-form" class="btn btn-primary">
+                        Enregistrer les gestionnaires
+                    </button>
+                {% endblock %}
+            {% endembed %}
 
             {# ── Section: compte des paiements ────────────────────────── #}
             {#
@@ -261,7 +370,16 @@
             #}
             <div class="card mb-4" id="compte">
                 <div class="card-body">
-                    <h2 class="h5 mb-1">Compte des paiements</h2>
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+                        <h2 class="h5 mb-0">Compte des paiements</h2>
+                        {% if finance_available %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    data-bs-toggle="modal" data-bs-target="#compte-edit">
+                                <i class="bi bi-pencil" aria-hidden="true"></i>
+                                Modifier
+                            </button>
+                        {% endif %}
+                    </div>
 
                     {% if not finance_available %}
                         <p class="text-body-secondary small mb-0">
@@ -277,29 +395,69 @@
                             — ils ne voient jamais cette liste, qui porte les IBAN de l'unité.
                         </p>
 
-                        <form method="post" action="/admin/locations/compte">
-                            {{ csrf_field()|raw }}
-                            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
-                            <div class="mb-3" style="max-width: 32rem;">
-                                <label class="form-label" for="finance-account">Compte</label>
-                                <select class="form-select" id="finance-account" name="finance_account_id">
-                                    <option value="">—</option>
-                                    {% for account in finance_accounts %}
-                                        <option value="{{ account.id }}"
-                                                {{ payment_settings.financeAccountId == account.id ? 'selected' : '' }}>
-                                            {{ account.name }}{% if account.iban %} ({{ account.iban }}){% endif %}
-                                        </option>
-                                    {% endfor %}
-                                </select>
-                                <div class="form-text">
-                                    Sans IBAN sur ce compte, aucun QR code SEPA ne peut être proposé au locataire.
-                                </div>
-                            </div>
-                            <button type="submit" class="btn btn-primary">Enregistrer le compte</button>
-                        </form>
+                        {# The account's name, never its IBAN: this card is a
+                           statement of which account is in force, and a page
+                           that prints an IBAN in passing is a page somebody
+                           screenshots. #}
+                        <p class="mb-0">
+                            {% set pinned = null %}
+                            {% for account in finance_accounts %}
+                                {% if payment_settings.financeAccountId == account.id %}
+                                    {% set pinned = account %}
+                                {% endif %}
+                            {% endfor %}
+                            {% if pinned %}
+                                {{ pinned.name }}
+                                {% if not pinned.iban %}
+                                    <span class="form-text d-block">
+                                        Sans IBAN sur ce compte, aucun QR code SEPA ne peut être proposé
+                                        au locataire.
+                                    </span>
+                                {% endif %}
+                            {% else %}
+                                <span class="fst-italic text-body-secondary">Aucun compte associé.</span>
+                            {% endif %}
+                        </p>
                     {% endif %}
                 </div>
             </div>
+
+            {% if finance_available %}
+                {% embed 'partials/modal.html.twig' with {
+                    id: 'compte-edit',
+                    title: 'Compte des paiements',
+                    section_editor: true,
+                    selected_asset: selected_asset,
+                    finance_accounts: finance_accounts,
+                    payment_settings: payment_settings,
+                } only %}
+                    {% block body %}
+                        <form method="post" action="/admin/locations/compte" id="finance-account-form">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
+                            <label class="form-label" for="finance-account">Compte</label>
+                            <select class="form-select" id="finance-account" name="finance_account_id">
+                                <option value="">—</option>
+                                {% for account in finance_accounts %}
+                                    <option value="{{ account.id }}"
+                                            {{ payment_settings.financeAccountId == account.id ? 'selected' : '' }}>
+                                        {{ account.name }}{% if account.iban %} ({{ account.iban }}){% endif %}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">
+                                Sans IBAN sur ce compte, aucun QR code SEPA ne peut être proposé au locataire.
+                            </div>
+                        </form>
+                    {% endblock %}
+                    {% block footer %}
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                        <button type="submit" form="finance-account-form" class="btn btn-primary">
+                            Enregistrer le compte
+                        </button>
+                    {% endblock %}
+                {% endembed %}
+            {% endif %}
 
             {# ── Section: cycle de vie ────────────────────────────────── #}
             <div class="card mb-4">
@@ -314,13 +472,14 @@
                             <form method="post" action="/admin/locations/restore">
                                 {{ csrf_field()|raw }}
                                 <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
-                                <button type="submit" class="btn btn-outline-success">Désarchiver</button>
+                                <button type="submit" class="btn btn-outline-secondary">Désarchiver</button>
                             </form>
                         {% else %}
-                            <form method="post" action="/admin/locations/archive">
+                            <form method="post" action="/admin/locations/archive"
+                                  data-confirm="Archiver « {{ selected_asset.name }} » ? Le bien disparaît de la page publique et des écrans courants, et n'accepte plus de demande. Rien n'est supprimé.">
                                 {{ csrf_field()|raw }}
                                 <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
-                                <button type="submit" class="btn btn-outline-warning">Archiver</button>
+                                <button type="submit" class="btn btn-outline-secondary">Archiver</button>
                             </form>
                         {% endif %}
                         <form method="post" action="/admin/locations/delete"
@@ -336,7 +495,7 @@
 
         {# ── Rappels automatiques (§6.29) ─────────────────────────────── #}
         {% if not cron_detected %}
-            <div class="alert alert-warning">
+            <div class="alert alert-warning" role="status">
                 <strong>Aucune tâche planifiée réelle n'a été détectée.</strong>
                 Les rappels automatiques (acompte non reçu, état des lieux à faire,
                 document de conformité expirant, informations pratiques au locataire…)
@@ -350,7 +509,16 @@
         {# ── Section: courrier entrant (§7.4) ─────────────────────────── #}
         <div class="card mb-4" id="courrier">
             <div class="card-body">
-                <h2 class="h5 mb-3">Courrier entrant</h2>
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                    <h2 class="h5 mb-0">Courrier entrant</h2>
+                    {% if inbound_mail_available and inbound_mailboxes is not empty %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                data-bs-toggle="modal" data-bs-target="#courrier-edit">
+                            <i class="bi bi-pencil" aria-hidden="true"></i>
+                            Modifier
+                        </button>
+                    {% endif %}
+                </div>
 
                 {% if not inbound_mail_available %}
                     <p class="text-body-secondary small mb-0">
@@ -373,8 +541,42 @@
                         <strong>Ne rien cocher revient à surveiller toutes les boîtes.</strong>
                     </p>
 
-                    <form method="post" action="/admin/locations/courrier">
+                    <ul class="list-group">
+                        {% for mailbox_id, mailbox in inbound_mailboxes %}
+                            <li class="list-group-item d-flex flex-wrap align-items-center gap-2">
+                                {# Name and state only: the host, the port and the account
+                                   stay on the superadmin page (§7.4). #}
+                                <span class="me-auto">
+                                    {{ mailbox.name }}
+                                    <span class="form-text">
+                                        — {{ mailbox.state }}{% if not mailbox.is_enabled %}, désactivée{% endif %}
+                                    </span>
+                                </span>
+                                {% if selected_mailbox_ids is empty or mailbox_id in selected_mailbox_ids %}
+                                    <span class="badge bg-body-tertiary border text-body-secondary">Surveillée</span>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if inbound_mail_available and inbound_mailboxes is not empty %}
+            {% embed 'partials/modal.html.twig' with {
+                id: 'courrier-edit',
+                title: 'Boîtes surveillées',
+                section_editor: true,
+                inbound_mailboxes: inbound_mailboxes,
+                selected_mailbox_ids: selected_mailbox_ids,
+            } only %}
+                {% block body %}
+                    <form method="post" action="/admin/locations/courrier" id="rental-mailboxes-form">
                         {{ csrf_field()|raw }}
+
+                        <p class="text-body-secondary small">
+                            <strong>Ne rien cocher revient à surveiller toutes les boîtes.</strong>
+                        </p>
 
                         {% for mailbox_id, mailbox in inbound_mailboxes %}
                             <div class="form-check">
@@ -384,22 +586,22 @@
                                        {{ mailbox_id in selected_mailbox_ids ? 'checked' : '' }}>
                                 <label class="form-check-label" for="mailbox-{{ mailbox_id }}">
                                     {{ mailbox.name }}
-                                    {# Name and state only: the host, the port and the account
-                                       stay on the superadmin page (§7.4). #}
                                     <span class="form-text">
                                         — {{ mailbox.state }}{% if not mailbox.is_enabled %}, désactivée{% endif %}
                                     </span>
                                 </label>
                             </div>
                         {% endfor %}
-
-                        <button type="submit" class="btn btn-primary mt-3">
-                            Enregistrer les boîtes surveillées
-                        </button>
                     </form>
-                {% endif %}
-            </div>
-        </div>
+                {% endblock %}
+                {% block footer %}
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <button type="submit" form="rental-mailboxes-form" class="btn btn-primary">
+                        Enregistrer les boîtes surveillées
+                    </button>
+                {% endblock %}
+            {% endembed %}
+        {% endif %}
 
         {# ── Création ─────────────────────────────────────────────────── #}
         <div class="card">
@@ -434,4 +636,7 @@
        reading the rendered-source text would take one for a real
        unlabelled control. #}
     <script src="/assets/js/rental-managers.js"></script>
+    {# Focuses the first field of a « Modifier » dialog when it opens, and
+       opens the one a link names (design.md §1.9). #}
+    <script src="/assets/js/section-editor.js" defer></script>
 {% endblock %}

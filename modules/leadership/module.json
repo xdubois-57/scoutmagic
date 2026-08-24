@@ -12,6 +12,7 @@
       "menu": "espace_admin",
       "label": "Encadrement",
       "menu_icon": "bi-mortarboard",
+      "menu_group": "suivi",
       "role_min": "admin",
       "breadcrumb": { "label": "Encadrement", "parents": ["Espace chefs d'U"] }
     },

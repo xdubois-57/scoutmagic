@@ -14,7 +14,7 @@
     <div class="page-wide">
         {% include 'partials/page_header.html.twig' with {
             title: 'Séjour — ' ~ booking.reference,
-            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate ~ ' au ' ~ booking.departureDate,
+            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate|date_fr ~ ' au ' ~ booking.departureDate|date_fr,
         } only %}
 
         <div class="alert alert-secondary">
@@ -58,7 +58,7 @@
                             </div>
 
                             {% if consumption.warning %}
-                                <div class="alert alert-warning py-2 small mb-2">{{ consumption.warning }}</div>
+                                <div class="alert alert-warning py-2 small mb-2" role="status">{{ consumption.warning }}</div>
                             {% endif %}
 
                             <div class="row g-3">
@@ -92,7 +92,7 @@
                                                        name="photo" accept="image/*">
                                             </div>
                                             <div class="col-5">
-                                                <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
                                                     Enregistrer
                                                 </button>
                                             </div>
@@ -250,7 +250,7 @@
                                                    ? (incident.effectiveAmountCents / 100)|number_format(2, ',', '') : '' }}">
                                     </div>
                                     <div class="col-5 col-md-3">
-                                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Trancher</button>
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Trancher</button>
                                     </div>
                                 </form>
                             </li>
@@ -279,7 +279,7 @@
                                name="photo" accept="image/*">
                     </div>
                     <div class="col-12 col-md-2">
-                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
                     </div>
                 </form>
             </div>
@@ -355,7 +355,7 @@
                                name="final_persons" value="{{ final_persons }}">
                     </div>
                     <div class="col-6 col-md-4">
-                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
                             Enregistrer un décompte
                         </button>
                     </div>
@@ -385,7 +385,7 @@
                                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                         <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                         <input type="hidden" name="settlement_id" value="{{ settlement.id }}">
-                                        <button type="submit" class="btn btn-sm btn-outline-success">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary">
                                             Valider
                                         </button>
                                     </form>

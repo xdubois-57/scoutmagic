@@ -88,6 +88,7 @@ class ObligationsService
                         : 'Atteint ' . LeadershipRules::ADULT_AGE . ' ans dans ' . $days . ' jour' . ($days > 1 ? 's' : '') . '.',
                     severity: $days <= 7 ? 'warning' : 'normal',
                     days: $days,
+                    daysDirection: PersonLine::DAYS_UNTIL,
                 ),
             ];
         }

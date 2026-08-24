@@ -912,6 +912,74 @@ class RentalRbacTest extends TestCase
         $this->assertStringNotContainsString('Détail du prix simulé', $body);
     }
 
+    // ── Read cards, editing dialogs ─────────────────────────────────────
+
+    /**
+     * The settings screen shows what the tariff IS, and offers to change
+     * it (design.md §1.9).
+     *
+     * It used to be five forms standing open — five `btn-primary` on one
+     * page, five ways of saying « the main action is here », and a
+     * manager scrolling past six input grids to read one figure. Every
+     * block is a read card now; the forms are unchanged and live in
+     * dialogs, each holding the one primary on screen while it is open.
+     */
+    public function testTheSettingsPageReadsAsValuesAndOffersToChangeThem(): void
+    {
+        $assetId = $this->createAsset('Local', 'local');
+        $this->pricingServiceFor()->saveAssetPricing($assetId, 'per_night', 12550, null, null);
+        $this->loginAsManagerOf('local');
+
+        $body = (string) preg_replace('/\s+/', ' ', $this->dispatchSettings('local')->getBody());
+
+        // The current tariff, as text, in French money.
+        $this->assertStringContainsString('125,50 €', $body);
+
+        foreach (['#tarification-edit', '#regles-edit', '#grille-edit', '#periode-add', '#categorie-add', '#frais-add'] as $target) {
+            $this->assertStringContainsString('data-bs-target="' . $target . '"', $body, $target);
+        }
+
+        // The forms themselves are untouched: same action, same method,
+        // reachable from their dialog's footer.
+        foreach ([
+            'reglages/tarif' => 'pricing-form',
+            'reglages/regles' => 'constraints-form',
+            'reglages/grille' => 'grid-form',
+            'reglages/periode' => 'period-form',
+            'reglages/categorie' => 'category-form',
+            'reglages/frais' => 'fee-form',
+        ] as $action => $formId) {
+            $this->assertStringContainsString('action="/mes-locations/local/' . $action . '" id="' . $formId . '"', $body, $action);
+            $this->assertStringContainsString('form="' . $formId . '"', $body, $formId);
+        }
+
+        // And every dialog is one section-editor.js knows about.
+        $this->assertSame(6, substr_count($body, 'data-section-editor'), $body);
+    }
+
+    public function testTheSettingsPageShowsNoPrimaryOfItsOwn(): void
+    {
+        // Every primary on this screen belongs to a dialog. Only the
+        // simulator's « Calculer » sits in the page body, and it asks a
+        // question rather than saving a setting.
+        $this->createAsset('Local', 'local');
+        $this->loginAsManagerOf('local');
+
+        $body = (string) preg_replace('/\\s+/', ' ', $this->dispatchSettings('local')->getBody());
+        $pageBody = substr($body, 0, strpos($body, '<div class="modal fade"') ?: strlen($body));
+
+        // The nav's selected chip legitimately wears `btn-primary` — it is
+        // a state, not an action. What must not be there is a submit.
+        $this->assertDoesNotMatchRegularExpression(
+            '/<button[^>]*type="submit"[^>]*btn-primary/',
+            $pageBody
+        );
+        $this->assertMatchesRegularExpression(
+            '/<button[^>]*type="submit"[^>]*btn-primary/',
+            substr($body, strlen($pageBody))
+        );
+    }
+
     // ── The settings page and its write actions: per-asset, never a role ──
 
     public function testAManagerReachesTheSettingsPageOfTheirOwnAsset(): void
