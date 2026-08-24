@@ -1676,6 +1676,20 @@ Its first tool is the **mail sandbox**: outgoing mail is assembled by the real m
 
 **`captured_emails`**: `captured_at`, `subject`, `recipient` (`BLOB` + `recipient_blind_index`), `from_address`, `reply_to`, `size_bytes`, `has_dkim`, `attachment_count`, `mime_file_id`, `body_html_file_id`, `body_text_file_id`, `error_message`. `captured_email_attachments` carries one row per attachment plus its `file_id`. The recipient is personal data and is encrypted and decrypted **only** in `Repository\CapturedEmailRepository`; `from_address` and `reply_to` are organisational addresses and stay in clear (design.md §2.6). The subject is in clear too, which is a deliberate exception to SECURITY.md §5 — see there for the condition that makes it admissible.
 
+### 8.64 Contextual help (`Core\Help`, `/aide`)
+
+Product documentation shipped inside the release: one Markdown file per topic under `docs/help/` (core) or `modules/<id>/help/` (module), versioned with the code. No table, no setting, no unit-editable content — text a unit wants to customise is editable page content, never help. `docs/` is not excluded from the release artifact, and `scripts/release.sh` asserts `docs/help/` is present in the artifact listing (same shape as its `vendor/autoload.php` check) so a future exclusion cannot silently empty `/aide`.
+
+**A topic file** is front matter between two `---` lines plus a Markdown body. `Core\Help\HelpFrontMatterParser` is deliberately narrow (`key: value` per line, lists comma-separated — the same "no general parser for one well-defined need" posture as `Core\View\MarkdownRenderer`), and strict: a missing/unknown key, an id not matching the file name, an unknown `role_min` (via `Role::tryFrom()`, never `Role::fromString()`, whose silent downgrade-to-public would leak a chief topic) or an empty body all throw `Core\Help\HelpException` at load. `paths` declares the pages a topic covers — exact (`/admin/import`) or direct child (`/members/*`, the parent plus exactly one segment), the `exact`/`child` semantics of `Core\Offline\OfflineWhitelist` — so **the topic declares the pages it covers, never the route its topic**: adding help never touches code. `related` names other topics; an unknown id is ignored, an out-of-role one filtered at display.
+
+**Aggregation** (`Core\Help\HelpRegistry`) follows `OfflineWhitelist`/`NotificationRegistry`/`CookieRegistry`: core topics from `docs/help/`, module topics registered by `ModuleManager::loadModule()` from the module's `help/` directory (or `module.json`'s optional `help.dir` override — the section itself is optional, a module that just ships `help/` needs no manifest change). A disabled module's topics are never registered. An id collision anywhere is a load error, never a silent overwrite. Loading is lazy and reads **front matter only** — `HelpTopic::body()` reads a file's body the first time that topic is actually displayed, so the per-request "does a topic cover this page?" check stays a handful of sub-kilobyte reads. No cache; if the corpus ever passes ~100 topics, the planned escape hatch is a serialized index under `storage/core/help/` keyed on installed version + active module list — not built until then.
+
+**`Core\Help\HelpService` is the single role filter.** Below its `role_min` a topic exists nowhere — panel, index, search, `related`, and direct `/aide/{id}` (404, never 403: a 403 would confirm existence). `findForPath()` orders exact matches before child matches, then by id, since several topics may cover one page (`/config/maintenance` has backups, updates and reset).
+
+**Surfaces.** `Core\Http\FrontController` sets the `route_help` Twig global after the RBAC guard, exactly like `route_breadcrumb` (and takes `HelpService` as an optional trailing constructor parameter for the same test-compatibility reason as `OfflineWhitelist`): the matching topics with their bodies already rendered, so the panel ships inside the page and works offline with zero fetches. The help button (`partials/help_button.html.twig`) sits at the right of the breadcrumb bar — which shows at every width since the mega-menu rework, so one placement covers mobile, desktop and PWA — and is **always** visible: with a matching topic it opens the offcanvas panel (`partials/help_panel.html.twig`, bottom sheet on mobile, right drawer at lg via `.help-offcanvas` in `app.css`; several topics land on a title list, `public/assets/js/help-panel.js` swaps between them in place); with none it links to `/aide`, which is also reachable from the mobile offcanvas footer. `/aide` (`Core\Http\Controller\HelpController`) is the index grouped by `category` with a `?q=` GET search (no cookie, no state); `/aide/{id}` renders one topic. Both routes are `role_min: public` with an empty-`parents` breadcrumb (the help belongs to no menu). `MarkdownRenderer::toHtml()` gained an options parameter whose defaults reproduce the historical output byte-for-byte (release notes, the `markdown` Twig filter): help passes `heading_base_level` 1 (`##` renders as the `<h2>` it reads as; a lone `#` is forbidden by the invariant tests — the `<h1>` is the topic title), `/assets/`-only images, and blockquote callouts. `/aide` (exact) and `/aide/` (child) are core `OfflineWhitelist` entries, `role_min: public`.
+
+**Invariants, pinned by `tests/Core/Help/HelpInvariantsTest`** (the `UxConventionsTest` scan-the-real-sources shape): every declared `paths` entry corresponds to a registered GET route (core + all modules — a typo would otherwise make a topic silently invisible on the page it documents), every id is unique across the whole corpus, every shipped file parses, and the mechanically checkable half of the editorial charter (design.md §7.11) holds: length, one warning callout at most, no external link but the federation's, no `#` heading. There is deliberately no journaling of help consultation, no database table, no wiki, no translation layer (locked decisions).
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
@@ -1791,6 +1805,15 @@ docs/
 tests/             Mirrors core/ and modules/ structure
   js/              Vitest specs for public/assets/js/ (§15)
   e2e/             Playwright end-to-end specs + playwright.config.js (§15)
+  fixtures/reference-dataset/
+                   Reproducible dataset for a test instance: three scout
+                    years of a fictional unit as committed Desk exports and
+                    BNP statements, a photo lot, a deterministic generator
+                    with a --check mode, and a CLI builder replaying all of
+                    it through the application's own services. Its own
+                    README.md is the manual; AGENTS.md § Reference dataset
+                    says when a change elsewhere obliges a check here. The
+                    one tests/ subdirectory listed in phpstan.neon's paths.
 
 .github/
   workflows/

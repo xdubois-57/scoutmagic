@@ -1,0 +1,35 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}{{ topic.title }} — {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-narrow">
+    {% include 'partials/page_header.html.twig' with {
+        title: topic.title,
+        subtitle: topic.summary
+    } only %}
+
+    {# content_html comes from Core\View\MarkdownRenderer with the shared
+       help rendering profile (HelpController::RENDER_OPTIONS) — already
+       escaped there, safe to print raw. .help-content scopes the heading
+       sizes (app.css): the Markdown's <h2>/<h3> must read as section
+       titles under this page's real <h1>, not compete with it. #}
+    <div class="help-content">{{ content_html|raw }}</div>
+
+    {% if related_topics is not empty %}
+        <section class="mt-4 pt-3 border-top">
+            <h2 class="h6 fw-semibold text-body-secondary">Voir aussi</h2>
+            <ul class="list-unstyled mb-0">
+                {% for related in related_topics %}
+                    <li class="py-1">
+                        <a href="/aide/{{ related.id }}" class="text-decoration-none">{{ related.title }}</a>
+                        <span class="small text-body-secondary d-block">{{ related.summary }}</span>
+                    </li>
+                {% endfor %}
+            </ul>
+        </section>
+    {% endif %}
+</div>
+{% endblock %}

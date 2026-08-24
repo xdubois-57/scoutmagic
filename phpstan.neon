@@ -8,6 +8,16 @@ parameters:
     - modules
     - public/index.php
     - public/cron.php
+    # tests/ is deliberately NOT analysed as a whole — this one directory
+    # is. The reference-dataset builder composes core and module services
+    # by hand, exactly like the composition roots above, and breaks the
+    # same way: a constructor signature changes, its call site here is
+    # missed, and nothing says so until somebody runs the build. That is
+    # the failure mode AGENTS.md § Static analysis was written about, and
+    # it is why this approach was chosen over a browser script. Keep the
+    # path this narrow: widening it to tests/ would pull in hundreds of
+    # test doubles and pressure the baseline.
+    - tests/fixtures/reference-dataset
   tmpDir: storage/temp/phpstan
   excludePaths:
     - modules/*/vendor/*

@@ -126,7 +126,14 @@
             {% endfor %}
         </div>
 
-        <div class="p-3 border-top mt-auto">
+        <div class="p-3 border-top mt-auto d-flex flex-column gap-2">
+            {# The help index, reachable from the menu itself — /aide
+               belongs to no menu (its breadcrumb has no parents), so this
+               footer entry and the breadcrumb bar's button are its two
+               doors (ARCHITECTURE.md §8.64). #}
+            <a href="/aide" class="btn btn-outline-secondary btn-sm w-100">
+                <i class="bi bi-question-circle me-1" aria-hidden="true"></i>Aide
+            </a>
             {% if is_authenticated %}
             <form method="post" action="/logout">
                 {{ csrf_field()|raw }}

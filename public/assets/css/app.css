@@ -631,3 +631,60 @@ body:has(> #cookie-banner) {
     margin-bottom: 0.25rem;
     border-bottom: 1px solid var(--bs-border-color);
 }
+
+/* Contextual help panel (partials/help_panel.html.twig, ARCHITECTURE.md
+   §8.64) — one offcanvas element, two placements: a bottom sheet below
+   lg (the chip picker's sheet precedent), a right-hand drawer at lg and
+   up. Bootstrap 5 has no responsive offcanvas placement of its own, so
+   the element keeps .offcanvas-bottom for its mobile default and this
+   block re-shapes it into an .offcanvas-end-alike on desktop — Bootstrap's
+   generic `.offcanvas.show { transform: none }` still lands it on screen
+   whichever initial transform applies. This duplicates no Bootstrap
+   component (AGENTS.md § CSS / frontend): it parameterizes one. */
+.help-offcanvas {
+    /* Bootstrap's --bs-offcanvas-height drives .offcanvas-bottom; the
+       default 30vh fits a toolbar, not a help text. */
+    --bs-offcanvas-height: 75vh;
+}
+@media (min-width: 992px) {
+    .help-offcanvas.offcanvas-bottom {
+        top: 0;
+        right: 0;
+        left: auto;
+        bottom: 0;
+        width: 420px;
+        max-width: 100%;
+        height: 100%;
+        max-height: none;
+        border-top: 0;
+        border-left: var(--bs-border-width) solid var(--bs-border-color-translucent);
+        transform: translateX(100%);
+    }
+}
+
+/* Help topic content — the Markdown body of a topic, rendered by
+   Core\View\MarkdownRenderer with heading_base_level 2 (the page's real
+   <h1> is the topic title). Scoped sizes keep those <h2>/<h3> reading as
+   section titles inside a narrow column or the panel, not competing with
+   the page header; semantic levels stay intact for assistive tech. */
+.help-content h2 {
+    font-size: 1.15rem;
+}
+.help-content h3 {
+    font-size: 1rem;
+}
+.help-content h4,
+.help-content h5,
+.help-content h6 {
+    font-size: 0.95rem;
+}
+/* The charter's single warning callout per topic (design.md §7.11) —
+   `> ` in the topic source, rendered as a <blockquote>. Theme-safe
+   colours only (design.md §7.8). */
+.help-content blockquote {
+    border-left: 4px solid var(--bs-warning);
+    background-color: var(--bs-warning-bg-subtle);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--bs-border-radius);
+    margin: 0.75rem 0;
+}
