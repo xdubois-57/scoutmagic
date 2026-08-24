@@ -3305,13 +3305,23 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     // comment at the registration itself: MessageConsumerRegistry is
     // first-claim-wins in registration order, and this consumer must come
     // last.
+    $campsMessageReader = new \Modules\Camps\Mail\MessageReader();
     $campsFieldCompletion = new \Modules\Camps\Mail\MailFieldCompletionService(
-        $campsCampRepo, $campsProposalRepo, $auditService, new \Modules\Camps\Mail\MessageReader()
+        $campsCampRepo, $campsProposalRepo, $auditService, $campsMessageReader
+    );
+    // `camps_auto_create_from_mail`: the SAME reading behind the automatic
+    // stay and behind « Créer un camp depuis ce message », so the two can
+    // never disagree about what a message says.
+    $campsStayFromMail = new \Modules\Camps\Mail\StayFromMailService(
+        $campsCampRepo, $campsCampService, $campsPlaceService,
+        $campsDuplicateDetector, $campsMessageReader, $settingService,
+        $inboundMailForOthers ?? null
     );
     $campsMailConsumer = isset($inboundMailForOthers)
         ? new \Modules\Camps\Mail\CampsMessageConsumer(
             $campsCampRepo, $pdo, $encryptionService, $settingService,
-            $inboundMailForOthers, $campsDocumentService, $campsFieldCompletion
+            $inboundMailForOthers, $campsDocumentService, $campsFieldCompletion,
+            $campsStayFromMail
         )
         : null;
 
@@ -3350,7 +3360,9 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
             $inboundMailForOthers ?? null, $campsProposalRepo, $campsSummaryService,
             // Only to suggest this year's staff in « Réservation faite par »
             // — the field stays free text when the resolver is absent.
-            $scoutYearResolver
+            $scoutYearResolver,
+            // And to pre-fill the form from an unsorted message.
+            $campsStayFromMail
         )
     );
     $frontController->registerController(

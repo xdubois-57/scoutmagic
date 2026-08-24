@@ -21,6 +21,8 @@ use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\Role;
 use Core\View\EditableContentService;
+use Modules\Camps\Mail\CampsMessageConsumer;
+use Modules\Camps\Mail\StayFromMailService;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Repository\Contact;
@@ -76,7 +78,13 @@ class CampsChiefController extends AbstractController
         private ?InboundMailInterface $inboundMail = null,
         private ?FieldProposalRepository $proposals = null,
         private ?PlaceSummaryService $summaries = null,
-        private ?ScoutYearResolver $scoutYears = null
+        private ?ScoutYearResolver $scoutYears = null,
+        /**
+         * Only « Créer un camp depuis ce message » needs it: the reading
+         * that pre-fills this form is the same one that would have created
+         * the stay by itself with `camps_auto_create_from_mail` on.
+         */
+        private ?StayFromMailService $stayFromMail = null
     ) {
     }
 
@@ -130,8 +138,59 @@ class CampsChiefController extends AbstractController
     public function create(Request $request, array $params): Response
     {
         $place = $this->places->findById((int) $request->getQuery('lieu', 0));
+        $submitted = $this->campFormValues(null, $place, '');
 
-        return $this->renderCampForm(null, $place, $this->campFormValues(null, $place, ''), []);
+        // « Créer un camp depuis ce message » — the unsorted screen's way
+        // out when nothing could be attributed automatically.
+        $messageId = (int) $request->getQuery('message', 0);
+        if ($messageId > 0) {
+            $submitted = $this->prefilledFromMessage($submitted, $messageId);
+            $place = $this->places->findById((int) $submitted['place_id']) ?? $place;
+        }
+
+        return $this->renderCampForm(null, $place, $submitted, []);
+    }
+
+    /**
+     * The stay form, filled in with what one unsorted message says.
+     *
+     * The reading comes from Mail\StayFromMailService — the same one that
+     * creates the stay by itself when the setting allows it, so a chief
+     * doing it by hand and the automatic path can never disagree about
+     * what a message states. Nothing is invented: a message the reader
+     * cannot make sense of simply leaves the form empty.
+     *
+     * @param array<string, mixed> $submitted
+     * @return array<string, mixed>
+     */
+    private function prefilledFromMessage(array $submitted, int $messageId): array
+    {
+        if ($this->inboundMail === null || $this->stayFromMail === null) {
+            return $submitted;
+        }
+
+        $message = $this->inboundMail->findOneForReference(
+            CampsMessageConsumer::CONSUMER_ID,
+            CampsMessageConsumer::UNSORTED_REFERENCE,
+            $messageId
+        );
+        if ($message === null) {
+            return $submitted;
+        }
+
+        $values = $this->stayFromMail->readValues($message);
+        $placeId = $this->stayFromMail->matchExistingPlaceId($values['place_name']);
+
+        return array_merge($submitted, [
+            // A place the module already knows is SELECTED rather than
+            // described again — the whole point of the detector.
+            'place_id' => $placeId !== null ? (string) $placeId : '',
+            'place_name' => $placeId === null ? $values['place_name'] : '',
+            'start_date' => $values['start_date'],
+            'end_date' => $values['end_date'],
+            'price' => $values['price'],
+            'message_id' => (string) $messageId,
+        ]);
     }
 
     /**
@@ -187,6 +246,7 @@ class CampsChiefController extends AbstractController
                 fn(array $ids): ?string => $this->sectionDescriber->describeAsText($ids)
             );
             $this->saveNote($campId, (string) $request->getBody('note', ''), null, $actorId);
+            $this->fileMessageUnder($campId, (int) $request->getBody('message_id', 0));
         } catch (CampsException $e) {
             // The form comes back with what was typed in it. A redirect to
             // an empty form threw away a place description, a set of
@@ -485,6 +545,10 @@ class CampsChiefController extends AbstractController
             'booked_by_name' => $camp !== null ? ($camp->bookedByName ?? '') : '',
             'section_ids' => array_map('strval', $camp !== null ? $camp->sectionIds : []),
             'note' => $note,
+            // The unsorted message this stay is being created from, when
+            // there is one — carried through the form so the message ends
+            // up filed under the stay it produced.
+            'message_id' => '',
         ];
     }
 
@@ -518,6 +582,7 @@ class CampsChiefController extends AbstractController
             'booked_by_name' => (string) $request->getBody('booked_by_name', ''),
             'section_ids' => is_array($sections) ? array_map('strval', $sections) : [],
             'note' => (string) $request->getBody('note', ''),
+            'message_id' => (string) $request->getBody('message_id', ''),
         ];
     }
 
@@ -810,6 +875,28 @@ class CampsChiefController extends AbstractController
     }
 
     /**
+     * Moves the unsorted message a stay was created from onto that stay.
+     *
+     * A plain move() between two references of this module's own consumer
+     * — the same one the « Rattacher » button uses. Without it, « Créer un
+     * camp depuis ce message » would leave the message sitting in the
+     * unsorted pile next to the stay it just produced.
+     */
+    private function fileMessageUnder(int $campId, int $messageId): void
+    {
+        if ($this->inboundMail === null || $messageId <= 0) {
+            return;
+        }
+
+        $this->inboundMail->move(
+            CampsMessageConsumer::CONSUMER_ID,
+            CampsMessageConsumer::UNSORTED_REFERENCE,
+            CampsMessageConsumer::referenceFor($campId),
+            $messageId
+        );
+    }
+
+    /**
      * The correspondence filed under this stay.
      *
      * A message could be attached to a stay — automatically, or by hand
@@ -826,8 +913,8 @@ class CampsChiefController extends AbstractController
         }
 
         return $this->inboundMail->findForReference(
-            \Modules\Camps\Mail\CampsMessageConsumer::CONSUMER_ID,
-            \Modules\Camps\Mail\CampsMessageConsumer::referenceFor($campId)
+            CampsMessageConsumer::CONSUMER_ID,
+            CampsMessageConsumer::referenceFor($campId)
         );
     }
 
@@ -844,8 +931,8 @@ class CampsChiefController extends AbstractController
         }
 
         return count($this->inboundMail->findForReference(
-            \Modules\Camps\Mail\CampsMessageConsumer::CONSUMER_ID,
-            \Modules\Camps\Mail\CampsMessageConsumer::UNSORTED_REFERENCE
+            CampsMessageConsumer::CONSUMER_ID,
+            CampsMessageConsumer::UNSORTED_REFERENCE
         ));
     }
 

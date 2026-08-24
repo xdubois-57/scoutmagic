@@ -21,6 +21,17 @@
         {{ csrf_field() }}
 
         {% if not camp %}
+            {% if submitted.message_id %}
+                {# Le message d'où viennent ces valeurs suit le séjour : il
+                   sera classé dessous dès l'enregistrement. #}
+                <input type="hidden" name="message_id" value="{{ submitted.message_id }}">
+                <div class="alert alert-info" role="status">
+                    <i class="bi bi-envelope" aria-hidden="true"></i>
+                    Champs pré-remplis à partir d'un message reçu. Vérifiez-les :
+                    le message sera classé sous ce séjour.
+                </div>
+            {% endif %}
+
             <h2 class="h6 text-uppercase text-body-secondary mb-3">Lieu</h2>
 
             {# One field, two outcomes: pick a known place, or leave it on

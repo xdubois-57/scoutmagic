@@ -75,7 +75,13 @@ class CampsMessageConsumer implements MessageConsumerInterface
         private SettingService $settings,
         private ?InboundMailInterface $inboundMail = null,
         private ?DocumentService $documents = null,
-        private ?MailFieldCompletionService $fieldCompletion = null
+        private ?MailFieldCompletionService $fieldCompletion = null,
+        /**
+         * `camps_auto_create_from_mail`. Null simply means a message
+         * nobody could attribute stays unsorted, which is what this module
+         * did before the setting had any code behind it.
+         */
+        private ?StayFromMailService $stayFromMail = null
     ) {
     }
 
@@ -152,7 +158,20 @@ class CampsMessageConsumer implements MessageConsumerInterface
     {
         $campId = self::campIdFromReference($message->businessReference);
         if ($campId === null) {
-            return;
+            // Unsorted, in a dedicated mailbox. When the setting allows it
+            // and the message states both its dates and a usable place, it
+            // becomes a stay right here and stops being unsorted; when it
+            // does not, it stays where it is and the screen offers the
+            // same reading as a pre-filled form.
+            if ($message->businessReference === self::UNSORTED_REFERENCE && $this->stayFromMail !== null) {
+                $created = $this->stayFromMail->createFrom($message);
+                if ($created !== null) {
+                    $campId = $created;
+                }
+            }
+            if ($campId === null) {
+                return;
+            }
         }
 
         // The reference names a stay; it does not prove one still exists.

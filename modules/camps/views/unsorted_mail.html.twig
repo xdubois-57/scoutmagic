@@ -81,6 +81,15 @@
                                 <button type="submit" class="btn btn-primary btn-sm">Rattacher</button>
                             </form>
 
+                            {# Le message ne correspond à aucun séjour connu :
+                               en créer un depuis ce qu'il dit, plutôt que de
+                               retaper des dates qu'on a sous les yeux. #}
+                            <a class="btn btn-outline-secondary btn-sm"
+                               href="/chefs/camps/nouveau?message={{ row.message.id }}">
+                                <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                                Créer un camp depuis ce message
+                            </a>
+
                             <form method="post" action="/chefs/camps/courrier/{{ row.message.id }}/supprimer"
                                   data-confirm="Supprimer définitivement ce message et ses pièces jointes ?">
                                 {{ csrf_field() }}
