@@ -31,6 +31,19 @@ interface GitHubReleaseClientInterface
     public function getReleaseByTag(string $tag): ?ReleaseInfo;
 
     /**
+     * Every published release, newest first (GET /repos/{owner}/{repo}/
+     * releases, drafts and prereleases filtered out). Needed by
+     * Core\Http\Controller\MaintenanceController::checkForUpdatesNow(),
+     * which can't answer "is there a major release between the installed
+     * version and the latest one?" from getLatestRelease() alone — see
+     * UpdateTargetSelector. Empty when the repo has no published release.
+     *
+     * @return array<int, ReleaseInfo>
+     * @throws UpdateException on a network/API error
+     */
+    public function listReleases(): array;
+
+    /**
      * Whether composer.lock is among the files changed between two tags
      * (GET /repos/{owner}/{repo}/compare/{base}...{head}).
      *

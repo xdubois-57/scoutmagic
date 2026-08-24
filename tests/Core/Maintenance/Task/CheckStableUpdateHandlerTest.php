@@ -89,6 +89,12 @@ class CheckStableUpdateHandlerTest extends TestCase
                 return null;
             }
 
+            /** @return array<int, ReleaseInfo> */
+            public function listReleases(): array
+            {
+                return $this->release !== null ? [$this->release] : [];
+            }
+
             public function composerLockChanged(string $base, string $head): bool
             {
                 return false;
@@ -157,6 +163,12 @@ class CheckStableUpdateHandlerTest extends TestCase
             public function getReleaseByTag(string $tag): ?ReleaseInfo
             {
                 return null;
+            }
+
+            /** @return array<int, ReleaseInfo> */
+            public function listReleases(): array
+            {
+                throw new \RuntimeException('GitHub unavailable');
             }
 
             public function composerLockChanged(string $base, string $head): bool

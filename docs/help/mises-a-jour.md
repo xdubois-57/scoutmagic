@@ -22,6 +22,21 @@ sauvegarde complète de sécurité ; pendant l'installation, les
 visiteurs voient une page « Mise à jour en cours » qui se rafraîchit
 d'elle-même.
 
+Ce bouton propose toujours la dernière version disponible, quel que
+soit le niveau choisi dans « Types de versions à installer » : ce
+réglage ne concerne que les installations automatiques, pas ce que
+vous décidez d'installer vous-même. Deux exceptions :
+
+- en mode « Développement », c'est le dernier état de la branche
+  surveillée qui est proposé, quel qu'il soit ;
+- si plusieurs versions **majeures** sont parues depuis la vôtre, le
+  site propose la première d'entre elles plutôt que la toute
+  dernière, et l'indique (« étape intermédiaire vers la version… »).
+  Les versions majeures s'installent ainsi une par une : chaque étape
+  a sa propre sauvegarde de sécurité et ses propres migrations de
+  données, contrôlées séparément. Relancez « Vérifier maintenant »
+  après chaque étape pour passer à la suivante.
+
 Si l'installation échoue, le site se restaure automatiquement depuis
 la sauvegarde de sécurité — l'historique du bas de bloc l'indique
 alors « Échouée — restaurée automatiquement ». L'installation

@@ -77,6 +77,12 @@ class GitHubWebhookServiceTest extends TestCase
                 return null;
             }
 
+            /** @return array<int, ReleaseInfo> */
+            public function listReleases(): array
+            {
+                return $this->latestRelease !== null ? [$this->latestRelease] : [];
+            }
+
             public function composerLockChanged(string $base, string $head): bool
             {
                 $this->lastCompareBase = $base;

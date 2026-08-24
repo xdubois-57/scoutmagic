@@ -20,17 +20,24 @@ namespace Core\Maintenance;
 final class VersionFile
 {
     private const FILENAME = 'VERSION';
-    private const FALLBACK = '0.0.0';
+    /**
+     * What read() reports when the VERSION file is missing or empty — an
+     * install whose version is genuinely unknown, not a site that really
+     * runs 0.0.0. Public because UpdateTargetSelector has to tell the two
+     * apart: it must not "step" from a major component that was never
+     * read from anywhere.
+     */
+    public const UNKNOWN = '0.0.0';
 
     public static function read(string $basePath): string
     {
         $path = $basePath . '/' . self::FILENAME;
         if (!is_file($path)) {
-            return self::FALLBACK;
+            return self::UNKNOWN;
         }
 
         $content = trim((string) file_get_contents($path));
-        return $content !== '' ? $content : self::FALLBACK;
+        return $content !== '' ? $content : self::UNKNOWN;
     }
 
     public static function write(string $basePath, string $version): void
