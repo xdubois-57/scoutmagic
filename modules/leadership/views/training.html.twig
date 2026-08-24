@@ -50,6 +50,7 @@
                 {% endif %}
                 {% include '@leadership/partials/_person_list.html.twig' with {
                     lines: to_convince,
+                    list_id: 'training-to-convince',
                     empty_message: 'Personne ne correspond à ces deux profils cette année.',
                 } only %}
             </div>
@@ -63,6 +64,7 @@
                 </p>
                 {% include '@leadership/partials/_person_list.html.twig' with {
                     lines: to_finish,
+                    list_id: 'training-to-finish',
                     empty_message: "Aucun parcours en cours parmi les animateurs de cette année.",
                 } only %}
             </div>
@@ -243,4 +245,5 @@
 
 {% block scripts %}
 <script src="/assets/js/rich-text-field.js" defer></script>
+<script src="/assets/js/leadership-copy-emails.js" defer></script>
 {% endblock %}

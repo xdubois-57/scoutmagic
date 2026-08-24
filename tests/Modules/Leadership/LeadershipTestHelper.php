@@ -47,6 +47,7 @@ final class LeadershipTestHelper
             'lastName' => 'Dupont',
             'totem' => null,
             'birthDate' => null,
+            'email' => null,
             'scoutYearOffset' => 0,
             'formationLevel' => null,
             'functionLabel' => 'Animateur',
@@ -57,7 +58,7 @@ final class LeadershipTestHelper
             'functionStartDate' => null,
         ];
 
-        /** @var array{memberId: int, memberYearId: int, memberFunctionId: int, firstName: string, lastName: string, totem: ?string, birthDate: ?string, scoutYearOffset: int, formationLevel: ?string, functionLabel: string, functionRole: string, isMainFunction: bool, sectionId: ?int, sectionName: ?string, functionStartDate: ?string} $values */
+        /** @var array{memberId: int, memberYearId: int, memberFunctionId: int, firstName: string, lastName: string, totem: ?string, birthDate: ?string, email: ?string, scoutYearOffset: int, formationLevel: ?string, functionLabel: string, functionRole: string, isMainFunction: bool, sectionId: ?int, sectionName: ?string, functionStartDate: ?string} $values */
         $values = array_merge($defaults, $overrides);
 
         return new StaffFunctionRow(
@@ -68,6 +69,7 @@ final class LeadershipTestHelper
             lastName: $values['lastName'],
             totem: $values['totem'],
             birthDate: $values['birthDate'],
+            email: $values['email'],
             scoutYearOffset: $values['scoutYearOffset'],
             formationLevel: $values['formationLevel'],
             functionLabel: $values['functionLabel'],

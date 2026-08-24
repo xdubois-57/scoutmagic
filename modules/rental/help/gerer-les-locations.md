@@ -24,6 +24,13 @@ ajouter un mot. Poser une **option** bloque les dates jusqu'à une
 échéance : dépassée, la réservation expire et libère les dates toute
 seule.
 
+Le **lien de suivi** du locataire n'est affiché nulle part, pas même
+pour vous : le posséder suffit pour ouvrir le dossier. Il ne se
+retrouve donc pas, il se remplace — « Régénérer le lien de suivi », sur
+la fiche du locataire, en envoie un nouveau par email et désactive
+l'ancien sur-le-champ. C'est la réponse à un lien perdu comme à un lien
+transmis à la mauvaise personne.
+
 ## Le prix et les paiements
 
 L'estimation faite par le visiteur reste figée ; le prix **convenu**

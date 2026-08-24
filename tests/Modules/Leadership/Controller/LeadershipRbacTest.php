@@ -224,6 +224,66 @@ class LeadershipRbacTest extends TestCase
         $this->assertStringNotContainsString('CQA ou extrait', $body);
     }
 
+    // --- The lists can be acted on --------------------------------------
+
+    /**
+     * These pages answer « à qui dois-je parler », and answered it with a
+     * list of names and no way to reach any of them: a chef d'unité read
+     * sixteen names here and then looked each one up in Desk.
+     */
+    public function testEveryNameLinksToThatPersonsFiche(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $this->seedCandidateAndSteward();
+
+        $body = $this->frontController('/admin/leadership/obligations', 'LeadershipController', 'obligations')
+            ->handle(new Request('GET', '/admin/leadership/obligations', [], [], [], []))
+            ->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '#<a href="/members/\d+">Prénom1 Nom1</a>#',
+            (string) preg_replace('/\s+/', ' ', $body)
+        );
+    }
+
+    public function testAnAddressDeskHoldsBecomesAMailtoAndCanBeCopied(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $this->seedCandidateAndSteward();
+
+        $body = (string) preg_replace(
+            '/\s+/',
+            ' ',
+            $this->frontController('/admin/leadership/obligations', 'LeadershipController', 'obligations')
+                ->handle(new Request('GET', '/admin/leadership/obligations', [], [], [], []))
+                ->getBody()
+        );
+
+        $this->assertStringContainsString('mailto:candidat@example.org', $body);
+        $this->assertStringContainsString('data-email="candidat@example.org"', $body);
+        $this->assertStringContainsString('data-copy-emails="obligations-candidates"', $body);
+    }
+
+    public function testTheListSaysHowManyPeopleItCannotReach(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $this->seedCandidateAndSteward();
+
+        $body = (string) preg_replace(
+            '/\s+/',
+            ' ',
+            $this->frontController('/admin/leadership/stewards', 'LeadershipController', 'stewards')
+                ->handle(new Request('GET', '/admin/leadership/stewards', [], [], [], []))
+                ->getBody()
+        );
+
+        // Said out loud: a list of sixteen people written to twelve of them
+        // reads as sixteen people prevented, and nobody notices the four.
+        $this->assertStringContainsString('1 personne sans adresse dans Desk', $body);
+        // And with nothing to copy, the button is not offered at all.
+        $this->assertStringNotContainsString('data-copy-emails="stewards-registrations"', $body);
+    }
+
     // --- fixtures -------------------------------------------------------
 
     /**
@@ -248,14 +308,22 @@ class LeadershipRbacTest extends TestCase
 
         $birthDate = (new \DateTimeImmutable('today'))->modify('-17 years')->format('Y-m-d');
 
-        foreach ([[1, $candidateFunction, $birthDate], [2, $stewardFunction, null]] as [$index, $functionId, $birth]) {
+        // One of the two carries an address and the other does not, on
+        // purpose: that is what makes the « sans adresse dans Desk » count
+        // a real assertion rather than a branch nothing exercises.
+        $rows = [
+            [1, $candidateFunction, $birthDate, 'candidat@example.org'],
+            [2, $stewardFunction, null, null],
+        ];
+
+        foreach ($rows as [$index, $functionId, $birth, $email]) {
             $stmt = $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)');
             $stmt->execute(['D' . $index]);
             $memberId = (int) $this->pdo->lastInsertId();
 
             $stmt = $this->pdo->prepare(
-                'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted)
-                 VALUES (?, ?, ?, ?, ?)'
+                'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted, email_encrypted)
+                 VALUES (?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 $memberId,
@@ -263,6 +331,7 @@ class LeadershipRbacTest extends TestCase
                 $encryption->encrypt('Prénom' . $index, 'member_years.first_name'),
                 $encryption->encrypt('Nom' . $index, 'member_years.last_name'),
                 $birth === null ? null : $encryption->encrypt($birth, 'member_years.birth_date'),
+                $email === null ? null : $encryption->encrypt($email, 'member_years.email'),
             ]);
             $memberYearId = (int) $this->pdo->lastInsertId();
 

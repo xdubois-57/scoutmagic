@@ -48,6 +48,7 @@ use Modules\Rental\Service\RentalCommunicationService;
 use Modules\Rental\Service\RentalComplianceService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalBookingMailService;
+use Modules\Rental\Service\RentalBookingService;
 use Modules\Rental\Service\RentalDocumentService;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPaymentService;
@@ -176,7 +177,14 @@ class RentalManagementController extends AbstractController
          * it — the module always wires one.
          */
         private ?RentalComplianceService $complianceService = null,
-        private ?RentalStatisticsService $statisticsService = null
+        private ?RentalStatisticsService $statisticsService = null,
+        /**
+         * Only « Régénérer le lien de suivi » needs it — the service half
+         * of `RentalBookingRepository::regenerateTrackingToken()`, which is
+         * where the journal entry is written. Nullable so the controller
+         * stays constructible in the tests that do not reach that action.
+         */
+        private ?RentalBookingService $bookingService = null
     ) {
         parent::__construct($twig);
     }
@@ -701,6 +709,40 @@ class RentalManagementController extends AbstractController
             }
 
             FlashMessage::set('success', 'Message détaché.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/lien-suivi — mints a fresh tracking link and
+     * mails it to the renter (§8.52).
+     *
+     * Revocability is what makes a capability token acceptable at all, and
+     * until now nothing on any screen could exercise it: a renter who
+     * forwarded their link to the wrong person had no way back. The token
+     * itself never reaches the manager — regenerating it and sending it are
+     * one action for that reason, not two.
+     *
+     * @param array<string, string> $params
+     */
+    public function regenerateTrackingLink(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset): void {
+            if ($this->bookingService === null || $this->mailService === null) {
+                throw new RentalException("Le lien de suivi ne peut pas être régénéré ici.");
+            }
+
+            $token = $this->bookingService->regenerateTrackingToken($booking->id);
+            $sent = $this->mailService->sendTrackingLink($booking, $asset, $token);
+
+            // The old link is dead either way — a failed email must not be
+            // reported as though nothing had happened.
+            FlashMessage::set(
+                $sent ? 'success' : 'warning',
+                $sent
+                    ? 'Nouveau lien de suivi envoyé au locataire. L\'ancien ne fonctionne plus.'
+                    : "L'ancien lien ne fonctionne plus, mais l'email portant le nouveau n'a pas pu partir : "
+                        . 'régénérez-le à nouveau pour le renvoyer.'
+            );
         });
     }
 

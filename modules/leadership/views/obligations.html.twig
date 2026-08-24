@@ -17,6 +17,7 @@
                 </p>
                 {% include '@leadership/partials/_person_list.html.twig' with {
                     lines: birthdays,
+                    list_id: 'obligations-birthdays',
                     empty_message: 'Aucun anniversaire des ' ~ adult_age ~ ' ans dans les ' ~ alert_weeks ~ ' prochaines semaines.',
                 } only %}
                 {% if without_birth_date > 0 %}
@@ -48,6 +49,7 @@
                 </p>
                 {% include '@leadership/partials/_person_list.html.twig' with {
                     lines: candidates,
+                    list_id: 'obligations-candidates',
                     empty_message: 'Aucun candidat signalé par Desk au dernier import.',
                 } only %}
             </div>
@@ -60,4 +62,7 @@
             rules_verified_on: rules_verified_on,
         } only %}
     </div>
+{% endblock %}
+{% block scripts %}
+<script src="/assets/js/leadership-copy-emails.js" defer></script>
 {% endblock %}

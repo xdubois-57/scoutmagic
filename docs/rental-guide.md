@@ -117,8 +117,12 @@ cessent d'être proposées au public. Il n'existe pas d'interrupteur séparé.
 
 Le visiteur reçoit un accusé de réception avec **un lien personnel**. Ce
 lien est sa seule façon de revenir sur sa demande : il n'a pas de compte.
-Il est stocké chiffré, personne ne peut le relire — si le locataire le
-perd, vous en générez un nouveau, et l'ancien cesse de fonctionner.
+Il est stocké chiffré et n'est affiché nulle part : ni sur la fiche de la
+réservation, ni dans le journal, ni dans une notification. Si le locataire
+le perd — ou l'a transmis à quelqu'un qui ne devait pas le recevoir —
+« Régénérer le lien de suivi », sur la fiche de la réservation, en crée un
+nouveau et l'envoie au locataire par email. L'ancien cesse de fonctionner
+immédiatement.
 
 Les dates sont **bloquées** pendant un délai réglable, le temps que vous
 répondiez. Ce blocage qui expire **ne refuse rien** : la demande reste en
