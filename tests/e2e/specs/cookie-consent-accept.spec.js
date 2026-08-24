@@ -102,8 +102,12 @@ test('the preferences page grants a category and later takes its cookies back', 
     await expect(page.getByRole('heading', { level: 1, name: 'Préférences cookies' })).toBeVisible();
 
     // Strictly necessary is not a choice: no switch, a "Toujours actif"
-    // badge — the ePrivacy rule the page exists to embody.
-    await expect(page.getByText('Toujours actif')).toBeVisible();
+    // badge — the ePrivacy rule the page exists to embody. `exact` because
+    // the contextual help panel of this page says the same thing in prose —
+    // « Strictement nécessaires : toujours actifs, … » (docs/help/cookies.md)
+    // — and getByText's substring match is case-insensitive, so without it
+    // the locator resolves to the badge AND that sentence.
+    await expect(page.getByText('Toujours actif', { exact: true })).toBeVisible();
     await expect(page.locator('#cookie-necessary')).toHaveCount(0);
 
     // Grant functional only, through the real form.

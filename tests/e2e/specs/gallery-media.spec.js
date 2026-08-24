@@ -93,9 +93,14 @@ test('a chief uploads plain and chunked, reorders by drag, and a member browses 
     // slice/reassemble contract between chunked-upload.js and its PHP
     // consumer, exercised over the real wire.
     // ---------------------------------------------------------------
+    // Its own action budget: handing a 25 MB buffer to the browser goes
+    // over the CDP connection base64-encoded (~33 MB), which does not fit
+    // in the config's 10 s actionTimeout on a loaded machine — this spec
+    // failed here in a full run and passed on its own, which is the
+    // signature of a transfer budget, not of the page.
     await page.locator('#gallery-upload-input').setInputFiles([
         { name: 'panorama.png', mimeType: 'image/png', buffer: noisePngBuffer(2500, 2500) },
-    ]);
+    ], { timeout: 120_000 });
     await expect(items, 'the chunked upload must reassemble into a third media').toHaveCount(3, { timeout: 90_000 });
     await page.waitForLoadState('load');
 

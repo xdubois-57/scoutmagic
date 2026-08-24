@@ -63,7 +63,11 @@ test('every module the instance ships is active, and the site boots with all of 
         + 'in the run under test — see e2e_activate_all_modules()',
     ).toEqual([]);
 
-    await expect(page.getByText('Inactif')).toHaveCount(0);
+    // `exact` because the contextual help panel of this page glosses the
+    // switch — « Actif / Inactif : l'état de l'interrupteur »
+    // (docs/help/modules.md) — and that sentence would otherwise count as
+    // an "Inactif" of its own, whatever the switches say.
+    await expect(page.getByText('Inactif', { exact: true })).toHaveCount(0);
 
     // A module that is enabled but not loaded (an unmet requirement) would
     // silently contribute nothing, which is the same blind spot with a
