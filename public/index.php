@@ -3235,6 +3235,9 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     // (the photos). They must agree, and here they do — every chief of
     // the unit sees every stay.
     $fileOwnershipCheckers[] = new \Modules\Camps\Service\CampFileOwnershipChecker();
+
+    // Read back at the very end of this file, when the response exists.
+    $campsMapTileOrigin = \Modules\Camps\Service\MapTiles::ORIGIN;
     $galleryDelegatedAlbumAccessCheckers[] = new \Modules\Camps\Service\CampAlbumAccessChecker();
 
     // Who may read a camp's or a place's change history (Core\Audit,
@@ -4220,6 +4223,18 @@ if (isset($galleryStorageLocationRepo)) {
             $response->addImgSrcOrigin($s3OriginForCsp);
         }
     }
+}
+
+// The camps map draws OpenStreetMap tiles, which are <img> from another
+// origin — the CSP's img-src has to name it or every tile is blocked and
+// the map is a grey box. Read from a variable the module's own wiring
+// block set, exactly like the gallery's S3 origin just above, rather than
+// re-testing getEnabledModuleIds() here: this is the response-building
+// tail, and a module-enabled test at this point reads as a per-module
+// wiring block that arrives long after FileAccessGuard was built
+// (Tests\Core\File\FileOwnershipCheckerWiringTest).
+if (isset($campsMapTileOrigin)) {
+    $response->addImgSrcOrigin($campsMapTileOrigin);
 }
 
 \Core\Debug\RequestTimeline::mark('response_send_begin');

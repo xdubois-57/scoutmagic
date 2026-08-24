@@ -109,6 +109,8 @@ class CampsChiefController extends AbstractController
             'search_term' => $term,
             'archived' => $archived,
             'places' => $this->decoratePlaces($places),
+            'map_places' => $archived ? [] : $this->mapPlaces(),
+            'places_without_coordinates' => $archived ? 0 : $this->countWithoutCoordinates($places),
             'upcoming' => array_map(
                 fn(array $entry): array => $entry + ['place' => $placesById[$entry['camp']->placeId] ?? null],
                 $this->decorateCamps($upcoming)
@@ -414,7 +416,7 @@ class CampsChiefController extends AbstractController
      */
     private function placeFields(Request $request): array
     {
-        return [
+        $fields = [
             'name' => (string) $request->getBody('place_name', ''),
             'address' => (string) $request->getBody('address', ''),
             'postal_code' => (string) $request->getBody('postal_code', ''),
@@ -422,6 +424,20 @@ class CampsChiefController extends AbstractController
             'country' => (string) $request->getBody('country', ''),
             'website_url' => (string) $request->getBody('website_url', ''),
         ];
+
+        // Coordinates travel only when the submitted form actually
+        // carried them. Setting the keys unconditionally would mean the
+        // camp-creation form — which has no coordinate inputs — posts two
+        // empty values, and PlaceService would read that as "clear the
+        // point", wiping a pin a chief had placed by hand.
+        foreach (['latitude', 'longitude'] as $key) {
+            $value = $request->getBody($key);
+            if ($value !== null) {
+                $fields[$key] = (string) $value;
+            }
+        }
+
+        return $fields;
     }
 
     /**
@@ -489,6 +505,40 @@ class CampsChiefController extends AbstractController
             'price' => CampLabels::money($camp->priceCents),
             'sections' => $this->sectionDescriber->describe($camp->sectionIds),
         ];
+    }
+
+    /**
+     * The pins, as public/assets/js/camps-map.js wants them. Places
+     * only — a place camped on four times is one pin, not four.
+     *
+     * @return array<int, array{name: string, locality: string, lat: float, lng: float, url: string}>
+     */
+    private function mapPlaces(): array
+    {
+        $pins = [];
+        foreach ($this->places->findMappable() as $place) {
+            $pins[] = [
+                'name' => $place->name,
+                'locality' => $place->locality(),
+                'lat' => (float) $place->latitude,
+                'lng' => (float) $place->longitude,
+                'url' => '/chefs/camps/lieux/' . $place->id,
+            ];
+        }
+
+        return $pins;
+    }
+
+    /**
+     * How many live places the map cannot show. Said under the map rather
+     * than left implicit: a chief comparing a six-pin map against a
+     * twelve-place list would otherwise conclude the map is broken.
+     *
+     * @param Place[] $places
+     */
+    private function countWithoutCoordinates(array $places): int
+    {
+        return count(array_filter($places, static fn(Place $p): bool => !$p->hasCoordinates()));
     }
 
     /**

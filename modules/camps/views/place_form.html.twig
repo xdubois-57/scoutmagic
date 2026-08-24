@@ -41,6 +41,36 @@
             type: 'url', value: place.websiteUrl, placeholder: 'https://…', maxlength: 500,
         } only %}
 
+        <fieldset class="mb-3">
+            <legend class="form-label">Coordonnées</legend>
+            <p class="form-text mt-0">
+                {% if place.coordinatesAreManual %}
+                    Saisies à la main : le géocodage automatique ne touchera plus ce lieu.
+                {% elseif place.hasCoordinates() %}
+                    Trouvées automatiquement à partir de l'adresse. Corrigez-les si l'épingle
+                    n'est pas sur le bon pré — elles ne seront alors plus jamais retouchées.
+                {% else %}
+                    Cherchées automatiquement à partir de l'adresse. Vous pouvez aussi les
+                    saisir directement, ce qui est souvent le seul moyen pour un terrain
+                    sans adresse.
+                {% endif %}
+            </p>
+            <div class="row">
+                <div class="col-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'place-latitude', field_name: 'latitude', label: 'Latitude',
+                        value: place.latitude, inputmode: 'decimal', placeholder: '50.443210',
+                    } only %}
+                </div>
+                <div class="col-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'place-longitude', field_name: 'longitude', label: 'Longitude',
+                        value: place.longitude, inputmode: 'decimal', placeholder: '5.001234',
+                    } only %}
+                </div>
+            </div>
+        </fieldset>
+
         <button type="submit" class="btn btn-primary">Enregistrer</button>
     </form>
 {% endblock %}

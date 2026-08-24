@@ -1,5 +1,14 @@
 {% extends 'base.html.twig' %}
 {% block title %}Camps — {{ site_name }}{% endblock %}
+{% block stylesheets %}
+    {% if not archived %}
+        {# Leaflet is vendored under /assets/vendor/, like Bootstrap and
+           Chart.js: no npm, no build step, and above all no CDN — a CDN
+           would hand a third party the IP of every chief opening this
+           page, before they even asked for a map. #}
+        <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.css">
+    {% endif %}
+{% endblock %}
 {% block content %}
     {% include 'partials/page_header.html.twig' with {
         title: archived ? 'Lieux archivés' : 'Camps',
@@ -9,6 +18,44 @@
         action_label: archived ? '' : 'Nouveau camp',
         action_url: '/chefs/camps/nouveau',
     } only %}
+
+    {% if not archived %}
+        <div class="mb-3">
+            <button class="btn btn-outline-secondary camps-map-toggle" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#camps-map-panel"
+                    aria-expanded="false" aria-controls="camps-map-panel">
+                <i class="bi bi-map" aria-hidden="true"></i> Carte
+            </button>
+        </div>
+
+        {# Collapsed by default, and the map is BUILT on first open rather
+           than on page load: building it fetches tiles, which hands the
+           tile provider the IP of every chief who opens this list — even
+           the ones who never wanted a map. #}
+        <div class="collapse mb-4" id="camps-map-panel">
+            <div class="card">
+                <div id="camps-map" style="height: 20rem;"
+                     data-places="{{ map_places|json_encode }}"></div>
+                <div class="card-body camps-map-card">
+                    {% if map_places is empty %}
+                        <p class="small text-body-secondary mb-0">
+                            Aucun lieu n'a encore de coordonnées. Elles sont cherchées
+                            automatiquement à partir de l'adresse, et peuvent toujours être
+                            saisies à la main sur la fiche d'un lieu.
+                        </p>
+                    {% else %}
+                        <p class="small text-body-secondary mb-0">
+                            Touchez une épingle.
+                            {% if places_without_coordinates > 0 %}
+                                {{ places_without_coordinates }} lieu{{ places_without_coordinates > 1 ? 'x' : '' }}
+                                sans coordonnées n'apparai{{ places_without_coordinates > 1 ? 'ssent' : 't' }} pas ici.
+                            {% endif %}
+                        </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
 
     <form method="get" action="/chefs/camps" class="mb-4" role="search">
         {% if archived %}<input type="hidden" name="archives" value="1">{% endif %}
@@ -95,5 +142,11 @@
                 </div>
             {% endfor %}
         </div>
+    {% endif %}
+{% endblock %}
+{% block scripts %}
+    {% if not archived %}
+        <script src="/assets/vendor/leaflet/leaflet.js"></script>
+        <script src="/assets/js/camps-map.js"></script>
     {% endif %}
 {% endblock %}

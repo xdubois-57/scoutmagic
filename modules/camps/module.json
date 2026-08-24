@@ -2,7 +2,7 @@
   "id": "camps",
   "name": "Camps",
   "description": "Les lieux de camp de l'unité et les séjours qu'elle y a faits — passés et à venir : dates, sections, prix, contacts sur place, avis des staffs précédents. Un staff qui cherche un terrain lit ce que les staffs d'avant en ont pensé, au lieu de repartir de zéro.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -309,6 +309,13 @@
       "type": "number",
       "label": "Nombre de séjours passés affichés par lieu",
       "description": "Sur la fiche d'un lieu, nombre de séjours passés affichés avant de devoir en demander davantage."
+    },
+    {
+      "key": "camps_geocoding_enabled",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Géocoder automatiquement les lieux",
+      "description": "Cherche les coordonnées d'un lieu à partir de son adresse, via OpenStreetMap (Nominatim). Un lieu dont les coordonnées ont été saisies ou corrigées à la main n'est jamais retouché. Désactivez ce réglage pour n'envoyer aucune adresse à un service extérieur."
     }
   ],
   "notifications": [
@@ -329,6 +336,10 @@
     {
       "key": "review_reminder",
       "handler": "Modules\\Camps\\Task\\ReviewReminderHandler"
+    },
+    {
+      "key": "geocode_places",
+      "handler": "Modules\\Camps\\Task\\GeocodePlacesHandler"
     }
   ]
 }

@@ -38,10 +38,28 @@ CREATE TABLE IF NOT EXISTS camp_places (
     -- deleting a place would take its stays' history with it.
     is_archived BOOLEAN NOT NULL DEFAULT FALSE,
 
+    -- A point on a map. DECIMAL(9,6) is ~11 cm of precision, which is
+    -- more than a field needs and less than a float would silently lose.
+    latitude DECIMAL(9, 6) NULL,
+    longitude DECIMAL(9, 6) NULL,
+
+    -- Set the moment a chief types or corrects coordinates by hand, and
+    -- never cleared: automatic geocoding must not touch that place again.
+    -- A human who moved the pin onto the actual field knows something
+    -- Nominatim does not, and the whole feature is worthless if the next
+    -- task run puts it back on the village square.
+    coordinates_are_manual BOOLEAN NOT NULL DEFAULT FALSE,
+
+    -- When geocoding last ran for this place. Set even when the lookup
+    -- found nothing, so a place with no usable address is tried once and
+    -- then left alone instead of being retried on every task run for ever.
+    geocoded_at DATETIME NULL,
+
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
-    INDEX idx_camp_places_archived (is_archived, name)
+    INDEX idx_camp_places_archived (is_archived, name),
+    INDEX idx_camp_places_geocoding (coordinates_are_manual, geocoded_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 

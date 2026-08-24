@@ -22,6 +22,10 @@ class CampsTestHelper
             country TEXT NULL,
             website_url TEXT NULL,
             is_archived INTEGER NOT NULL DEFAULT 0,
+            latitude REAL NULL,
+            longitude REAL NULL,
+            coordinates_are_manual INTEGER NOT NULL DEFAULT 0,
+            geocoded_at TEXT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');

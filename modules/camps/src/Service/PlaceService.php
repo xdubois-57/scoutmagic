@@ -72,6 +72,13 @@ class PlaceService
 
         $this->places->update($place->id, $name, $address, $postalCode, $city, $country, $websiteUrl);
 
+        // Coordinates are their own decision, taken only when the form
+        // actually carried them: a chief editing an address must not
+        // silently wipe a pin somebody placed by hand.
+        if (array_key_exists('latitude', $fields) || array_key_exists('longitude', $fields)) {
+            $this->updateCoordinates($place, $fields, $source, $actorUserAccountId);
+        }
+
         // Recorded field by field rather than as one "lieu modifié": a
         // history is read to find out what a value used to be, which a
         // single line naming none of them cannot answer.
@@ -85,6 +92,68 @@ class PlaceService
             $actorUserAccountId
         );
         $this->recordChange($place->id, 'website', $place->websiteUrl, $websiteUrl, $source, $actorUserAccountId);
+    }
+
+    /**
+     * Coordinates typed by a human.
+     *
+     * Setting them marks the place manual FOR EVER: automatic geocoding
+     * never touches it again. Somebody who moved the pin onto the actual
+     * field knows something Nominatim does not, and the whole feature is
+     * worthless if the next task run puts it back on the village square.
+     *
+     * @param array<string, string|null> $fields
+     */
+    private function updateCoordinates(Place $place, array $fields, AuditSource $source, ?int $actorUserAccountId): void
+    {
+        $latitude = $this->cleanCoordinate($fields['latitude'] ?? null, -90.0, 90.0, 'latitude');
+        $longitude = $this->cleanCoordinate($fields['longitude'] ?? null, -180.0, 180.0, 'longitude');
+
+        if (($latitude === null) !== ($longitude === null)) {
+            throw new CampsException(
+                'Indiquez la latitude ET la longitude, ou laissez les deux vides — un point a besoin des deux.'
+            );
+        }
+
+        $before = $this->coordinateLine($place->latitude, $place->longitude);
+        $after = $this->coordinateLine($latitude, $longitude);
+        if ($before === $after) {
+            return;
+        }
+
+        $this->places->setManualCoordinates($place->id, $latitude, $longitude);
+        $this->audit->record(
+            self::ENTITY_TYPE, $place->id, 'coordinates', $before, $after, $source,
+            'Coordonnées saisies à la main — le géocodage automatique ne touchera plus ce lieu',
+            null, $actorUserAccountId
+        );
+    }
+
+    private function cleanCoordinate(?string $value, float $min, float $max, string $label): ?float
+    {
+        $value = $value !== null ? trim(str_replace(',', '.', $value)) : '';
+        if ($value === '') {
+            return null;
+        }
+        if (!is_numeric($value)) {
+            throw new CampsException("La {$label} doit être un nombre, par exemple 50.443210.");
+        }
+
+        $number = (float) $value;
+        if ($number < $min || $number > $max) {
+            throw new CampsException("La {$label} doit être comprise entre {$min} et {$max}.");
+        }
+
+        return $number;
+    }
+
+    private function coordinateLine(?float $latitude, ?float $longitude): ?string
+    {
+        if ($latitude === null || $longitude === null) {
+            return null;
+        }
+
+        return number_format($latitude, 6, '.', '') . ', ' . number_format($longitude, 6, '.', '');
     }
 
     /**

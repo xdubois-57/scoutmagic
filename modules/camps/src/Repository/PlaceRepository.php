@@ -143,6 +143,89 @@ class PlaceRepository
     }
 
     /**
+     * Every live place that has a point — what the map shows. Places
+     * without coordinates simply do not appear, and the map says so
+     * underneath rather than pretending the unit has never camped
+     * anywhere else.
+     *
+     * @return Place[]
+     */
+    public function findMappable(): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM camp_places
+              WHERE is_archived = 0 AND latitude IS NOT NULL AND longitude IS NOT NULL
+              ORDER BY name ASC'
+        );
+        $stmt->execute();
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * The next place worth geocoding: never one whose coordinates a human
+     * set or corrected, never one already tried, and oldest first so a
+     * backlog drains in a predictable order.
+     *
+     * Returns ONE, because that is how the one-request-per-second rule of
+     * Nominatim's usage policy is expressed in a scheduler that has no
+     * rate limiting of its own.
+     */
+    public function findNextToGeocode(): ?Place
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM camp_places
+              WHERE coordinates_are_manual = 0
+                AND geocoded_at IS NULL
+                AND is_archived = 0
+              ORDER BY id ASC
+              LIMIT 1'
+        );
+        $stmt->execute();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
+    public function countPendingGeocoding(): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM camp_places
+              WHERE coordinates_are_manual = 0 AND geocoded_at IS NULL AND is_archived = 0'
+        );
+        $stmt->execute();
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Records the RESULT of a geocoding attempt, including a failed one:
+     * geocoded_at is stamped either way, so a place whose address means
+     * nothing to Nominatim is tried once and then left alone instead of
+     * being retried on every run for ever.
+     */
+    public function recordGeocoding(int $id, ?float $latitude, ?float $longitude, \DateTimeImmutable $at): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE camp_places SET latitude = ?, longitude = ?, geocoded_at = ? WHERE id = ? AND coordinates_are_manual = 0'
+        );
+        $stmt->execute([$latitude, $longitude, $at->format('Y-m-d H:i:s'), $id]);
+    }
+
+    /**
+     * Coordinates a human typed. Sets coordinates_are_manual, which is
+     * never cleared — from here on, automatic geocoding leaves this place
+     * alone.
+     */
+    public function setManualCoordinates(int $id, ?float $latitude, ?float $longitude): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE camp_places SET latitude = ?, longitude = ?, coordinates_are_manual = 1, updated_at = ? WHERE id = ?'
+        );
+        $stmt->execute([$latitude, $longitude, date('Y-m-d H:i:s'), $id]);
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): Place
@@ -156,6 +239,10 @@ class PlaceRepository
             country: $this->nullableString($row['country']),
             websiteUrl: $this->nullableString($row['website_url']),
             isArchived: (bool) $row['is_archived'],
+            latitude: $row['latitude'] !== null ? (float) $row['latitude'] : null,
+            longitude: $row['longitude'] !== null ? (float) $row['longitude'] : null,
+            coordinatesAreManual: (bool) ($row['coordinates_are_manual'] ?? false),
+            geocodedAt: $this->nullableString($row['geocoded_at'] ?? null),
             createdAt: (string) $row['created_at'],
             updatedAt: (string) $row['updated_at'],
         );

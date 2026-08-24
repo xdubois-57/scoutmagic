@@ -1754,6 +1754,14 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **Recipients are the animators of the stay's own sections, for the scout year the stay ended in** — not the current staff: the people who were there are the people who know. No section set falls back to the unit's chiefs only, never to every animator: a broadcast because somebody left a field empty is how a notification becomes noise. A stay whose end date predates every scout year row tells nobody rather than guessing a year.
 
+**Coordinates: automatic, but a human always wins.** `coordinates_are_manual` is set the moment a chief types or corrects a point and is never cleared — automatic geocoding skips that place for ever. Somebody who moved the pin onto the actual field knows something a gazetteer does not, and the feature would be worthless if the next task run put it back on the village square. The rule holds at the SQL level too: `recordGeocoding()` carries `AND coordinates_are_manual = 0` in its WHERE clause, so even a direct call cannot overwrite a human's point.
+
+**One place per task run IS the rate limit.** Nominatim's usage policy allows one request per second and `Core\Scheduler` has no throttling, so the limit is expressed as the shape of `Task\GeocodePlacesHandler` — geocode one, re-schedule when more are pending — rather than as a sleep, which on this site would hold a page load open (the scheduler is driven by page loads). Same self-pacing as `AutoBackupHandler`. A failed lookup stamps `geocoded_at` anyway: without that, a place whose address means nothing to Nominatim is retried on every run for ever AND blocks the one-at-a-time queue behind it. Never called from a web request.
+
+**The map is collapsed by default and built on first open.** Building it fetches tiles, which hands the tile provider the IP of every chief who opens the camps list — including everyone who never wanted a map. Leaflet is vendored under `public/assets/vendor/leaflet/` (JS, CSS and the marker images its stylesheet references), never a CDN, for the same reason and by the same rule as Bootstrap and Chart.js.
+
+**The tile provider is named once** (`Service\MapTiles`) because three languages have to agree about it and none can check the others: the CSP built in PHP, the tile URL in JavaScript, and the subprocessor prose in `rgpd_default.html`. A mismatch gives a grey box with blocked requests in a console nobody opens — or an RGPD page naming the wrong company. `Tests\Modules\Camps\Service\MapTilesTest` is what keeps the three in step, and it also asserts the RGPD *prompt* tells the model to remove that subprocessor when the module is off.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

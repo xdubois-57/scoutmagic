@@ -24,9 +24,19 @@ class Place
         public readonly ?string $country,
         public readonly ?string $websiteUrl,
         public readonly bool $isArchived,
+        public readonly ?float $latitude,
+        public readonly ?float $longitude,
+        public readonly bool $coordinatesAreManual,
+        public readonly ?string $geocodedAt,
         public readonly string $createdAt,
         public readonly string $updatedAt
     ) {
+    }
+
+    /** Whether this place can appear on the map at all. */
+    public function hasCoordinates(): bool
+    {
+        return $this->latitude !== null && $this->longitude !== null;
     }
 
     /**
