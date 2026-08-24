@@ -409,13 +409,16 @@ body:has(> #cookie-banner) {
 .breadcrumb-bar .breadcrumb-item + .breadcrumb-item::before {
     padding-right: 0;
     float: none;
-    /* And a little air on its left. Bootstrap spaces the separator
-       symmetrically (0.5rem each side, from --bs-breadcrumb-item-padding-x),
-       but the glyph is not symmetric: "/" leans right, so its ink sits hard
-       against the crumb before it and drifts away from the one after. Four
-       pixels put back what the shape of the character takes away — the
-       spacing after it stays Bootstrap's, which is why this is a margin here
-       rather than a wider padding on the crumb. */
+    /* And a little air back on its left, reported from a phone once the
+       zeroing above shipped: with both of Bootstrap's paddings gone, the
+       crumb before the « / » touched it.
+
+       Four pixels, on this side only, because the glyph is not
+       symmetric — "/" leans right, so its ink sits hard against the word
+       before it and already carries a gap towards the one after. Giving
+       the space back on both sides would hand the rule above its thirty
+       pixels straight back; one side reads as separated for a quarter of
+       the cost. */
     margin-left: 0.25rem;
 }
 

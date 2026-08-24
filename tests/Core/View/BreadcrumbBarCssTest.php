@@ -97,14 +97,16 @@ class BreadcrumbBarCssTest extends TestCase
     }
 
     /**
-     * And a little air on the separator's left.
+     * And a little air back on the separator's left.
      *
-     * Bootstrap spaces it symmetrically — 0.5rem on each side, from
-     * `--bs-breadcrumb-item-padding-x` — but the glyph is not
-     * symmetric: "/" leans right, so its ink sits hard against the crumb
-     * before it and drifts away from the one after. The margin goes on
-     * the separator rather than into a wider padding on the crumb
-     * precisely so the space AFTER it stays Bootstrap's.
+     * The two zeroed paddings above buy width; what they cost is the
+     * crumb before the « / » touching it, which is what a phone reported
+     * once they shipped. Four pixels go back on that side ALONE: the
+     * glyph leans right, so its ink sits hard against the word before it
+     * and already carries a gap towards the one after — and giving the
+     * space back on both sides would hand the width saving straight
+     * back. The three rules are one decision and have to be read
+     * together, which is why they sit in one block.
      */
     public function testTheSeparatorHasAirOnItsLeft(): void
     {
