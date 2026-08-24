@@ -1937,6 +1937,26 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
 }
 $rgpdContentService = new RgpdContentService($moduleManager, $settingService, $llmConnectorForRgpd, $llmProviderRepoForRgpd, $llmModelRepoForRgpd);
 
+// Household size and the fee category it implies (ARCHITECTURE.md §8.34).
+// A core service, built once here rather than inside the registration
+// module's own block: it was assembled in there because that module was
+// its first caller, which made a CORE service disappear the moment an
+// optional module was switched off. The module still contributes its
+// accepted/encoded requests to the PROJECTED count, through the same
+// nullable Api provider as before (ARCHITECTURE.md §7.5) — null when it is
+// disabled, and the service degrades to counting members alone.
+$householdRegistrationCount = null;
+if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
+    $householdRegistrationCount = new \Modules\Registration\Service\HouseholdRegistrationCountService(
+        new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryptionService)
+    );
+}
+$feeEstimationService = new \Core\Member\FeeEstimationService(
+    new \Core\Member\FeeEstimationRepository($pdo),
+    $encryptionService,
+    $householdRegistrationCount
+);
+
 // Handle the request
 $maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
 $frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService);
@@ -3599,10 +3619,11 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     $registrationMenuHookService = new \Modules\Registration\Service\RegistrationMenuHookService($registrationTrackingService, $settingService);
 
     // Iteration 5's staff-side services — status transitions, acceptance/
-    // refusal emails, the one migration path shared by automatic
-    // reconciliation and manual linking, and the household count Api\
-    // HouseholdRegistrationCountProvider implementation wired nullable into
-    // Core\Member\FeeEstimationService (ARCHITECTURE.md §7.5).
+    // refusal emails, and the one migration path shared by automatic
+    // reconciliation and manual linking. The Api\
+    // HouseholdRegistrationCountProvider implementation is NOT built here:
+    // Core\Member\FeeEstimationService is core and is assembled in the
+    // common trunk above, whatever this module's state.
     $registrationStatusService = new \Modules\Registration\Service\RequestStatusService($registrationRequestRepo, $journalService);
     $registrationEmailService = new \Modules\Registration\Service\RequestEmailService(
         $registrationRequestRepo, $mailService, $editableContentService, $journalService, $registrationBaseUrl, $registrationSiteName
@@ -3613,10 +3634,6 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     $registrationReconciliation = new \Modules\Registration\Service\ReconciliationService(
         $pdo, $registrationRequestRepo, $encryptionService, $registrationMigrationService, $journalService
     );
-    $registrationHouseholdCountService = new \Modules\Registration\Service\HouseholdRegistrationCountService($registrationRequestRepo);
-    $feeEstimationRepository = new \Core\Member\FeeEstimationRepository($pdo);
-    $feeEstimationService = new \Core\Member\FeeEstimationService($feeEstimationRepository, $encryptionService, $registrationHouseholdCountService);
-
     $frontController->registerController(
         \Modules\Registration\Controller\PublicRegistrationController::class,
         new \Modules\Registration\Controller\PublicRegistrationController(

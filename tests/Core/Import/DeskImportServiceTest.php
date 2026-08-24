@@ -299,10 +299,10 @@ class DeskImportServiceTest extends TestCase
     {
         $this->importFixture();
 
-        $stmt = $this->pdo->query("SELECT is_active FROM sections WHERE desk_code = 'Meute Akela'");
+        $stmt = $this->pdo->query("SELECT is_active FROM sections WHERE desk_code = 'SV025L1'");
         $this->assertSame(1, (int) $stmt->fetchColumn());
 
-        $stmt = $this->pdo->query("SELECT is_active FROM sections WHERE desk_code = 'Ribambelle'");
+        $stmt = $this->pdo->query("SELECT is_active FROM sections WHERE desk_code = 'SV025B1'");
         $this->assertSame(1, (int) $stmt->fetchColumn());
     }
 
@@ -326,14 +326,14 @@ class DeskImportServiceTest extends TestCase
     public function testReimportReactivatesPreviouslyInactiveSection(): void
     {
         $this->importFixture();
-        $this->pdo->exec("UPDATE sections SET is_active = 0 WHERE desk_code = 'Meute Akela'");
+        $this->pdo->exec("UPDATE sections SET is_active = 0 WHERE desk_code = 'SV025L1'");
 
         $this->service = $this->createService();
         $tmpFile = tempnam(sys_get_temp_dir(), 'csv');
         copy($this->fixturePath, $tmpFile);
         $this->service->import($tmpFile, $this->scoutYearId, 1);
 
-        $stmt = $this->pdo->query("SELECT is_active FROM sections WHERE desk_code = 'Meute Akela'");
+        $stmt = $this->pdo->query("SELECT is_active FROM sections WHERE desk_code = 'SV025L1'");
         $this->assertSame(1, (int) $stmt->fetchColumn());
     }
 }

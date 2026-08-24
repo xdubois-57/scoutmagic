@@ -27,4 +27,13 @@ class HouseholdRegistrationCountService implements HouseholdRegistrationCountPro
     {
         return $this->repository->countHouseholdAtAddress($addressBlindIndex, $scoutYearId, $excludeRequestId);
     }
+
+    /**
+     * @param string[] $addressBlindIndexes
+     * @return array<string, int>
+     */
+    public function countsAtAddresses(array $addressBlindIndexes, int $scoutYearId): array
+    {
+        return $this->repository->countHouseholdsAtAddresses($addressBlindIndexes, $scoutYearId);
+    }
 }

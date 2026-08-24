@@ -123,6 +123,74 @@ class RegistrationRequestRepositoryTest extends TestCase
         $this->assertSame($second['id'], $all[1]->id);
     }
 
+    /**
+     * Core\Member\Household\HouseholdService enumerates every household of
+     * a scout year at once, so it asks for a batch of addresses in one
+     * query rather than one query per household.
+     */
+    public function testCountHouseholdsAtAddressesCountsOnlyAcceptedAndEncodedRequestsOfThatYear(): void
+    {
+        $paix = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);
+        $paixSecond = $this->repository->create($this->scoutYearId, $this->sampleFields(['child_first_name' => 'Noé']), null, []);
+        $paixPending = $this->repository->create($this->scoutYearId, $this->sampleFields(['child_first_name' => 'Zoé']), null, []);
+        $louise = $this->repository->create(
+            $this->scoutYearId,
+            $this->sampleFields(['street' => 'Avenue Louise', 'number' => '10']),
+            null,
+            []
+        );
+        $otherYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+        $otherYear = $this->repository->create($otherYearId, $this->sampleFields(), null, []);
+
+        $now = new \DateTimeImmutable('2026-10-01 12:00:00');
+        $this->repository->updateStatus($paix['id'], 'accepted', null);
+        $this->repository->updateStatus($paixSecond['id'], 'encoded', $now);
+        $this->repository->updateStatus($louise['id'], 'accepted', null);
+        $this->repository->updateStatus($otherYear['id'], 'accepted', null);
+        // $paixPending stays pending — a request that may still be refused
+        // must not inflate anyone's household.
+
+        $paixIndex = $this->blindIndexFor($paix['id']);
+        $louiseIndex = $this->blindIndexFor($louise['id']);
+
+        $counts = $this->repository->countHouseholdsAtAddresses([$paixIndex, $louiseIndex], $this->scoutYearId);
+
+        $this->assertSame(2, $counts[$paixIndex]);
+        $this->assertSame(1, $counts[$louiseIndex]);
+        $this->assertSame(
+            $this->repository->countHouseholdAtAddress($paixIndex, $this->scoutYearId, null),
+            $counts[$paixIndex]
+        );
+    }
+
+    public function testCountHouseholdsAtAddressesLeavesAnAddressWithNoRequestOutRatherThanReportingZero(): void
+    {
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);
+        $this->repository->updateStatus($created['id'], 'accepted', null);
+
+        $counts = $this->repository->countHouseholdsAtAddresses(
+            [$this->blindIndexFor($created['id']), 'an-index-nobody-lives-at'],
+            $this->scoutYearId
+        );
+
+        $this->assertArrayNotHasKey('an-index-nobody-lives-at', $counts);
+        $this->assertCount(1, $counts);
+    }
+
+    public function testCountHouseholdsAtAddressesOnAnEmptyListRunsNoQuery(): void
+    {
+        $this->assertSame([], $this->repository->countHouseholdsAtAddresses([], $this->scoutYearId));
+        $this->assertSame([], $this->repository->countHouseholdsAtAddresses([''], $this->scoutYearId));
+    }
+
+    private function blindIndexFor(int $requestId): string
+    {
+        $stmt = $this->pdo->prepare('SELECT address_normalized_blind_index FROM registration_requests WHERE id = ?');
+        $stmt->execute([$requestId]);
+
+        return (string) $stmt->fetchColumn();
+    }
+
     public function testNameDobBlindIndexIsStableAcrossCaseAndWhitespace(): void
     {
         $normalizedA = RegistrationRequestRepository::normalizeForNameDobBlindIndex('Dupont', 'Léa', '2019-05-12');
