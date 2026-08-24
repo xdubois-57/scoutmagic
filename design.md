@@ -367,17 +367,6 @@ implementations visually reordered and the server none the wiser. Every
 sortable list also offers up/down buttons — dragging is not available to
 a finger or a keyboard (§7.2).
 
-### 7.11 Rich text
-
-The « lien » button in every rich-text toolbar goes through
-`window.ScoutMagicRichText.insertLink()`
-(`public/assets/js/rich-text-link.js`). Five toolbars used to implement it
-separately, so none of them ever fixed the three things it gets right: the
-selection survives the dialog (a modal takes focus, and a contenteditable
-that loses focus loses its range), a bare host becomes `https://…` rather
-than a relative link that 404s, and a `javascript:` URL is refused with a
-reason rather than silently stripped later by the server-side sanitiser.
-
 ### 7.11 Contextual help
 
 One help button per page, always visible, at the right of the breadcrumb
@@ -412,3 +401,14 @@ covered by a topic, existing or new (AGENTS.md checklists).
   qui est irréversible ou contre-intuitif.
 - Pas de lien externe, sauf vers le site de la fédération
   (lesscouts.be).
+
+### 7.12 Rich text
+
+The « lien » button in every rich-text toolbar goes through
+`window.ScoutMagicRichText.insertLink()`
+(`public/assets/js/rich-text-link.js`). Five toolbars used to implement it
+separately, so none of them ever fixed the three things it gets right: the
+selection survives the dialog (a modal takes focus, and a contenteditable
+that loses focus loses its range), a bare host becomes `https://…` rather
+than a relative link that 404s, and a `javascript:` URL is refused with a
+reason rather than silently stripped later by the server-side sanitiser.

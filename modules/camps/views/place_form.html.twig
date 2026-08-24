@@ -7,7 +7,7 @@
     } only %}
 
     <form method="post" action="/chefs/camps/lieux/{{ place.id }}" class="mb-5">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        {{ csrf_field() }}
 
         {% include 'partials/form_field.html.twig' with {
             field_id: 'place-name', field_name: 'place_name', label: 'Nom du lieu',

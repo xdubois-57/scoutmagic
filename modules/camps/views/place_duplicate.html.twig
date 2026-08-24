@@ -18,7 +18,7 @@
                         <div class="small text-body-secondary">{{ candidate.reason }}</div>
                     </div>
                     <form method="post" action="/chefs/camps">
-                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                        {{ csrf_field() }}
                         {# The whole submitted camp travels through, so
                            choosing an existing place costs nothing the
                            chief already typed. #}
@@ -44,7 +44,7 @@
     </div>
 
     <form method="post" action="/chefs/camps">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        {{ csrf_field() }}
         {% for key, value in submitted %}
             {% if key != '_csrf_token' %}
                 {% if value is iterable %}
