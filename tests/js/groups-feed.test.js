@@ -376,6 +376,126 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         );
     });
 
+    // The member-scoped poll's "Vous répondez pour" dialog. The <select>
+    // it reads from is the server's no-JavaScript fallback
+    // (@groups/partials/poll.html.twig): the script hides it and asks the
+    // same question in the shared dialog, so what the two offer can never
+    // drift apart — headings included.
+    function pollWithVoterPicker(pickerMarkup) {
+        return `
+            <div class="groups-poll">
+                <div class="groups-poll-voter">
+                    <select id="poll-voter-9">${pickerMarkup}</select>
+                </div>
+                <form class="groups-poll-form" action="/groups/1/posts/9/vote" method="post">
+                    <input type="hidden" name="option_id" value="4">
+                    <input type="hidden" name="voter_member_id" value="3" class="groups-poll-voter-input">
+                    <button type="submit">Samedi</button>
+                </form>
+            </div>
+            <div class="modal" id="groups-detail-modal"></div>
+            <h2 id="groups-detail-modal-title">Réactions</h2>
+            <div id="groups-detail-modal-body"></div>
+        `;
+    }
+
+    it('asks whose answer it is, carrying the two headings the server grouped the members under', async () => {
+        document.body.innerHTML = pollWithVoterPicker(`
+            <optgroup label="Dans ce groupe">
+                <option value="3">Marie Dupont (Akéla)</option>
+                <option value="4">Marie Dupont (Baloo)</option>
+            </optgroup>
+            <optgroup label="Hors de ce groupe">
+                <option value="5">Marie Dupont (Chil)</option>
+            </optgroup>
+        `);
+        global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => ({ show: vi.fn(), hide: vi.fn() })) } };
+        global.fetch = vi.fn();
+
+        document.querySelector('.groups-poll-form button').click();
+        await vi.waitFor(() => expect(document.querySelectorAll('[data-member-id]').length).toBe(3));
+
+        // Every row of the dialog, in order: a heading is a plain div, a
+        // member is a button carrying the id the vote will be recorded
+        // against.
+        const rows = [...document.querySelectorAll('#groups-detail-modal-body .list-group > *')].map((row) => [
+            row.tagName,
+            row.dataset.memberId ?? null,
+            row.textContent,
+        ]);
+        expect(rows).toEqual([
+            ['DIV', null, 'Dans ce groupe'],
+            ['BUTTON', '3', 'Marie Dupont (Akéla)'],
+            ['BUTTON', '4', 'Marie Dupont (Baloo)'],
+            ['DIV', null, 'Hors de ce groupe'],
+            ['BUTTON', '5', 'Marie Dupont (Chil)'],
+        ]);
+        // Nothing is sent until somebody has answered the question.
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('draws no heading at all when the server grouped nobody', async () => {
+        document.body.innerHTML = pollWithVoterPicker(`
+            <option value="3">Marie Dupont (Akéla)</option>
+            <option value="4">Marie Dupont (Baloo)</option>
+        `);
+        global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => ({ show: vi.fn(), hide: vi.fn() })) } };
+        global.fetch = vi.fn();
+
+        document.querySelector('.groups-poll-form button').click();
+        await vi.waitFor(() => expect(document.querySelectorAll('[data-member-id]').length).toBe(2));
+
+        const rows = [...document.querySelectorAll('#groups-detail-modal-body .list-group > *')];
+        expect(rows.every((row) => row.tagName === 'BUTTON')).toBe(true);
+    });
+
+    it('records the member picked in the dialog and only then sends the vote', async () => {
+        document.body.innerHTML = pollWithVoterPicker(`
+            <optgroup label="Dans ce groupe">
+                <option value="3">Marie Dupont (Akéla)</option>
+            </optgroup>
+            <optgroup label="Hors de ce groupe">
+                <option value="5">Marie Dupont (Chil)</option>
+            </optgroup>
+        `);
+        const modalEl = () => document.getElementById('groups-detail-modal');
+        global.bootstrap = {
+            Modal: {
+                getOrCreateInstance: vi.fn(() => ({
+                    show: vi.fn(),
+                    // The real dialog resolves on Bootstrap's own hidden
+                    // event; the stub fires it the same way.
+                    hide: vi.fn(() => modalEl().dispatchEvent(new Event('hidden.bs.modal'))),
+                })),
+            },
+        };
+        // Read at the moment of the send: the response replaces the whole
+        // poll block, picker included, so afterwards there is nothing left
+        // to inspect.
+        let pickerAtSend = null;
+        global.fetch = vi.fn(() => {
+            pickerAtSend = document.getElementById('poll-voter-9').value;
+
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ html: '<div class="groups-poll">1 membre a répondu</div>' }),
+            });
+        });
+
+        document.querySelector('.groups-poll-form button').click();
+        await vi.waitFor(() => expect(document.querySelectorAll('[data-member-id]').length).toBe(2));
+        expect(fetch).not.toHaveBeenCalled();
+
+        document.querySelector('[data-member-id="5"]').click();
+
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+        const body = fetch.mock.calls[0][1].body;
+        expect(body.get('voter_member_id')).toBe('5');
+        // Written back into the fallback <select> too, so a submit that
+        // never opens the dialog sends the same person.
+        expect(pickerAtSend).toBe('5');
+    });
+
     it('a poll vote swaps the poll block in place without reloading', async () => {
         document.body.innerHTML = `
             <div class="groups-poll">

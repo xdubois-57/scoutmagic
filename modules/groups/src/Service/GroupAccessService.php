@@ -193,6 +193,82 @@ class GroupAccessService
         return $allowed;
     }
 
+    /**
+     * Which members this account may answer a member-scoped poll for.
+     *
+     * The rule is the group's own reach, not the account's: a voter is
+     * offered every member of theirs who would normally be counted in
+     * THIS conversation.
+     *
+     * - **A section group** is one section's conversation, so its poll is
+     *   that section's question. "Qui vient au week-end ?" asked in
+     *   Louveteaux is not asking about an éclaireur, and a parent
+     *   answering for one would put a head in a count that cannot use it.
+     *   Only the members this group actually holds are offered.
+     * - **Any other group** — an invitation group for a camp staff, a
+     *   project, the whole unit — draws no section boundary of its own,
+     *   so neither does its poll: every member this account reaches is
+     *   offered, including the ones the group does not hold. That is what
+     *   a parent of four needs when the unit asks a question of the
+     *   families; offering two of them silently produces a count that is
+     *   short, and a wrong count is worse than an answer somebody has to
+     *   correct.
+     *
+     * Wider than memberIdsAllowedToPostAs() in the second case, and
+     * deliberately so: posting is signing — a message signed as a member
+     * of another section would be signed by somebody who is not here —
+     * while answering a poll is counting heads. What it never widens is
+     * the gate: nothing here is read before canParticipate() has said
+     * this account may write in this group, every answer is still
+     * recorded against a member this account really reaches, and one
+     * member still answers once.
+     *
+     * The group's own members come first, so the picker's default — what
+     * a no-JavaScript submit sends, and what Service\PollService falls
+     * back to when the form names nobody — stays somebody this group is
+     * actually about.
+     *
+     * @return int[] members.id values, group members first
+     */
+    public function memberIdsAllowedToVoteAs(DiscussionGroup $group, GroupSessionContext $context): array
+    {
+        $sides = $this->memberIdsAllowedToVoteAsBySide($group, $context);
+
+        return array_merge($sides['in_group'], $sides['elsewhere']);
+    }
+
+    /**
+     * The same members, kept on the two sides the picker has to be able
+     * to name: the ones this group is built from, and the ones this
+     * account reaches from outside it.
+     *
+     * Offering the second kind without saying so would answer one
+     * question by asking another — a parent scanning four totems cannot
+     * tell which of them the group is even about. The split is resolved
+     * HERE rather than by asking both questions from the Controller, so
+     * the picker's two halves and the set a vote is checked against are
+     * one membership resolution and can never disagree.
+     *
+     * A section group has no second side at all (the rule above), which
+     * is also what stops its picker drawing a heading over a list with
+     * nothing to distinguish in it.
+     *
+     * @return array{in_group: int[], elsewhere: int[]} members.id values,
+     *         each side in the caller's own order
+     */
+    public function memberIdsAllowedToVoteAsBySide(DiscussionGroup $group, GroupSessionContext $context): array
+    {
+        $inGroup = $this->memberIdsAllowedToPostAs($group, $context);
+        if ($group->isSectionGroup()) {
+            return ['in_group' => $inGroup, 'elsewhere' => []];
+        }
+
+        return [
+            'in_group' => $inGroup,
+            'elsewhere' => array_values(array_diff($context->linkedMemberIds, $inGroup)),
+        ];
+    }
+
     private function explicitRowFor(DiscussionGroup $group, GroupSessionContext $context): ?\Modules\Groups\Repository\GroupMember
     {
         foreach ($context->linkedMemberIds as $memberId) {

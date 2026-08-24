@@ -1,0 +1,68 @@
+{% extends 'base.html.twig' %}
+{% block title %}Intendants — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Intendants',
+            subtitle: "Les intendants inscrits, et ce que la période de l'année implique pour eux.",
+        } only %}
+
+        {% if summer_regime %}
+            <div class="alert alert-info" role="status">
+                <p class="mb-2">
+                    <strong>Régime d'été</strong> — du 1<sup>er</sup> juin au 31 août, l'inscription occasionnelle
+                    gratuite ne s'applique pas : inscrire quelqu'un entraîne une cotisation invité, même pour une
+                    seule journée.
+                </p>
+                <p class="mb-0">
+                    Pensez à désinscrire les intendants après le camp. Aucun décompte n'est affiché pendant cette
+                    période : il n'aurait pas de sens.
+                </p>
+            </div>
+        {% endif %}
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-1">Intendants inscrits</h2>
+                {% if summer_regime %}
+                    <p class="small text-body-secondary mb-3">
+                        Les fonctions d'intendance encodées dans Desk pour cette année scoute.
+                    </p>
+                {% else %}
+                    <p class="small text-body-secondary mb-3">
+                        Nombre de jours écoulés depuis le début de la fonction, les plus anciens d'abord.
+                        L'inscription occasionnelle gratuite couvre {{ free_days }} jours ; le décompte passe en
+                        attention à {{ warning_days }} jours et en critique à {{ critical_days }}.
+                    </p>
+                {% endif %}
+                {% include '@leadership/partials/_person_list.html.twig' with {
+                    lines: registrations,
+                    empty_message: "Aucune fonction d'intendance encodée pour cette année scoute.",
+                } only %}
+            </div>
+        </div>
+
+        {% if under_age|length > 0 %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h6 mb-1">Intendants de moins de {{ min_age }} ans</h2>
+                    <p class="small text-body-secondary mb-3">
+                        Signalé à part parce que c'est une autre question que l'inscription elle-même, et qu'une
+                        ligne perdue au milieu de la liste ci-dessus se rate.
+                    </p>
+                    {% include '@leadership/partials/_person_list.html.twig' with {
+                        lines: under_age,
+                        empty_message: '',
+                    } only %}
+                </div>
+            </div>
+        {% endif %}
+
+        {% include '@leadership/partials/_validity_footer.html.twig' with {
+            scout_year_label: scout_year_label,
+            last_import_at: last_import_at,
+            rules_version: rules_version,
+            rules_verified_on: rules_verified_on,
+        } only %}
+    </div>
+{% endblock %}

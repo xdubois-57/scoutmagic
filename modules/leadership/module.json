@@ -1,0 +1,62 @@
+{
+  "id": "leadership",
+  "name": "Encadrement",
+  "description": "Transforme l'import Desk en listes de personnes à contacter : parcours de formation, obligations légales des animateurs et inscriptions des intendants.",
+  "version": "1.0.0",
+  "routes": [
+    {
+      "path": "/admin/leadership",
+      "method": "GET",
+      "controller": "Modules\\Leadership\\Controller\\LeadershipController",
+      "action": "index",
+      "menu": "espace_admin",
+      "label": "Encadrement",
+      "menu_icon": "bi-mortarboard",
+      "role_min": "admin",
+      "breadcrumb": { "label": "Encadrement", "parents": ["Espace chefs d'U"] }
+    },
+    {
+      "path": "/admin/leadership/training",
+      "method": "GET",
+      "controller": "Modules\\Leadership\\Controller\\LeadershipController",
+      "action": "training",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin",
+      "breadcrumb": { "label": "Formations", "parents": ["Espace chefs d'U"] }
+    },
+    {
+      "path": "/admin/leadership/obligations",
+      "method": "GET",
+      "controller": "Modules\\Leadership\\Controller\\LeadershipController",
+      "action": "obligations",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin",
+      "breadcrumb": { "label": "Obligations", "parents": ["Espace chefs d'U"] }
+    },
+    {
+      "path": "/admin/leadership/stewards",
+      "method": "GET",
+      "controller": "Modules\\Leadership\\Controller\\LeadershipController",
+      "action": "stewards",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin",
+      "breadcrumb": { "label": "Intendants", "parents": ["Espace chefs d'U"] }
+    },
+    {
+      "path": "/admin/leadership/training/mapping",
+      "method": "POST",
+      "controller": "Modules\\Leadership\\Controller\\FormationMappingController",
+      "action": "save",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin"
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

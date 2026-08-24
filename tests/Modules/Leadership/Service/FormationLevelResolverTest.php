@@ -1,0 +1,145 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Modules\Leadership\Service;
+
+use Modules\Leadership\FormationStep;
+use Modules\Leadership\Service\FormationLevelResolver;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+
+class FormationLevelResolverTest extends TestCase
+{
+    /**
+     * @return array<string, array{?string, FormationStep}>
+     */
+    public static function heuristicCases(): array
+    {
+        return [
+            'plain T1' => ['T1', FormationStep::T1],
+            'plain T2' => ['T2', FormationStep::T2],
+            'plain T3' => ['T3', FormationStep::T3],
+            'lowercase' => ['t2', FormationStep::T2],
+            'inside a longer label' => ['Animateur T2', FormationStep::T2],
+            'spelled out, accented' => ['Deuxième étape', FormationStep::T2],
+            'spelled out, ordinal' => ['3e étape', FormationStep::T3],
+            'brevet' => ['Breveté', FormationStep::BREVET],
+            'brevet, uppercase' => ['ANIMATEUR BREVETE', FormationStep::BREVET],
+            'explicitly none' => ['Aucune formation', FormationStep::NONE],
+            'nothing recorded' => [null, FormationStep::NONE],
+            'empty string' => ['', FormationStep::NONE],
+            'whitespace only' => ['   ', FormationStep::NONE],
+            'unrecognised wording' => ['Module transversal 4', FormationStep::UNKNOWN],
+        ];
+    }
+
+    #[DataProvider('heuristicCases')]
+    public function testResolvesTheFederationVocabulary(?string $raw, FormationStep $expected): void
+    {
+        $this->assertSame($expected, (new FormationLevelResolver())->resolve($raw));
+    }
+
+    /**
+     * Brevet is tested before any T-step, so a label naming both resolves
+     * to the further of the two rather than to whichever appears first.
+     */
+    public function testBrevetWinsOverAnEarlierStepInTheSameLabel(): void
+    {
+        $this->assertSame(
+            FormationStep::BREVET,
+            (new FormationLevelResolver())->resolve('T3 + brevet')
+        );
+    }
+
+    /**
+     * The guarantee Service\SupervisionCalculator rests on: an
+     * unrecognisable value never counts as a brevet, so the brevet count is
+     * a floor. "Brevet en cours" is not a brevet, and resolving it as one
+     * would put somebody who has not got it into the count.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function inProgressWordings(): array
+    {
+        return [
+            'brevet under way' => ['Brevet en cours'],
+            'step under way' => ['T2 en cours'],
+            'registered for it' => ['Inscrit T3'],
+            'planned' => ['T1 prévu'],
+        ];
+    }
+
+    #[DataProvider('inProgressWordings')]
+    public function testAStepUnderWayIsNotAStepReached(string $raw): void
+    {
+        $this->assertSame(
+            FormationStep::UNKNOWN,
+            (new FormationLevelResolver())->resolve($raw),
+            'An ambiguous wording must resolve upwards into "ask a human", never downwards into a guess.'
+        );
+    }
+
+    public function testAnAdminMappingOverridesTheHeuristic(): void
+    {
+        $resolver = new FormationLevelResolver([
+            FormationLevelResolver::keyFor('T2') => FormationStep::BREVET->value,
+        ]);
+
+        $this->assertSame(FormationStep::BREVET, $resolver->resolve('T2'));
+    }
+
+    public function testAnAdminMappingResolvesAnUnrecognisedValue(): void
+    {
+        $resolver = new FormationLevelResolver([
+            FormationLevelResolver::keyFor('Module transversal 4') => FormationStep::T3->value,
+        ]);
+
+        $this->assertSame(FormationStep::T3, $resolver->resolve('Module transversal 4'));
+    }
+
+    /**
+     * The mapping key folds case and accents, so one decision covers every
+     * spelling of the same wording rather than needing one row per variant.
+     */
+    public function testMappingMatchesRegardlessOfCaseAndAccents(): void
+    {
+        $resolver = new FormationLevelResolver([
+            FormationLevelResolver::keyFor('Animateur Breveté') => FormationStep::BREVET->value,
+        ]);
+
+        $this->assertSame(FormationStep::BREVET, $resolver->resolve('ANIMATEUR BREVETE'));
+        $this->assertSame(FormationStep::BREVET, $resolver->resolve('  animateur breveté  '));
+    }
+
+    public function testAMappingCanNeverStoreUnknown(): void
+    {
+        // 'unknown' is a real FormationStep but not an assignable one — the
+        // controller refuses it, and this pins the vocabulary the refusal
+        // is built on.
+        $this->assertNotContains(FormationStep::UNKNOWN, FormationStep::assignable());
+    }
+
+    public function testWithMappingLeavesTheOriginalResolverAlone(): void
+    {
+        $bare = new FormationLevelResolver();
+        $mapped = $bare->withMapping([
+            FormationLevelResolver::keyFor('Zorglub') => FormationStep::T1->value,
+        ]);
+
+        $this->assertSame(FormationStep::T1, $mapped->resolve('Zorglub'));
+        $this->assertSame(FormationStep::UNKNOWN, $bare->resolve('Zorglub'));
+    }
+
+    public function testIsExplicitlyMappedDistinguishesADecisionFromAHeuristicHit(): void
+    {
+        $resolver = new FormationLevelResolver([
+            FormationLevelResolver::keyFor('Zorglub') => FormationStep::T1->value,
+        ]);
+
+        $this->assertTrue($resolver->isExplicitlyMapped('Zorglub'));
+        // Recognised by the heuristic, but nobody decided it.
+        $this->assertFalse($resolver->isExplicitlyMapped('T1'));
+        $this->assertFalse($resolver->isExplicitlyMapped(null));
+    }
+}

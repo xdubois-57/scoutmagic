@@ -1888,7 +1888,24 @@
         modalBody.innerHTML = '';
         var list = document.createElement('div');
         list.className = 'list-group';
+        // The server groups the options under two <optgroup>s whenever
+        // this account reaches members from outside the group as well as
+        // inside it (partials/poll.html.twig). The dialog carries the
+        // same two headings rather than a flat list of totems the reader
+        // cannot place — and reads them off the <select> like everything
+        // else here, so the two surfaces can never say different things.
+        var lastHeading = null;
         Array.prototype.forEach.call(picker.options, function (option) {
+            var parent = option.parentElement;
+            var heading = parent && parent.tagName === 'OPTGROUP' ? parent.label : null;
+            if (heading && heading !== lastHeading) {
+                var title = document.createElement('div');
+                title.className = 'list-group-item bg-body-tertiary text-body-secondary small py-1';
+                title.textContent = heading;
+                list.appendChild(title);
+            }
+            lastHeading = heading;
+
             var button = document.createElement('button');
             button.type = 'button';
             button.className = 'list-group-item list-group-item-action d-flex align-items-center';

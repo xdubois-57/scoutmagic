@@ -39,9 +39,16 @@ L'auteur d'un message voit combien de membres l'ont vu.
 
 Un message peut porter un sondage. Touchez une réponse pour voter ;
 selon le sondage, vous répondez pour vous, ou une fois pour chacun de
-vos enfants — la page vous demande alors pour qui. Les résultats
-montrent les totaux, jamais qui a voté quoi. Tant que le groupe est
-ouvert, vous pouvez changer d'avis.
+vos enfants — la page vous demande alors pour qui.
+
+Lesquels d'entre eux, c'est le groupe qui le décide. Dans le groupe
+d'une section, seuls ceux qui en font partie : la question posée est
+celle de la section. Ailleurs — un camp, un projet, un groupe de
+l'unité — vous répondez pour tous, ceux du groupe en premier et les
+autres sous « Hors de ce groupe ».
+
+Les résultats montrent les totaux, jamais qui a voté quoi. Tant que le
+groupe est ouvert, vous pouvez changer d'avis.
 
 ## Signaler un contenu
 
