@@ -5,24 +5,25 @@
   nothing from this site, so there is no URL here to hand out and nothing to
   guess. A lost email is resent by a manager, which is the whole recourse.
 #}
-<p>Bonjour {{ booking.renterName }},</p>
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <p>Bonjour {{ booking.renterName }},</p>
 
-{% if is_resend %}
+    {% if is_resend %}
+        <p>
+            Voici à nouveau votre <strong>{{ document_label|lower }}</strong> pour la location
+            <strong>{{ booking.reference }}</strong> ({{ asset.name }}), en pièce jointe.
+        </p>
+    {% else %}
+        <p>
+            Vous trouverez en pièce jointe votre <strong>{{ document_label|lower }}</strong> pour la location
+            <strong>{{ booking.reference }}</strong> ({{ asset.name }}),
+            du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}.
+        </p>
+    {% endif %}
+
     <p>
-        Voici à nouveau votre <strong>{{ document_label|lower }}</strong> pour la location
-        <strong>{{ booking.reference }}</strong> ({{ asset.name }}), en pièce jointe.
+        Conservez ce document : il ne peut pas être téléchargé depuis le site. Si vous le perdez,
+        demandez-nous simplement de vous le renvoyer.
     </p>
-{% else %}
-    <p>
-        Vous trouverez en pièce jointe votre <strong>{{ document_label|lower }}</strong> pour la location
-        <strong>{{ booking.reference }}</strong> ({{ asset.name }}),
-        du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}.
-    </p>
-{% endif %}
-
-<p>
-    Conservez ce document : il ne peut pas être téléchargé depuis le site. Si vous le perdez,
-    demandez-nous simplement de vous le renvoyer.
-</p>
-
-<p>Bien à vous,<br>{{ site_name }}</p>
+{% endblock %}

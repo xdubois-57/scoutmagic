@@ -9,28 +9,29 @@
   as theirs rather than folded into the announcement — the renter should be
   able to tell what the site says from what a person wrote.
 #}
-<p>Bonjour {{ booking.renterName }},</p>
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <p>Bonjour {{ booking.renterName }},</p>
 
-<p>{{ announcement }}</p>
+    <p>{{ announcement }}</p>
 
-<p>
-    <strong>{{ asset.name }}</strong>, du {{ booking.arrivalDate|date_fr }}
-    au {{ booking.departureDate|date_fr }}<br>
-    Votre référence : <strong>{{ booking.reference }}</strong>
-</p>
+    <p>
+        <strong>{{ asset.name }}</strong>, du {{ booking.arrivalDate|date_fr }}
+        au {{ booking.departureDate|date_fr }}<br>
+        Votre référence : <strong>{{ booking.reference }}</strong>
+    </p>
 
-{% if manager_word %}
-    <blockquote style="margin:1em 0;padding-left:1em;border-left:3px solid #ccc;">
-        {{ manager_word|nl2br }}
-    </blockquote>
-{% endif %}
+    {% if manager_word %}
+        <blockquote style="margin:1em 0;padding-left:1em;border-left:3px solid #ccc;">
+            {{ manager_word|nl2br }}
+        </blockquote>
+    {% endif %}
 
-{% if call_to_action %}
-    <p>{{ call_to_action }}</p>
-{% endif %}
+    {% if call_to_action %}
+        <p>{{ call_to_action }}</p>
+    {% endif %}
 
-{% if tracking_url %}
-    <p><a href="{{ tracking_url }}">Voir ma réservation</a></p>
-{% endif %}
-
-<p>À bientôt,<br>{{ site_name }}</p>
+    {% if tracking_url %}
+        <p><a href="{{ tracking_url }}">Voir ma réservation</a></p>
+    {% endif %}
+{% endblock %}

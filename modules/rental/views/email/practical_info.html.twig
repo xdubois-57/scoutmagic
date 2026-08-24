@@ -10,33 +10,34 @@
   acknowledgement. Re-sending it here would put a capability into an email
   nobody asked for.
 #}
-<p>Bonjour {{ booking.renterName }},</p>
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <p>Bonjour {{ booking.renterName }},</p>
 
-<p>
-    Votre séjour à <strong>{{ asset.name }}</strong> approche : arrivée le
-    {{ booking.arrivalDate|date_fr }}, départ le {{ booking.departureDate|date_fr }}.
-</p>
-
-{% if asset.arrivalTime or asset.departureTime %}
     <p>
-        {% if asset.arrivalTime %}Arrivée à partir de {{ asset.arrivalTime }}.{% endif %}
-        {% if asset.departureTime %}Départ pour {{ asset.departureTime }} au plus tard.{% endif %}
+        Votre séjour à <strong>{{ asset.name }}</strong> approche : arrivée le
+        {{ booking.arrivalDate|date_fr }}, départ le {{ booking.departureDate|date_fr }}.
     </p>
-{% endif %}
 
-{% if contacts is not empty %}
-    <p>Vos contacts sur place :</p>
-    <ul>
-        {% for contact in contacts %}
-            <li>{{ contact.display_name }}{% if contact.phone %} — {{ contact.phone }}{% endif %}</li>
-        {% endfor %}
-    </ul>
-{% endif %}
+    {% if asset.arrivalTime or asset.departureTime %}
+        <p>
+            {% if asset.arrivalTime %}Arrivée à partir de {{ asset.arrivalTime }}.{% endif %}
+            {% if asset.departureTime %}Départ pour {{ asset.departureTime }} au plus tard.{% endif %}
+        </p>
+    {% endif %}
 
-{% if asset.emergencyPhone %}
-    <p>
-        En cas d'urgence pendant votre séjour : <strong>{{ asset.emergencyPhone }}</strong>.
-    </p>
-{% endif %}
+    {% if contacts is not empty %}
+        <p>Vos contacts sur place :</p>
+        <ul>
+            {% for contact in contacts %}
+                <li>{{ contact.display_name }}{% if contact.phone %} — {{ contact.phone }}{% endif %}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
 
-<p>Bon séjour,<br>{{ site_name }}</p>
+    {% if asset.emergencyPhone %}
+        <p>
+            En cas d'urgence pendant votre séjour : <strong>{{ asset.emergencyPhone }}</strong>.
+        </p>
+    {% endif %}
+{% endblock %}
