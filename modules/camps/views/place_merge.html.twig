@@ -1,52 +1,54 @@
 {% extends 'base.html.twig' %}
 {% block title %}Fusionner {{ place.name }} — {{ site_name }}{% endblock %}
 {% block content %}
-    {% include 'partials/page_header.html.twig' with {
-        title: 'Fusionner ce lieu',
-        subtitle: '« ' ~ place.name ~ ' » et ses séjours seront repris par un autre lieu.',
-    } only %}
-
-    <form method="get" action="/chefs/camps/lieux/{{ place.id }}/fusionner" class="mb-4">
-        {% include 'partials/form_field.html.twig' with {
-            field_id: 'merge-target', field_name: 'vers', label: 'Reprendre dans ce lieu',
-            type: 'select',
-            options: [{ value: '', label: 'Choisir un lieu…', selected: target is null }]|merge(
-                candidate_options
-            ),
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Fusionner ce lieu',
+            subtitle: '« ' ~ place.name ~ ' » et ses séjours seront repris par un autre lieu.',
         } only %}
-        <button type="submit" class="btn btn-outline-secondary">Voir ce qui sera regroupé</button>
-    </form>
 
-    {% if target %}
-        <div class="alert alert-warning" role="alert">
-            <p class="mb-2">
-                <strong>{{ preview.stays }} séjour{{ preview.stays > 1 ? 's' : '' }}</strong>
-                de « {{ place.name }} » passeront à « {{ target.name }} », avec
-                {{ preview.contacts }} contact{{ preview.contacts > 1 ? 's' : '' }},
-                {{ preview.documents }} document{{ preview.documents > 1 ? 's' : '' }},
-                {{ preview.links }} lien{{ preview.links > 1 ? 's' : '' }},
-                leurs photos et leur historique.
-            </p>
-            {% if preview.fields is not empty %}
+        <form method="get" action="/chefs/camps/lieux/{{ place.id }}/fusionner" class="mb-4">
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'merge-target', field_name: 'vers', label: 'Reprendre dans ce lieu',
+                type: 'select',
+                options: [{ value: '', label: 'Choisir un lieu…', selected: target is null }]|merge(
+                    candidate_options
+                ),
+            } only %}
+            <button type="submit" class="btn btn-outline-secondary">Voir ce qui sera regroupé</button>
+        </form>
+
+        {% if target %}
+            <div class="alert alert-warning" role="alert">
                 <p class="mb-2">
-                    « {{ target.name }} » gagnera aussi ce qu'il n'a pas encore :
-                    {{ preview.fields|join(', ') }}.
+                    <strong>{{ preview.stays }} séjour{{ preview.stays > 1 ? 's' : '' }}</strong>
+                    de « {{ place.name }} » passeront à « {{ target.name }} », avec
+                    {{ preview.contacts }} contact{{ preview.contacts > 1 ? 's' : '' }},
+                    {{ preview.documents }} document{{ preview.documents > 1 ? 's' : '' }},
+                    {{ preview.links }} lien{{ preview.links > 1 ? 's' : '' }},
+                    leurs photos et leur historique.
                 </p>
-            {% endif %}
-            <p class="mb-0">
-                « {{ place.name }} » sera <strong>archivé</strong>, jamais supprimé — son
-                historique reste consultable depuis les Archives.
-            </p>
-        </div>
+                {% if preview.fields is not empty %}
+                    <p class="mb-2">
+                        « {{ target.name }} » gagnera aussi ce qu'il n'a pas encore :
+                        {{ preview.fields|join(', ') }}.
+                    </p>
+                {% endif %}
+                <p class="mb-0">
+                    « {{ place.name }} » sera <strong>archivé</strong>, jamais supprimé — son
+                    historique reste consultable depuis les Archives.
+                </p>
+            </div>
 
-        <div class="d-flex flex-wrap gap-2">
-            <form method="post" action="/chefs/camps/lieux/{{ place.id }}/fusionner"
-                  data-confirm="Fusionner définitivement « {{ place.name }} » dans « {{ target.name }} » ?">
-                {{ csrf_field() }}
-                <input type="hidden" name="target_id" value="{{ target.id }}">
-                <button type="submit" class="btn btn-danger">Fusionner</button>
-            </form>
-            <a class="btn btn-outline-secondary" href="/chefs/camps/lieux/{{ place.id }}">Annuler</a>
-        </div>
-    {% endif %}
+            <div class="d-flex flex-wrap gap-2">
+                <form method="post" action="/chefs/camps/lieux/{{ place.id }}/fusionner"
+                      data-confirm="Fusionner définitivement « {{ place.name }} » dans « {{ target.name }} » ?">
+                    {{ csrf_field() }}
+                    <input type="hidden" name="target_id" value="{{ target.id }}">
+                    <button type="submit" class="btn btn-danger">Fusionner</button>
+                </form>
+                <a class="btn btn-outline-secondary" href="/chefs/camps/lieux/{{ place.id }}">Annuler</a>
+            </div>
+        {% endif %}
+    </div>
 {% endblock %}

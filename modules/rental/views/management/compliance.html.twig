@@ -3,220 +3,222 @@
 {% block title %}Conformité — {{ asset.name }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-{% include 'partials/page_header.html.twig' with {
-    title: 'Conformité — ' ~ asset.name,
-} only %}
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Conformité — ' ~ asset.name,
+        } only %}
 
-{% include '@rental/management/_nav.html.twig' %}
+        {% include '@rental/management/_nav.html.twig' %}
 
-{# The whole point of the page, said before anything else on it — and said
-   in terms of what a manager DOES with it, because "conformité" on its own
-   read as a compliance check the software was performing. #}
-<p class="text-body-secondary">
-    Les papiers du bien et leurs dates d'expiration&nbsp;: contrôle des extincteurs,
-    visite de la chaudière, attestation d'assurance incendie, contrôle électrique,
-    autorisation communale… Vous les inscrivez ici avec leur échéance, ScoutMagic
-    vous prévient quand elle approche, et le document lui-même reste attaché — de
-    sorte qu'on le retrouve le jour où quelqu'un le demande.
-</p>
-<div class="alert alert-info">
-    <strong>Un pense-bête, pas une vérification.</strong>
-    ScoutMagic ne connaît aucune règle réglementaire, ne vérifie rien et ne donne
-    aucun avis juridique&nbsp;: il vous rappelle uniquement ce que vous y avez inscrit
-    et ce qui arrive à échéance. Ce qu'un bien doit posséder dépend de votre
-    commune, de votre fédération et de l'année — c'est à vous de le savoir.
-</div>
+        {# The whole point of the page, said before anything else on it — and said
+           in terms of what a manager DOES with it, because "conformité" on its own
+           read as a compliance check the software was performing. #}
+        <p class="text-body-secondary">
+            Les papiers du bien et leurs dates d'expiration&nbsp;: contrôle des extincteurs,
+            visite de la chaudière, attestation d'assurance incendie, contrôle électrique,
+            autorisation communale… Vous les inscrivez ici avec leur échéance, ScoutMagic
+            vous prévient quand elle approche, et le document lui-même reste attaché — de
+            sorte qu'on le retrouve le jour où quelqu'un le demande.
+        </p>
+        <div class="alert alert-info">
+            <strong>Un pense-bête, pas une vérification.</strong>
+            ScoutMagic ne connaît aucune règle réglementaire, ne vérifie rien et ne donne
+            aucun avis juridique&nbsp;: il vous rappelle uniquement ce que vous y avez inscrit
+            et ce qui arrive à échéance. Ce qu'un bien doit posséder dépend de votre
+            commune, de votre fédération et de l'année — c'est à vous de le savoir.
+        </div>
 
-<div class="card mb-4">
-    <div class="card-body">
-        <h2 class="h5 mb-3">Documents et échéances</h2>
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Documents et échéances</h2>
 
-        {% if items is empty %}
-            {% include 'partials/empty_state.html.twig' with {
-                message: "Rien n'est encore inscrit pour ce bien. Ajoutez ci-dessous ce qui a une date d'expiration — extincteurs, chaudière, assurance, contrôle électrique — pour être prévenu avant qu'elle ne tombe.",
-                compact: true,
-            } only %}
-        {% else %}
-            <div class="table-responsive">
-                <table class="table align-middle">
-                    <thead>
-                        <tr>
-                            <th scope="col">Intitulé</th>
-                            <th scope="col">Échéance</th>
-                            <th scope="col">Remarque</th>
-                            <th scope="col" class="text-end">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for item in items %}
-                            <tr>
-                                <td>
-                                    {{ item.label }}
-                                    {% if item.fileId %}
-                                        <a href="{{ file_url(item.fileId) }}" class="d-block small">
-                                            Ouvrir le document
-                                        </a>
-                                    {% else %}
-                                        <span class="form-text d-block">Aucun document joint</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if item.expiresOn %}
-                                        {{ item.expiresOn|date_fr }}
-                                        {# A statement about a date, never a verdict about
-                                           the asset: the unit may have renewed the paper
-                                           and not typed it in yet. #}
-                                        {% if item.hasExpired(today) %}
-                                            <span class="badge text-bg-danger d-block">Échéance dépassée</span>
-                                        {% elseif item.expiresWithin(warning_days, today) %}
-                                            <span class="badge text-bg-warning d-block">
-                                                Dans {{ item.daysUntilExpiry(today) }} jour(s)
-                                            </span>
-                                        {% endif %}
-                                    {% else %}
-                                        <span class="text-body-secondary">Sans échéance</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ item.remark ?? '—' }}</td>
-                                <td class="text-end">
-                                    <form method="post" action="/mes-locations/conformite-supprimer" class="d-inline"
-                                          data-confirm="Supprimer « {{ item.label }} » du registre ?">
-                                        {{ csrf_field()|raw }}
-                                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                        <input type="hidden" name="item_id" value="{{ item.id }}">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger">
-                                            Supprimer
-                                        </button>
-                                    </form>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td colspan="4">
-                                    <form method="post" action="/mes-locations/conformite-modifier"
-                                          enctype="multipart/form-data" class="row g-2 align-items-end">
-                                        {{ csrf_field()|raw }}
-                                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                        <input type="hidden" name="item_id" value="{{ item.id }}">
+                {% if items is empty %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: "Aucun document au registre. Ajoutez ci-dessous ce qui a une date d'expiration — extincteurs, chaudière, assurance, contrôle électrique — pour être prévenu avant qu'elle ne tombe.",
+                        compact: true,
+                    } only %}
+                {% else %}
+                    <div class="table-responsive">
+                        <table class="table align-middle">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Intitulé</th>
+                                    <th scope="col">Échéance</th>
+                                    <th scope="col">Remarque</th>
+                                    <th scope="col" class="text-end">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in items %}
+                                    <tr>
+                                        <td>
+                                            {{ item.label }}
+                                            {% if item.fileId %}
+                                                <a href="{{ file_url(item.fileId) }}" class="d-block small">
+                                                    Ouvrir le document
+                                                </a>
+                                            {% else %}
+                                                <span class="form-text d-block">Aucun document joint</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if item.expiresOn %}
+                                                {{ item.expiresOn|date_fr }}
+                                                {# A statement about a date, never a verdict about
+                                                   the asset: the unit may have renewed the paper
+                                                   and not typed it in yet. #}
+                                                {% if item.hasExpired(today) %}
+                                                    <span class="badge text-bg-danger d-block">Échéance dépassée</span>
+                                                {% elseif item.expiresWithin(warning_days, today) %}
+                                                    <span class="badge text-bg-warning d-block">
+                                                        Dans {{ item.daysUntilExpiry(today) }} jour(s)
+                                                    </span>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="text-body-secondary">Sans échéance</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ item.remark ?? '—' }}</td>
+                                        <td class="text-end">
+                                            <form method="post" action="/mes-locations/conformite-supprimer" class="d-inline"
+                                                  data-confirm="Supprimer « {{ item.label }} » du registre ?">
+                                                {{ csrf_field()|raw }}
+                                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                                <input type="hidden" name="item_id" value="{{ item.id }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                    Supprimer
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="4">
+                                            <form method="post" action="/mes-locations/conformite-modifier"
+                                                  enctype="multipart/form-data" class="row g-2 align-items-end">
+                                                {{ csrf_field()|raw }}
+                                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                                <input type="hidden" name="item_id" value="{{ item.id }}">
 
-                                        <div class="col-12 col-md-3">
-                                            {% include 'partials/form_field.html.twig' with {
-                                                field_id: 'label-' ~ item.id,
-                                                field_name: 'label',
-                                                label: 'Intitulé de « ' ~ item.label ~ ' »',
-                                                label_visually_hidden: true,
-                                                value: item.label,
-                                                maxlength: 200,
-                                                required: true,
-                                                size: 'sm',
-                                                wrapper_class: 'mb-0',
-                                            } only %}
-                                        </div>
-                                        <div class="col-6 col-md-2">
-                                            {% include 'partials/form_field.html.twig' with {
-                                                field_id: 'expires-' ~ item.id,
-                                                field_name: 'expires_on',
-                                                label: 'Échéance de « ' ~ item.label ~ ' »',
-                                                label_visually_hidden: true,
-                                                type: 'date',
-                                                value: item.expiresOn,
-                                                size: 'sm',
-                                                wrapper_class: 'mb-0',
-                                            } only %}
-                                        </div>
-                                        <div class="col-12 col-md-3">
-                                            {% include 'partials/form_field.html.twig' with {
-                                                field_id: 'remark-' ~ item.id,
-                                                field_name: 'remark',
-                                                label: 'Remarque sur « ' ~ item.label ~ ' »',
-                                                label_visually_hidden: true,
-                                                value: item.remark,
-                                                size: 'sm',
-                                                wrapper_class: 'mb-0',
-                                            } only %}
-                                        </div>
-                                        <div class="col-12 col-md-3">
-                                            {% include 'partials/form_field.html.twig' with {
-                                                field_id: 'doc-' ~ item.id,
-                                                field_name: 'document',
-                                                label: 'Remplacer le document de « ' ~ item.label ~ ' »',
-                                                label_visually_hidden: true,
-                                                type: 'file',
-                                                size: 'sm',
-                                                wrapper_class: 'mb-0',
-                                            } only %}
-                                        </div>
-                                        <div class="col-12 col-md-1">
-                                            <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
-                                                Enregistrer
-                                            </button>
-                                        </div>
-                                    </form>
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                                                <div class="col-12 col-md-3">
+                                                    {% include 'partials/form_field.html.twig' with {
+                                                        field_id: 'label-' ~ item.id,
+                                                        field_name: 'label',
+                                                        label: 'Intitulé de « ' ~ item.label ~ ' »',
+                                                        label_visually_hidden: true,
+                                                        value: item.label,
+                                                        maxlength: 200,
+                                                        required: true,
+                                                        size: 'sm',
+                                                        wrapper_class: 'mb-0',
+                                                    } only %}
+                                                </div>
+                                                <div class="col-6 col-md-2">
+                                                    {% include 'partials/form_field.html.twig' with {
+                                                        field_id: 'expires-' ~ item.id,
+                                                        field_name: 'expires_on',
+                                                        label: 'Échéance de « ' ~ item.label ~ ' »',
+                                                        label_visually_hidden: true,
+                                                        type: 'date',
+                                                        value: item.expiresOn,
+                                                        size: 'sm',
+                                                        wrapper_class: 'mb-0',
+                                                    } only %}
+                                                </div>
+                                                <div class="col-12 col-md-3">
+                                                    {% include 'partials/form_field.html.twig' with {
+                                                        field_id: 'remark-' ~ item.id,
+                                                        field_name: 'remark',
+                                                        label: 'Remarque sur « ' ~ item.label ~ ' »',
+                                                        label_visually_hidden: true,
+                                                        value: item.remark,
+                                                        size: 'sm',
+                                                        wrapper_class: 'mb-0',
+                                                    } only %}
+                                                </div>
+                                                <div class="col-12 col-md-3">
+                                                    {% include 'partials/form_field.html.twig' with {
+                                                        field_id: 'doc-' ~ item.id,
+                                                        field_name: 'document',
+                                                        label: 'Remplacer le document de « ' ~ item.label ~ ' »',
+                                                        label_visually_hidden: true,
+                                                        type: 'file',
+                                                        size: 'sm',
+                                                        wrapper_class: 'mb-0',
+                                                    } only %}
+                                                </div>
+                                                <div class="col-12 col-md-1">
+                                                    <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
+                                                        Enregistrer
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endif %}
             </div>
-        {% endif %}
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Ajouter une entrée</h2>
+
+                {% if label_suggestions is not empty %}
+                    <p class="text-body-secondary small">
+                        Intitulés couramment utilisés — ce ne sont que des suggestions,
+                        n'importe quel autre intitulé convient :
+                        {{ label_suggestions|join(' · ') }}
+                    </p>
+                {% endif %}
+
+                <form method="post" action="/mes-locations/conformite-ajouter"
+                      enctype="multipart/form-data" class="row g-3">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+
+                    <div class="col-12 col-md-4">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'new-label', field_name: 'label',
+                            label: 'Intitulé', list: 'compliance-suggestions',
+                            maxlength: 200, required: true, wrapper_class: 'mb-0',
+                        } only %}
+                        <datalist id="compliance-suggestions">
+                            {% for suggestion in label_suggestions %}
+                                <option value="{{ suggestion }}"></option>
+                            {% endfor %}
+                        </datalist>
+                    </div>
+
+                    <div class="col-6 col-md-2">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'new-expires', field_name: 'expires_on', type: 'date',
+                            label: 'Échéance', help: 'Facultative.', wrapper_class: 'mb-0',
+                        } only %}
+                    </div>
+
+                    <div class="col-12 col-md-3">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'new-remark', field_name: 'remark',
+                            label: 'Remarque', wrapper_class: 'mb-0',
+                        } only %}
+                    </div>
+
+                    <div class="col-12 col-md-3">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'new-document', field_name: 'document', type: 'file',
+                            label: 'Document', wrapper_class: 'mb-0',
+                            help: 'Facultatif : une échéance notée sans scan vaut déjà mieux que rien.',
+                        } only %}
+                    </div>
+
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">Ajouter au registre</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
-</div>
-
-<div class="card">
-    <div class="card-body">
-        <h2 class="h5 mb-3">Ajouter une entrée</h2>
-
-        {% if label_suggestions is not empty %}
-            <p class="text-body-secondary small">
-                Intitulés couramment utilisés — ce ne sont que des suggestions,
-                n'importe quel autre intitulé convient :
-                {{ label_suggestions|join(' · ') }}
-            </p>
-        {% endif %}
-
-        <form method="post" action="/mes-locations/conformite-ajouter"
-              enctype="multipart/form-data" class="row g-3">
-            {{ csrf_field()|raw }}
-            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-
-            <div class="col-12 col-md-4">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'new-label', field_name: 'label',
-                    label: 'Intitulé', list: 'compliance-suggestions',
-                    maxlength: 200, required: true, wrapper_class: 'mb-0',
-                } only %}
-                <datalist id="compliance-suggestions">
-                    {% for suggestion in label_suggestions %}
-                        <option value="{{ suggestion }}"></option>
-                    {% endfor %}
-                </datalist>
-            </div>
-
-            <div class="col-6 col-md-2">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'new-expires', field_name: 'expires_on', type: 'date',
-                    label: 'Échéance', help: 'Facultative.', wrapper_class: 'mb-0',
-                } only %}
-            </div>
-
-            <div class="col-12 col-md-3">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'new-remark', field_name: 'remark',
-                    label: 'Remarque', wrapper_class: 'mb-0',
-                } only %}
-            </div>
-
-            <div class="col-12 col-md-3">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'new-document', field_name: 'document', type: 'file',
-                    label: 'Document', wrapper_class: 'mb-0',
-                    help: 'Facultatif : une échéance notée sans scan vaut déjà mieux que rien.',
-                } only %}
-            </div>
-
-            <div class="col-12">
-                <button type="submit" class="btn btn-primary">Ajouter au registre</button>
-            </div>
-        </form>
-    </div>
-</div>
 {% endblock %}

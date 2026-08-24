@@ -191,7 +191,7 @@
             <div class="card-body">
                 <h2 class="h5 mb-2">Prix</h2>
                 {% if booking.status.value == 'confirmed' %}
-                    <div class="alert alert-warning">
+                    <div class="alert alert-warning" role="status">
                         <strong>Cette réservation est confirmée.</strong> Modifier le prix maintenant :
                         <ul class="mb-0">
                             <li>le contrat sera à régénérer en nouvelle version ;</li>
@@ -482,7 +482,7 @@
                 <h2 class="h5 mb-2">Historique</h2>
                 {% if history is empty %}
                     {% include 'partials/empty_state.html.twig' with {
-                        message: 'Rien encore.',
+                        message: 'Aucun événement dans l\'historique.',
                         compact: true,
                     } only %}
                 {% else %}

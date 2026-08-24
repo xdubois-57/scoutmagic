@@ -60,7 +60,7 @@
                             {% if asset.isArchived %}
                                 {% include 'partials/status_badge.html.twig' with { status: 'archived', label: 'Archivé' } only %}
                             {% elseif not asset.isPublic %}
-                                <span class="badge text-bg-light border">Non public</span>
+                                <span class="badge bg-body-tertiary border text-body-secondary">Non public</span>
                             {% endif %}
                         </span>
                     </div>

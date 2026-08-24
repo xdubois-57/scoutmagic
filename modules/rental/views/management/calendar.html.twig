@@ -67,7 +67,7 @@
                 <h2 class="h5 mb-3">Réservations sur la période</h2>
                 {% if bookings is empty %}
                     {% include 'partials/empty_state.html.twig' with {
-                        message: 'Aucune.',
+                        message: 'Aucune réservation sur cette période.',
                         compact: true,
                     } only %}
                 {% else %}

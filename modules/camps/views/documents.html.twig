@@ -1,58 +1,60 @@
 {% extends 'base.html.twig' %}
 {% block title %}Documents — {{ camp_label }} — {{ site_name }}{% endblock %}
 {% block content %}
-    {% include 'partials/page_header.html.twig' with {
-        title: 'Documents',
-        subtitle: camp_label ~ (place ? ' · ' ~ place.name : ''),
-    } only %}
-
-    {% if documents is empty %}
-        {% include 'partials/empty_state.html.twig' with {
-            message: 'Aucun document joint à ce séjour.',
-            icon: 'bi-file-earmark-text',
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Documents',
+            subtitle: camp_label ~ (place ? ' · ' ~ place.name : ''),
         } only %}
-    {% else %}
-        <div class="list-group mb-4">
-            {% for document in documents %}
-                <div class="list-group-item d-flex justify-content-between align-items-center gap-3 flex-wrap">
-                    <a href="/files/{{ document.fileId }}" class="text-decoration-none min-w-0 text-break">
-                        <i class="bi bi-file-earmark-text me-2" aria-hidden="true"></i>{{ document.title }}
-                        {% if document.source == 'email' %}
-                            <span class="badge text-bg-info ms-2">Reçu par e-mail</span>
-                        {% endif %}
-                    </a>
-                    <form method="post" action="/chefs/camps/documents/{{ document.id }}/supprimer" data-confirm="{{ document.ownsItsFile()
-                                    ? 'Supprimer définitivement ce document ?'
-                                    : 'Retirer ce document du séjour ? Le fichier reste attaché au message reçu.' }}">
-                        {{ csrf_field() }}
-                        <button type="submit" class="btn btn-sm btn-outline-danger">
-                            {{ document.ownsItsFile() ? 'Supprimer' : 'Retirer' }}
-                        </button>
-                    </form>
-                </div>
-            {% endfor %}
-        </div>
-    {% endif %}
 
-    <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/documents"
-          enctype="multipart/form-data" class="card">
-        <div class="card-body">
-            <h2 class="h6 mb-3">Joindre un document</h2>
-            {{ csrf_field() }}
-            {% include 'partials/form_field.html.twig' with {
-                field_id: 'document-title', field_name: 'title', label: 'Nom du document',
-                size: 'sm', maxlength: 255,
-                help: 'Laissez vide pour reprendre le nom du fichier.',
+        {% if documents is empty %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucun document joint à ce séjour.',
+                icon: 'bi-file-earmark-text',
             } only %}
-            <div class="mb-3">
-                <label class="form-label small" for="document-file">Fichier</label>
-                <input type="file" name="document" id="document-file" class="form-control form-control-sm"
-                       required aria-describedby="document-file-help">
-                <div class="form-text" id="document-file-help">
-                    PDF, image ou document bureautique, 25 Mo maximum.
-                </div>
+        {% else %}
+            <div class="list-group mb-4">
+                {% for document in documents %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                        <a href="/files/{{ document.fileId }}" class="text-decoration-none min-w-0 text-break">
+                            <i class="bi bi-file-earmark-text me-2" aria-hidden="true"></i>{{ document.title }}
+                            {% if document.source == 'email' %}
+                                <span class="badge text-bg-info ms-2">Reçu par e-mail</span>
+                            {% endif %}
+                        </a>
+                        <form method="post" action="/chefs/camps/documents/{{ document.id }}/supprimer" data-confirm="{{ document.ownsItsFile()
+                                        ? 'Supprimer définitivement ce document ?'
+                                        : 'Retirer ce document du séjour ? Le fichier reste attaché au message reçu.' }}">
+                            {{ csrf_field() }}
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                {{ document.ownsItsFile() ? 'Supprimer' : 'Retirer' }}
+                            </button>
+                        </form>
+                    </div>
+                {% endfor %}
             </div>
-            <button type="submit" class="btn btn-primary btn-sm">Joindre</button>
-        </div>
-    </form>
+        {% endif %}
+
+        <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/documents"
+              enctype="multipart/form-data" class="card">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Joindre un document</h2>
+                {{ csrf_field() }}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'document-title', field_name: 'title', label: 'Nom du document',
+                    size: 'sm', maxlength: 255,
+                    help: 'Laissez vide pour reprendre le nom du fichier.',
+                } only %}
+                <div class="mb-3">
+                    <label class="form-label small" for="document-file">Fichier</label>
+                    <input type="file" name="document" id="document-file" class="form-control form-control-sm"
+                           required aria-describedby="document-file-help">
+                    <div class="form-text" id="document-file-help">
+                        PDF, image ou document bureautique, 25 Mo maximum.
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Joindre</button>
+            </div>
+        </form>
+    </div>
 {% endblock %}

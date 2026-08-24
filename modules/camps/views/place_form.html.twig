@@ -1,81 +1,83 @@
 {% extends 'base.html.twig' %}
 {% block title %}Modifier {{ place.name }} — {{ site_name }}{% endblock %}
 {% block content %}
-    {% include 'partials/page_header.html.twig' with {
-        title: 'Modifier le lieu',
-        subtitle: place.name,
-    } only %}
-
-    {# Une valeur refusée ne fait plus perdre les six autres. #}
-    {% for error in errors %}
-        <div class="alert alert-danger" role="alert">{{ error }}</div>
-    {% endfor %}
-
-    <form method="post" action="/chefs/camps/lieux/{{ place.id }}" class="mb-5">
-        {{ csrf_field() }}
-
-        {% include 'partials/form_field.html.twig' with {
-            field_id: 'place-name', field_name: 'place_name', label: 'Nom du lieu',
-            value: submitted.place_name, required: true, maxlength: 150,
-        } only %}
-        {% include 'partials/form_field.html.twig' with {
-            field_id: 'place-address', field_name: 'address', label: 'Adresse',
-            value: submitted.address, maxlength: 255,
-            help: 'Facultative : beaucoup de terrains sont un pré sans adresse utilisable.',
-        } only %}
-        <div class="row">
-            <div class="col-4">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'place-postal', field_name: 'postal_code', label: 'Code postal',
-                    value: submitted.postal_code, maxlength: 20,
-                } only %}
-            </div>
-            <div class="col-8">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'place-city', field_name: 'city', label: 'Ville',
-                    value: submitted.city, maxlength: 120,
-                } only %}
-            </div>
-        </div>
-        {% include 'partials/form_field.html.twig' with {
-            field_id: 'place-country', field_name: 'country', label: 'Pays',
-            value: submitted.country, maxlength: 80,
-        } only %}
-        {% include 'partials/form_field.html.twig' with {
-            field_id: 'place-website', field_name: 'website_url', label: 'Site web du lieu',
-            type: 'url', value: submitted.website_url, placeholder: 'https://…', maxlength: 500,
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Modifier le lieu',
+            subtitle: place.name,
         } only %}
 
-        <fieldset class="mb-3">
-            <legend class="form-label">Coordonnées</legend>
-            <p class="form-text mt-0">
-                {% if place.coordinatesAreManual %}
-                    Saisies à la main : le géocodage automatique ne touchera plus ce lieu.
-                {% elseif place.hasCoordinates() %}
-                    Trouvées automatiquement à partir de l'adresse. Corrigez-les si l'épingle
-                    n'est pas sur le bon pré — elles ne seront alors plus jamais retouchées.
-                {% else %}
-                    Cherchées automatiquement à partir de l'adresse. Vous pouvez aussi les
-                    saisir directement, ce qui est souvent le seul moyen pour un terrain
-                    sans adresse.
-                {% endif %}
-            </p>
+        {# Une valeur refusée ne fait plus perdre les six autres. #}
+        {% for error in errors %}
+            <div class="alert alert-danger" role="alert">{{ error }}</div>
+        {% endfor %}
+
+        <form method="post" action="/chefs/camps/lieux/{{ place.id }}" class="mb-5">
+            {{ csrf_field() }}
+
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'place-name', field_name: 'place_name', label: 'Nom du lieu',
+                value: submitted.place_name, required: true, maxlength: 150,
+            } only %}
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'place-address', field_name: 'address', label: 'Adresse',
+                value: submitted.address, maxlength: 255,
+                help: 'Facultative : beaucoup de terrains sont un pré sans adresse utilisable.',
+            } only %}
             <div class="row">
-                <div class="col-6">
+                <div class="col-4">
                     {% include 'partials/form_field.html.twig' with {
-                        field_id: 'place-latitude', field_name: 'latitude', label: 'Latitude',
-                        value: submitted.latitude, inputmode: 'decimal', placeholder: '50.443210',
+                        field_id: 'place-postal', field_name: 'postal_code', label: 'Code postal',
+                        value: submitted.postal_code, maxlength: 20,
                     } only %}
                 </div>
-                <div class="col-6">
+                <div class="col-8">
                     {% include 'partials/form_field.html.twig' with {
-                        field_id: 'place-longitude', field_name: 'longitude', label: 'Longitude',
-                        value: submitted.longitude, inputmode: 'decimal', placeholder: '5.001234',
+                        field_id: 'place-city', field_name: 'city', label: 'Ville',
+                        value: submitted.city, maxlength: 120,
                     } only %}
                 </div>
             </div>
-        </fieldset>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'place-country', field_name: 'country', label: 'Pays',
+                value: submitted.country, maxlength: 80,
+            } only %}
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'place-website', field_name: 'website_url', label: 'Site web du lieu',
+                type: 'url', value: submitted.website_url, placeholder: 'https://…', maxlength: 500,
+            } only %}
 
-        <button type="submit" class="btn btn-primary">Enregistrer</button>
-    </form>
+            <fieldset class="mb-3">
+                <legend class="form-label">Coordonnées</legend>
+                <p class="form-text mt-0">
+                    {% if place.coordinatesAreManual %}
+                        Saisies à la main : le géocodage automatique ne touchera plus ce lieu.
+                    {% elseif place.hasCoordinates() %}
+                        Trouvées automatiquement à partir de l'adresse. Corrigez-les si l'épingle
+                        n'est pas sur le bon pré — elles ne seront alors plus jamais retouchées.
+                    {% else %}
+                        Cherchées automatiquement à partir de l'adresse. Vous pouvez aussi les
+                        saisir directement, ce qui est souvent le seul moyen pour un terrain
+                        sans adresse.
+                    {% endif %}
+                </p>
+                <div class="row">
+                    <div class="col-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'place-latitude', field_name: 'latitude', label: 'Latitude',
+                            value: submitted.latitude, inputmode: 'decimal', placeholder: '50.443210',
+                        } only %}
+                    </div>
+                    <div class="col-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'place-longitude', field_name: 'longitude', label: 'Longitude',
+                            value: submitted.longitude, inputmode: 'decimal', placeholder: '5.001234',
+                        } only %}
+                    </div>
+                </div>
+            </fieldset>
+
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </form>
+    </div>
 {% endblock %}

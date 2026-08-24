@@ -15,7 +15,7 @@
         {% if asset.isArchived or not asset.isPublic %}
             <p class="mb-3">
                 {% if asset.isArchived %}{% include 'partials/status_badge.html.twig' with { status: 'archived', label: 'Archivé' } only %}{% endif %}
-                {% if not asset.isPublic %}<span class="badge text-bg-light border">Non public</span>{% endif %}
+                {% if not asset.isPublic %}<span class="badge bg-body-tertiary border text-body-secondary">Non public</span>{% endif %}
             </p>
         {% endif %}
 
@@ -28,7 +28,7 @@
               nothing. Said where the manager actually is, with the link to
               the exact field that fixes it.
             #}
-            <div class="alert alert-warning">
+            <div class="alert alert-warning" role="status">
                 <strong>Ce bien est visible publiquement mais n'a encore aucun tarif.</strong>
                 Les visiteurs voient « Tarif sur demande » à la place d'une estimation.
                 <a href="/mes-locations/{{ asset.slug }}/reglages#tarification" class="alert-link">Définir
@@ -69,7 +69,7 @@
                 <h2 class="h5 mb-3">À traiter</h2>
                 {% if needs_attention is empty %}
                     {% include 'partials/empty_state.html.twig' with {
-                        message: 'Rien en attente. Tout est à jour.',
+                        message: 'Aucune demande en attente.',
                         compact: true,
                     } only %}
                 {% else %}

@@ -25,7 +25,7 @@
         {% include '@rental/management/_nav.html.twig' %}
 
         {% if asset.isArchived %}
-            <div class="alert alert-warning">
+            <div class="alert alert-warning" role="status">
                 Ce bien est archivé : il n'apparaît plus publiquement et n'accepte plus de nouvelle
                 réservation. Ces réglages restent modifiables pour clôturer l'historique en cours.
             </div>

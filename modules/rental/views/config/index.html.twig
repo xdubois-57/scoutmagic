@@ -55,7 +55,7 @@
 
         {% if selected_asset %}
             {% if selected_asset.isArchived %}
-                <div class="alert alert-warning">
+                <div class="alert alert-warning" role="status">
                     Ce bien est archivé : il n'apparaît plus publiquement et n'accepte plus de nouvelle
                     réservation. Ses gestionnaires y gardent accès pour clôturer l'historique.
                 </div>
@@ -65,7 +65,7 @@
                 {# The setup gap a visitor meets first: public, but priced by
                    nobody. Every estimate answers « Tarif sur demande » until
                    somebody fills the tariff in the asset's own managed space. #}
-                <div class="alert alert-warning">
+                <div class="alert alert-warning" role="status">
                     <strong>Ce bien est visible publiquement mais n'a encore aucun tarif.</strong>
                     Les visiteurs voient « Tarif sur demande » à la place d'une estimation. Le tarif
                     se règle par ses gestionnaires (ou par vous) dans
@@ -227,7 +227,7 @@
                         {% endif %}
                     {% endfor %}
                     {% if inactive_managers is not empty %}
-                        <div class="alert alert-warning small">
+                        <div class="alert alert-warning small" role="status">
                             {{ inactive_managers|length }} gestionnaire(s) n'apparaissent plus dans le
                             dernier import Desk et sont donc désactivés. Leur accès est suspendu, mais
                             l'attribution est conservée : elle se réactive d'elle-même s'ils
@@ -495,7 +495,7 @@
 
         {# ── Rappels automatiques (§6.29) ─────────────────────────────── #}
         {% if not cron_detected %}
-            <div class="alert alert-warning">
+            <div class="alert alert-warning" role="status">
                 <strong>Aucune tâche planifiée réelle n'a été détectée.</strong>
                 Les rappels automatiques (acompte non reçu, état des lieux à faire,
                 document de conformité expirant, informations pratiques au locataire…)

@@ -1,56 +1,58 @@
 {% extends 'base.html.twig' %}
 {% block title %}Photos — {{ camp_label }} — {{ site_name }}{% endblock %}
 {% block content %}
-    {% include 'partials/page_header.html.twig' with {
-        title: 'Photos',
-        subtitle: camp_label ~ (place ? ' · ' ~ place.name : ''),
-    } only %}
-
-    {% if not album_available %}
-        {# The gallery module hosts these photos. Without it, saying so is
-           more useful than an empty grid that never fills. #}
-        {% include 'partials/empty_state.html.twig' with {
-            message: 'Les photos ne sont pas disponibles : le module Galerie est désactivé sur ce site.',
-            icon: 'bi-images',
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Photos',
+            subtitle: camp_label ~ (place ? ' · ' ~ place.name : ''),
         } only %}
-    {% else %}
-        {% if media is empty %}
+
+        {% if not album_available %}
+            {# The gallery module hosts these photos. Without it, saying so is
+               more useful than an empty grid that never fills. #}
             {% include 'partials/empty_state.html.twig' with {
-                message: 'Aucune photo pour ce séjour. Ajoutez-en une pour les staffs suivants.',
+                message: 'Les photos ne sont pas disponibles : le module Galerie est désactivé sur ce site.',
                 icon: 'bi-images',
             } only %}
         {% else %}
-            <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3 mb-4">
-                {% for item in media %}
-                    <div class="col">
-                        <div class="card h-100">
-                            <img src="/gallery/media/{{ item.id }}/thumb" alt="{{ item.originalFilename ?? 'Photo du séjour' }}"
-                                 class="card-img-top" loading="lazy">
-                            <div class="card-footer bg-transparent p-2">
-                                <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/photos/supprimer" data-confirm="Supprimer définitivement cette photo ?">
-                                    {{ csrf_field() }}
-                                    <input type="hidden" name="media_id" value="{{ item.id }}">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger w-100">Supprimer</button>
-                                </form>
+            {% if media is empty %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucune photo pour ce séjour. Ajoutez-en une pour les staffs suivants.',
+                    icon: 'bi-images',
+                } only %}
+            {% else %}
+                <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3 mb-4">
+                    {% for item in media %}
+                        <div class="col">
+                            <div class="card h-100">
+                                <img src="/gallery/media/{{ item.id }}/thumb" alt="{{ item.originalFilename ?? 'Photo du séjour' }}"
+                                     class="card-img-top" loading="lazy">
+                                <div class="card-footer bg-transparent p-2">
+                                    <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/photos/supprimer" data-confirm="Supprimer définitivement cette photo ?">
+                                        {{ csrf_field() }}
+                                        <input type="hidden" name="media_id" value="{{ item.id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger w-100">Supprimer</button>
+                                    </form>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                {% endfor %}
-            </div>
-        {% endif %}
-
-        <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/photos"
-              enctype="multipart/form-data" class="card">
-            <div class="card-body">
-                <h2 class="h6 mb-3">Ajouter une photo</h2>
-                {{ csrf_field() }}
-                <div class="mb-3">
-                    <label class="form-label small" for="photo-file">Photo</label>
-                    <input type="file" name="photo" id="photo-file" accept="image/*"
-                           class="form-control form-control-sm" required>
+                    {% endfor %}
                 </div>
-                <button type="submit" class="btn btn-primary btn-sm">Envoyer</button>
-            </div>
-        </form>
-    {% endif %}
+            {% endif %}
+
+            <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/photos"
+                  enctype="multipart/form-data" class="card">
+                <div class="card-body">
+                    <h2 class="h6 mb-3">Ajouter une photo</h2>
+                    {{ csrf_field() }}
+                    <div class="mb-3">
+                        <label class="form-label small" for="photo-file">Photo</label>
+                        <input type="file" name="photo" id="photo-file" accept="image/*"
+                               class="form-control form-control-sm" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm">Envoyer</button>
+                </div>
+            </form>
+        {% endif %}
+    </div>
 {% endblock %}
