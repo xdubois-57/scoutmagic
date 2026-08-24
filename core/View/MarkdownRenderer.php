@@ -49,17 +49,31 @@ namespace Core\View;
  *   topic (design.md §7.11). Off by default because a release note
  *   containing a literal `>` line has always rendered it as plain text,
  *   and the no-options output must stay byte-identical.
+ * - 'ordered_lists' (bool, default false): renders consecutive `1. ` /
+ *   `2. ` lines as an <ol> — help topics use numbered steps for
+ *   procedures. Off by default for the same reason as blockquotes: a
+ *   release note starting a line with "1. " has always rendered it as an
+ *   ordinary paragraph.
+ * - 'wrapped_list_items' (bool, default false): an INDENTED line
+ *   following a list item continues that item, the way a paragraph's
+ *   lines already join — help topics are hard-wrapped at ~72 columns, so
+ *   without this every wrapped bullet or step fractures into
+ *   list-paragraph-list. Off by default: a release note's indented line
+ *   has always closed the list and started a paragraph, and the
+ *   no-options output must stay byte-identical.
  */
 final class MarkdownRenderer
 {
     /**
-     * @param array{heading_base_level?: int, allow_asset_images?: bool, blockquotes?: bool} $options
+     * @param array{heading_base_level?: int, allow_asset_images?: bool, blockquotes?: bool, ordered_lists?: bool, wrapped_list_items?: bool} $options
      */
     public static function toHtml(string $markdown, array $options = []): string
     {
         $headingBaseLevel = $options['heading_base_level'] ?? 6;
         $allowAssetImages = $options['allow_asset_images'] ?? false;
         $renderBlockquotes = $options['blockquotes'] ?? false;
+        $renderOrderedLists = $options['ordered_lists'] ?? false;
+        $joinWrappedListItems = $options['wrapped_list_items'] ?? false;
         $lines = preg_split('/\r\n|\r|\n/', trim($markdown)) ?: [];
         $html = '';
         $listOpen = false;
@@ -82,6 +96,21 @@ final class MarkdownRenderer
             $html .= '<blockquote>' . self::inline(implode(' ', $quote), $allowAssetImages) . '</blockquote>';
             $quote = [];
         };
+        // The <li> under construction, for whichever list is open. Items
+        // are buffered rather than emitted line-by-line so a wrapped item
+        // ('wrapped_list_items') joins its lines BEFORE inline() runs —
+        // bold spanning the wrap works exactly as it does in a paragraph.
+        // With the option off the buffer holds one line and flushes at the
+        // next structural event, producing byte-identical output to the
+        // historical emit-immediately code.
+        /** @var ?string[] $item */
+        $item = null;
+        $flushItem = static function () use (&$item, &$html, $allowAssetImages): void {
+            if ($item !== null) {
+                $html .= '<li>' . self::inline(implode(' ', $item), $allowAssetImages) . '</li>';
+                $item = null;
+            }
+        };
         // Takes and returns the flag rather than capturing it by
         // reference: a by-ref bool captured before it is ever set to true
         // reads as permanently false to static analysis, which flagged the
@@ -94,10 +123,23 @@ final class MarkdownRenderer
 
             return false;
         };
+        // Same threaded-flag shape as $closeList above, for the same
+        // static-analysis honesty reason.
+        $closeOrderedList = static function (bool $orderedOpen) use (&$html): bool {
+            if ($orderedOpen) {
+                $html .= '</ol>';
+            }
+
+            return false;
+        };
+        $orderedOpen = false;
 
         foreach ($lines as $line) {
             $trimmed = trim($line);
 
+            // A blank line ends a paragraph or a quote but NOT a list —
+            // historical behaviour ("- a\n\n- b" is one <ul>), kept
+            // identical for <ol>.
             if ($trimmed === '') {
                 $flushParagraph();
                 $flushQuote();
@@ -106,7 +148,9 @@ final class MarkdownRenderer
 
             if ($renderBlockquotes && preg_match('/^>\s*(.*)$/', $trimmed, $m) === 1) {
                 $flushParagraph();
+                $flushItem();
                 $listOpen = $closeList($listOpen);
+                $orderedOpen = $closeOrderedList($orderedOpen);
                 if ($m[1] !== '') {
                     $quote[] = $m[1];
                 }
@@ -116,15 +160,32 @@ final class MarkdownRenderer
             if (preg_match('/^-{3,}$/', $trimmed) === 1) {
                 $flushParagraph();
                 $flushQuote();
+                $flushItem();
                 $listOpen = $closeList($listOpen);
+                $orderedOpen = $closeOrderedList($orderedOpen);
                 $html .= '<hr>';
+                continue;
+            }
+
+            if ($renderOrderedLists && preg_match('/^\d+\.\s+(.+)$/', $trimmed, $m) === 1) {
+                $flushParagraph();
+                $flushQuote();
+                $flushItem();
+                $listOpen = $closeList($listOpen);
+                if (!$orderedOpen) {
+                    $html .= '<ol class="ps-3 mb-2">';
+                    $orderedOpen = true;
+                }
+                $item = [$m[1]];
                 continue;
             }
 
             if (preg_match('/^(#{1,6})\s+(.+)$/', $trimmed, $m) === 1) {
                 $flushParagraph();
                 $flushQuote();
+                $flushItem();
                 $listOpen = $closeList($listOpen);
+                $orderedOpen = $closeOrderedList($orderedOpen);
                 // With the default base level 6 every depth flattens to
                 // <h6> — the historical behaviour, byte for byte. A lower
                 // base (help pages use 2) maps # to <h{base}> and each
@@ -137,22 +198,36 @@ final class MarkdownRenderer
             if (preg_match('/^[-*]\s+(.+)$/', $trimmed, $m) === 1) {
                 $flushParagraph();
                 $flushQuote();
+                $flushItem();
+                $orderedOpen = $closeOrderedList($orderedOpen);
                 if (!$listOpen) {
                     $html .= '<ul class="ps-3 mb-2">';
                     $listOpen = true;
                 }
-                $html .= '<li>' . self::inline($m[1], $allowAssetImages) . '</li>';
+                $item = [$m[1]];
                 continue;
             }
 
+            // A hard-wrapped list item's continuation: the source line is
+            // indented and an item is under construction — join it, the
+            // way a paragraph's lines already join.
+            if ($joinWrappedListItems && $item !== null && ltrim($line) !== $line) {
+                $item[] = $trimmed;
+                continue;
+            }
+
+            $flushItem();
             $listOpen = $closeList($listOpen);
+            $orderedOpen = $closeOrderedList($orderedOpen);
             $flushQuote();
             $paragraph[] = $trimmed;
         }
 
         $flushParagraph();
         $flushQuote();
+        $flushItem();
         $listOpen = $closeList($listOpen);
+        $orderedOpen = $closeOrderedList($orderedOpen);
 
         return $html;
     }

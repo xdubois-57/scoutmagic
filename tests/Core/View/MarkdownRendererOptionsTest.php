@@ -85,6 +85,73 @@ class MarkdownRendererOptionsTest extends TestCase
         $this->assertStringNotContainsString('<img', $files);
     }
 
+    // --- ordered_lists ---
+
+    public function testByDefaultANumberedLineStaysAPlainParagraph(): void
+    {
+        $html = MarkdownRenderer::toHtml("1. premier\n2. second");
+
+        $this->assertStringNotContainsString('<ol', $html);
+        $this->assertSame('<p>1. premier 2. second</p>', $html);
+    }
+
+    public function testConsecutiveNumberedLinesRenderAsAnOrderedListWhenEnabled(): void
+    {
+        $html = MarkdownRenderer::toHtml("1. premier\n2. second\n\nParagraphe.", ['ordered_lists' => true]);
+
+        $this->assertSame('<ol class="ps-3 mb-2"><li>premier</li><li>second</li></ol><p>Paragraphe.</p>', $html);
+    }
+
+    public function testOrderedAndBulletListsCloseEachOther(): void
+    {
+        $html = MarkdownRenderer::toHtml("1. étape\n- puce", ['ordered_lists' => true]);
+
+        $this->assertSame('<ol class="ps-3 mb-2"><li>étape</li></ol><ul class="ps-3 mb-2"><li>puce</li></ul>', $html);
+    }
+
+    // --- wrapped_list_items ---
+
+    public function testByDefaultAnIndentedLineAfterABulletStillClosesTheList(): void
+    {
+        // Pins the historical behaviour the option exists to not change.
+        $html = MarkdownRenderer::toHtml("- puce longue\n  suite de la puce");
+
+        $this->assertSame('<ul class="ps-3 mb-2"><li>puce longue</li></ul><p>suite de la puce</p>', $html);
+    }
+
+    public function testAWrappedBulletJoinsIntoOneItemWhenEnabled(): void
+    {
+        $html = MarkdownRenderer::toHtml(
+            "- une puce **en gras\n  sur deux lignes** et sa fin\n- seconde puce",
+            ['wrapped_list_items' => true]
+        );
+
+        $this->assertSame(
+            '<ul class="ps-3 mb-2"><li>une puce <strong>en gras sur deux lignes</strong> et sa fin</li><li>seconde puce</li></ul>',
+            $html
+        );
+    }
+
+    public function testAWrappedNumberedStepStaysOneOrderedListItem(): void
+    {
+        $html = MarkdownRenderer::toHtml(
+            "1. Entrez votre adresse et touchez «\n   Envoyer ».\n2. La page attend.",
+            ['ordered_lists' => true, 'wrapped_list_items' => true]
+        );
+
+        $this->assertSame(
+            '<ol class="ps-3 mb-2"><li>Entrez votre adresse et touchez « Envoyer ».</li><li>La page attend.</li></ol>',
+            $html
+        );
+    }
+
+    public function testAnUnindentedLineStillEndsTheListEvenWhenEnabled(): void
+    {
+        $html = MarkdownRenderer::toHtml("- puce\nParagraphe non indenté.", ['wrapped_list_items' => true]);
+
+        $this->assertSame('<ul class="ps-3 mb-2"><li>puce</li></ul><p>Paragraphe non indenté.</p>', $html);
+    }
+
     // --- blockquotes ---
 
     public function testConsecutiveQuoteLinesRenderAsOneBlockquoteWhenEnabled(): void
