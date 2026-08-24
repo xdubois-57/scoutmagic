@@ -37,6 +37,7 @@ use Modules\Camps\Service\ContactService;
 use Modules\Camps\Service\DuplicatePlaceDetector;
 use Modules\Camps\Service\PlaceArchiveService;
 use Modules\Camps\Service\PlaceService;
+use Modules\Camps\Service\PlaceSummaryService;
 use Modules\Camps\Service\ReviewService;
 use Modules\Camps\Service\SectionDescriber;
 use Modules\InboundMail\Api\InboundMailInterface;
@@ -70,7 +71,8 @@ class CampsChiefController extends AbstractController
         private DuplicatePlaceDetector $duplicates,
         private PlaceArchiveService $archiveService,
         private ?InboundMailInterface $inboundMail = null,
-        private ?FieldProposalRepository $proposals = null
+        private ?FieldProposalRepository $proposals = null,
+        private ?PlaceSummaryService $summaries = null
     ) {
     }
 
@@ -217,6 +219,7 @@ class CampsChiefController extends AbstractController
             // because a visible button that always refuses is a trap.
             'is_unit_chief' => Role::fromString(AuthSession::getRole())->hasAccess(Role::ADMIN),
             'archive_warning' => $this->archiveService->pendingWarning($place, $today),
+            'summary_available' => $this->summaries !== null && $this->summaries->isAvailable(),
             'reviews' => $pastReviews,
             'breadcrumb_current' => $place->name,
             'breadcrumb_trail' => $this->trail(),
@@ -528,6 +531,34 @@ class CampsChiefController extends AbstractController
             'price' => CampLabels::money($camp->priceCents),
             'sections' => $this->sectionDescriber->describe($camp->sectionIds),
         ];
+    }
+
+    /**
+     * "Régénérer" on a place sheet — the one place a summary is written
+     * synchronously, because a chief pressed a button and is waiting for
+     * it. Everywhere else it is the daily task's job.
+     *
+     * @param array<string, string> $params
+     */
+    public function regenerateSummary(Request $request, array $params): Response
+    {
+        $place = $this->places->findById((int) ($params['id'] ?? 0));
+        if ($place === null) {
+            return $this->notFound();
+        }
+        if (($guard = $this->guardCsrf($request, '/chefs/camps/lieux/' . $place->id)) !== null) {
+            return $guard;
+        }
+
+        $written = $this->summaries !== null && $this->summaries->refresh($place);
+        FlashMessage::set(
+            $written ? 'success' : 'error',
+            $written
+                ? 'Résumé régénéré.'
+                : 'Le résumé n\'a pas pu être régénéré : il n\'y a pas assez à raconter, ou le connecteur IA n\'est pas disponible.'
+        );
+
+        return $this->redirect('/chefs/camps/lieux/' . $place->id);
     }
 
     /**

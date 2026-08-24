@@ -10,7 +10,7 @@
         {% for candidate in candidates %}
             <div class="list-group-item">
                 <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
-                    <div>
+                    <div class="min-w-0">
                         <div class="fw-semibold">{{ candidate.place.name }}</div>
                         {% if candidate.place.locality() %}
                             <div class="small text-body-secondary">{{ candidate.place.locality() }}</div>

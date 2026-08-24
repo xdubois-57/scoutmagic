@@ -12,6 +12,7 @@ use Core\Audit\AuditService;
 use Core\Audit\AuditSource;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
+use Modules\Camps\Repository\PlaceRepository;
 
 /**
  * Stays: validation, persistence, and the change history that goes with
@@ -45,8 +46,23 @@ class CampService
 
     public function __construct(
         private CampRepository $camps,
-        private AuditService $audit
+        private AuditService $audit,
+        private ?PlaceRepository $places = null
     ) {
+    }
+
+    /**
+     * A stay changed, so what the AI wrote about its place is no longer
+     * true. Marking is all that happens here — regeneration is a daily
+     * task, because a model call on a page load makes the page as slow as
+     * the slowest third party.
+     *
+     * Optional dependency so the service stays constructible without it;
+     * a null repository simply means nothing to mark.
+     */
+    private function markPlaceSummaryStale(int $placeId): void
+    {
+        $this->places?->markSummaryStale($placeId);
     }
 
     /**
@@ -89,6 +105,8 @@ class CampService
             $actorUserAccountId
         );
 
+        $this->markPlaceSummaryStale($placeId);
+
         // Sections chosen at creation are recorded too: a chief reading
         // the history a year later should not have to infer that the
         // sections were set from the fact that no line ever set them.
@@ -128,6 +146,8 @@ class CampService
             $values['booked_by_name'],
             $values['section_ids'],
         );
+
+        $this->markPlaceSummaryStale($camp->placeId);
 
         $this->recordChange($camp->id, 'stay_type',
             CampLabels::stayType($camp->stayType), CampLabels::stayType($values['stay_type']),

@@ -41,6 +41,44 @@
         </a>
     </div>
 
+    {% if place.aiSummary or summary_available %}
+        <div class="card bg-body-tertiary mb-4">
+            <div class="card-body">
+                <div class="small text-uppercase text-body-secondary fw-semibold">
+                    <i class="bi bi-stars" aria-hidden="true"></i> Résumé automatique
+                </div>
+                {% if place.aiSummary %}
+                    <p class="mt-2 mb-2">{{ place.aiSummary }}</p>
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        {# Dated, and explicitly not a source of truth: a
+                           reader has to know how old it is and where the
+                           real answer lives. #}
+                        <span class="small text-body-secondary">
+                            Généré le {{ place.aiSummaryGeneratedAt|date_fr }}
+                            {%- if place.aiSummaryIsStale %}, à régénérer{% endif %} ·
+                            écrit automatiquement à partir des avis — à vérifier dans les avis eux-mêmes.
+                        </span>
+                        {% if summary_available %}
+                            <form method="post" action="/chefs/camps/lieux/{{ place.id }}/resume">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                <button type="submit" class="btn btn-link btn-sm p-0">Régénérer</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                {% else %}
+                    <p class="small text-body-secondary mt-2 mb-2">
+                        Pas encore de résumé pour ce lieu. Il s'écrit tout seul une fois qu'il y a
+                        des avis ou des prix à comparer.
+                    </p>
+                    <form method="post" action="/chefs/camps/lieux/{{ place.id }}/resume">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="btn btn-link btn-sm p-0">Écrire le résumé maintenant</button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+
     <h2 class="h6 text-uppercase text-body-secondary mb-2">Camps à venir</h2>
     {% if upcoming is empty %}
         {% include 'partials/empty_state.html.twig' with {

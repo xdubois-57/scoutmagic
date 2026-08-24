@@ -3208,7 +3208,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
 
     $campsSectionDescriber = new \Modules\Camps\Service\SectionDescriber($sectionService);
     $campsPlaceService = new \Modules\Camps\Service\PlaceService($campsPlaceRepo, $auditService);
-    $campsCampService = new \Modules\Camps\Service\CampService($campsCampRepo, $auditService);
+    $campsCampService = new \Modules\Camps\Service\CampService($campsCampRepo, $auditService, $campsPlaceRepo);
     $campsContactService = new \Modules\Camps\Service\ContactService(
         $campsContactRepo, $auditService, $journalService
     );
@@ -3232,7 +3232,10 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         $auditService,
         $galleryDelegatedAlbumManager ?? null
     );
-    $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService);
+    $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService, $campsPlaceRepo);
+    $campsSummaryService = new \Modules\Camps\Service\PlaceSummaryService(
+        $campsPlaceRepo, $campsCampRepo, $campsReviewRepo, $llmConnectorForRgpd ?? null
+    );
     $campsArchiveService = new \Modules\Camps\Service\PlaceArchiveService(
         $campsPlaceRepo, $campsCampRepo, $auditService
     );
@@ -3258,6 +3261,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         [\Modules\Camps\Task\ReviewReminderHandler::TASK_KEY, \Modules\Camps\Task\ReviewReminderHandler::REFERENCE, 'tomorrow 06:00'],
         [\Modules\Camps\Task\PurgeUnsortedMailHandler::TASK_KEY, \Modules\Camps\Task\PurgeUnsortedMailHandler::REFERENCE, 'tomorrow 04:00'],
         [\Modules\Camps\Task\GeocodePlacesHandler::TASK_KEY, \Modules\Camps\Task\GeocodePlacesHandler::REFERENCE, '+1 minute'],
+        [\Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY, \Modules\Camps\Task\RefreshPlaceSummariesHandler::REFERENCE, 'tomorrow 05:00'],
     ] as [$campsTaskKey, $campsTaskReference, $campsTaskWhen]) {
         if ($schedulerService->find('camps', $campsTaskKey, $campsTaskReference) === null) {
             $schedulerService->schedule('camps', $campsTaskKey, new DateTimeImmutable($campsTaskWhen), [], $campsTaskReference);
@@ -3321,7 +3325,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
             $campsSectionDescriber, $sectionService, $editableContentService, $auditService, $settingService,
             $campsContactRepo, $campsLinkRepo, $campsDocumentRepo, $campsAlbumService,
             $campsReviewRepo, $campsReviewService, $campsDuplicateDetector, $campsArchiveService,
-            $inboundMailForOthers ?? null, $campsProposalRepo
+            $inboundMailForOthers ?? null, $campsProposalRepo, $campsSummaryService
         )
     );
     $frontController->registerController(

@@ -2,7 +2,7 @@
   "id": "camps",
   "name": "Camps",
   "description": "Les lieux de camp de l'unité et les séjours qu'elle y a faits — passés et à venir : dates, sections, prix, contacts sur place, avis des staffs précédents. Un staff qui cherche un terrain lit ce que les staffs d'avant en ont pensé, au lieu de repartir de zéro.",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -386,6 +386,15 @@
       "label": ""
     },
     {
+      "path": "/chefs/camps/lieux/{id}/resume",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "regenerateSummary",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
       "path": "/config/camps",
       "method": "GET",
       "controller": "Modules\\Camps\\Controller\\CampsConfigController",
@@ -454,6 +463,13 @@
       "type": "number",
       "label": "Conservation du courrier non classé (mois)",
       "description": "Durée après laquelle un message resté non classé est effacé. Elle se compte depuis la date du message lui-même : un message détaché d'un séjour et renvoyé au courrier non classé garde sa date d'origine, et peut donc partir au prochain passage s'il est déjà ancien."
+    },
+    {
+      "key": "camps_ai_summary_enabled",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Résumé automatique des lieux",
+      "description": "Si le connecteur IA est actif : un court résumé de ce que les séjours et les avis d'un lieu racontent, régénéré une fois par jour quand quelque chose a changé. Il ne reçoit que les avis, notes, prix, statuts, dates, nombres de participants et sections — jamais les contacts ni les e-mails reçus."
     }
   ],
   "notifications": [
@@ -482,6 +498,10 @@
     {
       "key": "purge_unsorted_mail",
       "handler": "Modules\\Camps\\Task\\PurgeUnsortedMailHandler"
+    },
+    {
+      "key": "refresh_place_summaries",
+      "handler": "Modules\\Camps\\Task\\RefreshPlaceSummariesHandler"
     }
   ]
 }

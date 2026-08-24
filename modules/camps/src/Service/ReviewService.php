@@ -12,6 +12,7 @@ use Core\Audit\AuditService;
 use Core\Audit\AuditSource;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\Review;
+use Modules\Camps\Repository\PlaceRepository;
 use Modules\Camps\Repository\ReviewRepository;
 
 /**
@@ -32,7 +33,8 @@ class ReviewService
 {
     public function __construct(
         private ReviewRepository $reviews,
-        private AuditService $audit
+        private AuditService $audit,
+        private ?PlaceRepository $places = null
     ) {
     }
 
@@ -81,6 +83,10 @@ class ReviewService
         $before = $this->reviews->findByCamp($camp->id);
         $this->reviews->save($camp->id, $rating, $comment, $authorMemberId);
 
+        // A review is the single most summary-changing thing about a
+        // place, so this is where staleness matters most.
+        $this->places?->markSummaryStale($camp->placeId);
+
         $this->audit->record(
             CampService::ENTITY_TYPE,
             $camp->id,
@@ -102,6 +108,7 @@ class ReviewService
         }
 
         $this->reviews->delete($camp->id);
+        $this->places?->markSummaryStale($camp->placeId);
         $this->audit->record(
             CampService::ENTITY_TYPE, $camp->id, 'review',
             $this->describe($before->rating, $before->comment), null,

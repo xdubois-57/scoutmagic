@@ -250,6 +250,47 @@ class PlaceRepository
         $stmt->execute([$archived ? 1 : 0, date('Y-m-d H:i:s'), $id]);
     }
 
+    public function saveSummary(int $id, string $summary): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE camp_places SET ai_summary = ?, ai_summary_generated_at = ?, ai_summary_is_stale = 0 WHERE id = ?'
+        );
+        $stmt->execute([$summary, date('Y-m-d H:i:s'), $id]);
+    }
+
+    public function clearSummary(int $id): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE camp_places SET ai_summary = NULL, ai_summary_generated_at = NULL, ai_summary_is_stale = 0 WHERE id = ?'
+        );
+        $stmt->execute([$id]);
+    }
+
+    /**
+     * Marks a place's summary out of date. Called whenever one of its
+     * stays or reviews changes — cheap, idempotent, and the only thing
+     * that happens synchronously: the regeneration itself is a daily
+     * task, never a web request.
+     */
+    public function markSummaryStale(int $id): void
+    {
+        $this->pdo->prepare('UPDATE camp_places SET ai_summary_is_stale = 1 WHERE id = ?')->execute([$id]);
+    }
+
+    /**
+     * @return Place[]
+     */
+    public function findStaleSummaries(int $limit): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM camp_places WHERE ai_summary_is_stale = 1 AND is_archived = 0
+              ORDER BY id ASC LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute();
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
     /**
      * @param array<string, mixed> $row
      */
@@ -268,6 +309,9 @@ class PlaceRepository
             longitude: $row['longitude'] !== null ? (float) $row['longitude'] : null,
             coordinatesAreManual: (bool) ($row['coordinates_are_manual'] ?? false),
             geocodedAt: $this->nullableString($row['geocoded_at'] ?? null),
+            aiSummary: $this->nullableString($row['ai_summary'] ?? null),
+            aiSummaryGeneratedAt: $this->nullableString($row['ai_summary_generated_at'] ?? null),
+            aiSummaryIsStale: (bool) ($row['ai_summary_is_stale'] ?? false),
             createdAt: (string) $row['created_at'],
             updatedAt: (string) $row['updated_at'],
         );

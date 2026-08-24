@@ -28,6 +28,9 @@ class Place
         public readonly ?float $longitude,
         public readonly bool $coordinatesAreManual,
         public readonly ?string $geocodedAt,
+        public readonly ?string $aiSummary,
+        public readonly ?string $aiSummaryGeneratedAt,
+        public readonly bool $aiSummaryIsStale,
         public readonly string $createdAt,
         public readonly string $updatedAt
     ) {

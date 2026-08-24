@@ -25,6 +25,9 @@ class CampsTestHelper
             latitude REAL NULL,
             longitude REAL NULL,
             coordinates_are_manual INTEGER NOT NULL DEFAULT 0,
+            ai_summary TEXT NULL,
+            ai_summary_generated_at TEXT NULL,
+            ai_summary_is_stale INTEGER NOT NULL DEFAULT 0,
             geocoded_at TEXT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

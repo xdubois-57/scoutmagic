@@ -50,6 +50,20 @@ CREATE TABLE IF NOT EXISTS camp_places (
     -- task run puts it back on the village square.
     coordinates_are_manual BOOLEAN NOT NULL DEFAULT FALSE,
 
+    -- A short summary of what the stays and reviews here add up to,
+    -- written by a model. TEXT and in clear: it is derived from data the
+    -- module already holds, contains no contact details by construction
+    -- (see the input list in Service\PlaceSummaryService), and is shown
+    -- to every chief anyway.
+    ai_summary TEXT NULL,
+    ai_summary_generated_at DATETIME NULL,
+
+    -- Set by any change to one of this place's stays or reviews. The
+    -- daily task regenerates ONLY stale summaries — never on a web
+    -- request, never on every edit: a model call on a page load makes the
+    -- page as slow as the slowest third party.
+    ai_summary_is_stale BOOLEAN NOT NULL DEFAULT FALSE,
+
     -- When geocoding last ran for this place. Set even when the lookup
     -- found nothing, so a place with no usable address is tried once and
     -- then left alone instead of being retried on every task run for ever.
