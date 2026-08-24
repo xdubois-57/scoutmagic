@@ -23,6 +23,7 @@ use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Repository\ContactRepository;
 use Modules\Camps\Repository\DocumentRepository;
+use Modules\Camps\Repository\FieldProposalRepository;
 use Modules\Camps\Repository\LinkRepository;
 use Modules\Camps\Repository\Place;
 use Modules\Camps\Repository\PlaceRepository;
@@ -38,6 +39,7 @@ use Modules\Camps\Service\PlaceArchiveService;
 use Modules\Camps\Service\PlaceService;
 use Modules\Camps\Service\ReviewService;
 use Modules\Camps\Service\SectionDescriber;
+use Modules\InboundMail\Api\InboundMailInterface;
 use Twig\Environment;
 
 /**
@@ -66,7 +68,9 @@ class CampsChiefController extends AbstractController
         private ReviewRepository $reviews,
         private ReviewService $reviewService,
         private DuplicatePlaceDetector $duplicates,
-        private PlaceArchiveService $archiveService
+        private PlaceArchiveService $archiveService,
+        private ?InboundMailInterface $inboundMail = null,
+        private ?FieldProposalRepository $proposals = null
     ) {
     }
 
@@ -105,6 +109,7 @@ class CampsChiefController extends AbstractController
             'archived' => $archived,
             'places' => $this->decoratePlaces($places),
             'map_places' => $archived ? [] : $this->mapPlaces(),
+            'unsorted_mail_count' => $archived ? 0 : $this->unsortedMailCount(),
             'places_without_coordinates' => $archived ? 0 : $this->countWithoutCoordinates($places),
             'upcoming' => array_map(
                 fn(array $entry): array => $entry + ['place' => $placesById[$entry['camp']->placeId] ?? null],
@@ -298,6 +303,7 @@ class CampsChiefController extends AbstractController
             // page anybody merely opens. The album is created on the
             // photos page instead, which is the page actually about them.
             'album_available' => $this->albumService->isAvailable(),
+            'proposals' => $this->proposals !== null ? $this->proposals->findByCamp($camp->id) : [],
             'review' => $this->reviews->findByCamp($camp->id),
             'review_open' => $this->reviewService->isOpen($camp, $today),
             'review_allows_rating' => $this->reviewService->allowsRating($camp),
@@ -522,6 +528,24 @@ class CampsChiefController extends AbstractController
             'price' => CampLabels::money($camp->priceCents),
             'sections' => $this->sectionDescriber->describe($camp->sectionIds),
         ];
+    }
+
+    /**
+     * How many messages are waiting in the unsorted pile. Zero when
+     * inbound_mail is absent — the optional dependency degrades to the
+     * banner never appearing, which is exactly right on a site that
+     * collects no mail.
+     */
+    private function unsortedMailCount(): int
+    {
+        if ($this->inboundMail === null) {
+            return 0;
+        }
+
+        return count($this->inboundMail->findForReference(
+            \Modules\Camps\Mail\CampsMessageConsumer::CONSUMER_ID,
+            \Modules\Camps\Mail\CampsMessageConsumer::UNSORTED_REFERENCE
+        ));
     }
 
     /**

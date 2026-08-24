@@ -3204,6 +3204,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     $campsLinkRepo = new \Modules\Camps\Repository\LinkRepository($pdo);
     $campsDocumentRepo = new \Modules\Camps\Repository\DocumentRepository($pdo);
     $campsReviewRepo = new \Modules\Camps\Repository\ReviewRepository($pdo);
+    $campsProposalRepo = new \Modules\Camps\Repository\FieldProposalRepository($pdo, $encryptionService);
 
     $campsSectionDescriber = new \Modules\Camps\Service\SectionDescriber($sectionService);
     $campsPlaceService = new \Modules\Camps\Service\PlaceService($campsPlaceRepo, $auditService);
@@ -3249,18 +3250,18 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         $llmConnectorForRgpd ?? null
     );
 
-    // The "leave a review" notification re-arms itself (Task\
-    // ReviewReminderHandler), so it only needs seeding once — the very
-    // first page load after the module is enabled. Guarded on find()
-    // rather than scheduled blindly, or every request would queue one.
-    if ($schedulerService->find('camps', \Modules\Camps\Task\ReviewReminderHandler::TASK_KEY, \Modules\Camps\Task\ReviewReminderHandler::REFERENCE) === null) {
-        $schedulerService->schedule(
-            'camps',
-            \Modules\Camps\Task\ReviewReminderHandler::TASK_KEY,
-            new DateTimeImmutable('tomorrow 06:00'),
-            [],
-            \Modules\Camps\Task\ReviewReminderHandler::REFERENCE
-        );
+    // Every one of this module's tasks re-arms itself, so each needs
+    // seeding exactly once — on the first page load after the module is
+    // enabled. Guarded on find() rather than scheduled blindly, or every
+    // request would queue another copy.
+    foreach ([
+        [\Modules\Camps\Task\ReviewReminderHandler::TASK_KEY, \Modules\Camps\Task\ReviewReminderHandler::REFERENCE, 'tomorrow 06:00'],
+        [\Modules\Camps\Task\PurgeUnsortedMailHandler::TASK_KEY, \Modules\Camps\Task\PurgeUnsortedMailHandler::REFERENCE, 'tomorrow 04:00'],
+        [\Modules\Camps\Task\GeocodePlacesHandler::TASK_KEY, \Modules\Camps\Task\GeocodePlacesHandler::REFERENCE, '+1 minute'],
+    ] as [$campsTaskKey, $campsTaskReference, $campsTaskWhen]) {
+        if ($schedulerService->find('camps', $campsTaskKey, $campsTaskReference) === null) {
+            $schedulerService->schedule('camps', $campsTaskKey, new DateTimeImmutable($campsTaskWhen), [], $campsTaskReference);
+        }
     }
 
     // BOTH file gates, because they guard different routes and a module
@@ -3273,6 +3274,28 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
 
     // Read back at the very end of this file, when the response exists.
     $campsMapTileOrigin = \Modules\Camps\Service\MapTiles::ORIGIN;
+
+    // Inbound mail. Built here, REGISTERED much further down — see the
+    // comment at the registration itself: MessageConsumerRegistry is
+    // first-claim-wins in registration order, and this consumer must come
+    // last.
+    $campsFieldCompletion = new \Modules\Camps\Mail\MailFieldCompletionService(
+        $campsCampRepo, $campsProposalRepo, $auditService, new \Modules\Camps\Mail\MessageReader()
+    );
+    $campsMailConsumer = isset($inboundMailForOthers)
+        ? new \Modules\Camps\Mail\CampsMessageConsumer(
+            $campsCampRepo, $pdo, $encryptionService, $settingService,
+            $inboundMailForOthers, $campsDocumentService, $campsFieldCompletion
+        )
+        : null;
+
+    $frontController->registerController(
+        \Modules\Camps\Controller\CampsMailController::class,
+        new \Modules\Camps\Controller\CampsMailController(
+            $twig, $campsCampRepo, $campsPlaceRepo, $settingService, $inboundMailForOthers ?? null,
+            $campsProposalRepo, $campsFieldCompletion
+        )
+    );
     $galleryDelegatedAlbumAccessCheckers[] = new \Modules\Camps\Service\CampAlbumAccessChecker();
 
     // Who may read a camp's or a place's change history (Core\Audit,
@@ -3297,7 +3320,8 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $campsPlaceRepo, $campsCampRepo, $campsPlaceService, $campsCampService,
             $campsSectionDescriber, $sectionService, $editableContentService, $auditService, $settingService,
             $campsContactRepo, $campsLinkRepo, $campsDocumentRepo, $campsAlbumService,
-            $campsReviewRepo, $campsReviewService, $campsDuplicateDetector, $campsArchiveService
+            $campsReviewRepo, $campsReviewService, $campsDuplicateDetector, $campsArchiveService,
+            $inboundMailForOthers ?? null, $campsProposalRepo
         )
     );
     $frontController->registerController(
@@ -4093,6 +4117,22 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $twig->addGlobal('active_menu_id', $activeMenuId);
         $twig->addGlobal('active_page_url', $activePageUrl);
     }
+}
+
+// The camps consumer is registered LAST, after every other module's, and
+// that ordering is load-bearing: Service\MessageConsumerRegistry is
+// first-claim-wins in registration order, and a dedicated camps mailbox
+// claims EVERYTHING it is offered. Registered earlier, it would swallow
+// the mail another module was waiting for — rental's own mailbox setting
+// defaults to "all mailboxes", so the two would otherwise fight over
+// every message on an installation running both.
+//
+// In a shared mailbox the camps consumer is narrow and this ordering
+// costs nothing; in a dedicated one it is the whole reason the setting's
+// description tells administrators to exclude that box from other
+// modules.
+if (isset($campsMailConsumer, $inboundMailConsumerRegistry)) {
+    $inboundMailConsumerRegistry->register($campsMailConsumer);
 }
 
 // Leadership ("Encadrement") — four read-only admin pages built entirely

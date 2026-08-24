@@ -19,6 +19,18 @@
         action_url: '/chefs/camps/nouveau',
     } only %}
 
+    {% if unsorted_mail_count > 0 %}
+        {# Shown only when there is something waiting: a permanent entry
+           that is permanently empty teaches people to ignore it, which is
+           why this lives here and not in the menu. #}
+        <a class="alert alert-warning d-block text-decoration-none" href="/chefs/camps/courrier">
+            <i class="bi bi-envelope-exclamation" aria-hidden="true"></i>
+            {{ unsorted_mail_count }} message{{ unsorted_mail_count > 1 ? 's' : '' }}
+            reçu{{ unsorted_mail_count > 1 ? 's' : '' }} n'{{ unsorted_mail_count > 1 ? 'ont' : 'a' }}
+            pas pu être rattaché{{ unsorted_mail_count > 1 ? 's' : '' }} à un séjour.
+        </a>
+    {% endif %}
+
     {% if not archived %}
         <div class="mb-3">
             <button class="btn btn-outline-secondary camps-map-toggle" type="button"

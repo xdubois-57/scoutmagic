@@ -275,3 +275,50 @@ CREATE TABLE IF NOT EXISTS camp_reviews (
     CONSTRAINT fk_camp_reviews_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE,
     CONSTRAINT fk_camp_reviews_author FOREIGN KEY (author_member_id) REFERENCES members(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- camp_field_proposals: something read in an inbound message that
+-- CONTRADICTS what a stay already holds.
+--
+-- An empty field is filled automatically and that is the end of it. A
+-- field that already has a value is never overwritten — a chief typed
+-- 2 450 € because they read a contract, and a mail-parsing heuristic
+-- does not get to disagree silently. So the reading is parked here and
+-- shown inline next to the field on the stay's own page, with Appliquer
+-- and Ignorer.
+--
+-- Deliberately NOT a separate "to validate" queue: a queue is a place
+-- people stop going to, and the one screen where this reading matters is
+-- the one showing the value it disagrees with.
+CREATE TABLE IF NOT EXISTS camp_field_proposals (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    camp_id INT UNSIGNED NOT NULL,
+
+    -- Same machine names as the change history's field_key, so one
+    -- vocabulary (Service\CampLabels::FIELD_LABELS) labels both.
+    field_key VARCHAR(60) NOT NULL,
+
+    -- Both already formatted for a reader, and both encrypted for the
+    -- same reason Core\Audit encrypts its values: a proposal about
+    -- "booked_by" holds a person's name.
+    current_value BLOB NULL,
+    proposed_value BLOB NOT NULL,
+
+    -- The same reading in machine form ("2028-07-12|2028-07-19", "265000"),
+    -- because "Appliquer" has to write a DATE and an INT, not the sentence
+    -- a reader sees. Re-parsing the display string instead would mean
+    -- teaching the parser to read its own output — a second format to keep
+    -- in step with the first, for no gain.
+    proposed_machine_value BLOB NOT NULL,
+
+    -- The message this was read in, so the inline card can link to it.
+    source_reference VARCHAR(190) NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- One live proposal per field: a second reading of the same field
+    -- replaces the first rather than stacking. Three cards disagreeing
+    -- about one price is not more information, it is noise.
+    UNIQUE INDEX idx_camp_field_proposals_field (camp_id, field_key),
+    CONSTRAINT fk_camp_field_proposals_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

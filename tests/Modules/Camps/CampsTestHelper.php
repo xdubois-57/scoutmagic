@@ -47,6 +47,18 @@ class CampsTestHelper
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
+        $pdo->exec('CREATE TABLE camp_field_proposals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            camp_id INTEGER NOT NULL,
+            field_key TEXT NOT NULL,
+            current_value BLOB NULL,
+            proposed_value BLOB NOT NULL,
+            proposed_machine_value BLOB NOT NULL,
+            source_reference TEXT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (camp_id, field_key)
+        )');
+
         $pdo->exec('CREATE TABLE camp_reviews (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             camp_id INTEGER NOT NULL UNIQUE,

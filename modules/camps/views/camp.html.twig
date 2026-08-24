@@ -54,6 +54,39 @@
         } only %}
     {% endif %}
 
+    {% for proposal in proposals %}
+        {# A banner under the fields, not a card wedged into the grid: the
+           grid is 2 columns on mobile and 4 on desktop, and two buttons
+           plus a link do not fit in a cell without breaking the
+           alignment. The field is named in the title instead. #}
+        <div class="card border-warning mb-3">
+            <div class="card-body">
+                <div class="small text-uppercase text-warning-emphasis fw-semibold">
+                    <i class="bi bi-stars" aria-hidden="true"></i>
+                    {{ audit_labels[proposal.fieldKey]|default(proposal.fieldKey) }} — information détectée
+                </div>
+                <div class="mt-2">
+                    {% if proposal.currentValue %}
+                        <span class="text-body-secondary text-decoration-line-through">{{ proposal.currentValue }}</span>
+                        <i class="bi bi-arrow-right mx-1 small" aria-hidden="true"></i>
+                    {% endif %}
+                    <span class="fw-semibold">{{ proposal.proposedValue }}</span>
+                </div>
+                <div class="small text-body-secondary mt-1">Lu dans un message reçu.</div>
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <form method="post" action="/chefs/camps/propositions/{{ proposal.id }}/appliquer">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="btn btn-primary btn-sm">Appliquer</button>
+                    </form>
+                    <form method="post" action="/chefs/camps/propositions/{{ proposal.id }}/ignorer">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">Ignorer</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+
     <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Contacts</h2>
     {% if contacts is empty %}
         {% include 'partials/empty_state.html.twig' with {
