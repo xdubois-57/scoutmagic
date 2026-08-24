@@ -997,25 +997,6 @@ class CampsChiefController extends AbstractController
     }
 
     /**
-     * A label map as <select> options, built here rather than in Twig:
-     * turning a hash into an ordered list of option rows is data
-     * preparation, and a template doing it ends up depending on which
-     * Twig filters this version happens to ship.
-     *
-     * @param array<string, string> $labels
-     * @return array<int, array{value: string, label: string, selected: bool}>
-     */
-    private function options(array $labels, string $selected): array
-    {
-        $options = [];
-        foreach ($labels as $value => $label) {
-            $options[] = ['value' => $value, 'label' => $label, 'selected' => $value === $selected];
-        }
-
-        return $options;
-    }
-
-    /**
      * The past-stays status filter, as partials/chip_picker.html.twig
      * wants it — "Tous" first, then one chip per status.
      *
@@ -1084,10 +1065,5 @@ class CampsChiefController extends AbstractController
     private function today(): \DateTimeImmutable
     {
         return new \DateTimeImmutable('today');
-    }
-
-    private function notFound(): Response
-    {
-        return (new Response('', 404))->setBody('Not Found');
     }
 }

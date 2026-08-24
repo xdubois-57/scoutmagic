@@ -1479,46 +1479,34 @@ $schedulerRunner->setTaskContext(new TaskContext(
 // Modules\LlmConnector\Task\RefreshModelsHandler's weekly refresh, since
 // Core\Scheduler has no first-class recurring-task concept), but the very
 // first occurrence needs an initial nudge.
-if ($schedulerService->find('core', 'auto_backup', 'auto') === null) {
-    $schedulerService->schedule('core', 'auto_backup', new DateTimeImmutable(), [], 'auto');
-}
+$schedulerService->rearm('core', 'auto_backup', 'auto', new DateTimeImmutable());
 
 // Same bootstrap for the notification retention purge (Core\Notification\
 // Task\PurgeNotificationsHandler).
-if ($schedulerService->find('core', 'purge_notifications', \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE) === null) {
-    $schedulerService->schedule('core', 'purge_notifications', new DateTimeImmutable(), [], \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE);
-}
+$schedulerService->rearm('core', 'purge_notifications', \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE, new DateTimeImmutable());
 
 // Same bootstrap for the daily stable-channel update check
 // (Core\Maintenance\Task\CheckStableUpdateHandler) — the very first
 // occurrence runs immediately, then it self-reschedules for 01:00 +
 // jitter every day after that.
-if ($schedulerService->find('core', 'check_stable_update', 'daily') === null) {
-    $schedulerService->schedule('core', 'check_stable_update', new DateTimeImmutable(), [], 'daily');
-}
+$schedulerService->rearm('core', 'check_stable_update', 'daily', new DateTimeImmutable());
 
 // Same bootstrap for the human-check rate-limit purge (Core\Security\
 // HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
-if ($schedulerService->find('core', 'purge_human_check_rate_limits', \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE) === null) {
-    $schedulerService->schedule('core', 'purge_human_check_rate_limits', new DateTimeImmutable(), [], \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE);
-}
+$schedulerService->rearm('core', 'purge_human_check_rate_limits', \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE, new DateTimeImmutable());
 
 // Same bootstrap for the daily usage-statistics report (Core\Statistics\
 // Task\SendStatisticsHandler). The very first occurrence runs immediately;
 // every guard it can trip (reporting disabled, non-public host, this site
 // IS the receiver) is checked inside the handler, so seeding it here costs
 // nothing on an installation that will never actually report.
-if ($schedulerService->find('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, \Core\Statistics\Task\SendStatisticsHandler::REFERENCE) === null) {
-    $schedulerService->schedule('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Statistics\Task\SendStatisticsHandler::REFERENCE);
-}
+$schedulerService->rearm('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, \Core\Statistics\Task\SendStatisticsHandler::REFERENCE, new DateTimeImmutable());
 
 // Same bootstrap for the support-package retention purge (Core\Support\
 // Task\PurgeSupportPackagesHandler) — the archive is the most sensitive
 // artefact this codebase produces on demand, so the purge must be running
 // from the first boot, not from the first generation.
-if ($schedulerService->find('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE) === null) {
-    $schedulerService->schedule('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE);
-}
+$schedulerService->rearm('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE, new DateTimeImmutable());
 
 // Add dynamic member entries to Espace membres — group: SORT_GROUP_DYNAMIC keeps
 // these (and the empty-state placeholder below) sorted ahead of every core
@@ -2651,9 +2639,7 @@ if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
     // Bootstrap the daily mail-merge audience retention purge (Task\
     // PurgeMergeAudiencesHandler self-reschedules afterwards — same
     // pattern as registration's purge_registration_requests below).
-    if ($schedulerService->find('mass_mail', 'purge_merge_audiences', 'daily') === null) {
-        $schedulerService->schedule('mass_mail', 'purge_merge_audiences', new DateTimeImmutable(), [], 'daily');
-    }
+    $schedulerService->rearm('mass_mail', 'purge_merge_audiences', 'daily', new DateTimeImmutable());
     $frontController->registerController(
         \Modules\MassMail\Controller\ConfigController::class,
         new \Modules\MassMail\Controller\ConfigController($twig, $massMailListService, $settingService)
@@ -3202,9 +3188,7 @@ if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) 
         // Monthly history (§8.51): closes every calendar month that ended.
         \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::TASK_KEY => \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::REFERENCE,
     ] as $supportTaskKey => $supportTaskReference) {
-        if ($schedulerService->find('support_dashboard', $supportTaskKey, $supportTaskReference) === null) {
-            $schedulerService->schedule('support_dashboard', $supportTaskKey, new DateTimeImmutable(), [], $supportTaskReference);
-        }
+        $schedulerService->rearm('support_dashboard', $supportTaskKey, $supportTaskReference, new DateTimeImmutable());
     }
 }
 
@@ -3242,9 +3226,7 @@ if (in_array('test_tools', $moduleManager->getEnabledModuleIds(), true)) {
         // oldest go — rows and encrypted files together.
         \Modules\TestTools\Task\PurgeCapturedEmailsHandler::TASK_KEY => \Modules\TestTools\Task\PurgeCapturedEmailsHandler::REFERENCE,
     ] as $testToolsTaskKey => $testToolsTaskReference) {
-        if ($schedulerService->find('test_tools', $testToolsTaskKey, $testToolsTaskReference) === null) {
-            $schedulerService->schedule('test_tools', $testToolsTaskKey, new DateTimeImmutable(), [], $testToolsTaskReference);
-        }
+        $schedulerService->rearm('test_tools', $testToolsTaskKey, $testToolsTaskReference, new DateTimeImmutable());
     }
 }
 
@@ -3317,9 +3299,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         [\Modules\Camps\Task\GeocodePlacesHandler::TASK_KEY, \Modules\Camps\Task\GeocodePlacesHandler::REFERENCE, '+1 minute'],
         [\Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY, \Modules\Camps\Task\RefreshPlaceSummariesHandler::REFERENCE, 'tomorrow 05:00'],
     ] as [$campsTaskKey, $campsTaskReference, $campsTaskWhen]) {
-        if ($schedulerService->find('camps', $campsTaskKey, $campsTaskReference) === null) {
-            $schedulerService->schedule('camps', $campsTaskKey, new DateTimeImmutable($campsTaskWhen), [], $campsTaskReference);
-        }
+        $schedulerService->rearm('camps', $campsTaskKey, $campsTaskReference, $campsTaskWhen);
     }
 
     // The summary refresher is registered by hand rather than
@@ -3479,9 +3459,7 @@ if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
     // occurrence needs an initial nudge. auto_close_board needs no such
     // bootstrap — it's scheduled per-board by Service\BoardService::
     // create()/update().
-    if ($schedulerService->find('retro', 'purge_rate_limits', 'daily') === null) {
-        $schedulerService->schedule('retro', 'purge_rate_limits', new DateTimeImmutable(), [], 'daily');
-    }
+    $schedulerService->rearm('retro', 'purge_rate_limits', 'daily', new DateTimeImmutable());
 }
 
 // Re-registers calendar's event-facing services/controllers with the
@@ -3755,25 +3733,17 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     // themselves hourly at the end of every run (same pattern as
     // Modules\Retro\Task\PurgeRateLimitHandler), but the very first
     // occurrence needs an initial nudge.
-    if ($schedulerService->find('registration', 'open_registration', 'poll') === null) {
-        $schedulerService->schedule('registration', 'open_registration', new DateTimeImmutable(), [], 'poll');
-    }
-    if ($schedulerService->find('registration', 'close_registration', 'poll') === null) {
-        $schedulerService->schedule('registration', 'close_registration', new DateTimeImmutable(), [], 'poll');
-    }
+    $schedulerService->rearm('registration', 'open_registration', 'poll', new DateTimeImmutable());
+    $schedulerService->rearm('registration', 'close_registration', 'poll', new DateTimeImmutable());
     // Same bootstrap for the daily retention purge (Task\
     // PurgeRegistrationRequestsHandler) — module-scoped handlers need no
     // manual registerHandler() call in either entry point (auto-resolved
     // via ModuleManager::getTaskHandler()), only this one-time nudge.
-    if ($schedulerService->find('registration', 'purge_registration_requests', 'daily') === null) {
-        $schedulerService->schedule('registration', 'purge_registration_requests', new DateTimeImmutable(), [], 'daily');
-    }
+    $schedulerService->rearm('registration', 'purge_registration_requests', 'daily', new DateTimeImmutable());
     // Same again for the Passage auto-assignment (Task\
     // AutoAssignPassageHandler) — it used to run inside PassageController::
     // index(), i.e. a write on every GET of the page.
-    if ($schedulerService->find('registration', 'auto_assign_passage', 'hourly') === null) {
-        $schedulerService->schedule('registration', 'auto_assign_passage', new DateTimeImmutable(), [], 'hourly');
-    }
+    $schedulerService->rearm('registration', 'auto_assign_passage', 'hourly', new DateTimeImmutable());
 
     // Menu hook (Core\Module\MenuEntryProvider, ARCHITECTURE.md §7.4) — one
     // entry per pending registration request linked to the visitor's email.

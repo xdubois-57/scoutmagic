@@ -526,9 +526,4 @@ class CampsAttachmentController extends AbstractController
             'other_details' => (string) $request->getBody('other_details', ''),
         ];
     }
-
-    private function notFound(): Response
-    {
-        return (new Response('', 404))->setBody('Not Found');
-    }
 }

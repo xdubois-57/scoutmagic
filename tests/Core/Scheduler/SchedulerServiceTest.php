@@ -175,4 +175,82 @@ class SchedulerServiceTest extends TestCase
         $this->assertSame(1, $deleted);
         $this->assertCount(1, $this->service->findAllForTask('sos_staff', 'apply_redirect'));
     }
+
+    // ── rearm() ─────────────────────────────────────────────────────────
+
+    public function testRearmSchedulesWhenNothingIsQueued(): void
+    {
+        $this->assertTrue($this->service->rearm('camps', 'purge_unsorted_mail', 'daily', 'tomorrow 04:00'));
+
+        $action = $this->service->find('camps', 'purge_unsorted_mail', 'daily');
+        $this->assertNotNull($action);
+        $this->assertSame('pending', $action['status']);
+        $this->assertSame(
+            (new \DateTimeImmutable('tomorrow 04:00'))->format('Y-m-d H:i:s'),
+            $action['run_at']
+        );
+    }
+
+    /**
+     * The failure this guard exists for: a composition root seeding its
+     * module's tasks on every request would otherwise grow one row per
+     * page view.
+     */
+    public function testRearmNeverQueuesASecondCopy(): void
+    {
+        $this->service->rearm('camps', 'purge_unsorted_mail', 'daily', 'tomorrow 04:00');
+
+        $this->assertFalse($this->service->rearm('camps', 'purge_unsorted_mail', 'daily', 'tomorrow 04:00'));
+        $this->assertFalse($this->service->rearm('camps', 'purge_unsorted_mail', 'daily', '+5 minutes'));
+
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'purge_unsorted_mail'"
+            )->fetchColumn()
+        );
+    }
+
+    public function testRearmDoesNotMoveAnAlreadyQueuedRun(): void
+    {
+        $this->service->rearm('camps', 'geocode_places', 'ref', new \DateTimeImmutable('2030-01-01 04:00'));
+        $this->service->rearm('camps', 'geocode_places', 'ref', new \DateTimeImmutable('2031-01-01 04:00'));
+
+        $action = $this->service->find('camps', 'geocode_places', 'ref');
+        $this->assertNotNull($action);
+        $this->assertSame('2030-01-01 04:00:00', $action['run_at']);
+    }
+
+    /**
+     * A handler re-arming itself from inside handle() must not find
+     * ITSELF and stop the chain. `claimOverdue()` flips the running task
+     * to `processing` before the handler is called, and `find()` only ever
+     * sees `pending` rows — which is exactly why the guard is safe there.
+     */
+    public function testAHandlerRearmingItselfMidRunStillSchedulesItsSuccessor(): void
+    {
+        $this->service->rearm('camps', 'review_reminder', 'daily', new \DateTimeImmutable('-1 minute'));
+        $claimed = $this->repo->claimOverdue();
+        $this->assertCount(1, $claimed);
+
+        $this->assertTrue(
+            $this->service->rearm('camps', 'review_reminder', 'daily', 'tomorrow 06:00'),
+            'the running task is `processing`, so it must not block its own successor'
+        );
+    }
+
+    public function testRearmTellsTheTwoReferencesApart(): void
+    {
+        $this->service->rearm('camps', 'geocode_places', 'a', 'tomorrow 04:00');
+
+        $this->assertTrue($this->service->rearm('camps', 'geocode_places', 'b', 'tomorrow 04:00'));
+    }
+
+    public function testForPdoBuildsAWorkingService(): void
+    {
+        $this->assertTrue(
+            SchedulerService::forPdo($this->pdo)->rearm('camps', 'geocode_places', 'ref', 'tomorrow 04:00')
+        );
+        $this->assertNotNull($this->service->find('camps', 'geocode_places', 'ref'));
+    }
 }
