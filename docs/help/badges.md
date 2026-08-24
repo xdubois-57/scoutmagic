@@ -1,11 +1,11 @@
 ---
 id: badges
 title: Gérer les badges
-summary: Les rôles transversaux du staff : créer, renommer, désactiver.
+summary: Les rôles transversaux du staff : créer, renommer, désactiver — et ce que le badge Trésorier ouvre.
 category: Configuration
 role_min: superadmin
 paths: /config/badges
-related: staffs, config-desk
+related: staffs, config-desk, finances
 ---
 
 Les badges signalent un rôle transversal au sein du staff :
@@ -40,9 +40,27 @@ la page de chaque animé de la section (« Badges de la section »,
 « Référent(s) Staff d'U »). C'est ainsi qu'une famille sait qui est
 l'infirmier de la section de son enfant.
 
+## Le badge Trésorier ouvre des comptes
+
+Un badge est le plus souvent une simple indication, mais « Trésorier »
+en fait davantage quand le module Finances est actif : il donne accès
+aux comptes des sections que la personne anime, et à ceux-là seulement.
+
+La règle ne démarre que le jour où votre unité attribue ce badge à
+quelqu'un pour l'année en cours. Tant que personne ne le porte, chaque
+intendant continue de voir tous les comptes, exactement comme avant.
+Désactiver le badge revient au même fonctionnement, sans effacer
+aucune attribution passée.
+
+Les chefs d'unité, eux, voient tous les comptes quoi qu'il arrive, et
+un compte de l'unité — qui n'est rattaché à aucune section — reste
+ouvert à qui son propre niveau de visibilité autorise.
+
 ## Chaque année
 
 Les attributions valent pour l'année scoute en cours : après le
 passage à la nouvelle année, les animateurs réattribuent les badges
 depuis la page Staffs — c'est une étape du parcours guidé de la page
-Année scoute.
+Année scoute. Cela vaut aussi pour « Trésorier » : tant qu'il n'est
+attribué à personne pour la nouvelle année, l'accès aux comptes de
+section redevient celui d'avant, il ne se bloque pas.

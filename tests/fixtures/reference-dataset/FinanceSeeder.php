@@ -217,6 +217,13 @@ final class FinanceSeeder
             $settingService,
             $categoryRuleRepository,
             new AccountTransferCategoryService($categoryRepository, $categoryRuleRepository, $transactionRepository),
+            // Seeding acts for the installation, not for a person: there
+            // is no session to narrow the treasurer rule against, and the
+            // two calls above (default categories, default accounts) ask
+            // nothing about visibility anyway.
+            new \Modules\Finance\Service\AccountVisibility(
+                \Modules\Finance\Service\TreasurerScope::systemCaller()
+            ),
         );
     }
 

@@ -1,11 +1,11 @@
 ---
 id: finances
 title: Suivre les finances de l'unité
-summary: Le tableau de bord, les mouvements et les paiements attendus.
+summary: Le tableau de bord, les mouvements, les paiements attendus et qui voit quels comptes.
 category: Espace animateurs
 role_min: intendant
 paths: /finance, /finance/movements, /finance/receivables
-related: importer-extraits, recus, config-finance
+related: importer-extraits, recus, config-finance, badges
 ---
 
 Le module Finances suit les comptes de l'unité à partir des extraits
@@ -15,10 +15,27 @@ graphiques d'évolution et bilan par catégorie pour l'exercice choisi.
 
 ## Qui voit quels comptes
 
-Chaque compte porte son propre niveau de visibilité — intendant, chef
-ou chef d'unité. Si la page annonce « Aucun compte visible pour votre
-rôle », c'est ce réglage-là qui joue : demandez au responsable du site
-d'ajuster le compte concerné.
+Deux conditions, et il faut les deux.
+
+D'abord, chaque compte porte son propre niveau de visibilité —
+intendant, chef ou chef d'unité.
+
+Ensuite, un compte rattaché à une section est réservé au **trésorier de
+cette section** : la personne qui porte le badge « Trésorier » et qui
+anime cette section-là, pour l'année scoute en cours. Un compte de
+l'unité, lui, n'est rattaché à aucune section et ne dépend que du
+premier réglage. Les chefs d'unité voient tous les comptes, quoi qu'il
+arrive.
+
+Cette règle ne s'applique **que si votre unité a attribué le badge
+« Trésorier » à quelqu'un cette année**. Tant que personne ne le porte,
+rien ne change et tout intendant voit tous les comptes comme avant.
+Désactiver le badge dans Configuration > Badges suffit à revenir à ce
+fonctionnement.
+
+Si la page annonce « Aucun compte visible pour votre rôle », c'est l'un
+de ces deux réglages qui joue : voyez avec votre équipe d'unité s'il
+faut ajuster la visibilité du compte, ou vous attribuer le badge.
 
 ## Catégoriser les mouvements
 

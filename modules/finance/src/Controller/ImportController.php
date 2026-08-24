@@ -72,13 +72,14 @@ class ImportController extends AbstractController
             return $this->renderResult(['error' => 'Compte introuvable.']);
         }
         // The route's own role_min ('intendant') is only the module floor —
-        // each account carries its own role_min_view on top of it, and
-        // form() above only ever *renders* the visible ones. Without this
-        // check a request crafted directly against the endpoint could
-        // import movements (and a balance checkpoint) into an account the
-        // caller is not allowed to see at all.
+        // each account carries its own role_min_view AND, since the
+        // treasurer rule, its own section, and form() above only ever
+        // *renders* the accounts that pass both. Without this check a
+        // request crafted directly against the endpoint could import
+        // movements (and a balance checkpoint) into an account the caller
+        // is not allowed to see at all.
         $role = Role::fromString(AuthSession::getRole());
-        if (!$role->hasAccess(Role::fromString($account->roleMinView))) {
+        if (!$this->financeService->isAccountVisibleTo($account, $role)) {
             return $this->renderResult(['error' => 'Accès refusé.']);
         }
         if ($file === null || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {

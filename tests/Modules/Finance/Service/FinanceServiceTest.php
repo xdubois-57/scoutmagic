@@ -71,7 +71,13 @@ class FinanceServiceTest extends TestCase
             $balanceService,
             $settingService,
             $this->categoryRuleRepository,
-            $accountTransferCategoryService
+            $accountTransferCategoryService,
+            new \Modules\Finance\Service\AccountVisibility(
+                // No badge assigned in these fixtures, so the treasurer
+                // rule is off and the module behaves exactly as it did
+                // before it existed — which is what these tests assert.
+                \Modules\Finance\Service\TreasurerScope::systemCaller()
+            )
         );
     }
 

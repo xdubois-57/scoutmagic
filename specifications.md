@@ -98,7 +98,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Page | Role | Content |
 |---|---|---|
 | Staffs | intendant | SectionPicker + staff info per section (chief/chief-d'unité only — animés are not shown). Section's staff group photo, editable in configuration mode (one per scout year, falls back to the most recent earlier year). Badges assignable to staff (chief only, see Core\Badge). Section documents (an animateur of that section only, see §15.2): add/reorder/delete/update PDF attachments per section and scout year (e.g. planning, camp info sheets), displayed both on the Staffs page and the member page. Section name/email are configured from Config Desk (§4.5), not here. |
-| Finances (module) | intendant | Bank statement import, receivables, receipts, movements |
+| Finances (module) | intendant | Bank statement import, receivables, receipts, movements. `intendant` opens the module; which **accounts** it opens is narrower — see §28. |
 | Statistiques (module) | chief | Member statistics |
 | Calendrier (module) | chief | Chiefs' calendar view (month grid, event edit) |
 | Camps (module) | chief | Camp sites and the stays made there. Search over places (name, address, postal code, city); "À venir" and "Lieux" lists; a collapsed map of the places that have coordinates. A place sheet shows its stays, the rating of its most recent RATED stay (never an average), an optional AI summary, and — for a chef d'unité only — merge and archive. A stay carries its sections, price, participant count, contacts, links, documents, photos, a free-text note, a review and its own change history. When a dedicated mailbox is configured, a "Courrier non classé" screen lists the inbound mail nobody could attribute. |
@@ -138,7 +138,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Support | Usage-statistics switch, with the plain-language explanation of what is reported and an explicit statement that the report is **not** anonymous (it carries the instance URL). A « envoyer un rapport de test maintenant » button that transmits one report immediately and shows the answer. The destination is deliberately **not** on this page, in any form: it is a project-level fact, not a unit-level choice. Read-only state of the last successful and last failed/skipped send. Exact JSON preview of what would be sent, collapsed by default, shown whether reporting is on or off. Diagnostic support package: generate on demand (background task, progress indicator, then a download link), the warning about what an archive can contain, and the configured support address. One package is kept at a time, encrypted at rest, superadmin-only, purged after 7 days, never transmitted automatically. Deliberately no bug-report form (no name, no contact email, no incident description) and no "next scheduled send". |
 | Outils de test (module) | Present **only** on the ScoutMagic reference installation and on local development installations — the module declares `"visible_when": ["reference_installation", "local_installation"]` and is filtered out of module discovery everywhere else. Index of the available tools; today one: the **bac à sable e-mail**. Armed, no e-mail leaves the server — each message is assembled by the real mailing library, DKIM signature included, then stored here. The page carries the switch, its state in plain French, and — only when armed — the warning that magic links now arrive on this page. List of captured messages (objet, destinataire, date, taille, pièces jointes, badge DKIM) with search on the subject, on the recipient's exact address, and an opt-in bounded search inside the message bodies; pagination. Detail page in five tabs: aperçu HTML (rendered in a sandboxed frame), texte brut, en-têtes, source MIME, pièces jointes — plus a `.eml` download. Retention by count (500 by default, daily purge) and a danger-zone action to empty the sandbox behind a typed confirmation word. `superadmin` only. |
 | Tableau de bord support (module) | Present **only** on the ScoutMagic installation acting as statistics receiver — the module declares `"visible_when": ["statistics_receiver"]` and is filtered out of module discovery everywhere else. Table of the installations reporting in, with filters, free search, sort and pagination; five indicator cards and two current-state charts, all recomputed on the filtered set; a detail dialog carrying every metric plus the exact raw JSON of the last accepted report; XLSX export of the filtered set; manual deletion behind a confirmation; and a monthly-history chart independent of all of the above. `superadmin` only. |
-| Finances (module) | Accounts, categories, categorization rules, danger zone |
+| Finances (module) | Accounts, categories, categorization rules, danger zone. An account's section is what ties it to a treasurer (§28), so leaving it empty makes the account the unit's own. |
 | Galerie (module) | Storage location (local/S3), default location for new albums. Each local location also shows the space still free on the disk that holds it — with the volume's size and the share in use, and a warning when what is left is smaller than the largest upload the gallery currently accepts. The page states that this is the whole volume, shared with the rest of the site, and not a quota reserved for the gallery; an S3 location shows nothing, its capacity being the provider's. |
 | Calendrier (module) | Default view, supplementary calendars, ICS feed links. Each calendar carries **two** independent settings, one per question: « Vu par » (qui voit le calendrier) and « Modifié par » (qui y écrit). « Modifié par ses animateurs » keeps a section calendar in the hands of that section's staff; « Modifié par les chefs d'unité » leaves it visible to everyone who may see it while only the chefs d'unité change its events — an arrangement the single visibility setting could not express. Narrowing the audience to the chefs d'unité raises the write setting with it. |
 | Camps (module) | Default country for a new place; how many past stays a place sheet shows. The dedicated camps mailboxes (empty by default, with the warning that any mailbox listed there must be excluded from the other modules that read mail); automatic creation of a stay from a message; unsorted-mail retention in months. Automatic geocoding of a place's address through OpenStreetMap; AI summaries of what a place's stays and reviews add up to. |
@@ -893,3 +893,33 @@ Both settings sit side by side on the superadmin calendar configuration page, on
 ### 27.6 Out of scope
 
 Per-event permissions, per-person exceptions, a write role finer than *animateurs* / *chefs d'unité*, and any change to the ICS feeds (which are read-only by nature).
+
+
+## 28. Finances — le trésorier de section (module finance)
+
+### 28.1 The problem
+
+An account could already be tied to a section, and the module already knew each account's own visibility level. Neither fact was ever consulted together: every intendant saw — and could import into, upload receipts to and recategorise — every section's account, whatever their own section. The « Trésorier » badge existed and meant nothing at all.
+
+### 28.2 Who may reach an account
+
+Two conditions, both required:
+
+- **The account's own visibility level** — intendant, chef, chef d'unité — unchanged.
+- **The section.** An account attached to a section is for that section's **treasurer**: whoever carries the « Trésorier » badge and animates that section, for the current scout year. Both at once — the badge alone grants nothing, and animating the section alone grants nothing either.
+
+An account attached to no section is the unit's own money and depends on the first condition alone. Chefs d'unité reach every account unconditionally.
+
+### 28.3 The rule starts switched off
+
+It applies only once the unit has assigned the « Trésorier » badge to somebody **for the current year**. Until then — which is the state of every installation the day it updates, and of every unit that has not yet redone its badges after the year transition — nothing changes and every intendant keeps seeing every account. Deactivating the badge in Configuration > Badges returns to exactly that behaviour, without erasing any past assignment.
+
+This is deliberate and not a detail: without it, updating would lock a whole unit out of its own finances.
+
+### 28.4 Everywhere, not just the account picker
+
+The narrowing is a rule about access, not a filtered dropdown. It holds on the dashboard, the movements list and its search, the receipts, the statement import and the reconciliation page — and it holds for a request aimed straight at an endpoint with somebody else's account number in it, not only for what the screen offers.
+
+### 28.5 Out of scope
+
+A treasurer who is not an animator of the section, a per-account list of named people, an accountant role spanning the whole unit but excluded from one section, and the **receipt files themselves** — those follow in their own iteration, and until then a receipt's file remains reachable by its direct link to whoever the account's visibility level admits.

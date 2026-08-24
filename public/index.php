@@ -2443,9 +2443,22 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeAccountTransferCategoryService = new \Modules\Finance\Service\AccountTransferCategoryService(
         $financeCategoryRepo, $financeCategoryRuleRepo, $financeTransactionRepo
     );
+    // "Which sections is this session the treasurer of" (ARCHITECTURE.md
+    // §8.69). The rule is pure and takes members.id values so the receipts
+    // file guard can reuse it; the per-request answer is wrapped once here
+    // — $linkedMemberIds and the effective scout year are the composition
+    // root's to know, and a Service must not go looking for them. Lazy, so
+    // a page load that never touches finance pays nothing for it.
+    $financeTreasurerScopeService = new \Modules\Finance\Service\TreasurerScopeService(
+        $connection, $badgeRepository, $memberBadgeRepository
+    );
+    $financeTreasurerScope = \Modules\Finance\Service\TreasurerScope::forSession(
+        $financeTreasurerScopeService, $linkedMemberIds, $effectiveScoutYear->id
+    );
+    $financeAccountVisibility = new \Modules\Finance\Service\AccountVisibility($financeTreasurerScope);
     $financeService = new \Modules\Finance\Service\FinanceService(
         $financeAccountRepo, $financeCategoryRepo, $financeFiscalYearRepo, $sectionService, $financeTransactionRepo, $financeBalanceService,
-        $settingService, $financeCategoryRuleRepo, $financeAccountTransferCategoryService
+        $settingService, $financeCategoryRuleRepo, $financeAccountTransferCategoryService, $financeAccountVisibility
     );
     $financeRuleEngine = new \Modules\Finance\Service\CategoryRuleEngine($financeTransactionRepo, $financeCategoryRuleRepo);
     $financeParserFactory = new \Modules\Finance\Parser\BankStatementParserFactory();
@@ -2557,7 +2570,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeSepaQrCodeForOthers = new \Modules\Finance\Service\SepaQrCodeService();
     $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService($financeAccountRepo);
 
-    $financeReceivablesOverviewService = new \Modules\Finance\Service\ReceivablesOverviewService($financeExpectedReceivableRepo, $financeExpectedReceivableForOthers, $financeAccountRepo);
+    $financeReceivablesOverviewService = new \Modules\Finance\Service\ReceivablesOverviewService($financeExpectedReceivableRepo, $financeExpectedReceivableForOthers, $financeAccountRepo, $financeAccountVisibility);
     $frontController->registerController(
         \Modules\Finance\Controller\ReceivablesController::class,
         new \Modules\Finance\Controller\ReceivablesController($twig, $financeReceivablesOverviewService)
