@@ -240,6 +240,79 @@ class LeadershipRbacTest extends TestCase
         $this->assertStringContainsString('aria-expanded="true"', $open);
     }
 
+    /**
+     * The mapping block, all the way through `training()` and out of the
+     * template — the two lists it renders are the same row with a
+     * different verb (`partials/_mapping_row.html.twig`), and nothing
+     * before this test rendered either of them.
+     */
+    public function testTheMappingBlockRendersBothListsThroughTheSharedRow(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $this->seedFormationLevels();
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->frontController(
+            '/admin/leadership/training',
+            'LeadershipController',
+            'training'
+        )->handle(new Request('GET', '/admin/leadership/training', ['mapping' => '1'], [], [], []))->getBody());
+
+        // Not recognised: offered a placeholder and a « Rattacher » button,
+        // and nothing to remove — there is no decision to undo yet.
+        $this->assertStringContainsString('<code>Zorglub</code>', $body);
+        $this->assertStringContainsString('1 personne avec cette valeur', $body);
+        $this->assertStringContainsString('Choisir une étape…', $body);
+        $this->assertStringContainsString('Rattacher', $body);
+
+        // Already decided: the stored step comes back selected, the verb is
+        // « Modifier », and the decision can be removed.
+        $this->assertStringContainsString('<code>Wording maison</code>', $body);
+        $this->assertStringContainsString('Rattachée à', $body);
+        $this->assertStringContainsString('Modifier', $body);
+        $this->assertStringContainsString('Supprimer le rattachement de Wording maison', $body);
+    }
+
+    /**
+     * One Desk value nobody has decided about, and one that has already
+     * been mapped — the two states the mapping block exists to show.
+     */
+    private function seedFormationLevels(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        $stmt = $this->pdo->prepare('INSERT INTO functions (desk_code, label, role) VALUES (?, ?, ?)');
+        $stmt->execute(['ANIM', 'Animateur', 'chief']);
+        $functionId = (int) $this->pdo->lastInsertId();
+
+        foreach (['Zorglub', 'Wording maison'] as $index => $level) {
+            $stmt = $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)');
+            $stmt->execute(['DF' . $index]);
+            $memberId = (int) $this->pdo->lastInsertId();
+
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, formation_level)
+                 VALUES (?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([
+                $memberId,
+                $this->scoutYearId,
+                $encryption->encrypt('Prénom' . $index, 'member_years.first_name'),
+                $encryption->encrypt('Nom' . $index, 'member_years.last_name'),
+                $level,
+            ]);
+            $memberYearId = (int) $this->pdo->lastInsertId();
+
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO member_functions (member_year_id, function_id, section_id, start_date, is_main_function)
+                 VALUES (?, ?, NULL, ?, 1)'
+            );
+            $stmt->execute([$memberYearId, $functionId, '2025-09-01']);
+        }
+
+        (new FormationLevelMappingRepository(Connection::withPdo($this->pdo)))
+            ->save('Wording maison', \Modules\Leadership\FormationStep::BREVET);
+    }
+
     // --- Getting back out -----------------------------------------------
 
     /**

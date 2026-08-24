@@ -387,6 +387,13 @@ class CampsChiefController extends AbstractController
             'note' => $this->editableContent->get(CampService::noteKey($camp->id), '') ?? '',
             'contacts' => $this->decorateContacts($this->contacts->findByCamp($camp->id)),
             'contact_role_options' => $this->options(ContactService::ROLES, ''),
+            // Decided here rather than by a role comparison in the
+            // template: what an anonymisation needs is a rule about a
+            // right, and a template spelling out which role strings pass
+            // is a rule nobody can change in one place. The route itself
+            // is the authority (module.json, role_min: admin); this only
+            // decides whether to OFFER what that route would allow.
+            'can_anonymise_contacts' => Role::fromString(AuthSession::getRole())->hasAccess(Role::ADMIN),
             // Only whether photos are POSSIBLE, never how many. Counting
             // them would mean resolving the album, and resolving it
             // CREATES it (DelegatedAlbumManager::ensureAlbum is

@@ -151,33 +151,15 @@
                     {% if unresolved_levels|length > 0 %}
                         <ul class="list-group list-group-flush">
                             {% for level in unresolved_levels %}
-                                <li class="list-group-item px-0 py-3">
-                                    <div class="fw-semibold text-break"><code>{{ level.raw_value }}</code></div>
-                                    <div class="small text-body-secondary mb-2">
-                                        {{ level.holders }} personne{{ level.holders > 1 ? 's' : '' }} avec cette valeur
-                                    </div>
-                                    <form method="post" action="/admin/leadership/training/mapping"
-                                          class="d-flex flex-wrap gap-2 align-items-center">
-                                        {{ csrf_field()|raw }}
-                                        <input type="hidden" name="raw_value" value="{{ level.raw_value }}">
-                                        {% include 'partials/form_field.html.twig' with {
-                                            field_id: 'step-new-' ~ loop.index,
-                                            field_name: 'step',
-                                            label: 'Étape pour « ' ~ level.raw_value ~ ' »',
-                                            label_visually_hidden: true,
-                                            type: 'select',
-                                            size: 'sm',
-                                            control_class_extra: 'w-auto',
-                                            wrapper_class: 'mb-0',
-                                            options: [{ value: '', label: 'Choisir une étape…' }]|merge(
-                                                assignable_steps|default([])|map(step => {
-                                                    value: step.value, label: step.label,
-                                                })
-                                            ),
-                                        } only %}
-                                        <button type="submit" class="btn btn-sm btn-outline-secondary">Rattacher</button>
-                                    </form>
-                                </li>
+                                {% include '@leadership/partials/_mapping_row.html.twig' with {
+                                    raw_value: level.raw_value,
+                                    detail: level.holders ~ ' personne' ~ (level.holders > 1 ? 's' : '') ~ ' avec cette valeur',
+                                    field_id: 'step-new-' ~ loop.index,
+                                    steps: assignable_steps|default([]),
+                                    selected: null,
+                                    submit_label: 'Rattacher',
+                                    removable: false,
+                                } only %}
                             {% endfor %}
                         </ul>
                     {% else %}
@@ -191,49 +173,19 @@
                     {% if decided_levels|length > 0 %}
                         <ul class="list-group list-group-flush">
                             {% for level in decided_levels %}
-                                <li class="list-group-item px-0 py-3">
-                                    <div class="fw-semibold text-break"><code>{{ level.raw_value }}</code></div>
-                                    <div class="small text-body-secondary mb-2">
-                                        Rattachée à « {{ level.step_label }} » —
-                                        {% if level.holders > 0 %}
-                                            {{ level.holders }} personne{{ level.holders > 1 ? 's' : '' }} avec cette valeur cette année
-                                        {% else %}
-                                            plus utilisée cette année
-                                        {% endif %}
-                                    </div>
-                                    <div class="d-flex flex-wrap gap-2 align-items-center">
-                                        <form method="post" action="/admin/leadership/training/mapping"
-                                              class="d-flex flex-wrap gap-2 align-items-center">
-                                            {{ csrf_field()|raw }}
-                                            <input type="hidden" name="raw_value" value="{{ level.raw_value }}">
-                                            {% include 'partials/form_field.html.twig' with {
-                                                field_id: 'step-set-' ~ loop.index,
-                                                field_name: 'step',
-                                                label: 'Étape pour « ' ~ level.raw_value ~ ' »',
-                                                label_visually_hidden: true,
-                                                type: 'select',
-                                                size: 'sm',
-                                                control_class_extra: 'w-auto',
-                                                wrapper_class: 'mb-0',
-                                                options: assignable_steps|default([])|map(step => {
-                                                    value: step.value,
-                                                    label: step.label,
-                                                    selected: step.value == level.step,
-                                                }),
-                                            } only %}
-                                            <button type="submit" class="btn btn-sm btn-outline-secondary">Modifier</button>
-                                        </form>
-                                        <form method="post" action="/admin/leadership/training/mapping"
-                                              data-confirm="Supprimer le rattachement de « {{ level.raw_value }} » ? Cette valeur redeviendra non reconnue tant qu'elle ne sera pas rattachée à nouveau.">
-                                            {{ csrf_field()|raw }}
-                                            <input type="hidden" name="raw_value" value="{{ level.raw_value }}">
-                                            <input type="hidden" name="step" value="">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger" aria-label="Supprimer le rattachement de {{ level.raw_value }}">
-                                                <i class="bi bi-trash" aria-hidden="true"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                </li>
+                                {% include '@leadership/partials/_mapping_row.html.twig' with {
+                                    raw_value: level.raw_value,
+                                    detail: 'Rattachée à « ' ~ level.step_label ~ ' » — ' ~ (
+                                        level.holders > 0
+                                            ? level.holders ~ ' personne' ~ (level.holders > 1 ? 's' : '') ~ ' avec cette valeur cette année'
+                                            : 'plus utilisée cette année'
+                                    ),
+                                    field_id: 'step-set-' ~ loop.index,
+                                    steps: assignable_steps|default([]),
+                                    selected: level.step,
+                                    submit_label: 'Modifier',
+                                    removable: true,
+                                } only %}
                             {% endfor %}
                         </ul>
                     {% else %}

@@ -1,4 +1,27 @@
 {% extends 'base.html.twig' %}
+
+{#
+  The submitted camp travels through both forms as hidden fields, so
+  choosing an existing place — or insisting on a new one — costs the chief
+  nothing they already typed. Written once as a macro because the two
+  copies differed only in whether `place_id` was skipped, and a hidden
+  field silently dropped from one of them is a form that loses a field
+  with nothing on screen to show for it.
+#}
+{% macro submitted_fields(submitted, skip) %}
+    {% for key, value in submitted %}
+        {% if key != '_csrf_token' and key not in skip %}
+            {% if value is iterable %}
+                {% for item in value %}
+                    <input type="hidden" name="{{ key }}[]" value="{{ item }}">
+                {% endfor %}
+            {% else %}
+                <input type="hidden" name="{{ key }}" value="{{ value }}">
+            {% endif %}
+        {% endif %}
+    {% endfor %}
+{% endmacro %}
+
 {% block title %}Ce lieu existe peut-être déjà — {{ site_name }}{% endblock %}
 {% block content %}
     <div class="page-medium">
@@ -20,20 +43,7 @@
                         </div>
                         <form method="post" action="/chefs/camps">
                             {{ csrf_field() }}
-                            {# The whole submitted camp travels through, so
-                               choosing an existing place costs nothing the
-                               chief already typed. #}
-                            {% for key, value in submitted %}
-                                {% if key != '_csrf_token' and key != 'place_id' %}
-                                    {% if value is iterable %}
-                                        {% for item in value %}
-                                            <input type="hidden" name="{{ key }}[]" value="{{ item }}">
-                                        {% endfor %}
-                                    {% else %}
-                                        <input type="hidden" name="{{ key }}" value="{{ value }}">
-                                    {% endif %}
-                                {% endif %}
-                            {% endfor %}
+                            {{ _self.submitted_fields(submitted, ['place_id']) }}
                             <input type="hidden" name="place_id" value="{{ candidate.place.id }}">
                             <button type="submit" class="btn btn-primary btn-sm">
                                 C'est ce lieu
@@ -46,17 +56,7 @@
 
         <form method="post" action="/chefs/camps">
             {{ csrf_field() }}
-            {% for key, value in submitted %}
-                {% if key != '_csrf_token' %}
-                    {% if value is iterable %}
-                        {% for item in value %}
-                            <input type="hidden" name="{{ key }}[]" value="{{ item }}">
-                        {% endfor %}
-                    {% else %}
-                        <input type="hidden" name="{{ key }}" value="{{ value }}">
-                    {% endif %}
-                {% endif %}
-            {% endfor %}
+            {{ _self.submitted_fields(submitted, []) }}
             <input type="hidden" name="confirm_new" value="1">
             <button type="submit" class="btn btn-outline-secondary">
                 Non, créer un nouveau lieu

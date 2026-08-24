@@ -215,6 +215,34 @@ class CalendarController extends AbstractController
 }
 ```
 
+## CSRF token in a form (`csrf_field()`)
+
+Every `<form method="post">` carries one, no exceptions (`AGENTS.md`
+§ Security checklist). The Twig function writes the whole hidden input:
+
+```twig
+<form method="post" action="/mon-module/enregistrer">
+    {{ csrf_field()|raw }}
+    …
+</form>
+```
+
+The function is registered with `['is_safe' => ['html']]`
+(`Core\View\TwigFactory`), so **`|raw` is a no-op** and plain
+`{{ csrf_field() }}` produces exactly the same markup — the filter is
+written out anyway because a reader scanning a template for `|raw` should
+find every place raw HTML is emitted, including the ones that are safe by
+construction. Whichever you write, do not mix the two inside one template.
+
+Do NOT hand-write the input: the token itself comes from
+`Core\Security\CsrfGuard::generateToken()`, and a template composing the
+markup around it is a template that has to remember to escape it.
+`csrf_token()` exists for the one case that genuinely needs the bare value
+(a `<meta>` tag a fetch() reads).
+
+The controller side is `$this->guardCsrf($request, '/where/to/go/back')`
+— see `AbstractController`; the guard is never called by the router.
+
 ## Chip picker (`partials/chip_picker.html.twig`)
 
 The site's one selection component — mobile-friendly wrapping chips with a
