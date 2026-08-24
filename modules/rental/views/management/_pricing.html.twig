@@ -113,7 +113,7 @@
                         <span>
                             <span class="fw-semibold">{{ period.label }}</span>
                             <span class="text-body-secondary small d-block">
-                                {{ period.startDate }} → {{ period.endDate }}{{ period.recursYearly ? ' · chaque année' : '' }}
+                                {{ period.startDate|date_fr }} → {{ period.endDate|date_fr }}{{ period.recursYearly ? ' · chaque année' : '' }}
                             </span>
                         </span>
                         <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/periode-supprimer"

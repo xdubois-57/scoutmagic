@@ -1,7 +1,7 @@
 Bonjour {{ booking.renterName }},
 
 Nous avons bien reçu votre demande de location pour {{ asset.name }},
-du {{ booking.arrivalDate }} au {{ booking.departureDate }}.
+du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}.
 
 Votre référence : {{ booking.reference }}
 

@@ -75,7 +75,7 @@
                         {% for booking in bookings %}
                             <li class="mb-2">
                                 <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}">{{ booking.reference }}</a>
-                                — du {{ booking.arrivalDate }} au {{ booking.departureDate }}
+                                — du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}
                                 {% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}
                                 {% if booking.holdOrigin %}
                                     <span class="badge text-bg-info ms-1">{{ booking.holdOrigin.managerLabel }}</span>
@@ -108,7 +108,7 @@
                         {% for block in blocks %}
                             <li class="d-flex justify-content-between align-items-center gap-2 border-bottom py-2">
                                 <span>
-                                    du {{ block.startDate }} au {{ block.endDate }}
+                                    du {{ block.startDate|date_fr }} au {{ block.endDate|date_fr }}
                                     {% if block.units > 1 %}<span class="text-body-secondary">({{ block.units }} unités)</span>{% endif %}
                                     {% if block.reason %}
                                         <span class="text-body-secondary small d-block">{{ block.reason }}</span>

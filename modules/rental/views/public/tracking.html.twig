@@ -42,9 +42,9 @@
                 <h2 class="h5 mb-3">Votre séjour</h2>
                 <dl class="row mb-0">
                     <dt class="col-sm-4">Du</dt>
-                    <dd class="col-sm-8">{{ booking.arrivalDate }}</dd>
+                    <dd class="col-sm-8">{{ booking.arrivalDate|date_fr }}</dd>
                     <dt class="col-sm-4">Au</dt>
-                    <dd class="col-sm-8">{{ booking.departureDate }}</dd>
+                    <dd class="col-sm-8">{{ booking.departureDate|date_fr }}</dd>
                     {% if booking.estimatedPersons %}
                         <dt class="col-sm-4">Participants</dt>
                         <dd class="col-sm-8">{{ booking.estimatedPersons }}</dd>

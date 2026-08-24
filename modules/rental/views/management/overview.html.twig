@@ -81,7 +81,7 @@
                                     <span>
                                         <span class="fw-semibold">{{ booking.reference }}</span>
                                         <span class="text-body-secondary small d-block">
-                                            du {{ booking.arrivalDate }} au {{ booking.departureDate }}
+                                            du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}
                                         </span>
                                     </span>
                                     {% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}
@@ -103,7 +103,7 @@
                         {% for booking in in_progress %}
                             <li class="mb-1">
                                 <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}">{{ booking.reference }}</a>
-                                — jusqu'au {{ booking.departureDate }}
+                                — jusqu'au {{ booking.departureDate|date_fr }}
                             </li>
                         {% endfor %}
                     </ul>
@@ -135,7 +135,7 @@
                     <ul class="list-unstyled mb-0">
                         {% for block in upcoming_blocks %}
                             <li class="mb-1">
-                                du {{ block.startDate }} au {{ block.endDate }}
+                                du {{ block.startDate|date_fr }} au {{ block.endDate|date_fr }}
                                 {% if block.reason %}— {{ block.reason }}{% endif %}
                             </li>
                         {% endfor %}

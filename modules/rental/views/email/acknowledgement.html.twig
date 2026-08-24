@@ -7,7 +7,7 @@
 
 <p>
     Nous avons bien reçu votre demande de location pour <strong>{{ asset.name }}</strong>,
-    du {{ booking.arrivalDate }} au {{ booking.departureDate }}.
+    du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}.
 </p>
 
 <p>Votre référence : <strong>{{ booking.reference }}</strong></p>

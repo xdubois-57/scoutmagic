@@ -10,7 +10,7 @@
 <ul>
     <li><strong>Bien</strong> : {{ asset.name }}</li>
     <li><strong>Référence</strong> : {{ booking.reference }}</li>
-    <li><strong>Dates</strong> : du {{ booking.arrivalDate }} au {{ booking.departureDate }}</li>
+    <li><strong>Dates</strong> : du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}</li>
 </ul>
 
 <p><a href="{{ manage_url }}">Traiter la demande</a></p>

@@ -300,6 +300,108 @@ final class RentalBookingMailServiceTest extends TestCase
         $this->assertStringContainsString('Votre réservation est confirmée.', $this->onlyMail()['text']);
     }
 
+    // ── One booking, one date format ────────────────────────────────────
+
+    /**
+     * Every message this service sends, in both parts.
+     *
+     * The renter reads their acknowledgement, then their contract, then
+     * their confirmation. Three emails about one stay used to disagree
+     * about what its dates look like — « du 2027-08-14 au 2027-08-17 » in
+     * the first two, « du 14/08/2027 au 17/08/2027 » in the third —
+     * because only `decision` and `practical_info` had ever been given
+     * `|date_fr`. A stored `Y-m-d` string is a database value, not a date
+     * anybody reads.
+     */
+    public function testEveryEmailNamesTheStaysDatesTheFrenchWay(): void
+    {
+        $senders = [
+            'acknowledgement' => fn () => $this->service->sendAcknowledgement(
+                $this->booking(),
+                $this->asset(),
+                str_repeat('a', 64)
+            ),
+            'decision' => fn () => $this->service->sendDecision(
+                $this->booking(),
+                $this->asset(),
+                RenterDecision::CONFIRMED,
+                str_repeat('a', 64),
+                null
+            ),
+            'manager_notification' => fn () => $this->service->sendManagerNotification(
+                $this->booking(),
+                $this->asset(),
+                ['gestion@example.test']
+            ),
+            'document' => fn () => $this->service->sendDocument(
+                $this->booking(),
+                $this->asset(),
+                'Contrat',
+                '/tmp/contract.pdf',
+                'contrat.pdf'
+            ),
+            'practical_info' => fn () => $this->service->sendPracticalInfo($this->booking(), $this->asset()),
+            'tracking_link' => fn () => $this->service->sendTrackingLink(
+                $this->booking(),
+                $this->asset(),
+                str_repeat('a', 64)
+            ),
+        ];
+
+        foreach ($senders as $name => $send) {
+            $this->sent = [];
+            $send();
+            $mail = $this->onlyMail();
+
+            foreach (['html', 'text'] as $part) {
+                $this->assertStringNotContainsString('2027-08-14', $mail[$part], $name . '.' . $part);
+                $this->assertStringNotContainsString('2027-08-17', $mail[$part], $name . '.' . $part);
+            }
+        }
+    }
+
+    /**
+     * The four that actually spell the stay out say it in French.
+     *
+     * `practical_info` is the odd one — it names arrival and departure in
+     * two separate sentences — so it is checked date by date rather than
+     * as a « du … au … » pair.
+     */
+    public function testTheEmailsThatNameBothDatesUseTheFrenchFormat(): void
+    {
+        $senders = [
+            'acknowledgement' => fn () => $this->service->sendAcknowledgement(
+                $this->booking(),
+                $this->asset(),
+                str_repeat('a', 64)
+            ),
+            'manager_notification' => fn () => $this->service->sendManagerNotification(
+                $this->booking(),
+                $this->asset(),
+                ['gestion@example.test']
+            ),
+            'document' => fn () => $this->service->sendDocument(
+                $this->booking(),
+                $this->asset(),
+                'Contrat',
+                '/tmp/contract.pdf',
+                'contrat.pdf'
+            ),
+            'practical_info' => fn () => $this->service->sendPracticalInfo($this->booking(), $this->asset()),
+        ];
+
+        foreach ($senders as $name => $send) {
+            $this->sent = [];
+            $send();
+            $mail = $this->onlyMail();
+
+            foreach (['html', 'text'] as $part) {
+                $this->assertStringContainsString('14/08/2027', $mail[$part], $name . '.' . $part);
+                $this->assertStringContainsString('17/08/2027', $mail[$part], $name . '.' . $part);
+            }
+        }
+    }
+
     // ── Failure ─────────────────────────────────────────────────────────
 
     public function testAFailedEmailIsReportedRatherThanThrown(): void

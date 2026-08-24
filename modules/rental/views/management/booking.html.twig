@@ -16,7 +16,7 @@
     <div class="page-medium">
         {% include 'partials/page_header.html.twig' with {
             title: booking.reference,
-            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate ~ ' au ' ~ booking.departureDate,
+            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate|date_fr ~ ' au ' ~ booking.departureDate|date_fr,
         } only %}
         {% if is_in_progress %}
             <p class="mb-3">{% include 'partials/status_badge.html.twig' with { status: 'active', label: 'En cours' } only %}</p>

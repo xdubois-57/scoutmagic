@@ -877,6 +877,25 @@ class RentalRequestControllerTest extends TestCase
         $this->assertStringContainsString('400,00', $body);
     }
 
+    public function testTheRenterReadsTheirDatesInFrenchNotAsStoredRows(): void
+    {
+        // The one page a renter ever sees was printing `arrivalDate` raw,
+        // so their acknowledgement email and their tracking page disagreed
+        // about what the same stay looks like.
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $arrival = new \DateTimeImmutable($this->arrival());
+        $departure = new \DateTimeImmutable($this->departure());
+
+        $this->assertStringContainsString($arrival->format('d/m/Y'), $body);
+        $this->assertStringContainsString($departure->format('d/m/Y'), $body);
+        $this->assertStringNotContainsString($arrival->format('Y-m-d'), $body);
+        $this->assertStringNotContainsString($departure->format('Y-m-d'), $body);
+    }
+
     public function testAWrongTokenIsA404(): void
     {
         $this->createAsset();

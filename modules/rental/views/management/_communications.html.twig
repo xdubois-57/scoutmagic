@@ -124,7 +124,7 @@
                                        from a global one (§7.7). #}
                                     {% for target in move_targets %}
                                         <option value="{{ target.id }}">
-                                            {{ target.reference }} — {{ target.arrivalDate }}
+                                            {{ target.reference }} — {{ target.arrivalDate|date_fr }}
                                         </option>
                                     {% endfor %}
                                 </select>

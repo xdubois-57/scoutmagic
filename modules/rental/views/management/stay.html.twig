@@ -14,7 +14,7 @@
     <div class="page-wide">
         {% include 'partials/page_header.html.twig' with {
             title: 'Séjour — ' ~ booking.reference,
-            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate ~ ' au ' ~ booking.departureDate,
+            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate|date_fr ~ ' au ' ~ booking.departureDate|date_fr,
         } only %}
 
         <div class="alert alert-secondary">
