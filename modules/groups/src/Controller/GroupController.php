@@ -39,6 +39,7 @@ use Modules\Groups\Service\ReportService;
 use Modules\Groups\Service\ModeratorBindingService;
 use Modules\Groups\Service\SectionGroupSyncService;
 use Modules\Groups\Support\GroupLabel;
+use Modules\Groups\Support\PollVoterOptions;
 use Modules\Groups\Support\RejectedDraft;
 use Modules\Groups\Support\SearchTerm;
 use Twig\Environment;
@@ -191,6 +192,8 @@ class GroupController extends AbstractController
             // publish (Service\GroupAccessService::canParticipate()).
             'participate_permission' => $this->accessService->canParticipate($group, $context),
             // Who this account may answer a member-scoped poll for —
+            // every member it reaches and not only this group's own
+            // (Service\GroupAccessService::memberIdsAllowedToVoteAs()),
             // empty when there is nothing to choose between (see
             // partials/poll.html.twig).
             'vote_members' => $this->voteMemberOptions($group, $context),
@@ -658,36 +661,16 @@ class GroupController extends AbstractController
     }
 
     /**
-     * The members this account may answer a member-scoped poll for, named
-     * account-first and narrowed to one membership each ("Marie Dupont
-     * (Akéla)"). Empty when there is only one — nothing to pick between.
+     * What the member-scoped poll's picker offers on the group page.
+     * Support\PollVoterOptions holds the rules, and the fragments
+     * Controller\PostController re-renders go through the same call —
+     * the page and its fragments cannot come to offer a different set.
      *
-     * The same list Controller\PostController builds for the fragment it
-     * re-renders after a vote; both go through
-     * Service\GroupAccessService::memberIdsAllowedToPostAs(), so the
-     * page and the fragment can never offer a different set.
-     *
-     * @return array<int, array{id: int, name: string}>
+     * @return array<int, array{id: int, name: string, in_group: bool}>
      */
     private function voteMemberOptions(DiscussionGroup $group, GroupSessionContext $context): array
     {
-        $memberIds = $this->accessService->memberIdsAllowedToPostAs($group, $context);
-        if (count($memberIds) < 2) {
-            return [];
-        }
-
-        $labels = $this->identityService?->accountLabelForMembers(
-            $memberIds,
-            $group->scoutYearId ?? $context->effectiveScoutYearId
-        ) ?? [];
-
-        return array_map(
-            static fn(int $memberId): array => [
-                'id' => $memberId,
-                'name' => ($labels[$memberId] ?? '') !== '' ? $labels[$memberId] : ('Membre #' . $memberId),
-            ],
-            $memberIds
-        );
+        return PollVoterOptions::forGroup($this->accessService, $this->identityService, $group, $context);
     }
 
     private function context(): GroupSessionContext

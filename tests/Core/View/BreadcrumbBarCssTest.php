@@ -97,6 +97,33 @@ class BreadcrumbBarCssTest extends TestCase
     }
 
     /**
+     * And a little air back around the separator, on both sides.
+     *
+     * The two zeroed paddings above buy width; what they cost is the
+     * crumbs touching the « / », which is what a phone reported once they
+     * shipped. Four pixels go back on each side — half of Bootstrap's
+     * eight, so the trail keeps most of the width the zeroing won — as
+     * margins rather than as restored padding, so the two decisions stay
+     * readable as two. The rules are one decision and have to be read
+     * together, which is why they sit in one block.
+     */
+    public function testTheSeparatorHasAirOnBothSides(): void
+    {
+        $rule = '/\.breadcrumb-bar \.breadcrumb-item \+ \.breadcrumb-item::before \{.*?%s/s';
+
+        $this->assertMatchesRegularExpression(
+            sprintf($rule, 'margin-left: 0\.25rem;'),
+            $this->css,
+            'The « / » needs room on its left: the zeroed padding above leaves it touching the crumb before it.'
+        );
+        $this->assertMatchesRegularExpression(
+            sprintf($rule, 'margin-right: 0\.25rem;'),
+            $this->css,
+            'And the same room on its right, or the crumb after it touches instead.'
+        );
+    }
+
+    /**
      * The condition the rule above exists to survive. If the touch
      * baseline ever stops inflating .btn, the separator is no longer at
      * risk — but while it does, the two belong together, and a reader of
