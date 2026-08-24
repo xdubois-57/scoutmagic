@@ -59,7 +59,7 @@
 
     <div class="d-flex flex-wrap gap-2">
         <form method="post" action="/chefs/camps/contacts/{{ contact.id }}/anonymiser" data-confirm="Anonymiser définitivement ce contact partout dans le module ?">
-            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            {{ csrf_field() }}
             <button type="submit" class="btn btn-danger">
                 Anonymiser définitivement
             </button>

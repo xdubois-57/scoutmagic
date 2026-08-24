@@ -22,7 +22,7 @@
 
         <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/fusionner"
               data-confirm="Fusionner ce séjour dans celui que vous avez choisi ?">
-            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            {{ csrf_field() }}
             {% include 'partials/form_field.html.twig' with {
                 field_id: 'merge-target', field_name: 'target_id',
                 label: 'Conserver ce séjour', type: 'select',
