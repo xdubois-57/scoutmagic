@@ -1821,6 +1821,15 @@ docs/
 tests/             Mirrors core/ and modules/ structure
   js/              Vitest specs for public/assets/js/ (§15)
   e2e/             Playwright end-to-end specs + playwright.config.js (§15)
+  fixtures/reference-dataset/
+                   Reproducible dataset for a test instance: three scout
+                    years of a fictional unit as committed Desk exports and
+                    BNP statements, a photo lot, a deterministic generator
+                    with a --check mode, and a CLI builder replaying all of
+                    it through the application's own services. Its own
+                    README.md is the manual; AGENTS.md § Reference dataset
+                    says when a change elsewhere obliges a check here. The
+                    one tests/ subdirectory listed in phpstan.neon's paths.
 
 .github/
   workflows/

@@ -2084,7 +2084,19 @@ $offlineManifestService = new \Core\Offline\OfflineManifestService(
 );
 $offlineController = new OfflineController($twig, $offlineManifestService);
 $frontController->registerController(OfflineController::class, $offlineController);
-$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor, $memberService, $ageBranchRepo, $unitLogoService, $imageVariantService, $accountPhotoService);
+$photoIngestionService = new \Core\Photo\PhotoIngestionService(
+    $uploadHandler,
+    $editableContentService,
+    $memberPhotoService,
+    $sectionPhotoService,
+    $sectionPhotoProcessor,
+    $landscapeImageProcessor,
+    $ageBranchRepo,
+    $unitLogoService,
+    $imageVariantService,
+    $accountPhotoService
+);
+$uploadController = new UploadController($twig, $photoIngestionService, $memberService);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));

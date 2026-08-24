@@ -2,7 +2,15 @@
  ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
  Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
 #}
-<div id="cookie-banner" class="fixed-bottom border-top bg-body shadow-lg" style="z-index:1050;">
+{# z-index 1035: above the page's own sticky chrome (breadcrumb bar,
+   mega-menu panels — 1030) but BELOW Bootstrap's offcanvas backdrop
+   (1040), offcanvas (1045) and modals (1055). The previous 1050 painted
+   the banner over every offcanvas — the mobile menu's login button and
+   the help panel's lower half were unreachable until consent was given,
+   which contradicts this banner's own "does not block content" rule
+   (design.md §1.7). While an offcanvas is open the banner now sits under
+   its backdrop, exactly like the rest of the page. #}
+<div id="cookie-banner" class="fixed-bottom border-top bg-body shadow-lg" style="z-index:1035;">
     <div class="container py-3">
         <div class="row align-items-center g-3">
             <div class="col-12 col-lg-7">

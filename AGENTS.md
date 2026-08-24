@@ -159,6 +159,46 @@ Mechanism: the TypeScript compiler used purely as a development-time checker ove
 
 - **`secret`** — a setting whose *value* must never be displayed or exported. It is filtered out of Configuration > Réglages entirely (`SettingsController::index()`), and the support package's `configuration-parameters.xlsx` writes `[REDACTED]` in its place while keeping the key and label visible (ARCHITECTURE.md §8.48). Use it for any setting that is a credential, a token, or anything a screenshot of the settings page must not reveal. **No setting carries it today** — every real credential lives outside `settings` (`secrets.enc`, or an encrypted BLOB column) and should keep doing so; `secret` is the safety net for the case where that isn't practical, not an invitation to start storing credentials in `settings`.
 
+## Reference dataset — a change to the import pipeline is a change to it
+
+`tests/fixtures/reference-dataset/` holds a reproducible dataset for a test
+instance: three scout years of a fictional Belgian unit, its Desk exports, its
+bank statements, its photos, and a CLI builder that replays all of it through
+the application's own services. Its own `README.md` is the manual.
+
+**Changing any of the following means checking that dataset in the same
+change**, not in a follow-up:
+
+- the Desk export format, or `Core\Import\DeskCsvParser` — its
+  `EXPECTED_HEADERS`, its delimiter detection, its boolean parsing, the
+  one-row-per-(function × address) shape;
+- the bank statement parser, `Modules\Finance\Parser\BnpParser` — its column
+  map, its amount parsing, the `REFERENCE BANQUE` deduplication key;
+- the import pipeline itself (`Core\Import\DeskImportService`,
+  `MappingResolver`, `MemberYearRepository`), including anything about how
+  sections are deactivated, how `scout_year_offset` is inherited, or how
+  Staff d'U membership is synced;
+- the schema of a member-related table (`members`, `member_years`,
+  `member_functions`, `member_addresses`, `sections`, `functions`,
+  `age_branches`, `member_photos`, `section_staff_photos`).
+
+Two tests hold the line and will tell you: `Tests\Integration\
+ReferenceDatasetFormatTest` (every committed file still goes through the real
+parsers, and still matches its generator byte for byte) and `Tests\Integration\
+ReferenceDatasetImportTest` (the exports still MEAN what they say — the branch
+passages happened, the emptied section went inactive, the returning member
+inherited their offset). `Tests\Integration\ReferenceDatasetBuilderTest`
+covers what the builder writes on top.
+
+The generated files are committed. If you change the generator, re-run
+`php tests/fixtures/reference-dataset/generate.php` and commit what it wrote —
+`--check` compares byte for byte and fails otherwise, the same mechanism as
+`js-typecheck-baseline.json`.
+
+The directory is in `phpstan.neon`'s `paths` on purpose: the builder composes
+core and module services by hand, exactly like the composition roots, and
+breaks the same way. Do not remove it from there.
+
 ## RGPD — a new outbound flow is a documentation change
 
 Any new feature that sends data to a third party — an API call, a mail relay, a usage report, anything leaving the hosting network — requires updating `Core\View\RgpdContentService`'s default content **and** its AI system prompt in the same change, exactly as § RGPD page maintenance already requires for a new sub-processor. This holds even when the data is aggregated and carries no personal data: the site's own URL leaving the installation is a fact the RGPD page has to state (ARCHITECTURE.md §8.47), and describing it as "anonymous" when it isn't would be worse than not mentioning it at all.
