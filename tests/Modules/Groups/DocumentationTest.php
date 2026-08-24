@@ -90,6 +90,23 @@ class DocumentationTest extends TestCase
         $this->assertStringContainsString('offers every member the account reaches', $specs);
     }
 
+    /**
+     * And the person doing the voting reads none of the above: they read
+     * the help panel. A rule about whose answer counts is exactly the
+     * kind that drifts out of the help text first, since nothing breaks
+     * when it does.
+     */
+    public function testTheHelpTopicSaysWhichMembersAPollMayBeAnsweredFor(): void
+    {
+        $help = $this->read('modules/groups/help/groupes.md');
+
+        // Substrings that survive a re-wrap of the paragraph: the two
+        // halves of the rule, and the heading the picker draws.
+        $this->assertStringContainsString("c'est le groupe qui le décide", $help);
+        $this->assertStringContainsString('seuls ceux qui en font partie', $help);
+        $this->assertStringContainsString('Hors de ce groupe', $help);
+    }
+
     public function testTheReadmeListsTheModule(): void
     {
         $this->assertStringContainsString('groupes de discussion', $this->read('README.md'));
