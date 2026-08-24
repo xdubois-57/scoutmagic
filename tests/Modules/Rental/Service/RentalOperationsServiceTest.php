@@ -932,6 +932,153 @@ class RentalOperationsServiceTest extends TestCase
         );
     }
 
+    public function testABookingCancelledBetweenLoadAndDecisionIsNotRewritten(): void
+    {
+        // The manager's page was rendered before the cancellation; the
+        // click lands after it. Without the re-check inside the lock the
+        // dates and the price of a closed file were rewritten silently.
+        $booking = $this->createBooking();
+        $id = $this->service->requestChange(
+            $booking,
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::DATES,
+            '2027-07-08',
+            '2027-07-11',
+            null,
+            null,
+            null,
+            null
+        );
+        $request = $this->changeRequestRepository->findById($id);
+        $this->assertNotNull($request);
+
+        $this->service->changeStatus($booking, BookingStatus::CANCELLED, 1, $this->now());
+
+        try {
+            // `$booking` and `$request` are the stale copies the manager's
+            // page is still holding.
+            $this->service->acceptChange(
+                $request,
+                $booking,
+                $this->asset(),
+                ChangeRequestOrigin::MANAGER,
+                1,
+                $this->now()
+            );
+            $this->fail('A final booking must refuse the change.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('ne peut plus être modifiée', $e->getMessage());
+        }
+
+        $fresh = $this->reload($booking);
+        $this->assertSame('2027-07-01', $fresh->arrivalDate);
+        $this->assertSame(BookingStatus::CANCELLED, $fresh->status);
+    }
+
+    public function testAKindThatTouchesNoAvailabilityIsRefusedOnAFinalBookingToo(): void
+    {
+        // The guard sits at the top of the locked section, not inside the
+        // availability branch: a head-count change on a cancelled booking
+        // is no more acceptable than a date change.
+        $booking = $this->createBooking();
+        $id = $this->service->requestChange(
+            $booking,
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            30,
+            null,
+            null
+        );
+        $request = $this->changeRequestRepository->findById($id);
+        $this->assertNotNull($request);
+
+        $this->service->changeStatus($booking, BookingStatus::CANCELLED, 1, $this->now());
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/ne peut plus être modifiée/');
+
+        $this->service->acceptChange(
+            $request,
+            $booking,
+            $this->asset(),
+            ChangeRequestOrigin::MANAGER,
+            1,
+            $this->now()
+        );
+    }
+
+    public function testACancellationRequestOnAnAlreadyFinalBookingIsRefusedInTheModulesOwnWords(): void
+    {
+        $booking = $this->createBooking();
+        $id = $this->service->requestChange(
+            $booking,
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::CANCELLATION,
+            null,
+            null,
+            null,
+            null,
+            null,
+            'Notre camp est annulé.'
+        );
+        $request = $this->changeRequestRepository->findById($id);
+        $this->assertNotNull($request);
+        $this->service->changeStatus($booking, BookingStatus::REFUSED, 1, $this->now());
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/ne peut plus être modifiée/');
+
+        $this->service->acceptChange(
+            $request,
+            $booking,
+            $this->asset(),
+            ChangeRequestOrigin::MANAGER,
+            1,
+            $this->now()
+        );
+    }
+
+    public function testAFinalStatusRefusesEveryRequestStillWaiting(): void
+    {
+        // Otherwise the renter's page goes on offering an "Accepter"
+        // button on a file nobody can change any more.
+        $booking = $this->createBooking();
+        $first = $this->service->requestChange(
+            $booking, ChangeRequestOrigin::MANAGER, ChangeRequestKind::PERSONS,
+            null, null, null, 30, null, null
+        );
+        $second = $this->service->requestChange(
+            $booking, ChangeRequestOrigin::RENTER, ChangeRequestKind::DATES,
+            '2027-07-08', '2027-07-11', null, null, null, null
+        );
+
+        $this->service->changeStatus($booking, BookingStatus::CANCELLED, 1, $this->now());
+
+        $this->assertSame(ChangeRequestStatus::REFUSED, $this->changeRequestRepository->findById($first)?->status);
+        $this->assertSame(ChangeRequestStatus::REFUSED, $this->changeRequestRepository->findById($second)?->status);
+        $this->assertSame([], $this->changeRequestRepository->findPendingForBooking($booking->id));
+    }
+
+    public function testAcceptingACancellationDoesNotRefuseTheVeryRequestBeingAccepted(): void
+    {
+        $booking = $this->createBooking();
+        $id = $this->service->requestChange(
+            $booking, ChangeRequestOrigin::RENTER, ChangeRequestKind::CANCELLATION,
+            null, null, null, null, null, 'Notre camp est annulé.'
+        );
+        $request = $this->changeRequestRepository->findById($id);
+        $this->assertNotNull($request);
+
+        $this->service->acceptChange(
+            $request, $booking, $this->asset(), ChangeRequestOrigin::MANAGER, 1, $this->now()
+        );
+
+        $this->assertSame(ChangeRequestStatus::ACCEPTED, $this->changeRequestRepository->findById($id)?->status);
+    }
+
     public function testADateRequestWithoutBothDatesIsRefused(): void
     {
         $this->expectException(RentalException::class);
