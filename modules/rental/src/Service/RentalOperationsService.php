@@ -25,6 +25,7 @@ use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Support;
 
 /**
  * Operating a booking day to day (§6.12, §6.15–§6.18): moving it through its
@@ -748,8 +749,8 @@ class RentalOperationsService
         $this->bookingAudit->record(
             $booking->id,
             BookingAudit::PRICE_CHANGED,
-            $before !== null ? self::euros($before) : null,
-            self::euros($quote->totalCents),
+            $before !== null ? Support::euros($before) : null,
+            Support::euros($quote->totalCents),
             null,
             $actorMemberId
         );
@@ -901,8 +902,4 @@ class RentalOperationsService
     }
 
     /** `467,50 €` — for a history line a human reads, never for arithmetic. */
-    private static function euros(int $cents): string
-    {
-        return number_format($cents / 100, 2, ',', ' ') . ' €';
-    }
 }

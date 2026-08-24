@@ -21,10 +21,11 @@ use Modules\Rental\Pricing\PricingSettings;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAuthorizationService;
-use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalAvailabilityService;
+use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
+use Modules\Rental\Support;
 use Twig\Environment;
 
 /**
@@ -208,7 +209,7 @@ class RentalPricingController extends AbstractController
                 (string) $request->getBody('label', ''),
                 (string) $request->getBody('nature', ''),
                 $amount ?? 0,
-                self::optionalString($request->getBody('meter_unit'))
+                Support::optionalString($request->getBody('meter_unit'))
             );
 
             return 'Le frais a été ajouté.';
@@ -388,7 +389,7 @@ class RentalPricingController extends AbstractController
         // and simulate() runs inline while the template context is built, so
         // that throw used to take the whole configuration page down with a
         // 500. An unparseable simulation simply has no result.
-        if (!self::isDate($arrival) || !self::isDate($departure)) {
+        if (!Support::isDate($arrival) || !Support::isDate($departure)) {
             return null;
         }
 
@@ -409,32 +410,10 @@ class RentalPricingController extends AbstractController
         ];
     }
 
-    /**
-     * A strict `Y-m-d` check — `checkdate()` on the parts, so 2026-02-30 is
-     * refused rather than rolled forward to 1 March the way
-     * DateTimeImmutable would.
-     */
-    private static function isDate(string $value): bool
-    {
-        return preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m) === 1
-            && checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
-    }
-
     private static function optionalInt(mixed $value): ?int
     {
         $value = is_string($value) ? trim($value) : $value;
 
         return $value === null || $value === '' ? null : (int) $value;
-    }
-
-    private static function optionalString(mixed $value): ?string
-    {
-        if (!is_string($value)) {
-            return null;
-        }
-
-        $value = trim($value);
-
-        return $value !== '' ? $value : null;
     }
 }

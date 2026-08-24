@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Exception\UserFacingMessage;
-
+use Modules\Rental\Support;
 
 use Core\Journal\JournalService;
 use Modules\Finance\Api\ExpectedReceivableInterface;
@@ -275,7 +275,7 @@ class RentalPaymentService
             $booking->id,
             BookingAudit::PRICE_CHANGED,
             null,
-            self::euros($totalCents),
+            Support::euros($totalCents),
             'Créance mise à jour',
             $actorMemberId
         );
@@ -490,7 +490,7 @@ class RentalPaymentService
 
         if ($returnedCents < 0 || $returnedCents > $amount) {
             throw new RentalException(
-                'Le montant restitué doit être compris entre 0 et ' . self::euros($amount) . '.'
+                'Le montant restitué doit être compris entre 0 et ' . Support::euros($amount) . '.'
             );
         }
 
@@ -518,7 +518,7 @@ class RentalPaymentService
             BookingAudit::STATUS_CHANGED,
             null,
             $status->label(),
-            'Caution : ' . self::euros($returnedCents) . ' restitués',
+            'Caution : ' . Support::euros($returnedCents) . ' restitués',
             $actorMemberId
         );
 
@@ -729,10 +729,5 @@ class RentalPaymentService
         }
 
         return null;
-    }
-
-    private static function euros(int $cents): string
-    {
-        return number_format($cents / 100, 2, ',', ' ') . ' €';
     }
 }

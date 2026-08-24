@@ -12,6 +12,7 @@ use Core\Audit\AuditService;
 use Core\Audit\AuditSource;
 use Modules\Camps\Repository\Place;
 use Modules\Camps\Repository\PlaceRepository;
+use Modules\Camps\Support;
 
 /**
  * Camp sites: creation, edition, and the change history that goes with
@@ -39,10 +40,10 @@ class PlaceService
 
         $id = $this->places->create(
             $name,
-            $this->clean($fields['address'] ?? null),
-            $this->clean($fields['postal_code'] ?? null),
-            $this->clean($fields['city'] ?? null),
-            $this->clean($fields['country'] ?? null),
+            Support::clean($fields['address'] ?? null),
+            Support::clean($fields['postal_code'] ?? null),
+            Support::clean($fields['city'] ?? null),
+            Support::clean($fields['country'] ?? null),
             $this->cleanUrl($fields['website_url'] ?? null),
         );
 
@@ -64,10 +65,10 @@ class PlaceService
             throw new CampsException('Un lieu a besoin d\'un nom.');
         }
 
-        $address = $this->clean($fields['address'] ?? null);
-        $postalCode = $this->clean($fields['postal_code'] ?? null);
-        $city = $this->clean($fields['city'] ?? null);
-        $country = $this->clean($fields['country'] ?? null);
+        $address = Support::clean($fields['address'] ?? null);
+        $postalCode = Support::clean($fields['postal_code'] ?? null);
+        $city = Support::clean($fields['city'] ?? null);
+        $country = Support::clean($fields['country'] ?? null);
         $websiteUrl = $this->cleanUrl($fields['website_url'] ?? null);
 
         $this->places->update($place->id, $name, $address, $postalCode, $city, $country, $websiteUrl);
@@ -199,13 +200,6 @@ class PlaceService
         $this->audit->record(self::ENTITY_TYPE, $placeId, $fieldKey, $from, $to, $source, null, null, $actorUserAccountId);
     }
 
-    private function clean(?string $value): ?string
-    {
-        $value = $value !== null ? trim($value) : null;
-
-        return $value !== null && $value !== '' ? $value : null;
-    }
-
     /**
      * A website that is not http(s) is refused rather than stored and
      * rendered as a link — a "javascript:" in an href is the whole reason
@@ -213,7 +207,7 @@ class PlaceService
      */
     private function cleanUrl(?string $value): ?string
     {
-        $value = $this->clean($value);
+        $value = Support::clean($value);
         if ($value === null) {
             return null;
         }

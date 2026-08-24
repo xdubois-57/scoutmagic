@@ -25,6 +25,7 @@ use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalDocumentRepository;
+use Modules\Rental\Support;
 
 /**
  * Contracts and invoices (§6.25, §6.27), and every other document attached
@@ -506,9 +507,9 @@ class RentalDocumentService
             'participants' => $booking->estimatedPersons !== null ? (string) $booking->estimatedPersons : null,
             'capacite' => $asset->capacity !== null ? (string) $asset->capacity : null,
             'quantite' => (string) max(1, $booking->units),
-            'prix_total' => $total !== null ? self::euros($total) : null,
-            'acompte' => $deposit !== null ? self::euros($deposit) : null,
-            'caution' => $securityDeposit !== null ? self::euros($securityDeposit) : null,
+            'prix_total' => $total !== null ? Support::euros($total) : null,
+            'acompte' => $deposit !== null ? Support::euros($deposit) : null,
+            'caution' => $securityDeposit !== null ? Support::euros($securityDeposit) : null,
             'communication' => $communication,
             'locataire_nom' => $booking->renterName,
             'locataire_organisation' => $booking->renterOrganisation,
@@ -607,10 +608,5 @@ class RentalDocumentService
         $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $isoDate);
 
         return $parsed !== false ? $parsed->format('d/m/Y') : $isoDate;
-    }
-
-    private static function euros(int $cents): string
-    {
-        return number_format($cents / 100, 2, ',', ' ') . ' €';
     }
 }

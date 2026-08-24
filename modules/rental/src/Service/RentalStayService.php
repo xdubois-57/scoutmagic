@@ -23,6 +23,7 @@ use Modules\Rental\Stay\ReadingPhase;
 use Modules\Rental\Stay\Settlement;
 use Modules\Rental\Stay\SettlementCalculator;
 use Modules\Rental\Stay\SettlementLine;
+use Modules\Rental\Support;
 
 /**
  * The stay itself (§6.21–§6.23): what was read, what was found, what it all
@@ -446,7 +447,7 @@ class RentalStayService
             $booking->id,
             BookingAudit::PRICE_CHANGED,
             null,
-            self::euros($computed['total_cents']),
+            Support::euros($computed['total_cents']),
             'Décompte final v' . $version,
             $actorMemberId
         );
@@ -514,10 +515,5 @@ class RentalStayService
     public function latestSettlement(int $bookingId): ?Settlement
     {
         return $this->stayRepository->findLatestSettlement($bookingId);
-    }
-
-    private static function euros(int $cents): string
-    {
-        return number_format($cents / 100, 2, ',', ' ') . ' €';
     }
 }

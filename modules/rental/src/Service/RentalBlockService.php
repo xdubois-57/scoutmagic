@@ -11,6 +11,7 @@ namespace Modules\Rental\Service;
 use Core\Journal\JournalService;
 use Modules\Rental\Repository\RentalBlock;
 use Modules\Rental\Repository\RentalBlockRepository;
+use Modules\Rental\Support;
 
 /**
  * Manual blocks (§6.18): a period a manager takes off the market.
@@ -43,7 +44,7 @@ class RentalBlockService
         ?string $reason,
         ?int $createdByMemberId
     ): int {
-        if (!self::isDate($startDate) || !self::isDate($endDate)) {
+        if (!Support::isDate($startDate) || !Support::isDate($endDate)) {
             throw new RentalException('Les dates du blocage ne sont pas valides.');
         }
 
@@ -105,12 +106,5 @@ class RentalBlockService
     public function upcomingFor(int $assetId, \DateTimeImmutable $from): array
     {
         return $this->blockRepository->findUpcoming($assetId, $from->format('Y-m-d'));
-    }
-
-    private static function isDate(string $value): bool
-    {
-        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $value);
-
-        return $parsed !== false && $parsed->format('Y-m-d') === $value;
     }
 }
