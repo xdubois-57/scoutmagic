@@ -2570,7 +2570,12 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeSepaQrCodeForOthers = new \Modules\Finance\Service\SepaQrCodeService();
     $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService($financeAccountRepo);
 
-    $financeReceivablesOverviewService = new \Modules\Finance\Service\ReceivablesOverviewService($financeExpectedReceivableRepo, $financeExpectedReceivableForOthers, $financeAccountRepo, $financeAccountVisibility);
+    $financeReceivablesOverviewService = new \Modules\Finance\Service\ReceivablesOverviewService(
+        $financeExpectedReceivableRepo,
+        $financeExpectedReceivableForOthers,
+        $financeAccountRepo,
+        $financeAccountVisibility
+    );
     $frontController->registerController(
         \Modules\Finance\Controller\ReceivablesController::class,
         new \Modules\Finance\Controller\ReceivablesController($twig, $financeReceivablesOverviewService)
