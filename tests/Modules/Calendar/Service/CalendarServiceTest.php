@@ -587,6 +587,14 @@ class CalendarServiceTest extends TestCase
         }
     }
 
+    public function testTheWriteRoleOfAnUnknownCalendarIsRefused(): void
+    {
+        // The id arrives in a request body, so "no such calendar" has to be
+        // a refusal here and not a silent no-op UPDATE.
+        $this->expectException(CalendarException::class);
+        $this->service->updateEditRoleMin(999999, Calendar::EDIT_ROLE_ADMIN);
+    }
+
     public function testAnInvalidWriteRoleIsRefused(): void
     {
         $id = $this->service->addCalendar('Animateurs', Calendar::VISIBILITY_CHIEF)->id;
