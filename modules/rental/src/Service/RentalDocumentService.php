@@ -15,6 +15,7 @@ use Core\Journal\JournalService;
 use Core\Pdf\DocumentPdfService;
 use Core\Security\HtmlSanitizer;
 use Core\View\EditableContentService;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentKeywords;
 use Modules\Rental\Document\DocumentType;
@@ -22,7 +23,6 @@ use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Document\StandardTemplates;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAsset;
-use Modules\Rental\Repository\RentalBookingEventRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalDocumentRepository;
 
@@ -73,7 +73,7 @@ class RentalDocumentService
     public function __construct(
         private RentalDocumentRepository $documentRepository,
         private RentalBookingRepository $bookingRepository,
-        private RentalBookingEventRepository $eventRepository,
+        private BookingAudit $bookingAudit,
         private EditableContentService $editableContentService,
         private FileRepository $fileRepository,
         private AttachedFileRemover $fileRemover,
@@ -201,9 +201,9 @@ class RentalDocumentService
         $clean = $this->sanitizer->sanitize($bodyHtml);
         $this->documentRepository->saveText($booking->id, $type, $clean);
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             null,
             $type->label(),
             'Texte du document modifié',
@@ -292,9 +292,9 @@ class RentalDocumentService
             $actorMemberId
         );
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             null,
             $type->label() . ' v' . $version,
             'Document généré',
@@ -349,9 +349,9 @@ class RentalDocumentService
             $source
         );
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             null,
             $type->label(),
             'Document ajouté',
@@ -394,9 +394,9 @@ class RentalDocumentService
 
         $this->documentRepository->updateType($documentId, $type, $isForRenter);
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             $document->type->label(),
             $type->label(),
             'Document reclassé',

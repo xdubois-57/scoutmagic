@@ -3865,7 +3865,34 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $journalService
     );
 
-    $rentalEventRepository = new \Modules\Rental\Repository\RentalBookingEventRepository($pdo);
+    // The booking's own change history (§6.15) now goes through Core\Audit
+    // (§8.66), like Camps' and every other per-entity timeline: one storage
+    // rule (every value encrypted), one partial, one JSON pagination route.
+    // Modules\Rental\Audit\BookingAudit keeps this module's vocabulary —
+    // its field keys, their French labels, and the member-to-account
+    // mapping Core\Audit cannot make on its own.
+    $rentalBookingAudit = new \Modules\Rental\Audit\BookingAudit(
+        $auditService,
+        new \Modules\Rental\Audit\ActorAccountResolver(
+            $memberService, $userAccountRepo, $scoutYearService
+        )
+    );
+    // Without this the timeline's later pages simply do not load — an
+    // unregistered entity type is denied, which is the intended direction
+    // of that failure (§8.66). Reading a booking's history needs the same
+    // right as reading the booking, so the checker delegates to it.
+    $auditAccessResolver->register(
+        \Modules\Rental\Audit\BookingAudit::ENTITY_TYPE,
+        static function (int $id) use ($rentalBookingRepository, $rentalAuthorizationService, $scoutYearService): bool {
+            $booking = $rentalBookingRepository->findById($id);
+
+            return $booking !== null && $rentalAuthorizationService->canManageAssetId(
+                \Core\Security\AuthSession::getEmail(),
+                (int) $scoutYearService->getCurrentYear()['id'],
+                $booking->assetId
+            );
+        }
+    );
     $rentalCommentRepository = new \Modules\Rental\Repository\RentalBookingCommentRepository($pdo, $encryptionService);
     $rentalChangeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository($pdo, $encryptionService);
     // Payments (§6.19, §6.20). Every Finance dependency is nullable and
@@ -3876,7 +3903,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     $rentalPaymentRepository = new \Modules\Rental\Repository\RentalPaymentRepository($pdo, $encryptionService);
     $rentalPaymentService = new \Modules\Rental\Service\RentalPaymentService(
         $rentalPaymentRepository,
-        $rentalEventRepository,
+        $rentalBookingAudit,
         $journalService,
         $financeExpectedReceivableForOthers,
         $financeStructuredCommunicationForOthers,
@@ -3933,7 +3960,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     $rentalDocumentService = new \Modules\Rental\Service\RentalDocumentService(
         $rentalDocumentRepository,
         $rentalBookingRepository,
-        $rentalEventRepository,
+        $rentalBookingAudit,
         $editableContentService,
         $fileRepository,
         $attachedFileRemover,
@@ -4028,7 +4055,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     $rentalStayRepository = new \Modules\Rental\Repository\RentalStayRepository($pdo, $encryptionService);
     $rentalStayService = new \Modules\Rental\Service\RentalStayService(
         $rentalStayRepository,
-        $rentalEventRepository,
+        $rentalBookingAudit,
         $rentalPricingService,
         new \Modules\Rental\Stay\SettlementCalculator(),
         $journalService,
@@ -4037,7 +4064,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
 
     $rentalOperationsService = new \Modules\Rental\Service\RentalOperationsService(
         $rentalBookingRepository,
-        $rentalEventRepository,
+        $rentalBookingAudit,
         $rentalCommentRepository,
         $rentalChangeRequestRepository,
         $rentalAvailabilityService,
@@ -4056,7 +4083,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Rental\Controller\RentalManagementController::class,
         new \Modules\Rental\Controller\RentalManagementController(
             $twig, $rentalAuthorizationService, $scoutYearService, $rentalAssetRepository,
-            $rentalBookingRepository, $rentalEventRepository, $rentalCommentRepository,
+            $rentalBookingRepository, $auditService, $rentalCommentRepository,
             $rentalChangeRequestRepository, $rentalOperationsService, $rentalBlockService,
             $rentalAvailabilityService, $rentalPricingService, $memberService,
             new \Core\View\MonthGrid\DayStateGridBuilder(), $rentalPaymentService,
@@ -4155,7 +4182,10 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         // And its receivables: Finance's tables are outside every cascade
         // this module's schema declares, so a purged booking would keep
         // being owed for otherwise.
-        $rentalPaymentService
+        $rentalPaymentService,
+        // And its change history: `entity_changes` has no foreign key, so
+        // the purge deletes it explicitly (§8.66).
+        $rentalBookingAudit
     );
     $schedulerRunner->registerHandler(
         'rental',

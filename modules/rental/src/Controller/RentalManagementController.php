@@ -8,7 +8,10 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Controller;
 
+use Core\Audit\AuditService;
 use Core\Config\ScoutYearService;
+use Core\File\UploadException;
+use Core\File\UploadHandler;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -16,19 +19,18 @@ use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Core\File\UploadException;
-use Core\File\UploadHandler;
 use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
+use Modules\Calendar\Service\CalendarService;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
-use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
-use Modules\Calendar\Service\CalendarService;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Calendar\PublishFrom;
 use Modules\Rental\Document\DocumentKeywords;
 use Modules\Rental\Document\DocumentType;
@@ -38,18 +40,17 @@ use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
-use Modules\Rental\Repository\RentalBookingEventRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalAuthorizationService;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBlockService;
-use Modules\Rental\Service\RentalCommunicationService;
-use Modules\Rental\Service\RentalComplianceService;
-use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalBookingMailService;
 use Modules\Rental\Service\RentalBookingService;
+use Modules\Rental\Service\RentalCommunicationService;
+use Modules\Rental\Service\RentalComplianceService;
 use Modules\Rental\Service\RentalDocumentService;
+use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
@@ -136,7 +137,7 @@ class RentalManagementController extends AbstractController
         private ScoutYearService $scoutYearService,
         private RentalAssetRepository $assetRepository,
         private RentalBookingRepository $bookingRepository,
-        private RentalBookingEventRepository $eventRepository,
+        private AuditService $audit,
         private RentalBookingCommentRepository $commentRepository,
         private RentalChangeRequestRepository $changeRequestRepository,
         private RentalOperationsService $operationsService,
@@ -653,10 +654,15 @@ class RentalManagementController extends AbstractController
             'quote' => $this->operationsService->workingQuote($booking, $asset),
             'price_is_agreed' => $booking->priceHasBeenAgreed(),
             'comments' => $this->decorateWithAuthors($this->commentRepository->findForBooking($booking->id)),
-            'history' => $this->decorateWithAuthors(
-                $this->eventRepository->findForBooking($booking->id),
-                'actor_member_id'
+            // The booking's own change history (§6.15), through Core\Audit
+            // (§8.66) like every other timeline on the site. The partial
+            // renders the first page server-side; later pages come from
+            // /api/audit/{type}/{id}, which is why the entity type has to be
+            // registered in AuditAccessResolver.
+            'audit_page' => $this->audit->page(
+                BookingAudit::ENTITY_TYPE, $booking->id, 1, AuditService::DEFAULT_PER_PAGE
             ),
+            'audit_labels' => BookingAudit::FIELD_LABELS,
             'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
             'is_in_progress' => $booking->isInProgress($now),
             'payment' => $this->paymentStatus($booking, $asset),

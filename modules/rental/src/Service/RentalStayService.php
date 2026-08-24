@@ -9,9 +9,9 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Journal\JournalService;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Payment\PaymentSettings;
-use Modules\Rental\Repository\RentalBookingEventRepository;
 use Modules\Rental\Repository\RentalStayRepository;
 use Modules\Rental\Stay\Incident;
 use Modules\Rental\Stay\IncidentDecision;
@@ -50,7 +50,7 @@ class RentalStayService
 {
     public function __construct(
         private RentalStayRepository $stayRepository,
-        private RentalBookingEventRepository $eventRepository,
+        private BookingAudit $bookingAudit,
         private RentalPricingService $pricingService,
         private SettlementCalculator $calculator,
         private JournalService $journal,
@@ -154,9 +154,9 @@ class RentalStayService
             $actorMemberId
         );
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             null,
             $meter->label . ' : ' . MeterReading::format($value),
             'Relevé ' . mb_strtolower($phase->label()),
@@ -324,9 +324,9 @@ class RentalStayService
 
         $this->stayRepository->decideIncident($incidentId, $decision, $decidedAmountCents, $actorMemberId);
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             $incident->decision->label(),
             $decision->label(),
             'Incident tranché',
@@ -442,9 +442,9 @@ class RentalStayService
             $actorMemberId
         );
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::PRICE_CHANGED,
+            BookingAudit::PRICE_CHANGED,
             null,
             self::euros($computed['total_cents']),
             'Décompte final v' . $version,
@@ -493,9 +493,9 @@ class RentalStayService
             throw new RentalException('Ce décompte est déjà validé. Enregistrez-en un nouveau pour le corriger.');
         }
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             null,
             'Décompte v' . $settlement->version . ' validé',
             'Décompte final',

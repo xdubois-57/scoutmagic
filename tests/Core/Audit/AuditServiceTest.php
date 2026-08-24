@@ -303,4 +303,25 @@ class AuditServiceTest extends TestCase
 
         return (int) $this->pdo->lastInsertId();
     }
+
+    // ── forgetEntity() ──────────────────────────────────────────────────
+
+    public function testForgetEntityRemovesOneEntitysHistoryAndNobodyElsesSelf(): void
+    {
+        $this->service->record('camp_camp', 1, 'status', 'A', 'B', AuditSource::Human);
+        $this->service->record('camp_camp', 1, 'price', '1 €', '2 €', AuditSource::Human);
+        $this->service->record('camp_camp', 2, 'status', 'A', 'B', AuditSource::Human);
+        $this->service->record('rental_booking', 1, 'status', 'A', 'B', AuditSource::Human);
+
+        $this->assertSame(2, $this->service->forgetEntity('camp_camp', 1));
+
+        $this->assertSame(0, $this->service->page('camp_camp', 1, 1, 10)->total);
+        $this->assertSame(1, $this->service->page('camp_camp', 2, 1, 10)->total);
+        $this->assertSame(1, $this->service->page('rental_booking', 1, 1, 10)->total);
+    }
+
+    public function testForgetEntityOnAnEntityWithNoHistoryIsNotAnError(): void
+    {
+        $this->assertSame(0, $this->service->forgetEntity('camp_camp', 4242));
+    }
 }

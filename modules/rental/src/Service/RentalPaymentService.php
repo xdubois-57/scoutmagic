@@ -19,7 +19,7 @@ use Modules\Finance\Api\StructuredCommunicationInterface;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Payment\SecurityDepositStatus;
-use Modules\Rental\Repository\RentalBookingEventRepository;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalPaymentRepository;
 
 /**
@@ -55,7 +55,7 @@ class RentalPaymentService
 
     public function __construct(
         private RentalPaymentRepository $paymentRepository,
-        private RentalBookingEventRepository $eventRepository,
+        private BookingAudit $bookingAudit,
         private JournalService $journal,
         private ?ExpectedReceivableInterface $receivables = null,
         private ?StructuredCommunicationInterface $communications = null,
@@ -271,9 +271,9 @@ class RentalPaymentService
             $payment['balance_due_date'] ?? null
         );
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::PRICE_CHANGED,
+            BookingAudit::PRICE_CHANGED,
             null,
             self::euros($totalCents),
             'Créance mise à jour',
@@ -449,9 +449,9 @@ class RentalPaymentService
     public function markSecurityDepositToReturn(RentalBooking $booking, ?int $actorMemberId = null): void
     {
         $this->paymentRepository->setSecurityDepositStatus($booking->id, SecurityDepositStatus::TO_RETURN);
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             null,
             SecurityDepositStatus::TO_RETURN->label(),
             'Caution',
@@ -513,9 +513,9 @@ class RentalPaymentService
             $note
         );
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             null,
             $status->label(),
             'Caution : ' . self::euros($returnedCents) . ' restitués',

@@ -20,7 +20,8 @@ use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBlockRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
-use Modules\Rental\Repository\RentalBookingEventRepository;
+use Core\Audit\AuditSource;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Repository\RentalConstraintsRepository;
@@ -53,7 +54,7 @@ class RentalOperationsServiceTest extends TestCase
     private EncryptionService $encryption;
     private RentalAssetRepository $assetRepository;
     private RentalBookingRepository $bookingRepository;
-    private RentalBookingEventRepository $eventRepository;
+    private BookingAudit $bookingAudit;
     private RentalBookingCommentRepository $commentRepository;
     private RentalChangeRequestRepository $changeRequestRepository;
     private RentalBlockRepository $blockRepository;
@@ -72,7 +73,7 @@ class RentalOperationsServiceTest extends TestCase
 
         $this->assetRepository = new RentalAssetRepository($this->pdo, $this->encryption);
         $this->bookingRepository = new RentalBookingRepository($this->pdo, $this->encryption);
-        $this->eventRepository = new RentalBookingEventRepository($this->pdo);
+        $this->bookingAudit = RentalTestHelper::bookingAudit($this->pdo, $this->encryption);
         $this->commentRepository = new RentalBookingCommentRepository($this->pdo, $this->encryption);
         $this->changeRequestRepository = new RentalChangeRequestRepository($this->pdo, $this->encryption);
         $this->blockRepository = new RentalBlockRepository($this->pdo);
@@ -95,7 +96,7 @@ class RentalOperationsServiceTest extends TestCase
 
         $this->service = new RentalOperationsService(
             $this->bookingRepository,
-            $this->eventRepository,
+            $this->bookingAudit,
             $this->commentRepository,
             $this->changeRequestRepository,
             $availability,
@@ -248,12 +249,14 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $this->service->changeStatus($booking, BookingStatus::REVIEWING, 42, $this->now());
 
-        $history = $this->eventRepository->findForBooking($booking->id);
+        $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id);
         $this->assertCount(1, $history);
-        $this->assertSame(RentalBookingEventRepository::STATUS_CHANGED, $history[0]['event_type']);
-        $this->assertSame('Demande reçue', $history[0]['from_value']);
-        $this->assertSame("En cours d'examen", $history[0]['to_value']);
-        $this->assertSame(42, $history[0]['actor_member_id']);
+        $this->assertSame(BookingAudit::STATUS_CHANGED, $history[0]->fieldKey);
+        $this->assertSame('Demande reçue', $history[0]->fromValue);
+        $this->assertSame("En cours d'examen", $history[0]->toValue);
+        // A person moved it, even though this test wires no resolver to
+        // say which account they log in with.
+        $this->assertSame(AuditSource::Human, $history[0]->source);
     }
 
     public function testTheHistoryCarriesNoRenterIdentity(): void
@@ -262,7 +265,7 @@ class RentalOperationsServiceTest extends TestCase
         $this->service->changeStatus($booking, BookingStatus::REVIEWING, 1, $this->now());
         $this->service->addComment($this->reload($booking), 1, 'Le groupe a laissé la cuisine sale.');
 
-        $raw = (string) json_encode($this->pdo->query('SELECT * FROM rental_booking_events')->fetchAll(\PDO::FETCH_ASSOC));
+        $raw = (string) json_encode($this->pdo->query('SELECT * FROM entity_changes')->fetchAll(\PDO::FETCH_ASSOC));
 
         $this->assertStringNotContainsString('Jeanne Martin', $raw);
         $this->assertStringNotContainsString('@example.be', $raw);
@@ -467,13 +470,13 @@ class RentalOperationsServiceTest extends TestCase
     {
         $booking = $this->createBooking();
         $this->service->clearHold($booking, 1);
-        $this->assertSame([], $this->eventRepository->findForBooking($booking->id));
+        $this->assertSame([], RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id));
 
         $this->service->placeOption($booking, new \DateTimeImmutable('2027-03-01'), 1, $this->now());
         $this->service->clearHold($this->reload($booking), 1);
 
         $this->assertNull($this->reload($booking)->holdUntil);
-        $this->assertCount(2, $this->eventRepository->findForBooking($booking->id));
+        $this->assertCount(2, RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id));
     }
 
     // ── Price (§6.12) ───────────────────────────────────────────────────
@@ -551,9 +554,9 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $this->service->addPriceLine($booking, $this->asset(), 'Supplément', 1, 1000, 1);
 
-        $history = $this->eventRepository->findForBooking($booking->id);
-        $this->assertSame(RentalBookingEventRepository::PRICE_CHANGED, $history[0]['event_type']);
-        $this->assertStringContainsString('€', (string) $history[0]['to_value']);
+        $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id);
+        $this->assertSame(BookingAudit::PRICE_CHANGED, $history[0]->fieldKey);
+        $this->assertStringContainsString('€', (string) $history[0]->toValue);
     }
 
     // ── Internal comments (§6.6) ────────────────────────────────────────

@@ -22,7 +22,7 @@ use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
-use Modules\Rental\Repository\RentalBookingEventRepository;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalDocumentRepository;
 use Modules\Rental\Service\RentalAuthorizationService;
@@ -85,7 +85,7 @@ class RentalDocumentServiceTest extends TestCase
         $this->service = new RentalDocumentService(
             $this->documentRepository,
             $this->bookingRepository,
-            new RentalBookingEventRepository($this->pdo),
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
             $this->editableContentService,
             $this->fileRepository,
             new \Core\File\AttachedFileRemover($this->fileRepository, $this->storagePath),

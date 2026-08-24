@@ -39,7 +39,7 @@ use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBlockRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
-use Modules\Rental\Repository\RentalBookingEventRepository;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Repository\RentalConstraintsRepository;
@@ -127,7 +127,7 @@ class RentalManagementControllerTest extends TestCase
         $this->changeRequestRepository = new RentalChangeRequestRepository($this->pdo, $this->encryption);
         $this->commentRepository = new RentalBookingCommentRepository($this->pdo, $this->encryption);
         $this->blockRepository = new RentalBlockRepository($this->pdo);
-        $eventRepository = new RentalBookingEventRepository($this->pdo);
+        $bookingAudit = RentalTestHelper::bookingAudit($this->pdo, $this->encryption);
 
         $memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection);
 
@@ -143,7 +143,7 @@ class RentalManagementControllerTest extends TestCase
         );
         $this->stayService = new \Modules\Rental\Service\RentalStayService(
             new \Modules\Rental\Repository\RentalStayRepository($this->pdo, $this->encryption),
-            $eventRepository,
+            $bookingAudit,
             $this->pricingService,
             new \Modules\Rental\Stay\SettlementCalculator(),
             $journal
@@ -160,7 +160,7 @@ class RentalManagementControllerTest extends TestCase
         $receivableRepository = new ExpectedReceivableRepository($this->pdo, $this->encryption);
         $this->paymentService = new RentalPaymentService(
             new \Modules\Rental\Repository\RentalPaymentRepository($this->pdo, $this->encryption),
-            $eventRepository,
+            $bookingAudit,
             $journal,
             new ExpectedReceivableService(
                 $receivableRepository,
@@ -171,7 +171,7 @@ class RentalManagementControllerTest extends TestCase
 
         $this->operationsService = new RentalOperationsService(
             $this->bookingRepository,
-            $eventRepository,
+            $bookingAudit,
             $this->commentRepository,
             $this->changeRequestRepository,
             $availabilityService,
@@ -205,7 +205,7 @@ class RentalManagementControllerTest extends TestCase
         $this->documentService = new \Modules\Rental\Service\RentalDocumentService(
             new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
             $this->bookingRepository,
-            $eventRepository,
+            $bookingAudit,
             new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
             $this->fileRepository,
             new \Core\File\AttachedFileRemover($this->fileRepository, $this->storagePath),
@@ -222,7 +222,7 @@ class RentalManagementControllerTest extends TestCase
             $scoutYearService,
             $this->assetRepository,
             $this->bookingRepository,
-            $eventRepository,
+            new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($this->pdo, $this->encryption)),
             $this->commentRepository,
             $this->changeRequestRepository,
             $this->operationsService,
@@ -987,6 +987,13 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('Demande re', $body);
         $this->assertStringContainsString('Historique', $body);
         $this->assertStringContainsString('Location cl', $body);
+
+        // The shared Core\Audit timeline (§8.66), not a hand-rolled list:
+        // the status change is rendered under its French label, with the
+        // move it made, by the same partial Camps uses.
+        $this->assertStringContainsString('Statut', $body);
+        $this->assertStringContainsString('En cours d', $body);
+        $this->assertStringContainsString('audit-rental_booking-' . $booking->id, $body);
     }
 
     public function testTheBookingsListFiltersOnWhatNeedsAttention(): void

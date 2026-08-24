@@ -136,7 +136,7 @@ class RentalRequestControllerTest extends TestCase
         );
         $this->operationsService = new \Modules\Rental\Service\RentalOperationsService(
             $this->bookingRepository,
-            new \Modules\Rental\Repository\RentalBookingEventRepository($this->pdo),
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
             $this->commentRepository,
             $this->changeRequestRepository,
             $availabilityService,

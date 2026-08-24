@@ -85,6 +85,24 @@ class AuditService
     }
 
     /**
+     * Removes an entity's history entirely, and returns how many entries
+     * went.
+     *
+     * For a module that genuinely DELETES an entity — a purge under a
+     * retention rule — rather than archiving it. Nothing cascades into
+     * `entity_changes` (it carries no foreign key by design), so a purge
+     * that forgets this leaves a history of something that no longer
+     * exists, under an id the next insert will hand to somebody else.
+     *
+     * Not the same tool as `anonymiseValues()`: that one keeps the rows
+     * and blanks what they say, because the entity is still there.
+     */
+    public function forgetEntity(string $entityType, int $entityId): int
+    {
+        return $this->repository->deleteForEntity($entityType, $entityId);
+    }
+
+    /**
      * Blanks the recorded values for a set of entities and fields, and
      * returns how many rows changed.
      *

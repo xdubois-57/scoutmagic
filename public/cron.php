@@ -239,7 +239,13 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         $rentalPurgePaymentService = new \Modules\Rental\Service\RentalPaymentService(
             new \Modules\Rental\Repository\RentalPaymentRepository($pdo, $encryptionService),
-            new \Modules\Rental\Repository\RentalBookingEventRepository($pdo),
+            // No ActorAccountResolver: nothing on the cron path has an
+            // actor to resolve. Every change it records is the application
+            // acting on its own, which Core\Audit renders as an automatic
+            // entry — the honest reading and the one a manager needs.
+            new \Modules\Rental\Audit\BookingAudit(
+                new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService))
+            ),
             $journalService,
             new \Modules\Finance\Service\ExpectedReceivableService(
                 new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryptionService),
@@ -263,7 +269,12 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
                 new \Core\File\FileRepository($pdo),
                 null,
                 dirname(__DIR__) . '/storage',
-                $rentalPurgePaymentService
+                $rentalPurgePaymentService,
+                // Its change history too: `entity_changes` carries no
+                // foreign key, so nothing about it cascades (§8.66).
+                new \Modules\Rental\Audit\BookingAudit(
+                    new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService))
+                )
             )
         )
     );

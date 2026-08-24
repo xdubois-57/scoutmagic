@@ -480,29 +480,12 @@
         <div class="card">
             <div class="card-body">
                 <h2 class="h5 mb-2">Historique</h2>
-                {% if history is empty %}
-                    {% include 'partials/empty_state.html.twig' with {
-                        message: 'Aucun événement dans l\'historique.',
-                        compact: true,
-                    } only %}
-                {% else %}
-                    <ul class="list-unstyled mb-0 small">
-                        {% for entry in history %}
-                            <li class="mb-1">
-                                <span class="text-body-secondary">{{ entry.created_at|datetime_fr }}</span>
-                                — {{ entry.summary ?: entry.event_type }}
-                                {% if entry.from_value or entry.to_value %}
-                                    <span class="text-body-secondary">
-                                        ({{ entry.from_value ?: '—' }} → {{ entry.to_value ?: '—' }})
-                                    </span>
-                                {% endif %}
-                                {% if entry.author_name %}
-                                    <span class="text-body-secondary">par {{ entry.author_name }}</span>
-                                {% endif %}
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% endif %}
+                {% include 'partials/audit_timeline.html.twig' with {
+                    entity_type: 'rental_booking',
+                    entity_id: booking.id,
+                    audit_page: audit_page,
+                    labels: audit_labels,
+                } only %}
             </div>
         </div>
     </div>
