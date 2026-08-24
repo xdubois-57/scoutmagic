@@ -3178,6 +3178,42 @@ if (in_array('test_tools', $moduleManager->getEnabledModuleIds(), true)) {
     }
 }
 
+if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
+    $campsPlaceRepo = new \Modules\Camps\Repository\PlaceRepository($pdo);
+    $campsCampRepo = new \Modules\Camps\Repository\CampRepository($pdo, $encryptionService);
+    $campsSectionDescriber = new \Modules\Camps\Service\SectionDescriber($sectionService);
+    $campsPlaceService = new \Modules\Camps\Service\PlaceService($campsPlaceRepo, $auditService);
+    $campsCampService = new \Modules\Camps\Service\CampService($campsCampRepo, $auditService);
+
+    // Who may read a camp's or a place's change history (Core\Audit,
+    // ARCHITECTURE.md §8.65). Both routes carrying the timeline are
+    // role_min chief and every chief sees every camp of their own unit —
+    // there is no per-place visibility in this module — so the checker
+    // adds the one thing the role cannot answer: whether the entity
+    // exists at all. Without these two lines the timeline would simply
+    // not load, which is the intended direction of that failure.
+    $auditAccessResolver->register(
+        \Modules\Camps\Service\PlaceService::ENTITY_TYPE,
+        static fn(int $id): bool => $campsPlaceRepo->findById($id) !== null
+    );
+    $auditAccessResolver->register(
+        \Modules\Camps\Service\CampService::ENTITY_TYPE,
+        static fn(int $id): bool => $campsCampRepo->findById($id) !== null
+    );
+
+    $frontController->registerController(
+        \Modules\Camps\Controller\CampsChiefController::class,
+        new \Modules\Camps\Controller\CampsChiefController(
+            $twig, $campsPlaceRepo, $campsCampRepo, $campsPlaceService, $campsCampService,
+            $campsSectionDescriber, $sectionService, $editableContentService, $auditService, $settingService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Camps\Controller\CampsConfigController::class,
+        new \Modules\Camps\Controller\CampsConfigController($twig, $settingService)
+    );
+}
+
 if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
     $retroBoardRepo = new \Modules\Retro\Repository\BoardRepository($pdo, $encryptionService);
     $retroCommentRepo = new \Modules\Retro\Repository\CommentRepository($pdo);

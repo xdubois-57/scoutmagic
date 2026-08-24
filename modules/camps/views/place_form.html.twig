@@ -1,0 +1,46 @@
+{% extends 'base.html.twig' %}
+{% block title %}Modifier {{ place.name }} — {{ site_name }}{% endblock %}
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Modifier le lieu',
+        subtitle: place.name,
+    } only %}
+
+    <form method="post" action="/chefs/camps/lieux/{{ place.id }}" class="mb-5">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'place-name', field_name: 'place_name', label: 'Nom du lieu',
+            value: place.name, required: true, maxlength: 150,
+        } only %}
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'place-address', field_name: 'address', label: 'Adresse',
+            value: place.address, maxlength: 255,
+            help: 'Facultative : beaucoup de terrains sont un pré sans adresse utilisable.',
+        } only %}
+        <div class="row">
+            <div class="col-4">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'place-postal', field_name: 'postal_code', label: 'Code postal',
+                    value: place.postalCode, maxlength: 20,
+                } only %}
+            </div>
+            <div class="col-8">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'place-city', field_name: 'city', label: 'Ville',
+                    value: place.city, maxlength: 120,
+                } only %}
+            </div>
+        </div>
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'place-country', field_name: 'country', label: 'Pays',
+            value: place.country, maxlength: 80,
+        } only %}
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'place-website', field_name: 'website_url', label: 'Site web du lieu',
+            type: 'url', value: place.websiteUrl, placeholder: 'https://…', maxlength: 500,
+        } only %}
+
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </form>
+{% endblock %}

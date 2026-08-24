@@ -1,0 +1,170 @@
+{
+  "id": "camps",
+  "name": "Camps",
+  "description": "Les lieux de camp de l'unité et les séjours qu'elle y a faits — passés et à venir : dates, sections, prix, contacts sur place, avis des staffs précédents. Un staff qui cherche un terrain lit ce que les staffs d'avant en ont pensé, au lieu de repartir de zéro.",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/chefs/camps",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Camps",
+      "menu_icon": "bi-tent",
+      "menu_group": "activites",
+      "breadcrumb": {
+        "label": "Camps",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/nouveau",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "create",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Nouveau camp",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "store",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "showPlace",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Lieu",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}/modifier",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "editPlace",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifier le lieu",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "updatePlace",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "showCamp",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Séjour",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/modifier",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "editCamp",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifier le séjour",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "updateCamp",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/config/camps",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Camps",
+      "menu_icon": "bi-tent",
+      "menu_group": "modules",
+      "breadcrumb": {
+        "label": "Camps",
+        "parents": [
+          "Configuration"
+        ]
+      }
+    },
+    {
+      "path": "/config/camps",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsConfigController",
+      "action": "save",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    }
+  ],
+  "settings": [
+    {
+      "key": "camps_default_country",
+      "default_value": "Belgique",
+      "type": "text",
+      "label": "Pays par défaut d'un nouveau lieu",
+      "description": "Pré-rempli à la création d'un lieu de camp. La très grande majorité des terrains d'une unité sont dans un seul pays ; le champ reste modifiable lieu par lieu."
+    },
+    {
+      "key": "camps_past_stays_per_page",
+      "default_value": "20",
+      "type": "number",
+      "label": "Nombre de séjours passés affichés par lieu",
+      "description": "Sur la fiche d'un lieu, nombre de séjours passés affichés avant de devoir en demander davantage."
+    }
+  ]
+}

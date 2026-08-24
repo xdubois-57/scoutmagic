@@ -1,0 +1,74 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ place.name }} — {{ site_name }}{% endblock %}
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: place.name,
+        subtitle: place.locality(),
+        action_label: 'Nouveau camp ici',
+        action_url: '/chefs/camps/nouveau?lieu=' ~ place.id,
+    } only %}
+
+    <div class="d-flex flex-wrap gap-2 mb-4">
+        {% if place.address %}
+            <span class="badge text-bg-light border">
+                <i class="bi bi-geo-alt" aria-hidden="true"></i> {{ place.address }}
+            </span>
+        {% endif %}
+        {% if place.websiteUrl %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ place.websiteUrl }}"
+               target="_blank" rel="noopener noreferrer">
+                <i class="bi bi-link-45deg" aria-hidden="true"></i> Site du lieu
+            </a>
+        {% endif %}
+        <a class="btn btn-sm btn-outline-secondary" href="/chefs/camps/lieux/{{ place.id }}/modifier">
+            <i class="bi bi-pencil" aria-hidden="true"></i> Modifier le lieu
+        </a>
+    </div>
+
+    <h2 class="h6 text-uppercase text-body-secondary mb-2">Camps à venir</h2>
+    {% if upcoming is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun séjour prévu ici.', compact: true,
+        } only %}
+    {% else %}
+        <div class="row row-cols-1 row-cols-lg-2 g-3">
+            {% for entry in upcoming %}
+                <div class="col">{% include '@camps/_camp_card.html.twig' with { entry: entry } only %}</div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Camps passés · {{ past_total }}</h2>
+    {% if past_total > 0 or status_filter %}
+        {% include 'partials/chip_picker.html.twig' with {
+            picker_id: 'camps-past-status',
+            items: status_chips,
+            mode: 'single',
+            base_url: '/chefs/camps/lieux/' ~ place.id ~ '?statut=',
+            sheet_title: 'Filtrer par statut',
+            empty_text: 'Aucun statut.',
+        } %}
+    {% endif %}
+
+    <div class="row row-cols-1 row-cols-lg-2 g-3 mt-1">
+        {% for entry in past %}
+            <div class="col">{% include '@camps/_camp_card.html.twig' with { entry: entry } only %}</div>
+        {% else %}
+            <div class="col-12">
+                {% include 'partials/empty_state.html.twig' with {
+                    message: status_filter ? 'Rien dans cette catégorie.' : 'Aucun séjour passé enregistré ici.',
+                    compact: true,
+                } only %}
+            </div>
+        {% endfor %}
+    </div>
+
+    <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Historique</h2>
+    {% include 'partials/audit_timeline.html.twig' with {
+        entity_type: 'camp_place',
+        entity_id: place.id,
+        audit_page: audit_page,
+        labels: audit_labels,
+        collapsed: true,
+    } only %}
+{% endblock %}

@@ -1,0 +1,39 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# One stay, as it appears in every list: the main screen's "À venir" and
+   a place's own upcoming/past lists. `place` is optional — a place's own
+   sheet already says where it is. #}
+<a href="/chefs/camps/sejours/{{ entry.camp.id }}"
+   class="card text-decoration-none text-body h-100">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+            <div class="min-w-0">
+                <div class="fw-semibold">{{ entry.label }}</div>
+                {% if place is defined and place %}
+                    <div>{{ place.name }}</div>
+                    {% if place.locality() %}
+                        <div class="small text-body-secondary">{{ place.locality() }}</div>
+                    {% endif %}
+                {% else %}
+                    <div class="small text-body-secondary">{{ entry.stay_type_label }}</div>
+                {% endif %}
+            </div>
+            {% include 'partials/status_badge.html.twig' with {
+                status: entry.status_tone, label: entry.status_label
+            } only %}
+        </div>
+
+        {% if entry.sections is not empty %}
+            <div class="d-flex flex-wrap gap-1 mt-2">
+                {% for section in entry.sections %}
+                    {% include '@camps/_section_badge.html.twig' with { section: section } only %}
+                {% endfor %}
+                {% if place is defined and place %}
+                    <span class="small text-body-secondary">· {{ entry.stay_type_label }}</span>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</a>

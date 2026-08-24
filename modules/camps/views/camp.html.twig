@@ -1,0 +1,65 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ camp.stay_type_label }} — {{ camp.label }} — {{ site_name }}{% endblock %}
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: camp.stay_type_label ~ ' — ' ~ camp.label,
+        subtitle: place.name ~ (place.locality() ? ' · ' ~ place.locality() : ''),
+        action_label: 'Modifier',
+        action_url: '/chefs/camps/sejours/' ~ camp.camp.id ~ '/modifier',
+        action_icon: 'bi-pencil',
+    } only %}
+
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
+        {% include 'partials/status_badge.html.twig' with {
+            status: camp.status_tone, label: camp.status_label
+        } only %}
+        <a class="small" href="/chefs/camps/lieux/{{ place.id }}">
+            <i class="bi bi-geo-alt" aria-hidden="true"></i> {{ place.name }}
+        </a>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="small text-uppercase text-body-secondary">Prix</div>
+            <div>{{ camp.price ?? '—' }}</div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="small text-uppercase text-body-secondary">Participants</div>
+            <div>{{ camp.camp.participantCount ?? '—' }}</div>
+        </div>
+        <div class="col-12 col-lg-6">
+            <div class="small text-uppercase text-body-secondary">Réservation faite par</div>
+            <div>{{ camp.camp.bookedByName ?? '—' }}</div>
+        </div>
+        <div class="col-12">
+            <div class="small text-uppercase text-body-secondary mb-1">Sections</div>
+            {% if camp.sections is empty %}
+                <span class="text-body-secondary">Pas encore connues</span>
+            {% else %}
+                <div class="d-flex flex-wrap gap-1">
+                    {% for section in camp.sections %}
+                        {% include '@camps/_section_badge.html.twig' with { section: section } only %}
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <h2 class="h6 text-uppercase text-body-secondary mb-2">Note</h2>
+    {% if note %}
+        <div class="card mb-4"><div class="card-body">{{ note|raw }}</div></div>
+    {% else %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Rien de noté sur ce séjour.', compact: true,
+        } only %}
+    {% endif %}
+
+    <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Historique</h2>
+    {% include 'partials/audit_timeline.html.twig' with {
+        entity_type: 'camp_camp',
+        entity_id: camp.camp.id,
+        audit_page: audit_page,
+        labels: audit_labels,
+        collapsed: true,
+    } only %}
+{% endblock %}

@@ -1706,6 +1706,32 @@ A reusable timeline rendered on an entity's own page: what changed, from what to
 
 **Anonymisation.** `AuditService::anonymiseValues($entityType, $entityIds, $fieldKeys)` replaces the three value columns with a fixed marker on matching rows and returns the count. It lives in core rather than in whichever module needed it first, because a history that keeps a name after that person asked to be erased is the same failure whatever module recorded it. The marker is **re-encrypted, not written in clear** — a column holding both ciphertext and plaintext is how a decrypt-everything reader starts throwing on real data. The rows themselves stay: that a field changed, when, and by whom is not the personal data; the old and new values were.
 
+### 8.66 Camp sites and stays (`modules/camps`)
+
+Where the unit has camped, and every stay it made there. The product answers one question a staff asks every winter — "où est-on déjà allés, et est-ce que c'était bien ?" — which the site could not answer at all: that knowledge lived in the outgoing staff's head and left with them.
+
+**Two entities.** `camp_places` is a plot of land; `camp_camps` is one stay at one. Neither is ever deleted. A stay that did not happen is `cancelled`, which is itself the information a future staff needs (a place that cancels on its guests six weeks before departure is exactly what nobody remembers to write down); a place that is out of favour is archived, which hides it from every normal screen and from search while keeping its stays' history.
+
+**Every column of `camp_places` is in clear, deliberately** — a place is a plot of land, not a natural person, its name and address are what the search runs on, and encrypting them would make the module's main screen impossible to build. The people attached to a place are `camp_contacts` (§ IT-03), and every one of their fields is a BLOB. On `camp_camps` only `booked_by_name` is encrypted: the member id covers whoever is still in the member history, and the name is the fallback for whoever is not — which for a camp booked eight years ago is the normal case.
+
+**No `scout_year_id`.** Real dates are the truth, and a camp from 2014 predates every scout year row an installation has. The scout year is resolved on demand from the end date, only where genuinely needed (§8.67's review notification).
+
+**Dates OR a bare year, never both, never neither.** Half of what a unit remembers about its own past is "on est allés là en 2012", and refusing that would mean refusing the memory. The rule is enforced in `Service\CampService::validate()` rather than by a CHECK constraint, because `Core\Database\SchemaComparator` does not diff CHECK constraints — one declared in `schema.sql` would exist on a fresh install and be absent on every upgraded one, and a rule that holds on half the installations is worse than a rule enforced in one readable place.
+
+**Upcoming is computed, never stored** — no status column for it, no manual move, no scheduled task. Upcoming = not cancelled AND (end date not yet past, OR a bare year ≥ the current calendar year), so a year-only camp stays upcoming for the whole of its year and becomes past on 1 January. The rule is written twice — `Repository\Camp::isUpcoming()` for a list already in memory, `CampRepository::UPCOMING_SQL` for the database — and `Tests\Modules\Camps\Repository\UpcomingDefinitionTest` asserts every interesting case against BOTH. Without it the two drift and a camp appears in the main screen's "À venir" while its own place calls it past, on one day of the year, for one shape of camp.
+
+**One vocabulary.** `Service\CampLabels` holds every status label, stay-type label, date-range format and money format the module uses. It exists because two readers must agree: the camp's page and the change history under it. `Core\Audit` (§8.65) stores what it is given and shows exactly that, so a status recorded as "Confirmé" by a service spelling it its own way, next to a badge the template spelled another way, would read as two different states of the same camp. `cancelled` maps to the site's grey `cancelled` tone, not to danger — one severity, one colour, site-wide.
+
+**Section colours come from `SectionService::colorForSection()` and nowhere else** (`Service\SectionDescriber`). A unit renames its sections and an administrator can override a colour by hand, so a module mapping "Louveteaux" to a hardcoded green would be wrong on exactly the installations that configured one, and blank for a section named "La Meute". A section id that no longer resolves is dropped rather than rendered as a placeholder: `camp_camp_sections` keeps no free-text fallback on purpose, and "we no longer know" is the honest reading.
+
+**Search covers the clear columns only** — name, address, postal code, city — and the placeholder promises exactly that. Reaching the booking person or the contacts would mean decrypting every camp and every contact of the installation on every keystroke, for a match nothing can index.
+
+**Creation is one form.** Picking an existing place or describing a new one happens in the same screen as the stay, because a chief learns both at once; two screens would force them to think of the place first, which is the opposite order.
+
+**The note is editable content, not a column** (`editable_contents`, key `camp_note_{id}`) — one rich-text mechanism on this site, not two. It is written through the module's own form with `partials/rich_text_form_field.html.twig` and never through `/api/rich-text-content`, which is superadmin-only and would refuse every chief who ever wrote a note. Its history records THAT it changed, never its two versions: a timeline is not a diff viewer, and two paragraphs per edit would bury every other change.
+
+**Breadcrumbs, not a back button.** design.md §7.3 makes the breadcrumb this site's only back affordance, so the ancestor chain (Camps → the place → the stay) is a controller-provided `breadcrumb_trail` of real links; `module.json`'s `parents` carries only the menu label, which is all a static manifest can honestly know.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
