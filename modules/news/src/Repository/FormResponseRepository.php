@@ -100,8 +100,14 @@ class FormResponseRepository
         );
         $stmt->execute([
             $formId, $userAccountId, $memberYearId,
-            $this->encryption->encrypt(strtolower(trim($contactEmail)), 'news_form_responses.contact_email'),
-            $this->encryption->blindIndex(strtolower(trim($contactEmail)), 'news_contact_email'),
+            $this->encryption->encrypt(
+                EncryptionService::normalizeEmailForIndex($contactEmail),
+                'news_form_responses.contact_email'
+            ),
+            $this->encryption->blindIndex(
+                EncryptionService::normalizeEmailForIndex($contactEmail),
+                'news_contact_email'
+            ),
             $structuredCommunication, $receivableId, date('Y-m-d H:i:s'),
         ]);
         $responseId = (int) $this->pdo->lastInsertId();
@@ -122,8 +128,14 @@ class FormResponseRepository
             'UPDATE news_form_responses SET contact_email = ?, contact_email_blind_index = ?, updated_at = ? WHERE id = ?'
         );
         $stmt->execute([
-            $this->encryption->encrypt(strtolower(trim($contactEmail)), 'news_form_responses.contact_email'),
-            $this->encryption->blindIndex(strtolower(trim($contactEmail)), 'news_contact_email'),
+            $this->encryption->encrypt(
+                EncryptionService::normalizeEmailForIndex($contactEmail),
+                'news_form_responses.contact_email'
+            ),
+            $this->encryption->blindIndex(
+                EncryptionService::normalizeEmailForIndex($contactEmail),
+                'news_contact_email'
+            ),
             date('Y-m-d H:i:s'),
             $responseId,
         ]);

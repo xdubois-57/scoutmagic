@@ -112,6 +112,33 @@ class EncryptionService
     }
 
     /**
+     * The one form an email address takes before it is stored, encrypted
+     * or blind-indexed: trimmed, lowercased.
+     *
+     * A blind index is an exact-match index and nothing else — there is no
+     * `LIKE`, no case-insensitive collation, no second chance. Two call
+     * sites normalising "the same way" by hand is therefore two call sites
+     * one edit away from indexing the same person twice: `Jean@Ex.be`
+     * hashes to something entirely unrelated to `jean@ex.be`, and the
+     * lookup that misses simply reports "not found" rather than failing.
+     *
+     * `mb_strtolower` rather than `strtolower`, because a local part can
+     * carry non-ASCII (SMTPUTF8) and the byte-wise version would leave it
+     * alone in one place and not in another. The domain half is
+     * case-insensitive by RFC 1035; the local part is not, in theory —
+     * lowercasing it is the pragmatic choice every mail provider in
+     * practice makes, and the one this site has always made.
+     *
+     * Static: normalising an address needs no key, and a caller holding
+     * only a plain address must not have to obtain an EncryptionService to
+     * spell it the same way as everybody else.
+     */
+    public static function normalizeEmailForIndex(?string $email): string
+    {
+        return $email === null ? '' : mb_strtolower(trim($email), 'UTF-8');
+    }
+
+    /**
      * Compute a blind index (HMAC-SHA256) for exact-match searching
      * on encrypted fields (e.g. email lookup).
      * Returns hex string (64 chars) suitable for a CHAR(64) column.

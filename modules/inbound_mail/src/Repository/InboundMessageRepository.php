@@ -74,7 +74,7 @@ class InboundMessageRepository
             $linkOrigin->value,
             $this->messageIdIndex($messageId),
             $inReplyTo !== null ? $this->messageIdIndex($inReplyTo) : null,
-            $this->encryption->blindIndex(strtolower(trim($fromEmail)), 'email'),
+            $this->encryption->blindIndex(EncryptionService::normalizeEmailForIndex($fromEmail), 'email'),
             $this->encryption->encrypt($subject, 'inbound_messages.subject'),
             $this->encryption->encrypt($fromEmail, 'inbound_messages.from_email'),
             $fromName !== null ? $this->encryption->encrypt($fromName, 'inbound_messages.from_name') : null,

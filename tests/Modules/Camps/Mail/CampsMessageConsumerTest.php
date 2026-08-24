@@ -222,12 +222,13 @@ class CampsMessageConsumerTest extends TestCase
     {
         return new \Modules\Camps\Service\DocumentService(
             new \Modules\Camps\Repository\DocumentRepository($this->pdo),
-            new \Core\File\FileRepository($this->pdo),
+            new \Core\File\AttachedFileRemover(
+                new \Core\File\FileRepository($this->pdo), sys_get_temp_dir()
+            ),
             new \Core\File\UploadHandler(new \Core\File\FileRepository($this->pdo), sys_get_temp_dir()),
             new \Core\Audit\AuditService(
                 new \Core\Audit\AuditRepository($this->pdo, $this->encryption)
-            ),
-            sys_get_temp_dir()
+            )
         );
     }
 

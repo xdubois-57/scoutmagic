@@ -186,11 +186,9 @@ class ContactRepository
 
     private function blindIndex(?string $email): ?string
     {
-        $email = $email !== null ? mb_strtolower(trim($email)) : null;
+        $email = EncryptionService::normalizeEmailForIndex($email);
 
-        return $email !== null && $email !== ''
-            ? $this->encryption->blindIndex($email, 'camp_contacts.email')
-            : null;
+        return $email !== '' ? $this->encryption->blindIndex($email, 'camp_contacts.email') : null;
     }
 
     private function encryptNullable(?string $value): ?string

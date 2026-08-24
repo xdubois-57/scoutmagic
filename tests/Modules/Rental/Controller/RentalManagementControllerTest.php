@@ -208,6 +208,7 @@ class RentalManagementControllerTest extends TestCase
             $eventRepository,
             new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
             $this->fileRepository,
+            new \Core\File\AttachedFileRemover($this->fileRepository, $this->storagePath),
             new \Core\Pdf\DocumentPdfService(),
             new \Core\Security\HtmlSanitizer(),
             $settingService,

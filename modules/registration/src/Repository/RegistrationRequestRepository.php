@@ -513,7 +513,7 @@ class RegistrationRequestRepository
 
     public static function normalizeEmail(string $email): string
     {
-        return mb_strtolower(trim($email));
+        return EncryptionService::normalizeEmailForIndex($email);
     }
 
     /**

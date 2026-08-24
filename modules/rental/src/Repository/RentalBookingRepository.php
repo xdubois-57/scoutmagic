@@ -66,7 +66,7 @@ class RentalBookingRepository
      */
     public static function normalizeEmail(string $email): string
     {
-        return strtolower(trim($email));
+        return EncryptionService::normalizeEmailForIndex($email);
     }
 
     /**
