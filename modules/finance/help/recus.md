@@ -5,7 +5,7 @@ summary: Déposer des reçus, les associer aux mouvements, avec l'aide de l'IA.
 category: Espace animateurs
 role_min: intendant
 paths: /finance/receipts, /finance/receipts/new
-related: finances, importer-extraits
+related: finances, importer-extraits, badges
 ---
 
 Chaque dépense mérite son justificatif : un ticket photographié, une
@@ -17,8 +17,12 @@ mouvements bancaires.
 « Ajouter un reçu » accepte jusqu'à dix fichiers à la fois — PDF, JPEG
 ou PNG — par glisser-déposer ou depuis l'appareil photo du téléphone.
 Une photo volumineuse est réduite automatiquement avant l'envoi. Les
-fichiers sont conservés chiffrés, et seuls les rôles autorisés sur le
-compte concerné peuvent les ouvrir.
+fichiers sont conservés chiffrés, et un reçu ne s'ouvre que par les
+personnes qui ont accès au compte concerné — même en collant son lien
+direct dans le navigateur. Le justificatif suit exactement la règle du
+compte, y compris le trésorier de section (voir « Qui voit quels
+comptes » dans l'aide des finances) : un compte que vous ne voyez plus
+à l'écran ne vous livre pas non plus ses reçus.
 
 Si le connecteur IA du site est actif, chaque reçu déposé est lu
 automatiquement : montant, date et commerçant sont suggérés (badge

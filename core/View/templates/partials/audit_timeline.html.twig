@@ -60,11 +60,47 @@
         {% endif %}
 
         <div class="{{ _collapsed ? 'collapse' : '' }}" id="{{ _id }}">
+            {# Each entry is rendered directly here rather than through a
+               separate {% include %}'d partial, so the <li> always sits in
+               the same file as the <ol> that wraps it — a standalone
+               partial file has no way to show a static HTML checker that
+               its own <li> is never rendered outside of one. #}
+            {% set _source_labels = {
+                'human': 'Modifié dans le site',
+                'email': 'Détecté dans un message reçu',
+                'ai': 'Proposé automatiquement',
+                'system': 'Modification automatique',
+            } %}
             <ol class="list-unstyled border-start ps-3 mb-0 audit-timeline-list">
                 {% for entry in audit_page.entries %}
-                    {% include 'partials/audit_timeline_entry.html.twig' with {
-                        entry: entry, labels: _labels
-                    } only %}
+                    {% set _automatic = entry.isAutomatic() %}
+                    <li class="mb-3 position-relative audit-entry" data-source="{{ entry.source.value }}">
+                        <span class="audit-entry-marker position-absolute translate-middle-x rounded-circle {{ _automatic ? 'bg-warning' : 'bg-primary' }}"
+                              aria-hidden="true"></span>
+
+                        <div class="small text-body-secondary d-flex align-items-center gap-1 flex-wrap">
+                            <i class="bi {{ _automatic ? 'bi-robot' : 'bi-person' }}" aria-hidden="true"></i>
+                            <span>{{ entry.actorName ?: _source_labels[entry.source.value]|default('Modification automatique') }}</span>
+                            <span aria-hidden="true">·</span>
+                            <span>{{ entry.createdAt|datetime_fr }}</span>
+                        </div>
+
+                        <div class="mt-1">
+                            <span class="fw-medium">{{ _labels[entry.fieldKey]|default(entry.fieldKey) }}</span>
+                            {% if entry.fromValue is not null %}
+                                <span class="text-body-secondary" aria-hidden="true">·</span>
+                                <span class="text-body-secondary text-decoration-line-through">{{ entry.fromValue }}</span>
+                            {% endif %}
+                            {% if entry.toValue is not null %}
+                                <i class="bi bi-arrow-right mx-1 small" aria-hidden="true"></i>
+                                <span>{{ entry.toValue }}</span>
+                            {% endif %}
+                        </div>
+
+                        {% if entry.summary %}
+                            <div class="small text-body-secondary">{{ entry.summary }}</div>
+                        {% endif %}
+                    </li>
                 {% endfor %}
             </ol>
 

@@ -23,8 +23,13 @@
     var fullLink = /** @type {HTMLAnchorElement|null} */ (panel.querySelector('[data-help-open-full]'));
     var topics = panel.querySelectorAll('[data-help-topic]');
 
-    /** @param {string} topicId */
-    function showTopic(topicId) {
+    /**
+     * @param {string} topicId
+     * @param {string} fullHref Server-rendered `/aide/<id>` URL (data-help-open-href)
+     *   — copied verbatim rather than rebuilt from topicId, so no DOM text
+     *   is ever reinterpreted as a URL here.
+     */
+    function showTopic(topicId, fullHref) {
         topics.forEach(function (article) {
             article.classList.toggle('d-none', article.getAttribute('data-help-topic') !== topicId);
         });
@@ -32,7 +37,7 @@
             list.classList.add('d-none');
         }
         if (fullLink) {
-            fullLink.href = '/aide/' + topicId;
+            fullLink.href = fullHref;
             fullLink.classList.remove('invisible');
         }
         // The list view may have been scrolled — a freshly opened topic
@@ -66,7 +71,7 @@
 
         var opener = e.target.closest('[data-help-open]');
         if (opener) {
-            showTopic(opener.getAttribute('data-help-open') || '');
+            showTopic(opener.getAttribute('data-help-open') || '', opener.getAttribute('data-help-open-href') || '/aide');
             return;
         }
 

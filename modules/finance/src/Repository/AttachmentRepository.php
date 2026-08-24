@@ -127,6 +127,56 @@ class AttachmentRepository
     }
 
     /**
+     * Stamps `files.owner_type`/`owner_id` on every receipt file that has
+     * no owner yet, so a receipt uploaded before
+     * File\FinanceAccountOwnershipChecker existed follows the same rule as
+     * one uploaded after it. Without this the iteration would close the
+     * hole only for new receipts and leave every existing one reachable by
+     * a direct /files/{id} — which is the whole hole.
+     *
+     * **Set-based on purpose**, unlike the per-file loop
+     * Controller\ConfigAccountController::syncReceiptFilesRoleMin() uses:
+     * that one walks one account's receipts on an admin action, this one
+     * walks every receipt the installation has ever stored, exactly once,
+     * during somebody's page load. Thousands of round trips there would be
+     * a timeout, not a backfill.
+     *
+     * Two statements because they say two different things. The first
+     * gives a receipt its account. The second covers a receipt whose
+     * `account_id` is already NULL — legacy or imported rows that
+     * ReceiptService::upload() cannot produce: they are owned by no
+     * account, `owner_id` 0 resolves to no account, and the checker
+     * therefore denies them. Same fail-safe posture
+     * ReceiptController::requireVisibleAttachment() already takes when
+     * asked to MUTATE such a row; a file is if anything the more sensitive
+     * of the two, so "unknown owner" must not keep reading as "anyone
+     * above the floor may read it".
+     *
+     * Never touches a file that already carries an owner: re-running is a
+     * no-op, and a file owned by something else is none of this module's
+     * business.
+     */
+    public function backfillFileOwnership(string $ownerType): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE files
+                SET owner_type = ?,
+                    owner_id = (SELECT fa.account_id FROM finance_attachments fa WHERE fa.file_id = files.id LIMIT 1)
+              WHERE owner_type IS NULL
+                AND id IN (SELECT file_id FROM finance_attachments WHERE account_id IS NOT NULL)'
+        );
+        $stmt->execute([$ownerType]);
+
+        $stmt = $this->pdo->prepare(
+            'UPDATE files
+                SET owner_type = ?, owner_id = 0
+              WHERE owner_type IS NULL
+                AND id IN (SELECT file_id FROM finance_attachments WHERE account_id IS NULL)'
+        );
+        $stmt->execute([$ownerType]);
+    }
+
+    /**
      * Every file_id (active or archived) belonging to an account — used
      * by Controller\ConfigAccountController to keep a receipt's
      * underlying file's role_min in sync whenever the account's own

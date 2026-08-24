@@ -2,8 +2,9 @@
 // REAL public/assets/js/audit-timeline.js.
 //
 // Its reason to exist beyond "the button works": that file builds the same
-// <li> as core/View/templates/partials/audit_timeline_entry.html.twig, and
-// nothing but a test notices when the two drift. The structural assertions
+// <li> as the entry loop in
+// core/View/templates/partials/audit_timeline.html.twig, and nothing but a
+// test notices when the two drift. The structural assertions
 // below (marker classes, the person/robot icon, the struck-through previous
 // value) are that contract written down.
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
