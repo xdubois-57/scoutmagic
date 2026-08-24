@@ -130,24 +130,33 @@
                     {{ csrf_field()|raw }}
                     <input type="hidden" name="asset_id" value="{{ asset.id }}">
                     <div class="col-6 col-md-3">
-                        <label class="form-label" for="block-start">Du</label>
-                        <input type="date" class="form-control form-control-sm" id="block-start" name="start" required>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'block-start', field_name: 'start', type: 'date',
+                            label: 'Du', required: true, size: 'sm', wrapper_class: 'mb-0',
+                        } only %}
                     </div>
                     <div class="col-6 col-md-3">
-                        <label class="form-label" for="block-end">Au</label>
-                        <input type="date" class="form-control form-control-sm" id="block-end" name="end" required>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'block-end', field_name: 'end', type: 'date',
+                            label: 'Au', required: true, size: 'sm', wrapper_class: 'mb-0',
+                        } only %}
                     </div>
                     {% if asset.quantity > 1 %}
                         <div class="col-6 col-md-2">
-                            <label class="form-label" for="block-units">Quantité</label>
-                            <input type="number" inputmode="numeric" min="1" max="{{ asset.quantity }}" value="1"
-                                   class="form-control form-control-sm" id="block-units" name="units">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'block-units', field_name: 'units', type: 'number',
+                                label: 'Quantité', inputmode: 'numeric',
+                                min: 1, max: asset.quantity, value: 1,
+                                size: 'sm', wrapper_class: 'mb-0',
+                            } only %}
                         </div>
                     {% endif %}
                     <div class="col-12 col-md-{{ asset.quantity > 1 ? 2 : 4 }}">
-                        <label class="form-label" for="block-reason">Motif</label>
-                        <input type="text" class="form-control form-control-sm" id="block-reason" name="reason"
-                               placeholder="Chantier toiture">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'block-reason', field_name: 'reason',
+                            label: 'Motif', placeholder: 'Chantier toiture',
+                            size: 'sm', wrapper_class: 'mb-0',
+                        } only %}
                     </div>
                     <div class="col-12 col-md-2">
                         <button type="submit" class="btn btn-sm btn-primary w-100">Réserver</button>

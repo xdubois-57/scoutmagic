@@ -99,29 +99,51 @@
                                         <input type="hidden" name="item_id" value="{{ item.id }}">
 
                                         <div class="col-12 col-md-3">
-                                            <label class="form-label" for="label-{{ item.id }}">Intitulé</label>
-                                            <input type="text" class="form-control form-control-sm"
-                                                   id="label-{{ item.id }}" name="label"
-                                                   value="{{ item.label }}" maxlength="200" required>
+                                            {% include 'partials/form_field.html.twig' with {
+                                                field_id: 'label-' ~ item.id,
+                                                field_name: 'label',
+                                                label: 'Intitulé de « ' ~ item.label ~ ' »',
+                                                label_visually_hidden: true,
+                                                value: item.label,
+                                                maxlength: 200,
+                                                required: true,
+                                                size: 'sm',
+                                                wrapper_class: 'mb-0',
+                                            } only %}
                                         </div>
                                         <div class="col-6 col-md-2">
-                                            <label class="form-label" for="expires-{{ item.id }}">Échéance</label>
-                                            <input type="date" class="form-control form-control-sm"
-                                                   id="expires-{{ item.id }}" name="expires_on"
-                                                   value="{{ item.expiresOn }}">
+                                            {% include 'partials/form_field.html.twig' with {
+                                                field_id: 'expires-' ~ item.id,
+                                                field_name: 'expires_on',
+                                                label: 'Échéance de « ' ~ item.label ~ ' »',
+                                                label_visually_hidden: true,
+                                                type: 'date',
+                                                value: item.expiresOn,
+                                                size: 'sm',
+                                                wrapper_class: 'mb-0',
+                                            } only %}
                                         </div>
                                         <div class="col-12 col-md-3">
-                                            <label class="form-label" for="remark-{{ item.id }}">Remarque</label>
-                                            <input type="text" class="form-control form-control-sm"
-                                                   id="remark-{{ item.id }}" name="remark"
-                                                   value="{{ item.remark }}">
+                                            {% include 'partials/form_field.html.twig' with {
+                                                field_id: 'remark-' ~ item.id,
+                                                field_name: 'remark',
+                                                label: 'Remarque sur « ' ~ item.label ~ ' »',
+                                                label_visually_hidden: true,
+                                                value: item.remark,
+                                                size: 'sm',
+                                                wrapper_class: 'mb-0',
+                                            } only %}
                                         </div>
                                         <div class="col-12 col-md-3">
-                                            <label class="form-label" for="doc-{{ item.id }}">
-                                                Remplacer le document
-                                            </label>
-                                            <input type="file" class="form-control form-control-sm"
-                                                   id="doc-{{ item.id }}" name="document">
+                                            {% include 'partials/form_field.html.twig' with {
+                                                field_id: 'doc-' ~ item.id,
+                                                field_name: 'document',
+                                                label: 'Remplacer le document de « ' ~ item.label ~ ' »',
+                                                label_visually_hidden: true,
+                                                type: 'file',
+                                                size: 'sm',
+                                                wrapper_class: 'mb-0',
+                                            } only %}
                                         </div>
                                         <div class="col-12 col-md-1">
                                             <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
@@ -157,9 +179,11 @@
             <input type="hidden" name="asset_id" value="{{ asset.id }}">
 
             <div class="col-12 col-md-4">
-                <label class="form-label" for="new-label">Intitulé</label>
-                <input type="text" class="form-control" id="new-label" name="label"
-                       list="compliance-suggestions" maxlength="200" required>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'new-label', field_name: 'label',
+                    label: 'Intitulé', list: 'compliance-suggestions',
+                    maxlength: 200, required: true, wrapper_class: 'mb-0',
+                } only %}
                 <datalist id="compliance-suggestions">
                     {% for suggestion in label_suggestions %}
                         <option value="{{ suggestion }}"></option>
@@ -170,23 +194,23 @@
             <div class="col-6 col-md-2">
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'new-expires', field_name: 'expires_on', type: 'date',
-                    label: 'Échéance', help: 'Facultative.',
+                    label: 'Échéance', help: 'Facultative.', wrapper_class: 'mb-0',
                 } only %}
             </div>
 
             <div class="col-12 col-md-3">
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'new-remark', field_name: 'remark',
-                    label: 'Remarque',
+                    label: 'Remarque', wrapper_class: 'mb-0',
                 } only %}
             </div>
 
             <div class="col-12 col-md-3">
-                <label class="form-label" for="new-document">Document</label>
-                <input type="file" class="form-control" id="new-document" name="document">
-                <div class="form-text">
-                    Facultatif : une échéance notée sans scan vaut déjà mieux que rien.
-                </div>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'new-document', field_name: 'document', type: 'file',
+                    label: 'Document', wrapper_class: 'mb-0',
+                    help: 'Facultatif : une échéance notée sans scan vaut déjà mieux que rien.',
+                } only %}
             </div>
 
             <div class="col-12">

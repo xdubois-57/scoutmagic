@@ -199,29 +199,62 @@
                               class="row g-2 align-items-end">
                             {{ csrf_field()|raw }}
                             <div class="col-12 col-md-4">
-                                <label class="form-label" for="change-kind">Votre demande</label>
-                                <select class="form-select form-select-sm" id="change-kind" name="kind">
-                                    <option value="dates">Changer les dates</option>
-                                    <option value="persons">Changer le nombre de participants</option>
-                                    <option value="cancellation">Annuler ma demande</option>
-                                </select>
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'change-kind',
+                                    field_name: 'kind',
+                                    label: 'Votre demande',
+                                    type: 'select',
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                    options: [
+                                        { value: 'dates', label: 'Changer les dates' },
+                                        { value: 'persons', label: 'Changer le nombre de participants' },
+                                        { value: 'cancellation', label: 'Annuler ma demande' },
+                                    ],
+                                } only %}
                             </div>
                             <div class="col-6 col-md-2">
-                                <label class="form-label" for="change-arrival">Du</label>
-                                <input type="date" class="form-control form-control-sm" id="change-arrival" name="arrival">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'change-arrival',
+                                    field_name: 'arrival',
+                                    label: 'Du',
+                                    type: 'date',
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
                             </div>
                             <div class="col-6 col-md-2">
-                                <label class="form-label" for="change-departure">Au</label>
-                                <input type="date" class="form-control form-control-sm" id="change-departure" name="departure">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'change-departure',
+                                    field_name: 'departure',
+                                    label: 'Au',
+                                    type: 'date',
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
                             </div>
                             <div class="col-6 col-md-2">
-                                <label class="form-label" for="change-persons">Participants</label>
-                                <input type="number" inputmode="numeric" min="1" class="form-control form-control-sm"
-                                       id="change-persons" name="persons">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'change-persons',
+                                    field_name: 'persons',
+                                    label: 'Participants',
+                                    type: 'number',
+                                    inputmode: 'numeric',
+                                    min: 1,
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
                             </div>
                             <div class="col-12">
-                                <label class="form-label" for="change-message">Message</label>
-                                <textarea class="form-control form-control-sm" id="change-message" name="message" rows="2"></textarea>
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'change-message',
+                                    field_name: 'message',
+                                    label: 'Message',
+                                    type: 'textarea',
+                                    rows: 2,
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
                             </div>
                             <div class="col-12">
                                 <button type="submit" class="btn btn-sm btn-outline-secondary">Envoyer ma demande</button>

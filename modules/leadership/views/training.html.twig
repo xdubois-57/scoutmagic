@@ -159,15 +159,21 @@
                                           class="d-flex flex-wrap gap-2 align-items-center">
                                         {{ csrf_field()|raw }}
                                         <input type="hidden" name="raw_value" value="{{ level.raw_value }}">
-                                        <label class="visually-hidden" for="step-new-{{ loop.index }}">
-                                            Étape pour « {{ level.raw_value }} »
-                                        </label>
-                                        <select class="form-select form-select-sm w-auto" name="step" id="step-new-{{ loop.index }}">
-                                            <option value="">Choisir une étape…</option>
-                                            {% for step in assignable_steps %}
-                                                <option value="{{ step.value }}">{{ step.label }}</option>
-                                            {% endfor %}
-                                        </select>
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'step-new-' ~ loop.index,
+                                            field_name: 'step',
+                                            label: 'Étape pour « ' ~ level.raw_value ~ ' »',
+                                            label_visually_hidden: true,
+                                            type: 'select',
+                                            size: 'sm',
+                                            control_class_extra: 'w-auto',
+                                            wrapper_class: 'mb-0',
+                                            options: [{ value: '', label: 'Choisir une étape…' }]|merge(
+                                                assignable_steps|default([])|map(step => {
+                                                    value: step.value, label: step.label,
+                                                })
+                                            ),
+                                        } only %}
                                         <button type="submit" class="btn btn-sm btn-outline-secondary">Rattacher</button>
                                     </form>
                                 </li>
@@ -199,14 +205,21 @@
                                               class="d-flex flex-wrap gap-2 align-items-center">
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="raw_value" value="{{ level.raw_value }}">
-                                            <label class="visually-hidden" for="step-set-{{ loop.index }}">
-                                                Étape pour « {{ level.raw_value }} »
-                                            </label>
-                                            <select class="form-select form-select-sm w-auto" name="step" id="step-set-{{ loop.index }}">
-                                                {% for step in assignable_steps %}
-                                                    <option value="{{ step.value }}" {{ step.value == level.step ? 'selected' : '' }}>{{ step.label }}</option>
-                                                {% endfor %}
-                                            </select>
+                                            {% include 'partials/form_field.html.twig' with {
+                                                field_id: 'step-set-' ~ loop.index,
+                                                field_name: 'step',
+                                                label: 'Étape pour « ' ~ level.raw_value ~ ' »',
+                                                label_visually_hidden: true,
+                                                type: 'select',
+                                                size: 'sm',
+                                                control_class_extra: 'w-auto',
+                                                wrapper_class: 'mb-0',
+                                                options: assignable_steps|default([])|map(step => {
+                                                    value: step.value,
+                                                    label: step.label,
+                                                    selected: step.value == level.step,
+                                                }),
+                                            } only %}
                                             <button type="submit" class="btn btn-sm btn-outline-secondary">Modifier</button>
                                         </form>
                                         <form method="post" action="/admin/leadership/training/mapping"
