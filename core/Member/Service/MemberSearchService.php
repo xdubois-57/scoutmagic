@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Member\Service;
 
 use Core\Member\Repository\MemberSearchRepository;
+use Core\Service\TextNormalizerService;
 
 /**
  * Searches decrypted members for a scout year, in memory (data is encrypted at
@@ -75,21 +76,12 @@ class MemberSearchService
     }
 
     /**
-     * Lower-case and strip diacritics for accent-insensitive comparison.
+     * Lower-case, accent-fold and collapse punctuation for
+     * accent-insensitive comparison — `Core\Service\TextNormalizerService`
+     * holds the one implementation the whole site shares.
      */
     public static function fold(string $value): string
     {
-        $lower = mb_strtolower(trim($value), 'UTF-8');
-
-        return strtr($lower, [
-            'à' => 'a', 'á' => 'a', 'â' => 'a', 'ä' => 'a', 'ã' => 'a', 'å' => 'a',
-            'ç' => 'c',
-            'è' => 'e', 'é' => 'e', 'ê' => 'e', 'ë' => 'e',
-            'ì' => 'i', 'í' => 'i', 'î' => 'i', 'ï' => 'i',
-            'ñ' => 'n',
-            'ò' => 'o', 'ó' => 'o', 'ô' => 'o', 'ö' => 'o', 'õ' => 'o',
-            'ù' => 'u', 'ú' => 'u', 'û' => 'u', 'ü' => 'u',
-            'ý' => 'y', 'ÿ' => 'y',
-        ]);
+        return TextNormalizerService::fold($value);
     }
 }

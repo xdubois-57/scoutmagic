@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Camps\Repository;
 
 use Core\Security\EncryptionService;
+use Modules\Camps\Support;
 
 /**
  * camp_camps and its camp_camp_sections join. The only layer that sees
@@ -371,11 +372,9 @@ class CampRepository
 
     private function encryptNullable(?string $value): ?string
     {
-        $value = $value !== null ? trim($value) : null;
+        $value = Support::clean($value);
 
-        return $value !== null && $value !== ''
-            ? $this->encryption->encrypt($value, 'camp_camps.booked_by_name')
-            : null;
+        return $value !== null ? $this->encryption->encrypt($value, 'camp_camps.booked_by_name') : null;
     }
 
     private function decryptNullable(mixed $value): ?string

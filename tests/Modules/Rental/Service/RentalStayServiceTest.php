@@ -17,7 +17,7 @@ use Modules\Rental\Pricing\QuoteEditor;
 use Modules\Rental\Pricing\RentalPricingEngine;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
-use Modules\Rental\Repository\RentalBookingEventRepository;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Repository\RentalConstraintsRepository;
@@ -73,7 +73,7 @@ class RentalStayServiceTest extends TestCase
         $this->assetRepository = new RentalAssetRepository($this->pdo, $this->encryption);
         $this->bookingRepository = new RentalBookingRepository($this->pdo, $this->encryption);
         $this->stayRepository = new RentalStayRepository($this->pdo, $this->encryption);
-        $eventRepository = new RentalBookingEventRepository($this->pdo);
+        $bookingAudit = RentalTestHelper::bookingAudit($this->pdo, $this->encryption);
 
         $this->pricingService = new RentalPricingService(
             new RentalPricingRepository($this->pdo),
@@ -83,7 +83,7 @@ class RentalStayServiceTest extends TestCase
 
         $this->service = new RentalStayService(
             $this->stayRepository,
-            $eventRepository,
+            $bookingAudit,
             $this->pricingService,
             new SettlementCalculator(),
             $journal
@@ -96,7 +96,7 @@ class RentalStayServiceTest extends TestCase
         );
         $this->operationsService = new RentalOperationsService(
             $this->bookingRepository,
-            $eventRepository,
+            $bookingAudit,
             new RentalBookingCommentRepository($this->pdo, $this->encryption),
             new RentalChangeRequestRepository($this->pdo, $this->encryption),
             $availability,
@@ -351,9 +351,9 @@ class RentalStayServiceTest extends TestCase
             $booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), null, null, 7
         );
 
-        $history = (new RentalBookingEventRepository($this->pdo))->findForBooking($booking->id);
+        $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id);
         $this->assertNotSame([], $history);
-        $this->assertStringContainsString('Électricité', (string) $history[0]['to_value']);
+        $this->assertStringContainsString('Électricité', (string) $history[0]->toValue);
     }
 
     // ── Inventory snapshot (§6.23) ──────────────────────────────────────

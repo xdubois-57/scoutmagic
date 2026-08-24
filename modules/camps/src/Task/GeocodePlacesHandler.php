@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Task;
 
-use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
@@ -79,17 +78,11 @@ class GeocodePlacesHandler implements TaskHandlerInterface
 
     private function rescheduleSoon(\PDO $pdo): void
     {
-        $scheduler = new SchedulerService(new SchedulerRepository($pdo));
-        if ($scheduler->find('camps', self::TASK_KEY, self::REFERENCE) !== null) {
-            return;
-        }
-
-        $scheduler->schedule(
+        SchedulerService::forPdo($pdo)->rearm(
             'camps',
             self::TASK_KEY,
-            new \DateTimeImmutable('+' . self::SECONDS_BETWEEN_PLACES . ' seconds'),
-            [],
-            self::REFERENCE
+            self::REFERENCE,
+            new \DateTimeImmutable('+' . self::SECONDS_BETWEEN_PLACES . ' seconds')
         );
     }
 }

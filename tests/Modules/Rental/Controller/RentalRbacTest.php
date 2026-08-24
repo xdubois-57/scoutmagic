@@ -155,7 +155,7 @@ class RentalRbacTest extends TestCase
             $settingService
         );
         $bookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($this->pdo, $encryption);
-        $eventRepository = new \Modules\Rental\Repository\RentalBookingEventRepository($this->pdo);
+        $bookingAudit = RentalTestHelper::bookingAudit($this->pdo, $this->encryption);
         $commentRepository = new \Modules\Rental\Repository\RentalBookingCommentRepository($this->pdo, $encryption);
         $changeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository($this->pdo, $encryption);
         $blockRepository = new \Modules\Rental\Repository\RentalBlockRepository($this->pdo);
@@ -166,12 +166,12 @@ class RentalRbacTest extends TestCase
             $scoutYearService,
             $this->assetRepository,
             $bookingRepository,
-            $eventRepository,
+            new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($this->pdo, $encryption)),
             $commentRepository,
             $changeRequestRepository,
             new \Modules\Rental\Service\RentalOperationsService(
                 $bookingRepository,
-                $eventRepository,
+                $bookingAudit,
                 $commentRepository,
                 $changeRequestRepository,
                 $availabilityService,

@@ -73,17 +73,6 @@ class ReviewReminderHandler implements TaskHandlerInterface
      */
     private function rescheduleTomorrow(\PDO $pdo): void
     {
-        $scheduler = new SchedulerService(new \Core\Scheduler\SchedulerRepository($pdo));
-        if ($scheduler->find('camps', self::TASK_KEY, self::REFERENCE) !== null) {
-            return;
-        }
-
-        $scheduler->schedule(
-            'camps',
-            self::TASK_KEY,
-            new \DateTimeImmutable('tomorrow 06:00'),
-            [],
-            self::REFERENCE
-        );
+        SchedulerService::forPdo($pdo)->rearm('camps', self::TASK_KEY, self::REFERENCE, 'tomorrow 06:00');
     }
 }

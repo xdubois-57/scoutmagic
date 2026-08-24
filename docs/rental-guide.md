@@ -143,8 +143,9 @@ Tout se passe sur la fiche de la réservation :
   locataire le temps de décider sans que les dates partent ailleurs.
 - **Commentaires internes** : chiffrés, visibles des seuls gestionnaires,
   **jamais** affichés sur la page du locataire.
-- **Historique** : ce qui est arrivé à la réservation, sans aucune donnée
-  personnelle.
+- **Historique** : ce qui est arrivé à la réservation — qui a changé quoi,
+  quand, et de quoi vers quoi. Les valeurs y sont chiffrées comme partout
+  ailleurs sur le site.
 - **Demandes de modification** : le locataire peut demander d'autres dates
   ou un autre nombre de participants ; rien ne change tant que vous n'avez
   pas décidé.

@@ -6,8 +6,8 @@ namespace Tests\Modules\Groups\Service;
 
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
-use Modules\Gallery\Api\LinkPreview;
-use Modules\Gallery\Api\LinkPreviewFetcher;
+use Core\Http\LinkPreview;
+use Core\Http\LinkPreviewFetcher;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\LinkFetchLogRepository;
 use Modules\Groups\Repository\PostLinkRepository;

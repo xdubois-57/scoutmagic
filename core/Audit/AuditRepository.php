@@ -74,6 +74,30 @@ class AuditRepository
     }
 
     /**
+     * Removes every entry for one entity, and returns how many went.
+     *
+     * `entity_changes` carries no foreign key on purpose — the referenced
+     * table varies by entity type, and a module's tables come and go with
+     * the module — so nothing here cascades when the entity is deleted.
+     * A module that really deletes an entity (a purge under a retention
+     * rule, not an archive) has to say so, and this is how.
+     *
+     * Distinct from `anonymiseValues()`: that keeps the rows and blanks
+     * their values, because "a field changed, when, by whom" is not the
+     * personal data. This is for when there is no longer an entity for
+     * those rows to be the history OF.
+     */
+    public function deleteForEntity(string $entityType, int $entityId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM entity_changes WHERE entity_type = ? AND entity_id = ?'
+        );
+        $stmt->execute([$entityType, $entityId]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * Newest first, and tie-broken by id: two changes saved by the same
      * form land on the same DATETIME second, and an order that depends on
      * whatever the storage engine returns would shuffle them between two

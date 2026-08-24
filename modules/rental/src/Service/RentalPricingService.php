@@ -16,6 +16,7 @@ use Modules\Rental\Pricing\PricingSettings;
 use Modules\Rental\Pricing\RentalFee;
 use Modules\Rental\Pricing\RentalPricingEngine;
 use Modules\Rental\Repository\RentalPricingRepository;
+use Modules\Rental\Support;
 
 /**
  * Everything around the pricing engine that needs a database: loading an
@@ -137,7 +138,7 @@ class RentalPricingService
             throw new RentalException('Le nom de la période est obligatoire.');
         }
 
-        if (!self::isDate($startDate) || !self::isDate($endDate)) {
+        if (!Support::isDate($startDate) || !Support::isDate($endDate)) {
             throw new RentalException('Les dates de la période doivent être valides.');
         }
 
@@ -284,12 +285,5 @@ class RentalPricingService
         }
 
         return (int) round(((float) $normalized) * 100);
-    }
-
-    private static function isDate(string $value): bool
-    {
-        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $value);
-
-        return $parsed !== false && $parsed->format('Y-m-d') === $value;
     }
 }

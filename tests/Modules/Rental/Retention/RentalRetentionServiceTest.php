@@ -24,7 +24,7 @@ use Modules\Rental\Repository\RentalAggregateRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalDocumentRepository;
-use Modules\Rental\Repository\RentalBookingEventRepository;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalPaymentRepository;
 use Modules\Rental\Repository\RentalReminderRepository;
 use Modules\Rental\Service\RentalPaymentService;
@@ -96,7 +96,7 @@ class RentalRetentionServiceTest extends TestCase
         $receivableRepository = new ExpectedReceivableRepository($this->pdo, $this->encryption);
         $this->payments = new RentalPaymentService(
             new RentalPaymentRepository($this->pdo, $this->encryption),
-            new RentalBookingEventRepository($this->pdo),
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
             new JournalService(new JournalRepository($this->pdo)),
             new ExpectedReceivableService(
                 $receivableRepository,
@@ -116,7 +116,8 @@ class RentalRetentionServiceTest extends TestCase
             $this->fileRepository,
             null,
             $this->storagePath,
-            $this->payments
+            $this->payments,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption)
         );
 
         $this->assetId = (new RentalAssetRepository($this->pdo, $this->encryption))
@@ -504,5 +505,35 @@ class RentalRetentionServiceTest extends TestCase
         $stats = $this->statistics()->forAsset($this->assetId, new \DateTimeImmutable('2025-12-01'));
 
         $this->assertSame(0, $stats['revenue_cents']);
+    }
+
+    /**
+     * `entity_changes` carries no foreign key on purpose (§8.66), so
+     * nothing about a booking's history cascades when the booking goes.
+     * A purge that forgot it would leave a timeline of a stay that no
+     * longer exists, under an id the next booking will be handed.
+     */
+    public function testThePurgeTakesTheBookingsChangeHistoryWithIt(): void
+    {
+        $bookingId = $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04')->id;
+        RentalTestHelper::bookingAudit($this->pdo, $this->encryption)->record(
+            $bookingId,
+            \Modules\Rental\Audit\BookingAudit::STATUS_CHANGED,
+            'Demande reçue',
+            'Confirmé',
+            null,
+            7
+        );
+        $this->assertCount(
+            1,
+            RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $bookingId)
+        );
+
+        $this->service->purge(new \DateTimeImmutable('2026-01-01'));
+
+        $this->assertSame(
+            [],
+            RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $bookingId)
+        );
     }
 }

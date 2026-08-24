@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Rental;
 
+use Core\Audit\AuditRepository;
+use Core\Audit\AuditService;
+use Core\Security\EncryptionService;
+use Modules\Rental\Audit\BookingAudit;
+
 /**
  * SQLite mirrors of modules/rental/schema.sql, for the in-memory test
  * database — same approach as Tests\Modules\Registration\
@@ -208,16 +213,34 @@ class RentalTestHelper
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 
-        $pdo->exec('CREATE TABLE rental_booking_events (
+        // No rental_booking_events: a booking's history lives in core's
+        // `entity_changes` (§8.66). Tests\DatabaseTestHelper creates it and
+        // runs first where both are used, so this is IF NOT EXISTS — it is
+        // here for the handful of rental tests that build a bare in-memory
+        // PDO and only call this helper.
+        $pdo->exec('CREATE TABLE IF NOT EXISTS entity_changes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            booking_id INTEGER NOT NULL,
-            event_type TEXT NOT NULL,
-            from_value TEXT,
-            to_value TEXT,
-            summary TEXT,
-            actor_member_id INTEGER,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+            entity_type TEXT NOT NULL,
+            entity_id INTEGER NOT NULL,
+            field_key TEXT NOT NULL,
+            from_value BLOB,
+            to_value BLOB,
+            summary BLOB,
+            source TEXT NOT NULL,
+            source_reference TEXT,
+            actor_user_account_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        // AuditRepository LEFT JOINs user_accounts to put a name on an
+        // entry. Same IF NOT EXISTS reasoning as above, and only the three
+        // columns that join reads.
+        $pdo->exec('CREATE TABLE IF NOT EXISTS user_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_encrypted BLOB,
+            email_blind_index TEXT,
+            first_name_encrypted BLOB,
+            last_name_encrypted BLOB
         )');
 
         $pdo->exec('CREATE TABLE rental_documents (
@@ -444,5 +467,32 @@ class RentalTestHelper
         ]);
 
         return (int) $pdo->lastInsertId();
+    }
+
+    /**
+     * The recorder the module's services take, over the same in-memory
+     * database. No ActorAccountResolver: a test that wants the
+     * member-to-account mapping exercised builds one itself
+     * (Tests\Modules\Rental\Audit\ActorAccountResolverTest), and every
+     * other test would otherwise need a member roster to record a status
+     * change.
+     */
+    public static function bookingAudit(\PDO $pdo, EncryptionService $encryption): BookingAudit
+    {
+        return new BookingAudit(new AuditService(new AuditRepository($pdo, $encryption)));
+    }
+
+    /**
+     * A booking's recorded history, OLDEST FIRST — the order the module's
+     * own tests read it in, and the reverse of what the timeline shows.
+     *
+     * @return \Core\Audit\AuditEntry[]
+     */
+    public static function bookingHistory(\PDO $pdo, EncryptionService $encryption, int $bookingId): array
+    {
+        $page = (new AuditService(new AuditRepository($pdo, $encryption)))
+            ->page(BookingAudit::ENTITY_TYPE, $bookingId, 1, 200);
+
+        return array_reverse($page->entries);
     }
 }

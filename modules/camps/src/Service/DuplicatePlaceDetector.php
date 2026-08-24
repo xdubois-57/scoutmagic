@@ -72,7 +72,7 @@ class DuplicatePlaceDetector
      *         certainty: 'certain' (same normalised name and locality) or
      *         'possible' (a typo away, or the AI thinks so)
      */
-    public function findCandidates(array $fields, ?int $excludePlaceId = null): array
+    public function findCandidates(array $fields): array
     {
         $name = $this->normaliseName((string) ($fields['name'] ?? ''));
         if ($name === '') {
@@ -87,10 +87,6 @@ class DuplicatePlaceDetector
         $undecided = [];
 
         foreach ($this->places->findAllVisible() as $place) {
-            if ($excludePlaceId !== null && $place->id === $excludePlaceId) {
-                continue;
-            }
-
             $otherName = $this->normaliseName($place->name);
             $otherCity = $this->normaliseName($place->city ?? '');
             $otherPostal = preg_replace('/\s+/', '', $place->postalCode ?? '') ?? '';
@@ -293,25 +289,15 @@ class DuplicatePlaceDetector
      * Case, accents, punctuation and runs of whitespace, all flattened —
      * the shape two spellings of one place have in common.
      *
-     * The site's own TextNormalizerService runs FIRST (it settles casing,
-     * particles and the position of a house number, and does it the same
-     * way here as in every member screen); this only strips what is left
-     * and is deliberately for COMPARISON, never for display.
+     * For an address, the site's own `normalizeAddress()` runs FIRST (it
+     * settles casing, particles and the position of a house number, and
+     * does it the same way here as in every member screen); `fold()` then
+     * strips what is left. "Ferme-du-Moulin", "Ferme du Moulin" and "Ferme
+     * du Moulin (asbl)" fold together, which is the whole point, and the
+     * result is deliberately for COMPARISON, never for display.
      */
     private function fold(string $value): string
     {
-        $value = mb_strtolower(trim($value), 'UTF-8');
-
-        $transliterated = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
-        if (is_string($transliterated) && $transliterated !== '') {
-            $value = $transliterated;
-        }
-
-        // Everything that is not a letter, a digit or a space becomes a
-        // space: "Ferme-du-Moulin", "Ferme du Moulin" and "Ferme du
-        // Moulin (asbl)" must fold together.
-        $value = (string) preg_replace('/[^a-z0-9]+/i', ' ', $value);
-
-        return trim((string) preg_replace('/\s+/', ' ', $value));
+        return TextNormalizerService::fold($value);
     }
 }

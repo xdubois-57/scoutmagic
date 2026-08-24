@@ -11,7 +11,7 @@ namespace Modules\Groups\Service;
 use Core\File\FileRepository;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
-use Modules\Gallery\Api\LinkPreviewFetcher;
+use Core\Http\LinkPreviewFetcher;
 use Modules\Groups\File\GroupFileOwnershipChecker;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\PostLinkRepository;
@@ -25,7 +25,7 @@ use Modules\Groups\Repository\PostLinkRepository;
  * delegated album — see discussion_group_post_links' own schema.sql
  * comment for why.
  *
- * Every fetch goes through Modules\Gallery\Api\LinkPreviewFetcher — never
+ * Every fetch goes through Core\Http\LinkPreviewFetcher — never
  * a scraper of this module's own (module spec: "no second scraper";
  * SECURITY.md §17) — and NOTHING here is a reason to reject a post: a
  * throttled member, an unreachable page, one with no Open Graph tags, or

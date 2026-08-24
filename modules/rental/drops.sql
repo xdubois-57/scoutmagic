@@ -37,3 +37,18 @@ ALTER TABLE rental_assets DROP COLUMN show_in_menu;
 -- link that no longer opens, and the fix for one is a manager pressing
 -- « Régénérer le lien de suivi », which mints a fresh token and emails it.
 ALTER TABLE rental_bookings DROP COLUMN tracking_token_hash;
+
+-- The per-booking history table (§6.15). It was the first of its kind on
+-- the site; core later generalised it as `Core\Audit` (§8.66) for Camps,
+-- and two implementations of one idea is one too many — with the worse of
+-- the two here: values in clear, and a rule ("no personal data in a
+-- summary") that only held for as long as everybody remembered it. A
+-- history is precisely where a name ends up in a field nobody thought to
+-- classify, so the module now records into `entity_changes`, where every
+-- value is encrypted unconditionally.
+--
+-- Nothing carries the old rows over, deliberately: the instance this ships
+-- to is a test one, and a backfill would mean decrypting nothing into
+-- something and guessing which account each `actor_member_id` belonged to.
+-- A booking that predates this release starts its history here.
+DROP TABLE IF EXISTS rental_booking_events;

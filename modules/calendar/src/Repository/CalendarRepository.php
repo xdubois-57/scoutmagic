@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Calendar\Repository;
 
+use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
 
 class CalendarRepository
@@ -49,7 +50,7 @@ class CalendarRepository
         // Verify exact match (blind index collisions are theoretically possible).
         $calendar = $this->hydrate($row);
 
-        return $calendar->icsToken !== null && hash_equals($calendar->icsToken, $token) ? $calendar : null;
+        return CapabilityToken::equalsConstantTime($calendar->icsToken, $token) ? $calendar : null;
     }
 
     /** @return Calendar[] */

@@ -102,13 +102,14 @@ class ModuleSchedulingTest extends TestCase
      * A seeded occurrence is only ever added when there is none — otherwise
      * every page load of the receiver would queue another copy of all three
      * tasks.
+     *
+     * `SchedulerService::rearm()` is that guard, and holding it in one
+     * place is why this now checks for the call rather than for a
+     * hand-written `find() === null` around a `schedule()`.
      */
     public function testSeedingIsConditionalOnThereBeingNoOccurrenceYet(): void
     {
-        $block = $this->supportDashboardBlock();
-
-        $this->assertStringContainsString('$schedulerService->find(', $block);
-        $this->assertStringContainsString('=== null', $block);
+        $this->assertStringContainsString('$schedulerService->rearm(', $this->supportDashboardBlock());
     }
 
     /**

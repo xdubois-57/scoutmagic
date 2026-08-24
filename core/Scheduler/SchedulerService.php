@@ -15,6 +15,58 @@ class SchedulerService
     }
 
     /**
+     * For a task handler, which is handed a PDO and nothing else.
+     *
+     * A handler that re-arms itself needs a scheduler, and every one of
+     * them was writing the same two `new`s to get one.
+     */
+    public static function forPdo(\PDO $pdo): self
+    {
+        return new self(new SchedulerRepository($pdo));
+    }
+
+    /**
+     * Arms a recurring task for its next run — unless one is already
+     * queued under the same reference. Returns whether it scheduled.
+     *
+     * **This is the whole of a self-perpetuating task's bookkeeping**, and
+     * it was written out by hand in eight handlers, each with its own
+     * ordering of the same three steps and its own chance of getting one
+     * of them wrong. Two failure modes it removes:
+     *
+     * - **Scheduling blindly** queues another copy on every request. The
+     *   guard is not an optimisation; without it a module that seeds its
+     *   tasks from the composition root grows one row per page view.
+     * - **Guarding on the wrong thing** ends the chain instead. The guard
+     *   has to be `find()`, which only sees `pending` rows — the task
+     *   currently executing is `processing` by then (`claimOverdue()`
+     *   claims before calling the handler), so a handler re-arming itself
+     *   from inside `handle()` does not find itself and does schedule its
+     *   successor.
+     *
+     * `$when` takes a `strtotime`-style string ('tomorrow 05:00') as well
+     * as a date, because that is what a daily task actually wants to say.
+     *
+     * @param array<string, mixed> $payload
+     */
+    public function rearm(
+        string $moduleId,
+        string $taskKey,
+        string $reference,
+        \DateTimeInterface|string $when,
+        array $payload = []
+    ): bool {
+        if ($this->find($moduleId, $taskKey, $reference) !== null) {
+            return false;
+        }
+
+        $runAt = $when instanceof \DateTimeInterface ? $when : new \DateTimeImmutable($when);
+        $this->schedule($moduleId, $taskKey, $runAt, $payload, $reference);
+
+        return true;
+    }
+
+    /**
      * Schedule an action at a specific time.
      *
      * @param array<string, mixed> $payload

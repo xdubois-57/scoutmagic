@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Calendar\Repository;
 
+use Core\Security\CapabilityToken;
 use Core\Security\DecryptionException;
 use Core\Security\EncryptionService;
 
@@ -60,7 +61,7 @@ class CalendarUnitFeedTokenRepository
             return false;
         }
 
-        return hash_equals($stored, $token);
+        return CapabilityToken::equalsConstantTime($stored, $token);
     }
 
     /**

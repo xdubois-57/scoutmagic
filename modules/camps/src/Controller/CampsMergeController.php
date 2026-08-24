@@ -253,9 +253,4 @@ class CampsMergeController extends AbstractController
 
         return $options;
     }
-
-    private function notFound(): Response
-    {
-        return (new Response('', 404))->setBody('Not Found');
-    }
 }

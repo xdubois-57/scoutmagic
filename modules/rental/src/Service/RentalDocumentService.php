@@ -9,11 +9,13 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Config\SettingService;
+use Core\File\AttachedFileRemover;
 use Core\File\FileRepository;
 use Core\Journal\JournalService;
 use Core\Pdf\DocumentPdfService;
 use Core\Security\HtmlSanitizer;
 use Core\View\EditableContentService;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentKeywords;
 use Modules\Rental\Document\DocumentType;
@@ -21,9 +23,9 @@ use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Document\StandardTemplates;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAsset;
-use Modules\Rental\Repository\RentalBookingEventRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalDocumentRepository;
+use Modules\Rental\Support;
 
 /**
  * Contracts and invoices (§6.25, §6.27), and every other document attached
@@ -72,9 +74,10 @@ class RentalDocumentService
     public function __construct(
         private RentalDocumentRepository $documentRepository,
         private RentalBookingRepository $bookingRepository,
-        private RentalBookingEventRepository $eventRepository,
+        private BookingAudit $bookingAudit,
         private EditableContentService $editableContentService,
         private FileRepository $fileRepository,
+        private AttachedFileRemover $fileRemover,
         private DocumentPdfService $pdfService,
         private HtmlSanitizer $sanitizer,
         private SettingService $settingService,
@@ -199,9 +202,9 @@ class RentalDocumentService
         $clean = $this->sanitizer->sanitize($bodyHtml);
         $this->documentRepository->saveText($booking->id, $type, $clean);
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             null,
             $type->label(),
             'Texte du document modifié',
@@ -290,9 +293,9 @@ class RentalDocumentService
             $actorMemberId
         );
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             null,
             $type->label() . ' v' . $version,
             'Document généré',
@@ -347,9 +350,9 @@ class RentalDocumentService
             $source
         );
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             null,
             $type->label(),
             'Document ajouté',
@@ -392,9 +395,9 @@ class RentalDocumentService
 
         $this->documentRepository->updateType($documentId, $type, $isForRenter);
 
-        $this->eventRepository->record(
+        $this->bookingAudit->record(
             $booking->id,
-            RentalBookingEventRepository::STATUS_CHANGED,
+            BookingAudit::STATUS_CHANGED,
             $document->type->label(),
             $type->label(),
             'Document reclassé',
@@ -453,20 +456,16 @@ class RentalDocumentService
      * inbound message the attachment arrived in (§8.59): the message still
      * owns it and still serves it, so deleting the file here would blank
      * the message's own attachment. Only the link between the booking and
-     * the file goes. Same invariant as `Modules\Camps\Service\
-     * DocumentService::delete()`.
+     * the file goes. The invariant itself, and its reasons, live in
+     * `Core\File\AttachedFileRemover`.
      *
      * @throws RentalException
      */
     public function delete(RentalDocument $document, ?int $actorMemberId = null): void
     {
-        $this->documentRepository->delete($document->id);
-
-        if ($document->ownsItsFile()
-            && !$this->documentRepository->isFileReferencedElsewhere($document->fileId, $document->id)
-        ) {
-            $this->fileRepository->delete($document->fileId);
-        }
+        $this->fileRemover->remove(
+            $this->documentRepository, $document->id, $document->fileId, $document->ownsItsFile()
+        );
 
         $this->journal->log(
             'rental',
@@ -508,9 +507,9 @@ class RentalDocumentService
             'participants' => $booking->estimatedPersons !== null ? (string) $booking->estimatedPersons : null,
             'capacite' => $asset->capacity !== null ? (string) $asset->capacity : null,
             'quantite' => (string) max(1, $booking->units),
-            'prix_total' => $total !== null ? self::euros($total) : null,
-            'acompte' => $deposit !== null ? self::euros($deposit) : null,
-            'caution' => $securityDeposit !== null ? self::euros($securityDeposit) : null,
+            'prix_total' => $total !== null ? Support::euros($total) : null,
+            'acompte' => $deposit !== null ? Support::euros($deposit) : null,
+            'caution' => $securityDeposit !== null ? Support::euros($securityDeposit) : null,
             'communication' => $communication,
             'locataire_nom' => $booking->renterName,
             'locataire_organisation' => $booking->renterOrganisation,
@@ -609,10 +608,5 @@ class RentalDocumentService
         $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $isoDate);
 
         return $parsed !== false ? $parsed->format('d/m/Y') : $isoDate;
-    }
-
-    private static function euros(int $cents): string
-    {
-        return number_format($cents / 100, 2, ',', ' ') . ' €';
     }
 }

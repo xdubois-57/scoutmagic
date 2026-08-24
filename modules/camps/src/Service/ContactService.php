@@ -13,6 +13,7 @@ use Core\Audit\AuditSource;
 use Core\Journal\JournalService;
 use Modules\Camps\Repository\Contact;
 use Modules\Camps\Repository\ContactRepository;
+use Modules\Camps\Support;
 
 /**
  * The people to call about a stay, and their erasure.
@@ -262,8 +263,8 @@ class ContactService
      */
     public function validate(array $fields): array
     {
-        $email = $this->clean($fields['email'] ?? null);
-        $phone = $this->clean($fields['phone'] ?? null);
+        $email = Support::clean($fields['email'] ?? null);
+        $phone = Support::clean($fields['phone'] ?? null);
 
         if ($email === null && $phone === null) {
             throw new CampsException(
@@ -274,7 +275,7 @@ class ContactService
             throw new CampsException('Cette adresse e-mail n\'est pas une adresse valide.');
         }
 
-        $roleKey = $this->clean($fields['role_label'] ?? null);
+        $roleKey = Support::clean($fields['role_label'] ?? null);
         $roleLabel = null;
         if ($roleKey !== null) {
             if (!isset(self::ROLES[$roleKey])) {
@@ -284,11 +285,11 @@ class ContactService
         }
 
         return [
-            'name' => $this->clean($fields['name'] ?? null),
+            'name' => Support::clean($fields['name'] ?? null),
             'role_label' => $roleLabel,
             'email' => $email,
             'phone' => $phone,
-            'other_details' => $this->clean($fields['other_details'] ?? null),
+            'other_details' => Support::clean($fields['other_details'] ?? null),
         ];
     }
 
@@ -311,12 +312,5 @@ class ContactService
         ], static fn(?string $v): bool => $v !== null && $v !== ''));
 
         return $parts !== [] ? implode(', ', $parts) : 'Contact sans détail';
-    }
-
-    private function clean(?string $value): ?string
-    {
-        $value = $value !== null ? trim($value) : null;
-
-        return $value !== null && $value !== '' ? $value : null;
     }
 }

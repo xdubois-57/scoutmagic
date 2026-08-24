@@ -148,11 +148,11 @@ class CampsMailController extends AbstractController
     private function decideProposal(Request $request, array $params, bool $accept): Response
     {
         if ($this->proposals === null || $this->fieldCompletion === null) {
-            return (new Response('', 404))->setBody('Not Found');
+            return $this->notFound();
         }
         $proposal = $this->proposals->findById((int) ($params['id'] ?? 0));
         if ($proposal === null) {
-            return (new Response('', 404))->setBody('Not Found');
+            return $this->notFound();
         }
 
         $target = '/chefs/camps/sejours/' . $proposal->campId;

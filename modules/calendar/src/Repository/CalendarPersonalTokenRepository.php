@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Calendar\Repository;
 
+use Core\Security\CapabilityToken;
 use Core\Security\DecryptionException;
 use Core\Security\EncryptionService;
 
@@ -61,7 +62,7 @@ class CalendarPersonalTokenRepository
             return null;
         }
 
-        return hash_equals($stored, $token) ? (int) $row['user_account_id'] : null;
+        return CapabilityToken::equalsConstantTime($stored, $token) ? (int) $row['user_account_id'] : null;
     }
 
     /**

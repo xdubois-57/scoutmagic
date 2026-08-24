@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\MassMail\Repository;
 
+use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
 
 /**
@@ -59,11 +60,10 @@ class RecipientRepository
      * Task\SendBatchHandler generates a fresh one-click unsubscribe token
      * right before actually sending each recipient (never at freeze time
      * in startSending() — there'd be nowhere safe to hold the raw token
-     * between freezing and sending) — same generation/hashing convention
-     * as Core\Security\AuthService's magic links
-     * (bin2hex(random_bytes(32)), hashed with password_hash()). Unlike a
-     * login token this is never single-use/expiring, so there's no
-     * separate "mark used" step.
+     * between freezing and sending), through Core\Security\
+     * CapabilityToken, whose contract this endpoint obeys. Unlike a login
+     * token this is never single-use/expiring, so there's no separate
+     * "mark used" step.
      */
     public function setUnsubscribeTokenHash(int $id, string $tokenHash): void
     {
@@ -85,12 +85,11 @@ class RecipientRepository
         $stmt = $this->pdo->prepare('SELECT * FROM mass_mail_recipients WHERE id = ?');
         $stmt->execute([$id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        if ($row === false || $row['unsubscribe_token_hash'] === null) {
+        if ($row === false) {
             return null;
         }
-        // SHA-256 + constant-time compare (the token carries full entropy, so
-        // no slow KDF is needed) — see Task\SendBatchHandler for why.
-        if (!hash_equals((string) $row['unsubscribe_token_hash'], hash('sha256', $rawToken))) {
+        $storedHash = $row['unsubscribe_token_hash'] !== null ? (string) $row['unsubscribe_token_hash'] : null;
+        if (!CapabilityToken::verifyAgainstHash($rawToken, $storedHash)) {
             return null;
         }
 

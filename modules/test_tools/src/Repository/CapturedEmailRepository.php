@@ -48,7 +48,7 @@ class CapturedEmailRepository
         ?string $errorMessage,
         array $attachments
     ): int {
-        $normalizedRecipient = strtolower(trim($recipient));
+        $normalizedRecipient = EncryptionService::normalizeEmailForIndex($recipient);
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO captured_emails
@@ -308,7 +308,10 @@ class CapturedEmailRepository
 
         if ($recipient !== null && trim($recipient) !== '') {
             $conditions[] = 'recipient_blind_index = ?';
-            $bindings[] = $this->encryption->blindIndex(strtolower(trim($recipient)), self::BLIND_INDEX_PURPOSE);
+            $bindings[] = $this->encryption->blindIndex(
+                EncryptionService::normalizeEmailForIndex($recipient),
+                self::BLIND_INDEX_PURPOSE
+            );
         }
 
         return [$conditions === [] ? '' : ' WHERE ' . implode(' AND ', $conditions), $bindings];

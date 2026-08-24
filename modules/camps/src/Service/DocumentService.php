@@ -10,7 +10,7 @@ namespace Modules\Camps\Service;
 
 use Core\Audit\AuditService;
 use Core\Audit\AuditSource;
-use Core\File\FileRepository;
+use Core\File\AttachedFileRemover;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Modules\Camps\Repository\Document;
@@ -41,10 +41,9 @@ class DocumentService
 
     public function __construct(
         private DocumentRepository $documents,
-        private FileRepository $files,
+        private AttachedFileRemover $fileRemover,
         private UploadHandler $uploadHandler,
-        private AuditService $audit,
-        private string $storagePath
+        private AuditService $audit
     ) {
     }
 
@@ -108,63 +107,21 @@ class DocumentService
 
     /**
      * Removes a document, and its file ONLY when this module owns the
-     * bytes.
-     *
-     * A document whose source is 'email' points at an inbound message's
-     * own attachment: the message still owns it and still serves it, so
-     * deleting the bytes here would blank the message too. Only the link
-     * between the stay and the file goes.
+     * bytes — `Core\File\AttachedFileRemover` holds the invariant and its
+     * reasons; a document whose source is 'email' points at an inbound
+     * message's own attachment, so only the link between the stay and the
+     * file goes.
      */
     public function delete(Document $document, ?int $actorUserAccountId): void
     {
-        $this->documents->delete($document->id);
-
-        if ($document->ownsItsFile()
-            && !$this->documents->isFileReferencedElsewhere($document->fileId, $document->id)
-        ) {
-            $this->deleteStoredFile($document->fileId);
-        }
+        $this->fileRemover->remove(
+            $this->documents, $document->id, $document->fileId, $document->ownsItsFile()
+        );
 
         $this->audit->record(
             CampService::ENTITY_TYPE, $document->campId, 'document', $document->title, null,
             AuditSource::Human, 'Document supprimé', null, $actorUserAccountId
         );
-    }
-
-    public function rename(Document $document, string $title, ?int $actorUserAccountId): void
-    {
-        $title = trim($title);
-        if ($title === '') {
-            throw new CampsException('Un document a besoin d\'un nom.');
-        }
-        if ($title === $document->title) {
-            return;
-        }
-
-        $this->documents->rename($document->id, $title);
-        $this->audit->record(
-            CampService::ENTITY_TYPE, $document->campId, 'document', $document->title, $title,
-            AuditSource::Human, null, null, $actorUserAccountId
-        );
-    }
-
-    /**
-     * The row goes first, the bytes second: an interruption between the
-     * two leaves a stored file nothing points at (recoverable, invisible)
-     * rather than a row pointing at bytes that are gone (a broken
-     * download on a page that says the document is there).
-     */
-    private function deleteStoredFile(int $fileId): void
-    {
-        $file = $this->files->findById($fileId);
-        if ($file === null) {
-            return;
-        }
-
-        if ($this->storagePath !== '') {
-            @unlink($this->storagePath . '/' . $file->relativePath);
-        }
-        $this->files->delete($fileId);
     }
 
     /**

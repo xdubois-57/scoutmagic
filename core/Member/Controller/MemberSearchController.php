@@ -151,9 +151,4 @@ class MemberSearchController extends AbstractController
             ->setHeader('Content-Disposition', 'attachment; filename="' . $filename . '"')
             ->setHeader('Content-Length', (string) strlen($xlsx));
     }
-
-    private function notFound(): Response
-    {
-        return new Response($this->twig->render('errors/404.html.twig'), 404);
-    }
 }

@@ -215,6 +215,34 @@ class CalendarController extends AbstractController
 }
 ```
 
+## CSRF token in a form (`csrf_field()`)
+
+Every `<form method="post">` carries one, no exceptions (`AGENTS.md`
+§ Security checklist). The Twig function writes the whole hidden input:
+
+```twig
+<form method="post" action="/mon-module/enregistrer">
+    {{ csrf_field()|raw }}
+    …
+</form>
+```
+
+The function is registered with `['is_safe' => ['html']]`
+(`Core\View\TwigFactory`), so **`|raw` is a no-op** and plain
+`{{ csrf_field() }}` produces exactly the same markup — the filter is
+written out anyway because a reader scanning a template for `|raw` should
+find every place raw HTML is emitted, including the ones that are safe by
+construction. Whichever you write, do not mix the two inside one template.
+
+Do NOT hand-write the input: the token itself comes from
+`Core\Security\CsrfGuard::generateToken()`, and a template composing the
+markup around it is a template that has to remember to escape it.
+`csrf_token()` exists for the one case that genuinely needs the bare value
+(a `<meta>` tag a fetch() reads).
+
+The controller side is `$this->guardCsrf($request, '/where/to/go/back')`
+— see `AbstractController`; the guard is never called by the router.
+
 ## Chip picker (`partials/chip_picker.html.twig`)
 
 The site's one selection component — mobile-friendly wrapping chips with a
@@ -449,7 +477,7 @@ $moved   = $this->delegatedAlbumManager->moveMedia('my_module_thing', $fromAlbum
 
 - **`moveMedia()` merges two albums you own** — for when the entities behind them merge. It re-parents every media and moves its renditions server-side (an S3 `CopyObject`, a filesystem copy), never re-uploading anything. It refuses, changing nothing, when either album is not yours, when both ids are the same album, or when the two sit on **different storage locations** — a rendition's bytes cannot cross backends without passing through PHP, and the location is resolved from the album, so a media left behind would be unservable the moment it landed. Do not work around that by moving rows yourself: a rendition's key embeds the album it was written under, and album deletion clears storage by prefix.
 
-The same module publishes `Api\LinkPreviewFetcher` for Open Graph title/description/image of a user-supplied URL. Use it rather than fetching a URL yourself — `Modules\Gallery\Service\OgScraperService` is the only place in this codebase allowed to make an outbound request to a member-supplied address, and it is hardened against SSRF in ways a second implementation would not be (SECURITY.md §17).
+Core publishes `Core\Http\LinkPreviewFetcher` for Open Graph title/description/image of a user-supplied URL, and `gallery` provides its one implementation. Take it as a nullable dependency and use it rather than fetching a URL yourself — `Modules\Gallery\Service\OgScraperService` is the only place in this codebase allowed to make an outbound request to a member-supplied address, and it is hardened against SSRF in ways a second implementation would not be (SECURITY.md §17).
 
 ## Database
 
@@ -460,6 +488,8 @@ The same module publishes `Api\LinkPreviewFetcher` for Open Graph title/descript
 - Include a `scout_year_id` foreign key on member-related data tables.
 - A module that stores confidential *files* (not just database fields) — receipts, private documents, anything that must never be readable directly off disk — should use `Core\File\EncryptedFileStorageService` (`store()`/`retrieve()`/`delete()`) instead of `UploadHandler`. It uses the same master key as `EncryptionService` and integrates transparently with `FileAccessGuard`/`/files/{id}` — the caller never handles decryption itself.
 - **Editing `schema.sql` for a module that may already be enabled somewhere (i.e. any change after the module's first release — new column, new table, changed default, etc.)? Bump `version` in `module.json` in the same change.** `ModuleManager::loadEnabledModules()` only re-diffs and re-applies a module's `schema.sql` when the manifest's `version` compares greater than the version recorded in the module registry (`ModuleManager.php`, the "Auto-migrate when module version is newer than installed version" block). Editing `schema.sql` without bumping `version` is silently a no-op on every already-enabled installation — the new column/table only ever gets created for a *fresh* activation, never retrofitted onto an existing one. This has caused real `Unknown column` / `PDOException` production errors from schema changes that looked complete in code review but were never actually applied to the running database. There is no separate reminder or lint for this — bumping the version is the only signal that triggers migration, so treat "I touched schema.sql" and "I bump version" as inseparable.
+
+- **The application runs on UTC, and a `CURRENT_TIMESTAMP` default is why.** Half of this codebase writes timestamps from PHP (`date('Y-m-d H:i:s')`, `(new \DateTimeImmutable())->format(...)`) and the other half lets the column's `DEFAULT CURRENT_TIMESTAMP` do it — and the two are then compared against each other by every rate limiter, retention cutoff and scheduler query in the tree. The database emits UTC; PHP emits whatever `date_default_timezone_get()` says. Setting a local default zone therefore does not shift "all times together": it shifts one half of every such comparison by one or two hours. Measured, not guessed — running the suite under `Europe/Brussels` fails 26 tests, and the ones that matter are rate limiters that stop firing at all, because the window's lower bound lands in the future relative to every row in the table. Keep timestamps UTC end to end and localise at RENDER time (`|date_fr`, `|datetime_fr`), never at storage time. A module that genuinely needs the two to agree should generate BOTH sides in PHP rather than mixing.
 
 Example `schema.sql`:
 

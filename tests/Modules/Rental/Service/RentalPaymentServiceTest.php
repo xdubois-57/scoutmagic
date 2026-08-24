@@ -23,7 +23,7 @@ use Modules\Rental\Pricing\BillingUnit;
 use Modules\Rental\Pricing\PriceLine;
 use Modules\Rental\Pricing\PriceQuote;
 use Modules\Rental\Repository\RentalAssetRepository;
-use Modules\Rental\Repository\RentalBookingEventRepository;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalPaymentRepository;
 use Modules\Rental\Service\RentalException;
@@ -54,7 +54,7 @@ class RentalPaymentServiceTest extends TestCase
     private EncryptionService $encryption;
     private RentalBookingRepository $bookingRepository;
     private RentalPaymentRepository $paymentRepository;
-    private RentalBookingEventRepository $eventRepository;
+    private BookingAudit $bookingAudit;
     private TransactionRepository $transactionRepository;
     private RentalPaymentService $service;
     private int $assetId;
@@ -72,7 +72,7 @@ class RentalPaymentServiceTest extends TestCase
 
         $this->bookingRepository = new RentalBookingRepository($this->pdo, $this->encryption);
         $this->paymentRepository = new RentalPaymentRepository($this->pdo, $this->encryption);
-        $this->eventRepository = new RentalBookingEventRepository($this->pdo);
+        $this->bookingAudit = RentalTestHelper::bookingAudit($this->pdo, $this->encryption);
 
         $accountRepository = new AccountRepository($this->pdo, $this->encryption);
         $this->accountId = $accountRepository->create(
@@ -91,7 +91,7 @@ class RentalPaymentServiceTest extends TestCase
 
         $this->service = new RentalPaymentService(
             $this->paymentRepository,
-            $this->eventRepository,
+            $this->bookingAudit,
             $journal,
             new ExpectedReceivableService($receivableRepository, $this->transactionRepository),
             new StructuredCommunicationService($receivableRepository),
@@ -118,7 +118,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         return new RentalPaymentService(
             $this->paymentRepository,
-            $this->eventRepository,
+            $this->bookingAudit,
             new JournalService(new JournalRepository($this->pdo))
         );
     }
@@ -752,7 +752,7 @@ class RentalPaymentServiceTest extends TestCase
             SecurityDepositStatus::TO_RETURN,
             $this->service->statusFor($booking, $settings)['security_deposit']['status']
         );
-        $this->assertNotSame([], $this->eventRepository->findForBooking($booking->id));
+        $this->assertNotSame([], RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id));
     }
 
     // ── SEPA QR (§6.19) ─────────────────────────────────────────────────

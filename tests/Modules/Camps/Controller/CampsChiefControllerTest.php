@@ -390,6 +390,26 @@ class CampsChiefControllerTest extends TestCase
      * Both forms are dialogs now, opened by outline buttons, and each
      * holds the single primary of the dialog it lives in.
      */
+    /**
+     * Whether to offer « Anonymiser » is decided by the controller, not by
+     * a role comparison spelled out in the template. The route itself is
+     * role_min: admin, so a chief offered the link would only be refused
+     * on the next click — and a template naming the role strings that pass
+     * is a rule nobody can change in one place.
+     */
+    public function testAChiefIsNotOfferedTheContactAnonymisation(): void
+    {
+        $campId = $this->aStay();
+        $contacts = new ContactRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
+        $contacts->create($campId, 'M. Delvaux', 'Propriétaire', null, null, null);
+
+        AuthSession::login(1, 'chief@test.com', 'chief');
+        $this->assertStringNotContainsString('Anonymiser', $this->stayPage($campId));
+
+        AuthSession::login(1, 'admin@test.com', 'admin');
+        $this->assertStringContainsString('Anonymiser', $this->stayPage($campId));
+    }
+
     public function testTheStayPageOffersItsTwoFormsAsDialogs(): void
     {
         $campId = $this->aStay();

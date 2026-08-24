@@ -9,12 +9,85 @@ declare(strict_types=1);
 namespace Core\Service;
 
 /**
- * Display-only normalization of user-facing text (names, totems, phones,
- * addresses). Never mutates stored data — apply at render time only, typically
- * through the Twig filters registered by TextNormalizerExtension.
+ * Normalization of user-facing text (names, totems, phones, addresses).
+ *
+ * The `normalize*` half is display-only: it never mutates stored data —
+ * apply at render time only, typically through the Twig filters registered
+ * by TextNormalizerExtension.
+ *
+ * `fold()` is the other half and the opposite intent: a form nobody ever
+ * reads, produced so that two spellings of the same thing compare equal.
  */
 class TextNormalizerService
 {
+    /**
+     * Latin-1/Latin Extended-A characters a French, Dutch or German label
+     * can realistically carry, folded to ASCII.
+     *
+     * @var array<string, string>
+     */
+    private const FOLD = [
+        'à' => 'a', 'á' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a', 'å' => 'a', 'ā' => 'a', 'ă' => 'a',
+        'ç' => 'c', 'ć' => 'c', 'č' => 'c',
+        'è' => 'e', 'é' => 'e', 'ê' => 'e', 'ë' => 'e', 'ē' => 'e', 'ĕ' => 'e', 'ė' => 'e', 'ę' => 'e', 'ě' => 'e',
+        'ì' => 'i', 'í' => 'i', 'î' => 'i', 'ï' => 'i', 'ī' => 'i', 'į' => 'i',
+        'ñ' => 'n', 'ń' => 'n',
+        'ò' => 'o', 'ó' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o', 'ō' => 'o', 'ø' => 'o',
+        'ù' => 'u', 'ú' => 'u', 'û' => 'u', 'ü' => 'u', 'ū' => 'u', 'ů' => 'u',
+        'ý' => 'y', 'ÿ' => 'y',
+        'ž' => 'z', 'ź' => 'z', 'ż' => 'z',
+        'æ' => 'ae', 'œ' => 'oe', 'ß' => 'ss',
+    ];
+
+    /**
+     * Lowercase, accent-folded, punctuation-collapsed. The one function
+     * both sides of a case- and accent-insensitive comparison go through:
+     * a member search, a duplicate-place detector, a Desk label this site
+     * did not write.
+     *
+     * **The explicit map is applied unconditionally**, rather than relying
+     * on ext-intl's `Normalizer`, which this project does not require in
+     * composer.json: a comparison whose accent handling depends on which
+     * extensions a shared host happens to enable would behave differently
+     * between two installations, and the tests would only pin whichever one
+     * they ran on. `Normalizer`, when present, runs afterwards for
+     * characters outside the map. And **never `iconv('ASCII//TRANSLIT')`**,
+     * whose output depends on the C library and the locale — the same
+     * "é" comes back as `e` on glibc and as `'e` on musl.
+     *
+     * **Every run of non-alphanumerics collapses to one space**, which is
+     * what makes a middle dot ("candidat·e" — inclusive writing, not a word
+     * boundary anybody means), a hyphen, a non-breaking space and a
+     * parenthesised "(asbl)" all read the same. It also means a word here
+     * is a run bounded by spaces, so a needle can be matched as a whole
+     * word rather than as a substring.
+     *
+     * `Modules\Finance\Service\CategoryRuleEngine::normalize()` is the same
+     * idea with the opposite trade-off (intl first, graceful degradation);
+     * it stays where it is, a private detail of a rule engine nothing here
+     * has any business coupling to.
+     */
+    public static function fold(?string $value): string
+    {
+        if ($value === null) {
+            return '';
+        }
+
+        $value = mb_strtolower(trim($value), 'UTF-8');
+        $value = strtr($value, self::FOLD);
+
+        if (class_exists(\Normalizer::class)) {
+            $decomposed = \Normalizer::normalize($value, \Normalizer::FORM_D);
+            if (is_string($decomposed)) {
+                $value = preg_replace('/\p{Mn}/u', '', $decomposed) ?? $decomposed;
+            }
+        }
+
+        $value = preg_replace('/[^a-z0-9]+/u', ' ', $value) ?? $value;
+
+        return trim($value);
+    }
+
     /**
      * Name particles that stay lowercase when they are not the first word.
      *

@@ -107,16 +107,6 @@ class DuplicatePlaceDetectorTest extends TestCase
         $this->assertSame('certain', $found[0]['certainty']);
     }
 
-    public function testAPlaceIsNeverItsOwnDuplicate(): void
-    {
-        $id = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
-
-        $this->assertSame([], $this->detector()->findCandidates(
-            ['name' => 'Domaine de Mozet', 'city' => 'Mozet'],
-            $id
-        ));
-    }
-
     public function testAnArchivedPlaceIsNotOfferedAsADuplicate(): void
     {
         $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);

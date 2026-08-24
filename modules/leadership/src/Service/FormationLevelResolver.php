@@ -155,18 +155,6 @@ final class FormationLevelResolver
         return FormationStep::UNKNOWN;
     }
 
-    /**
-     * True when this exact raw value is covered by an admin mapping — used
-     * by the Formations page to show which of the values it lists have
-     * already been decided.
-     */
-    public function isExplicitlyMapped(?string $rawValue): bool
-    {
-        $folded = TextMatcher::fold($rawValue);
-
-        return $folded !== '' && isset($this->mapping[$folded]);
-    }
-
     /** The key an admin mapping is stored and looked up under. */
     public static function keyFor(?string $rawValue): string
     {

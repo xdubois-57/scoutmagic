@@ -111,9 +111,10 @@ class RentalMessageConsumerTest extends TestCase
         $this->documentService = new \Modules\Rental\Service\RentalDocumentService(
             $this->documentRepository,
             $this->bookingRepository,
-            new \Modules\Rental\Repository\RentalBookingEventRepository($this->pdo, $this->encryption),
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
             new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
             $fileRepository,
+            new \Core\File\AttachedFileRemover($fileRepository, sys_get_temp_dir()),
             new \Core\Pdf\DocumentPdfService(),
             new HtmlSanitizer(),
             new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),

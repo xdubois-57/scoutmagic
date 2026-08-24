@@ -11,6 +11,7 @@ namespace Modules\Registration\Service;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
+use Core\Security\CapabilityToken;
 use Modules\Registration\Repository\RegistrationSecondaryEmail;
 use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
 use Twig\Environment;
@@ -65,7 +66,7 @@ class SecondaryEmailService
             return $existing;
         }
 
-        $rawToken = bin2hex(random_bytes(32));
+        $rawToken = CapabilityToken::generate();
         $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
         $expiresAt = new \DateTimeImmutable('+' . self::CONFIRMATION_EXPIRY_HOURS . ' hours');
 
@@ -152,7 +153,7 @@ class SecondaryEmailService
     private function resendConfirmation(int $requestId, int $emailId): void
     {
         $row = $this->requireOwnRow($requestId, $emailId);
-        $rawToken = bin2hex(random_bytes(32));
+        $rawToken = CapabilityToken::generate();
         $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
         $expiresAt = new \DateTimeImmutable('+' . self::CONFIRMATION_EXPIRY_HOURS . ' hours');
 

@@ -131,7 +131,7 @@
                                         Supprimer
                                     </button>
                                 </form>
-                                {% if current_user_role == 'admin' or current_user_role == 'superadmin' %}
+                                {% if can_anonymise_contacts %}
                                     <a class="btn btn-sm btn-outline-secondary"
                                        href="/chefs/camps/contacts/{{ contact.id }}/anonymiser">
                                         Anonymiser

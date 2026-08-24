@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Repository;
 
+use Modules\Camps\Support;
+
 /**
  * camp_places. No EncryptionService here, and that is the point: every
  * column of this table is in clear (see schema.sql), which is what lets
@@ -320,26 +322,21 @@ class PlaceRepository
         return new Place(
             id: (int) $row['id'],
             name: (string) $row['name'],
-            address: $this->nullableString($row['address']),
-            postalCode: $this->nullableString($row['postal_code']),
-            city: $this->nullableString($row['city']),
-            country: $this->nullableString($row['country']),
-            websiteUrl: $this->nullableString($row['website_url']),
+            address: Support::nullableString($row['address']),
+            postalCode: Support::nullableString($row['postal_code']),
+            city: Support::nullableString($row['city']),
+            country: Support::nullableString($row['country']),
+            websiteUrl: Support::nullableString($row['website_url']),
             isArchived: (bool) $row['is_archived'],
             latitude: $row['latitude'] !== null ? (float) $row['latitude'] : null,
             longitude: $row['longitude'] !== null ? (float) $row['longitude'] : null,
             coordinatesAreManual: (bool) ($row['coordinates_are_manual'] ?? false),
-            geocodedAt: $this->nullableString($row['geocoded_at'] ?? null),
-            aiSummary: $this->nullableString($row['ai_summary'] ?? null),
-            aiSummaryGeneratedAt: $this->nullableString($row['ai_summary_generated_at'] ?? null),
+            geocodedAt: Support::nullableString($row['geocoded_at'] ?? null),
+            aiSummary: Support::nullableString($row['ai_summary'] ?? null),
+            aiSummaryGeneratedAt: Support::nullableString($row['ai_summary_generated_at'] ?? null),
             aiSummaryIsStale: (bool) ($row['ai_summary_is_stale'] ?? false),
             createdAt: (string) $row['created_at'],
             updatedAt: (string) $row['updated_at'],
         );
-    }
-
-    private function nullableString(mixed $value): ?string
-    {
-        return $value !== null && $value !== '' ? (string) $value : null;
     }
 }

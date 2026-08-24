@@ -8,13 +8,16 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Task;
 
+use Core\Audit\AuditRepository;
+use Core\Audit\AuditService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
-use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalBookingRepository;
+use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalBookingService;
 
 /**
@@ -55,7 +58,18 @@ class ExpireRentalHoldsHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
         $service = new RentalBookingService(
             new RentalBookingRepository($pdo, $context->encryption),
-            new JournalService(new JournalRepository($pdo))
+            new JournalService(new JournalRepository($pdo)),
+            // A booking this sweep expires has nothing left to decide, so
+            // its pending change requests are refused with it — the same
+            // rule RentalOperationsService applies when a manager closes a
+            // booking by hand, reached here by the other road. Without
+            // these two the renter's tracking page kept offering
+            // « Accepter » on a proposal for a booking that no longer
+            // existed.
+            new RentalChangeRequestRepository($pdo, $context->encryption),
+            // No ActorAccountResolver: nothing here has an actor. The
+            // deadline decided, and the timeline says so (§8.66).
+            new BookingAudit(new AuditService(new AuditRepository($pdo, $context->encryption)))
         );
 
         $service->expireLapsedHolds(new \DateTimeImmutable());
@@ -64,8 +78,8 @@ class ExpireRentalHoldsHandler implements TaskHandlerInterface
         // marks a task done only after handle() returns, so this very task
         // is still `pending` right now and bootstrap()'s guard would find
         // it, skip, and end the chain after a single run.
-        $scheduler = new SchedulerService(new SchedulerRepository($pdo));
-        $scheduler->scheduleAfter('rental', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+        SchedulerService::forPdo($pdo)
+            ->scheduleAfter('rental', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
     }
 
     /**
@@ -77,10 +91,11 @@ class ExpireRentalHoldsHandler implements TaskHandlerInterface
      */
     public static function bootstrap(SchedulerService $scheduler): void
     {
-        if ($scheduler->find('rental', self::TASK_KEY, self::REFERENCE) !== null) {
-            return;
-        }
-
-        $scheduler->scheduleAfter('rental', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+        $scheduler->rearm(
+            'rental',
+            self::TASK_KEY,
+            self::REFERENCE,
+            new \DateTimeImmutable('+' . self::INTERVAL_SECONDS . ' seconds')
+        );
     }
 }

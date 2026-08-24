@@ -249,4 +249,39 @@ class EncryptionServiceTest extends TestCase
         );
         $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $this->service->blindIndex('value', 'purpose'));
     }
+
+    // ── normalizeEmailForIndex() ────────────────────────────────────────
+
+    public function testNormalizeEmailForIndexTrimsAndLowercases(): void
+    {
+        $this->assertSame('jean@example.org', EncryptionService::normalizeEmailForIndex('  Jean@Example.ORG '));
+    }
+
+    public function testNormalizeEmailForIndexLowercasesNonAscii(): void
+    {
+        // strtolower() leaves the É alone (it is two bytes, neither of
+        // which is an ASCII letter), mb_strtolower() does not. Accents are
+        // NOT stripped: an address is an identifier, not a search term.
+        $this->assertSame('josé@example.org', EncryptionService::normalizeEmailForIndex('JOSÉ@example.org'));
+        $this->assertNotSame(strtolower('JOSÉ@example.org'), EncryptionService::normalizeEmailForIndex('JOSÉ@example.org'));
+    }
+
+    public function testNormalizeEmailForIndexTreatsNullAsEmpty(): void
+    {
+        $this->assertSame('', EncryptionService::normalizeEmailForIndex(null));
+        $this->assertSame('', EncryptionService::normalizeEmailForIndex('   '));
+    }
+
+    /**
+     * The failure this helper exists to prevent: a blind index is
+     * exact-match and nothing else, so two spellings normalising
+     * differently is a lookup that silently reports "not found".
+     */
+    public function testTwoSpellingsOfOneAddressShareOneBlindIndex(): void
+    {
+        $this->assertSame(
+            $this->service->blindIndex(EncryptionService::normalizeEmailForIndex('Jean@Example.ORG '), 'email'),
+            $this->service->blindIndex(EncryptionService::normalizeEmailForIndex('jean@example.org'), 'email')
+        );
+    }
 }

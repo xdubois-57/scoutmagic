@@ -1089,6 +1089,10 @@ $memberExportService = new \Core\Member\Export\MemberExportService();
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
+// The shared "attached document" invariant (Core\File\AttachedFileRemover):
+// row first, bytes second, bytes only when the module owns them and nobody
+// else points at them. Camps and Locations both use this one instance.
+$attachedFileRemover = new \Core\File\AttachedFileRemover($fileRepository, $storagePath);
 $uploadHandler = new UploadHandler($fileRepository, $storagePath);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
 
@@ -1475,46 +1479,34 @@ $schedulerRunner->setTaskContext(new TaskContext(
 // Modules\LlmConnector\Task\RefreshModelsHandler's weekly refresh, since
 // Core\Scheduler has no first-class recurring-task concept), but the very
 // first occurrence needs an initial nudge.
-if ($schedulerService->find('core', 'auto_backup', 'auto') === null) {
-    $schedulerService->schedule('core', 'auto_backup', new DateTimeImmutable(), [], 'auto');
-}
+$schedulerService->rearm('core', 'auto_backup', 'auto', new DateTimeImmutable());
 
 // Same bootstrap for the notification retention purge (Core\Notification\
 // Task\PurgeNotificationsHandler).
-if ($schedulerService->find('core', 'purge_notifications', \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE) === null) {
-    $schedulerService->schedule('core', 'purge_notifications', new DateTimeImmutable(), [], \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE);
-}
+$schedulerService->rearm('core', 'purge_notifications', \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE, new DateTimeImmutable());
 
 // Same bootstrap for the daily stable-channel update check
 // (Core\Maintenance\Task\CheckStableUpdateHandler) — the very first
 // occurrence runs immediately, then it self-reschedules for 01:00 +
 // jitter every day after that.
-if ($schedulerService->find('core', 'check_stable_update', 'daily') === null) {
-    $schedulerService->schedule('core', 'check_stable_update', new DateTimeImmutable(), [], 'daily');
-}
+$schedulerService->rearm('core', 'check_stable_update', 'daily', new DateTimeImmutable());
 
 // Same bootstrap for the human-check rate-limit purge (Core\Security\
 // HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
-if ($schedulerService->find('core', 'purge_human_check_rate_limits', \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE) === null) {
-    $schedulerService->schedule('core', 'purge_human_check_rate_limits', new DateTimeImmutable(), [], \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE);
-}
+$schedulerService->rearm('core', 'purge_human_check_rate_limits', \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE, new DateTimeImmutable());
 
 // Same bootstrap for the daily usage-statistics report (Core\Statistics\
 // Task\SendStatisticsHandler). The very first occurrence runs immediately;
 // every guard it can trip (reporting disabled, non-public host, this site
 // IS the receiver) is checked inside the handler, so seeding it here costs
 // nothing on an installation that will never actually report.
-if ($schedulerService->find('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, \Core\Statistics\Task\SendStatisticsHandler::REFERENCE) === null) {
-    $schedulerService->schedule('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Statistics\Task\SendStatisticsHandler::REFERENCE);
-}
+$schedulerService->rearm('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, \Core\Statistics\Task\SendStatisticsHandler::REFERENCE, new DateTimeImmutable());
 
 // Same bootstrap for the support-package retention purge (Core\Support\
 // Task\PurgeSupportPackagesHandler) — the archive is the most sensitive
 // artefact this codebase produces on demand, so the purge must be running
 // from the first boot, not from the first generation.
-if ($schedulerService->find('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE) === null) {
-    $schedulerService->schedule('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE);
-}
+$schedulerService->rearm('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE, new DateTimeImmutable());
 
 // Add dynamic member entries to Espace membres — group: SORT_GROUP_DYNAMIC keeps
 // these (and the empty-state placeholder below) sorted ahead of every core
@@ -2658,9 +2650,7 @@ if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
     // Bootstrap the daily mail-merge audience retention purge (Task\
     // PurgeMergeAudiencesHandler self-reschedules afterwards — same
     // pattern as registration's purge_registration_requests below).
-    if ($schedulerService->find('mass_mail', 'purge_merge_audiences', 'daily') === null) {
-        $schedulerService->schedule('mass_mail', 'purge_merge_audiences', new DateTimeImmutable(), [], 'daily');
-    }
+    $schedulerService->rearm('mass_mail', 'purge_merge_audiences', 'daily', new DateTimeImmutable());
     $frontController->registerController(
         \Modules\MassMail\Controller\ConfigController::class,
         new \Modules\MassMail\Controller\ConfigController($twig, $massMailListService, $settingService)
@@ -3209,9 +3199,7 @@ if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) 
         // Monthly history (§8.51): closes every calendar month that ended.
         \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::TASK_KEY => \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::REFERENCE,
     ] as $supportTaskKey => $supportTaskReference) {
-        if ($schedulerService->find('support_dashboard', $supportTaskKey, $supportTaskReference) === null) {
-            $schedulerService->schedule('support_dashboard', $supportTaskKey, new DateTimeImmutable(), [], $supportTaskReference);
-        }
+        $schedulerService->rearm('support_dashboard', $supportTaskKey, $supportTaskReference, new DateTimeImmutable());
     }
 }
 
@@ -3249,9 +3237,7 @@ if (in_array('test_tools', $moduleManager->getEnabledModuleIds(), true)) {
         // oldest go — rows and encrypted files together.
         \Modules\TestTools\Task\PurgeCapturedEmailsHandler::TASK_KEY => \Modules\TestTools\Task\PurgeCapturedEmailsHandler::REFERENCE,
     ] as $testToolsTaskKey => $testToolsTaskReference) {
-        if ($schedulerService->find('test_tools', $testToolsTaskKey, $testToolsTaskReference) === null) {
-            $schedulerService->schedule('test_tools', $testToolsTaskKey, new DateTimeImmutable(), [], $testToolsTaskReference);
-        }
+        $schedulerService->rearm('test_tools', $testToolsTaskKey, $testToolsTaskReference, new DateTimeImmutable());
     }
 }
 
@@ -3271,7 +3257,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         $campsContactRepo, $auditService, $journalService
     );
     $campsDocumentService = new \Modules\Camps\Service\DocumentService(
-        $campsDocumentRepo, $fileRepository, $uploadHandler, $auditService, $storagePath
+        $campsDocumentRepo, $attachedFileRemover, $uploadHandler, $auditService
     );
 
     // Two OPTIONAL gallery capabilities, both nullable and both degrading
@@ -3324,10 +3310,22 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         [\Modules\Camps\Task\GeocodePlacesHandler::TASK_KEY, \Modules\Camps\Task\GeocodePlacesHandler::REFERENCE, '+1 minute'],
         [\Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY, \Modules\Camps\Task\RefreshPlaceSummariesHandler::REFERENCE, 'tomorrow 05:00'],
     ] as [$campsTaskKey, $campsTaskReference, $campsTaskWhen]) {
-        if ($schedulerService->find('camps', $campsTaskKey, $campsTaskReference) === null) {
-            $schedulerService->schedule('camps', $campsTaskKey, new DateTimeImmutable($campsTaskWhen), [], $campsTaskReference);
-        }
+        $schedulerService->rearm('camps', $campsTaskKey, $campsTaskReference, $campsTaskWhen);
     }
+
+    // The summary refresher is registered by hand rather than
+    // auto-resolved from the manifest, because it is the one camps task
+    // that consumes another module's public API (ARCHITECTURE.md §7.5):
+    // only a composition root knows whether `llm_connector` is enabled,
+    // and the handler must not reach into that module's own classes to
+    // find out. Registered in public/cron.php too — a handler registered
+    // in only one of the two entry points fails unconditionally under the
+    // other (§8.17/§8.20), which is why a test pins both.
+    $schedulerRunner->registerHandler(
+        'camps',
+        \Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY,
+        new \Modules\Camps\Task\RefreshPlaceSummariesHandler($llmConnectorForRgpd ?? null)
+    );
 
     // BOTH file gates, because they guard different routes and a module
     // registering only one leaves its files reachable through the other:
@@ -3472,9 +3470,7 @@ if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
     // occurrence needs an initial nudge. auto_close_board needs no such
     // bootstrap — it's scheduled per-board by Service\BoardService::
     // create()/update().
-    if ($schedulerService->find('retro', 'purge_rate_limits', 'daily') === null) {
-        $schedulerService->schedule('retro', 'purge_rate_limits', new DateTimeImmutable(), [], 'daily');
-    }
+    $schedulerService->rearm('retro', 'purge_rate_limits', 'daily', new DateTimeImmutable());
 }
 
 // Re-registers calendar's event-facing services/controllers with the
@@ -3748,25 +3744,17 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     // themselves hourly at the end of every run (same pattern as
     // Modules\Retro\Task\PurgeRateLimitHandler), but the very first
     // occurrence needs an initial nudge.
-    if ($schedulerService->find('registration', 'open_registration', 'poll') === null) {
-        $schedulerService->schedule('registration', 'open_registration', new DateTimeImmutable(), [], 'poll');
-    }
-    if ($schedulerService->find('registration', 'close_registration', 'poll') === null) {
-        $schedulerService->schedule('registration', 'close_registration', new DateTimeImmutable(), [], 'poll');
-    }
+    $schedulerService->rearm('registration', 'open_registration', 'poll', new DateTimeImmutable());
+    $schedulerService->rearm('registration', 'close_registration', 'poll', new DateTimeImmutable());
     // Same bootstrap for the daily retention purge (Task\
     // PurgeRegistrationRequestsHandler) — module-scoped handlers need no
     // manual registerHandler() call in either entry point (auto-resolved
     // via ModuleManager::getTaskHandler()), only this one-time nudge.
-    if ($schedulerService->find('registration', 'purge_registration_requests', 'daily') === null) {
-        $schedulerService->schedule('registration', 'purge_registration_requests', new DateTimeImmutable(), [], 'daily');
-    }
+    $schedulerService->rearm('registration', 'purge_registration_requests', 'daily', new DateTimeImmutable());
     // Same again for the Passage auto-assignment (Task\
     // AutoAssignPassageHandler) — it used to run inside PassageController::
     // index(), i.e. a write on every GET of the page.
-    if ($schedulerService->find('registration', 'auto_assign_passage', 'hourly') === null) {
-        $schedulerService->schedule('registration', 'auto_assign_passage', new DateTimeImmutable(), [], 'hourly');
-    }
+    $schedulerService->rearm('registration', 'auto_assign_passage', 'hourly', new DateTimeImmutable());
 
     // Menu hook (Core\Module\MenuEntryProvider, ARCHITECTURE.md §7.4) — one
     // entry per pending registration request linked to the visitor's email.
@@ -3856,9 +3844,28 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     // indistinguishable, because an Occupancy carries nothing to tell them
     // apart by.
     $rentalBookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService);
+    $rentalChangeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository($pdo, $encryptionService);
+    // The booking's own change history (§6.15) now goes through Core\Audit
+    // (§8.66), like Camps' and every other per-entity timeline: one storage
+    // rule (every value encrypted), one partial, one JSON pagination route.
+    // Modules\Rental\Audit\BookingAudit keeps this module's vocabulary —
+    // its field keys, their French labels, and the member-to-account
+    // mapping Core\Audit cannot make on its own.
+    $rentalBookingAudit = new \Modules\Rental\Audit\BookingAudit(
+        $auditService,
+        new \Modules\Rental\Audit\ActorAccountResolver(
+            $memberService, $userAccountRepo, $scoutYearService
+        )
+    );
     $rentalBookingService = new \Modules\Rental\Service\RentalBookingService(
         $rentalBookingRepository,
-        $journalService
+        $journalService,
+        // The expiry sweep refuses a booking's pending change requests
+        // along with it, exactly as a manager moving it to a final status
+        // does — otherwise the renter's tracking page keeps offering
+        // « Accepter » on a proposal for a booking that no longer exists.
+        $rentalChangeRequestRepository,
+        $rentalBookingAudit
     );
     $rentalBlockRepository = new \Modules\Rental\Repository\RentalBlockRepository($pdo);
     $rentalOccupancyProviders = [$rentalBookingService, $rentalBlockRepository];
@@ -3872,9 +3879,23 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $journalService
     );
 
-    $rentalEventRepository = new \Modules\Rental\Repository\RentalBookingEventRepository($pdo);
+    // Without this the timeline's later pages simply do not load — an
+    // unregistered entity type is denied, which is the intended direction
+    // of that failure (§8.66). Reading a booking's history needs the same
+    // right as reading the booking, so the checker delegates to it.
+    $auditAccessResolver->register(
+        \Modules\Rental\Audit\BookingAudit::ENTITY_TYPE,
+        static function (int $id) use ($rentalBookingRepository, $rentalAuthorizationService, $scoutYearService): bool {
+            $booking = $rentalBookingRepository->findById($id);
+
+            return $booking !== null && $rentalAuthorizationService->canManageAssetId(
+                \Core\Security\AuthSession::getEmail(),
+                (int) $scoutYearService->getCurrentYear()['id'],
+                $booking->assetId
+            );
+        }
+    );
     $rentalCommentRepository = new \Modules\Rental\Repository\RentalBookingCommentRepository($pdo, $encryptionService);
-    $rentalChangeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository($pdo, $encryptionService);
     // Payments (§6.19, §6.20). Every Finance dependency is nullable and
     // stays null when the module is disabled — the service then degrades to
     // "no receivable, no QR, nothing raised" and the rest of `rental` is
@@ -3883,7 +3904,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     $rentalPaymentRepository = new \Modules\Rental\Repository\RentalPaymentRepository($pdo, $encryptionService);
     $rentalPaymentService = new \Modules\Rental\Service\RentalPaymentService(
         $rentalPaymentRepository,
-        $rentalEventRepository,
+        $rentalBookingAudit,
         $journalService,
         $financeExpectedReceivableForOthers,
         $financeStructuredCommunicationForOthers,
@@ -3940,9 +3961,10 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     $rentalDocumentService = new \Modules\Rental\Service\RentalDocumentService(
         $rentalDocumentRepository,
         $rentalBookingRepository,
-        $rentalEventRepository,
+        $rentalBookingAudit,
         $editableContentService,
         $fileRepository,
+        $attachedFileRemover,
         new \Core\Pdf\DocumentPdfService(),
         new \Core\Security\HtmlSanitizer(),
         $settingService,
@@ -4034,7 +4056,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     $rentalStayRepository = new \Modules\Rental\Repository\RentalStayRepository($pdo, $encryptionService);
     $rentalStayService = new \Modules\Rental\Service\RentalStayService(
         $rentalStayRepository,
-        $rentalEventRepository,
+        $rentalBookingAudit,
         $rentalPricingService,
         new \Modules\Rental\Stay\SettlementCalculator(),
         $journalService,
@@ -4043,7 +4065,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
 
     $rentalOperationsService = new \Modules\Rental\Service\RentalOperationsService(
         $rentalBookingRepository,
-        $rentalEventRepository,
+        $rentalBookingAudit,
         $rentalCommentRepository,
         $rentalChangeRequestRepository,
         $rentalAvailabilityService,
@@ -4062,7 +4084,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Rental\Controller\RentalManagementController::class,
         new \Modules\Rental\Controller\RentalManagementController(
             $twig, $rentalAuthorizationService, $scoutYearService, $rentalAssetRepository,
-            $rentalBookingRepository, $rentalEventRepository, $rentalCommentRepository,
+            $rentalBookingRepository, $auditService, $rentalCommentRepository,
             $rentalChangeRequestRepository, $rentalOperationsService, $rentalBlockService,
             $rentalAvailabilityService, $rentalPricingService, $memberService,
             new \Core\View\MonthGrid\DayStateGridBuilder(), $rentalPaymentService,
@@ -4161,7 +4183,10 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         // And its receivables: Finance's tables are outside every cascade
         // this module's schema declares, so a purged booking would keep
         // being owed for otherwise.
-        $rentalPaymentService
+        $rentalPaymentService,
+        // And its change history: `entity_changes` has no foreign key, so
+        // the purge deletes it explicitly (§8.66).
+        $rentalBookingAudit
     );
     $schedulerRunner->registerHandler(
         'rental',
