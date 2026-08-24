@@ -23,10 +23,18 @@ class PasswordResetRepository
 
     public function create(string $emailBlindIndex, string $tokenHash, \DateTimeImmutable $expiresAt): int
     {
+        // created_at written here, not by the column's DEFAULT
+        // CURRENT_TIMESTAMP — see Core\Security\MagicLinkRepository::create().
         $stmt = $this->pdo->prepare(
-            'INSERT INTO password_reset_tokens (email_blind_index, token_hash, expires_at) VALUES (?, ?, ?)'
+            'INSERT INTO password_reset_tokens (email_blind_index, token_hash, expires_at, created_at)
+             VALUES (?, ?, ?, ?)'
         );
-        $stmt->execute([$emailBlindIndex, $tokenHash, $expiresAt->format('Y-m-d H:i:s')]);
+        $stmt->execute([
+            $emailBlindIndex,
+            $tokenHash,
+            $expiresAt->format('Y-m-d H:i:s'),
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+        ]);
 
         return (int) $this->pdo->lastInsertId();
     }

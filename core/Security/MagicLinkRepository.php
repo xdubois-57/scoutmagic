@@ -25,10 +25,20 @@ class MagicLinkRepository
      */
     public function create(string $emailBlindIndex, string $tokenHash, \DateTimeImmutable $expiresAt): int
     {
+        // created_at is stamped here rather than left to the column's
+        // DEFAULT CURRENT_TIMESTAMP: countRecentByEmail() — the magic-link
+        // rate limiter — compares it against a cutoff computed in PHP, and
+        // a row written by one clock and filtered by another either lets a
+        // flood through or locks a legitimate visitor out for an hour.
         $stmt = $this->pdo->prepare(
-            'INSERT INTO magic_links (email_blind_index, token_hash, expires_at) VALUES (?, ?, ?)'
+            'INSERT INTO magic_links (email_blind_index, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)'
         );
-        $stmt->execute([$emailBlindIndex, $tokenHash, $expiresAt->format('Y-m-d H:i:s')]);
+        $stmt->execute([
+            $emailBlindIndex,
+            $tokenHash,
+            $expiresAt->format('Y-m-d H:i:s'),
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+        ]);
 
         return (int) $this->pdo->lastInsertId();
     }

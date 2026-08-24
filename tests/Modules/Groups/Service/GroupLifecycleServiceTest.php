@@ -27,6 +27,7 @@ use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\RateLimitService;
 use Modules\Groups\Service\ReplyService;
+use Modules\Groups\Support\Timestamps;
 use Modules\Groups\Task\NullLinkPreviewFetcher;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -618,7 +619,7 @@ class GroupLifecycleServiceTest extends TestCase
 
     private function at(string $modifier): string
     {
-        return (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify($modifier)->format('Y-m-d H:i:s');
+        return Timestamps::at($modifier);
     }
 
     private function rowCount(string $table): int

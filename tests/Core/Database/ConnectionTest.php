@@ -81,6 +81,63 @@ class ConnectionTest extends TestCase
     }
 
     /**
+     * The invariant the whole application's clock rests on: what the
+     * database calls "now" and what PHP calls "now" must be the same
+     * instant AND the same wall clock, because half this codebase writes a
+     * timestamp from PHP and the other half lets `DEFAULT CURRENT_TIMESTAMP`
+     * do it, and every rate limiter, retention cutoff and scheduler query
+     * then compares the two. Without the `SET time_zone` in getPdo() a
+     * PHP-side window computed in Europe/Brussels sits one or two hours
+     * ahead of every row MySQL wrote, and the limiters stop firing at all.
+     *
+     * Asserted as a wall-clock string rather than by reading back
+     * `@@session.time_zone`, because the offset is what actually matters:
+     * a server whose SYSTEM zone already happened to match would pass a
+     * variable check while proving nothing.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testTheSessionTimeZoneAgreesWithPhpsOwnClock(): void
+    {
+        $pdo = $this->connectionFromEnvironment()->getPdo();
+
+        $statement = $pdo->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i') AS db_now");
+        $this->assertNotFalse($statement);
+        $dbNow = (string) $statement->fetchColumn();
+
+        // A minute of tolerance for the clock ticking over between the two
+        // reads — anything larger is the timezone bug this guards against.
+        $phpNow = new \DateTimeImmutable('now');
+        $delta = abs($phpNow->getTimestamp() - (new \DateTimeImmutable($dbNow))->getTimestamp());
+
+        $this->assertLessThanOrEqual(
+            60,
+            $delta,
+            "MySQL says {$dbNow}, PHP says {$phpNow->format('Y-m-d H:i')} — the session time zone was not aligned."
+        );
+    }
+
+    /**
+     * The numeric form is not cosmetic: `SET time_zone = 'Europe/Brussels'`
+     * needs the server's `mysql.time_zone*` tables, which shared hosting
+     * routinely does not load, and fails the connection outright when they
+     * are missing. Whatever getPdo() sets has to be an offset.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testTheSessionTimeZoneIsSetAsANumericOffsetNotAZoneName(): void
+    {
+        $pdo = $this->connectionFromEnvironment()->getPdo();
+
+        $statement = $pdo->query('SELECT @@session.time_zone');
+        $this->assertNotFalse($statement);
+
+        $this->assertMatchesRegularExpression('/^[+-]\d{2}:\d{2}$/', (string) $statement->fetchColumn());
+    }
+
+    /**
      * The MySQL server the TEST_DB_* variables point at, skipping the test
      * when it isn't reachable — the same contract as
      * Tests\Core\Database\MigrationRunnerTest and SchemaIntrospectorTest,

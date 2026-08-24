@@ -4,6 +4,14 @@ declare(strict_types=1);
 
 $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 
+// The application's wall clock is Belgian, because its users are — and the
+// database agrees with it, connection by connection. Read Core\Config\
+// AppClock's docblock before touching either half: setting a local default
+// timezone without the session-timezone alignment silently disarms every
+// rate limiter in the tree. First thing after the autoloader, so even the
+// error handler's own timestamps are on it.
+\Core\Config\AppClock::apply();
+
 // Arm the last-resort error handler before anything else runs — including
 // the config load and the database connect, both of which can throw and
 // would otherwise print a stack trace (with the DB password in a PDO frame)

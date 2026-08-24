@@ -128,16 +128,22 @@ class PageController extends AbstractController
                 $content = $this->rgpdContentService->getDefaultContent();
                 $lastUpdated = $this->rgpdContentService->getDefaultContentLastModified();
             } else {
-                // Get the last real content-change timestamp from editable_contents
-                // (stored in UTC, see EditableContentRepository::upsert()).
+                // Get the last real content-change timestamp from
+                // editable_contents — a naive DATETIME on the application
+                // clock like every other one (Core\Config\AppClock), so it
+                // is parsed under the default timezone, not forced to UTC.
                 $lastUpdatedRaw = $this->editableContentService->getLastUpdated('rgpd.text');
                 $lastUpdated = $lastUpdatedRaw !== null
-                    ? new \DateTimeImmutable($lastUpdatedRaw, new \DateTimeZone('UTC'))
+                    ? new \DateTimeImmutable($lastUpdatedRaw)
                     : $this->rgpdContentService->getDefaultContentLastModified();
             }
         }
 
-        $lastUpdated = $lastUpdated->format('d/m/Y H:i \U\T\C');
+        // No zone suffix: the site runs on Belgian time and every other
+        // date it renders is Belgian wall-clock, unlabelled. A "UTC" here
+        // (which is what this said while the whole app ran on UTC) would
+        // now be both inconsistent and, after the clock change, wrong.
+        $lastUpdated = $lastUpdated->format('d/m/Y H:i');
 
         // Inject the date into the content
         $content = str_replace(

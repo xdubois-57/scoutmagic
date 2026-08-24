@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Groups\Service;
 
 use Modules\Groups\Repository\RateLimitRepository;
+use Modules\Groups\Support\Timestamps;
 
 /**
  * Per-member flood protection on posting and replying — the limit
@@ -54,7 +55,13 @@ class RateLimitService
     public function checkAndRecord(int $memberId, string $actionType): void
     {
         $limit = self::LIMITS[$actionType] ?? PHP_INT_MAX;
-        $since = (new \DateTimeImmutable('-' . self::WINDOW_MINUTES . ' minutes'))->format('Y-m-d H:i:s');
+        // Through Support\Timestamps, exactly like the created_at
+        // Repository\RateLimitRepository::record() writes. Both ends of a
+        // rate-limit comparison have to come from the same clock: when
+        // this one read the ambient timezone and the other wrote UTC, the
+        // window's lower bound sat two hours ahead of every row in the
+        // table and the limiter stopped refusing anything at all.
+        $since = Timestamps::at('-' . self::WINDOW_MINUTES . ' minutes');
 
         if ($this->repository->countSince($memberId, $actionType, $since) >= $limit) {
             throw new GroupsException(
