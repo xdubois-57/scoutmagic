@@ -43,6 +43,7 @@ class UploadControllerTest extends TestCase
 {
     private \PDO $pdo;
     private string $tmpDir;
+    private \Core\Photo\PhotoIngestionService $photoIngestionService;
     private UploadController $controller;
     private MemberPhotoService $memberPhotoService;
     private AccountPhotoService $accountPhotoService;
@@ -108,12 +109,26 @@ class UploadControllerTest extends TestCase
         );
 
         $imageVariantService = new ImageVariantService($fileRepo, new ImageVariantProcessor(), $this->tmpDir);
-        $this->controller = new UploadController(
-            $twig, $uploadHandler, $editableContentService, $this->memberPhotoService,
-            $this->sectionPhotoService, new SectionPhotoProcessor(), new LandscapeImageProcessor(),
-            $memberService, new AgeBranchRepository($this->pdo), $this->unitLogoService, $imageVariantService,
+
+        // The controller keeps two collaborators; everything that happens to
+        // the bytes moved into Core\Photo\PhotoIngestionService. These tests
+        // still drive the controller (they are about the web boundary: the
+        // CSRF token, the authorization, the flash and the redirect), so they
+        // build the real service rather than a double — the pipeline they
+        // assert on is the production one.
+        $this->photoIngestionService = new \Core\Photo\PhotoIngestionService(
+            $uploadHandler,
+            $editableContentService,
+            $this->memberPhotoService,
+            $this->sectionPhotoService,
+            new SectionPhotoProcessor(),
+            new LandscapeImageProcessor(),
+            new AgeBranchRepository($this->pdo),
+            $this->unitLogoService,
+            $imageVariantService,
             $this->accountPhotoService
         );
+        $this->controller = new UploadController($twig, $this->photoIngestionService, $memberService);
         $this->controller->setJournalService(new JournalService($this->journalRepo));
 
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK1')");

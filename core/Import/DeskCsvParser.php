@@ -8,6 +8,24 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+/**
+ * Desk CSV export parser.
+ *
+ * **Changing anything here changes the reference dataset too.**
+ * `tests/fixtures/reference-dataset/` holds three committed exports built to
+ * this exact format — 35 headers in this order, `;`-delimited, `true`/`false`
+ * booleans, dates as `JJ/MM/AAAA`, one row per (function × address) — and a
+ * CLI builder that replays them into a test instance. Its README is the
+ * manual, and AGENTS.md § Reference dataset says what has to be checked in the
+ * same change. `Tests\Integration\ReferenceDatasetFormatTest` will fail on the
+ * pull request that breaks it, rather than on the day somebody tries to build
+ * an instance.
+ *
+ * Two details in EXPECTED_HEADERS are not typos and must not be "fixed":
+ * `Sizaine/Patrouillle` really is spelled with three Ls in a real export, and
+ * `SECTION` (all-caps) is a separate field this parser deliberately never
+ * reads — the section's identity comes from `Section`.
+ */
 class DeskCsvParser
 {
     /** @var string[] */
