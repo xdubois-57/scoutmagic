@@ -379,7 +379,14 @@ the page so it works offline; otherwise it links to `/aide`, which the
 mobile offcanvas footer also links, next to connexion/déconnexion.
 Topics are Markdown files in `docs/help/` (core) or `modules/<id>/help/`
 (modules) — see ARCHITECTURE.md §8.64; a new end-user-facing page must be
-covered by a topic, existing or new (AGENTS.md checklists).
+covered by a topic, existing or new (AGENTS.md checklists), which
+`tests/Core/Help/HelpMenuCoverageTest` enforces over every page the
+application renders.
+
+Five categories, and a topic belongs in one of them unless there is a
+reason it cannot: **Premiers pas**, **Espace membres**, **Espace
+animateurs**, **Espace chefs d'U**, **Configuration**. They follow the
+§7.1 lexicon and the menu labels; `/aide` presents them in that order.
 
 **Charte rédactionnelle** — enforced mechanically where possible by
 `tests/Core/Help/HelpInvariantsTest.php`, by review otherwise:
@@ -401,6 +408,14 @@ covered by a topic, existing or new (AGENTS.md checklists).
   qui est irréversible ou contre-intuitif.
 - Pas de lien externe, sauf vers le site de la fédération
   (lesscouts.be).
+- Pas de lien vers une autre page du site non plus : le rendu ne
+  reconnaît que les URL absolues `http(s)://`, et un `[texte](/aide/x)`
+  s'afficherait tel quel. Un sujet renvoie vers un autre sujet par
+  `related`, et nomme une page par son libellé (« la page Maintenance »),
+  jamais par sa route.
+- Le rendu ne connaît ni tableau, ni bloc de code, ni liste imbriquée :
+  titres `##`, paragraphes, listes à puces, listes numérotées, gras,
+  italique, `code` en ligne, un encadré `> `, et une image `/assets/`.
 
 ### 7.12 Rich text
 

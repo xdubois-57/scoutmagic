@@ -19,7 +19,10 @@ Chaque ligne du tableau propose trois interrupteurs :
 - **Site** : la notification apparaît dans la cloche et la page
   Notifications.
 - **Push** : elle s'affiche aussi sur votre appareil, même site fermé.
-- **Mail** : elle vous est envoyée par e-mail.
+- **Mail** : réservé pour la suite. L'interrupteur enregistre votre
+  choix, mais aucune notification ne part encore par e-mail — les
+  e-mails que le site vous envoie déjà (confirmations, envois groupés,
+  rappels) ne passent pas par ce réglage et continuent d'arriver.
 
 Un interrupteur grisé est fixé par le site : les alertes de sécurité
 qui concernent votre compte, par exemple, ne peuvent pas être coupées

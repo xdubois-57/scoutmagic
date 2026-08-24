@@ -838,7 +838,7 @@ Until this iteration, a `member_photo`/`section_photo`/`editable_image`/`age_bra
 
 **One real, pre-existing bug fixed alongside this pipeline**: `UploadController` stored `section_photo` files at `role_min: 'intendant'`, but `section_photo()` is rendered on the *public* Contact and Sections pages (§8.21) — `FileAccessGuard` silently denied every one of those to a non-identified visitor, so both pages showed no staff photo at all to anyone not logged in. `section_photo`'s stored `role_min` is now `'public'`, matching what §8.21 already assumed.
 
-**Retired**: the offline trombinoscope pre-download used to need its own narrow exception to the single-download-path rule (`GET /api/offline/photo/{member_id}`, `Core\Photo\StaffThumbnailProcessor`, generating an on-demand ~160px WebP square) precisely because `/files/{id}` had no cacheable, already-small rendition to point the pre-download at. `GET /files/{id}/thumb` now *is* that rendition, so the exception is gone entirely — `Core\Http\Controller\OfflineController::photo()` and `StaffThumbnailProcessor` are deleted, and `GET /api/offline/photo-manifest` (kept, still `role_min: identified`, still gated on `StaffDirectoryProvider`) now lists plain `/files/{id}/thumb` URLs. This is a net reduction of security surface: one fewer bespoke route bypassing `FileAccessGuard`'s normal single-path posture. See §8.25 and §6 for what this changes there.
+**Retired**: the offline trombinoscope pre-download used to need its own narrow exception to the single-download-path rule (`GET /api/offline/photo/{member_id}`, `Core\Photo\StaffThumbnailProcessor`, generating an on-demand ~160px WebP square) precisely because `/files/{id}` had no cacheable, already-small rendition to point the pre-download at. `GET /files/{id}/thumb` now *is* that rendition, so the exception is gone entirely — `Core\Http\Controller\OfflineController::photo()` and `StaffThumbnailProcessor` are deleted, and the pre-download manifest lists plain `/files/{id}/thumb` URLs instead. That manifest was itself `GET /api/offline/photo-manifest` (staff photos only) when this was written; §8.25's wider `GET /api/offline/manifest` has since replaced it, and the narrow route no longer exists either. This is a net reduction of security surface: one fewer bespoke route bypassing `FileAccessGuard`'s normal single-path posture. See §8.25 and `SECURITY.md` §6 for what this changes there.
 
 ### 8.40 Groups module (`modules/groups`)
 
@@ -939,6 +939,8 @@ The provider takes an **email** rather than exposing a bare getter, and answers 
 
 Renting out the unit's own assets — halls, grounds, tents, trailers, equipment. Opt-in (`enabled_by_default: false`): not every unit rents anything out.
 
+**A note on the `§6.x`/`§7.x` numbers in this section and in §8.44–§8.60.** They are the rental chantier's own specification document, which is not in this repository — its rules live here, in these sections, and the shipped functional spec of the same feature is `specifications.md` §22 (rentals) and §23 (inbound mail). Read them as provenance for a decision, not as a link you can follow; every number of this document's own is written as `§8.x`.
+
 **No `scout_year_id`, deliberately.** AGENTS.md § Database asks every member-related table to carry one "unless the data itself genuinely isn't scout-year-scoped (e.g. `calendar_events`)". This is that same exception, for the same reason: a rental is dated on a calendar, not attached to a school year. A booking from 28 August to 2 September straddles two scout years; forcing it into one makes the other year's availability calculation wrong, and the year-transition machinery would orphan live bookings every September. Retention is therefore driven by the accounting exercise instead, never by the scout year.
 
 **Two spaces, two different role boundaries — and only one of them is the real protection.**
@@ -984,7 +986,7 @@ That is the whole model. **There is no rule precedence, no resolution, and no ru
 
 **Four configuration blocks per asset**, configured from the asset's own "Réglages" page in the managed space rather than from an admin screen (§8.43): the billing unit; a unit-price grid on **two axes and two only** (period × renter category); a billable minimum — a floor amount **or** a floor number of people, never both (the service refuses, because storing both would need a precedence rule between them); and an ordered list of fees, each of exactly three natures.
 
-**`BillingUnit` decides two things, not one.** Besides the quantity formula, it alone determines whether availability is counted in **nights** (half-open: the departure day frees up for the next arrival) or in **full days** (closed: the return day is still taken). The module spec is explicit that this is derived, never configured separately — letting an operator set them independently is how a calendar ends up contradicting the invoice. Each unit also carries the French sentence explaining that consequence, which is the single source of truth for the note under the selector (rendered server-side, refreshed client-side by `public/assets/js/rental-pricing.js` reading the `<option>`'s own `data-explanation`, never a second copy of the text in JavaScript).
+**`BillingUnit` decides two things, not one.** Besides the quantity formula, it alone determines whether availability is counted in **nights** (half-open: the departure day frees up for the next arrival) or in **full days** (closed: the return day is still taken). The module spec is explicit that this is derived, never configured separately — letting an operator set them independently is how a calendar ends up contradicting the invoice. Each unit also carries the French sentence explaining that consequence, which is the single source of truth for the note under the selector (rendered server-side, refreshed client-side by `public/assets/js/select-explanation.js` — the generic `select[data-explanation-target]` wiring — reading the `<option>`'s own `data-explanation`, never a second copy of the text in JavaScript).
 
 **A meter fee never enters a quote.** Its amount is not merely unknown before the stay, it is unknowable — it comes from a real reading taken afterwards. It is listed as informational with its unit rate, excluded from the total, and settled on the final statement.
 
@@ -1704,9 +1706,11 @@ Product documentation shipped inside the release: one Markdown file per topic un
 
 **`Core\Help\HelpService` is the single role filter.** Below its `role_min` a topic exists nowhere — panel, index, search, `related`, and direct `/aide/{id}` (404, never 403: a 403 would confirm existence). `findForPath()` orders exact matches before child matches, then by id, since several topics may cover one page (`/config/maintenance` has backups, updates and reset).
 
-**Surfaces.** `Core\Http\FrontController` sets the `route_help` Twig global after the RBAC guard, exactly like `route_breadcrumb` (and takes `HelpService` as an optional trailing constructor parameter for the same test-compatibility reason as `OfflineWhitelist`): the matching topics with their bodies already rendered, so the panel ships inside the page and works offline with zero fetches. The help button (`partials/help_button.html.twig`) sits at the right of the breadcrumb bar — which shows at every width since the mega-menu rework, so one placement covers mobile, desktop and PWA — and is **always** visible: with a matching topic it opens the offcanvas panel (`partials/help_panel.html.twig`, bottom sheet on mobile, right drawer at lg via `.help-offcanvas` in `app.css`; several topics land on a title list, `public/assets/js/help-panel.js` swaps between them in place); with none it links to `/aide`, which is also reachable from the mobile offcanvas footer. `/aide` (`Core\Http\Controller\HelpController`) is the index grouped by `category` with a `?q=` GET search (no cookie, no state); `/aide/{id}` renders one topic. Both routes are `role_min: public` with an empty-`parents` breadcrumb (the help belongs to no menu). `MarkdownRenderer::toHtml()` gained an options parameter whose defaults reproduce the historical output byte-for-byte (release notes, the `markdown` Twig filter): help passes `heading_base_level` 1 (`##` renders as the `<h2>` it reads as; a lone `#` is forbidden by the invariant tests — the `<h1>` is the topic title), `/assets/`-only images, and blockquote callouts. `/aide` (exact) and `/aide/` (child) are core `OfflineWhitelist` entries, `role_min: public`.
+**Surfaces.** `Core\Http\FrontController` sets the `route_help` Twig global after the RBAC guard, exactly like `route_breadcrumb` (and takes `HelpService` as an optional trailing constructor parameter for the same test-compatibility reason as `OfflineWhitelist`): the matching topics with their bodies already rendered, so the panel ships inside the page and works offline with zero fetches. The help button (`partials/help_button.html.twig`) sits at the right of the breadcrumb bar — which shows at every width since the mega-menu rework, so one placement covers mobile, desktop and PWA — and is **always** visible: with a matching topic it opens the offcanvas panel (`partials/help_panel.html.twig`, bottom sheet on mobile, right drawer at lg via `.help-offcanvas` in `app.css`; several topics land on a title list, `public/assets/js/help-panel.js` swaps between them in place); with none it links to `/aide`, which is also reachable from the mobile offcanvas footer. `/aide` (`Core\Http\Controller\HelpController`) is the index grouped by `category` with a `?q=` GET search (no cookie, no state); `/aide/{id}` renders one topic. Both routes are `role_min: public` with an empty-`parents` breadcrumb (the help belongs to no menu). `MarkdownRenderer::toHtml()` gained an options parameter whose defaults reproduce the historical output byte-for-byte (release notes, the `markdown` Twig filter); `HelpController::RENDER_OPTIONS` is the one profile both surfaces pass, so a topic can never render differently in its two homes. It turns on all five: `heading_base_level` 1 (`##` renders as the `<h2>` it reads as; a lone `#` is forbidden by the invariant tests — the `<h1>` is the topic title), `/assets/`-only images, blockquote callouts, ordered lists (`1.` — numbered procedures), and `wrapped_list_items` (an indented continuation line joins the item above it, which topics hard-wrapped at ~72 columns need or every wrapped bullet fractures into list-paragraph-list). What the renderer still does **not** do, in any profile, is tables, code fences, nested lists, and links to anything but an absolute `http(s)://` URL — a `[x](/aide/y)` renders as its literal source text, so a topic points at another topic through `related`, never through a link. `/aide` (exact) and `/aide/` (child) are core `OfflineWhitelist` entries, `role_min: public`.
 
-**Invariants, pinned by `tests/Core/Help/HelpInvariantsTest`** (the `UxConventionsTest` scan-the-real-sources shape): every declared `paths` entry corresponds to a registered GET route (core + all modules — a typo would otherwise make a topic silently invisible on the page it documents), every id is unique across the whole corpus, every shipped file parses, and the mechanically checkable half of the editorial charter (design.md §7.11) holds: length, one warning callout at most, no external link but the federation's, no `#` heading. There is deliberately no journaling of help consultation, no database table, no wiki, no translation layer (locked decisions).
+**Categories.** A topic's `category` is a free string — an unknown one still renders, sorted alphabetically after the known ones, so introducing one never means touching code (locked decision 3). `HelpService::CATEGORY_ORDER` names the five the shipped corpus actually uses, in the order `/aide` presents them: **Premiers pas**, **Espace membres**, **Espace animateurs**, **Espace chefs d'U**, **Configuration** — design.md §7.1's lexicon and `MenuBuilder`'s own menu labels. A new topic belongs in one of those unless there is a reason it cannot.
+
+**Invariants, pinned by `tests/Core/Help/HelpInvariantsTest`** (the `UxConventionsTest` scan-the-real-sources shape): every declared `paths` entry corresponds to a registered GET route (core + all modules — a typo would otherwise make a topic silently invisible on the page it documents), every id is unique across the whole corpus, every shipped file parses, and the mechanically checkable half of the editorial charter (design.md §7.11) holds: length, one warning callout at most, no external link but the federation's, no `#` heading. `tests/Core/Help/HelpMenuCoverageTest` adds the coverage half, in two tiers. Every **menu** page — core pages registered via `MenuBuilder::addPage()`, module routes carrying a `label` — must have a topic visible at that page's own **role floor**, so the lowest role that can open the page also sees its help. Every **rendered** page — any GET route whose action renders a template that extends `base.html.twig`, which is exactly the set of pages that draw a help button — must be covered by some topic, at whatever role. The second tier is what catches the sub-pages a module hangs off an id: a fragment returned for "load more" extends nothing and is correctly skipped, while a real screen is not. The handful of pages that legitimately carry no topic (`/aide/{id}` itself, the e-mail-confirmation landings, the unsubscribe page) are an explicit, commented allow-list, itself checked against the live route table so it cannot outlive the pages it excuses. Modules gated by `visible_when` are skipped: they exist on no unit's installation, which is the audience the help is written for. There is deliberately no journaling of help consultation, no database table, no wiki, no translation layer (locked decisions).
 
 ### 8.65 The leadership module — a reading tool that cannot drift (`modules/leadership`)
 
@@ -1998,6 +2002,8 @@ core/
   Config/        SettingService, ScoutYearService
   Scheduler/     SchedulerService, SchedulerRunner, TaskContext, TaskHandlerInterface
   Journal/       JournalService
+  Audit/         AuditService, AuditRepository, AuditAccessResolver — per-entity change
+                 history and the timeline partials that render it (§8.66)
   File/          FileAccessGuard, UploadHandler, EncryptedFileStorageService
   Cookie/        CookieConsentService, CookieRegistry
   Member/        SectionService, MemberYearService, UnitStaffSectionService, MemberProfile, MemberEmailService, SectionDocumentService, DepartureService (§8.32), SectionStaffAuthorizationService (§8.33), AddressNormalizer, FeeEstimationService (§8.34)
@@ -2011,11 +2017,17 @@ core/
   Pdf/           PosterPdfService, PdfCompressor (A4 poster generation, Ghostscript compression)
   Url/           Generic short-URL service
   Offline/       OfflineWhitelist (§8.25)
+  Help/          HelpRegistry, HelpService, HelpFrontMatterParser, HelpTopic — the
+                 contextual-help engine behind docs/help/ and /aide (§8.64)
   Statistics/    InstallationIdentityService, DestinationMatcher, StatisticsPayloadBuilder,
                  StatisticsSender + Task\SendStatisticsHandler (§8.47)
   Support/       SupportPackageService, SupportCollectorInterface + its collectors,
                  SupportSpreadsheet, Task\GenerateSupportPackageHandler (§8.48)
+  Image/         ImageDimensionGuard — the pixel-count ceiling every decode passes (SECURITY.md §25)
   System/        ExecutableLocator, ShellExecutor
+  Debug/         RequestTimeline — opt-in `?debug=1` per-request timing/memory checkpoints
+  Exception/     UserFacingException/UserFacingMessage — the marker that says a caught
+                 exception's message may be shown to the visitor verbatim
   Service/       Cross-cutting helpers (e.g. TextNormalizerService)
 
 modules/
@@ -2026,6 +2038,7 @@ config/
 
 schema/
   core.sql
+  drops.sql
 
 storage/           (outside webroot)
   keys/
@@ -2056,6 +2069,14 @@ scripts/
 
 docs/
   module-development.md
+  rental-guide.md, inbound-mail-setup.md
+                   The two end-user guides README links
+  js-test-coverage-plan.md
+  help/            Core help topics, one Markdown file per topic — shipped in the
+                    release artifact and served at /aide (§8.64). A module's own
+                    topics live in modules/<id>/help/ instead.
+  chantiers/       Implementation journals, one per closed chantier. History, not
+                    product documentation.
 
 tests/             Mirrors core/ and modules/ structure
   js/              Vitest specs for public/assets/js/ (§15)

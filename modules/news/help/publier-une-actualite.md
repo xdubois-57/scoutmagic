@@ -4,8 +4,8 @@ title: Publier une actualité avec formulaire
 summary: Rédiger un article, construire son formulaire, suivre les réponses.
 category: Espace animateurs
 role_min: chief
-paths: /news/manage, /news/create
-related: actualites, publipostage, finances
+paths: /news/manage, /news/create, /news/*/edit
+related: actualites, reponses-au-formulaire, publipostage, finances
 ---
 
 La page « Actualités » de l'espace animateurs liste les articles avec

@@ -4,7 +4,7 @@ title: Envoyer un e-mail groupé
 summary: Du brouillon au test, puis l'envoi et son suivi, destinataire par destinataire.
 category: Espace animateurs
 role_min: chief
-paths: /mass-mail
+paths: /mass-mail, /mass-mail/*, /mass-mail/*/tracking
 related: publipostage, config-envoi-mails, membres-par-section
 ---
 

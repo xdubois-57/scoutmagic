@@ -4,7 +4,7 @@ title: Suivre une demande d'inscription
 summary: La page de suivi, ses statuts, et les adresses e-mail de suivi.
 category: Premiers pas
 role_min: public
-paths: /inscriptions/suivi/demande/*
+paths: /inscriptions/suivi/*/*
 related: inscrire-un-enfant, se-connecter
 ---
 

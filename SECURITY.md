@@ -361,7 +361,7 @@ The temporary member override (ARCHITECTURE.md §8.41) lets an admin (chef d'uni
 
 **If this needs tightening later**, in rough order of value: refuse the override for members holding a staff function (closes the escalation above); exclude the temporary member from `canAccess()` so secondary email management stays owner-only; add a TTL so a forgotten override expires on its own.
 
-## 34. Rental capability tokens and inbound mail
+## 33. Rental capability tokens and inbound mail
 
 Two new capability tokens and one new class of untrusted file arrive with the rentals and inbound-mail modules. Both follow §30's rules rather than inventing their own; what is written here is what is specific to them.
 
@@ -377,7 +377,7 @@ Two new capability tokens and one new class of untrusted file arrive with the re
 
 **A consumer module never gets arbitrary mailbox access.** Every method of `Modules\InboundMail\Api\InboundMailInterface` is scoped to one consumer id and one business reference; there is no `findAll()`, no `findByMailbox()` and no `search()`, and that absence is the enforcement. A manager who may open a booking does not thereby gain a window onto the unit's correspondence.
 
-## 33. Deferred hardening (known, tracked)
+## 34. Deferred hardening (known, tracked)
 
 The remaining audit items are understood and intentionally deferred — each is a UX-changing product decision or a broad template rework whose cost currently exceeds the risk it retires. Documented so they are tracked, not forgotten.
 

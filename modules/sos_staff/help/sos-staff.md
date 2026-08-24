@@ -4,7 +4,7 @@ title: Organiser les gardes SOS
 summary: La grille de garde mensuelle et le renvoi du numéro d'urgence.
 category: Espace chefs d'U
 role_min: admin
-paths: /admin/sos
+paths: /admin/sos, /admin/sos/transitions
 related: config-sos
 ---
 

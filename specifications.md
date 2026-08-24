@@ -248,23 +248,31 @@ The site is installable as a Progressive Web App on supported browsers/devices.
 Centralized notification dispatch and delivery across channels.
 
 ### 13.1 Channels
+
+Three, and a type may offer any combination of them:
+
 - **In-app**: notification centre (bell icon in header, unread count badge). The bell's own panel previews the **five most recent unread** notifications under the count, and says how many more are pending; the full list is one click away.
 - **Push**: browser/mobile push notifications (Web Push API, opt-in via subscription)
+- **Email**: declared by every type and switchable per type on the preferences page — but **no delivery is implemented yet**. `NotificationService::dispatch()` consults the push channel only, so an account that switches Mail on today receives nothing extra. Every type therefore declares it `off` or `default_off`; the preference is stored against the day the channel is wired, and nothing else reads it.
+
+A type declares each channel as on, off, `default_on` or `default_off`: the first two are **locked** (the recipient's preference page shows the switch greyed out and cannot change it — a security alert about your own account is never switchable off), the last two are defaults the recipient may override.
 
 ### 13.2 Notification types
 Modules can dispatch typed notifications (e.g., calendar event reminder, news article published, finance receipt processed). Each type has:
-- Default channel preferences (in-app, push, or both)
+- Default channel preferences, per channel (in-app, push, email), each either locked or a default the recipient may override
 - User-configurable per-type channel overrides
 - Role-based visibility (minimum role required to receive)
 
 ### 13.3 Preferences
-- Per-type channel selection (in-app only, push only, both, none). Reached from the top of the notification centre, above the list.
+- Per-type channel selection — one switch per channel (in-app, push, email) on each type's row. Reached from the top of the notification centre, above the list. The list of types shown depends on the reader's role and on which modules are active.
 - Quiet hours for push notifications: filling in a start and an end holds push notifications back between those two hours and delivers them when the range ends (a range crossing midnight works); in-app notifications are never held. Leaving both empty follows the site-wide range.
-- Push subscription management (subscribe/unsubscribe)
+- Push subscription management (subscribe/unsubscribe) — granted per device, from « Mon compte » on that device
+- **Discretion**: a per-account switch that strips the title and body from the push payload, so a locked screen shows a generic « Nouvelle notification ». The full text stays readable in the notification centre. One choice, applying to all of the account's devices.
 
 ### 13.4 Delivery
 - In-app: stored in database, displayed in notification centre, badge count in header
-- Push: sent via Web Push API (VAPID), respects quiet hours, falls back to in-app if subscription missing
+- Push: sent via Web Push API (VAPID), respects quiet hours and discretion, and is simply skipped when the account has no subscription — the in-app and email copies are unaffected
+- Email: not implemented — see §13.1. Nothing is sent on this channel by any code path today
 - All notifications logged in journal
 
 ## 14. Member email management
