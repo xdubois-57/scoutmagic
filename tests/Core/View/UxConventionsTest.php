@@ -53,6 +53,42 @@ final class UxConventionsTest extends TestCase
     private const DATA_CONFIRM_ALLOWLIST = [];
 
     /**
+     * A hidden `_csrf_token` field must be written by the `csrf_field()`
+     * Twig function, never by interpolating a `csrf_token` *variable*.
+     *
+     * `csrf_token` is registered as a Twig *function* (TwigFactory), so
+     * `{{ csrf_token }}` is not a call — it is a lookup for a variable of
+     * that name. When the controller happens to put one in the render
+     * context it works; when it forgets, `strict_variables` is off and the
+     * field renders `value=""`. Nothing warns: the page looks perfect, and
+     * every POST from it dies on the CSRF guard with « Votre session a
+     * expiré. » The whole camps module shipped that way — twenty-four
+     * fields, twelve templates, not one controller passing the variable,
+     * so adding a camp was impossible.
+     *
+     * `{{ csrf_field() }}` is a real call that emits the entire input, so
+     * it cannot depend on a context nothing enforces. The entries below
+     * are the pre-existing variable-based fields; they work only because
+     * their controller passes `csrf_token` today, which is exactly the
+     * coupling this rule exists to stop spreading.
+     *
+     * @var array<string, int> template path => count of variable-based fields
+     */
+    private const CSRF_VARIABLE_ALLOWLIST = [
+        'core/View/templates/auth/password_reset.html.twig' => 1,
+        'core/View/templates/setup/index.html.twig' => 1,
+        'core/View/templates/setup/token_gate.html.twig' => 1,
+        'modules/gallery/views/album_form.html.twig' => 1,
+        'modules/gallery/views/config.html.twig' => 1,
+        'modules/gallery/views/location_form.html.twig' => 1,
+        'modules/news/views/detail.html.twig' => 1,
+        'modules/news/views/editor.html.twig' => 1,
+        'modules/news/views/response_edit.html.twig' => 1,
+        'modules/registration/views/public.html.twig' => 2,
+        'modules/retro/views/settings.html.twig' => 1,
+    ];
+
+    /**
      * design.md §7.5 — `alert()`, `confirm()` and `prompt()` are the one
      * surface of this site that is not this site. The native box renders
      * the origin above the sentence (« 127.0.0.1:8000 dit : »), labels its
@@ -333,6 +369,26 @@ final class UxConventionsTest extends TestCase
             }
         }
         self::assertMatchesAllowlist($found, self::DATA_CONFIRM_ALLOWLIST, 'data-confirm is read on the <form> only; anywhere else it is silently inert');
+    }
+
+    public function testCsrfFieldsComeFromTheFunctionNotAVariable(): void
+    {
+        $found = [];
+        foreach (self::templates() as $rel) {
+            $count = preg_match_all(
+                '/name="_csrf_token"[^>]*value="\{\{\s*csrf_token\s*\}\}"/',
+                self::templateSource($rel)
+            );
+            if ($count > 0) {
+                $found[$rel] = $count;
+            }
+        }
+        self::assertMatchesAllowlist(
+            $found,
+            self::CSRF_VARIABLE_ALLOWLIST,
+            'A _csrf_token field must come from csrf_field(); {{ csrf_token }} is a variable lookup that renders empty '
+                . 'whenever the controller forgets it, and every POST then fails the CSRF guard'
+        );
     }
 
     public function testNoNativeBrowserDialogs(): void

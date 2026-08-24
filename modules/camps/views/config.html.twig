@@ -7,7 +7,7 @@
     } only %}
 
     <form method="post" action="/config/camps">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        {{ csrf_field() }}
 
         {% include 'partials/form_field.html.twig' with {
             field_id: 'camps-default-country',
