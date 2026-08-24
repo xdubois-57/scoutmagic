@@ -228,6 +228,7 @@ class FinanceRbacTest extends TestCase
             'import form' => ['/finance/import', 'ImportController', 'form', 'intendant', 'identified'],
             'receipts' => ['/finance/receipts', 'ReceiptController', 'list', 'intendant', 'identified'],
             'receivables' => ['/finance/receivables', 'ReceivablesController', 'index', 'intendant', 'identified'],
+            'tools' => ['/finance/tools', 'ToolsController', 'index', 'intendant', 'identified'],
             'config index' => ['/config/finance', 'ConfigController', 'index', 'superadmin', 'admin'],
             'config accounts' => ['/config/finance/accounts', 'ConfigAccountController', 'index', 'superadmin', 'admin'],
             'config categories' => ['/config/finance/categories', 'ConfigCategoryController', 'index', 'superadmin', 'admin'],
@@ -311,6 +312,10 @@ class FinanceRbacTest extends TestCase
                 $this->financeService, $this->bulkCategorizationService
             ),
             'ReceivablesController' => new ReceivablesController($this->twig, $this->receivablesOverviewService),
+            'ToolsController' => new \Modules\Finance\Controller\ToolsController(
+                $this->twig, $this->financeService, $this->expectedReceivableRepository, $this->journalService,
+                new \Modules\Finance\Service\SepaQrCodeService()
+            ),
             default => throw new \RuntimeException("Unknown controller {$name}"),
         };
     }

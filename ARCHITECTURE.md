@@ -1928,6 +1928,22 @@ No user-visible change of its own — these exist so §8.73's tools page has som
 
 **None of the three makes a structured communication decodable.** The ten-digit base is random; a communication says nothing about who paid, and the correspondence is a database lookup. Nothing should try to encode a member in one.
 
+### 8.73 The finance "Outils" page (`Modules\Finance\Controller\ToolsController`)
+
+Two small utilities that share nothing but a page, both answers to a question a treasurer asks with a phone in one hand: *make me a QR for this payment*, and *what is this communication on my statement?* They sit behind `GET /finance/tools` (`role_min: intendant`, `espace_chefs`) and are reached from the finance page picker.
+
+**Server-rendered, POST then render**, exactly like `ImportController`: no build tooling and no new dependency. `endroid/qr-code` was already required by `Service\SepaQrCodeService`, and the image arrives as a `data:` URI the way `Modules\News\Service\ResponseService` already delivers one — no second file route, nothing written to disk. A JavaScript bundle to answer two questions would cost more than it saves.
+
+**The QR generator creates no receivable, and that is the point.** Writing a `finance_expected_receivables` row here would fill the reconciliation page with money nobody ever promised, permanently and with nothing to trace it back to; producing a QR to show somebody is not a decision that a payment is owed. It renders an image; that is all. `ToolsControllerTest::testItCreatesNoReceivable()` states it as an assertion rather than an intention.
+
+**The checker filters by account visibility, which the tool's own description does not obviously require.** A receivable carries a label and an amount — what somebody owes and for what. §8.69 narrowed a section's account to that section's treasurer and §8.70 did the same for its receipts; a checker answering "Camp Éclaireurs 2026 — 42,00 €" for an account the caller cannot open would hand back through this page precisely what those two removed everywhere else. An invisible match therefore answers **exactly like an unknown one**: "it exists but is not yours" would still confirm that the communication was issued here, and the fact of existence is itself the thing being withheld. Verified by mutation — removing the filter fails that test and no other.
+
+**The journal records the outcome, never the input.** `communication_checked` carries a boolean and a numeric receivable id. The communication typed and the label found say who paid what, and a numeric identifier is enough to follow the thread (SECURITY.md §11).
+
+**`IbanNormalizer::format()` is used here and stops here** (§8.72): the grouped IBAN goes into the rendered page and into nothing else.
+
+**Validation is the real thing, not a pattern.** The IBAN goes through `isValidFullIban()`'s length-and-mod-97 check, so a single altered digit is refused; the amount accepts the comma every French-speaking keyboard produces and refuses zero, negatives and words.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

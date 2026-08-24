@@ -2589,6 +2589,17 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Finance\Controller\ReceivablesController::class,
         new \Modules\Finance\Controller\ReceivablesController($twig, $financeReceivablesOverviewService)
     );
+
+    // "Outils" (ARCHITECTURE.md §8.73). The QR generator is handed the
+    // module's own SepaQrCodeService — the same instance every other
+    // consumer gets — and the page degrades to a message rather than a
+    // fatal if it is ever absent.
+    $frontController->registerController(
+        \Modules\Finance\Controller\ToolsController::class,
+        new \Modules\Finance\Controller\ToolsController(
+            $twig, $financeService, $financeExpectedReceivableRepo, $journalService, $financeSepaQrCodeForOthers
+        )
+    );
 }
 
 // Optional dependency on the mass_mail module (ARCHITECTURE.md §7.5) —
