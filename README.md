@@ -182,6 +182,36 @@ Les assertions utilisent les rôles ARIA et les textes visibles (`getByRole`, `g
 
 **Playwright et la règle « pas d'outil de build frontend ».** Playwright est de l'outillage de test, au même titre que Vitest : il n'introduit ni bundler, ni compilateur Sass, ni transpileur, ni la moindre étape de build pour `public/assets/js/`, qui reste du JavaScript navigateur simple chargé par une balise `<script src="...">`. Ni Node ni Playwright ne sont nécessaires pour exécuter ou déployer ScoutMagic, et rien de tout cela n'entre dans l'artefact de release. Voir `AGENTS.md` § CSS / frontend.
 
+### Analyse de sécurité dynamique (DAST, OWASP ZAP)
+
+Complément **dynamique** à l'analyse statique : la suite Playwright est rejouée au travers d'un proxy [OWASP ZAP](https://www.zaproxy.org/), qui observe chaque requête et chaque réponse réelles de l'application. Une seule commande, une instance jetable, une base de données dédiée, un démontage complet :
+
+```bash
+docker pull ghcr.io/zaproxy/zaproxy:stable   # une fois : l'image ZAP (~1,2 Go)
+./scripts/dast.sh --profile=passive
+```
+
+**Pourquoi la suite de tests plutôt qu'un *spider*.** L'araignée de ZAP ne sait pas suivre un lien magique reçu par email, ni confirmer une adresse, ni enregistrer une clé numérique. La suite Playwright, elle, traverse déjà ces parcours — elle lit la boîte aux lettres de l'exécution — et le fait en étant connectée sous plusieurs identités. La rejouer à travers un proxy donne donc l'image la plus fidèle qui existe de la surface réellement exposée par ce site.
+
+**Profils** (`--profile=`) :
+
+| Profil | Contenu | Statut |
+|---|---|---|
+| `passive` | Règles passives uniquement, sur le trafic de la suite Playwright | **disponible** |
+| `standard` | `passive` + matrice d'autorisation sur les cinq rôles | à venir |
+| `deep` | `standard` + sous-ensemble ciblé de règles actives | à venir |
+| `audit` | Analyse active complète, sans budget de temps, jamais un gate | à venir |
+
+**Ce que le script fait, dans l'ordre** : il vérifie ses prérequis (php, npm, `node_modules`, Docker, l'image ZAP, les extensions PHP `openssl` et `pcntl`) et **échoue en indiquant la commande exacte à exécuter — il n'installe jamais rien** ; il génère un certificat auto-signé valable pour cette seule exécution ; il provisionne l'instance jetable par `scripts/e2e-support.php provision`, **exactement le même provisionnement que `npm run e2e`** (jamais une seconde copie) ; il démarre `php -S` puis `scripts/dast-tls-proxy.php` devant lui pour terminer TLS ; il démarre ZAP et lance le plan `tests/dast/zap-passive.yaml` ; il rejoue Playwright au travers de ZAP ; il produit un rapport HTML et un rapport SARIF ; il vérifie que la carte du site est bien remplie ; il rend un code de sortie non nul dès qu'une alerte de niveau **Medium ou supérieur** subsiste.
+
+**Pourquoi du HTTPS, et pourquoi un terminateur TLS maison.** Le drapeau `Secure` du cookie de session et l'en-tête `Strict-Transport-Security` sont invisibles en clair : sans TLS, la moitié de ce que le scan doit vérifier n'est pas observable. Le serveur intégré de PHP ne parle pas TLS, et le harnais s'interdit nginx comme php-fpm — donc `scripts/dast-tls-proxy.php`, un script PHP comme le sont déjà la boîte aux lettres et le collecteur de couverture. Il pose `X-Forwarded-Proto: https` (**en retirant d'abord toute copie envoyée par le client**), que l'instance jetable croit parce que son `config/app.php` active `trust_forwarded_proto` — l'option décrite en `SECURITY.md` § 9, désactivée partout ailleurs. Avant de lancer quoi que ce soit, le script vérifie que l'instance émet réellement HSTS : sans cela le scan passerait son temps à redécouvrir un défaut du harnais et à l'imputer à l'application.
+
+**Pourquoi il ne peut pas entrer en collision avec `npm run e2e`.** `scripts/release.sh` exécute ses gates en sous-shells parallèles, et `scripts/e2e.sh` **supprime** sa base de données au démontage. Le scan utilise donc une base à lui (`scoutmagic_dast`) et ses propres ports. `npm run e2e` est strictement inchangé : le proxy, l'HTTPS et les délais rallongés sont tous derrière des variables d'environnement que seul `scripts/dast.sh` définit, sur le modèle de `E2E_CHROMIUM_EXECUTABLE` qui existait déjà.
+
+**Le piège qui rendrait le scan inutile sans qu'on le voie.** Chromium contourne tout proxy pour les adresses de bouclage. Sans `--proxy-bypass-list=<-loopback>`, ZAP ne voit rien, tous les tests passent, et le rapport est vide — un échec parfaitement silencieux. C'est pourquoi `scripts/dast-support.php assert-sitemap` vérifie, avant de rendre son verdict, que la carte du site contient bien les pages authentifiées listées dans `tests/dast/expected-authenticated-paths.txt`, et fait échouer l'exécution sinon.
+
+**Faux positifs.** Ils sont neutralisés par des *alert filters* dans le plan ZAP lui-même (`tests/dast/`), chacun accompagné de la raison écrite pour laquelle il en est un — jamais par un fichier de référence d'alertes acceptées. Aujourd'hui il y en a exactement un : l'absence de jeton anti-CSRF sur `POST /api/webhook/github`, l'exception documentée en `SECURITY.md` § 4, authentifiée par une signature HMAC que ZAP ne peut pas voir.
+
 ## Intégration continue
 
 Chaque push sur `main` et chaque Pull Request déclenchent `.github/workflows/ci.yml` :

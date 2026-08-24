@@ -72,6 +72,17 @@ set -euo pipefail
 #       6761 — never a real mailbox); both passwords are generated fresh
 #       for every run, so nothing password-shaped is ever committed and no
 #       two runs share one.
+#   E2E_INTENDANT_EMAIL / E2E_INTENDANT_PASSWORD
+#   E2E_CHIEF_EMAIL / E2E_CHIEF_PASSWORD
+#   E2E_UNIT_ADMIN_EMAIL / E2E_UNIT_ADMIN_PASSWORD
+#       The three remaining rungs of Core\Security\Role, provisioned by
+#       the same rules as the two above (an .invalid address, a password
+#       generated per run). No Playwright scenario reads them — they exist
+#       so the dynamic security scan (scripts/dast.sh) can replay the site
+#       map as every role rather than as two of them. The `admin` one is
+#       E2E_UNIT_ADMIN_* and not E2E_ADMIN_*, which has named the
+#       SUPER-admin here since long before roles were provisioned; `admin`
+#       is the role displayed as "Chef d'Unité".
 #
 # Exported for the scenarios (not configuration — set by this script):
 #   E2E_MAILDROP
@@ -116,9 +127,22 @@ E2E_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random
 # generated fresh for every run.
 E2E_MEMBER_EMAIL="${E2E_MEMBER_EMAIL:-kaa@example.invalid}"
 E2E_MEMBER_PASSWORD="${E2E_MEMBER_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random_bytes(16));')}"
+# The three role-bearing accounts — same rules again. They are always
+# provisioned, not only for a scan: a fixture that exists on one code path
+# and not another is a fixture nobody can reason about, and the cost is
+# three rows in a database that is dropped at teardown.
+E2E_INTENDANT_EMAIL="${E2E_INTENDANT_EMAIL:-chil@example.invalid}"
+E2E_INTENDANT_PASSWORD="${E2E_INTENDANT_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random_bytes(16));')}"
+E2E_CHIEF_EMAIL="${E2E_CHIEF_EMAIL:-bagheera@example.invalid}"
+E2E_CHIEF_PASSWORD="${E2E_CHIEF_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random_bytes(16));')}"
+E2E_UNIT_ADMIN_EMAIL="${E2E_UNIT_ADMIN_EMAIL:-akela@example.invalid}"
+E2E_UNIT_ADMIN_PASSWORD="${E2E_UNIT_ADMIN_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random_bytes(16));')}"
 export E2E_DB_HOST E2E_DB_PORT E2E_DB_NAME E2E_DB_USER E2E_DB_PASSWORD
 export E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD
 export E2E_MEMBER_EMAIL E2E_MEMBER_PASSWORD
+export E2E_INTENDANT_EMAIL E2E_INTENDANT_PASSWORD
+export E2E_CHIEF_EMAIL E2E_CHIEF_PASSWORD
+export E2E_UNIT_ADMIN_EMAIL E2E_UNIT_ADMIN_PASSWORD
 
 SUPPORT="${REPO_ROOT}/scripts/e2e-support.php"
 

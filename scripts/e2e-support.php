@@ -184,10 +184,36 @@ function e2e_free_port(): int
  * One function rather than the literal repeated at each call site, so the
  * server, the provisioning, the settings and Playwright's baseURL can
  * never disagree about what the instance is called.
+ *
+ * The scheme is `http` unless E2E_BASE_SCHEME says otherwise. Only
+ * scripts/dast.sh sets it, to `https`: the security scan puts a TLS
+ * terminator in front of `php -S` (scripts/dast-tls-proxy.php) because
+ * the `Secure` cookie flag and Strict-Transport-Security are
+ * unobservable over cleartext, and the instance has to be told the URL it
+ * really answers on or every absolute link it builds points at a port
+ * nothing is listening on. Unset — `npm run e2e` and every existing
+ * caller — the value is byte-identical to what it always was.
  */
 function e2e_base_url(int $port): string
 {
-    return 'http://localhost:' . $port;
+    $scheme = ((string) getenv('E2E_BASE_SCHEME')) ?: 'http';
+    if ($scheme !== 'http' && $scheme !== 'https') {
+        fwrite(STDERR, "E2E: E2E_BASE_SCHEME must be 'http' or 'https', got '{$scheme}'.\n");
+        exit(1);
+    }
+
+    return $scheme . '://localhost:' . $port;
+}
+
+/**
+ * Whether the provisioned instance should believe `X-Forwarded-Proto`
+ * (Core\Http\RequestScheme's opt-in, written into the instance's
+ * config/app.php). Off unless E2E_TRUST_FORWARDED_PROTO says otherwise,
+ * so `npm run e2e` is unaffected.
+ */
+function e2e_trust_forwarded_proto(): bool
+{
+    return ((string) getenv('E2E_TRUST_FORWARDED_PROTO')) === '1';
 }
 
 /**
@@ -363,6 +389,15 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         . "    'debug' => false,\n"
         . "    'site_name' => 'Unité de test E2E',\n"
         . "    'base_url' => '" . e2e_base_url($port) . "',\n"
+        // Off for `npm run e2e`, which is served in cleartext and must
+        // keep behaving exactly as it always has. On only for
+        // scripts/dast.sh, whose instance sits behind
+        // scripts/dast-tls-proxy.php: that terminator sets
+        // X-Forwarded-Proto and strips any client-supplied copy, which is
+        // precisely the deployment shape SECURITY.md § 9 says the opt-in
+        // is for. Without it the scan would see a site emitting neither
+        // Secure cookies nor HSTS and would be right to say so.
+        . "    'trust_forwarded_proto' => " . (e2e_trust_forwarded_proto() ? 'true' : 'false') . ",\n"
         . "];\n"
     );
 
@@ -543,6 +578,22 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // mirrors that instead of leaving those behaviours unreachable.
     e2e_seed_unit_chief_function_for_admin($connection);
     e2e_seed_mobile_for_admin($connection, $encryptionKey, $blindIndexKey);
+
+    // --- One account per remaining rung of the role ladder. ---
+    //
+    // `identified` and `superadmin` are covered by the two above;
+    // `intendant`, `chief` and `admin` are not, and a dynamic
+    // authorization scan that cannot log in as a role proves nothing
+    // about that role (scripts/dast.sh). They live in a hidden section of
+    // their own so no existing scenario's fixture shape moves — see
+    // e2e_seed_role_members() for the full reasoning, including why the
+    // Staff d'U sweep leaves the admin's function where it is put.
+    e2e_seed_role_members($connection, $encryptionKey, $blindIndexKey);
+
+    // Fail closed if any of the five does not actually resolve to the
+    // role it is supposed to carry: a fixture that silently degrades to
+    // `identified` would produce a clean-looking, worthless matrix.
+    e2e_assert_resolved_roles($connection, $encryptionKey, $blindIndexKey, $adminEmail);
 
     // --- Every module, activated the way an admin activates one. ---
     //
@@ -1003,6 +1054,301 @@ function e2e_seed_section_with_both_members(Core\Database\Connection $connection
             $scoutYearId,
         ]);
     }
+}
+
+/**
+ * The three role-bearing accounts the harness provisions on top of the
+ * two the browser suite already uses (the super-admin and the ordinary
+ * member), so that every rung of Core\Security\Role is represented by a
+ * real, password-authenticable login: `identified` (the ordinary member),
+ * `intendant`, `chief`, `admin`, `superadmin`.
+ *
+ * They exist for the dynamic security scan (scripts/dast.sh), whose
+ * authorization matrix replays the site map as each role in turn — a
+ * matrix missing a role proves nothing about that role. Nothing in the
+ * Playwright suite reads them, deliberately: an existing scenario's shape
+ * must not change because a scan wanted another account.
+ *
+ * Pure and side-effect-free (env lookups aside), so the descriptor list
+ * is unit-tested directly — see Tests\Core\System\E2eRoleAccountsTest.
+ *
+ * The function codes deliberately do NOT start with `E2E-FCT`, the code
+ * e2e_seed_section_with_both_members() already uses. Config Desk labels
+ * each role select "Rôle pour <desk code>", and Playwright's getByLabel()
+ * matches on a SUBSTRING: `E2E-FCT-INT` made
+ * tests/e2e/specs/config-desk.spec.js's `getByLabel('Rôle pour E2E-FCT')`
+ * resolve to four elements and fail on strict mode. Pinned by
+ * Tests\Core\System\E2eRoleAccountsTest.
+ *
+ * The ADMIN one's environment prefix is E2E_UNIT_ADMIN rather than
+ * E2E_ADMIN: E2E_ADMIN_EMAIL/E2E_ADMIN_PASSWORD have named the
+ * SUPER-admin since long before roles were provisioned, and quietly
+ * changing whose credentials they carry would break every scenario and
+ * every CI job that already reads them. `admin` is the role displayed as
+ * "Chef d'Unité" (Core\Security\Role), hence "unit admin".
+ *
+ * @return list<array{key: string, env_prefix: string, default_email: string, desk_id: string, first_name: string, last_name: string, function_code: string, function_label: string, role: Core\Security\Role}>
+ */
+function e2e_role_accounts(): array
+{
+    return [
+        [
+            'key' => 'intendant',
+            'env_prefix' => 'E2E_INTENDANT',
+            'default_email' => 'chil@example.invalid',
+            'desk_id' => 'E2E-INTENDANT',
+            'first_name' => 'Chil',
+            'last_name' => 'Milan',
+            'function_code' => 'E2E-ROLE-INT',
+            'function_label' => 'Intendant',
+            'role' => Core\Security\Role::INTENDANT,
+        ],
+        [
+            'key' => 'chief',
+            'env_prefix' => 'E2E_CHIEF',
+            'default_email' => 'bagheera@example.invalid',
+            'desk_id' => 'E2E-CHIEF',
+            'first_name' => 'Bagheera',
+            'last_name' => 'Panthere',
+            'function_code' => 'E2E-ROLE-CHF',
+            'function_label' => 'Chef de section',
+            'role' => Core\Security\Role::CHIEF,
+        ],
+        [
+            'key' => 'unit_admin',
+            'env_prefix' => 'E2E_UNIT_ADMIN',
+            'default_email' => 'akela@example.invalid',
+            'desk_id' => 'E2E-UNIT-ADMIN',
+            'first_name' => 'Akela',
+            'last_name' => 'Loup',
+            'function_code' => 'E2E-ROLE-ADM',
+            'function_label' => "Chef d'unité adjoint",
+            'role' => Core\Security\Role::ADMIN,
+        ],
+    ];
+}
+
+/**
+ * The Desk codes of the section and age branch the role accounts live in.
+ *
+ * Like the function codes in e2e_role_accounts(), these must not merely
+ * be UNIQUE — they must not be a PREFIX of, or prefixed by, a code an
+ * existing fixture already uses. Config Desk labels each control
+ * "Nom de la section <desk code>" / "Rôle pour <desk code>", and
+ * Playwright's getByLabel() matches on a substring, so `E2E-SEC-ROLES`
+ * made tests/e2e/specs/config-desk.spec.js's own
+ * `getByLabel('Nom de la section E2E-SEC')` resolve to two elements and
+ * fail on strict mode. Pinned by Tests\Core\System\E2eRoleAccountsTest.
+ *
+ * @return array{section: string, age_branch: string}
+ */
+function e2e_role_fixture_codes(): array
+{
+    return [
+        'section' => 'E2E-ROLES-SEC',
+        'age_branch' => 'E2E-ROLES-BR',
+    ];
+}
+
+/**
+ * @param array{env_prefix: string, default_email: string, ...} $account
+ */
+function e2e_role_account_email(array $account): string
+{
+    return strtolower(trim(((string) getenv($account['env_prefix'] . '_EMAIL')) ?: $account['default_email']));
+}
+
+/**
+ * @param array{env_prefix: string, ...} $account
+ */
+function e2e_role_account_password(array $account): string
+{
+    $variable = $account['env_prefix'] . '_PASSWORD';
+    $password = (string) getenv($variable);
+    if ($password === '') {
+        fwrite(STDERR, "E2E provisioning failed: {$variable} is not set (scripts/e2e.sh generates it).\n");
+        exit(1);
+    }
+
+    return $password;
+}
+
+/**
+ * Provision the three role-bearing accounts of e2e_role_accounts(), each
+ * with a members row, a member_years row for the current scout year, a
+ * member_functions row pointing at a function whose `role` IS the target
+ * role, and a password account of their own.
+ *
+ * ## Why their own section, and why it is hidden
+ *
+ * e2e_seed_section_with_both_members() deliberately avoids chief, admin
+ * and intendant functions — its own docblock says why: those are exactly
+ * the roles Core\Member\SectionService::getSectionStaff() selects on, so
+ * putting these three in "Meute E2E" would change the trombinoscope, the
+ * Staffs page and every staff count the existing scenarios assert on.
+ * They therefore get a section of their own.
+ *
+ * That section is `is_visible = 0`: Core\View\SectionRepository filters
+ * the public sections listing on visibility, so a hidden one adds no
+ * block to the Staffs page or the trombinoscope. Nothing about RBAC reads
+ * section visibility — Core\Security\RoleResolver resolves a role from
+ * `member_functions` → `functions.role` and nothing else — so the scan's
+ * matrix is unaffected by the section being hidden, while the browser
+ * suite's fixture shape is left exactly as it was.
+ *
+ * ## The Staff d'U sweep, and why it leaves the admin alone
+ *
+ * Core\Member\UnitStaffSectionService::syncMembership() reassigns every
+ * `admin`-role function to the STAFFDU section after a Desk import and
+ * after every role change (Config Desk does exactly that, mid-run, in
+ * tests/e2e/specs/config-desk.spec.js). It only claims functions with
+ * `section_id IS NULL`, so the admin's function is created WITH this
+ * section's id and the sweep passes over it — which is the rule working
+ * as designed, not a workaround. That matters: the super-admin already
+ * holds a main function in Staff d'U for the retro module's sake
+ * (e2e_seed_unit_chief_function_for_admin(), and Core\Member\
+ * MemberService::isUnitChief() reads it), and a second admin landing
+ * there would change what tests/e2e/specs/retro-board.spec.js is offered.
+ *
+ * The three are given a `member_section_periods` row too, exactly like
+ * the other two members, because that is what a real Desk import writes
+ * and what derived group membership resolves from.
+ */
+function e2e_seed_role_members(
+    Core\Database\Connection $connection,
+    string $encodedEncryptionKey,
+    string $encodedBlindIndexKey
+): void {
+    $pdo = $connection->getPdo();
+    $encryptionService = Core\Security\EncryptionService::fromEncodedKeys($encodedEncryptionKey, $encodedBlindIndexKey);
+    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+
+    // sort_order 90 puts this branch last everywhere branches are
+    // ordered, so nothing that reads "the first section" on a page picks
+    // it up ahead of the fixture the browser suite already knows.
+    $codes = e2e_role_fixture_codes();
+
+    $pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, 90)')
+        ->execute([$codes['age_branch'], 'Branche rôles E2E']);
+    $ageBranchId = (int) $pdo->lastInsertId();
+
+    $pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name, is_visible, is_active) VALUES (?, ?, ?, 0, 1)')
+        ->execute([$ageBranchId, $codes['section'], 'Staff rôles E2E']);
+    $sectionId = (int) $pdo->lastInsertId();
+
+    $userAccountRepository = new Core\Security\UserAccountRepository($pdo, $encryptionService);
+    $startDate = date('Y-m-d', strtotime('-1 month'));
+
+    foreach (e2e_role_accounts() as $account) {
+        $email = e2e_role_account_email($account);
+        $blindIndex = $encryptionService->blindIndex($email, 'email');
+
+        $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute([$account['desk_id']]);
+        $memberId = (int) $pdo->lastInsertId();
+
+        // is_active = 1 for the same reason as the other two seeders:
+        // findAllByEmail() filters on it, and RoleResolver walks the rows
+        // it returns.
+        $statement = $pdo->prepare(
+            'INSERT INTO member_years'
+            . ' (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index, is_active)'
+            . ' VALUES (?, ?, ?, ?, ?, ?, 1)'
+        );
+        $statement->execute([
+            $memberId,
+            $scoutYearId,
+            $encryptionService->encrypt($account['first_name'], 'member_years.first_name'),
+            $encryptionService->encrypt($account['last_name'], 'member_years.last_name'),
+            $encryptionService->encrypt($email, 'member_years.email'),
+            $blindIndex,
+        ]);
+        $memberYearId = (int) $pdo->lastInsertId();
+
+        $pdo->prepare('INSERT INTO member_section_periods (member_id, section_id, scout_year_id, start_date, end_date) VALUES (?, ?, ?, ?, NULL)')
+            ->execute([$memberId, $sectionId, $scoutYearId, $startDate]);
+
+        // The role is carried by the FUNCTION, never by a flag on
+        // user_accounts — RoleResolver reads functions.role and would
+        // ignore anything written on the account (only is_super_admin
+        // short-circuits it, and none of these three is one).
+        $pdo->prepare('INSERT INTO functions (desk_code, label, role, confirmed) VALUES (?, ?, ?, 1)')
+            ->execute([$account['function_code'], $account['function_label'], $account['role']->value]);
+        $functionId = (int) $pdo->lastInsertId();
+
+        $pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, start_date, is_main_function)'
+            . ' VALUES (?, ?, ?, ?, ?, 1)'
+        )->execute([$memberYearId, $functionId, $sectionId, $ageBranchId, $startDate]);
+
+        $userAccount = $userAccountRepository->create($email, false);
+        $userAccountRepository->updatePasswordHash(
+            $userAccount->id,
+            password_hash(e2e_role_account_password($account), PASSWORD_DEFAULT)
+        );
+        $userAccountRepository->updateProfile($userAccount->id, $account['first_name'], $account['last_name']);
+    }
+}
+
+/**
+ * Ask the application's own Core\Security\RoleResolver what each of the
+ * five provisioned accounts resolves to, and abort provisioning if any
+ * answer is not the one the fixture is supposed to guarantee.
+ *
+ * This is not belt-and-braces. A role resolves per scout year through
+ * `member_functions` → `functions.role`, so a member seeded against the
+ * wrong `scout_year_id`, or a function row whose `role` never took,
+ * silently resolves to `identified` — and a scan whose whole verdict is
+ * "could role X reach page Y" would then report a clean authorization
+ * matrix built entirely out of one role. Failing here, loudly, at
+ * provisioning time, is the difference between a broken fixture and a
+ * falsely reassuring security report.
+ *
+ * Built exactly the way public/index.php builds it, secondary-address
+ * repository included, so what is asserted is what a real login resolves.
+ */
+function e2e_assert_resolved_roles(
+    Core\Database\Connection $connection,
+    string $encodedEncryptionKey,
+    string $encodedBlindIndexKey,
+    string $adminEmail
+): void {
+    $pdo = $connection->getPdo();
+    $encryptionService = Core\Security\EncryptionService::fromEncodedKeys($encodedEncryptionKey, $encodedBlindIndexKey);
+    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+
+    $roleResolver = new Core\Security\RoleResolver(
+        new Core\Import\MemberYearRepository($pdo),
+        $encryptionService,
+        $pdo,
+        new Core\Member\MemberEmailRepository($pdo, $encryptionService)
+    );
+
+    $expected = [
+        $adminEmail => Core\Security\Role::SUPERADMIN->value,
+        e2e_member_email() => Core\Security\Role::IDENTIFIED->value,
+    ];
+    foreach (e2e_role_accounts() as $account) {
+        $expected[e2e_role_account_email($account)] = $account['role']->value;
+    }
+
+    $failures = [];
+    foreach ($expected as $email => $expectedRole) {
+        $resolved = $roleResolver->resolve((string) $email, $scoutYearId);
+        if ($resolved !== $expectedRole) {
+            $failures[] = "{$email} resolves to '{$resolved}', expected '{$expectedRole}'";
+        }
+    }
+
+    if (count($failures) > 0) {
+        fwrite(
+            STDERR,
+            "E2E provisioning failed: the seeded accounts do not resolve to the roles they are meant to carry.\n  - "
+            . implode("\n  - ", $failures) . "\n"
+        );
+        exit(1);
+    }
+
+    echo 'E2E: ' . count($expected) . " accounts provisioned, roles verified through RoleResolver.\n";
 }
 
 /**
