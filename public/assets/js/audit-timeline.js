@@ -6,8 +6,8 @@
 // "Afficher plus" for partials/audit_timeline.html.twig — appends the next
 // page of GET /api/audit/{type}/{id} in place. See ARCHITECTURE.md §8.66.
 //
-// This file builds the same <li> the server renders in
-// partials/audit_timeline_entry.html.twig. That duplication is the price of
+// This file builds the same <li> the server renders in the entry loop of
+// partials/audit_timeline.html.twig. That duplication is the price of
 // the JSON endpoint the component exposes, and it is deliberate rather than
 // accidental: the two are kept in step by tests/js/audit-timeline.test.js,
 // which asserts the classes and structure this produces. Change one, change
