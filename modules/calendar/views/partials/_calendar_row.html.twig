@@ -14,9 +14,12 @@
   The pair now sits in a grid that stacks on mobile and pairs up from
   `sm` on, each select carrying a visible label — « Vu par » /
   « Modifié par » — instead of relying on the option text to explain
-  itself. Screen readers get the calendar's own name through
-  `describedby_extra`, since one page carries a dozen selects all
-  labelled « Vu par ».
+  itself. Those two words are all the room a phone has, and a dozen
+  calendars down the page would otherwise give a screen reader a dozen
+  identically-named controls, so the accessible name adds the calendar's
+  own name after them (`aria_label`, « Vu par — Meute »): it starts with
+  what is written on screen, which is what keeps voice control working
+  (WCAG 2.5.3).
 
   Params:
     calendar_id      -- int, the row's calendar
@@ -37,7 +40,7 @@
         {% if color|default(null) %}
             <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.7rem;height:0.7rem;background-color:{{ color }};"></span>
         {% endif %}
-        <span class="fw-semibold" id="calendar-name-{{ calendar_id }}">{{ name }}</span>
+        <span class="fw-semibold">{{ name }}</span>
         {% for badge in badges|default([]) %}
             <span class="badge text-bg-secondary">{{ badge }}</span>
         {% endfor %}
@@ -49,7 +52,7 @@
                 label: 'Vu par', type: 'select', size: 'sm', wrapper_class: '',
                 control_class_extra: 'visibility-select',
                 data: { 'calendar-id': calendar_id },
-                describedby_extra: 'calendar-name-' ~ calendar_id,
+                aria_label: 'Vu par — ' ~ name,
                 options: [
                     { value: 'public', label: 'Tous', selected: visibility == 'public' },
                     { value: 'chief', label: 'Les animateurs', selected: visibility == 'chief' },
@@ -63,7 +66,7 @@
                 label: 'Modifié par', type: 'select', size: 'sm', wrapper_class: '',
                 control_class_extra: 'edit-role-select',
                 data: { 'calendar-id': calendar_id },
-                describedby_extra: 'calendar-name-' ~ calendar_id,
+                aria_label: 'Modifié par — ' ~ name,
                 options: [
                     { value: 'chief', label: edit_chief_label, selected: edit_role_min == 'chief' },
                     { value: 'admin', label: "Les chefs d'unité", selected: edit_role_min == 'admin' },
