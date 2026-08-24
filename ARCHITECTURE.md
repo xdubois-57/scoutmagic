@@ -263,6 +263,18 @@ That ordering is what breaks what would otherwise be a construction cycle. Both 
 
 ## 8. Core services
 
+### 8.0 Shared primitives
+
+A handful of one-liners live in core rather than in the module that needed
+them first, because the same rule written twice drifts and every one of
+these drifts silently.
+
+`Core\Service\TextNormalizerService::fold()` is the one case- and accent-insensitive comparison form: an explicit character map applied unconditionally, ext-intl's `Normalizer` afterwards when it happens to be there, and every run of non-alphanumerics collapsed to one space. Never `iconv('ASCII//TRANSLIT')`, whose output depends on the C library and the locale — the same "é" comes back as `e` on glibc and as `'e` on musl, so a duplicate detector agreed with itself on one host and not another. It backs the member search, the camps duplicate-place detector and the leadership Desk-label matcher; Finance's `CategoryRuleEngine::normalize()` stays separate, a private detail of a rule engine nothing else should couple to.
+
+`Core\Security\EncryptionService::normalizeEmailForIndex()` is the one form an address takes before it is stored, encrypted or blind-indexed: trimmed, `mb_strtolower`. A blind index is exact-match and nothing else — no `LIKE`, no case-insensitive collation, no second chance — so two call sites normalising "the same way" by hand is two call sites one edit away from indexing the same person twice, and the lookup that misses reports "not found" rather than failing.
+
+**`Core\Security\CapabilityToken`** is the contract behind every bearer credential in a URL — a renter's tracking link, a one-click unsubscribe, an ICS feed, a retro board, a registration follow-up page. Five modules issue one, and each had independently decided how long it should be, whether to hash it, and what to do when there is none. The last of those is the one that matters: `hash_equals('', '')` is true, so a row that never had a token was openable by presenting nothing at all. The contract it states: **absent is the same refusal as wrong** (a differing answer turns the URL into an oracle for which ids exist), never logged or journaled, **regenerate rather than recover**, and full entropy so no KDF — 256 bits from `random_bytes()` is not guessable and not dictionary-attackable, which is the entire reason `password_hash()` is slow. **Storage stays per module on purpose** (hash, encrypted, or blind index): a hash can answer "is this the token?" and nothing else, which is useless when an email has to *contain* the link (§8.52). Routing stays per module too.
+
 ### 8.1 Desk CSV import
 
 - Lines grouped by `desk_id`.
@@ -295,6 +307,8 @@ Alongside that one special case, the guard carries a **generic ownership registr
 
 A checker is a pure decision function — it never writes to the journal and never receives personal data. `FileController::serve()` already journals denials (`file_access_denied`) and owner-scoped accesses.
 
+**Detaching a document: `Core\File\AttachedFileRemover`.** A module that attaches files to something of its own — a stay, a booking — obeys one rule when the attachment goes: **the row first, the bytes second, and the bytes only when this module owns them and nothing else references them.** Row first, because an interruption between the two leaves a stored file nothing points at (recoverable, invisible) rather than a row pointing at bytes that are gone (a broken download on a page still claiming the document is there). Owned, because an attachment that arrived in an inbound email shares its `files` row with the message itself (§8.58/§8.59) and deleting the bytes would blank the message — the module says whether it owns them, core never guesses. Unreferenced, because the same file id can legitimately be linked twice inside one module. Camps and Locations each learned this after a bug; the rule and its reasons live in core so the third module does not have to, and `Core\File\AttachedFileRepository` is the two questions it asks the owning module (delete the row, is the file referenced elsewhere). Module specifics — Locations' versions and keywords, Camps' titles — stay local.
+
 ### 8.4 Settings system
 
 Generic key-value with type, label, description (NOT NULL), optional regex validation. Grouped by module. Editable via dialog.
@@ -302,6 +316,8 @@ Generic key-value with type, label, description (NOT NULL), optional regex valid
 ### 8.5 Scheduler
 
 Two triggers (real cron + poor man's cron), atomic task claim. Modules declare handlers in `module.json`.
+
+**Re-arming a recurring task: `SchedulerService::rearm($module, $key, $reference, $when)`.** `Core\Scheduler` has no first-class recurring-task concept — a task that repeats schedules its own successor — and eight handlers wrote out the same two steps by hand. Both have a way of going wrong. Scheduling *blindly* queues another copy on every request, so a module seeding its tasks from the composition root grows one row per page view. Guarding on the wrong thing ends the chain instead: the guard has to be `find()`, which only sees `pending` rows, so a handler re-arming itself from inside `handle()` does not find *itself* — `claimOverdue()` flipped it to `processing` before calling it — and does schedule its successor. `SchedulerService::forPdo()` is the companion for a handler, which is handed a PDO and nothing else.
 
 **`SchedulerRepository::claimOverdue()`'s per-row claim**: genuinely atomic under concurrent callers (two requests' poor-man's-cron tail firing close together, or a real crontab hitting `public/cron.php` at the same moment a request does) — each candidate row is claimed via its own `UPDATE ... WHERE id = ? AND status = 'pending'`, and only a row whose `rowCount()` comes back 1 (i.e. THIS call's UPDATE actually flipped it) is returned to that caller. An earlier version ran one blanket `UPDATE ... WHERE status = 'pending'` covering every due row, then re-`SELECT`ed *every* row currently `'processing'` — indistinguishable from a row a concurrent caller had just claimed a moment earlier, so two callers could both receive the same row and both run its handler at once. This let two overlapping `Task\InstallUpdateHandler` runs both copy an extracted archive over the live install directory at the same time, once leaving a production site with a route in `module.json` pointing at a controller method the deployed `.php` file didn't actually have — `Core\Maintenance\GitHubWebhookService::handlePushEvent()` additionally cancels any still-`'pending'` (never a `'processing'` one already running) earlier push-triggered install before scheduling a new one, so two pushes seconds apart can no longer even queue two separate `install_update` rows that might both become due at once in the first place.
 
@@ -1957,7 +1973,8 @@ Bootstrap 5 compiled files. Mobile-first CSS. Hamburger left, unit name right. O
 ```
 core/
   Http/          Router, Request, Response, FrontController
-  Security/      RbacGuard, Session, Csrf, PasswordHasher, Encryption, WebAuthn, Role, SecretManager
+  Security/      RbacGuard, Session, Csrf, PasswordHasher, Encryption, WebAuthn, Role,
+                 SecretManager, CapabilityToken, SsrfUrlValidator
   Database/      PDO connection, SchemaIntrospector, MigrationRunner, Connection
   View/          Twig bootstrap, helpers, partials, SectionRepository, EditableContentService
   Mail/          MailService, DkimManager, DnsVerifier
