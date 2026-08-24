@@ -1,0 +1,68 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  One list of people to contact, drawn the same way on all three pages of
+  this module.
+
+  A list, never a table: every row is one person plus at most three short
+  facts about them, which a phone renders as a readable stack and a table
+  renders as four cramped columns with a horizontal scrollbar. This is the
+  page a chef d'unité opens on a Sunday evening on their phone.
+
+  `severity` colours the day count and nothing else — never the row, never
+  the name. A person is not a status, and the only thing this module is
+  ever entitled to shade is a number it computed itself (a steward's day
+  count against the thresholds in LeadershipRules). Everywhere else the
+  value is 'normal' and nothing is coloured at all.
+
+  Usage:
+  {% include '@leadership/partials/_person_list.html.twig' with {
+      lines: to_convince,
+      empty_message: 'Personne à convaincre cette année.',
+  } only %}
+#}
+{% if lines|length > 0 %}
+    <ul class="list-group list-group-flush">
+        {% for line in lines %}
+            <li class="list-group-item px-0 py-3">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                    <div class="min-w-0">
+                        {# Full legal name first: these lists exist to go and
+                           talk to somebody, or to look them up in Desk, and
+                           Desk knows nobody by their totem. The totem is a
+                           second line only when there is one — see
+                           Value\PersonLine::$totem for why it is not the
+                           site's usual `totem ?? first_name`. #}
+                        <div class="fw-semibold">{{ line.fullName }}</div>
+                        {% if line.totem %}
+                            <div class="small text-body-secondary">{{ line.totem }}</div>
+                        {% endif %}
+                    </div>
+                    {% if line.days is not null %}
+                        <span class="small fw-semibold flex-shrink-0
+                            {%- if line.severity == 'critical' %} text-danger
+                            {%- elseif line.severity == 'warning' %} text-warning-emphasis
+                            {%- else %} text-body-secondary{% endif %}">
+                            {{ line.days }} j
+                        </span>
+                    {% endif %}
+                </div>
+                <div class="small text-body-secondary mt-1">
+                    {% if line.sectionName %}{{ line.sectionName }}{% endif %}
+                    {%- if line.sectionName and line.detail %} — {% endif %}
+                    {%- if line.detail %}{{ line.detail }}{% endif %}
+                </div>
+                {% if line.note %}
+                    <div class="small mt-1">{{ line.note }}</div>
+                {% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+{% else %}
+    {% include 'partials/empty_state.html.twig' with {
+        message: empty_message,
+        compact: true,
+    } only %}
+{% endif %}
