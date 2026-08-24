@@ -120,6 +120,12 @@ class CalendarRepository
         $stmt->execute([$visibility, $id]);
     }
 
+    public function updateEditRoleMin(int $id, string $editRoleMin): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE calendar_calendars SET edit_role_min = ? WHERE id = ?');
+        $stmt->execute([$editRoleMin, $id]);
+    }
+
     public function updateIcsToken(int $id, string $token): void
     {
         $stmt = $this->pdo->prepare('UPDATE calendar_calendars SET ics_token_encrypted = ?, ics_token_blind_index = ? WHERE id = ?');
@@ -160,6 +166,7 @@ class CalendarRepository
             color: $row['color'] !== null ? (string) $row['color'] : null,
             isDefault: (bool) $row['is_default'],
             visibility: (string) $row['visibility'],
+            editRoleMin: (string) ($row['edit_role_min'] ?? Calendar::EDIT_ROLE_CHIEF),
             icsToken: $this->decryptToken($row)
         );
     }

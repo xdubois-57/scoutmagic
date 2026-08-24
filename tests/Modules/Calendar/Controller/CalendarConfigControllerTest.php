@@ -415,10 +415,16 @@ class CalendarConfigControllerTest extends TestCase
     }
 
     /**
-     * RBAC boundary for /config/calendar (Configuration menu, role_min
-     * superadmin): superadmin -> 200 (renders), admin ("Chef d'Unité",
-     * the espace_admin ceiling) -> 403 — confirms the page moved out from
-     * under espace_admin, not just its label.
+     * RBAC boundary for /config/calendar: superadmin -> 200, admin
+     * ("Chef d'Unité") -> 403.
+     *
+     * IT-03 wanted to open this screen to admin so a chef d'unité could set
+     * "Qui peut modifier les évènements" themselves. That is not reachable
+     * for a MODULE route: Core\Module\ModuleManifest refuses a role_min
+     * more permissive than its menu's, and the Configuration menu is
+     * superadmin. A manifest that tries it is rejected at load and the
+     * module simply stops existing. The setting therefore lives at
+     * superadmin like the rest of this screen.
      */
     public function testSuperadminGetsPage(): void
     {
@@ -435,6 +441,63 @@ class CalendarConfigControllerTest extends TestCase
         AuthSession::login(1, 'admin@test.be', 'admin');
 
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/calendar', [], [], [], []));
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * The manifest itself must stay loadable. A module route declared more
+     * permissively than its menu is not a soft warning: ModuleManifest
+     * throws, ModuleManager drops the module, and the calendar disappears
+     * from the site with no other symptom than an "Inactif" badge.
+     */
+    public function testTheManifestStillLoadsWithTheseRoleMins(): void
+    {
+        $raw = json_decode((string) file_get_contents(dirname(__DIR__, 4) . '/modules/calendar/module.json'), true);
+
+        $manifest = \Core\Module\ModuleManifest::fromArray($raw);
+
+        $this->assertSame('calendar', $manifest->id);
+    }
+
+    // --- IT-03: "Qui peut modifier les évènements" ---
+
+    public function testUpdateEditRoleChangesTheWriteRole(): void
+    {
+        $calendar = $this->calendarService->addCalendar('Animateurs', 'chief');
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $request = $this->createJsonRequest(['calendar_id' => $calendar->id, 'edit_role_min' => 'admin', '_csrf_token' => $token]);
+        $response = $this->controller->updateEditRole($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame('admin', $this->calendarRepository->findById($calendar->id)->editRoleMin);
+        // The audience is untouched: that is the whole point of the pair.
+        $this->assertSame('chief', $this->calendarRepository->findById($calendar->id)->visibility);
+    }
+
+    public function testUpdateEditRoleRefusesACombinationTheAudienceContradicts(): void
+    {
+        $calendar = $this->calendarService->addCalendar('Réservé', 'admin');
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $request = $this->createJsonRequest(['calendar_id' => $calendar->id, 'edit_role_min' => 'chief', '_csrf_token' => $token]);
+        $response = $this->controller->updateEditRole($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame('admin', $this->calendarRepository->findById($calendar->id)->editRoleMin);
+    }
+
+    public function testUpdateEditRoleValidatesCsrf(): void
+    {
+        $calendar = $this->calendarService->addCalendar('Animateurs', 'chief');
+
+        $request = $this->createJsonRequest(['calendar_id' => $calendar->id, 'edit_role_min' => 'admin', '_csrf_token' => 'bad']);
+        $response = $this->controller->updateEditRole($request, []);
 
         $this->assertSame(403, $response->getStatusCode());
     }

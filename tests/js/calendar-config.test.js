@@ -61,12 +61,20 @@ function buildDom() {
             <option value="chief">Animateur</option>
             <option value="admin">Chef d'Unité</option>
         </select>
+        <select class="edit-role-select" data-calendar-id="3">
+            <option value="chief" selected>Modifié par ses animateurs</option>
+            <option value="admin">Modifié par les chefs d'unité</option>
+        </select>
 
         <div id="supplementary-calendar-list">
             <div class="border" data-calendar-id="7">
                 <select class="visibility-select" data-calendar-id="7">
                     <option value="public" selected>Public</option>
                     <option value="admin">Chef d'Unité</option>
+                </select>
+                <select class="edit-role-select" data-calendar-id="7">
+                    <option value="chief" selected>Modifié par les animateurs</option>
+                    <option value="admin">Modifié par les chefs d'unité</option>
                 </select>
                 <div class="input-group">
                     <input type="text" class="ics-link-input" readonly value="https://example.test/calendar/feed/abc.ics">
@@ -282,6 +290,93 @@ describe('calendar-config.js: visibility', () => {
         await settle();
 
         expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Visibilité inconnue.', { variant: 'error' });
+    });
+});
+
+// The second select on the same row. It is NOT a copy of the first: the
+// server can refuse this one on a rule the browser does not know (a
+// calendar the animateurs cannot see may not be handed to them to edit),
+// so a refusal has to put the select back where it was. A select left
+// showing a value the server rejected is the worst outcome here — the page
+// would claim a permission that does not exist.
+describe('calendar-config.js: who may modify the events', () => {
+    it('posts the calendar id and the new write role of the changed select', async () => {
+        await boot();
+        const select = document.querySelector('#supplementary-calendar-list .edit-role-select');
+        select.value = 'admin';
+
+        select.dispatchEvent(new Event('change'));
+        await settle();
+
+        expect(postsTo('/config/calendar/edit-role')).toEqual([
+            { calendar_id: 7, edit_role_min: 'admin', _csrf_token: 'tok' },
+        ]);
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Droit de modification mis à jour.', { variant: 'success' });
+    });
+
+    it('leaves the other select alone: the two settings are independent', async () => {
+        await boot();
+        const editRole = document.querySelector('#supplementary-calendar-list .edit-role-select');
+        editRole.value = 'admin';
+
+        editRole.dispatchEvent(new Event('change'));
+        await settle();
+
+        expect(postsTo('/config/calendar/visibility')).toEqual([]);
+    });
+
+    it('reverts the select and toasts the reason when the server refuses', async () => {
+        global.fetch = vi.fn(() => jsonResponse({
+            success: false,
+            error: "Un calendrier visible par les chefs d'unité seulement ne peut pas être modifiable par les animateurs.",
+        }));
+        await boot();
+        const select = document.querySelector('.edit-role-select');
+        select.value = 'admin';
+
+        select.dispatchEvent(new Event('change'));
+        await settle();
+
+        expect(select.value).toBe('chief');
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
+            "Un calendrier visible par les chefs d'unité seulement ne peut pas être modifiable par les animateurs.",
+            { variant: 'error' }
+        );
+    });
+
+    it('reverts to the last ACCEPTED value, not to the one the refusal replaced', async () => {
+        await boot();
+        const select = document.querySelector('.edit-role-select');
+
+        // First change succeeds: 'admin' becomes the value to fall back to.
+        select.value = 'admin';
+        select.dispatchEvent(new Event('change'));
+        await settle();
+
+        // Second change is refused; reverting to the initial 'chief' would
+        // undo a change the server DID accept.
+        global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Refusé.' }));
+        select.value = 'chief';
+        select.dispatchEvent(new Event('change'));
+        await settle();
+
+        expect(select.value).toBe('admin');
+    });
+
+    it('does not read an HTML 500 page as a saved setting', async () => {
+        global.fetch = vi.fn(() => htmlErrorResponse());
+        await boot();
+        const select = document.querySelector('.edit-role-select');
+        select.value = 'admin';
+
+        select.dispatchEvent(new Event('change'));
+        await settle();
+
+        expect(select.value).toBe('chief');
+        expect(window.ScoutMagicToast.show).not.toHaveBeenCalledWith(
+            'Droit de modification mis à jour.',
+            { variant: 'success' }
+        );
     });
 });
 

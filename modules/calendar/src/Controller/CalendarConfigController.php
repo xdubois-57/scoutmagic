@@ -213,6 +213,40 @@ class CalendarConfigController extends AbstractController
     }
 
     /**
+     * POST /config/calendar/edit-role — "Qui peut modifier les évènements",
+     * the write half of the pair updateVisibility() owns the read half of.
+     *
+     * @param array<string, string> $params
+     */
+    public function updateEditRole(Request $request, array $params): Response
+    {
+        $data = $this->decodeAndAuthorize($request);
+        if ($data instanceof Response) {
+            return $data;
+        }
+
+        $calendarId = (int) ($data['calendar_id'] ?? 0);
+        $editRoleMin = (string) ($data['edit_role_min'] ?? '');
+
+        try {
+            $this->calendarService->updateEditRoleMin($calendarId, $editRoleMin);
+        } catch (CalendarException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $this->journalService->log(
+            'calendar',
+            'edit_role_changed',
+            'info',
+            'Droit de modification de calendrier modifié',
+            ['calendar_id' => $calendarId, 'edit_role_min' => $editRoleMin],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
      * POST /config/calendar/add — create a custom supplementary calendar
      * (AJAX, JSON).
      *

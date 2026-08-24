@@ -2,7 +2,7 @@
   "id": "calendar",
   "name": "Calendrier",
   "description": "Calendrier des activités : un calendrier par section (automatique) et des calendriers supplémentaires configurables, avec abonnement ICS.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "enabled_by_default": true,
   "routes": [
     {
@@ -117,6 +117,15 @@
       "method": "POST",
       "controller": "Modules\\Calendar\\Controller\\CalendarConfigController",
       "action": "updateVisibility",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/calendar/edit-role",
+      "method": "POST",
+      "controller": "Modules\\Calendar\\Controller\\CalendarConfigController",
+      "action": "updateEditRole",
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""

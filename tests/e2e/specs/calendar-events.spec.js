@@ -208,6 +208,24 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
     await page.getByLabel('Visibilité du calendrier Meute E2E').selectOption('chief');
     expect((await visibilityRestore).ok()).toBe(true);
 
+    // ---------------------------------------------------------------
+    // The second select on the same row: who may WRITE, as opposed to
+    // who may see. Another auto-saving fetch endpoint with no other
+    // browser coverage, and the one that decides whether the modal
+    // above opens at all. Driven there and straight back, so the
+    // calendar the later scenarios meet keeps its provisioned value.
+    // ---------------------------------------------------------------
+    const editRoleSelect = page.getByLabel('Modification du calendrier Meute E2E');
+    const editRoleSave = page.waitForResponse((response) => response.url().includes('/config/calendar/edit-role'));
+    await editRoleSelect.selectOption('admin');
+    expect((await editRoleSave).ok()).toBe(true);
+    await expect(editRoleSelect).toHaveValue('admin');
+
+    const editRoleRestore = page.waitForResponse((response) => response.url().includes('/config/calendar/edit-role'));
+    await editRoleSelect.selectOption('chief');
+    expect((await editRoleRestore).ok()).toBe(true);
+    await expect(editRoleSelect).toHaveValue('chief');
+
     expect(serverErrors, 'the application returned a server error').toEqual([]);
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
 });

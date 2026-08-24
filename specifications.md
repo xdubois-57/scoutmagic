@@ -140,7 +140,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Tableau de bord support (module) | Present **only** on the ScoutMagic installation acting as statistics receiver — the module declares `"visible_when": ["statistics_receiver"]` and is filtered out of module discovery everywhere else. Table of the installations reporting in, with filters, free search, sort and pagination; five indicator cards and two current-state charts, all recomputed on the filtered set; a detail dialog carrying every metric plus the exact raw JSON of the last accepted report; XLSX export of the filtered set; manual deletion behind a confirmation; and a monthly-history chart independent of all of the above. `superadmin` only. |
 | Finances (module) | Accounts, categories, categorization rules, danger zone |
 | Galerie (module) | Storage location (local/S3), default location for new albums. Each local location also shows the space still free on the disk that holds it — with the volume's size and the share in use, and a warning when what is left is smaller than the largest upload the gallery currently accepts. The page states that this is the whole volume, shared with the rest of the site, and not a quota reserved for the gallery; an S3 location shows nothing, its capacity being the provider's. |
-| Calendrier (module) | Default view, supplementary calendars, ICS feed links |
+| Calendrier (module) | Default view, supplementary calendars, ICS feed links. Each calendar carries **two** independent settings, one per question: « Vu par » (qui voit le calendrier) and « Modifié par » (qui y écrit). « Modifié par ses animateurs » keeps a section calendar in the hands of that section's staff; « Modifié par les chefs d'unité » leaves it visible to everyone who may see it while only the chefs d'unité change its events — an arrangement the single visibility setting could not express. Narrowing the audience to the chefs d'unité raises the write setting with it. |
 | Camps (module) | Default country for a new place; how many past stays a place sheet shows. The dedicated camps mailboxes (empty by default, with the warning that any mailbox listed there must be excluded from the other modules that read mail); automatic creation of a stay from a message; unsorted-mail retention in months. Automatic geocoding of a place's address through OpenStreetMap; AI summaries of what a place's stays and reviews add up to. |
 | Envoi de mails (module) | Sender/attachment settings |
 | SOS Staff d'U (module) | Telephony provider credentials (OVH: application key/secret, consumer key, line selection), excluded sections |
@@ -864,3 +864,32 @@ With an AI connector active, a place carries a few sentences summing up what its
 ### 26.9 Out of scope
 
 Deposits, payment tracking, contractual deadlines, a reservation workflow, cost per participant, bulk import of old camps, sharing places between units, several individual reviews per stay, sub-scores, rating averages, full-text search inside e-mails, documents or review comments, and deleting a place or a stay.
+
+## 27. Calendrier — voir et modifier, deux réglages (module calendar)
+
+### 27.1 The problem
+
+A calendar had a single setting, « visibilité », that answered two different questions at once: who sees it, and who writes in it. A unit that wanted its "Animateurs" calendar readable by the animateurs but written only by the chefs d'unité had no way to say so — restricting it also removed it from the animateurs' screen. And any chief could create, move or delete an event in *any* section's calendar, including sections they have nothing to do with.
+
+### 27.2 Who may write
+
+Two conditions, both required:
+
+- **The section.** A section's calendar is written by the animateurs of that section. A chef d'unité staffs every section and therefore writes everywhere. A supplementary calendar (the "Animateurs" calendar and any custom one) belongs to no section and is unaffected by this half.
+- **The setting.** Each calendar carries its own « Modifié par » — *ses animateurs* (the default, which is how every calendar behaved before) or *les chefs d'unité*.
+
+### 27.3 Who may read
+
+Unchanged. « Vu par » alone decides it, and the month grid still shows the whole unit's activity to every animateur: an animateur of the Baladins goes on seeing what the Louveteaux are doing. Only writing is narrowed.
+
+### 27.4 The two settings together
+
+« Modifié par » may never reach further than « Vu par » — somebody who cannot see a calendar cannot write in it. Narrowing the audience to the chefs d'unité therefore raises « Modifié par » to the chefs d'unité with it, silently and by design; the opposite move, widening the write setting past the audience, is refused with a message.
+
+### 27.5 In the interface
+
+Both settings sit side by side on the superadmin calendar configuration page, on section calendars and supplementary calendars alike, and each saves on change. On the chiefs' calendar page, an animateur is offered only the calendars they may actually write in — the "new event" dialog lists those and no others, and a day cell or an event belonging to a calendar they cannot write in does not open the form. An animateur the Desk import left attached to no section at all is told so on the page rather than left wondering why nothing opens; supplementary calendars remain available to them.
+
+### 27.6 Out of scope
+
+Per-event permissions, per-person exceptions, a write role finer than *animateurs* / *chefs d'unité*, and any change to the ICS feeds (which are read-only by nature).

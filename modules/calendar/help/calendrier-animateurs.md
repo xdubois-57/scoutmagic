@@ -17,9 +17,20 @@ choisi.
 
 Les pastilles du haut filtrent l'affichage : « Mes évènements »
 rassemble les calendriers de vos sections, et chaque pastille suivante
-montre un calendrier précis. Vous pouvez encoder dans le calendrier de
-n'importe quelle section, ainsi que dans les calendriers communs
-(« Animateurs »...) que votre rôle voit.
+montre un calendrier précis.
+
+Vous voyez le calendrier de toutes les sections — savoir ce que fait le
+reste de l'unité fait partie du métier. Vous encodez en revanche dans
+le calendrier des sections que vous animez, et dans les calendriers
+communs (« Animateurs »...) que votre rôle voit. Toucher un jour d'un
+calendrier que vous ne pouvez pas modifier n'ouvre pas la fenêtre de
+saisie, et ce calendrier n'apparaît pas dans la liste déroulante de
+cette fenêtre.
+
+Un chef d'unité anime toutes les sections et encode donc partout. Si
+un calendrier commun a été réservé aux chefs d'unité en modification,
+vous continuez à le voir sans pouvoir y écrire : demandez à votre
+équipe d'unité si vous pensez que c'est une erreur.
 
 ## Créer une activité
 
