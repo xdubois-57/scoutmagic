@@ -2496,8 +2496,25 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeEncryptedFileStorage = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
     $financeReceiptService = new \Modules\Finance\Service\ReceiptService(
         $financeAttachmentRepo, $financeAccountRepo, $financeTransactionAttachmentRepo, $financeEncryptedFileStorage,
-        $financeTransactionRepo
+        $financeTransactionRepo, $settingService
     );
+
+    // A receipt's FILE follows its account's rule too (ARCHITECTURE.md
+    // §8.70): role_min alone is a hierarchical floor and cannot say "the
+    // Louveteaux section", so without this the screen would be narrowed
+    // and a direct /files/{id} would not be.
+    $fileOwnershipCheckers[] = new \Modules\Finance\File\FinanceAccountOwnershipChecker(
+        $financeAccountRepo, $financeTreasurerScopeService, $effectiveScoutYear->id
+    );
+
+    // Every receipt stored before that checker existed carries no owner
+    // pair, and would stay reachable by its direct link — which is the
+    // hole itself. Called here rather than from the finance configuration
+    // page: a backfill that only runs for units whose superadmin happens
+    // to open the right screen is not a backfill. Guarded by a settings
+    // flag, and SettingService caches settings once per request, so every
+    // run after the first costs one array lookup and no query.
+    $financeReceiptService->ensureReceiptFileOwnership();
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5) — reuses the same LlmConnectorInterface instance already
     // built for RGPD content generation above; extraction is skipped
