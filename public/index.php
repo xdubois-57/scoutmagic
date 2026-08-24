@@ -3242,7 +3242,10 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $campsMergeService = new \Modules\Camps\Service\MergeService(
         $campsPlaceRepo, $campsCampRepo, $campsContactRepo, $campsLinkRepo, $campsDocumentRepo,
-        $campsReviewRepo, $editableContentService, $auditService, $campsAlbumService
+        $campsReviewRepo, $editableContentService, $auditService, $campsAlbumService,
+        // The PDO a merge's transaction runs on, and the mail that has to
+        // follow a merged stay to its new reference.
+        $pdo, $inboundMailForOthers
     );
 
     // Duplicate detection: the AI half is an optional dependency on

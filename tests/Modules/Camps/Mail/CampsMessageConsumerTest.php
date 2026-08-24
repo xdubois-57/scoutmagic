@@ -181,6 +181,95 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertNull(CampsMessageConsumer::campIdFromReference(CampsMessageConsumer::UNSORTED_REFERENCE));
     }
 
+    // ── Storing a message on a stay that is no longer there ─────────
+
+    public function testAMessageFiledUnderADeletedStayIsNotAttached(): void
+    {
+        // A reference names a stay; it does not prove one still exists.
+        // The stay can be deleted or merged away between the claim and the
+        // sync that stores the message — and camp_documents.camp_id is a
+        // foreign key, so attaching would fail the whole synchronisation
+        // pass over a row nobody can even see.
+        $documents = $this->documentService();
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption, $this->settings, null, $documents
+        );
+
+        $consumer->onMessageStored($this->storedMessage('camp-99999'));
+
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM camp_documents')->fetchColumn()
+        );
+    }
+
+    public function testAMessageFiledUnderALiveStayStillAttachesItsFile(): void
+    {
+        $documents = $this->documentService();
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption, $this->settings, null, $documents
+        );
+
+        $consumer->onMessageStored($this->storedMessage('camp-' . $this->campId));
+
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM camp_documents')->fetchColumn()
+        );
+    }
+
+    private function documentService(): \Modules\Camps\Service\DocumentService
+    {
+        return new \Modules\Camps\Service\DocumentService(
+            new \Modules\Camps\Repository\DocumentRepository($this->pdo),
+            new \Core\File\FileRepository($this->pdo),
+            new \Core\File\UploadHandler(new \Core\File\FileRepository($this->pdo), sys_get_temp_dir()),
+            new \Core\Audit\AuditService(
+                new \Core\Audit\AuditRepository($this->pdo, $this->encryption)
+            ),
+            sys_get_temp_dir()
+        );
+    }
+
+    private function storedMessage(string $reference): \Modules\InboundMail\Api\InboundMessage
+    {
+        $fileId = (new \Core\File\FileRepository($this->pdo))->create(
+            'camps/piece-jointe.pdf',
+            'piece-jointe.pdf',
+            'application/pdf',
+            10,
+            'chief',
+            'inbound_mail',
+            null
+        );
+
+        return new \Modules\InboundMail\Api\InboundMessage(
+            1,
+            self::SHARED_MAILBOX,
+            CampsMessageConsumer::CONSUMER_ID,
+            $reference,
+            LinkOrigin::SENDER,
+            'Contrat',
+            'lambert@example.org',
+            null,
+            '<msg@mail>',
+            null,
+            new \DateTimeImmutable('2026-06-01'),
+            'Corps',
+            '',
+            [],
+            [new \Modules\InboundMail\Api\InboundAttachment(
+                1,
+                1,
+                $fileId,
+                'piece-jointe.pdf',
+                'application/pdf',
+                10,
+                str_repeat('a', 64)
+            )]
+        );
+    }
+
     /**
      * Written straight into `settings`: SettingService::set() refuses a
      * key the module registration has not declared yet, and this test

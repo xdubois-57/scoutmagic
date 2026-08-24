@@ -6,6 +6,7 @@ namespace Tests\Modules\Camps\Service;
 
 use Core\Audit\AuditRepository;
 use Core\Audit\AuditService;
+use Core\File\FileRepository;
 use Core\Security\EncryptionService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
@@ -19,10 +20,17 @@ use Modules\Camps\Repository\ReviewRepository;
 use Modules\Camps\Service\CampAlbumService;
 use Modules\Camps\Service\CampService;
 use Modules\Camps\Service\CampsException;
+use Modules\Camps\Mail\CampsMessageConsumer;
 use Modules\Camps\Service\MergeService;
+use Modules\InboundMail\Api\InboundMailInterface;
+use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Repository\InboundMailboxRepository;
+use Modules\InboundMail\Repository\InboundMessageRepository;
+use Modules\InboundMail\Service\InboundMailService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
+use Tests\Modules\InboundMail\InboundMailTestHelper;
 
 class MergeServiceTest extends TestCase
 {
@@ -34,6 +42,7 @@ class MergeServiceTest extends TestCase
     private DocumentRepository $documents;
     private ReviewRepository $reviews;
     private EditableContentService $editableContent;
+    private EncryptionService $encryption;
     private MergeService $service;
 
     protected function setUp(): void
@@ -41,6 +50,7 @@ class MergeServiceTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         CampsTestHelper::createTables($this->pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->encryption = $encryption;
 
         $this->places = new PlaceRepository($this->pdo);
         $this->camps = new CampRepository($this->pdo, $encryption);
@@ -54,7 +64,8 @@ class MergeServiceTest extends TestCase
         $this->service = new MergeService(
             $this->places, $this->camps, $this->contacts, $this->links, $this->documents,
             $this->reviews, $this->editableContent, $audit,
-            new CampAlbumService($audit, null)
+            new CampAlbumService($audit, null),
+            $this->pdo
         );
     }
 
@@ -284,6 +295,117 @@ class MergeServiceTest extends TestCase
         $this->service->mergeCamps($this->camp($id), $this->camp($id), 42, $this->today());
     }
 
+    // ── The correspondence follows the stay ─────────────────────────
+
+    public function testEveryMessageOfTheLosingStayMovesToTheSurvivingOne(): void
+    {
+        // `inbound_mail` keys its messages on a reference of ours that no
+        // constraint knows about. Left behind, they point at a stay row
+        // that has just been deleted and are reachable from no screen.
+        [$service, $inboundMail, $messages] = $this->withInboundMail();
+        $place = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
+        $from = $this->stay($place, '2024-07-19');
+        $to = $this->stay($place, '2024-07-26');
+        $messageId = $messages->create(
+            1, 'INBOX', 1, 10, CampsMessageConsumer::CONSUMER_ID, 'camp-' . $from,
+            LinkOrigin::SENDER, '<a@mail>', null, 'Le terrain', 'lambert@example.org', null,
+            'Bonjour', '', new \DateTimeImmutable('2024-06-01')
+        );
+
+        $service->mergeCamps($this->camp($from), $this->camp($to), 42, $this->today());
+
+        $this->assertSame(
+            [],
+            $inboundMail->findForReference(CampsMessageConsumer::CONSUMER_ID, 'camp-' . $from)
+        );
+        $moved = $inboundMail->findForReference(CampsMessageConsumer::CONSUMER_ID, 'camp-' . $to);
+        $this->assertCount(1, $moved);
+        $this->assertSame($messageId, $moved[0]->id);
+    }
+
+    public function testAMergeWithoutTheInboundMailModuleStillWorks(): void
+    {
+        // §7.5: an optional dependency, absent on most installations.
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $from = $this->stay($place, '2024-07-19');
+        $to = $this->stay($place, '2024-07-26');
+
+        $this->service->mergeCamps($this->camp($from), $this->camp($to), 42, $this->today());
+
+        $this->assertNull($this->camps->findById($from));
+    }
+
+    // ── One unit of work ────────────────────────────────────────────
+
+    public function testAFailureHalfwayThroughACampMergeLeavesEverythingWhereItWas(): void
+    {
+        // Without a transaction this used to leave contacts on a stay that
+        // still exists, a note appended to a merge that never happened,
+        // and two rows neither screen can describe.
+        $place = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
+        $from = $this->stay($place, '2024-07-19', 45000);
+        $to = $this->stay($place, '2024-07-26', 50000);
+        $this->contacts->create($from, 'Mme Lambert', 'Propriétaire', 'lambert@example.org', null, null);
+
+        $service = $this->serviceWithFailingReviews();
+
+        try {
+            $service->mergeCamps($this->camp($from), $this->camp($to), 42, $this->today());
+            $this->fail('The stub must have made the merge fail.');
+        } catch (\RuntimeException) {
+            // Expected.
+        }
+
+        $this->assertNotNull($this->camps->findById($from), 'The losing stay must survive a failed merge.');
+        $this->assertCount(1, $this->contacts->findByCamp($from));
+        $this->assertCount(0, $this->contacts->findByCamp($to));
+        $this->assertSame(45000, $this->camp($from)->priceCents);
+        $this->assertSame(50000, $this->camp($to)->priceCents);
+    }
+
+    public function testAFailureHalfwayThroughAPlaceMergeLeavesEverythingWhereItWas(): void
+    {
+        $from = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
+        $to = $this->places->create('Domaine de Mozet asbl', null, null, 'Mozet', null, null);
+        $this->stay($from, '2024-07-19');
+
+        $service = $this->serviceWithFailingAudit();
+
+        try {
+            $service->mergePlaces($this->place($from), $this->place($to), 42);
+            $this->fail('The stub must have made the merge fail.');
+        } catch (\RuntimeException) {
+            // Expected.
+        }
+
+        $this->assertFalse($this->places->findById($from)?->isArchived);
+        $this->assertSame(1, $this->camps->countByPlace($from));
+        $this->assertSame(0, $this->camps->countByPlace($to));
+    }
+
+    /**
+     * A service whose gallery half throws — the one call deliberately made
+     * outside the transaction, and deliberately non-fatal.
+     */
+    public function testAGalleryFailureDoesNotUndoTheMerge(): void
+    {
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $from = $this->stay($place, '2024-07-19');
+        $to = $this->stay($place, '2024-07-26');
+
+        $albums = new class (new AuditService(new AuditRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))) extends CampAlbumService {
+            public function existingAlbumIdFor(Camp $camp): ?int
+            {
+                throw new \RuntimeException('gallery is down');
+            }
+        };
+        $service = $this->serviceWith(albums: $albums);
+
+        $service->mergeCamps($this->camp($from), $this->camp($to), 42, $this->today());
+
+        $this->assertNull($this->camps->findById($from), 'The merge itself must have gone through.');
+    }
+
     private function stay(int $placeId, string $endDate, ?int $priceCents = null, ?int $participants = null): int
     {
         return $this->camps->create(
@@ -311,5 +433,88 @@ class MergeServiceTest extends TestCase
     private function today(): \DateTimeImmutable
     {
         return new \DateTimeImmutable('2026-08-24');
+    }
+
+    // ── Building variants of the service under test ─────────────────
+
+    private function audit(): AuditService
+    {
+        return new AuditService(new AuditRepository($this->pdo, $this->encryption));
+    }
+
+    private function serviceWith(
+        ?ReviewRepository $reviews = null,
+        ?AuditService $audit = null,
+        ?CampAlbumService $albums = null,
+        ?InboundMailInterface $inboundMail = null
+    ): MergeService {
+        $audit ??= $this->audit();
+
+        return new MergeService(
+            $this->places,
+            $this->camps,
+            $this->contacts,
+            $this->links,
+            $this->documents,
+            $reviews ?? $this->reviews,
+            $this->editableContent,
+            $audit,
+            $albums ?? new CampAlbumService($audit, null),
+            $this->pdo,
+            $inboundMail
+        );
+    }
+
+    /**
+     * The real `inbound_mail` service over the test database, so the move
+     * is exercised through the very API §7.11 offers and not a mock of it.
+     *
+     * @return array{MergeService, InboundMailService, InboundMessageRepository}
+     */
+    private function withInboundMail(): array
+    {
+        InboundMailTestHelper::createTables($this->pdo);
+        $messages = new InboundMessageRepository($this->pdo, $this->encryption);
+        $inboundMail = new InboundMailService(
+            $messages,
+            new InboundMailboxRepository($this->pdo, $this->encryption),
+            new FileRepository($this->pdo)
+        );
+
+        return [$this->serviceWith(inboundMail: $inboundMail), $inboundMail, $messages];
+    }
+
+    private function serviceWithFailingReviews(): MergeService
+    {
+        return $this->serviceWith(reviews: new class ($this->pdo) extends ReviewRepository {
+            public function findByCamp(int $campId): ?\Modules\Camps\Repository\Review
+            {
+                throw new \RuntimeException('the database went away mid-merge');
+            }
+        });
+    }
+
+    private function serviceWithFailingAudit(): MergeService
+    {
+        return $this->serviceWith(audit: new class ($this->auditRepository()) extends AuditService {
+            public function record(
+                string $entityType,
+                int $entityId,
+                string $fieldKey,
+                ?string $from,
+                ?string $to,
+                \Core\Audit\AuditSource $source,
+                ?string $summary = null,
+                ?string $sourceReference = null,
+                ?int $actorUserAccountId = null
+            ): void {
+                throw new \RuntimeException('the database went away mid-merge');
+            }
+        });
+    }
+
+    private function auditRepository(): AuditRepository
+    {
+        return new AuditRepository($this->pdo, $this->encryption);
     }
 }
