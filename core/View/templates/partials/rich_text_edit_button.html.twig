@@ -3,8 +3,15 @@
   half of the pair described in partials/rich_text_field.html.twig's doc
   comment. save_url is normally the generic core endpoint
   (Core\Http\Controller\EditableContentController::updateField(), POST
-  /api/rich-text-content, role_min superadmin) — no per-module save
-  endpoint needed for the text itself.
+  /api/rich-text-content, role_min admin) — no per-module save endpoint
+  needed for the text itself.
+
+  That role_min is deliberately less strict than the Configuration menu:
+  this endpoint is never authorized by being in that menu, it is
+  authorized by the host page embedding this button — and every such page
+  is a role_min: admin page of the Espace chefs d'U menu. At superadmin it
+  refused the chief d'unité those pages are for, on save only, after the
+  text had been typed.
 
   The calling PAGE (not this partial, to avoid duplicate DOM ids) must
   once, anywhere on the page:

@@ -1,0 +1,42 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The footer every page of this module carries, and the reason it does.
+
+  Nothing on these pages is fresher than the last Desk import: the module
+  stores no state of its own and recomputes everything from the imported
+  roster on each request. Stating the import date turns "this is the
+  situation" into "this was the situation on that date", which is the only
+  claim the data supports — and the difference matters most exactly when it
+  is easiest to forget, three weeks after an import.
+
+  The rules version and its verification date answer the other question a
+  reader eventually asks: not "is this data current?" but "is this RULE
+  current?". Both come from Modules\Leadership\LeadershipRules.
+
+  Usage:
+  {% include '@leadership/partials/_validity_footer.html.twig' with {
+      scout_year_label: scout_year_label,
+      last_import_at: last_import_at,
+      rules_version: rules_version,
+      rules_verified_on: rules_verified_on,
+  } only %}
+#}
+<div class="small text-body-secondary border-top pt-3 mt-4">
+    <p class="mb-1">
+        <i class="bi bi-clock-history" aria-hidden="true"></i>
+        {% if last_import_at %}
+            Données de l'année scoute {{ scout_year_label }}, telles qu'importées de Desk le {{ last_import_at|datetime_fr }}.
+            Tout changement encodé dans Desk depuis cette date n'apparaît pas ici.
+        {% else %}
+            Année scoute {{ scout_year_label }} : aucun import Desk n'a encore été enregistré pour cette année.
+            Les listes ci-dessus sont donc calculées sur des données incomplètes.
+        {% endif %}
+    </p>
+    <p class="mb-0">
+        <i class="bi bi-rulers" aria-hidden="true"></i>
+        Seuils appliqués : version {{ rules_version }}, vérifiés le {{ rules_verified_on|date_fr }}.
+    </p>
+</div>
