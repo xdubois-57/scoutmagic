@@ -5,7 +5,7 @@ summary: Votre photo, votre nom, votre mot de passe, vos clés numériques et le
 category: Espace membres
 role_min: identified
 paths: /account
-related: se-connecter, notifications-preferences, cookies
+related: se-connecter, envoyer-une-photo, notifications-preferences, cookies
 ---
 
 La page « Mon compte » rassemble ce qui appartient à votre connexion —
