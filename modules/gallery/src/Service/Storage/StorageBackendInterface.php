@@ -49,6 +49,25 @@ interface StorageBackendInterface
      */
     public function getRange(string $key, int $offset, int $length): string;
 
+    /**
+     * Copies $fromKey to $toKey WITHIN this backend, without the bytes ever
+     * travelling through PHP — a server-side S3 CopyObject, a filesystem
+     * copy locally. Exists so a media can change album (Service\
+     * DelegatedAlbumService::moveMedia()) and have its renditions follow it
+     * under the target album's own "{albumId}/" prefix: leaving them under
+     * the source album's prefix would hand deletePrefix() the power to
+     * destroy, on the source album's deletion, objects a different album's
+     * rows still point at.
+     *
+     * Same backend only — it cannot move an object from a local location to
+     * an S3 one, or between two buckets. A caller spanning two locations
+     * has to read and re-write the bytes itself, which is why moveMedia()
+     * refuses that case outright rather than pretending this covers it.
+     *
+     * @throws \RuntimeException when $fromKey can't be read
+     */
+    public function copy(string $fromKey, string $toKey): void;
+
     public function delete(string $key): void;
 
     /**

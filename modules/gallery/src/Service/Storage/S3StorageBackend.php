@@ -182,6 +182,22 @@ class S3StorageBackend implements StorageBackendInterface
         return (string) $result['Body'];
     }
 
+    public function copy(string $fromKey, string $toKey): void
+    {
+        // CopyObject is server-side: the object never leaves the provider,
+        // so a 900 MB video changes album without a download/upload round
+        // trip through this process.
+        $this->client->copyObject([
+            'Bucket' => $this->bucket,
+            'Key' => $toKey,
+            // Passed unencoded on purpose: every key this backend receives
+            // is app-generated ("{albumId}/med_{mediaId}.jpg" — digits,
+            // "_", "." and "/" only), and percent-encoding the whole
+            // "bucket/key" string would escape the separators themselves.
+            'CopySource' => $this->bucket . '/' . ltrim($fromKey, '/'),
+        ]);
+    }
+
     public function delete(string $key): void
     {
         $this->client->deleteObject([

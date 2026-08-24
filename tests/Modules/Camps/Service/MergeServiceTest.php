@@ -1,0 +1,315 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Modules\Camps\Service;
+
+use Core\Audit\AuditRepository;
+use Core\Audit\AuditService;
+use Core\Security\EncryptionService;
+use Core\View\EditableContentRepository;
+use Core\View\EditableContentService;
+use Modules\Camps\Repository\Camp;
+use Modules\Camps\Repository\CampRepository;
+use Modules\Camps\Repository\ContactRepository;
+use Modules\Camps\Repository\DocumentRepository;
+use Modules\Camps\Repository\LinkRepository;
+use Modules\Camps\Repository\PlaceRepository;
+use Modules\Camps\Repository\ReviewRepository;
+use Modules\Camps\Service\CampAlbumService;
+use Modules\Camps\Service\CampService;
+use Modules\Camps\Service\CampsException;
+use Modules\Camps\Service\MergeService;
+use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
+use Tests\Modules\Camps\CampsTestHelper;
+
+class MergeServiceTest extends TestCase
+{
+    private \PDO $pdo;
+    private PlaceRepository $places;
+    private CampRepository $camps;
+    private ContactRepository $contacts;
+    private LinkRepository $links;
+    private DocumentRepository $documents;
+    private ReviewRepository $reviews;
+    private EditableContentService $editableContent;
+    private MergeService $service;
+
+    protected function setUp(): void
+    {
+        $this->pdo = DatabaseTestHelper::createTestDatabase();
+        CampsTestHelper::createTables($this->pdo);
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        $this->places = new PlaceRepository($this->pdo);
+        $this->camps = new CampRepository($this->pdo, $encryption);
+        $this->contacts = new ContactRepository($this->pdo, $encryption);
+        $this->links = new LinkRepository($this->pdo);
+        $this->documents = new DocumentRepository($this->pdo);
+        $this->reviews = new ReviewRepository($this->pdo);
+        $this->editableContent = new EditableContentService(new EditableContentRepository($this->pdo));
+        $audit = new AuditService(new AuditRepository($this->pdo, $encryption));
+
+        $this->service = new MergeService(
+            $this->places, $this->camps, $this->contacts, $this->links, $this->documents,
+            $this->reviews, $this->editableContent, $audit,
+            new CampAlbumService($audit, null)
+        );
+    }
+
+    // ── Merging places ──────────────────────────────────────────────
+
+    public function testEveryStayFollowsTheMergedPlace(): void
+    {
+        $from = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
+        $to = $this->places->create('Domaine de Mozet asbl', null, null, 'Mozet', null, null);
+        $this->stay($from, '2024-07-19');
+        $this->stay($from, '2020-07-19');
+        $this->stay($to, '2026-07-19');
+
+        $moved = $this->service->mergePlaces($this->place($from), $this->place($to), 42);
+
+        $this->assertSame(2, $moved);
+        $this->assertSame(3, $this->camps->countByPlace($to));
+        $this->assertSame(0, $this->camps->countByPlace($from));
+    }
+
+    public function testTheLosingPlaceIsArchivedNeverDeleted(): void
+    {
+        $from = $this->places->create('A', null, null, 'X', null, null);
+        $to = $this->places->create('B', null, null, 'X', null, null);
+
+        $this->service->mergePlaces($this->place($from), $this->place($to), 42);
+
+        // Deleting a place would take its stays' history with it, and the
+        // history is the module.
+        $this->assertNotNull($this->places->findById($from));
+        $this->assertTrue($this->places->findById($from)?->isArchived);
+        $this->assertSame([], array_filter(
+            $this->places->findAllVisible(),
+            static fn($p): bool => $p->id === $from
+        ));
+    }
+
+    public function testAFieldPresentOnOneSideOnlyIsKept(): void
+    {
+        $from = $this->places->create('A', 'Rue du Tronquoy 4', '5340', 'Mozet', null, 'https://a.be');
+        $to = $this->places->create('B', null, null, 'Mozet', null, null);
+
+        $this->service->mergePlaces($this->place($from), $this->place($to), 42);
+
+        $merged = $this->places->findById($to);
+        $this->assertSame('Rue du Tronquoy 4', $merged?->address);
+        $this->assertSame('https://a.be', $merged->websiteUrl);
+        // The surviving place keeps its own name — a merge is not a rename.
+        $this->assertSame('B', $merged->name);
+    }
+
+    public function testAManualPinBeatsAnAutomaticOne(): void
+    {
+        $from = $this->places->create('A', null, null, 'Mozet', null, null);
+        $to = $this->places->create('B', null, null, 'Mozet', null, null);
+        $this->places->setManualCoordinates($from, 50.443210, 5.001234);
+        $this->places->recordGeocoding($to, 50.0, 5.5, new \DateTimeImmutable());
+
+        $this->service->mergePlaces($this->place($from), $this->place($to), 42);
+
+        // Somebody dragged that pin onto the actual field; an automatic
+        // guess must not win just because it was written later.
+        $merged = $this->places->findById($to);
+        $this->assertEqualsWithDelta(50.443210, (float) $merged?->latitude, 0.000001);
+        $this->assertTrue($merged->coordinatesAreManual);
+    }
+
+    public function testAPlaceWithNoPinTakesTheOtherSidesPin(): void
+    {
+        $from = $this->places->create('A', null, null, 'Mozet', null, null);
+        $to = $this->places->create('B', null, null, 'Mozet', null, null);
+        $this->places->recordGeocoding($from, 50.44, 5.00, new \DateTimeImmutable());
+
+        $this->service->mergePlaces($this->place($from), $this->place($to), 42);
+
+        $this->assertTrue($this->places->findById($to)?->hasCoordinates());
+        // And it stays automatic, so a later correction still counts as
+        // the first human decision about this place.
+        $this->assertFalse($this->places->findById($to)->coordinatesAreManual);
+    }
+
+    public function testAPlaceCannotBeMergedWithItself(): void
+    {
+        $id = $this->places->create('A', null, null, 'X', null, null);
+
+        $this->expectException(CampsException::class);
+        $this->service->mergePlaces($this->place($id), $this->place($id), 42);
+    }
+
+    public function testThePreviewCountsWhatWillMoveBeforeAnythingHappens(): void
+    {
+        $from = $this->places->create('A', 'Rue X 1', null, 'Mozet', null, null);
+        $to = $this->places->create('B', null, null, 'Mozet', null, null);
+        $stay = $this->stay($from, '2024-07-19');
+        $this->contacts->create($stay, 'Mme Lambert', null, 'l@example.org', null, null);
+        $this->links->create($stay, 'https://x.be', null, null, null, 'x.be', null);
+
+        $preview = $this->service->placeMergePreview($this->place($from), $this->place($to));
+
+        $this->assertSame(1, $preview['stays']);
+        $this->assertSame(1, $preview['contacts']);
+        $this->assertSame(1, $preview['links']);
+        $this->assertContains('adresse', $preview['fields']);
+    }
+
+    // ── Merging stays ───────────────────────────────────────────────
+
+    public function testMergingAcrossTwoPlacesIsRefused(): void
+    {
+        $a = $this->places->create('A', null, null, 'X', null, null);
+        $b = $this->places->create('B', null, null, 'Y', null, null);
+        $from = $this->camp($this->stay($a, '2024-07-19'));
+        $to = $this->camp($this->stay($b, '2024-07-19'));
+
+        // Two stays at two different fields are two stays. Merge the
+        // PLACES first — which is deliberately an admin action.
+        $this->expectException(CampsException::class);
+        $this->service->mergeCamps($from, $to, 42, $this->today());
+    }
+
+    public function testEverythingAttachedFollowsTheSurvivingStay(): void
+    {
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $fromId = $this->stay($place, '2024-07-19');
+        $toId = $this->stay($place, '2024-07-20');
+        $this->contacts->create($fromId, 'Mme Lambert', null, 'l@example.org', null, null);
+        $this->links->create($fromId, 'https://x.be', null, null, null, 'x.be', null);
+
+        $this->service->mergeCamps($this->camp($fromId), $this->camp($toId), 42, $this->today());
+
+        $this->assertCount(1, $this->contacts->findByCamp($toId));
+        $this->assertCount(1, $this->links->findByCamp($toId));
+        $this->assertNull($this->camps->findById($fromId));
+    }
+
+    public function testALosingValueIsWrittenIntoTheSurvivingNote(): void
+    {
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $fromId = $this->stay($place, '2024-07-19', 240000);
+        $toId = $this->stay($place, '2024-07-19', 265000);
+
+        $lost = $this->service->mergeCamps($this->camp($fromId), $this->camp($toId), 42, $this->today());
+
+        // Nothing is silently dropped — which is exactly what makes this
+        // merge safe to open to every chief rather than to admins only.
+        $this->assertNotEmpty($lost);
+        $note = (string) $this->editableContent->get(CampService::noteKey($toId), '');
+        $this->assertStringContainsString('Fusionné le 24/08/2026', $note);
+        $this->assertStringContainsString('2 400,00 €', $note);
+    }
+
+    public function testTheLosingStaysOwnNoteIsCarriedOverAndCleared(): void
+    {
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $fromId = $this->stay($place, '2024-07-19');
+        $toId = $this->stay($place, '2024-07-20');
+        $this->editableContent->set(CampService::noteKey($fromId), '<p>Accès camion étroit.</p>', 'rich_text', 1);
+
+        $this->service->mergeCamps($this->camp($fromId), $this->camp($toId), 42, $this->today());
+
+        $this->assertStringContainsString(
+            'Accès camion étroit.',
+            (string) $this->editableContent->get(CampService::noteKey($toId), '')
+        );
+        $this->assertNull($this->editableContent->get(CampService::noteKey($fromId)));
+    }
+
+    public function testAnEmptyFieldTakesTheOtherStaysValue(): void
+    {
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $fromId = $this->stay($place, '2024-07-19', 240000, 61);
+        $toId = $this->stay($place, '2024-07-19', null, null);
+
+        $this->service->mergeCamps($this->camp($fromId), $this->camp($toId), 42, $this->today());
+
+        $merged = $this->camps->findById($toId);
+        $this->assertSame(240000, $merged?->priceCents);
+        $this->assertSame(61, $merged->participantCount);
+    }
+
+    public function testSectionsAreUnionedNotReplaced(): void
+    {
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $fromId = $this->camps->create($place, Camp::STAY_GRAND_CAMP, '2024-07-12', '2024-07-19', null, Camp::STATUS_CONFIRMED, null, null, null, null, [3]);
+        $toId = $this->camps->create($place, Camp::STAY_GRAND_CAMP, '2024-07-12', '2024-07-19', null, Camp::STATUS_CONFIRMED, null, null, null, null, [4]);
+
+        $this->service->mergeCamps($this->camp($fromId), $this->camp($toId), 42, $this->today());
+
+        $this->assertSame([3, 4], $this->camps->findById($toId)?->sectionIds);
+    }
+
+    public function testASurvivingReviewIsNeverOverwritten(): void
+    {
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $fromId = $this->stay($place, '2024-07-19');
+        $toId = $this->stay($place, '2024-07-20');
+        $this->reviews->save($fromId, 2, 'Bof.', null);
+        $this->reviews->save($toId, 5, 'Excellent.', null);
+
+        $this->service->mergeCamps($this->camp($fromId), $this->camp($toId), 42, $this->today());
+
+        // Two reviews of one field are two opinions; silently replacing
+        // the surviving one would lose the thing the module exists for.
+        $this->assertSame(5, $this->reviews->findByCamp($toId)?->rating);
+        $this->assertSame('Excellent.', $this->reviews->findByCamp($toId)->comment);
+    }
+
+    public function testAReviewMovesIntoAStayThatHasNone(): void
+    {
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $fromId = $this->stay($place, '2024-07-19');
+        $toId = $this->stay($place, '2024-07-20');
+        $this->reviews->save($fromId, 4, 'Bon terrain.', null);
+
+        $this->service->mergeCamps($this->camp($fromId), $this->camp($toId), 42, $this->today());
+
+        $this->assertSame(4, $this->reviews->findByCamp($toId)?->rating);
+        $this->assertNull($this->reviews->findByCamp($fromId));
+    }
+
+    public function testAStayCannotBeMergedWithItself(): void
+    {
+        $place = $this->places->create('A', null, null, 'X', null, null);
+        $id = $this->stay($place, '2024-07-19');
+
+        $this->expectException(CampsException::class);
+        $this->service->mergeCamps($this->camp($id), $this->camp($id), 42, $this->today());
+    }
+
+    private function stay(int $placeId, string $endDate, ?int $priceCents = null, ?int $participants = null): int
+    {
+        return $this->camps->create(
+            $placeId, Camp::STAY_GRAND_CAMP, $endDate, $endDate, null, Camp::STATUS_CONFIRMED,
+            $priceCents, $participants, null, null, []
+        );
+    }
+
+    private function camp(int $id): Camp
+    {
+        $camp = $this->camps->findById($id);
+        $this->assertNotNull($camp);
+
+        return $camp;
+    }
+
+    private function place(int $id): \Modules\Camps\Repository\Place
+    {
+        $place = $this->places->findById($id);
+        $this->assertNotNull($place);
+
+        return $place;
+    }
+
+    private function today(): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable('2026-08-24');
+    }
+}

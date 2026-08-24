@@ -115,6 +115,10 @@ async function boot(pageData) {
             defaultStartTime: '14:00',
             defaultEndTime: '17:00',
             defaultLocation: 'Local',
+            // The real template always sends this: the calendars this
+            // account may WRITE to. Both fixture calendars are the
+            // account's own unless a test says otherwise.
+            editableCalendarIds: [1, 3],
             defaultCalendarId: 3,
         }
         : pageData);
@@ -380,5 +384,63 @@ describe('calendar-chief.js: deleting an event', () => {
         expect(box.textContent).toBe('Évènement introuvable.');
         expect(box.classList.contains('d-none')).toBe(false);
         expect(window.location.reload).not.toHaveBeenCalled();
+    });
+});
+
+// IT-02: an animateur sees the whole unit's month grid but only writes in
+// the sections they animate. The server refuses either way — this guard
+// exists so the dialog never opens on an event it could not save, which
+// would otherwise silently offer to MOVE that event into one of our own
+// calendars (the select has no option for its real one).
+describe('calendar-chief.js: the dialog follows the editable calendars', () => {
+    it('opens the edit dialog on an event of a calendar we may write to', async () => {
+        // EVENT_DATA sits on calendar 3, which the default island lists.
+        await boot();
+        openEdit();
+
+        expect(el('event-id').value).toBe('42');
+        expect(el('eventModal-title').textContent).toBe("Modifier l'évènement");
+    });
+
+    it('does not open it on an event of a section we do not animate', async () => {
+        await boot({
+            defaultTitle: 'Réunion',
+            defaultStartTime: '14:00',
+            defaultEndTime: '17:00',
+            defaultLocation: 'Local',
+            editableCalendarIds: [1],
+            defaultCalendarId: 1,
+        });
+
+        openEdit();
+
+        // Untouched: no id copied in, and the title still reads as the
+        // "add" dialog rather than the "edit" one.
+        expect(el('event-id').value).toBe('');
+        expect(el('eventModal-title').textContent).toBe('Ajouter un évènement');
+    });
+
+    it('still opens the add dialog while at least one calendar is editable', async () => {
+        await boot();
+        openAdd();
+
+        expect(el('eventModal-title').textContent).toBe('Ajouter un évènement');
+        expect(el('event-start-date').value).toBe('2026-07-15');
+    });
+
+    it('does not open the add dialog when nothing at all is editable', async () => {
+        await boot({
+            defaultTitle: 'Réunion',
+            defaultStartTime: '14:00',
+            defaultEndTime: '17:00',
+            defaultLocation: 'Local',
+            editableCalendarIds: [],
+            defaultCalendarId: null,
+        });
+
+        openAdd();
+
+        expect(el('event-start-date').value).toBe('');
+        expect(el('event-title').value).toBe('');
     });
 });

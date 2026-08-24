@@ -56,6 +56,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Modules\Banner\Service\BannerException::class,
         \Modules\Calendar\Service\CalendarException::class,
         \Modules\Finance\Service\FinanceException::class,
+        \Modules\Camps\Service\CampsException::class,
         \Modules\Gallery\Service\GalleryException::class,
         \Modules\Groups\Service\GroupsException::class,
         \Modules\InboundMail\Client\MailboxConnectionException::class,

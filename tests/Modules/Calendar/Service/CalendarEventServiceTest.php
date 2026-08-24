@@ -64,7 +64,7 @@ class CalendarEventServiceTest extends TestCase
     }
 
     /**
-     * getEditableCalendarsForChief() deliberately excludes supplementary
+     * getViewableCalendars() deliberately excludes supplementary
      * calendars a chief cannot see — but the write paths only checked that
      * the calendar EXISTED, and calendar_id/event_id arrive in the request
      * body. A chief could therefore post an admin-only calendar's id and
@@ -76,8 +76,8 @@ class CalendarEventServiceTest extends TestCase
 
         $this->assertNotContains(
             $adminOnlyId,
-            array_map(static fn(Calendar $c) => $c->id, $this->service->getEditableCalendarsForChief(Role::CHIEF)),
-            'precondition: the calendar is outside a chief\'s editable set'
+            array_map(static fn(Calendar $c) => $c->id, $this->service->getViewableCalendars(Role::CHIEF)),
+            'precondition: the calendar is outside a chief\'s viewable set'
         );
 
         $this->expectException(CalendarException::class);
@@ -246,7 +246,7 @@ class CalendarEventServiceTest extends TestCase
         $this->service->deleteEvent(9999);
     }
 
-    public function testGetEditableCalendarsForChiefIncludesAllSectionCalendars(): void
+    public function testEverySectionCalendarStaysVIEWABLEByAnyChief(): void
     {
         $stmt = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
         $stmt->execute(['BAL', 'Baladins', 10]);
@@ -256,29 +256,149 @@ class CalendarEventServiceTest extends TestCase
 
         $this->calendarService->ensureSectionCalendars();
 
-        $editable = $this->service->getEditableCalendarsForChief(Role::CHIEF);
+        $viewable = $this->service->getViewableCalendars(Role::CHIEF);
 
-        $sectionCalendars = array_filter($editable, fn(Calendar $c) => $c->isSectionCalendar());
+        $sectionCalendars = array_filter($viewable, fn(Calendar $c) => $c->isSectionCalendar());
         $this->assertCount(1, $sectionCalendars);
     }
 
-    public function testGetEditableCalendarsForChiefExcludesAdminOnlySupplementaryCalendarsForPlainChief(): void
+    public function testViewableExcludesAdminOnlySupplementaryCalendarsForPlainChief(): void
     {
         $this->calendarService->addCalendar('AdminOnly', Calendar::VISIBILITY_ADMIN);
 
-        $editable = $this->service->getEditableCalendarsForChief(Role::CHIEF);
+        $viewable = $this->service->getViewableCalendars(Role::CHIEF);
 
-        $names = array_map(fn(Calendar $c) => $c->name, $editable);
+        $names = array_map(fn(Calendar $c) => $c->name, $viewable);
         $this->assertNotContains('AdminOnly', $names);
     }
 
-    public function testGetEditableCalendarsForChiefIncludesAdminOnlyCalendarsForAdminRole(): void
+    public function testViewableIncludesAdminOnlyCalendarsForAdminRole(): void
     {
         $this->calendarService->addCalendar('AdminOnly', Calendar::VISIBILITY_ADMIN);
 
-        $editable = $this->service->getEditableCalendarsForChief(Role::ADMIN);
+        $viewable = $this->service->getViewableCalendars(Role::ADMIN);
 
-        $names = array_map(fn(Calendar $c) => $c->name, $editable);
+        $names = array_map(fn(Calendar $c) => $c->name, $viewable);
         $this->assertContains('AdminOnly', $names);
+    }
+
+    // --- IT-02: a section calendar is WRITTEN only by an animateur of that
+    // section, while everybody keeps SEEING all of them ---
+
+    /**
+     * @return array{0: int, 1: int} [sectionId, its calendar id]
+     */
+    private function createSectionWithCalendar(string $deskCode, string $name, int $sortOrder): array
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
+        $stmt->execute([$deskCode . '_BR', $name, $sortOrder]);
+        $branchId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
+        $stmt->execute([$deskCode, $branchId, $name]);
+        $sectionId = (int) $this->pdo->lastInsertId();
+
+        $this->calendarService->ensureSectionCalendars();
+
+        foreach ($this->calendarService->getSectionCalendars() as $calendar) {
+            if ($calendar->sectionId === $sectionId) {
+                return [$sectionId, $calendar->id];
+            }
+        }
+
+        self::fail('no calendar was created for section ' . $deskCode);
+    }
+
+    public function testASectionCalendarIsEditableOnlyByAnAnimateurOfThatSection(): void
+    {
+        [$mineId, $mineCalendar] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
+        [, $theirsCalendar] = $this->createSectionWithCalendar('ECL01', 'Éclaireurs', 30);
+
+        $editable = array_map(
+            static fn(Calendar $c) => $c->id,
+            $this->service->getEditableCalendars(Role::CHIEF, [$mineId])
+        );
+
+        $this->assertContains($mineCalendar, $editable);
+        $this->assertNotContains($theirsCalendar, $editable);
+    }
+
+    public function testBothSectionCalendarsStayViewableToTheSameAnimateur(): void
+    {
+        [, $mineCalendar] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
+        [, $theirsCalendar] = $this->createSectionWithCalendar('ECL01', 'Éclaireurs', 30);
+
+        $viewable = array_map(static fn(Calendar $c) => $c->id, $this->service->getViewableCalendars(Role::CHIEF));
+
+        $this->assertContains($mineCalendar, $viewable);
+        $this->assertContains($theirsCalendar, $viewable, 'narrowing the WRITE must never narrow the READ');
+    }
+
+    public function testASupplementaryCalendarNeedsNoSectionAtAll(): void
+    {
+        // $this->calendarId is the 'Animateurs' supplementary calendar the
+        // fixture creates: no section, so an animateur with zero staffed
+        // sections still writes in it.
+        $editable = array_map(static fn(Calendar $c) => $c->id, $this->service->getEditableCalendars(Role::CHIEF, []));
+
+        $this->assertContains($this->calendarId, $editable);
+    }
+
+    public function testCreatingInAnotherSectionsCalendarIsRefused(): void
+    {
+        [$mineId] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
+        [, $theirsCalendar] = $this->createSectionWithCalendar('ECL01', 'Éclaireurs', 30);
+
+        $this->expectException(CalendarException::class);
+        $this->service->createEvent($theirsCalendar, 'Intrus', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF, [$mineId]);
+    }
+
+    public function testAnEventCannotBeMovedOutOfAnotherSectionsCalendar(): void
+    {
+        [$mineId, $mineCalendar] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
+        [$theirsId, $theirsCalendar] = $this->createSectionWithCalendar('ECL01', 'Éclaireurs', 30);
+
+        // Created as the other section's own animateur, legitimately.
+        $event = $this->service->createEvent($theirsCalendar, 'Leur réunion', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF, [$theirsId]);
+
+        $this->expectException(CalendarException::class);
+        $this->service->updateEvent($event->id, $mineCalendar, 'Détourné', '2026-03-15', null, null, null, null, null, false, null, Role::CHIEF, [$mineId]);
+    }
+
+    public function testDeletingAnotherSectionsEventIsRefused(): void
+    {
+        [$mineId] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
+        [$theirsId, $theirsCalendar] = $this->createSectionWithCalendar('ECL01', 'Éclaireurs', 30);
+
+        $event = $this->service->createEvent($theirsCalendar, 'Leur réunion', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF, [$theirsId]);
+
+        $this->expectException(CalendarException::class);
+        $this->service->deleteEvent($event->id, Role::CHIEF, [$mineId]);
+    }
+
+    public function testTheAnimateurOfTheSectionWritesInItNormally(): void
+    {
+        [$mineId, $mineCalendar] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
+
+        $event = $this->service->createEvent($mineCalendar, 'Ma réunion', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF, [$mineId]);
+
+        $this->assertSame($mineCalendar, $event->calendarId);
+        $this->service->deleteEvent($event->id, Role::CHIEF, [$mineId]);
+    }
+
+    /**
+     * The system caller (Modules\SosStaff\Service\CalendarSyncService) acts
+     * for the unit, not for a session: it passes no role, and the null
+     * short-circuit must keep letting it through even though it names no
+     * staffed section at all. Without this the SOS rota stops publishing.
+     */
+    public function testASystemCallerWithNoRoleStillWritesAnywhere(): void
+    {
+        [, $anyCalendar] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
+
+        $event = $this->service->createEvent($anyCalendar, 'Permanence SOS', '2026-03-15', null, null, null, null, null, null);
+
+        $this->assertSame($anyCalendar, $event->calendarId);
+        // Deleting through the same session-less path must not throw either.
+        $this->service->deleteEvent($event->id);
     }
 }

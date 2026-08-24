@@ -28,9 +28,16 @@
         </a>
     </div>
 
-    <p class="text-body-secondary small mb-2">
-        <i class="bi bi-info-circle" aria-hidden="true"></i> Cliquez sur un jour pour ajouter un évènement, ou sur un évènement pour le modifier.
-    </p>
+    {% if no_staffed_section %}
+        <div class="alert alert-info small py-2 mb-3">
+            <i class="bi bi-info-circle" aria-hidden="true"></i>
+            Vous voyez tout le calendrier de l'unité, mais les évènements d'une section ne sont modifiables que par ses animateurs, et aucune fonction d'animateur ne vous est rattachée à une section pour l'année en cours. Les calendriers supplémentaires, eux, vous restent ouverts. Faites compléter votre fonction dans le Desk, puis relancez l'import&nbsp;: un chef d'unité peut le faire pour vous.
+        </div>
+    {% else %}
+        <p class="text-body-secondary small mb-2">
+            <i class="bi bi-info-circle" aria-hidden="true"></i> Cliquez sur un jour pour ajouter un évènement, ou sur un évènement d'une de vos sections pour le modifier.
+        </p>
+    {% endif %}
 
     <div class="mb-4">
         {% include 'partials/month_grid.html.twig' with { weeks: weeks, days_clickable: true, events_clickable: true } %}
@@ -40,12 +47,16 @@
        direct children of .modal-content (what .modal-dialog-scrollable
        needs), so the form now lives entirely inside the body and the
        footer's submit button reaches it through form="event-form". The
-       title id follows the embed's contract: eventModal-title. #}
+       title id follows the embed's contract: eventModal-title.
+
+       The embed is `only`, so the dialog sees exactly what is listed in its
+       `with` hash — and what it needs is editable_calendar_options, the
+       WRITE set, never the page picker's wider view set. #}
     {% embed 'partials/modal.html.twig' with {
         id: 'eventModal',
         title: 'Ajouter un évènement',
         scrollable: true,
-        calendar_options: calendar_options,
+        editable_calendar_options: editable_calendar_options,
         retro_module_active: retro_module_active,
     } only %}
         {% block body %}
@@ -62,10 +73,15 @@
                                 } only %}
                             </div>
                             <div class="col-12 col-md-6">
+                                {# editable_calendar_options is the WRITE set, not
+                                   the view set: an animateur only files events in
+                                   the sections they animate, while the picker at
+                                   the top of the page still lists everything the
+                                   unit does. #}
                                 {% include 'partials/form_field.html.twig' with {
                                     field_id: 'event-calendar', label: 'Calendrier',
                                     type: 'select', size: 'sm', wrapper_class: '',
-                                    options: calendar_options|default([])|filter(option => option.id != 0)
+                                    options: editable_calendar_options|default([])|filter(option => option.id != 0)
                                         |map(option => { value: option.id, label: option.label }),
                                 } only %}
                             </div>
@@ -126,7 +142,11 @@
    an admin types on the calendar configuration page — cannot end the
    block, and the template needs no nonce for it.
    JSON_HEX_TAG/JSON_HEX_AMP escape those characters anyway.
-   calendar-chief.js reads it through ScoutMagicApi.pageData(). #}
+   calendar-chief.js reads it through ScoutMagicApi.pageData().
+
+   defaultCalendarId stays LAST: CalendarChiefControllerTest asserts on
+   "defaultCalendarId":{id}} and leans on that closing brace so an id that
+   merely starts with another one cannot match it. #}
 {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
 <script type="application/json" id="calendar-chief-data">
 {{ {
@@ -134,6 +154,7 @@
     defaultStartTime: default_start_time,
     defaultEndTime: default_end_time,
     defaultLocation: default_location,
+    editableCalendarIds: editable_calendar_ids|default([]),
     defaultCalendarId: default_calendar_id
 }|json_encode(json_flags)|raw }}
 </script>

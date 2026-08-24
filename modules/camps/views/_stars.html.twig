@@ -1,0 +1,15 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# A rating out of five. The number is written out next to the stars and
+   in the accessible label, never carried by the icons alone: five filled
+   shapes are unreadable to a screen reader and hard to count at a glance
+   on a phone. #}
+<span class="text-nowrap" title="{{ rating }} sur 5">
+    <span aria-hidden="true">
+        {% for i in 1..5 %}<i class="bi bi-star{{ i <= rating ? '-fill' : '' }} {{ i <= rating ? 'text-warning' : 'text-body-secondary' }}"></i>{% endfor %}
+    </span>
+    <span class="small text-body-secondary">{{ rating }}/5</span>
+    <span class="visually-hidden">Note : {{ rating }} sur 5</span>
+</span>
