@@ -800,3 +800,20 @@
     outline: 2px solid var(--bs-primary, #0d6efd);
     outline-offset: 1px;
 }
+
+/* partials/audit_timeline.html.twig — the per-entity change history
+   (ARCHITECTURE.md §8.65). Everything here is geometry: the line down the
+   left is Bootstrap's own .border-start, and each entry's marker is a dot
+   straddling it. The colours come from utilities on the markup
+   (.bg-primary / .bg-warning), so the timeline follows the theme in both
+   modes without this file knowing which one is active.
+
+   The dot is sized in em rather than px: it sits next to text and should
+   grow with it when a reader enlarges the page. */
+.audit-timeline-list > .audit-entry > .audit-entry-marker {
+    width: 0.6em;
+    height: 0.6em;
+    left: 0;
+    top: 0.45em;
+    margin-left: -1rem;
+}

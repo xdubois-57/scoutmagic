@@ -1,0 +1,82 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  An entity's own change history (ARCHITECTURE.md §8.65), rendered on its
+  page. Any module recording through Core\Audit\AuditService gets this
+  timeline by including the partial — it never knows which module it is
+  serving, and never formats a value: what Core\Audit stored is what a
+  reader sees.
+
+  Usage:
+  {% include 'partials/audit_timeline.html.twig' with {
+      entity_type: 'camp_camp',   -- must be registered in the resolver
+      entity_id: camp.id,
+      audit_page: audit_page,     -- Core\Audit\AuditPage, first page
+      labels: { price: 'Prix', status: 'Statut' },  -- optional
+      collapsed: true,            -- optional: folded behind a summary line
+  } only %}
+
+  `labels` maps a field_key to the words a reader sees. A key with no
+  entry falls back to the key itself rather than rendering blank — an
+  unlabelled field is a missing translation, not a missing change, and
+  hiding it would hide the change too.
+
+  `collapsed` renders the one-line summary the camp detail asks for
+  ("12 modifications, la dernière le 14/08/2026") with the timeline in a
+  Bootstrap collapse behind it. The entries are still rendered
+  server-side: folding is not lazy loading, and a history of ten lines is
+  not worth a round trip.
+
+  Pages after the first come from GET /api/audit/{type}/{id} as JSON and
+  are appended by public/assets/js/audit-timeline.js. That file builds the
+  same markup as the loop below — the two must be changed together, and
+  tests/js/audit-timeline.test.js is what notices when they aren't.
+#}
+{% set _labels = labels|default({}) %}
+{% set _collapsed = collapsed|default(false) %}
+{% set _id = 'audit-' ~ entity_type ~ '-' ~ entity_id %}
+
+<div class="audit-timeline" data-entity-type="{{ entity_type }}" data-entity-id="{{ entity_id }}"
+     data-labels="{{ _labels|json_encode }}">
+    {% if audit_page.total == 0 %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune modification enregistrée.',
+            compact: true,
+        } only %}
+    {% else %}
+        {% if _collapsed %}
+            <p class="mb-2">
+                <button class="btn btn-link p-0 border-0 align-baseline" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#{{ _id }}"
+                        aria-expanded="false" aria-controls="{{ _id }}">
+                    {{ audit_page.total }} modification{{ audit_page.total > 1 ? 's' : '' }}<span class="visually-hidden"> — afficher l'historique</span>
+                </button>
+                <span class="text-body-secondary">
+                    , la dernière le {{ audit_page.entries|first.createdAt|date_fr }}.
+                </span>
+            </p>
+        {% endif %}
+
+        <div class="{{ _collapsed ? 'collapse' : '' }}" id="{{ _id }}">
+            <ol class="list-unstyled border-start ps-3 mb-0 audit-timeline-list">
+                {% for entry in audit_page.entries %}
+                    {% include 'partials/audit_timeline_entry.html.twig' with {
+                        entry: entry, labels: _labels
+                    } only %}
+                {% endfor %}
+            </ol>
+
+            {% if audit_page.hasMore() %}
+                <div class="audit-timeline-more-wrapper mt-2">
+                    <button type="button"
+                            class="btn btn-outline-secondary w-100 audit-timeline-more"
+                            data-next-page="{{ audit_page.page + 1 }}">
+                        Afficher plus ({{ audit_page.total - audit_page.entries|length }})
+                    </button>
+                </div>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>

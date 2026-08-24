@@ -437,6 +437,7 @@ $media   = $this->delegatedAlbumManager->addMedia($albumId, $uploadedFile, $acco
 $all     = $this->delegatedAlbumManager->listMedia($albumId);                              // DelegatedMedia[]
 $this->delegatedAlbumManager->deleteMedia($albumId, $mediaId);                             // row + stored objects
 $this->delegatedAlbumManager->deleteAlbum($albumId);                                       // the whole album, ditto
+$moved   = $this->delegatedAlbumManager->moveMedia('my_module_thing', $fromAlbumId, $toAlbumId); // merge two of yours
 ```
 
 - **`gallery` is a hard dependency** for this (`"requires": ["gallery"]` — see the section above), because there is no meaningful degradation: a module whose whole feature is posting photos cannot "simply do without them".
@@ -444,6 +445,8 @@ $this->delegatedAlbumManager->deleteAlbum($albumId);                            
 - `videoUploadAllowed()` exists so your composer can hide the video option proactively; `addMedia()` refuses one server-side regardless, so it is a UI hint and never the check.
 - **From a scheduled task**, do not reassemble gallery's internals — `SchedulerRunner` gives your handler only a `TaskContext`, and gallery's constructors are none of your business. Use `Modules\Gallery\Api\DelegatedAlbumManagerFactory::fromTaskContext($context)`, which builds the manager on gallery's own side of the boundary. `Modules\Groups\Task\PurgeClosedGroupsHandler` is the worked example.
 - **A retention purge must delete files, not just rows.** Your module's `ON DELETE CASCADE` cannot reach gallery's tables, let alone an S3 bucket: an orphaned object left behind after its owning row is gone is a retention failure. Delete media through the API **before** deleting the rows that point at them, so a crash halfway leaves a row the next run finds again rather than bytes nothing points at.
+
+- **`moveMedia()` merges two albums you own** — for when the entities behind them merge. It re-parents every media and moves its renditions server-side (an S3 `CopyObject`, a filesystem copy), never re-uploading anything. It refuses, changing nothing, when either album is not yours, when both ids are the same album, or when the two sit on **different storage locations** — a rendition's bytes cannot cross backends without passing through PHP, and the location is resolved from the album, so a media left behind would be unservable the moment it landed. Do not work around that by moving rows yourself: a rendition's key embeds the album it was written under, and album deletion clears storage by prefix.
 
 The same module publishes `Api\LinkPreviewFetcher` for Open Graph title/description/image of a user-supplied URL. Use it rather than fetching a URL yourself — `Modules\Gallery\Service\OgScraperService` is the only place in this codebase allowed to make an outbound request to a member-supplied address, and it is hardened against SSRF in ways a second implementation would not be (SECURITY.md §17).
 
@@ -634,6 +637,36 @@ Corps en Markdown…
   link but the federation's.
 - A new end-user-facing page should ship with a topic covering it, in the
   same change (AGENTS.md § Module creation checklist).
+
+## Recording an entity's change history (`Core\Audit`)
+
+When your module owns something a chief will ask questions about later — "who changed this price, and when?" — record the changes and render the timeline instead of inventing a per-module events table. `Core\Audit` is that table generalised (ARCHITECTURE.md §8.65).
+
+```php
+$this->auditService->record(
+    'my_module_thing', $thingId, 'price',
+    '2 450 €', '2 650 €',                      // ALREADY formatted for a reader
+    AuditSource::Human,
+    'Prix révisé par le propriétaire',          // optional sentence
+    null,                                       // optional opaque source reference
+    $actorUserAccountId                         // null = automatic
+);
+$page = $this->auditService->page('my_module_thing', $thingId, 1, AuditService::DEFAULT_PER_PAGE);
+```
+
+```twig
+{% include 'partials/audit_timeline.html.twig' with {
+    entity_type: 'my_module_thing', entity_id: thing.id,
+    audit_page: audit_page, labels: { price: 'Prix' }, collapsed: true
+} only %}
+```
+
+- **Not the journal.** `JournalService` is the installation's administrative log and forbids personal data; this is a timeline on one entity's page and may hold the values. Use both for a sensitive action: one line for the administrator, one for the entity.
+- **Pass values already formatted.** The component never formats, parses or compares them — that is what lets one table serve prices, dates and free text. It also means it cannot tell a real change from a no-op: do not call `record()` when nothing changed.
+- **Every value is encrypted, always**, including ones that look harmless. The consequence to plan around: **the history is not searchable or filterable**.
+- **Register an access checker in `public/index.php`**, inside the block that knows your module is enabled: `$auditAccessResolver->register('my_module_thing', fn(int $id): bool => ...)`. An unregistered entity type is **denied** — forgetting this does not open the timeline, it closes it, which is the intended failure direction. The route's `role_min: chief` is a floor, not your answer.
+- `field_key` is a machine name (`price`, `status`), never the label: the `labels` map owns the wording, so rewording a field never rewrites its history.
+- **When a person asks to be erased**, call `anonymiseValues($entityType, $entityIds, $fieldKeys)` rather than deleting rows. That a field changed, when and by whom is not the personal data — the values were.
 
 ## Protecting a public form (`Core\Security\HumanCheck`)
 

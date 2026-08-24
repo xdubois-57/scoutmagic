@@ -487,6 +487,23 @@ class DatabaseTestHelper
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
+        // Core\Audit's per-entity change history (schema/core.sql:
+        // entity_changes). The three value columns are BLOB here as they
+        // are in production — the repository writes ciphertext into them.
+        $pdo->exec('CREATE TABLE entity_changes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_type TEXT NOT NULL,
+            entity_id INTEGER NOT NULL,
+            field_key TEXT NOT NULL,
+            from_value BLOB,
+            to_value BLOB,
+            summary BLOB,
+            source TEXT NOT NULL,
+            source_reference TEXT,
+            actor_user_account_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
         return $pdo;
     }
 }

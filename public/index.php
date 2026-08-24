@@ -782,6 +782,21 @@ if ($settingService->get('settings_migrated') !== '1') {
 $journalRepo = new JournalRepository($pdo);
 $journalService = new JournalService($journalRepo);
 
+// Per-entity change history (Core\Audit, ARCHITECTURE.md §8.65) — the
+// timeline a module renders on an entity's own page, distinct from the
+// journal above: that one is the installation's administrative log and
+// forbids personal data, this one holds the values themselves and
+// encrypts every one of them.
+//
+// The access resolver starts EMPTY and denies every entity type. Each
+// module that records history registers its own checker further down,
+// inside the block that already knows whether that module is enabled —
+// core cannot answer "may this visitor read this camp" and must not
+// guess.
+$auditRepository = new \Core\Audit\AuditRepository($pdo, $encryptionService);
+$auditService = new \Core\Audit\AuditService($auditRepository);
+$auditAccessResolver = new \Core\Audit\AuditAccessResolver();
+
 // Debug timeline (?debug=1): a first, immediately-visible entry as soon as
 // journal logging becomes possible — this is the earliest point in the
 // request DB/session/settings/journal all exist, so it's also the
@@ -1663,6 +1678,11 @@ $router->addRoute('GET', '/files/{id}/{variant}', FileController::class, 'varian
 // would add nothing.
 $router->addRoute('GET', '/api/offline/manifest', OfflineController::class, 'manifest', 'public');
 
+// Pages after the first of an entity's change history (Core\Audit). The
+// 'chief' here is a floor, not the decision: Core\Audit\
+// AuditAccessResolver asks the owning module whether this visitor may
+// read THIS entity, and refuses any entity type nobody registered.
+$router->addRoute('GET', '/api/audit/{entity_type}/{entity_id}', \Core\Http\Controller\AuditController::class, 'page', 'chief');
 // Deployment/version check — see Core\Http\Controller\VersionController's
 // own docblock for why role_min is deliberately public here.
 $router->addRoute('GET', '/api/version', VersionController::class, 'index', 'public');
@@ -1906,6 +1926,14 @@ $rgpdContentService = new RgpdContentService($moduleManager, $settingService, $l
 // Handle the request
 $maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
 $frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService);
+
+// Entity change history pages (Core\Audit) — registered here rather than
+// next to its route, because $frontController does not exist yet at the
+// point the routes are declared.
+$frontController->registerController(
+    \Core\Http\Controller\AuditController::class,
+    new \Core\Http\Controller\AuditController($twig, $auditService, $auditAccessResolver)
+);
 
 // Contextual help pages (Core\Http\Controller\HelpController) — needs the
 // HelpService built next to the registry above, after every enabled
