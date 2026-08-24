@@ -45,12 +45,9 @@ final class HelpInvariantsTest extends TestCase
     }
 
     /**
-     * The whole shipped corpus through the real registry/parser — a parse
-     * error or an id collision anywhere fails here first.
-     *
-     * @return array<string, HelpTopic>
+     * The whole shipped corpus through the real registry/parser.
      */
-    private static function shippedTopics(): array
+    private static function shippedRegistry(): HelpRegistry
     {
         $registry = new HelpRegistry(self::root() . '/docs/help');
 
@@ -67,7 +64,15 @@ final class HelpInvariantsTest extends TestCase
             }
         }
 
-        return $registry->all();
+        return $registry;
+    }
+
+    /**
+     * @return array<string, HelpTopic>
+     */
+    private static function shippedTopics(): array
+    {
+        return self::shippedRegistry()->all();
     }
 
     /**
@@ -120,11 +125,19 @@ final class HelpInvariantsTest extends TestCase
 
     public function testTheShippedCorpusLoadsAndEveryIdIsUnique(): void
     {
-        // HelpRegistry::all() throws on a parse error or a duplicate id —
-        // reaching the assertion at all is the invariant.
-        $topics = self::shippedTopics();
+        // The registry no longer throws on a bad topic — it drops that one
+        // and keeps the site up (HelpRegistry::load()). So the invariant is
+        // now stated directly, and says which file broke rather than
+        // failing on the first one: every shipped topic must load, and no
+        // two may claim the same id.
+        $registry = self::shippedRegistry();
 
-        $this->assertNotEmpty($topics, 'docs/help/ must ship at least the /aide topic.');
+        $this->assertSame(
+            [],
+            $registry->loadErrors(),
+            'Every shipped help topic must parse and carry a unique id.'
+        );
+        $this->assertNotEmpty($registry->all(), 'docs/help/ must ship at least the /aide topic.');
     }
 
     public function testEveryDeclaredPathCorrespondsToARegisteredGetRoute(): void

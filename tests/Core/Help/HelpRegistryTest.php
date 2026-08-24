@@ -9,7 +9,6 @@ declare(strict_types=1);
 
 namespace Tests\Core\Help;
 
-use Core\Help\HelpException;
 use Core\Help\HelpRegistry;
 use PHPUnit\Framework\TestCase;
 
@@ -56,16 +55,46 @@ class HelpRegistryTest extends TestCase
     public function testAnIdCollisionIsALoadErrorNeverASilentOverwrite(): void
     {
         $coreDir = $this->makeTopicDir();
-        $this->writeTopic($coreDir, 'doublon');
+        $coreFile = $this->writeTopic($coreDir, 'doublon');
         $moduleDir = $this->makeTopicDir();
         $this->writeTopic($moduleDir, 'doublon');
 
         $registry = new HelpRegistry($coreDir);
         $registry->registerModuleTopics('gallery', $moduleDir);
 
-        $this->expectException(HelpException::class);
-        $this->expectExceptionMessage("Duplicate help topic id 'doublon'");
-        $registry->all();
+        // Reported, and deterministic: core is scanned first, so the core
+        // file is the one that survives however the modules are ordered.
+        $this->assertCount(1, $registry->loadErrors());
+        $this->assertStringContainsString("Duplicate help topic id 'doublon'", $registry->loadErrors()[0]);
+        $this->assertSame($coreFile, $registry->all()['doublon']->filePath);
+    }
+
+    /**
+     * The site-down regression: Core\Http\FrontController builds the help
+     * panel on every GET, so a topic the parser refuses used to return 500
+     * on every page and every API endpoint at once. One bad file may cost
+     * its own topic and nothing more.
+     */
+    public function testAnUnparseableTopicCostsOnlyItself(): void
+    {
+        $coreDir = $this->makeTopicDir();
+        $this->writeTopic($coreDir, 'sujet-sain');
+        $this->writeTopic($coreDir, 'sujet-casse', ['paths' => '/mes-locations/*/calendrier/']);
+
+        $registry = new HelpRegistry($coreDir);
+
+        $this->assertArrayHasKey('sujet-sain', $registry->all());
+        $this->assertArrayNotHasKey('sujet-casse', $registry->all());
+        $this->assertCount(1, $registry->loadErrors());
+        $this->assertStringContainsString('sujet-casse', $registry->loadErrors()[0]);
+    }
+
+    public function testAHealthyCorpusReportsNoLoadError(): void
+    {
+        $coreDir = $this->makeTopicDir();
+        $this->writeTopic($coreDir, 'sujet-core');
+
+        $this->assertSame([], (new HelpRegistry($coreDir))->loadErrors());
     }
 
     public function testAMissingCoreDirectoryYieldsAnEmptyRegistry(): void

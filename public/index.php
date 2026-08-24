@@ -3300,17 +3300,37 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         $llmConnectorForRgpd ?? null
     );
 
-    // Every one of this module's tasks re-arms itself, so each needs
-    // seeding exactly once — on the first page load after the module is
-    // enabled. Guarded on find() rather than scheduled blindly, or every
+    // The three DAILY tasks re-arm themselves to a fixed hour, so each
+    // needs seeding exactly once — on the first page load after the module
+    // is enabled. Guarded on find() rather than scheduled blindly, or every
     // request would queue another copy.
     foreach ([
         [\Modules\Camps\Task\ReviewReminderHandler::TASK_KEY, \Modules\Camps\Task\ReviewReminderHandler::REFERENCE, 'tomorrow 06:00'],
         [\Modules\Camps\Task\PurgeUnsortedMailHandler::TASK_KEY, \Modules\Camps\Task\PurgeUnsortedMailHandler::REFERENCE, 'tomorrow 04:00'],
-        [\Modules\Camps\Task\GeocodePlacesHandler::TASK_KEY, \Modules\Camps\Task\GeocodePlacesHandler::REFERENCE, '+1 minute'],
         [\Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY, \Modules\Camps\Task\RefreshPlaceSummariesHandler::REFERENCE, 'tomorrow 05:00'],
     ] as [$campsTaskKey, $campsTaskReference, $campsTaskWhen]) {
         $schedulerService->rearm('camps', $campsTaskKey, $campsTaskReference, $campsTaskWhen);
+    }
+
+    // Geocoding is the one that is NOT periodic, and seeding it like the
+    // three above is what made it spin: GeocodePlacesHandler geocodes one
+    // place and re-arms itself only while more are pending, so as soon as
+    // the queue empties there is no pending occurrence left — and an
+    // unconditional rearm() here queued another one, a minute later, for
+    // ever. On the real site that was 277 runs in ten hours, each finding
+    // nothing to do in two milliseconds, and a third of the event journal.
+    //
+    // So the condition is the work itself. countPendingGeocoding() replaces
+    // the find() that rearm() would have done anyway, and on the ordinary
+    // page load — nothing to geocode — this is where the chain stops
+    // instead of restarting.
+    if ($campsPlaceRepo->countPendingGeocoding() > 0) {
+        $schedulerService->rearm(
+            'camps',
+            \Modules\Camps\Task\GeocodePlacesHandler::TASK_KEY,
+            \Modules\Camps\Task\GeocodePlacesHandler::REFERENCE,
+            '+1 minute'
+        );
     }
 
     // The summary refresher is registered by hand rather than

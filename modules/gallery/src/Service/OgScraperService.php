@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Gallery\Service;
 
+use Core\Http\StreamResponseHeaders;
+
 /**
  * Fetches Open Graph metadata (og:title/og:description/og:image) from an
  * external album link — module spec §"External album (OG scraping)".
@@ -195,13 +197,14 @@ class OgScraperService
         }
 
         $context = stream_context_create(['http' => $httpOptions, 'ssl' => $sslOptions]);
-        // Pre-initialized: PHP only populates $http_response_header once a
-        // response is actually received, so a connection that fails
-        // before that (refused, reset, TLS handshake failure) would
-        // otherwise leave it undefined rather than merely empty.
-        $http_response_header = [];
+        // Cleared first: the header store is process-wide and sticky, so
+        // a connection that fails before any response (refused, reset, TLS
+        // handshake rejected) would otherwise report the headers of some
+        // earlier, unrelated fetch — and this service's whole job is to
+        // decide whether a remote URL answered.
+        StreamResponseHeaders::clear();
         $body = @file_get_contents($connectUrl, false, $context, 0, $maxBytes);
-        $rawHeaders = $http_response_header;
+        $rawHeaders = StreamResponseHeaders::last();
 
         if ($body === false || $rawHeaders === []) {
             return ['status' => null, 'headers' => [], 'body' => null];
@@ -213,7 +216,7 @@ class OgScraperService
     }
 
     /**
-     * @param string[] $rawHeaders as PHP populates $http_response_header:
+     * @param string[] $rawHeaders as the stream wrapper reports them:
      *        the status line, then one "Name: value" entry per header
      * @return array{0: ?int, 1: array<string, string>}
      */
@@ -231,7 +234,7 @@ class OgScraperService
                 continue;
             }
             // A redirect (or any multi-header response) legitimately
-            // repeats header names in $http_response_header — last one
+            // repeats header names in the raw list — last one
             // wins, matching how a real HTTP client would present a
             // single merged header map.
             $headers[strtolower(trim(substr($line, 0, $pos)))] = trim(substr($line, $pos + 1));

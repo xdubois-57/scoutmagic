@@ -283,6 +283,25 @@ class StatisticsSenderTest extends TestCase
         $this->assertSame([], $transport->calls);
     }
 
+    /**
+     * Being the receiver is not a fault and cannot be resolved — so it is
+     * neither a journal entry a day nor a dated failure that sits under
+     * "État des envois" for ever. It read as something to go and fix on the
+     * one installation that had nothing wrong with it; the Support page
+     * states the fact instead (`is_statistics_receiver`).
+     */
+    public function testTheReceiverRecordsNeitherAFailureNorADailyJournalEntry(): void
+    {
+        $this->set('base_url', 'https://www.scoutmagic.be');
+
+        $this->sender(new RecordingTransport())->send();
+
+        $this->assertSame([], $this->journalEntries());
+        $this->settings->clearCache();
+        $this->assertSame('', $this->settings->get(StatisticsStateSettings::LAST_FAILURE_REASON));
+        $this->assertSame('', $this->settings->get(StatisticsStateSettings::LAST_FAILURE_AT));
+    }
+
     public function testAnUpdateInProgressSkips(): void
     {
         $this->pdo->prepare('INSERT INTO update_history (version_from, version_to, status) VALUES (?, ?, ?)')
