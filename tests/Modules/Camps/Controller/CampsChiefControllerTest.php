@@ -380,6 +380,51 @@ class CampsChiefControllerTest extends TestCase
         $this->assertStringContainsString("Retirer l'avis", html_entity_decode($html));
     }
 
+    /**
+     * The stay page keeps exactly one primary button of its own.
+     *
+     * It used to carry three: the page_header's « Modifier », « Ajouter
+     * le contact » at the bottom of a six-field form, and « Enregistrer
+     * l'avis » at the bottom of another — three ways of telling a chef
+     * d'unité « the main action is here » on one screen (design.md §7.4).
+     * Both forms are dialogs now, opened by outline buttons, and each
+     * holds the single primary of the dialog it lives in.
+     */
+    public function testTheStayPageOffersItsTwoFormsAsDialogs(): void
+    {
+        $campId = $this->aStay();
+
+        $html = (string) preg_replace('/\s+/', ' ', $this->stayPage($campId));
+
+        foreach (['#contact-add-modal', '#review-modal'] as $target) {
+            $this->assertStringContainsString('data-bs-target="' . $target . '"', $html, $target);
+        }
+        // The forms themselves are untouched — same action, same method.
+        $this->assertStringContainsString(
+            'action="/chefs/camps/sejours/' . $campId . '/contacts" id="contact-add-form"',
+            $html
+        );
+        $this->assertStringContainsString(
+            'action="/chefs/camps/sejours/' . $campId . '/avis" id="review-form"',
+            $html
+        );
+        // Their submit buttons reach them from the dialog footer.
+        $this->assertStringContainsString('form="contact-add-form"', $html);
+        $this->assertStringContainsString('form="review-form"', $html);
+    }
+
+    public function testTheStayPageShowsOneUnhiddenPrimaryAtATime(): void
+    {
+        $campId = $this->aStay();
+
+        $html = $this->stayPage($campId);
+        // Everything after the first dialog is inside a `.modal`, so what
+        // is left in the page body is the page_header's own action.
+        $body = substr($html, 0, strpos($html, '<div class="modal fade"') ?: strlen($html));
+
+        $this->assertSame(1, substr_count($body, 'btn-primary'), $body);
+    }
+
     // ── « Créer un camp depuis ce message » ─────────────────────────
 
     /**

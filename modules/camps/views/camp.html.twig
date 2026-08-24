@@ -150,6 +150,7 @@
             {% embed 'partials/modal.html.twig' with {
                 id: 'contact-' ~ contact.id ~ '-modal',
                 title: 'Modifier le contact',
+                section_editor: true,
                 contact: contact,
                 role_options: row.role_options,
             } only %}
@@ -204,44 +205,67 @@
         {% endfor %}
     {% endif %}
 
-    <form method="post" action="/chefs/camps/sejours/{{ camp.camp.id }}/contacts" class="card mt-3">
-        <div class="card-body">
-            <h3 class="h6 mb-3">Ajouter un contact</h3>
-            {{ csrf_field() }}
-            <div class="row">
-                <div class="col-12 col-md-6">
-                    {% include 'partials/form_field.html.twig' with {
-                        field_id: 'contact-name', field_name: 'name', label: 'Nom', size: 'sm', maxlength: 150,
-                    } only %}
+    {# A dialog, not a sixth form down the page: the only primary of this
+       screen is the « Modifier » of its page_header (design.md §7.4), and
+       the one that belongs to whichever dialog is open. #}
+    <div class="mt-3">
+        <button type="button" class="btn btn-sm btn-outline-secondary"
+                data-bs-toggle="modal" data-bs-target="#contact-add-modal">
+            <i class="bi bi-plus-lg" aria-hidden="true"></i>
+            Ajouter un contact
+        </button>
+    </div>
+
+    {% embed 'partials/modal.html.twig' with {
+        id: 'contact-add-modal',
+        title: 'Ajouter un contact',
+        section_editor: true,
+        camp: camp,
+        contact_role_options: contact_role_options,
+    } only %}
+        {% block body %}
+            <form method="post" action="/chefs/camps/sejours/{{ camp.camp.id }}/contacts"
+                  id="contact-add-form">
+                {{ csrf_field() }}
+                <div class="row">
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'contact-name', field_name: 'name', label: 'Nom', size: 'sm', maxlength: 150,
+                        } only %}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'contact-role', field_name: 'role_label', label: 'Rôle',
+                            type: 'select', size: 'sm',
+                            options: [{ value: '', label: '—' }]|merge(contact_role_options),
+                        } only %}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'contact-email', field_name: 'email', label: 'E-mail',
+                            type: 'email', size: 'sm', maxlength: 255,
+                        } only %}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'contact-phone', field_name: 'phone', label: 'Téléphone',
+                            type: 'tel', size: 'sm', maxlength: 60,
+                        } only %}
+                    </div>
                 </div>
-                <div class="col-12 col-md-6">
-                    {% include 'partials/form_field.html.twig' with {
-                        field_id: 'contact-role', field_name: 'role_label', label: 'Rôle',
-                        type: 'select', size: 'sm',
-                        options: [{ value: '', label: '—' }]|merge(contact_role_options),
-                    } only %}
-                </div>
-                <div class="col-12 col-md-6">
-                    {% include 'partials/form_field.html.twig' with {
-                        field_id: 'contact-email', field_name: 'email', label: 'E-mail',
-                        type: 'email', size: 'sm', maxlength: 255,
-                    } only %}
-                </div>
-                <div class="col-12 col-md-6">
-                    {% include 'partials/form_field.html.twig' with {
-                        field_id: 'contact-phone', field_name: 'phone', label: 'Téléphone',
-                        type: 'tel', size: 'sm', maxlength: 60,
-                    } only %}
-                </div>
-            </div>
-            {% include 'partials/form_field.html.twig' with {
-                field_id: 'contact-other', field_name: 'other_details', label: 'Autres précisions',
-                type: 'textarea', rows: 2, size: 'sm',
-                help: 'Un second numéro, une consigne, une remarque. Ce champ n\'est jamais utilisé pour retrouver ou rapprocher un contact.',
-            } only %}
-            <button type="submit" class="btn btn-primary btn-sm">Ajouter le contact</button>
-        </div>
-    </form>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'contact-other', field_name: 'other_details', label: 'Autres précisions',
+                    type: 'textarea', rows: 2, size: 'sm',
+                    wrapper_class: '',
+                    help: 'Un second numéro, une consigne, une remarque. Ce champ n\'est jamais utilisé pour retrouver ou rapprocher un contact.',
+                } only %}
+            </form>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" form="contact-add-form" class="btn btn-primary">Ajouter le contact</button>
+        {% endblock %}
+    {% endembed %}
 
     {% if links is not empty %}
         <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Liens</h2>
@@ -393,34 +417,53 @@
             </div></div>
         {% endif %}
 
-        <form method="post" action="/chefs/camps/sejours/{{ camp.camp.id }}/avis" class="card">
-            <div class="card-body">
-                <h3 class="h6 mb-3">{{ review ? "Modifier l'avis" : 'Laisser un avis' }}</h3>
-                {{ csrf_field() }}
+        <button type="button" class="btn btn-sm btn-outline-secondary"
+                data-bs-toggle="modal" data-bs-target="#review-modal">
+            <i class="bi {{ review ? 'bi-pencil' : 'bi-plus-lg' }}" aria-hidden="true"></i>
+            {{ review ? "Modifier l'avis" : 'Laisser un avis' }}
+        </button>
 
-                {% if review_allows_rating %}
+        {% embed 'partials/modal.html.twig' with {
+            id: 'review-modal',
+            title: review ? "Modifier l'avis" : 'Laisser un avis',
+            section_editor: true,
+            camp: camp,
+            review: review,
+            review_allows_rating: review_allows_rating,
+            rating_options: rating_options,
+        } only %}
+            {% block body %}
+                <form method="post" action="/chefs/camps/sejours/{{ camp.camp.id }}/avis"
+                      id="review-form">
+                    {{ csrf_field() }}
+
+                    {% if review_allows_rating %}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'review-rating', field_name: 'rating', label: 'Note', type: 'select',
+                            size: 'sm', options: rating_options,
+                        } only %}
+                    {% else %}
+                        {# Server-side too (Service\ReviewService): a form is a
+                           suggestion, a service is the answer. #}
+                        <p class="small text-body-secondary">
+                            Ce séjour a été annulé : personne n'y a campé, il n'y a donc pas de note à
+                            donner. Le commentaire, lui, est précieux — dites ce qui s'est passé.
+                        </p>
+                    {% endif %}
+
                     {% include 'partials/form_field.html.twig' with {
-                        field_id: 'review-rating', field_name: 'rating', label: 'Note', type: 'select',
-                        size: 'sm', options: rating_options,
+                        field_id: 'review-comment', field_name: 'comment', label: 'Commentaire',
+                        type: 'textarea', rows: 4, size: 'sm', value: review ? review.comment : '',
+                        wrapper_class: '',
+                        help: 'Ce qu\'un staff qui ne connaît pas ce terrain devrait savoir avant d\'y aller.',
                     } only %}
-                {% else %}
-                    {# Server-side too (Service\ReviewService): a form is a
-                       suggestion, a service is the answer. #}
-                    <p class="small text-body-secondary">
-                        Ce séjour a été annulé : personne n'y a campé, il n'y a donc pas de note à
-                        donner. Le commentaire, lui, est précieux — dites ce qui s'est passé.
-                    </p>
-                {% endif %}
-
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'review-comment', field_name: 'comment', label: 'Commentaire',
-                    type: 'textarea', rows: 4, size: 'sm', value: review ? review.comment : '',
-                    help: 'Ce qu\'un staff qui ne connaît pas ce terrain devrait savoir avant d\'y aller.',
-                } only %}
-
-                <button type="submit" class="btn btn-primary btn-sm">Enregistrer l'avis</button>
-            </div>
-        </form>
+                </form>
+            {% endblock %}
+            {% block footer %}
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="submit" form="review-form" class="btn btn-primary">Enregistrer l'avis</button>
+            {% endblock %}
+        {% endembed %}
     {% endif %}
 
     <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Historique</h2>
@@ -431,4 +474,11 @@
         labels: audit_labels,
         collapsed: true,
     } only %}
+{% endblock %}
+
+{% block scripts %}
+    {# Focuses the first field of a « Modifier »/« Ajouter » dialog when it
+       opens — Bootstrap focuses the frame, which leaves a keyboard
+       visitor one tab away from the form (design.md §1.9). #}
+    <script src="/assets/js/section-editor.js" defer></script>
 {% endblock %}

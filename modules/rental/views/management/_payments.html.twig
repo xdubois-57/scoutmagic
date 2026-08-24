@@ -18,12 +18,24 @@
   leader. This block therefore reports which account is in force and links to
   the person who can change it, rather than offering a picker.
 
+  A READ card and a dialog rather than a form standing open (design.md
+  §1.9) — see _constraints.html.twig for the reasoning.
+
   Requires `asset`, `payment_settings`, `finance_available`,
-  `payment_account_name` and `can_pin_account`.
+  `payment_account_name`, `can_pin_account` and `deposit_modes`.
 #}
 <div class="card mb-4" id="paiements">
     <div class="card-body">
-        <h2 class="h5 mb-1">Paiements</h2>
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+            <h2 class="h5 mb-0">Paiements</h2>
+            {% if finance_available %}
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        data-bs-toggle="modal" data-bs-target="#paiements-edit">
+                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                    Modifier
+                </button>
+            {% endif %}
+        </div>
 
         {% if not finance_available %}
             <p class="text-body-secondary small mb-0">
@@ -32,16 +44,85 @@
                 hors ScoutMagic. Activez « Finances » pour demander un acompte, un solde et une
                 caution depuis ici.
             </p>
+        {% elseif not payment_settings.enabled %}
+            <p class="text-body-secondary small mb-0">
+                Les paiements de ce bien ne passent pas par Finances. Aucune créance n'est créée
+                pour ses locations.
+            </p>
         {% else %}
             <p class="text-body-secondary small mb-3">
                 Une seule créance est créée pour toute la location. L'acompte n'est pas une créance
-                séparée : c'est un <strong>seuil</strong> atteint dès que le montant reçu l'atteint,
-                avec la même communication structurée que le solde. La caution, elle, est bien une
-                créance distincte, avec sa propre communication — et elle n'entre jamais dans le
-                revenu de location.
+                séparée : c'est un <strong>seuil</strong>, avec la même communication structurée que
+                le solde. La caution, elle, est bien une créance distincte — et elle n'entre jamais
+                dans le revenu de location.
             </p>
 
-            <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/paiements">
+            <dl class="row mb-3">
+                <dt class="col-sm-5 col-lg-4">Compte</dt>
+                <dd class="col-sm-7 col-lg-8">
+                    {% if payment_account_name %}
+                        {{ payment_account_name }}
+                    {% else %}
+                        <span class="fst-italic text-body-secondary">Aucun compte associé.</span>
+                    {% endif %}
+                    <span class="form-text d-block">
+                        Le compte sur lequel les virements sont attendus s'associe depuis
+                        {% if can_pin_account %}
+                            <a href="/admin/locations?asset_id={{ asset.id }}#compte">« Espace chefs d'U &gt; Locations »</a>.
+                        {% else %}
+                            « Espace chefs d'U &gt; Locations » — demandez à un chef d'unité de l'associer.
+                        {% endif %}
+                    </span>
+                </dd>
+
+                <dt class="col-sm-5 col-lg-4">Acompte</dt>
+                <dd class="col-sm-7 col-lg-8">
+                    {{ payment_settings.depositMode.label }}
+                    {%- if payment_settings.depositAmountCents is not null %} · {{ payment_settings.depositAmountCents|money_cents }}{% endif %}
+                    {%- if payment_settings.depositPercentage is not null %} · {{ payment_settings.depositPercentage }} %{% endif %}
+                    {%- if payment_settings.depositDueDays %} · attendu {{ payment_settings.depositDueDays }} jour{{ payment_settings.depositDueDays > 1 ? 's' : '' }} après la confirmation{% endif %}
+                </dd>
+
+                <dt class="col-sm-5 col-lg-4">Solde</dt>
+                <dd class="col-sm-7 col-lg-8">
+                    {% if payment_settings.balanceDueDays %}
+                        Attendu {{ payment_settings.balanceDueDays }} jour{{ payment_settings.balanceDueDays > 1 ? 's' : '' }} après la confirmation
+                    {% else %}
+                        Aucune échéance annoncée
+                    {% endif %}
+                </dd>
+
+                <dt class="col-sm-5 col-lg-4">Caution</dt>
+                <dd class="col-sm-7 col-lg-8 mb-0">
+                    {% if payment_settings.securityDepositEnabled %}
+                        {{ payment_settings.securityDepositAmountCents|money_cents }}
+                        {%- if payment_settings.securityDepositDueDays %} · attendue {{ payment_settings.securityDepositDueDays }} jour{{ payment_settings.securityDepositDueDays > 1 ? 's' : '' }} après la confirmation{% endif %}
+                    {% else %}
+                        Aucune caution demandée
+                    {% endif %}
+                </dd>
+            </dl>
+
+            <p class="text-body-secondary small mb-0">
+                La <strong>restitution de la caution se saisit à la main</strong> : Finances rapproche
+                les virements entrants, pas les sortants — c'est une limite assumée, pas un oubli.
+            </p>
+        {% endif %}
+    </div>
+</div>
+
+{% if finance_available %}
+    {% embed 'partials/modal.html.twig' with {
+        id: 'paiements-edit',
+        title: 'Paiements',
+        section_editor: true,
+        size: 'lg',
+        asset: asset,
+        payment_settings: payment_settings,
+        deposit_modes: deposit_modes,
+    } only %}
+        {% block body %}
+            <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/paiements" id="payments-form">
                 {{ csrf_field()|raw }}
 
                 <div class="form-check mb-3">
@@ -52,37 +133,20 @@
                     </label>
                 </div>
 
-                <div class="mb-3">
-                    <span class="form-label d-block mb-1">Compte</span>
-                    {% if payment_account_name %}
-                        <p class="mb-1">{{ payment_account_name }}</p>
-                    {% else %}
-                        <p class="mb-1 fst-italic text-body-secondary">Aucun compte associé.</p>
-                    {% endif %}
-                    <div class="form-text">
-                        Le compte sur lequel les virements sont attendus s'associe depuis
-                        {% if can_pin_account %}
-                            <a href="/admin/locations?asset_id={{ asset.id }}#compte">« Espace chefs d'U &gt; Locations »</a>.
-                        {% else %}
-                            « Espace chefs d'U &gt; Locations » — demandez à un chef d'unité de l'associer.
-                        {% endif %}
-                    </div>
-                </div>
-
-                <h3 class="h6 mt-4">Acompte</h3>
+                <h3 class="h6">Acompte</h3>
                 <div class="row g-3 mb-3">
-                    <div class="col-12 col-md-4">
+                    <div class="col-12 col-md-6">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'deposit-mode', field_name: 'deposit_mode', type: 'select',
                             label: 'Type',
-                            options: deposit_modes|map(mode => {
+                            options: deposit_modes|default([])|map(mode => {
                                 value: mode.value,
                                 label: mode.label,
                                 selected: payment_settings.depositMode.value == mode.value,
                             }),
                         } only %}
                     </div>
-                    <div class="col-6 col-md-3">
+                    <div class="col-6 col-md-6">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'deposit-amount', field_name: 'deposit_amount',
                             label: 'Montant fixe (€)', inputmode: 'decimal',
@@ -90,14 +154,14 @@
                                 ? (payment_settings.depositAmountCents / 100)|number_format(2, ',', '') : '',
                         } only %}
                     </div>
-                    <div class="col-6 col-md-2">
+                    <div class="col-6 col-md-6">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'deposit-percentage', field_name: 'deposit_percentage', type: 'number',
                             label: 'Pourcentage', min: 0, max: 100,
                             value: payment_settings.depositPercentage,
                         } only %}
                     </div>
-                    <div class="col-6 col-md-3">
+                    <div class="col-6 col-md-6">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'deposit-due-days', field_name: 'deposit_due_days', type: 'number',
                             label: 'Échéance (jours)', min: 0,
@@ -107,13 +171,12 @@
                     </div>
                 </div>
 
-                <div class="mb-3">
-                    <label class="form-label" for="balance-due-days">Échéance du solde (jours)</label>
-                    <input type="number" min="0" class="form-control" id="balance-due-days"
-                           name="balance_due_days" value="{{ payment_settings.balanceDueDays }}"
-                           style="max-width: 12rem;">
-                    <div class="form-text">Après la confirmation également. Laissez vide pour ne rien annoncer.</div>
-                </div>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'balance-due-days', field_name: 'balance_due_days', type: 'number',
+                    label: 'Échéance du solde (jours)', min: 0,
+                    help: 'Après la confirmation également. Laissez vide pour ne rien annoncer.',
+                    value: payment_settings.balanceDueDays,
+                } only %}
 
                 <h3 class="h6 mt-4">Caution</h3>
                 <p class="text-body-secondary small">
@@ -121,36 +184,38 @@
                     Sa <strong>restitution se saisit à la main</strong> : Finances rapproche les
                     virements entrants, pas les sortants — c'est une limite assumée, pas un oubli.
                 </p>
-                <div class="row g-3 mb-3">
-                    <div class="col-12 col-md-4">
-                        <div class="form-check mt-4">
-                            <input class="form-check-input" type="checkbox" id="security-deposit-enabled"
-                                   name="security_deposit_enabled"
-                                   {{ payment_settings.securityDepositEnabled ? 'checked' : '' }}>
-                            <label class="form-check-label" for="security-deposit-enabled">
-                                Demander une caution
-                            </label>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-4">
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="security-deposit-enabled"
+                           name="security_deposit_enabled"
+                           {{ payment_settings.securityDepositEnabled ? 'checked' : '' }}>
+                    <label class="form-check-label" for="security-deposit-enabled">
+                        Demander une caution
+                    </label>
+                </div>
+                <div class="row g-3">
+                    <div class="col-6 col-md-6">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'security-deposit-amount', field_name: 'security_deposit_amount',
                             label: 'Montant (€)', inputmode: 'decimal',
+                            wrapper_class: 'mb-0',
                             value: payment_settings.securityDepositAmountCents is not null
                                 ? (payment_settings.securityDepositAmountCents / 100)|number_format(2, ',', '') : '',
                         } only %}
                     </div>
-                    <div class="col-6 col-md-4">
+                    <div class="col-6 col-md-6">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'security-deposit-due-days', field_name: 'security_deposit_due_days',
                             type: 'number', label: 'Échéance (jours)', min: 0,
+                            wrapper_class: 'mb-0',
                             value: payment_settings.securityDepositDueDays,
                         } only %}
                     </div>
                 </div>
-
-                <button type="submit" class="btn btn-primary">Enregistrer les paiements</button>
             </form>
-        {% endif %}
-    </div>
-</div>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" form="payments-form" class="btn btn-primary">Enregistrer les paiements</button>
+        {% endblock %}
+    {% endembed %}
+{% endif %}

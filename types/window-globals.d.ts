@@ -64,6 +64,14 @@ interface Window {
             options?: { input?: HTMLInputElement | null, pickOnClick?: boolean }
         ) => void;
     };
+    // public/assets/js/section-editor.js — the « Modifier » dialogs of a
+    // settings screen (design.md §1.9), loaded only by the pages that
+    // split their sections into read cards and editing dialogs.
+    ScoutMagicSectionEditor?: {
+        bind: (root?: ParentNode) => void;
+        focusFirstField: (modal: Element | null) => void;
+        openFromHash: (hash: string, root?: ParentNode) => boolean;
+    };
     // public/assets/js/sortable.js — drag-and-drop reordering of a list,
     // loaded only by the pages that offer it.
     ScoutMagicSortable?: {

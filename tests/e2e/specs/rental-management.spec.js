@@ -41,6 +41,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { expectRendersAsACalendar } from '../support/calendar.js';
 import { answerConfirmation } from '../support/confirm-dialog.js';
+import { openSectionEditor } from '../support/section-editor.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
 function isoDaysFromNow(days) {
@@ -94,25 +95,29 @@ test.describe('Rentals — running an asset', () => {
 
         await expect(page.getByRole('heading', { name: 'Tarification' })).toBeVisible();
 
+        // Every section of this screen is a read card now (design.md
+        // §1.9), so the fields live in a dialog its « Modifier » opens.
         // A French decimal comma, the way a chief types it. It has to
         // survive the round trip through integer cents.
-        const pricing = page.locator('form[action$="/reglages/tarif"]').first();
+        const pricing = await openSectionEditor(page, 'tarification-edit');
         await pricing.locator('select[name="billing_unit"]').selectOption('per_night');
         await pricing.locator('input[name="default_unit_price"]').fill('125,50');
         await pricing.getByRole('button', { name: 'Enregistrer la tarification' }).click();
 
-        await expect(page.locator('input[name="default_unit_price"]').first()).toHaveValue('125,50');
+        // The read card states it, in French money, without opening
+        // anything — which is what the card exists for.
+        await expect(page.locator('#tarification')).toContainText('125,50');
 
         // ── And its own booking rules ───────────────────────────────────
-        const constraints = page.locator('form[action$="/reglages/regles"]');
+        const constraints = await openSectionEditor(page, 'regles-edit');
         await constraints.locator('input[name="min_nights"]').fill('2');
         await constraints.locator('input[name="min_notice_days"]').fill('7');
         await constraints.getByRole('button', { name: 'Enregistrer les règles' }).click();
 
-        await expect(page.locator('input[name="min_nights"]')).toHaveValue('2');
+        await expect(page.locator('#regles')).toContainText('2 nuits');
         // §6.4: each block is its own form, so saving one must not blank
         // its neighbour. A single shared form would fail exactly here.
-        await expect(page.locator('input[name="default_unit_price"]').first()).toHaveValue('125,50');
+        await expect(page.locator('#tarification')).toContainText('125,50');
 
         // ── The calendar ────────────────────────────────────────────────
         // Scoped to the page's own content, per the fix main made to this
@@ -261,6 +266,10 @@ test.describe('Rentals — running an asset', () => {
  * @param {import('@playwright/test').Page} page
  */
 async function grantManagerBySearch(page) {
+    // The section is a read card; its form lives in the dialog behind
+    // « Modifier » (design.md §1.9).
+    const dialog = await openSectionEditor(page, 'gestionnaires-edit');
+
     const managers = page.locator('form[action="/admin/locations/managers"]');
     await expect(managers).toBeVisible();
 
@@ -279,6 +288,9 @@ async function grantManagerBySearch(page) {
         managers.locator('input[name="manager_member_ids[]"][value]').first(),
     ).toBeChecked();
 
-    await managers.getByRole('button', { name: 'Enregistrer les gestionnaires' }).click();
+    // The submit sits in the dialog's footer and reaches the form through
+    // `form="rental-managers-form"` — outside the <form> element itself,
+    // which is why it is located on the dialog rather than on the form.
+    await dialog.getByRole('button', { name: 'Enregistrer les gestionnaires' }).click();
     await expect(page.getByText('Les gestionnaires ont été enregistrés.')).toBeVisible();
 }

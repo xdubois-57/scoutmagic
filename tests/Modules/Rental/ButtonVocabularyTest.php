@@ -39,15 +39,13 @@ final class ButtonVocabularyTest extends TestCase
     ];
 
     /**
-     * Templates whose section forms become modals in the settings pass —
-     * their buttons turn into each modal's own single primary there, so
-     * rewriting them twice would be churn. Shrink this list, never grow it.
+     * Empty, and meant to stay that way: `_pricing.html.twig` was the last
+     * entry, and it left when its section forms became dialogs. Shrink
+     * this list, never grow it.
      *
      * @var list<string>
      */
-    private const ALLOWLIST = [
-        'rental/views/management/_pricing.html.twig',
-    ];
+    private const ALLOWLIST = [];
 
     /** @return list<string> */
     private function templateRoots(): array

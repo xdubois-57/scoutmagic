@@ -57,4 +57,8 @@
     {# type="module" — the file uses `export`, and a classic <script> tag
        rejects it with a SyntaxError before a line of it runs. #}
     <script type="module" src="/assets/js/select-explanation.js"></script>
+    {# Focuses the first field of a « Modifier » dialog when it opens, and
+       opens the one a link names — « ce bien n'a encore aucun tarif »
+       points straight at #tarification-edit (design.md §1.9). #}
+    <script src="/assets/js/section-editor.js" defer></script>
 {% endblock %}

@@ -396,6 +396,51 @@ class RentalConfigControllerTest extends TestCase
         $this->assertStringContainsString('encore aucun tarif', $body);
     }
 
+    /**
+     * The park page reads as facts, and offers to change them
+     * (design.md §1.9).
+     *
+     * Five forms stood open at once — général, gestionnaires, compte,
+     * courrier, création — so five `btn-primary` competed on one screen.
+     * Only creating a bien is a creation action, which §7.4 keeps
+     * primary; every edit is a dialog now.
+     */
+    public function testTheParkPageEditsThroughDialogsAndKeepsOneCreationPrimary(): void
+    {
+        $this->createAsset();
+
+        $body = (string) preg_replace(
+            '/\s+/',
+            ' ',
+            $this->controllerWithPricing()
+                ->index(new Request('GET', '/admin/locations', [], [], [], []), [])
+                ->getBody()
+        );
+
+        foreach (['#general-edit', '#gestionnaires-edit'] as $target) {
+            $this->assertStringContainsString('data-bs-target="' . $target . '"', $body, $target);
+        }
+
+        // The forms are unchanged: same action, reachable from the
+        // dialog's own footer.
+        foreach ([
+            '/admin/locations/general' => 'asset-general-form',
+            '/admin/locations/managers' => 'rental-managers-form',
+        ] as $action => $formId) {
+            $this->assertStringContainsString('action="' . $action . '" id="' . $formId . '"', $body, $action);
+            $this->assertStringContainsString('form="' . $formId . '"', $body, $formId);
+        }
+
+        // Creating stays inline and stays the screen's one primary: it is
+        // the only submit outside a dialog.
+        $pageBody = substr($body, 0, strpos($body, '<div class="modal fade"') ?: strlen($body));
+        $this->assertDoesNotMatchRegularExpression(
+            '/<button[^>]*type="submit"[^>]*btn-primary/',
+            $pageBody
+        );
+        $this->assertStringContainsString('Créer le bien', $body);
+    }
+
     public function testArchivingAnAssetSaysWhatItCostsBeforeItHappens(): void
     {
         // « Archiver » sat in `btn-outline-warning` and fired on the first
