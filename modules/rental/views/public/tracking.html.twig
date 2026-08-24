@@ -164,13 +164,19 @@
                                             votre réservation reste inchangée.
                                         </p>
                                         <div class="d-flex gap-2">
+                                            {# Answering the unit's proposal is the point of this page
+                                               whenever one is waiting, so « Accepter » is its single
+                                               primary. « Refuser » closes the proposal for good and
+                                               therefore asks first (§7.5). #}
                                             <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/reponse">
                                                 {{ csrf_field()|raw }}
                                                 <input type="hidden" name="request_id" value="{{ change.id }}">
                                                 <input type="hidden" name="decision" value="accept">
-                                                <button type="submit" class="btn btn-sm btn-outline-success">Accepter</button>
+                                                <button type="submit" class="btn btn-sm btn-primary">Accepter</button>
                                             </form>
-                                            <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/reponse">
+                                            <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/reponse"
+                                                  data-confirm="Refuser cette proposition ? Votre réservation reste telle qu'elle est, et l'unité devra vous en proposer une autre."
+                                                  data-confirm-label="Refuser">
                                                 {{ csrf_field()|raw }}
                                                 <input type="hidden" name="request_id" value="{{ change.id }}">
                                                 <input type="hidden" name="decision" value="refuse">
@@ -218,7 +224,7 @@
                                 <textarea class="form-control form-control-sm" id="change-message" name="message" rows="2"></textarea>
                             </div>
                             <div class="col-12">
-                                <button type="submit" class="btn btn-sm btn-outline-primary">Envoyer ma demande</button>
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">Envoyer ma demande</button>
                             </div>
                         </form>
                     {% endif %}

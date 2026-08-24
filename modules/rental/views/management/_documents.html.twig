@@ -30,7 +30,7 @@
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                 <input type="hidden" name="document_type" value="contract">
-                <button type="submit" class="btn btn-sm btn-outline-primary">Générer le contrat</button>
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Générer le contrat</button>
             </form>
             <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/invoice"
                class="btn btn-sm btn-outline-secondary">Rédiger la facture</a>
@@ -39,7 +39,7 @@
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                 <input type="hidden" name="document_type" value="invoice">
-                <button type="submit" class="btn btn-sm btn-outline-primary">Générer la facture</button>
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Générer la facture</button>
             </form>
         </div>
 
@@ -91,7 +91,7 @@
                                                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                                 <input type="hidden" name="document_id" value="{{ document.id }}">
-                                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary">
                                                     {{ document.hasBeenSent ? 'Renvoyer' : 'Envoyer' }}
                                                 </button>
                                             </form>
@@ -180,7 +180,7 @@
                 </div>
             </div>
             <div class="col-12 col-md-2">
-                <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
+                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
             </div>
         </form>
     </div>
@@ -233,7 +233,7 @@
                        name="billing_reference" value="{{ billing.reference }}">
             </div>
             <div class="col-12">
-                <button type="submit" class="btn btn-sm btn-outline-primary">Enregistrer</button>
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer</button>
             </div>
         </form>
     </div>

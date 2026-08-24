@@ -396,6 +396,24 @@ class RentalConfigControllerTest extends TestCase
         $this->assertStringContainsString('encore aucun tarif', $body);
     }
 
+    public function testArchivingAnAssetSaysWhatItCostsBeforeItHappens(): void
+    {
+        // « Archiver » sat in `btn-outline-warning` and fired on the first
+        // click, right next to « Supprimer définitivement », which asked.
+        // The louder-looking of the two was the one that never asked.
+        $this->createAsset();
+
+        $body = (string) $this->controllerWithPricing()
+            ->index(new Request('GET', '/admin/locations', [], [], [], []), [])
+            ->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '#<form[^>]*action="/admin/locations/archive"[^>]*data-confirm="[^"]+"#s',
+            $body
+        );
+        $this->assertStringContainsString("Rien n'est supprimé.", $body);
+    }
+
     public function testAPricedAssetIsNotFlagged(): void
     {
         $assetId = $this->createAsset();

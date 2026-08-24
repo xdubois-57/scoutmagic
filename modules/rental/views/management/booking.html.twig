@@ -179,7 +179,7 @@
                             } only %}
                         </div>
                         <div class="col-12 col-sm-5">
-                            <button type="submit" class="btn btn-outline-primary w-100">Enregistrer l'option</button>
+                            <button type="submit" class="btn btn-outline-secondary w-100">Enregistrer l'option</button>
                         </div>
                     </form>
                 </div>
@@ -270,7 +270,7 @@
                                                        inputmode="decimal">
                                             </div>
                                             <div class="col-12 col-md-2">
-                                                <button type="submit" class="btn btn-sm btn-outline-primary w-100">Modifier</button>
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Modifier</button>
                                             </div>
                                         </form>
                                     </td>
@@ -308,7 +308,7 @@
                                inputmode="decimal" placeholder="-50,00">
                     </div>
                     <div class="col-12 col-md-2">
-                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
                     </div>
                 </form>
 
@@ -337,7 +337,7 @@
                     </span>
                 </span>
                 <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/sejour"
-                   class="btn btn-outline-primary">Ouvrir</a>
+                   class="btn btn-outline-secondary">Ouvrir</a>
             </div>
         </div>
 
@@ -389,7 +389,7 @@
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                             <input type="hidden" name="request_id" value="{{ change.id }}">
                                             <input type="hidden" name="decision" value="accept">
-                                            <button type="submit" class="btn btn-sm btn-outline-success">Accepter</button>
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">Accepter</button>
                                         </form>
                                         <form method="post" action="/mes-locations/demande"
                                               data-confirm="Refuser cette demande ? La réservation reste inchangée, et le locataire en sera informé."
@@ -431,7 +431,7 @@
                             <div class="form-text" id="propose-message-help">Envoyé avec la proposition.</div>
                         </div>
                         <div class="col-12 col-md-2">
-                            <button type="submit" class="btn btn-sm btn-outline-primary w-100">Proposer</button>
+                            <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Proposer</button>
                         </div>
                     </form>
                 {% endif %}
@@ -471,7 +471,7 @@
                     <input type="hidden" name="booking_id" value="{{ booking.id }}">
                     <label class="form-label" for="comment-body">Ajouter un commentaire</label>
                     <textarea class="form-control mb-2" id="comment-body" name="body" rows="3"></textarea>
-                    <button type="submit" class="btn btn-sm btn-outline-primary">Enregistrer</button>
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer</button>
                 </form>
             </div>
         </div>

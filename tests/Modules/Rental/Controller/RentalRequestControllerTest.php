@@ -1055,6 +1055,40 @@ class RentalRequestControllerTest extends TestCase
         $this->assertSame($this->arrival(90), $this->bookingRepository->findById($bookingId)?->arrivalDate);
     }
 
+    public function testRefusingAProposalAsksFirstAndAcceptingIsThePagesPrimary(): void
+    {
+        // Two identically-weighted small buttons, one of which closes the
+        // unit's proposal for good. §7.5: every POST that refuses asks
+        // first, and the question names the consequence.
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $booking = $this->bookingRepository->findById($bookingId);
+        $this->assertNotNull($booking);
+
+        $this->operationsService->requestChange(
+            $booking,
+            \Modules\Rental\Booking\ChangeRequestOrigin::MANAGER,
+            \Modules\Rental\Booking\ChangeRequestKind::DATES,
+            $this->arrival(90),
+            $this->departure(93),
+            null,
+            null,
+            null,
+            'Ces dates nous arrangeraient mieux.',
+            1
+        );
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '#<form[^>]*data-confirm="Refuser cette proposition \?[^"]+"#s',
+            $body
+        );
+        $this->assertStringContainsString('<button type="submit" class="btn btn-sm btn-primary">Accepter</button>', $body);
+        // And the refusal is not disguised as the neutral one of the pair.
+        $this->assertStringContainsString('<button type="submit" class="btn btn-sm btn-outline-secondary">Refuser</button>', $body);
+    }
+
     public function testARenterCannotDecideTheirOwnRequest(): void
     {
         $this->createAsset();

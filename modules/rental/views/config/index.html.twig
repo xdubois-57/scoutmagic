@@ -314,13 +314,14 @@
                             <form method="post" action="/admin/locations/restore">
                                 {{ csrf_field()|raw }}
                                 <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
-                                <button type="submit" class="btn btn-outline-success">Désarchiver</button>
+                                <button type="submit" class="btn btn-outline-secondary">Désarchiver</button>
                             </form>
                         {% else %}
-                            <form method="post" action="/admin/locations/archive">
+                            <form method="post" action="/admin/locations/archive"
+                                  data-confirm="Archiver « {{ selected_asset.name }} » ? Le bien disparaît de la page publique et des écrans courants, et n'accepte plus de demande. Rien n'est supprimé.">
                                 {{ csrf_field()|raw }}
                                 <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
-                                <button type="submit" class="btn btn-outline-warning">Archiver</button>
+                                <button type="submit" class="btn btn-outline-secondary">Archiver</button>
                             </form>
                         {% endif %}
                         <form method="post" action="/admin/locations/delete"
