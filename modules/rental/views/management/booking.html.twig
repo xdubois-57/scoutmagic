@@ -7,24 +7,37 @@
   asset, which is why it carries everything the public surfaces never do:
   the renter's identity, the internal comments, the full history.
 
-  The milestone checklist is DERIVED from the booking's own state — nothing
-  on it is stored, so it can never drift from the status. Items belonging to
-  iterations that have not landed yet render greyed rather than unticked: an
-  unreachable box reads as outstanding work.
+  The milestone checklist is DERIVED from the booking's own records —
+  nothing on it is stored, so it can never drift from what the page below it
+  shows. A line still renders greyed when it belongs to something this
+  installation cannot do at all (no security deposit configured, the stay
+  module off): an unreachable box reads as outstanding work.
+
+  **Every panel here is refreshable.** Each region that an action can change
+  sits inside an always-present `data-booking-panel` wrapper — always
+  present, so a panel that appears or disappears (the option card once the
+  booking is final) swaps like any other. public/assets/js/rental-booking.js
+  posts the page's forms with fetch and replaces those wrappers' contents
+  from a fresh render of this same template, which is what makes pressing
+  « Envoyer » tick « Contrat envoyé » without a page load — and what keeps
+  the two from ever disagreeing, since there is still exactly one renderer.
 #}
 {% block content %}
-    <div class="page-medium">
+    <div class="page-medium" data-rental-booking>
         {% include 'partials/page_header.html.twig' with {
             title: booking.reference,
             subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate|date_fr ~ ' au ' ~ booking.departureDate|date_fr,
         } only %}
-        {% if is_in_progress %}
-            <p class="mb-3">{% include 'partials/status_badge.html.twig' with { status: 'active', label: 'En cours' } only %}</p>
-        {% endif %}
+        <div data-booking-panel="in-progress">
+            {% if is_in_progress %}
+                <p class="mb-3">{% include 'partials/status_badge.html.twig' with { status: 'active', label: 'En cours' } only %}</p>
+            {% endif %}
+        </div>
 
         {% include '@rental/management/_nav.html.twig' %}
 
         {# ── Milestones ────────────────────────────────────────────── #}
+        <div data-booking-panel="milestones">
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">Où en est cette location</h2>
@@ -50,8 +63,10 @@
                 </ul>
             </div>
         </div>
+        </div>
 
         {# ── Renter ────────────────────────────────────────────────── #}
+        <div data-booking-panel="renter">
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">Le locataire</h2>
@@ -100,8 +115,10 @@
                 </form>
             </div>
         </div>
+        </div>
 
         {# ── Lifecycle ─────────────────────────────────────────────── #}
+        <div data-booking-panel="lifecycle">
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">État</h2>
@@ -156,8 +173,10 @@
                 {% endif %}
             </div>
         </div>
+        </div>
 
         {# ── Manager's option (§6.14) ──────────────────────────────── #}
+        <div data-booking-panel="hold">
         {% if not booking.status.isFinal %}
             <div class="card mb-4">
                 <div class="card-body">
@@ -185,8 +204,10 @@
                 </div>
             </div>
         {% endif %}
+        </div>
 
         {# ── Price (§6.12) ─────────────────────────────────────────── #}
+        <div data-booking-panel="price">
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-2">Prix</h2>
@@ -327,6 +348,7 @@
                 </form>
             </div>
         </div>
+        </div>
 
         <div class="card mb-4">
             <div class="card-body d-flex justify-content-between align-items-center gap-2">
@@ -341,15 +363,22 @@
             </div>
         </div>
 
-        {% include '@rental/management/_payment.html.twig' %}
+        <div data-booking-panel="payment">
+            {% include '@rental/management/_payment.html.twig' %}
+        </div>
 
-        {% include '@rental/management/_documents.html.twig' %}
+        <div data-booking-panel="documents">
+            {% include '@rental/management/_documents.html.twig' %}
+        </div>
 
-        {% if communications_available %}
-            {% include '@rental/management/_communications.html.twig' %}
-        {% endif %}
+        <div data-booking-panel="communications">
+            {% if communications_available %}
+                {% include '@rental/management/_communications.html.twig' %}
+            {% endif %}
+        </div>
 
         {# ── Change requests (§6.16) ───────────────────────────────── #}
+        <div data-booking-panel="changes">
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-2">Demandes et propositions</h2>
@@ -437,8 +466,10 @@
                 {% endif %}
             </div>
         </div>
+        </div>
 
         {# ── Internal comments (§6.6) ──────────────────────────────── #}
+        <div data-booking-panel="comments">
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-2">Commentaires internes</h2>
@@ -475,8 +506,10 @@
                 </form>
             </div>
         </div>
+        </div>
 
         {# ── History (§6.15) ───────────────────────────────────────── #}
+        <div data-booking-panel="history">
         <div class="card">
             <div class="card-body">
                 <h2 class="h5 mb-2">Historique</h2>
@@ -488,10 +521,13 @@
                 } only %}
             </div>
         </div>
+        </div>
     </div>
 {% endblock %}
 
 {% block scripts %}
+    {# Turns every form above into a fetch, then re-renders the panels. #}
+    <script src="/assets/js/rental-booking.js" defer></script>
     <script src="/assets/js/drop-zone.js" defer></script>
     {# Names the file that was picked: the zone's input is visually hidden,
        so a zone that says nothing looks the same before and after a drop. #}
