@@ -36,6 +36,7 @@ use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\ReplyService;
 use Modules\Groups\Service\ReportService;
 use Modules\Groups\Service\SeenByService;
+use Modules\Groups\Support\PollVoterOptions;
 use Modules\Groups\Support\RejectedDraft;
 use Twig\Environment;
 
@@ -762,45 +763,17 @@ class PostController extends AbstractController
     }
 
     /**
-     * The members this account may answer a member-scoped poll for, named
-     * the way this module names anybody — the account first, narrowed to
-     * the one membership each option stands for ("Marie Dupont (Akéla)").
-     *
-     * Every member this account reaches, this group's own first and
-     * marked as such — Service\GroupAccessService::
-     * memberIdsAllowedToVoteAsBySide() says why the picker is wider than
-     * the composer's "publier en tant que", and why it has to say which
-     * side each option is on.
-     *
-     * Empty when there is only one: there is nothing to pick between, and
-     * a dialog asking a question with one answer is a click for nothing.
+     * What the member-scoped poll's picker offers, for each of the three
+     * fragments this Controller renders one into — the "Charger plus"
+     * page, the card a new post returns, and the poll re-rendered after a
+     * vote. Support\PollVoterOptions holds the rules, and Controller\
+     * GroupController's page calls the same one.
      *
      * @return array<int, array{id: int, name: string, in_group: bool}>
      */
     private function voteMemberOptions(DiscussionGroup $group, GroupSessionContext $context): array
     {
-        $sides = $this->accessService->memberIdsAllowedToVoteAsBySide($group, $context);
-        $memberIds = array_merge($sides['in_group'], $sides['elsewhere']);
-        if (count($memberIds) < 2) {
-            return [];
-        }
-
-        $labels = $this->identityService?->accountLabelForMembers(
-            $memberIds,
-            $group->scoutYearId ?? $context->effectiveScoutYearId
-        ) ?? [];
-
-        return array_map(
-            static fn(int $memberId): array => [
-                'id' => $memberId,
-                'name' => ($labels[$memberId] ?? '') !== '' ? $labels[$memberId] : ('Membre #' . $memberId),
-                // Which side of the group this membership is on — the
-                // picker groups them under two headings rather than
-                // mixing four totems a reader cannot tell apart.
-                'in_group' => in_array($memberId, $sides['in_group'], true),
-            ],
-            $memberIds
-        );
+        return PollVoterOptions::forGroup($this->accessService, $this->identityService, $group, $context);
     }
 
     private function context(): GroupSessionContext
