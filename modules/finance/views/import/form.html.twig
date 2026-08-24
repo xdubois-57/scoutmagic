@@ -16,7 +16,7 @@
     <h2 class="h5 mb-3">Importer un relevé bancaire</h2>
 
     <form method="post" action="/finance/import" enctype="multipart/form-data" class="border rounded-3 p-3" id="import-form">
-        {{ csrf_field() }}
+        {{ csrf_field()|raw }}
         <div class="row g-2">
             <div class="col-12 col-md-4">
                 {# `data-first-import` per option: finance-import-form.js reads

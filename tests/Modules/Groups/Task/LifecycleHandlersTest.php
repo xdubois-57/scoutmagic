@@ -16,6 +16,7 @@ use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Modules\Groups\Repository\GroupRepository;
+use Modules\Groups\Support\Timestamps;
 use Modules\Groups\Task\CloseInactiveGroupsHandler;
 use Modules\Groups\Task\EnsureSectionGroupsHandler;
 use Modules\Groups\Task\PurgeClosedGroupsHandler;
@@ -271,6 +272,6 @@ class LifecycleHandlersTest extends TestCase
 
     private function at(string $modifier): string
     {
-        return (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify($modifier)->format('Y-m-d H:i:s');
+        return Timestamps::at($modifier);
     }
 }

@@ -17,7 +17,7 @@
                 </p>
             </div>
             <form method="post" action="/config-mode/{{ config_mode ? 'deactivate' : 'activate' }}">
-                {{ csrf_field() }}
+                {{ csrf_field()|raw }}
                 <button type="submit" class="btn btn-sm {{ config_mode ? 'btn-warning' : 'btn-outline-primary' }}">
                     {{ config_mode ? 'Désactiver' : 'Activer' }}
                 </button>

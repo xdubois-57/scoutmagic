@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Repository;
 
+use Modules\Groups\Support\Timestamps;
+
 /**
  * Reactions on posts and on replies. Two tables (see their own schema.sql
  * comment for why they are not one polymorphic table), one class: the SQL
@@ -60,7 +62,7 @@ class ReactionRepository
                 "INSERT INTO {$this->table} ({$this->itemColumn}, member_id, reaction_key, created_at)
                  VALUES (?, ?, ?, ?)"
             );
-            $stmt->execute([$itemId, $memberId, $reactionKey, gmdate('Y-m-d H:i:s')]);
+            $stmt->execute([$itemId, $memberId, $reactionKey, Timestamps::now()]);
         } catch (\PDOException $e) {
             // '23000' is the integrity-constraint-violation SQLSTATE, and
             // it is the same string on both the MySQL and SQLite drivers.

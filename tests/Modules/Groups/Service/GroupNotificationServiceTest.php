@@ -25,6 +25,7 @@ use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupRecipientResolver;
 use Modules\Groups\Support\ReportedAuthor;
+use Modules\Groups\Support\Timestamps;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -249,7 +250,7 @@ class GroupNotificationServiceTest extends TestCase
 
         $stmt = $this->pdo->prepare('UPDATE discussion_group_post_reaction_notices SET notified_at = ? WHERE post_id = ?');
         $stmt->execute([
-            (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-2 hours')->format('Y-m-d H:i:s'),
+            Timestamps::at('-2 hours'),
             $post->id,
         ]);
 

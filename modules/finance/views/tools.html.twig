@@ -31,7 +31,7 @@
                     {% endif %}
 
                     <form method="post" action="/finance/tools/qr" class="d-flex flex-column gap-3">
-                        {{ csrf_field() }}
+                        {{ csrf_field()|raw }}
                         <div>
                             <label for="qr-beneficiary" class="form-label">Bénéficiaire</label>
                             <input type="text" class="form-control" id="qr-beneficiary" name="beneficiary"
@@ -102,7 +102,7 @@
                     {% endif %}
 
                     <form method="post" action="/finance/tools/communication" class="d-flex flex-column gap-3">
-                        {{ csrf_field() }}
+                        {{ csrf_field()|raw }}
                         <div>
                             <label for="check-communication" class="form-label">Communication</label>
                             <input type="text" class="form-control" id="check-communication" name="communication"

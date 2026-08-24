@@ -51,12 +51,14 @@ class JournalRepositoryTest extends TestCase
 
     public function testDeleteOlderThan(): void
     {
-        // Insert old entry
+        // Seeded from PHP, not SQLite's datetime('now'): deleteOlderThan()
+        // computes its cutoff on the application clock (Core\Config\AppClock)
+        // and SQLite's own clock is UTC whatever that is.
         $stmt = $this->pdo->prepare(
             "INSERT INTO event_log (logged_at, category, event_type, level, description)
-             VALUES (datetime('now', '-100 days'), 'core', 'old', 'info', 'Old entry')"
+             VALUES (?, 'core', 'old', 'info', 'Old entry')"
         );
-        $stmt->execute();
+        $stmt->execute([(new \DateTimeImmutable('-100 days'))->format('Y-m-d H:i:s')]);
 
         // Insert recent entry
         $this->repo->insert('core', 'recent', 'info', 'Recent entry', null, null);

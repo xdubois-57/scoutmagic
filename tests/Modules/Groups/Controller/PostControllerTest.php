@@ -40,6 +40,7 @@ use Modules\Groups\Service\PostAuthorResolver;
 use Modules\Groups\Service\PostLinkService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
+use Modules\Groups\Support\Timestamps;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -322,7 +323,7 @@ class PostControllerTest extends TestCase
 
     private function seedPost(int $minutesAgo = 1, int $accountId = self::AUTHOR_ACCOUNT, bool $pinned = false): int
     {
-        $at = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify("-{$minutesAgo} minutes")->format('Y-m-d H:i:s');
+        $at = Timestamps::at("-{$minutesAgo} minutes");
 
         return GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', $at, $accountId, $this->memberId, $pinned);
     }
@@ -763,8 +764,8 @@ class PostControllerTest extends TestCase
         $this->withCsrf([
             'body' => 'Corrigé',
             // Everything a client could plausibly try to forge.
-            'created_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'),
-            'edited_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'),
+            'created_at' => Timestamps::now(),
+            'edited_at' => Timestamps::now(),
             'edit_window_minutes' => '600',
         ]);
 
