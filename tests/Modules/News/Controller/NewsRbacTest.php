@@ -155,6 +155,10 @@ class NewsRbacTest extends TestCase
             'poster (chief)' => ['/news/{id}/poster', 'NewsController', 'poster', 'chief', 'identified'],
             'responses (intendant)' => ['/news/{id}/form/responses', 'FormController', 'responses', 'intendant', 'identified'],
             'export (intendant)' => ['/news/{id}/form/responses/export', 'FormController', 'exportResponses', 'intendant', 'identified'],
+            // The page opens at `intendant` and the mail merge starts at
+            // `chief`: this route carries the HIGHER of the two, and the
+            // denied role here is the one that may read the same page.
+            'mail draft (chief)' => ['/news/{id}/form/responses/mail-draft', 'FormController', 'createMailDraft', 'chief', 'intendant'],
         ];
     }
 

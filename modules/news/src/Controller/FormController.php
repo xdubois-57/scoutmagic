@@ -17,6 +17,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\Role;
+use Core\Http\FlashMessage;
 use Modules\Finance\Api\ExpectedReceivableInterface;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\FormField;
@@ -30,6 +31,7 @@ use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Modules\MassMail\Api\MassMailDraftInterface;
 use Twig\Environment;
 
 class FormController extends AbstractController
@@ -41,6 +43,9 @@ class FormController extends AbstractController
      */
     private const HUMAN_CHECK_FORM_KEY = 'news_form_response';
 
+    /** The first audience column, and the export's first header. */
+    private const MERGE_CONTACT_COLUMN = 'Contact';
+
     public function __construct(
         protected Environment $twig,
         private ArticleService $articleService,
@@ -49,7 +54,13 @@ class FormController extends AbstractController
         private ScoutYearService $scoutYearService,
         private JournalService $journalService,
         private ?ExpectedReceivableInterface $expectedReceivable = null,
-        private ?HumanCheckService $humanCheck = null
+        private ?HumanCheckService $humanCheck = null,
+        // Optional-module dependency (ARCHITECTURE.md §7.5): null when
+        // mass_mail is disabled, and the "Écrire aux répondants" button
+        // then does not exist. Never an error — this module works exactly
+        // as before without it, and it is the composition root, never this
+        // controller, that decides whether mass_mail is on.
+        private ?MassMailDraftInterface $massMailDraft = null
     ) {
     }
 
@@ -171,8 +182,149 @@ class FormController extends AbstractController
             'fields' => $fields,
             'rows' => $rows,
             'finance_available' => $this->expectedReceivable !== null,
+            // Presentation only, and both halves matter: the mail merge
+            // does not exist below `chief`, and it does not exist at all
+            // when mass_mail is disabled. Hiding the button is a courtesy —
+            // the route's own `chief` floor and mass_mail's own rules are
+            // what actually refuse the request (SECURITY.md §3).
+            'mail_draft_available' => $this->massMailDraft !== null && $role->hasAccess(Role::CHIEF),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
+    }
+
+    /**
+     * POST /news/{id}/form/responses/mail-draft — hands the respondents to
+     * the mail-merge composer as a ready-made draft, and redirects there.
+     *
+     * The four manual steps this replaces were: export to Excel, open the
+     * mail merge, re-import the file just downloaded as an audience,
+     * start writing.
+     *
+     * **The role gap is real and is checked here, twice.** This page is
+     * `role_min: intendant`; the mail merge is `chief`. The route below
+     * therefore declares `chief` — the guard is the boundary — and the
+     * button is hidden below that, which is presentation only. mass_mail
+     * then re-checks its own rules a third time (which section may send,
+     * which lists may be targeted): a hidden button is not a boundary
+     * (SECURITY.md §3), and neither is a route's floor on its own.
+     *
+     * Nothing is sent. The user lands in the ordinary composition screen
+     * with an empty body.
+     *
+     * @param array<string, string> $params
+     */
+    public function createMailDraft(Request $request, array $params): Response
+    {
+        $articleId = (int) ($params['id'] ?? 0);
+        if (($guard = $this->guardCsrf($request, '/news/' . $articleId . '/form/responses')) !== null) {
+            return $guard;
+        }
+
+        $article = $this->articleService->findById($articleId);
+        $form = $article !== null ? $this->formService->findByArticleId($article->id) : null;
+        if ($article === null || $form === null) {
+            return new Response('Not Found', 404);
+        }
+
+        // Disabled module: the feature is not offered, which is a 404 and
+        // not an error page — the route exists only because manifests are
+        // static, and there is nothing here to reach.
+        if ($this->massMailDraft === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        if (!$role->hasAccess(Role::fromString($form->responseRoleMin))) {
+            return new Response('Forbidden', 403);
+        }
+
+        $fields = $this->formService->getFields($form->id);
+        $responses = $this->responseService->findByFormId($form->id);
+
+        try {
+            $url = $this->massMailDraft->createMergeDraft(
+                'Réponses — ' . $article->title,
+                'Réponses — ' . $article->title,
+                $this->responseColumns($fields),
+                $this->responseMergeRows($fields, $responses),
+                AuthSession::getRole(),
+                AuthSession::getEmail() ?? '',
+                (int) AuthSession::getUserAccountId()
+            );
+        } catch (\Throwable $e) {
+            FlashMessage::set('error', $e->getMessage());
+            return $this->redirect('/news/' . $article->id . '/form/responses');
+        }
+
+        $this->journalService->log(
+            'news',
+            'form_responses_mail_draft',
+            'info',
+            "Brouillon d'e-mail créé vers les répondants de l'article « {$article->title} »",
+            ['article_id' => $article->id, 'form_id' => $form->id, 'response_count' => count($responses)],
+            (int) AuthSession::getUserAccountId()
+        );
+
+        return $this->redirect($url);
+    }
+
+    /**
+     * The audience's column headers, in the SAME order the XLSX export
+     * uses — `Contact` then every input field's label. Read from the same
+     * `isNonInput()` rule rather than restated, so the spreadsheet a chief
+     * downloads and the merge variables they get in the composer cannot
+     * describe the same form differently.
+     *
+     * The export's four payment columns are deliberately absent: they are
+     * accounting figures for a treasurer's spreadsheet, not something to
+     * offer as a merge variable in a mail to the respondent.
+     *
+     * @param FormField[] $fields
+     * @return string[]
+     */
+    private function responseColumns(array $fields): array
+    {
+        $columns = [self::MERGE_CONTACT_COLUMN];
+        foreach ($fields as $field) {
+            if (!$field->isNonInput()) {
+                $columns[] = (string) $field->label;
+            }
+        }
+
+        return $columns;
+    }
+
+    /**
+     * One row per response, keyed by the headers above. A switch answer
+     * reads "Oui"/"Non" exactly as it does in the export — a merge
+     * variable rendering "1" in a mail to a family would be nonsense.
+     *
+     * @param FormField[] $fields
+     * @param FormResponse[] $responses
+     * @return list<array{email: string, values: array<string, string>}>
+     */
+    private function responseMergeRows(array $fields, array $responses): array
+    {
+        $rows = [];
+        foreach ($responses as $response) {
+            $answers = $this->responseService->getAnswers($response->id);
+            $values = [self::MERGE_CONTACT_COLUMN => (string) $response->contactEmail];
+
+            foreach ($fields as $field) {
+                if ($field->isNonInput()) {
+                    continue;
+                }
+                $value = (string) ($answers[$field->id] ?? '');
+                if ($field->fieldType === FormField::TYPE_SWITCH) {
+                    $value = $value === '1' ? 'Oui' : 'Non';
+                }
+                $values[(string) $field->label] = $value;
+            }
+
+            $rows[] = ['email' => (string) $response->contactEmail, 'values' => $values];
+        }
+
+        return $rows;
     }
 
     /**

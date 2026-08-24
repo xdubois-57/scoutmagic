@@ -627,6 +627,171 @@ class NewsIntegrationTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    // --- IT-06: "Écrire aux répondants" ---
+    //
+    // The route itself is `chief` while this page is `intendant`, and the
+    // guard is what enforces that (NewsRbacTest covers it). What is left
+    // to this file is the controller's own two refusals — the module being
+    // absent, and the CSRF token — plus the shape of what it hands over.
+
+    public function testTheMailDraftButtonIsAbsentWithoutTheMassMailModule(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleWithOneResponse();
+
+        $body = $this->formController->responses(
+            new Request('GET', '/news/' . $articleId . '/form/responses', [], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        // $this->formController is built with no draft provider, which is
+        // exactly what the composition root passes when mass_mail is off.
+        $this->assertStringNotContainsString('Écrire aux répondants', $body);
+        $this->assertStringContainsString('Exporter en Excel', $body, 'the rest of the page is untouched');
+    }
+
+    public function testCreatingAMailDraftIsNotFoundWithoutTheMassMailModule(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleWithOneResponse();
+        $token = CsrfGuard::generateToken();
+
+        $response = $this->formController->createMailDraft(
+            new Request('POST', '/news/' . $articleId . '/form/responses/mail-draft', [], ['_csrf_token' => $token], [], []),
+            ['id' => (string) $articleId]
+        );
+
+        // Not a 500 and not an error page: the feature simply is not
+        // offered, so the route has nothing to reach.
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testTheMailDraftButtonAppearsWithTheModuleAndAChiefRole(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleWithOneResponse();
+
+        $body = $this->formControllerWithMassMail()->responses(
+            new Request('GET', '/news/' . $articleId . '/form/responses', [], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        $this->assertStringContainsString('Écrire aux répondants', $body);
+    }
+
+    public function testTheMailDraftButtonIsHiddenFromAnIntendant(): void
+    {
+        // The page opens at `intendant`, the mail merge starts at `chief`.
+        // The button is hidden for the gap — presentation only; the route's
+        // own floor is the boundary.
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'intendant');
+        $articleId = $this->articleWithOneResponse('intendant');
+
+        $body = $this->formControllerWithMassMail()->responses(
+            new Request('GET', '/news/' . $articleId . '/form/responses', [], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        $this->assertStringNotContainsString('Écrire aux répondants', $body);
+    }
+
+    public function testCreatingAMailDraftHandsOverTheExportsColumnsAndRedirects(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleWithOneResponse();
+        $token = CsrfGuard::generateToken();
+
+        $captured = [];
+        $draft = $this->recordingDraftProvider($captured);
+
+        $response = $this->formControllerWithMassMail($draft)->createMailDraft(
+            new Request('POST', '/news/' . $articleId . '/form/responses/mail-draft', [], ['_csrf_token' => $token], [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/mass-mail/7', $response->getHeaders()['Location'] ?? null);
+
+        // Same first column and same field order as the XLSX export, read
+        // from the same isNonInput() rule rather than restated.
+        $this->assertSame(['Contact', 'Nom'], $captured['columns']);
+        $this->assertSame([
+            ['email' => 'parent@test.com', 'values' => ['Contact' => 'parent@test.com', 'Nom' => 'Alice']],
+        ], $captured['rows']);
+    }
+
+    public function testCreatingAMailDraftRefusesAnInvalidCsrfToken(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleWithOneResponse();
+
+        $response = $this->formControllerWithMassMail()->createMailDraft(
+            new Request('POST', '/news/' . $articleId . '/form/responses/mail-draft', [], ['_csrf_token' => 'wrong'], [], []),
+            ['id' => (string) $articleId]
+        );
+
+        // guardCsrf() sends the user back with a flash rather than erroring,
+        // so the status is a redirect either way — WHERE it goes is the
+        // assertion that distinguishes a refusal from a success.
+        $this->assertSame(
+            '/news/' . $articleId . '/form/responses',
+            $response->getHeaders()['Location'] ?? null,
+            'a bad token must land back on the responses page, never in the composer'
+        );
+    }
+
+    private function articleWithOneResponse(string $responseRoleMin = 'chief'): int
+    {
+        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, $responseRoleMin, false, null);
+        $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
+
+        return $articleId;
+    }
+
+    private function formControllerWithMassMail(?\Modules\MassMail\Api\MassMailDraftInterface $draft = null): FormController
+    {
+        $draft ??= $this->stubDraftProvider();
+
+        return new FormController(
+            $this->twig,
+            $this->articleService,
+            $this->formService,
+            $this->responseService,
+            $this->scoutYearService,
+            $this->journalService,
+            null,
+            null,
+            $draft
+        );
+    }
+
+    private function stubDraftProvider(): \Modules\MassMail\Api\MassMailDraftInterface
+    {
+        $stub = $this->createMock(\Modules\MassMail\Api\MassMailDraftInterface::class);
+        $stub->method('createMergeDraft')->willReturn('/mass-mail/7');
+
+        return $stub;
+    }
+
+    /**
+     * @param array<string, mixed> $captured
+     */
+    private function recordingDraftProvider(array &$captured): \Modules\MassMail\Api\MassMailDraftInterface
+    {
+        $stub = $this->createMock(\Modules\MassMail\Api\MassMailDraftInterface::class);
+        $stub->method('createMergeDraft')->willReturnCallback(
+            function (string $label, string $subject, array $columns, array $rows) use (&$captured): string {
+                $captured = ['label' => $label, 'subject' => $subject, 'columns' => $columns, 'rows' => $rows];
+
+                return '/mass-mail/7';
+            }
+        );
+
+        return $stub;
+    }
+
     public function testExportResponsesReturnsAnXlsxFile(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
