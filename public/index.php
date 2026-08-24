@@ -3833,9 +3833,28 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     // indistinguishable, because an Occupancy carries nothing to tell them
     // apart by.
     $rentalBookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService);
+    $rentalChangeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository($pdo, $encryptionService);
+    // The booking's own change history (§6.15) now goes through Core\Audit
+    // (§8.66), like Camps' and every other per-entity timeline: one storage
+    // rule (every value encrypted), one partial, one JSON pagination route.
+    // Modules\Rental\Audit\BookingAudit keeps this module's vocabulary —
+    // its field keys, their French labels, and the member-to-account
+    // mapping Core\Audit cannot make on its own.
+    $rentalBookingAudit = new \Modules\Rental\Audit\BookingAudit(
+        $auditService,
+        new \Modules\Rental\Audit\ActorAccountResolver(
+            $memberService, $userAccountRepo, $scoutYearService
+        )
+    );
     $rentalBookingService = new \Modules\Rental\Service\RentalBookingService(
         $rentalBookingRepository,
-        $journalService
+        $journalService,
+        // The expiry sweep refuses a booking's pending change requests
+        // along with it, exactly as a manager moving it to a final status
+        // does — otherwise the renter's tracking page keeps offering
+        // « Accepter » on a proposal for a booking that no longer exists.
+        $rentalChangeRequestRepository,
+        $rentalBookingAudit
     );
     $rentalBlockRepository = new \Modules\Rental\Repository\RentalBlockRepository($pdo);
     $rentalOccupancyProviders = [$rentalBookingService, $rentalBlockRepository];
@@ -3849,18 +3868,6 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $journalService
     );
 
-    // The booking's own change history (§6.15) now goes through Core\Audit
-    // (§8.66), like Camps' and every other per-entity timeline: one storage
-    // rule (every value encrypted), one partial, one JSON pagination route.
-    // Modules\Rental\Audit\BookingAudit keeps this module's vocabulary —
-    // its field keys, their French labels, and the member-to-account
-    // mapping Core\Audit cannot make on its own.
-    $rentalBookingAudit = new \Modules\Rental\Audit\BookingAudit(
-        $auditService,
-        new \Modules\Rental\Audit\ActorAccountResolver(
-            $memberService, $userAccountRepo, $scoutYearService
-        )
-    );
     // Without this the timeline's later pages simply do not load — an
     // unregistered entity type is denied, which is the intended direction
     // of that failure (§8.66). Reading a booking's history needs the same
@@ -3878,7 +3885,6 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         }
     );
     $rentalCommentRepository = new \Modules\Rental\Repository\RentalBookingCommentRepository($pdo, $encryptionService);
-    $rentalChangeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository($pdo, $encryptionService);
     // Payments (§6.19, §6.20). Every Finance dependency is nullable and
     // stays null when the module is disabled — the service then degrades to
     // "no receivable, no QR, nothing raised" and the rest of `rental` is

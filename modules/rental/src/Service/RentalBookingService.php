@@ -9,13 +9,16 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Journal\JournalService;
+use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\Occupancy;
 use Modules\Rental\Availability\OccupancyProvider;
 use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\ChangeRequestStatus;
 use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Pricing\PriceQuote;
 use Modules\Rental\Repository\RentalBookingRepository;
+use Modules\Rental\Repository\RentalChangeRequestRepository;
 
 /**
  * Creating and moving bookings through their life.
@@ -41,7 +44,16 @@ class RentalBookingService implements OccupancyProvider
 
     public function __construct(
         private RentalBookingRepository $bookingRepository,
-        private JournalService $journal
+        private JournalService $journal,
+        /**
+         * Nullable so the OccupancyProvider half of this class — which is
+         * all the calendar needs — can still be built with two arguments.
+         * The expiry sweep is the only caller that needs them, and without
+         * them it degrades to the behaviour that made this a bug: the
+         * booking expires and its pending requests stay pending.
+         */
+        private ?RentalChangeRequestRepository $changeRequestRepository = null,
+        private ?BookingAudit $bookingAudit = null
     ) {
     }
 
@@ -370,6 +382,7 @@ class RentalBookingService implements OccupancyProvider
             if ($booking->holdOrigin?->expiryEndsTheBooking() === true) {
                 $this->bookingRepository->setStatus($booking->id, BookingStatus::EXPIRED, $now);
                 $this->bookingRepository->clearHold($booking->id);
+                $this->refusePendingChangeRequests($booking->id);
                 $expired++;
 
                 $this->journal->log(
@@ -387,5 +400,41 @@ class RentalBookingService implements OccupancyProvider
         }
 
         return ['released' => $released, 'expired' => $expired];
+    }
+
+    /**
+     * A booking that has just expired has nothing left to decide, so its
+     * pending change requests are refused with it.
+     *
+     * `RentalOperationsService::applyStatus()` does exactly this whenever a
+     * MANAGER moves a booking to a final status; the expiry sweep reaches
+     * the same final status by another road and was leaving them standing.
+     * The renter then had a tracking page still offering « Accepter » on a
+     * proposal for a booking that no longer existed — refused, but only
+     * after they had been invited to press it.
+     *
+     * No actor: nobody decided this, the deadline did. That is what makes
+     * the timeline entry read as automatic (§8.66).
+     */
+    private function refusePendingChangeRequests(int $bookingId): void
+    {
+        if ($this->changeRequestRepository === null) {
+            return;
+        }
+
+        foreach ($this->changeRequestRepository->findPendingForBooking($bookingId) as $pending) {
+            if (!$this->changeRequestRepository->decide($pending->id, ChangeRequestStatus::REFUSED, null)) {
+                continue;
+            }
+
+            $this->bookingAudit?->record(
+                $bookingId,
+                BookingAudit::CHANGE_DECIDED,
+                $pending->kind->value,
+                ChangeRequestStatus::REFUSED->value,
+                $pending->summary(),
+                null
+            );
+        }
     }
 }

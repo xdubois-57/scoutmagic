@@ -214,7 +214,34 @@ class RentalTestHelper
         )');
 
         // No rental_booking_events: a booking's history lives in core's
-        // `entity_changes` (§8.66), which Tests\DatabaseTestHelper creates.
+        // `entity_changes` (§8.66). Tests\DatabaseTestHelper creates it and
+        // runs first where both are used, so this is IF NOT EXISTS — it is
+        // here for the handful of rental tests that build a bare in-memory
+        // PDO and only call this helper.
+        $pdo->exec('CREATE TABLE IF NOT EXISTS entity_changes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_type TEXT NOT NULL,
+            entity_id INTEGER NOT NULL,
+            field_key TEXT NOT NULL,
+            from_value BLOB,
+            to_value BLOB,
+            summary BLOB,
+            source TEXT NOT NULL,
+            source_reference TEXT,
+            actor_user_account_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        // AuditRepository LEFT JOINs user_accounts to put a name on an
+        // entry. Same IF NOT EXISTS reasoning as above, and only the three
+        // columns that join reads.
+        $pdo->exec('CREATE TABLE IF NOT EXISTS user_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_encrypted BLOB,
+            email_blind_index TEXT,
+            first_name_encrypted BLOB,
+            last_name_encrypted BLOB
+        )');
 
         $pdo->exec('CREATE TABLE rental_documents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
