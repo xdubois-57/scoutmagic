@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Service;
 
+use Core\Config\AppClock;
 use Core\Config\SettingService;
 use Modules\Groups\Repository\ReactionNoticeRepository;
 use Modules\Groups\Support\Timestamps;
@@ -84,11 +85,11 @@ class ReactionNoticeThrottle
     private function shouldNotify(ReactionNoticeRepository $repository, int $itemId): bool
     {
         $window = $this->windowMinutes();
-        $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+        $now = AppClock::now();
 
         if ($window > 0) {
             $last = $repository->lastNotifiedAt($itemId);
-            if ($last !== null && Timestamps::toUtc($last)->modify('+' . $window . ' minutes') > $now) {
+            if ($last !== null && Timestamps::parse($last)->modify('+' . $window . ' minutes') > $now) {
                 return false;
             }
         }

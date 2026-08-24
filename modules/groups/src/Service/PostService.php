@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Service;
 
+use Core\Config\AppClock;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\Post;
 use Modules\Groups\Repository\PostRepository;
@@ -79,14 +80,14 @@ class PostService
 
     /**
      * Computed from the stored created_at every single time, both sides in
-     * UTC (Support\Timestamps). Nothing the client sends takes part in
+     * the application clock (Support\Timestamps). Nothing the client sends takes part in
      * this: a forged "created 10 seconds ago" field changes nothing,
      * because no such field is ever read.
      */
     public function isWithinEditWindow(Post $post, ?\DateTimeImmutable $now = null): bool
     {
-        $now ??= new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
-        $deadline = Timestamps::toUtc($post->createdAt)->modify('+' . self::EDIT_WINDOW_MINUTES . ' minutes');
+        $now ??= AppClock::now();
+        $deadline = Timestamps::parse($post->createdAt)->modify('+' . self::EDIT_WINDOW_MINUTES . ' minutes');
 
         return $now <= $deadline;
     }
@@ -250,7 +251,7 @@ class PostService
             return null;
         }
 
-        return Timestamps::toUtc(Timestamps::now())->modify($modifier)->format('Y-m-d H:i:s');
+        return Timestamps::at($modifier);
     }
 
     /**

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Repository;
 
+use Modules\Groups\Support\Timestamps;
+
 /**
  * discussion_group_rate_limits — the same three operations as
  * Modules\Retro\Repository\RateLimitRepository, over this module's own
@@ -25,7 +27,7 @@ class RateLimitRepository
         $stmt = $this->pdo->prepare(
             'INSERT INTO discussion_group_rate_limits (member_id, action_type, created_at) VALUES (?, ?, ?)'
         );
-        $stmt->execute([$memberId, $actionType, gmdate('Y-m-d H:i:s')]);
+        $stmt->execute([$memberId, $actionType, Timestamps::now()]);
     }
 
     /**

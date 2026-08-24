@@ -229,10 +229,13 @@ Every `<form method="post">` carries one, no exceptions (`AGENTS.md`
 
 The function is registered with `['is_safe' => ['html']]`
 (`Core\View\TwigFactory`), so **`|raw` is a no-op** and plain
-`{{ csrf_field() }}` produces exactly the same markup — the filter is
-written out anyway because a reader scanning a template for `|raw` should
-find every place raw HTML is emitted, including the ones that are safe by
-construction. Whichever you write, do not mix the two inside one template.
+`{{ csrf_field() }}` produces exactly the same markup. Write the filter
+anyway, every time: a reader auditing which templates emit raw HTML greps
+for `|raw`, and a call site without it is one that grep misses — including
+the ones that are safe by construction. Precisely because nothing breaks
+when the two forms drift apart, they drift, so this is the one form and
+`Tests\Core\View\UxConventionsTest::testCsrfFieldIsAlwaysWrittenWithTheRawFilter`
+keeps it that way.
 
 Do NOT hand-write the input: the token itself comes from
 `Core\Security\CsrfGuard::generateToken()`, and a template composing the
@@ -489,7 +492,22 @@ Core publishes `Core\Http\LinkPreviewFetcher` for Open Graph title/description/i
 - A module that stores confidential *files* (not just database fields) — receipts, private documents, anything that must never be readable directly off disk — should use `Core\File\EncryptedFileStorageService` (`store()`/`retrieve()`/`delete()`) instead of `UploadHandler`. It uses the same master key as `EncryptionService` and integrates transparently with `FileAccessGuard`/`/files/{id}` — the caller never handles decryption itself.
 - **Editing `schema.sql` for a module that may already be enabled somewhere (i.e. any change after the module's first release — new column, new table, changed default, etc.)? Bump `version` in `module.json` in the same change.** `ModuleManager::loadEnabledModules()` only re-diffs and re-applies a module's `schema.sql` when the manifest's `version` compares greater than the version recorded in the module registry (`ModuleManager.php`, the "Auto-migrate when module version is newer than installed version" block). Editing `schema.sql` without bumping `version` is silently a no-op on every already-enabled installation — the new column/table only ever gets created for a *fresh* activation, never retrofitted onto an existing one. This has caused real `Unknown column` / `PDOException` production errors from schema changes that looked complete in code review but were never actually applied to the running database. There is no separate reminder or lint for this — bumping the version is the only signal that triggers migration, so treat "I touched schema.sql" and "I bump version" as inseparable.
 
-- **The application runs on UTC, and a `CURRENT_TIMESTAMP` default is why.** Half of this codebase writes timestamps from PHP (`date('Y-m-d H:i:s')`, `(new \DateTimeImmutable())->format(...)`) and the other half lets the column's `DEFAULT CURRENT_TIMESTAMP` do it — and the two are then compared against each other by every rate limiter, retention cutoff and scheduler query in the tree. The database emits UTC; PHP emits whatever `date_default_timezone_get()` says. Setting a local default zone therefore does not shift "all times together": it shifts one half of every such comparison by one or two hours. Measured, not guessed — running the suite under `Europe/Brussels` fails 26 tests, and the ones that matter are rate limiters that stop firing at all, because the window's lower bound lands in the future relative to every row in the table. Keep timestamps UTC end to end and localise at RENDER time (`|date_fr`, `|datetime_fr`), never at storage time. A module that genuinely needs the two to agree should generate BOTH sides in PHP rather than mixing.
+### Timestamps: one clock, `Europe/Brussels`
+
+**Every naive `DATETIME` in this database is Belgian local time, and both the PHP side and the database side are held to it.** The invariant has three parts, and a module author has to know all three:
+
+1. **PHP runs on `Europe/Brussels`.** `Core\Config\AppClock::apply()` is the first thing `public/index.php`, `public/cron.php` and `tests/bootstrap.php` do. So `date('Y-m-d H:i:s')`, `new \DateTimeImmutable('now')`, `new \DateTimeImmutable('today')` and `'tomorrow 04:00'` all mean what a Belgian reader thinks they mean. (`bootstrap/bootstrap.php` is the standalone FTP installer, not the running app — it has nothing to do with this.)
+2. **The MySQL session agrees.** `Core\Database\Connection::getPdo()` executes `SET time_zone = '<PHP's current numeric offset>'` on every connection it opens, so `NOW()` and a column's `DEFAULT CURRENT_TIMESTAMP` land on the same clock as PHP. A *numeric* offset deliberately, not `'Europe/Brussels'`: the named form needs the server's `mysql.time_zone*` tables, which shared hosting routinely does not load, and would fail the connection outright.
+3. **SQLite cannot join in, so PHP writes the timestamp.** The in-memory SQLite database the test suite runs on (`Tests\DatabaseTestHelper`) has no session timezone and its `CURRENT_TIMESTAMP` is UTC, full stop. **Any column whose value is ever compared against a PHP-computed instant is therefore written from PHP** — bound as a parameter, never left to the column default and never `NOW()` in the SQL. Keep the `DEFAULT CURRENT_TIMESTAMP` in `schema.sql` as a safety net for hand-written SQL; just don't rely on it.
+
+What that means when you write a module:
+
+- **Do** compute both ends of any window in PHP: `$since = (new \DateTimeImmutable('-10 minutes'))->format('Y-m-d H:i:s');` compared against a `created_at` your own `INSERT` supplied. Every rate limiter in the tree is built this way — `Core\Security\HumanCheck\HumanCheckRateLimitRepository` is the reference shape.
+- **Do** render with `|date_fr`, `|datetime_fr`, `|french_date`, `|relative_date`. They read a stored value under the default timezone and print it as-is, which is now already correct — no conversion at render time.
+- **Don't** write `gmdate()`, and don't parse a stored value with `new \DateTimeZone('UTC')`. Both used to be right, back when the whole application ran on UTC; both are now off by an hour or two. If you need a value that cannot drift when a caller changes the ambient timezone underneath you, name the zone explicitly with `AppClock::zone()` / `AppClock::now()` — `Modules\Groups\Support\Timestamps` is the worked example, and the module's edit-window tests exist to keep it honest.
+- **Don't** seed a test fixture with SQL time (`datetime('now', '-1 minute')`, `NOW()`) and then assert against a PHP-computed instant. That compares two clocks and passes or fails by accident; write the fixture the way the repository under test writes it.
+- **Don't** round-trip a date through a Unix timestamp when a library will read it back as UTC. `ExcelDate::PHPToExcel(strtotime('2015-03-21'))` produced 2015-03-20 the moment PHP stopped running on UTC; pass a `DateTimeInterface` instead, which is read by its calendar components (`Core\Member\Export\MemberExportService`).
+- Timestamps that leave the installation — an API payload, an `.ics` file, a support package — stay explicit UTC/ISO-8601 and convert at the boundary. That is a serialisation format, not storage.
 
 Example `schema.sql`:
 

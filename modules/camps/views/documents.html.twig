@@ -25,7 +25,7 @@
                         <form method="post" action="/chefs/camps/documents/{{ document.id }}/supprimer" data-confirm="{{ document.ownsItsFile()
                                         ? 'Supprimer définitivement ce document ?'
                                         : 'Retirer ce document du séjour ? Le fichier reste attaché au message reçu.' }}">
-                            {{ csrf_field() }}
+                            {{ csrf_field()|raw }}
                             <button type="submit" class="btn btn-sm btn-outline-danger">
                                 {{ document.ownsItsFile() ? 'Supprimer' : 'Retirer' }}
                             </button>
@@ -39,7 +39,7 @@
               enctype="multipart/form-data" class="card">
             <div class="card-body">
                 <h2 class="h6 mb-3">Joindre un document</h2>
-                {{ csrf_field() }}
+                {{ csrf_field()|raw }}
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'document-title', field_name: 'title', label: 'Nom du document',
                     size: 'sm', maxlength: 255,

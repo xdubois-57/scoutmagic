@@ -8,6 +8,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Service\ReactionNoticeThrottle;
+use Modules\Groups\Support\Timestamps;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -187,7 +188,7 @@ class ReactionNoticeThrottleTest extends TestCase
 
     private function backdatePostNotice(int $postId, string $modifier): void
     {
-        $at = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify($modifier)->format('Y-m-d H:i:s');
+        $at = Timestamps::at($modifier);
         $stmt = $this->pdo->prepare('UPDATE discussion_group_post_reaction_notices SET notified_at = ? WHERE post_id = ?');
         $stmt->execute([$at, $postId]);
     }

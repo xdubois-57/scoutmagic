@@ -13,6 +13,7 @@ use Core\Security\AuthSession;
 use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Service\GroupMembershipService;
+use Modules\Groups\Support\Timestamps;
 use PHPUnit\Framework\Attributes\Group;
 use Tests\Modules\Groups\GroupsTestHelper;
 
@@ -169,7 +170,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->reopen($this->request(), $this->params());
 
         $this->assertGreaterThan(
-            (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-5 minutes')->format('Y-m-d H:i:s'),
+            Timestamps::at('-5 minutes'),
             $this->group()->lastActivityAt
         );
     }

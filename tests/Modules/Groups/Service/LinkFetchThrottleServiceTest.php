@@ -80,7 +80,12 @@ class LinkFetchThrottleServiceTest extends TestCase
         // Past the 10-minute counting window but still inside the
         // 60-minute retention — distinguishes "excluded from the count"
         // from "already purged", which -71 minutes would conflate.
-        $this->pdo->exec("UPDATE discussion_group_link_fetch_log SET created_at = datetime('now', '-11 minutes')");
+        // From PHP, like Repository\LinkFetchLogRepository::record() itself:
+        // SQLite's datetime('now') is UTC and the service's window is
+        // computed on the application clock (Core\Config\AppClock), so
+        // seeding with SQL time would only ever pass by accident.
+        $stmt = $this->pdo->prepare('UPDATE discussion_group_link_fetch_log SET created_at = ?');
+        $stmt->execute([(new \DateTimeImmutable('-11 minutes'))->format('Y-m-d H:i:s')]);
 
         $this->assertTrue($this->service->allowFetch(1));
     }

@@ -23,10 +23,16 @@ class SupportReportRateLimitRepository
     {
     }
 
+    /**
+     * created_at from PHP, never the column's DEFAULT CURRENT_TIMESTAMP —
+     * countSince() below compares it against a PHP-computed cutoff, and the
+     * copied original documents why that has to be one clock (Core\Security\
+     * HumanCheck\HumanCheckRateLimitRepository::record()).
+     */
     public function record(string $ipHash): void
     {
-        $stmt = $this->pdo->prepare('INSERT INTO support_report_rate_limits (ip_hash) VALUES (?)');
-        $stmt->execute([$ipHash]);
+        $stmt = $this->pdo->prepare('INSERT INTO support_report_rate_limits (ip_hash, created_at) VALUES (?, ?)');
+        $stmt->execute([$ipHash, (new \DateTimeImmutable())->format('Y-m-d H:i:s')]);
     }
 
     public function countSince(string $ipHash, string $sinceDatetime): int

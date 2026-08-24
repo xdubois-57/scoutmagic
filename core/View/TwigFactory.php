@@ -380,7 +380,7 @@ class TwigFactory
         }));
 
         // "il y a 2 heures" — a coarse, French relative age for a stored
-        // UTC timestamp. Deliberately coarse: a feed only needs to answer
+        // timestamp. Deliberately coarse: a feed only needs to answer
         // "recently or a while ago", and a to-the-second rendering would
         // be a value that is wrong the moment the page is cached. Falls
         // back to the absolute date past a week, where "il y a 23 jours"
@@ -390,14 +390,18 @@ class TwigFactory
                 return '';
             }
 
-            // Stored timestamps in this codebase are UTC (see e.g.
-            // Modules\Groups\Support\Timestamps) — parsed as such rather
-            // than under PHP's ambient timezone, or every age would be
-            // off by the server's offset.
+            // A naive stored timestamp is on the application clock
+            // (Core\Config\AppClock) — both the PHP writers and the
+            // database's own CURRENT_TIMESTAMP produce it there — so it is
+            // parsed under PHP's default timezone and compared against a
+            // "now" read the same way. Forcing UTC on either end (which
+            // this used to do, back when the whole app ran on UTC) now
+            // shifts every age by the offset, and would have every
+            // just-posted message read "il y a 2 heures".
             $then = $date instanceof \DateTimeInterface
                 ? $date
-                : new \DateTimeImmutable((string) $date, new \DateTimeZone('UTC'));
-            $seconds = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->getTimestamp() - $then->getTimestamp();
+                : new \DateTimeImmutable((string) $date);
+            $seconds = (new \DateTimeImmutable('now'))->getTimestamp() - $then->getTimestamp();
 
             // A clock skew (or a timestamp a second into the future) reads
             // as "just now" rather than a negative age.

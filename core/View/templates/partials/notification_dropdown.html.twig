@@ -40,7 +40,7 @@
                    notifications/index.html.twig — a plain GET <a> can't
                    carry CSRF protection for the mark-read side effect. #}
                 <form method="post" action="/notifications/{{ notification.id }}/read">
-                    {{ csrf_field() }}
+                    {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-link text-decoration-none text-start text-body w-100 p-3 d-block border-bottom">
                         <span class="d-block fw-semibold small text-truncate">{{ notification.title }}</span>
                         <span class="d-block small text-body-secondary text-truncate">{{ notification.body }}</span>

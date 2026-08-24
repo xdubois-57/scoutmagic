@@ -51,8 +51,7 @@ class PostServiceTest extends TestCase
 
     private function minutesAgo(int $minutes): string
     {
-        return (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))
-            ->modify("-{$minutes} minutes")->format('Y-m-d H:i:s');
+        return Timestamps::at("-{$minutes} minutes");
     }
 
     // --- edit window ---------------------------------------------------
@@ -90,8 +89,12 @@ class PostServiceTest extends TestCase
 
     public function testTheWindowDoesNotDriftWithTheServerDisplayTimezone(): void
     {
-        // Both ends are UTC (Support\Timestamps): flipping PHP's ambient
-        // timezone must not move the deadline by hours.
+        // Both ends name their zone (Support\Timestamps pins the
+        // application clock rather than reading date_default_timezone_get):
+        // flipping PHP's ambient timezone must not move the deadline by
+        // hours. This held when both ends were UTC and still holds now
+        // that both ends are Europe/Brussels — what matters is that the
+        // stored value and "now" are never read under different zones.
         $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', $this->minutesAgo(5), 7, 3);
         $post = $this->postRepo->findById($postId);
 

@@ -23,6 +23,11 @@ if (PHP_SAPI !== 'cli') {
 
 $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 
+// Same wall clock as public/index.php — a scheduled action written by a web
+// request and claimed by this pass has to be read on the clock it was
+// written on. See Core\Config\AppClock.
+\Core\Config\AppClock::apply();
+
 // Same safety net as public/index.php — see Core\System\ComposerAutoloadSync's
 // own docblock. Needed here too: a scheduled task from a module whose PSR-4
 // entry predates the last time vendor/ was regenerated would otherwise fail

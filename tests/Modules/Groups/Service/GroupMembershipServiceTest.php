@@ -171,7 +171,7 @@ class GroupMembershipServiceTest extends TestCase
 
         $lastActivity = $this->group()->lastActivityAt;
         $this->assertGreaterThan(
-            (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-5 minutes')->format('Y-m-d H:i:s'),
+            Timestamps::at('-5 minutes'),
             $lastActivity
         );
     }
