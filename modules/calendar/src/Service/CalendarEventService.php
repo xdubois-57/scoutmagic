@@ -25,14 +25,17 @@ class CalendarEventService
 
     /**
      * Calendars a chief-role viewer may create/edit events into: every
-     * section calendar (chiefs have blanket access to every section, same
-     * model as StaffsController — role_min: chief at the route is the
-     * actual gate, not per-chief section ownership) plus supplementary
-     * calendars whose visibility they qualify to view.
+     * section calendar plus supplementary calendars whose visibility they
+     * qualify to view.
+     *
+     * This is the SEEING set, and it is deliberately not narrowed by which
+     * sections the account staffs: the whole point of the chief calendar is
+     * that an animateur of the Baladins sees what the rest of the unit is
+     * doing. getEditableCalendars() below is the writing set.
      *
      * @return Calendar[]
      */
-    public function getEditableCalendarsForChief(Role $viewerRole): array
+    public function getViewableCalendars(Role $viewerRole): array
     {
         $sectionCalendars = $this->calendarService->getSectionCalendars();
         $supplementary = array_filter(
@@ -44,6 +47,36 @@ class CalendarEventService
     }
 
     /**
+     * Calendars this viewer may create/edit/delete events in: a subset of
+     * what they can see.
+     *
+     * A **section** calendar is editable only by an animateur of that
+     * section — the blanket "any chief writes in any section" this page
+     * used to grant is exactly what IT-01's counterpart removed for section
+     * documents. A **supplementary** calendar has no section, so the
+     * visibility rule inherited from getViewableCalendars() is the whole
+     * rule for it.
+     *
+     * $staffedSectionIds is resolved by the CONTROLLER (Core\Member\
+     * SectionStaffAuthorizationService, ARCHITECTURE.md §8.33) and passed
+     * in: a Service never reads the session (ARCHITECTURE.md §13), and this
+     * one must stay usable by a caller that has no session at all. An empty
+     * array therefore means "no section calendars", never "all of them" —
+     * a caller that forgets the argument is denied, not granted.
+     *
+     * @param int[] $staffedSectionIds
+     * @return Calendar[]
+     */
+    public function getEditableCalendars(Role $viewerRole, array $staffedSectionIds): array
+    {
+        return array_values(array_filter(
+            $this->getViewableCalendars($viewerRole),
+            fn(Calendar $c) => $c->sectionId === null || in_array($c->sectionId, $staffedSectionIds, true)
+        ));
+    }
+
+    /**
+     * @param int[] $staffedSectionIds
      * @throws CalendarException
      */
     public function createEvent(
@@ -57,14 +90,15 @@ class CalendarEventService
         ?string $description,
         ?int $createdBy,
         bool $autoCreateRetro = false,
-        ?Role $viewerRole = null
+        ?Role $viewerRole = null,
+        array $staffedSectionIds = []
     ): CalendarEvent {
         $title = trim($title);
         $this->validateEventFields($title, $startDate, $endDate);
         if ($this->calendarService->findById($calendarId) === null) {
             throw new CalendarException('Calendrier introuvable.');
         }
-        $this->assertCalendarEditable($calendarId, $viewerRole);
+        $this->assertCalendarEditable($calendarId, $viewerRole, $staffedSectionIds);
 
         $id = $this->eventRepository->create(
             $calendarId,
@@ -88,6 +122,7 @@ class CalendarEventService
     }
 
     /**
+     * @param int[] $staffedSectionIds
      * @throws CalendarException
      */
     public function updateEvent(
@@ -102,7 +137,8 @@ class CalendarEventService
         ?string $description,
         bool $autoCreateRetro = false,
         ?int $updatedBy = null,
-        ?Role $viewerRole = null
+        ?Role $viewerRole = null,
+        array $staffedSectionIds = []
     ): CalendarEvent {
         $existing = $this->eventRepository->findById($id);
         if ($existing === null) {
@@ -117,8 +153,8 @@ class CalendarEventService
         // Both ends of the move: the calendar the event currently lives in
         // (so it can't be dragged OUT of one the caller may not touch) and
         // the calendar it is being moved INTO.
-        $this->assertCalendarEditable($existing->calendarId, $viewerRole);
-        $this->assertCalendarEditable($calendarId, $viewerRole);
+        $this->assertCalendarEditable($existing->calendarId, $viewerRole, $staffedSectionIds);
+        $this->assertCalendarEditable($calendarId, $viewerRole, $staffedSectionIds);
 
         $this->eventRepository->update(
             $id,
@@ -142,15 +178,16 @@ class CalendarEventService
     }
 
     /**
+     * @param int[] $staffedSectionIds
      * @throws CalendarException
      */
-    public function deleteEvent(int $id, ?Role $viewerRole = null): void
+    public function deleteEvent(int $id, ?Role $viewerRole = null, array $staffedSectionIds = []): void
     {
         $event = $this->eventRepository->findById($id);
         if ($event === null) {
             throw new CalendarException('Évènement introuvable.');
         }
-        $this->assertCalendarEditable($event->calendarId, $viewerRole);
+        $this->assertCalendarEditable($event->calendarId, $viewerRole, $staffedSectionIds);
         $this->notificationService->cancelReminderForEvent($id);
         $this->notificationService->cancelActivityReminderForEvent($id);
         $this->retroAutoCreateService?->cancelAutoCreateForEvent($id);
@@ -160,28 +197,31 @@ class CalendarEventService
     /**
      * Re-checks that $calendarId really is one this caller may write to.
      *
-     * getEditableCalendarsForChief() already computes that set for the
-     * picker, but the write paths only verified the calendar EXISTED — and
-     * calendar_id/event_id arrive in the request body. A chief could
-     * therefore post the id of an admin-only supplementary calendar (one
-     * deliberately excluded from their editable set) and create, move or
-     * delete events in it. role_min: chief on the route is the floor, not
-     * the per-calendar boundary.
+     * getEditableCalendars() already computes that set for the form's
+     * calendar picker, but the write paths only verified the calendar
+     * EXISTED — and calendar_id/event_id arrive in the request body. A
+     * chief could therefore post the id of an admin-only supplementary
+     * calendar, or (since this narrowing landed) of a section they do not
+     * staff, and create, move or delete events in it. role_min: chief on
+     * the route is the floor, not the per-calendar boundary.
      *
      * $viewerRole null means there is no user to narrow against — a system
      * caller such as Modules\SosStaff\Service\CalendarSyncService, which
      * maintains its own calendar on the unit's behalf rather than acting
-     * for a session. Only request-driven callers pass a role.
+     * for a session. Only request-driven callers pass a role, and the
+     * short-circuit below is what keeps the SOS on-call rota publishing;
+     * $staffedSectionIds is meaningless for such a caller and ignored.
      *
+     * @param int[] $staffedSectionIds
      * @throws CalendarException
      */
-    private function assertCalendarEditable(int $calendarId, ?Role $viewerRole): void
+    private function assertCalendarEditable(int $calendarId, ?Role $viewerRole, array $staffedSectionIds): void
     {
         if ($viewerRole === null) {
             return;
         }
 
-        foreach ($this->getEditableCalendarsForChief($viewerRole) as $calendar) {
+        foreach ($this->getEditableCalendars($viewerRole, $staffedSectionIds) as $calendar) {
             if ($calendar->id === $calendarId) {
                 return;
             }

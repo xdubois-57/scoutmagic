@@ -39,6 +39,10 @@ class DocumentationTest extends TestCase
         yield 'the reopen activity reset' => ['resets `last_activity_at` to now'];
         yield 'the last-moderator rule' => ['last explicit moderator'];
         yield 'the creation quota' => ['groups_max_created_per_member'];
+        // Who a "une réponse par membre" poll may be answered for is a
+        // decision, not a detail: it is deliberately wider than who may
+        // publish, and the two methods are one character apart to read.
+        yield 'who a member-scoped poll may be answered for' => ['memberIdsAllowedToVoteAs'];
     }
 
     #[DataProvider('architectureTopics')]
@@ -70,6 +74,37 @@ class DocumentationTest extends TestCase
         $this->assertStringContainsString('last moderator', $specs);
         $this->assertStringContainsString('Rouvrir', $specs);
         $this->assertStringContainsString('open, non-section', $specs);
+    }
+
+    /**
+     * Which of an account's members a poll may be answered for is a rule
+     * with two halves, and a unit's staff has to be able to read both in
+     * the functional spec: it decides whether a count they act on is
+     * complete, and whether it counts anybody it should not.
+     */
+    public function testSpecificationsSayWhichMembersAPollMayBeAnsweredFor(): void
+    {
+        $specs = $this->read('specifications.md');
+
+        $this->assertStringContainsString("a section group asks its section's question", $specs);
+        $this->assertStringContainsString('offers every member the account reaches', $specs);
+    }
+
+    /**
+     * And the person doing the voting reads none of the above: they read
+     * the help panel. A rule about whose answer counts is exactly the
+     * kind that drifts out of the help text first, since nothing breaks
+     * when it does.
+     */
+    public function testTheHelpTopicSaysWhichMembersAPollMayBeAnsweredFor(): void
+    {
+        $help = $this->read('modules/groups/help/groupes.md');
+
+        // Substrings that survive a re-wrap of the paragraph: the two
+        // halves of the rule, and the heading the picker draws.
+        $this->assertStringContainsString("c'est le groupe qui le décide", $help);
+        $this->assertStringContainsString('seuls ceux qui en font partie', $help);
+        $this->assertStringContainsString('Hors de ce groupe', $help);
     }
 
     public function testTheReadmeListsTheModule(): void

@@ -47,6 +47,8 @@ class HelpController extends AbstractController
         'heading_base_level' => 1,
         'allow_asset_images' => true,
         'blockquotes' => true,
+        'ordered_lists' => true,
+        'wrapped_list_items' => true,
     ];
 
     public function __construct(

@@ -1,0 +1,164 @@
+{% extends 'base.html.twig' %}
+{% block title %}Camps — {{ site_name }}{% endblock %}
+{% block stylesheets %}
+    {% if not archived %}
+        {# Leaflet is vendored under /assets/vendor/, like Bootstrap and
+           Chart.js: no npm, no build step, and above all no CDN — a CDN
+           would hand a third party the IP of every chief opening this
+           page, before they even asked for a map. #}
+        <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.css">
+    {% endif %}
+{% endblock %}
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: archived ? 'Lieux archivés' : 'Camps',
+        subtitle: archived
+            ? 'Les lieux retirés des écrans courants. Rien n\'est supprimé.'
+            : 'Les terrains où l\'unité a campé, et ce que les staffs d\'avant en ont pensé.',
+        action_label: archived ? '' : 'Nouveau camp',
+        action_url: '/chefs/camps/nouveau',
+    } only %}
+
+    {% if unsorted_mail_count > 0 %}
+        {# Shown only when there is something waiting: a permanent entry
+           that is permanently empty teaches people to ignore it, which is
+           why this lives here and not in the menu. #}
+        <a class="alert alert-warning d-block text-decoration-none" href="/chefs/camps/courrier">
+            <i class="bi bi-envelope-exclamation" aria-hidden="true"></i>
+            {{ unsorted_mail_count }} message{{ unsorted_mail_count > 1 ? 's' : '' }}
+            reçu{{ unsorted_mail_count > 1 ? 's' : '' }} n'{{ unsorted_mail_count > 1 ? 'ont' : 'a' }}
+            pas pu être rattaché{{ unsorted_mail_count > 1 ? 's' : '' }} à un séjour.
+        </a>
+    {% endif %}
+
+    {% if not archived %}
+        <div class="mb-3">
+            <button class="btn btn-outline-secondary camps-map-toggle" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#camps-map-panel"
+                    aria-expanded="false" aria-controls="camps-map-panel">
+                <i class="bi bi-map" aria-hidden="true"></i> Carte
+            </button>
+        </div>
+
+        {# Collapsed by default, and the map is BUILT on first open rather
+           than on page load: building it fetches tiles, which hands the
+           tile provider the IP of every chief who opens this list — even
+           the ones who never wanted a map. #}
+        <div class="collapse mb-4" id="camps-map-panel">
+            <div class="card">
+                <div id="camps-map" style="height: 20rem;"
+                     data-places="{{ map_places|json_encode }}"></div>
+                <div class="card-body camps-map-card">
+                    {% if map_places is empty %}
+                        <p class="small text-body-secondary mb-0">
+                            Aucun lieu n'a encore de coordonnées. Elles sont cherchées
+                            automatiquement à partir de l'adresse, et peuvent toujours être
+                            saisies à la main sur la fiche d'un lieu.
+                        </p>
+                    {% else %}
+                        <p class="small text-body-secondary mb-0">
+                            Touchez une épingle.
+                            {% if places_without_coordinates > 0 %}
+                                {{ places_without_coordinates }} lieu{{ places_without_coordinates > 1 ? 'x' : '' }}
+                                sans coordonnées n'apparai{{ places_without_coordinates > 1 ? 'ssent' : 't' }} pas ici.
+                            {% endif %}
+                        </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <form method="get" action="/chefs/camps" class="mb-4" role="search">
+        {% if archived %}<input type="hidden" name="archives" value="1">{% endif %}
+        <div class="input-group">
+            <span class="input-group-text" aria-hidden="true"><i class="bi bi-search"></i></span>
+            <input type="search" name="q" value="{{ search_term }}" class="form-control"
+                   placeholder="Lieu, adresse, code postal, ville…"
+                   aria-label="Rechercher un lieu de camp">
+            <button class="btn btn-outline-secondary" type="submit">Chercher</button>
+        </div>
+        {# The placeholder promises exactly what PlaceRepository::search()
+           looks at. Contacts and the booking person are encrypted BLOBs
+           and are deliberately not searched — promising them here and not
+           finding them would be worse than not offering them. #}
+    </form>
+
+    {% if not archived %}
+        <h2 class="h6 text-uppercase text-body-secondary mb-2">À venir · {{ upcoming|length }}</h2>
+        {% if upcoming is empty %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: search_term
+                    ? 'Aucun camp à venir ne correspond à cette recherche.'
+                    : 'Aucun camp prévu pour le moment.',
+                compact: true,
+            } only %}
+        {% else %}
+            <div class="row row-cols-1 row-cols-lg-2 g-3">
+                {% for entry in upcoming %}
+                    <div class="col">
+                        {% include '@camps/_camp_card.html.twig' with { entry: entry, place: entry.place } only %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endif %}
+
+    <div class="d-flex align-items-baseline justify-content-between mt-4 mb-2">
+        <h2 class="h6 text-uppercase text-body-secondary mb-0">Lieux · {{ places|length }}</h2>
+        <a class="small" href="/chefs/camps{{ archived ? '' : '?archives=1' }}">
+            {{ archived ? 'Retour aux lieux actifs' : 'Archives' }}
+        </a>
+    </div>
+
+    {% if places is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: search_term
+                ? 'Aucun lieu ne correspond à cette recherche.'
+                : (archived ? 'Aucun lieu archivé.' : 'Aucun lieu enregistré pour le moment.'),
+            icon: 'bi-geo-alt',
+            action_label: (search_term or archived) ? '' : 'Nouveau camp',
+            action_url: '/chefs/camps/nouveau',
+        } only %}
+    {% else %}
+        <div class="row row-cols-1 row-cols-lg-2 g-3">
+            {% for entry in places %}
+                <div class="col">
+                    <a href="/chefs/camps/lieux/{{ entry.place.id }}"
+                       class="card text-decoration-none text-body h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <div class="min-w-0">
+                                    <div class="fw-semibold">{{ entry.place.name }}</div>
+                                    {% if entry.place.locality() %}
+                                        <div class="small text-body-secondary">{{ entry.place.locality() }}</div>
+                                    {% endif %}
+                                </div>
+                                <i class="bi bi-chevron-right text-body-secondary" aria-hidden="true"></i>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mt-2">
+                                {% if entry.latest_rating %}
+                                    <span>
+                                        {% include '@camps/_stars.html.twig' with { rating: entry.latest_rating.rating } only %}
+                                        <span class="small text-body-secondary">{{ entry.latest_rating.year }}</span>
+                                    </span>
+                                {% else %}
+                                    <span class="small text-body-secondary">Pas d'avis</span>
+                                {% endif %}
+                                <span class="small text-body-secondary">
+                                    {{ entry.stay_count }} séjour{{ entry.stay_count > 1 ? 's' : '' }}
+                                </span>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endblock %}
+{% block scripts %}
+    {% if not archived %}
+        <script src="/assets/vendor/leaflet/leaflet.js"></script>
+        <script src="/assets/js/camps-map.js"></script>
+    {% endif %}
+{% endblock %}

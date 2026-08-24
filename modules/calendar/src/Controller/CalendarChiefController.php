@@ -15,6 +15,7 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
+use Core\Member\SectionStaffAuthorizationService;
 use Core\Module\ModuleManager;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
@@ -42,8 +43,31 @@ class CalendarChiefController extends AbstractController
         private ScoutYearResolver $scoutYearResolver,
         private JournalService $journalService,
         private SettingService $settingService,
-        private ModuleManager $moduleManager
+        private ModuleManager $moduleManager,
+        private SectionStaffAuthorizationService $sectionStaffAuthorizationService
     ) {
+    }
+
+    /**
+     * The sections this account animates, for the effective scout year —
+     * the narrowing every write below applies on top of the route's own
+     * role_min: chief (ARCHITECTURE.md §8.33, SECURITY.md §3). Resolved
+     * here rather than in the Service, which never reads the session.
+     *
+     * @return int[]
+     */
+    private function staffedSectionIds(Role $role): array
+    {
+        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+
+        return array_map(
+            static fn(array $section): int => (int) $section['id'],
+            $this->sectionStaffAuthorizationService->getStaffedSections(
+                AuthSession::getEmail() ?? '',
+                $role->value,
+                $effectiveYear->id
+            )
+        );
     }
 
     /**
@@ -51,9 +75,11 @@ class CalendarChiefController extends AbstractController
      * or a single calendar picked from the calendar-picker — the same
      * shared component (Service\CalendarPickerService) the public page
      * uses, just scoped to editable calendars instead of visible ones.
-     * Every event on this page is editable — chiefs have blanket
-     * create/edit access to every calendar
-     * (CalendarEventService::getEditableCalendarsForChief()).
+     * Two different sets, deliberately: the picker and the month grid show
+     * everything this role may SEE (getViewableCalendars() — an animateur
+     * of one section still follows the whole unit), while the add/edit
+     * dialog's own calendar list is what they may WRITE to
+     * (getEditableCalendars(), narrowed to the sections they animate).
      *
      * @param array<string, string> $params
      */
@@ -66,18 +92,21 @@ class CalendarChiefController extends AbstractController
         $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
         $email = AuthSession::getEmail() ?? '';
 
-        $editableCalendars = $this->calendarEventService->getEditableCalendarsForChief($role);
-        $calendarOptions = $this->calendarPickerService->buildOptions($editableCalendars);
+        $staffedSectionIds = $this->staffedSectionIds($role);
+        $viewableCalendars = $this->calendarEventService->getViewableCalendars($role);
+        $editableCalendars = $this->calendarEventService->getEditableCalendars($role, $staffedSectionIds);
+
+        $calendarOptions = $this->calendarPickerService->buildOptions($viewableCalendars);
         $selectedCalendarId = $this->calendarPickerService->resolveSelectedCalendarId(
             $request->getQuery('calendar'),
-            $editableCalendars
+            $viewableCalendars
         );
 
         [$year, $month] = $this->resolveRequestedMonth($request->getQuery('month'));
 
         $calendarIdsForGrid = $this->calendarPickerService->resolveCalendarIdsForGrid(
             $selectedCalendarId,
-            $editableCalendars,
+            $viewableCalendars,
             $email,
             $effectiveYear->id
         );
@@ -128,8 +157,20 @@ class CalendarChiefController extends AbstractController
             }
         }
 
+        $editableCalendarIds = array_map(static fn($c) => $c->id, $editableCalendars);
+
         $context = [
             'calendar_options' => $calendarOptions,
+            // The dialog's own calendar list — the write set, not the view
+            // set. Same labels, built through the same picker service.
+            'editable_calendar_options' => $this->calendarPickerService->buildOptions($editableCalendars),
+            'editable_calendar_ids' => $editableCalendarIds,
+            // An animateur with no Desk function on any section: every
+            // section calendar is read-only for them, and the dialog would
+            // be the only place that said so. Note this is NOT "nothing is
+            // editable" — supplementary calendars carry no section, so
+            // "Animateurs" stays open to them.
+            'no_staffed_section' => $staffedSectionIds === [],
             'selected_calendar_id' => $selectedCalendarId,
             'default_calendar_id' => $defaultCalendarId,
             'year' => $year,
@@ -164,6 +205,8 @@ class CalendarChiefController extends AbstractController
             return $data;
         }
 
+        $role = Role::fromString(AuthSession::getRole());
+
         try {
             $event = $this->calendarEventService->createEvent(
                 (int) ($data['calendar_id'] ?? 0),
@@ -176,7 +219,8 @@ class CalendarChiefController extends AbstractController
                 $this->stringOrNull($data['description'] ?? null),
                 AuthSession::getUserAccountId(),
                 ($data['auto_create_retro'] ?? false) === true,
-                Role::fromString(AuthSession::getRole())
+                $role,
+                $this->staffedSectionIds($role)
             );
         } catch (CalendarException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
@@ -206,6 +250,8 @@ class CalendarChiefController extends AbstractController
             return $data;
         }
 
+        $role = Role::fromString(AuthSession::getRole());
+
         try {
             $event = $this->calendarEventService->updateEvent(
                 (int) ($data['event_id'] ?? 0),
@@ -219,7 +265,8 @@ class CalendarChiefController extends AbstractController
                 $this->stringOrNull($data['description'] ?? null),
                 ($data['auto_create_retro'] ?? false) === true,
                 AuthSession::getUserAccountId(),
-                Role::fromString(AuthSession::getRole())
+                $role,
+                $this->staffedSectionIds($role)
             );
         } catch (CalendarException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
@@ -252,7 +299,8 @@ class CalendarChiefController extends AbstractController
         $eventId = (int) ($data['event_id'] ?? 0);
 
         try {
-            $this->calendarEventService->deleteEvent($eventId, Role::fromString(AuthSession::getRole()));
+            $role = Role::fromString(AuthSession::getRole());
+            $this->calendarEventService->deleteEvent($eventId, $role, $this->staffedSectionIds($role));
         } catch (CalendarException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
         }

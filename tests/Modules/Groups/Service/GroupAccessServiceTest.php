@@ -384,4 +384,225 @@ class GroupAccessServiceTest extends TestCase
 
         $this->assertSame([$inGroup], $allowed);
     }
+
+    // --- answering a member-scoped poll ---------------------------------
+
+    /**
+     * An invitation group draws no section boundary of its own — a camp
+     * staff, a project, the whole unit — so neither does its poll. A
+     * parent of several is offered every member they reach, including the
+     * ones this group does not hold: offering some of them would produce
+     * a count that is quietly short.
+     */
+    public function testAnInvitationGroupOffersEveryLinkedMemberNotOnlyItsOwn(): void
+    {
+        $groupId = $this->invitationGroup();
+        $invited = GroupsTestHelper::createMember($this->pdo, 'CHILD1');
+        $this->memberRepo->add($groupId, $invited);
+        $outside = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD2', $this->eclaireursId, $this->currentYearId);
+        $noSectionAtAll = GroupsTestHelper::createMember($this->pdo, 'CHILD3');
+
+        $allowed = $this->access->memberIdsAllowedToVoteAs(
+            $this->groupRepo->findById($groupId),
+            $this->context([$outside, $invited, $noSectionAtAll])
+        );
+
+        $this->assertSame([$invited, $outside, $noSectionAtAll], $allowed);
+    }
+
+    /**
+     * A section group is ONE section's conversation, so its poll is that
+     * section's question: "qui vient au week-end ?" asked in Louveteaux
+     * is not asking about an éclaireur, and an answer given for one is a
+     * head in a count that cannot use it.
+     */
+    public function testASectionGroupOffersOnlyTheMembersItHolds(): void
+    {
+        $groupId = $this->sectionGroup();
+        $inSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD1', $this->louveteauxId, $this->currentYearId);
+        $otherSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD2', $this->eclaireursId, $this->currentYearId);
+        $noSectionAtAll = GroupsTestHelper::createMember($this->pdo, 'CHILD3');
+
+        $allowed = $this->access->memberIdsAllowedToVoteAs(
+            $this->groupRepo->findById($groupId),
+            $this->context([$otherSection, $inSection, $noSectionAtAll])
+        );
+
+        $this->assertSame([$inSection], $allowed);
+    }
+
+    /**
+     * A member invited into a section group by hand belongs to it as
+     * surely as one the section derives — the rule is the group's reach,
+     * never the section's roster read directly.
+     */
+    public function testASectionGroupStillOffersSomebodyInvitedIntoItByHand(): void
+    {
+        $groupId = $this->sectionGroup();
+        $derived = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD1', $this->louveteauxId, $this->currentYearId);
+        $invited = GroupsTestHelper::createMember($this->pdo, 'CHILD2');
+        $this->memberRepo->add($groupId, $invited);
+
+        $allowed = $this->access->memberIdsAllowedToVoteAs(
+            $this->groupRepo->findById($groupId),
+            $this->context([$derived, $invited])
+        );
+
+        $this->assertSame([$derived, $invited], $allowed);
+    }
+
+    /**
+     * The group's own members come first whatever order the account
+     * carries them in: the first option is the picker's default, which is
+     * what a no-JavaScript submit sends and what Service\PollService
+     * falls back to when the form names nobody.
+     */
+    public function testMemberIdsAllowedToVoteAsPutsTheGroupsOwnMembersFirst(): void
+    {
+        $groupId = $this->invitationGroup();
+        $outside = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD1', $this->eclaireursId, $this->currentYearId);
+        $invited = GroupsTestHelper::createMember($this->pdo, 'CHILD2');
+        $this->memberRepo->add($groupId, $invited);
+
+        $allowed = $this->access->memberIdsAllowedToVoteAs(
+            $this->groupRepo->findById($groupId),
+            $this->context([$outside, $invited])
+        );
+
+        $this->assertSame([$invited, $outside], $allowed);
+    }
+
+    /**
+     * The household the defect was reported from, kept as its own case
+     * because a rule is easiest to trust against the family that found
+     * it: one account reaching four active members — two animés in one
+     * section, one in another, and the parent's own Staff d'U membership.
+     *
+     * Asked by the unit, in a group that belongs to no section, all four
+     * answer. The same family in that section's own group answers for the
+     * two who are in it, which is the other half of the rule and the case
+     * below.
+     */
+    public function testAParentOfFourIsOfferedFourAnswersWhenTheUnitAsks(): void
+    {
+        $groupId = $this->invitationGroup();
+        $staffId = GroupsTestHelper::createSection($this->pdo, 'STAFF', "Staff d'U");
+        $firstInSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SV025E1-A', $this->eclaireursId, $this->currentYearId);
+        $secondInSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SV025E1-B', $this->eclaireursId, $this->currentYearId);
+        $otherSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SV025L1', $this->louveteauxId, $this->currentYearId);
+        $theParent = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'STAFF-PARENT', $staffId, $this->currentYearId);
+        $this->memberRepo->add($groupId, $theParent);
+
+        $allowed = $this->access->memberIdsAllowedToVoteAs(
+            $this->groupRepo->findById($groupId),
+            $this->context([$firstInSection, $otherSection, $secondInSection, $theParent])
+        );
+
+        $this->assertSame([$theParent, $firstInSection, $otherSection, $secondInSection], $allowed);
+    }
+
+    public function testTheSameParentAnswersOnlyForThatSectionInItsOwnGroup(): void
+    {
+        $groupId = $this->sectionGroup();
+        $inSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SV025L1-A', $this->louveteauxId, $this->currentYearId);
+        $otherSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SV025E1', $this->eclaireursId, $this->currentYearId);
+
+        $allowed = $this->access->memberIdsAllowedToVoteAs(
+            $this->groupRepo->findById($groupId),
+            $this->context([$inSection, $otherSection])
+        );
+
+        $this->assertSame([$inSection], $allowed);
+    }
+
+    /**
+     * The picker has to be able to say which side each option is on, so
+     * the two are resolved together rather than by asking the same
+     * membership question twice from the Controller.
+     */
+    public function testMemberIdsAllowedToVoteAsBySideKeepsTheTwoSidesApart(): void
+    {
+        $groupId = $this->invitationGroup();
+        $invited = GroupsTestHelper::createMember($this->pdo, 'CHILD1');
+        $this->memberRepo->add($groupId, $invited);
+        $outside = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD2', $this->eclaireursId, $this->currentYearId);
+
+        $sides = $this->access->memberIdsAllowedToVoteAsBySide(
+            $this->groupRepo->findById($groupId),
+            $this->context([$outside, $invited])
+        );
+
+        $this->assertSame(['in_group' => [$invited], 'elsewhere' => [$outside]], $sides);
+    }
+
+    /**
+     * A section group has no second side at all — which is also what
+     * stops its picker drawing a heading over a list with nothing to
+     * distinguish in it (partials/poll.html.twig).
+     */
+    public function testASectionGroupHasNoSecondSide(): void
+    {
+        $groupId = $this->sectionGroup();
+        $inSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD1', $this->louveteauxId, $this->currentYearId);
+        $otherSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD2', $this->eclaireursId, $this->currentYearId);
+
+        $sides = $this->access->memberIdsAllowedToVoteAsBySide(
+            $this->groupRepo->findById($groupId),
+            $this->context([$inSection, $otherSection])
+        );
+
+        $this->assertSame(['in_group' => [$inSection], 'elsewhere' => []], $sides);
+    }
+
+    /**
+     * And neither does an invitation group whose members are all inside
+     * it: the empty side is what tells the picker there is nothing to
+     * distinguish.
+     */
+    public function testAnInvitationGroupHasNoSecondSideWhenEverybodyIsInside(): void
+    {
+        $groupId = $this->invitationGroup();
+        $first = GroupsTestHelper::createMember($this->pdo, 'CHILD1');
+        $second = GroupsTestHelper::createMember($this->pdo, 'CHILD2');
+        $this->memberRepo->add($groupId, $first);
+        $this->memberRepo->add($groupId, $second);
+
+        $sides = $this->access->memberIdsAllowedToVoteAsBySide(
+            $this->groupRepo->findById($groupId),
+            $this->context([$first, $second])
+        );
+
+        $this->assertSame(['in_group' => [$first, $second], 'elsewhere' => []], $sides);
+    }
+
+    /**
+     * An account with a single member has nothing to pick between, and no
+     * poll offers it a choice — the same list, one entry long.
+     */
+    public function testMemberIdsAllowedToVoteAsWithOneLinkedMemberIsThatMember(): void
+    {
+        $groupId = $this->sectionGroup();
+        $only = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD1', $this->louveteauxId, $this->currentYearId);
+
+        $allowed = $this->access->memberIdsAllowedToVoteAs(
+            $this->groupRepo->findById($groupId),
+            $this->context([$only])
+        );
+
+        $this->assertSame([$only], $allowed);
+    }
+
+    /**
+     * A group belonging to no section, with the account this fixture's
+     * context() identifies as its first moderator.
+     */
+    private function invitationGroup(): int
+    {
+        return $this->groupService->createInvitationGroup(
+            'Camp d\'unité',
+            $this->currentYearId,
+            GroupsTestHelper::createMember($this->pdo, 'INVITE-CREATOR'),
+            1
+        );
+    }
 }

@@ -76,6 +76,17 @@ function buildDom() {
  */
 async function loadEditDialog() {
     buildDom();
+
+    // The page's server data island. calendar-chief.js reads the calendars
+    // this account may WRITE to from it and refuses to open the dialog on
+    // an event outside them, so the fixture's own calendar (id 1) has to be
+    // in there for the dialog to open at all.
+    const island = document.createElement('script');
+    island.type = 'application/json';
+    island.id = 'calendar-chief-data';
+    island.textContent = JSON.stringify({ editableCalendarIds: [1], defaultCalendarId: 1 });
+    document.body.appendChild(island);
+
     vi.resetModules();
     await import('../../public/assets/js/api.js');
     await import('../../public/assets/js/calendar-chief.js');

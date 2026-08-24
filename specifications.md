@@ -101,6 +101,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Finances (module) | intendant | Bank statement import, receivables, receipts, movements |
 | Statistiques (module) | chief | Member statistics |
 | Calendrier (module) | chief | Chiefs' calendar view (month grid, event edit) |
+| Camps (module) | chief | Camp sites and the stays made there. Search over places (name, address, postal code, city); "À venir" and "Lieux" lists; a collapsed map of the places that have coordinates. A place sheet shows its stays, the rating of its most recent RATED stay (never an average), an optional AI summary, and — for a chef d'unité only — merge and archive. A stay carries its sections, price, participant count, contacts, links, documents, photos, a free-text note, a review and its own change history. When a dedicated mailbox is configured, a "Courrier non classé" screen lists the inbound mail nobody could attribute. |
 | Envoi de mails (module) | chief | Mass email to selected members/sections across one or more scout years; a mail-merge mode sending one personalized email per row of an uploaded Excel file (see §24); when the Inscriptions module is also active, an extra predefined, non-editable "Inscriptions {année cible}" list is available (see §18.3) |
 | Rétrospectives (module) | intendant | Create/manage post-activity retrospective boards |
 | Galerie (module) | chief | Manage photo/video albums |
@@ -120,6 +121,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Rétrospectives — Config (module) | admin | Per-board moderation/AI settings restricted to chef d'unité |
 | Inscriptions (module) | admin | See §17 — request management: capacities/year code (age brackets are read-only, federation-fixed, shared with the Statistiques module), year selector, capacity-verification table, request list (filter/search), "non rapprochées"/"non clôturées" encarts with bulk refuse/withdraw, and a per-request fiche (status transitions, section prévue, tarif, internal notes, acceptance/refusal emails, manual Desk linking) |
 | Passage (module registration) | admin | Split arriving families and promoted animés between sections ahead of next scout year — see §18.2. Chef d'unité only (not a per-section chief), since spreading arrivals across sections needs the whole unit at once |
+| Encadrement (module leadership) | admin | Three lists of people to contact, read out of the Desk import — training paths, age-related legal deadlines, steward registrations. See §25 |
 
 ### 4.5 Configuration
 
@@ -139,6 +141,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Finances (module) | Accounts, categories, categorization rules, danger zone |
 | Galerie (module) | Storage location (local/S3), default location for new albums. Each local location also shows the space still free on the disk that holds it — with the volume's size and the share in use, and a warning when what is left is smaller than the largest upload the gallery currently accepts. The page states that this is the whole volume, shared with the rest of the site, and not a quota reserved for the gallery; an S3 location shows nothing, its capacity being the provider's. |
 | Calendrier (module) | Default view, supplementary calendars, ICS feed links |
+| Camps (module) | Default country for a new place; how many past stays a place sheet shows. The dedicated camps mailboxes (empty by default, with the warning that any mailbox listed there must be excluded from the other modules that read mail); automatic creation of a stay from a message; unsorted-mail retention in months. Automatic geocoding of a place's address through OpenStreetMap; AI summaries of what a place's stays and reviews add up to. |
 | Envoi de mails (module) | Sender/attachment settings |
 | SOS Staff d'U (module) | Telephony provider credentials (OVH: application key/secret, consumer key, line selection), excluded sections |
 | Intelligence artificielle (module) | AI provider credentials and model selection, consumed optionally by other modules (RGPD text generation, retro moderation, finance receipt extraction, news summaries) |
@@ -544,7 +547,7 @@ A message may carry a poll: a question and from 2 to 10 answers. The composer al
 
 Two choices belong to the poll itself, made when it is written:
 
-- **Who counts as one voter**: the connected person (the default — one answer per email address), or the member. Per member is what a parent of several children needs; when their account is linked to more than one member of the group, a small dialog asks whose answer is being given at the moment of voting.
+- **Who counts as one voter**: the connected person (the default — one answer per email address), or the member. Per member is what a parent of several children needs; when their account is linked to more than one member the group counts, a small dialog asks whose answer is being given at the moment of voting. **Which of their members the group counts is the group's own affair**: a section group asks its section's question, so only the children who are in it may be answered for; any other group — a camp staff, a project, the whole unit — draws no such boundary and offers every member the account reaches, the group's own first. A family of four reachable through one address therefore has four answers to give when the unit asks, and two when their own section does. The dialog says which is which: the members the group holds first, the others under a heading of their own (« Dans ce groupe » / « Hors de ce groupe »), and no heading at all when everybody is on the same side.
 - **How many answers each voter may give**: one (the default, changeable at any time) or several, where tapping an answer again takes it back.
 
 Results show how many people (or members) answered, never who answered what.
@@ -758,3 +761,106 @@ Imported audience data is purged automatically **18 months** after the email was
 ### 24.4 Audience-reusable exports
 
 Every Excel export of people the site produces — member exports ("Membres par section", the admin member search's results/selection export) and, for their contact column, module exports such as form responses — uses headers the mail-merge importer recognizes ("Identifiant Desk" ≡ "Tiers", "Email(s)"/"Contact" ≡ "Email"), so any of them can be re-imported as a mail-merge audience without editing. This is a standing rule for future exports too, not a per-screen coincidence.
+
+## 25. Leadership module — three lists of people to contact (module leadership)
+
+A reading tool for the unit team. It turns the Desk import into three lists and stores almost nothing, which is what stops it ever disagreeing with Desk. Four pages, all reserved to the chefs d'unité, plus one card each member sees on their own page. See ARCHITECTURE.md §8.65 for implementation detail.
+
+### 25.1 What it never says
+
+Two prohibitions shape every page, and both matter more than any feature listed below.
+
+**Never a paperwork status.** The site holds nothing about a CQA or an extrait de casier judiciaire — not the document, not a date, not a state, not a reason, in any table, and not in the unit note either. So no page ever says one is in order, missing, valid or expired, there is no green tick and no "éligible ONE", and the verification itself belongs in Desk.
+
+**Never "en ordre" for somebody who is not flagged.** Desk prefixes a function with « candidat » while obligations are not — or are no longer — in order, and takes the prefix off again by itself. Not being flagged at the last import says what Desk thought then, not what is true now, so somebody absent from the candidates list simply gets no line rather than a reassuring one.
+
+Everything shown carries the date of the import it came from, because nothing here is fresher than that. Every threshold applied is shown with a version and the date a human last checked it against its source.
+
+### 25.2 Formations
+
+The unit's own free-text note (one for the whole unit, never one per member or per section — not encrypted, and the page says so), then:
+
+- **À convaincre de commencer** — exactly two profiles: pionniers in their last branch year, and animateurs in their first year in the unit. Deliberately not a third: somebody starting the path in their fourth year of animation will not finish it while they are still animating, so listing them would misrepresent what starting achieves. With only one imported scout year the first-year half cannot be computed at all, and the page says so instead of showing an empty list.
+- **Parcours à terminer** — everybody between T1 and T3, closest to their brevet first.
+- **Situation des staffs** — per section: headcount, animateurs, brevetés, then a plain sentence saying what the ONE subsidy rules ask for and whether that is the case today. No colour, no score, no verdict: the module knows the ratio and nothing else — not a derogation, not an animateur borrowed from another section, not what the unit agreed with its ONE contact.
+- A collapsible block listing the raw Desk formation levels the site cannot resolve, with the means to attach each to a step. This is the only place the mapping is edited: somebody who has just read "le calcul peut être incomplet" fixes it without leaving the page.
+
+An unresolved level is never counted as a brevet, so the brevet count is a **floor**. The page therefore warns that the count may be incomplete only where that could change the answer — never when the threshold is already met, and never when the section is short of animateurs (no level changes a headcount).
+
+### 25.3 Obligations
+
+**Anniversaires des 20 ans** — animateurs reaching 20 within the alert window, with the days remaining. The only thing on this page that can be seen coming, and therefore the main block: from that age an extrait de casier judiciaire is legally required.
+
+**Candidats au dernier import** — identity, age, function, section. Not a list of arrivals: the flag returns on its own when a CQA or an extrait expires, for an animateur of fifteen years exactly as for a newcomer.
+
+One message per candidate, and nothing more precise, because nothing more precise is knowable: under 20, « CQA à signer » (the extrait is not yet required, so whatever is outstanding is the CQA — first signature or renewal alike, which is what Desk's own single label means); at 20 or over, **and when the birth date is unknown**, « CQA ou extrait — à vérifier dans Desk ». Age can only ever *exclude* the extrait, never name the missing document.
+
+### 25.4 Intendants
+
+From 1 September to 31 May: the registered stewards, longest-running first, with the days elapsed — attention past three weeks, critical past a month, against the free occasional-registration window. From 1 June to 31 August: no countdown at all, and a reminder that a registration then costs a guest fee even for a single day and that stewards should be deregistered after camp. No amount is ever shown.
+
+When Desk holds no start date, the count falls back to the member's first appearance on the site, and **the line says that is what it is** — never a countdown presented as a Desk registration date. With no date at all there is no countdown, and the line says so. Stewards below the minimum age are reported separately, because it is a different question from the days and would be missed inside a list sorted by something else.
+
+### 25.5 On a member's own page
+
+The training path (T1 → T2 → T3 → Brevet) and the next known step, **visible only to the member themselves** — a chief or chef d'unité looking at somebody else's page does not see it, even though they may open the page. A level the site cannot resolve lights up no step and says so, rather than drawing a path nobody verified.
+
+### 25.6 Out of scope
+
+No export of any kind (planned separately), no per-member or per-section note, no "wants to become an animateur" field, no rules engine, no score, no percentage, no widget on the Staffs page, no public route, and no offline caching of any of these pages.
+
+## 26. Camps module — the places the unit camps on (module camps)
+
+"Où est-on déjà allés, et est-ce que c'était bien ?" is the question a staff asks every winter, and the answer used to live in the outgoing staff's head. This module keeps it: the terrains, the stays made on them, who to call, what it cost, and what the previous staffs thought. Reserved to animateurs; a few actions to the chefs d'unité only. See ARCHITECTURE.md §8.67 for implementation detail.
+
+### 26.1 Two things, and neither is ever deleted
+
+A **lieu** is a plot of land. A **séjour** is one stay on it. A stay that did not happen is *annulé* — never removed, because a place that cancels on its guests six weeks before departure is exactly what a future staff needs to know. A place that has fallen out of favour is *archivé*: gone from every ordinary screen and from search, still readable from the Archives.
+
+Every field of a place is stored in clear: a plot of land is not a natural person, and its name and address are what the search runs on. Everything about the **people** attached to a stay is encrypted.
+
+### 26.2 Dates, or a year
+
+A stay carries real dates, or a bare year — never both, never neither. Half of what a unit remembers about its own past is "on est allés là en 2012", and refusing that would be refusing the memory. A year-only stay stays *à venir* for the whole of its year and becomes past on 1 January; nobody moves it by hand, and there is no status column for it.
+
+### 26.3 The people
+
+Contacts hang off the **stay**, not the place: they freeze the details used at the time of that booking, and a caretaker who has since left is a fact about that camp rather than an error to correct. They are the site's only **external third parties** — owners, caretakers, a neighbour with the key — with no relationship to the unit and no account here.
+
+A contact can be **anonymised** at their own request (chef d'unité). Every row sharing that e-mail anywhere in the module is blanked, and so are the values those rows left in each affected stay's history. The confirmation screen states how many contacts and how many stays before anything happens. What survives is that a contact existed, when and by whom it was added — facts about the stay, not about the person.
+
+### 26.4 The reviews
+
+One review per stay, written and editable by every animateur: a unit speaks with one voice about a field it camped on. A **cancelled** stay may be reviewed — that is often the most useful thing to record — but never rated: nobody camped there. A place shows the rating of its **most recent rated stay**, with its year, and never an average.
+
+The day after a stay ends, the animateurs of its sections are invited to write it — **once, with no reminder**. No section set sends it to the chefs d'unité only, never to everybody.
+
+### 26.5 Finding a place again
+
+Search covers a place's name, address, postal code and city. It deliberately does not reach the contacts or the booking person: those are encrypted, and the search box promises only what it delivers.
+
+A **map** shows the places that have coordinates, collapsed by default and loaded only when opened — drawing it contacts the tile provider with the reader's IP. Coordinates are found automatically from the address, one place at a time in the background; **the moment somebody types or corrects them by hand, the automatic search never touches that place again**.
+
+When a place is created, the ones that may already be it are offered. The comparison is textual first; an AI is asked only when that cannot decide, and it may only ever suggest.
+
+### 26.6 Putting things back together
+
+Two **lieux** that are one plot can be merged (chef d'unité): every stay follows, and the merged place is archived. Two **séjours** of the same place can be merged by any animateur — safe to open that wide because nothing is lost: every value the surviving stay already had is appended to its note, dated.
+
+Archiving a place is **refused** while a confirmed stay is still to come there. Hiding a terrain from search while the unit is booked to leave for it in July is how a staff loses the address of the field they are going to.
+
+### 26.7 The mail, when there is any
+
+With a **shared** mailbox the module claims narrowly: a reply in a known thread, or a known contact writing near their own stay. Never on a word in a subject.
+
+With a **dedicated** mailbox it takes everything, and what it cannot attribute goes to *Courrier non classé*, erased after a configurable delay. Such a mailbox must be excluded from the other modules that read mail.
+
+What a message says is read conservatively — a date range, a single price. **An empty field is filled; a field that already has a value is never overwritten.** The reading is parked beside the value it argues with, with Appliquer and Ignorer, and both answers are recorded.
+
+### 26.8 The summary
+
+With an AI connector active, a place carries a few sentences summing up what its stays and reviews add up to, regenerated daily when something changed and never on a page view. It receives reviews, ratings, prices, statuses, dates, participant counts and sections — **never the contacts, never the received mail**. It is shown dated and explicitly as not a source of truth.
+
+### 26.9 Out of scope
+
+Deposits, payment tracking, contractual deadlines, a reservation workflow, cost per participant, bulk import of old camps, sharing places between units, several individual reviews per stay, sub-scores, rating averages, full-text search inside e-mails, documents or review comments, and deleting a place or a stay.

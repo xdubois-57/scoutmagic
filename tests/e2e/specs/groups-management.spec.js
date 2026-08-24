@@ -153,8 +153,11 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
     // ---------------------------------------------------------------
     // A plain <details>/<summary> disclosure (no JavaScript at all), and a
     // <summary> exposes no role a query could name — its visible text is
-    // what a moderator clicks, and what this clicks.
-    await page.getByText('Modifier le groupe').click();
+    // what a moderator clicks, and what this clicks. `exact` because the
+    // contextual help panel puts prose on this page that CONTAINS this
+    // wording; a substring match resolves to two elements and Playwright
+    // refuses to guess.
+    await page.getByText('Modifier le groupe', { exact: true }).click();
     const editForm = page.locator(`form[action="${groupUrl}/edit"]`);
     await editForm.getByLabel('Description (facultatif)').fill(GROUP_DESCRIPTION);
     await submitAndReload(page, editForm.getByRole('button', { name: 'Enregistrer' }), '/edit');

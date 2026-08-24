@@ -1,0 +1,246 @@
+{% extends 'base.html.twig' %}
+{% block title %}Formations — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Formations',
+            subtitle: "Qui inviter à commencer le parcours, qui inviter à le terminer, et ce que les subsides ONE demandent à chaque section.",
+        } only %}
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <h2 class="h6 mb-0">Note de l'unité</h2>
+                    {% include 'partials/rich_text_edit_button.html.twig' with {
+                        content_key: unit_note_key,
+                        save_url: '/api/rich-text-content'
+                    } %}
+                </div>
+                {% include 'partials/rich_text_field.html.twig' with {
+                    content_key: unit_note_key,
+                    content_value: unit_note
+                } %}
+                {% if unit_note is empty %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: "Aucune note — cliquez sur le crayon pour en ajouter une (visible uniquement de l'équipe d'unité).",
+                        compact: true,
+                    } only %}
+                {% endif %}
+                <p class="small text-body-secondary mt-3 mb-0">
+                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                    Cette note n'est pas chiffrée. N'y consignez aucune information sensible — en particulier rien
+                    concernant un CQA ou un extrait de casier judiciaire, que le site ne stocke jamais, nulle part.
+                </p>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-1">À convaincre de commencer</h2>
+                <p class="small text-body-secondary mb-3">
+                    Les pionniers de dernière année et les animateurs qui débutent cette année : les deux moments
+                    où le parcours a encore le temps de se terminer pendant leur animation.
+                </p>
+                {% if history_too_short %}
+                    <div class="alert alert-info small mb-3" role="status">
+                        Une seule année scoute est présente dans le site pour le moment. Les animateurs de première
+                        année sont reconnus en comparant avec l'année précédente : cette partie de la liste se
+                        remplira à partir de la deuxième année importée.
+                    </div>
+                {% endif %}
+                {% include '@leadership/partials/_person_list.html.twig' with {
+                    lines: to_convince,
+                    empty_message: 'Personne ne correspond à ces deux profils cette année.',
+                } only %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-1">Parcours à terminer</h2>
+                <p class="small text-body-secondary mb-3">
+                    Animateurs entre le T1 et le T3, les plus avancés d'abord.
+                </p>
+                {% include '@leadership/partials/_person_list.html.twig' with {
+                    lines: to_finish,
+                    empty_message: "Aucun parcours en cours parmi les animateurs de cette année.",
+                } only %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-1">Situation des staffs</h2>
+                <p class="small text-body-secondary mb-3">
+                    Ce que les subsides ONE demandent pour chaque effectif. Le site ne connaît que le ratio :
+                    il ne sait rien d'une dérogation, d'un animateur prêté par une autre section ou de ce que
+                    l'unité a convenu avec l'ONE, et ne se prononce donc jamais sur la conformité.
+                </p>
+                {% if section_situations|length > 0 %}
+                    <ul class="list-group list-group-flush">
+                        {% for row in section_situations %}
+                            {% set s = row.situation %}
+                            <li class="list-group-item px-0 py-3">
+                                <div class="fw-semibold">{{ row.section_name }}</div>
+                                <div class="small text-body-secondary">{{ row.branch_name }}</div>
+                                <div class="small mt-2">
+                                    {{ s.headcount }} animé{{ s.headcount > 1 ? 's' : '' }} —
+                                    {{ s.animatorCount }} animateur{{ s.animatorCount > 1 ? 's' : '' }},
+                                    dont {{ s.brevetCount }} breveté{{ s.brevetCount > 1 ? 's' : '' }}.
+                                </div>
+                                <div class="small mt-1">
+                                    {% if s.headcount == 0 %}
+                                        Aucun animé encodé pour cette section : les subsides ONE ne demandent rien à ce stade.
+                                    {% else %}
+                                        Les subsides ONE demandent {{ s.requiredAnimators }} animateur{{ s.requiredAnimators > 1 ? 's' : '' }}
+                                        dont {{ s.requiredBrevets }} breveté{{ s.requiredBrevets > 1 ? 's' : '' }} pour cet effectif ;
+                                        {% if s.satisfied %}c'est le cas aujourd'hui.{% else %}ce n'est pas le cas aujourd'hui.{% endif %}
+                                    {% endif %}
+                                </div>
+                                {% if s.mayBeIncomplete %}
+                                    <div class="small text-body-secondary mt-1">
+                                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                                        {{ s.unknownLevelCount }} niveau{{ s.unknownLevelCount > 1 ? 'x' : '' }} de formation
+                                        de cette section n'{{ s.unknownLevelCount > 1 ? 'ont' : 'a' }} pas été reconnu{{ s.unknownLevelCount > 1 ? 's' : '' }} :
+                                        le compte des brevetés peut être incomplet. Les valeurs concernées sont listées plus bas.
+                                    </div>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune section active pour cette année scoute.',
+                        compact: true,
+                    } only %}
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#formation-mapping" aria-expanded="false" aria-controls="formation-mapping">
+                    <i class="bi bi-tags" aria-hidden="true"></i>
+                    Niveaux de formation encodés dans Desk
+                    {% if unresolved_levels|length > 0 %}
+                        <span class="badge text-bg-secondary ms-1">{{ unresolved_levels|length }} non reconnu{{ unresolved_levels|length > 1 ? 's' : '' }}</span>
+                    {% endif %}
+                </button>
+                <div class="collapse mt-3" id="formation-mapping">
+                    <p class="small text-body-secondary">
+                        Desk exporte le libellé de la fédération, qui change d'un export à l'autre. Le site en reconnaît
+                        les formulations courantes ; rattachez ici celles qu'il ne reconnaît pas. Un niveau non reconnu
+                        n'est jamais compté comme un brevet, donc le nombre de brevetés affiché plus haut est un minimum,
+                        jamais une surestimation.
+                    </p>
+
+                    {# A list, not a table. Four columns of a select, a
+                       button and a variable-length Desk string do not fit a
+                       375px screen: the table did technically scroll inside
+                       its own .table-responsive, but "lisible sur téléphone
+                       sans défilement horizontal" is the requirement, and a
+                       control a chief has to scroll sideways to reach is not
+                       that. Stacked, each value reads as one block and the
+                       select gets the full width — and it matches the person
+                       lists on the rest of the page, which are lists too. #}
+                    <h3 class="h6 mt-4">Valeurs non reconnues</h3>
+                    {% if unresolved_levels|length > 0 %}
+                        <ul class="list-group list-group-flush">
+                            {% for level in unresolved_levels %}
+                                <li class="list-group-item px-0 py-3">
+                                    <div class="fw-semibold text-break"><code>{{ level.raw_value }}</code></div>
+                                    <div class="small text-body-secondary mb-2">
+                                        {{ level.holders }} personne{{ level.holders > 1 ? 's' : '' }} avec cette valeur
+                                    </div>
+                                    <form method="post" action="/admin/leadership/training/mapping"
+                                          class="d-flex flex-wrap gap-2 align-items-center">
+                                        {{ csrf_field()|raw }}
+                                        <input type="hidden" name="raw_value" value="{{ level.raw_value }}">
+                                        <label class="visually-hidden" for="step-new-{{ loop.index }}">
+                                            Étape pour « {{ level.raw_value }} »
+                                        </label>
+                                        <select class="form-select form-select-sm w-auto" name="step" id="step-new-{{ loop.index }}">
+                                            <option value="">Choisir une étape…</option>
+                                            {% for step in assignable_steps %}
+                                                <option value="{{ step.value }}">{{ step.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="submit" class="btn btn-sm btn-outline-primary">Rattacher</button>
+                                    </form>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Toutes les valeurs encodées cette année sont reconnues.',
+                            compact: true,
+                        } only %}
+                    {% endif %}
+
+                    <h3 class="h6 mt-4">Rattachements déjà enregistrés</h3>
+                    {% if decided_levels|length > 0 %}
+                        <ul class="list-group list-group-flush">
+                            {% for level in decided_levels %}
+                                <li class="list-group-item px-0 py-3">
+                                    <div class="fw-semibold text-break"><code>{{ level.raw_value }}</code></div>
+                                    <div class="small text-body-secondary mb-2">
+                                        Rattachée à « {{ level.step_label }} » —
+                                        {% if level.holders > 0 %}
+                                            {{ level.holders }} personne{{ level.holders > 1 ? 's' : '' }} avec cette valeur cette année
+                                        {% else %}
+                                            plus utilisée cette année
+                                        {% endif %}
+                                    </div>
+                                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                                        <form method="post" action="/admin/leadership/training/mapping"
+                                              class="d-flex flex-wrap gap-2 align-items-center">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="raw_value" value="{{ level.raw_value }}">
+                                            <label class="visually-hidden" for="step-set-{{ loop.index }}">
+                                                Étape pour « {{ level.raw_value }} »
+                                            </label>
+                                            <select class="form-select form-select-sm w-auto" name="step" id="step-set-{{ loop.index }}">
+                                                {% for step in assignable_steps %}
+                                                    <option value="{{ step.value }}" {{ step.value == level.step ? 'selected' : '' }}>{{ step.label }}</option>
+                                                {% endfor %}
+                                            </select>
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">Modifier</button>
+                                        </form>
+                                        <form method="post" action="/admin/leadership/training/mapping"
+                                              data-confirm="Supprimer le rattachement de « {{ level.raw_value }} » ? Cette valeur redeviendra non reconnue tant qu'elle ne sera pas rattachée à nouveau.">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="raw_value" value="{{ level.raw_value }}">
+                                            <input type="hidden" name="step" value="">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" aria-label="Supprimer le rattachement de {{ level.raw_value }}">
+                                                <i class="bi bi-trash" aria-hidden="true"></i>
+                                            </button>
+                                        </form>
+                                    </div>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucun rattachement enregistré pour le moment.',
+                            compact: true,
+                        } only %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% include '@leadership/partials/_validity_footer.html.twig' with {
+            scout_year_label: scout_year_label,
+            last_import_at: last_import_at,
+            rules_version: rules_version,
+            rules_verified_on: rules_verified_on,
+        } only %}
+    </div>
+
+    {% include 'partials/rich_text_editor.html.twig' %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/rich-text-field.js" defer></script>
+{% endblock %}

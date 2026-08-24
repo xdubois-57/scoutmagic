@@ -782,6 +782,21 @@ if ($settingService->get('settings_migrated') !== '1') {
 $journalRepo = new JournalRepository($pdo);
 $journalService = new JournalService($journalRepo);
 
+// Per-entity change history (Core\Audit, ARCHITECTURE.md §8.66) — the
+// timeline a module renders on an entity's own page, distinct from the
+// journal above: that one is the installation's administrative log and
+// forbids personal data, this one holds the values themselves and
+// encrypts every one of them.
+//
+// The access resolver starts EMPTY and denies every entity type. Each
+// module that records history registers its own checker further down,
+// inside the block that already knows whether that module is enabled —
+// core cannot answer "may this visitor read this camp" and must not
+// guess.
+$auditRepository = new \Core\Audit\AuditRepository($pdo, $encryptionService);
+$auditService = new \Core\Audit\AuditService($auditRepository);
+$auditAccessResolver = new \Core\Audit\AuditAccessResolver();
+
 // Debug timeline (?debug=1): a first, immediately-visible entry as soon as
 // journal logging becomes possible — this is the earliest point in the
 // request DB/session/settings/journal all exist, so it's also the
@@ -1627,9 +1642,23 @@ $router->addRoute('POST', '/members/emails/confirm/{id}', \Core\Http\Controller\
 $router->addRoute('POST', '/config-mode/activate', ConfigModeController::class, 'activate', 'admin');
 $router->addRoute('POST', '/config-mode/deactivate', ConfigModeController::class, 'deactivate', 'admin');
 
-// Editable content API
-$router->addRoute('POST', '/api/editable-content', EditableContentController::class, 'update', 'superadmin');
-$router->addRoute('POST', '/api/rich-text-content', EditableContentController::class, 'updateField', 'superadmin');
+// Editable content API — both routes are role_min: admin, deliberately
+// less strict than the Configuration menu. Neither is authorized by being
+// in that menu: the authorization comes from the HOST page, and every host
+// of either endpoint is already an admin page.
+//   - /api/editable-content backs configuration mode's in-place editing,
+//     whose real enforcement point is Core\View\ConfigurationMode::
+//     isActive() — widened to admin when the toggle moved to "Espace chefs
+//     d'U" (see /config-mode/activate above). Left at superadmin, this
+//     route 403'd precisely the chief d'unité the toggle had just been
+//     opened to, on save.
+//   - /api/rich-text-content backs partials/rich_text_field.html.twig on
+//     admin pages that manage their own rich-text items (banner config,
+//     registration config, the leadership module's unit note) — all of
+//     them role_min: admin pages of the Espace chefs d'U menu.
+// A chief, one level below, is still refused by the RBAC guard on both.
+$router->addRoute('POST', '/api/editable-content', EditableContentController::class, 'update', 'admin');
+$router->addRoute('POST', '/api/rich-text-content', EditableContentController::class, 'updateField', 'admin');
 
 // Contextual help (Core\Help, ARCHITECTURE.md §8.64). Both routes are
 // role_min: public — HelpService's own role filter is the per-topic gate
@@ -1663,6 +1692,11 @@ $router->addRoute('GET', '/files/{id}/{variant}', FileController::class, 'varian
 // would add nothing.
 $router->addRoute('GET', '/api/offline/manifest', OfflineController::class, 'manifest', 'public');
 
+// Pages after the first of an entity's change history (Core\Audit). The
+// 'chief' here is a floor, not the decision: Core\Audit\
+// AuditAccessResolver asks the owning module whether this visitor may
+// read THIS entity, and refuses any entity type nobody registered.
+$router->addRoute('GET', '/api/audit/{entity_type}/{entity_id}', \Core\Http\Controller\AuditController::class, 'page', 'chief');
 // Deployment/version check — see Core\Http\Controller\VersionController's
 // own docblock for why role_min is deliberately public here.
 $router->addRoute('GET', '/api/version', VersionController::class, 'index', 'public');
@@ -1907,6 +1941,14 @@ $rgpdContentService = new RgpdContentService($moduleManager, $settingService, $l
 $maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
 $frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService);
 
+// Entity change history pages (Core\Audit) — registered here rather than
+// next to its route, because $frontController does not exist yet at the
+// point the routes are declared.
+$frontController->registerController(
+    \Core\Http\Controller\AuditController::class,
+    new \Core\Http\Controller\AuditController($twig, $auditService, $auditAccessResolver)
+);
+
 // Contextual help pages (Core\Http\Controller\HelpController) — needs the
 // HelpService built next to the registry above, after every enabled
 // module had its chance to register topics.
@@ -1937,9 +1979,14 @@ $newsArticleService = null;
 // above.
 $calendarEventLookup = null;
 
+// Optional dependency on the leadership module (ARCHITECTURE.md §7.5) for
+// the member page's own "Mon parcours de formation" card (§6bis) — set in
+// that module's block below, same pattern as the two above.
+$formationPathProvider = null;
+
 // Baseline MemberPageService (core deps only) — re-registered further
-// down, once mass_mail/gallery/trombinoscope/calendar availability is
-// known, exactly like MemberController itself.
+// down, once mass_mail/gallery/trombinoscope/calendar/leadership
+// availability is known, exactly like MemberController itself.
 $memberPageService = new \Core\Member\MemberPageService(
     $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
     $sectionDocumentService
@@ -2224,7 +2271,8 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Calendar\Controller\CalendarChiefController::class,
         new \Modules\Calendar\Controller\CalendarChiefController(
             $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarEventService,
-            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager
+            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager,
+            $sectionStaffAuthorizationService
         )
     );
     $frontController->registerController(
@@ -3150,6 +3198,157 @@ if (in_array('test_tools', $moduleManager->getEnabledModuleIds(), true)) {
     }
 }
 
+if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
+    $campsPlaceRepo = new \Modules\Camps\Repository\PlaceRepository($pdo);
+    $campsCampRepo = new \Modules\Camps\Repository\CampRepository($pdo, $encryptionService);
+    $campsContactRepo = new \Modules\Camps\Repository\ContactRepository($pdo, $encryptionService);
+    $campsLinkRepo = new \Modules\Camps\Repository\LinkRepository($pdo);
+    $campsDocumentRepo = new \Modules\Camps\Repository\DocumentRepository($pdo);
+    $campsReviewRepo = new \Modules\Camps\Repository\ReviewRepository($pdo);
+    $campsProposalRepo = new \Modules\Camps\Repository\FieldProposalRepository($pdo, $encryptionService);
+
+    $campsSectionDescriber = new \Modules\Camps\Service\SectionDescriber($sectionService);
+    $campsPlaceService = new \Modules\Camps\Service\PlaceService($campsPlaceRepo, $auditService);
+    $campsCampService = new \Modules\Camps\Service\CampService($campsCampRepo, $auditService, $campsPlaceRepo);
+    $campsContactService = new \Modules\Camps\Service\ContactService(
+        $campsContactRepo, $auditService, $journalService
+    );
+    $campsDocumentService = new \Modules\Camps\Service\DocumentService(
+        $campsDocumentRepo, $fileRepository, $uploadHandler, $auditService, $storagePath
+    );
+
+    // Two OPTIONAL gallery capabilities, both nullable and both degrading
+    // silently (ARCHITECTURE.md §7.4): link previews, and photos hosted
+    // as a delegated album. A module whose subject is camp sites must not
+    // become unusable because the gallery is switched off — without it a
+    // link is a bare URL and the photos section is absent, and nothing
+    // else changes.
+    $campsLinkService = new \Modules\Camps\Service\LinkService(
+        $campsLinkRepo,
+        $auditService,
+        $galleryLinkPreviewFetcher ?? null,
+        $uploadHandler
+    );
+    $campsAlbumService = new \Modules\Camps\Service\CampAlbumService(
+        $auditService,
+        $galleryDelegatedAlbumManager ?? null
+    );
+    $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService, $campsPlaceRepo);
+    $campsSummaryService = new \Modules\Camps\Service\PlaceSummaryService(
+        $campsPlaceRepo, $campsCampRepo, $campsReviewRepo, $llmConnectorForRgpd ?? null
+    );
+    $campsArchiveService = new \Modules\Camps\Service\PlaceArchiveService(
+        $campsPlaceRepo, $campsCampRepo, $auditService
+    );
+    $campsMergeService = new \Modules\Camps\Service\MergeService(
+        $campsPlaceRepo, $campsCampRepo, $campsContactRepo, $campsLinkRepo, $campsDocumentRepo,
+        $campsReviewRepo, $editableContentService, $auditService, $campsAlbumService
+    );
+
+    // Duplicate detection: the AI half is an optional dependency on
+    // llm_connector and degrades to the textual comparison alone
+    // (ARCHITECTURE.md §7.4). The model only ever SUGGESTS — a human
+    // accepts or refuses, and nothing here can merge on its own.
+    $campsDuplicateDetector = new \Modules\Camps\Service\DuplicatePlaceDetector(
+        $campsPlaceRepo,
+        $llmConnectorForRgpd ?? null
+    );
+
+    // Every one of this module's tasks re-arms itself, so each needs
+    // seeding exactly once — on the first page load after the module is
+    // enabled. Guarded on find() rather than scheduled blindly, or every
+    // request would queue another copy.
+    foreach ([
+        [\Modules\Camps\Task\ReviewReminderHandler::TASK_KEY, \Modules\Camps\Task\ReviewReminderHandler::REFERENCE, 'tomorrow 06:00'],
+        [\Modules\Camps\Task\PurgeUnsortedMailHandler::TASK_KEY, \Modules\Camps\Task\PurgeUnsortedMailHandler::REFERENCE, 'tomorrow 04:00'],
+        [\Modules\Camps\Task\GeocodePlacesHandler::TASK_KEY, \Modules\Camps\Task\GeocodePlacesHandler::REFERENCE, '+1 minute'],
+        [\Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY, \Modules\Camps\Task\RefreshPlaceSummariesHandler::REFERENCE, 'tomorrow 05:00'],
+    ] as [$campsTaskKey, $campsTaskReference, $campsTaskWhen]) {
+        if ($schedulerService->find('camps', $campsTaskKey, $campsTaskReference) === null) {
+            $schedulerService->schedule('camps', $campsTaskKey, new DateTimeImmutable($campsTaskWhen), [], $campsTaskReference);
+        }
+    }
+
+    // BOTH file gates, because they guard different routes and a module
+    // registering only one leaves its files reachable through the other:
+    // FileOwnershipChecker gates /files/{id} (documents, link preview
+    // images), DelegatedAlbumAccessChecker gates /gallery/media/{id}
+    // (the photos). They must agree, and here they do — every chief of
+    // the unit sees every stay.
+    $fileOwnershipCheckers[] = new \Modules\Camps\Service\CampFileOwnershipChecker();
+
+    // Read back at the very end of this file, when the response exists.
+    $campsMapTileOrigin = \Modules\Camps\Service\MapTiles::ORIGIN;
+
+    // Inbound mail. Built here, REGISTERED much further down — see the
+    // comment at the registration itself: MessageConsumerRegistry is
+    // first-claim-wins in registration order, and this consumer must come
+    // last.
+    $campsFieldCompletion = new \Modules\Camps\Mail\MailFieldCompletionService(
+        $campsCampRepo, $campsProposalRepo, $auditService, new \Modules\Camps\Mail\MessageReader()
+    );
+    $campsMailConsumer = isset($inboundMailForOthers)
+        ? new \Modules\Camps\Mail\CampsMessageConsumer(
+            $campsCampRepo, $pdo, $encryptionService, $settingService,
+            $inboundMailForOthers, $campsDocumentService, $campsFieldCompletion
+        )
+        : null;
+
+    $frontController->registerController(
+        \Modules\Camps\Controller\CampsMailController::class,
+        new \Modules\Camps\Controller\CampsMailController(
+            $twig, $campsCampRepo, $campsPlaceRepo, $settingService, $inboundMailForOthers ?? null,
+            $campsProposalRepo, $campsFieldCompletion
+        )
+    );
+    $galleryDelegatedAlbumAccessCheckers[] = new \Modules\Camps\Service\CampAlbumAccessChecker();
+
+    // Who may read a camp's or a place's change history (Core\Audit,
+    // ARCHITECTURE.md §8.66). Both routes carrying the timeline are
+    // role_min chief and every chief sees every camp of their own unit —
+    // there is no per-place visibility in this module — so the checker
+    // adds the one thing the role cannot answer: whether the entity
+    // exists at all. Without these two lines the timeline would simply
+    // not load, which is the intended direction of that failure.
+    $auditAccessResolver->register(
+        \Modules\Camps\Service\PlaceService::ENTITY_TYPE,
+        static fn(int $id): bool => $campsPlaceRepo->findById($id) !== null
+    );
+    $auditAccessResolver->register(
+        \Modules\Camps\Service\CampService::ENTITY_TYPE,
+        static fn(int $id): bool => $campsCampRepo->findById($id) !== null
+    );
+
+    $frontController->registerController(
+        \Modules\Camps\Controller\CampsChiefController::class,
+        new \Modules\Camps\Controller\CampsChiefController(
+            $twig, $campsPlaceRepo, $campsCampRepo, $campsPlaceService, $campsCampService,
+            $campsSectionDescriber, $sectionService, $editableContentService, $auditService, $settingService,
+            $campsContactRepo, $campsLinkRepo, $campsDocumentRepo, $campsAlbumService,
+            $campsReviewRepo, $campsReviewService, $campsDuplicateDetector, $campsArchiveService,
+            $inboundMailForOthers ?? null, $campsProposalRepo, $campsSummaryService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Camps\Controller\CampsAttachmentController::class,
+        new \Modules\Camps\Controller\CampsAttachmentController(
+            $twig, $campsCampRepo, $campsPlaceRepo, $campsContactRepo, $campsLinkRepo, $campsDocumentRepo,
+            $campsContactService, $campsLinkService, $campsDocumentService, $campsAlbumService,
+            $campsReviewService, $campsReviewRepo
+        )
+    );
+    $frontController->registerController(
+        \Modules\Camps\Controller\CampsMergeController::class,
+        new \Modules\Camps\Controller\CampsMergeController(
+            $twig, $campsPlaceRepo, $campsCampRepo, $campsMergeService, $campsArchiveService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Camps\Controller\CampsConfigController::class,
+        new \Modules\Camps\Controller\CampsConfigController($twig, $settingService)
+    );
+}
+
 if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
     $retroBoardRepo = new \Modules\Retro\Repository\BoardRepository($pdo, $encryptionService);
     $retroCommentRepo = new \Modules\Retro\Repository\CommentRepository($pdo);
@@ -3248,7 +3447,8 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Calendar\Controller\CalendarChiefController::class,
         new \Modules\Calendar\Controller\CalendarChiefController(
             $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarEventService,
-            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager
+            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager,
+            $sectionStaffAuthorizationService
         )
     );
 
@@ -3925,20 +4125,87 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     }
 }
 
+// The camps consumer is registered LAST, after every other module's, and
+// that ordering is load-bearing: Service\MessageConsumerRegistry is
+// first-claim-wins in registration order, and a dedicated camps mailbox
+// claims EVERYTHING it is offered. Registered earlier, it would swallow
+// the mail another module was waiting for — rental's own mailbox setting
+// defaults to "all mailboxes", so the two would otherwise fight over
+// every message on an installation running both.
+//
+// In a shared mailbox the camps consumer is narrow and this ordering
+// costs nothing; in a dedicated one it is the whole reason the setting's
+// description tells administrators to exclude that box from other
+// modules.
+if (isset($campsMailConsumer, $inboundMailConsumerRegistry)) {
+    $inboundMailConsumerRegistry->register($campsMailConsumer);
+}
+
+// Leadership ("Encadrement") — four read-only admin pages built entirely
+// from core tables, plus the member page's own training-path card through
+// Core\Module\FormationPathProvider (ARCHITECTURE.md §7.4/§8.65). The
+// module stores nothing but its formation-level vocabulary mapping, so
+// there is no cache to warm here and nothing to invalidate after an
+// import.
+if (in_array('leadership', $moduleManager->getEnabledModuleIds(), true)) {
+    $leadershipRepository = new \Modules\Leadership\Repository\LeadershipRepository($connection, $encryptionService);
+    $leadershipMappingRepository = new \Modules\Leadership\Repository\FormationLevelMappingRepository($connection);
+    $leadershipResolver = new \Modules\Leadership\Service\FormationLevelResolver();
+    $leadershipObligationsService = new \Modules\Leadership\Service\ObligationsService(
+        new \Modules\Leadership\Service\CandidateDetector()
+    );
+
+    $frontController->registerController(
+        \Modules\Leadership\Controller\LeadershipController::class,
+        new \Modules\Leadership\Controller\LeadershipController(
+            $twig,
+            $leadershipRepository,
+            $leadershipMappingRepository,
+            $leadershipResolver,
+            new \Modules\Leadership\Service\TrainingService(
+                $leadershipRepository,
+                $sectionService,
+                $memberYearService,
+                new \Modules\Leadership\Service\SupervisionCalculator()
+            ),
+            $leadershipObligationsService,
+            new \Modules\Leadership\Service\StewardService($leadershipRepository, $leadershipObligationsService),
+            $scoutYearResolver,
+            $editableContentService
+        )
+    );
+
+    $frontController->registerController(
+        \Modules\Leadership\Controller\FormationMappingController::class,
+        new \Modules\Leadership\Controller\FormationMappingController(
+            $twig,
+            $leadershipMappingRepository,
+            $journalService
+        )
+    );
+
+    $formationPathProvider = new \Modules\Leadership\Service\MemberFormationPathService(
+        $leadershipRepository,
+        $leadershipMappingRepository,
+        $leadershipResolver
+    );
+}
+
 // Re-registers MemberController (and its MemberPageService) with
 // whichever optional providers are available — mass_mail's "Communications
 // récentes", gallery's "Galeries photos", trombinoscope's section-
 // responsable lookup (via $sectionResponsableProvider, ARCHITECTURE.md
-// §7.4), and calendar's next-upcoming-event lookup (via
-// $calendarEventLookup); each stays null when its module is disabled and
-// the corresponding page block just doesn't render. Placed after every
-// one of those modules' blocks above so their repositories/services are
-// in scope.
+// §7.4), calendar's next-upcoming-event lookup (via $calendarEventLookup),
+// and leadership's own training path (via $formationPathProvider); each
+// stays null when its module is disabled and the corresponding page block
+// just doesn't render. Placed after every one of those modules' blocks
+// above so their repositories/services are in scope.
 if (
     in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)
     || in_array('gallery', $moduleManager->getEnabledModuleIds(), true)
     || in_array('calendar', $moduleManager->getEnabledModuleIds(), true)
     || in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)
+    || in_array('leadership', $moduleManager->getEnabledModuleIds(), true)
 ) {
     $massMailQueryForMember = in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)
         ? new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
@@ -3951,7 +4218,8 @@ if (
 
     $memberPageService = new \Core\Member\MemberPageService(
         $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
-        $sectionDocumentService, $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookup
+        $sectionDocumentService, $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookup,
+        $formationPathProvider
     );
 
     $frontController->registerController(
@@ -4094,6 +4362,18 @@ if (isset($galleryStorageLocationRepo)) {
             $response->addImgSrcOrigin($s3OriginForCsp);
         }
     }
+}
+
+// The camps map draws OpenStreetMap tiles, which are <img> from another
+// origin — the CSP's img-src has to name it or every tile is blocked and
+// the map is a grey box. Read from a variable the module's own wiring
+// block set, exactly like the gallery's S3 origin just above, rather than
+// re-testing getEnabledModuleIds() here: this is the response-building
+// tail, and a module-enabled test at this point reads as a per-module
+// wiring block that arrives long after FileAccessGuard was built
+// (Tests\Core\File\FileOwnershipCheckerWiringTest).
+if (isset($campsMapTileOrigin)) {
+    $response->addImgSrcOrigin($campsMapTileOrigin);
 }
 
 \Core\Debug\RequestTimeline::mark('response_send_begin');

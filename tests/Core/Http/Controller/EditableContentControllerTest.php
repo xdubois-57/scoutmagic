@@ -145,4 +145,48 @@ class EditableContentControllerTest extends TestCase
         $decoded = json_decode($response->getBody(), true);
         $this->assertTrue($decoded['success']);
     }
+
+    /**
+     * A chief d'unité (admin, not superadmin) saves in-place edited content.
+     * ConfigurationMode has been admin-or-higher since the toggle left the
+     * Configuration menu, but this route stayed superadmin, so the save this
+     * exercises used to be refused by the RBAC guard one layer up — the
+     * boundary itself is pinned by Tests\Core\Http\Controller\
+     * EditableContentRbacTest.
+     */
+    public function testUpdateSucceedsForAdminInConfigurationMode(): void
+    {
+        AuthSession::login(7, 'chef-unite@test.be', 'admin');
+        ConfigurationMode::activate('admin');
+        $token = $this->csrfToken();
+
+        $response = $this->controller->update(
+            $this->jsonRequest(['key' => 'home.intro', 'value' => '<p>Par le chef</p>', '_csrf_token' => $token]),
+            []
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertStringContainsString('Par le chef', $this->service->get('home.intro'));
+    }
+
+    /**
+     * The same for the rich-text-field endpoint, whose host pages (banner
+     * config, registration config, the leadership module's unit note) are
+     * all role_min: admin.
+     */
+    public function testUpdateFieldSucceedsForAdmin(): void
+    {
+        AuthSession::login(7, 'chef-unite@test.be', 'admin');
+        $token = $this->csrfToken();
+
+        $response = $this->controller->updateField(
+            $this->jsonRequest(['key' => 'leadership.unit_note', 'value' => '<p>Note</p>', '_csrf_token' => $token]),
+            []
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertStringContainsString('Note', $this->service->get('leadership.unit_note'));
+    }
 }

@@ -1,0 +1,507 @@
+{
+  "id": "camps",
+  "name": "Camps",
+  "description": "Les lieux de camp de l'unité et les séjours qu'elle y a faits — passés et à venir : dates, sections, prix, contacts sur place, avis des staffs précédents. Un staff qui cherche un terrain lit ce que les staffs d'avant en ont pensé, au lieu de repartir de zéro.",
+  "version": "1.7.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/chefs/camps",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Camps",
+      "menu_icon": "bi-tent",
+      "menu_group": "activites",
+      "breadcrumb": {
+        "label": "Camps",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/nouveau",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "create",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Nouveau camp",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "store",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "showPlace",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Lieu",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}/modifier",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "editPlace",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifier le lieu",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "updatePlace",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "showCamp",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Séjour",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/modifier",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "editCamp",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifier le séjour",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "updateCamp",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/contacts",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "storeContact",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/contacts/{id}",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "updateContact",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/contacts/{id}/supprimer",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "deleteContact",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/contacts/{id}/anonymiser",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "confirmAnonymise",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Anonymiser un contact",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/contacts/{id}/anonymiser",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "anonymise",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/liens",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "storeLink",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/liens/{id}/supprimer",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "deleteLink",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/documents",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "documents",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Documents du séjour",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/documents",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "storeDocument",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/documents/{id}/supprimer",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "deleteDocument",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/photos",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "photos",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Photos du séjour",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/photos",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "storePhoto",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/photos/supprimer",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "deletePhoto",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/avis",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsAttachmentController",
+      "action": "saveReview",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}/fusionner",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsMergeController",
+      "action": "choosePlaceMerge",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Fusionner un lieu",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}/fusionner",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMergeController",
+      "action": "mergePlace",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}/archiver",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMergeController",
+      "action": "archivePlace",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}/restaurer",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMergeController",
+      "action": "restorePlace",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/fusionner",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsMergeController",
+      "action": "chooseCampMerge",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Fusionner un séjour",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/fusionner",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMergeController",
+      "action": "mergeCamp",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/courrier",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsMailController",
+      "action": "unsorted",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Courrier non classé",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/courrier/{id}/rattacher",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMailController",
+      "action": "attach",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/courrier/{id}/supprimer",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMailController",
+      "action": "discard",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/propositions/{id}/appliquer",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMailController",
+      "action": "applyProposal",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/propositions/{id}/ignorer",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMailController",
+      "action": "dismissProposal",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/lieux/{id}/resume",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsChiefController",
+      "action": "regenerateSummary",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/config/camps",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Camps",
+      "menu_icon": "bi-tent",
+      "menu_group": "modules",
+      "breadcrumb": {
+        "label": "Camps",
+        "parents": [
+          "Configuration"
+        ]
+      }
+    },
+    {
+      "path": "/config/camps",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsConfigController",
+      "action": "save",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    }
+  ],
+  "settings": [
+    {
+      "key": "camps_default_country",
+      "default_value": "Belgique",
+      "type": "text",
+      "label": "Pays par défaut d'un nouveau lieu",
+      "description": "Pré-rempli à la création d'un lieu de camp. La très grande majorité des terrains d'une unité sont dans un seul pays ; le champ reste modifiable lieu par lieu."
+    },
+    {
+      "key": "camps_past_stays_per_page",
+      "default_value": "20",
+      "type": "number",
+      "label": "Nombre de séjours passés affichés par lieu",
+      "description": "Sur la fiche d'un lieu, nombre de séjours passés affichés avant de devoir en demander davantage."
+    },
+    {
+      "key": "camps_geocoding_enabled",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Géocoder automatiquement les lieux",
+      "description": "Cherche les coordonnées d'un lieu à partir de son adresse, via OpenStreetMap (Nominatim). Un lieu dont les coordonnées ont été saisies ou corrigées à la main n'est jamais retouché. Désactivez ce réglage pour n'envoyer aucune adresse à un service extérieur."
+    },
+    {
+      "key": "camps_dedicated_mailbox_ids",
+      "default_value": "",
+      "type": "text",
+      "label": "Boîtes aux lettres dédiées aux camps",
+      "description": "Identifiants (séparés par des virgules) des boîtes dont TOUT le contenu concerne les camps, par exemple camps@votre-unite.be. Vide par défaut : sans boîte dédiée, seuls les messages sûrement rattachables à un séjour sont repris. ATTENTION : une boîte listée ici doit être exclue des autres modules qui lisent le courrier — le module de location, notamment, lit par défaut toutes les boîtes, et le premier module qui réclame un message le garde."
+    },
+    {
+      "key": "camps_auto_create_from_mail",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Créer un camp depuis un message",
+      "description": "Dans une boîte dédiée uniquement : si un message contient des dates identifiables ET un nom de lieu exploitable, un séjour est créé automatiquement, visiblement marqué comme tel. Sans ce réglage, le message reste dans le courrier non classé avec une action « Créer un camp depuis ce message »."
+    },
+    {
+      "key": "camps_unsorted_retention_months",
+      "default_value": "6",
+      "type": "number",
+      "label": "Conservation du courrier non classé (mois)",
+      "description": "Durée après laquelle un message resté non classé est effacé. Elle se compte depuis la date du message lui-même : un message détaché d'un séjour et renvoyé au courrier non classé garde sa date d'origine, et peut donc partir au prochain passage s'il est déjà ancien."
+    },
+    {
+      "key": "camps_ai_summary_enabled",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Résumé automatique des lieux",
+      "description": "Si le connecteur IA est actif : un court résumé de ce que les séjours et les avis d'un lieu racontent, régénéré une fois par jour quand quelque chose a changé. Il ne reçoit que les avis, notes, prix, statuts, dates, nombres de participants et sections — jamais les contacts ni les e-mails reçus."
+    }
+  ],
+  "notifications": [
+    {
+      "id": "camps.review_due",
+      "label": "Avis à donner sur un camp",
+      "description": "Le lendemain de la fin d'un séjour, une invitation à laisser un avis pour les staffs suivants. Envoyée une seule fois, sans rappel.",
+      "group": "Camps",
+      "role_min": "chief",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    }
+  ],
+  "scheduled_tasks": [
+    {
+      "key": "review_reminder",
+      "handler": "Modules\\Camps\\Task\\ReviewReminderHandler"
+    },
+    {
+      "key": "geocode_places",
+      "handler": "Modules\\Camps\\Task\\GeocodePlacesHandler"
+    },
+    {
+      "key": "purge_unsorted_mail",
+      "handler": "Modules\\Camps\\Task\\PurgeUnsortedMailHandler"
+    },
+    {
+      "key": "refresh_place_summaries",
+      "handler": "Modules\\Camps\\Task\\RefreshPlaceSummariesHandler"
+    }
+  ]
+}

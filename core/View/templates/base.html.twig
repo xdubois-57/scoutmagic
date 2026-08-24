@@ -202,6 +202,11 @@
        must load unconditionally; editable.js itself gates its modal-
        dependent code on the modal's presence. #}
     <script src="/assets/js/editable.js" defer></script>
+    {# "Afficher plus" on partials/audit_timeline.html.twig. Inert on a
+       page holding no timeline, and the first page of history is always
+       server-rendered — so this never gates whether the history is
+       readable, only whether it can be read past page one. #}
+    <script src="/assets/js/audit-timeline.js" defer></script>
     <script src="/assets/js/cookie-consent.js" defer></script>
     {% if is_authenticated %}
     <script src="/assets/js/notification-badge.js" defer></script>

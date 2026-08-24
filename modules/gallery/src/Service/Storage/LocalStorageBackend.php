@@ -75,6 +75,23 @@ class LocalStorageBackend implements StorageBackendInterface
         return $contents;
     }
 
+    public function copy(string $fromKey, string $toKey): void
+    {
+        $from = $this->fullPath($fromKey);
+        if (!is_file($from)) {
+            throw new \RuntimeException("Gallery file not found: {$fromKey}");
+        }
+
+        $to = $this->fullPath($toKey);
+        $dir = dirname($to);
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Gallery destination directory not writable: {$toKey}");
+        }
+        if (!copy($from, $to)) {
+            throw new \RuntimeException("Gallery file could not be copied: {$fromKey} -> {$toKey}");
+        }
+    }
+
     public function delete(string $key): void
     {
         $path = $this->fullPath($key);

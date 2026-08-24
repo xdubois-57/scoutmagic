@@ -1,0 +1,158 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ camp ? 'Modifier le séjour' : 'Nouveau camp' }} — {{ site_name }}{% endblock %}
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: camp ? 'Modifier le séjour' : 'Nouveau camp',
+        subtitle: camp
+            ? null
+            : 'Choisissez un lieu déjà connu, ou décrivez-en un nouveau : il sera créé avec le séjour.',
+    } only %}
+
+    <form method="post"
+          action="{{ camp ? '/chefs/camps/sejours/' ~ camp.id : '/chefs/camps' }}"
+          class="mb-5">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+        {% if not camp %}
+            <h2 class="h6 text-uppercase text-body-secondary mb-3">Lieu</h2>
+
+            {# One field, two outcomes: pick a known place, or leave it on
+               "Un nouveau lieu" and fill the block below. Two screens
+               would force a chief to think of the place before the camp,
+               which is the opposite of the order they learn about either. #}
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'place-id',
+                field_name: 'place_id',
+                label: 'Lieu du séjour',
+                type: 'select',
+                options: place_options,
+                help: 'Si le lieu n\'est pas dans la liste, laissez « Un nouveau lieu » et remplissez les champs ci-dessous.',
+            } only %}
+
+            <div id="camps-new-place">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'place-name', field_name: 'place_name', label: 'Nom du lieu',
+                    placeholder: 'Domaine de Mozet', maxlength: 150,
+                } only %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'place-address', field_name: 'address', label: 'Adresse',
+                    help: 'Facultative : beaucoup de terrains sont un pré sans adresse utilisable.',
+                    maxlength: 255,
+                } only %}
+                <div class="row">
+                    <div class="col-4">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'place-postal', field_name: 'postal_code', label: 'Code postal', maxlength: 20,
+                        } only %}
+                    </div>
+                    <div class="col-8">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'place-city', field_name: 'city', label: 'Ville', maxlength: 120,
+                        } only %}
+                    </div>
+                </div>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'place-country', field_name: 'country', label: 'Pays',
+                    value: default_country, maxlength: 80,
+                } only %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'place-website', field_name: 'website_url', label: 'Site web du lieu',
+                    type: 'url', placeholder: 'https://…', maxlength: 500,
+                } only %}
+            </div>
+        {% endif %}
+
+        <h2 class="h6 text-uppercase text-body-secondary mb-3">Séjour</h2>
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'stay-type', field_name: 'stay_type', label: 'Type de séjour', type: 'select',
+            options: stay_type_options,
+        } only %}
+
+        <div class="row">
+            <div class="col-12 col-sm-6">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'start-date', field_name: 'start_date', label: 'Début', type: 'date',
+                    value: camp ? camp.startDate : '',
+                } only %}
+            </div>
+            <div class="col-12 col-sm-6">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'end-date', field_name: 'end_date', label: 'Fin', type: 'date',
+                    value: camp ? camp.endDate : '',
+                } only %}
+            </div>
+        </div>
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'year-only', field_name: 'year_only', label: 'Ou seulement l\'année',
+            type: 'number', min: 1900, max: 2200, value: camp and camp.yearOnly ? camp.yearOnly : '',
+            help: 'Pour un séjour dont on ne retrouve plus les dates exactes. Remplissez les dates ci-dessus OU cette année, jamais les deux.',
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'status', field_name: 'status', label: 'Statut', type: 'select',
+            options: status_options,
+        } only %}
+
+        <div class="row">
+            <div class="col-12 col-sm-6">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'price', field_name: 'price', label: 'Prix', inputmode: 'decimal',
+                    value: camp and camp.priceCents is not null ? (camp.priceCents / 100)|number_format(2, ',', ' ') : '',
+                    placeholder: '2450,00', help: 'En euros. Les espaces et la virgule sont acceptés.',
+                } only %}
+            </div>
+            <div class="col-12 col-sm-6">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'participants', field_name: 'participant_count', label: 'Participants',
+                    type: 'number', min: 0, max: 5000,
+                    value: camp ? camp.participantCount : '',
+                } only %}
+            </div>
+        </div>
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'booked-by', field_name: 'booked_by_name', label: 'Réservation faite par',
+            value: camp ? camp.bookedByName : '', maxlength: 150,
+            help: 'Le nom de la personne qui a réservé, tel qu\'on s\'en souviendra dans dix ans.',
+        } only %}
+
+        <fieldset class="mb-3">
+            <legend class="form-label">Sections concernées</legend>
+            <div class="d-flex flex-wrap gap-3">
+                {% for section in sections %}
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="section_ids[]"
+                               value="{{ section.id }}" id="section-{{ section.id }}"
+                               {{ camp and section.id in camp.sectionIds ? 'checked' : '' }}>
+                        <label class="form-check-label" for="section-{{ section.id }}">
+                            {{ section.name ?? section.branch_name }}
+                        </label>
+                    </div>
+                {% else %}
+                    <p class="text-body-secondary mb-0">Aucune section active.</p>
+                {% endfor %}
+            </div>
+        </fieldset>
+
+        {% include 'partials/rich_text_form_field.html.twig' with {
+            field_id: 'camp-note',
+            field_name: 'note',
+            value: note,
+            label: 'Note',
+            help: 'Tout ce qu\'un staff suivant devrait savoir : accès, contraintes du propriétaire, ce qu\'il faut emporter.',
+            rows_height: '12rem',
+        } %}
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+                {{ camp ? 'Enregistrer' : 'Créer le séjour' }}
+            </button>
+        </div>
+    </form>
+
+    {# The rich text field's own requirement: a module script tag, because
+       assets/js/rich-text-form-field.js uses `export`. #}
+    <script type="module" src="/assets/js/rich-text-form-field.js"></script>
+{% endblock %}

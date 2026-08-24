@@ -179,6 +179,14 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <p><strong>Masquage d'un commentaire</strong> : un chef peut masquer un commentaire jugé injurieux ou irrespectueux (action réversible), sans jamais découvrir qui l'a écrit.</p>
 <p><strong>Base légale</strong> : Intérêt légitime (amélioration continue des activités de l'unité).</p>
 
+<h4>Module Encadrement</h4>
+<p><strong>Finalité</strong> : Aider l'équipe d'unité à savoir qui contacter au sujet de sa formation d'animateur, des échéances légales liées à l'âge, et des inscriptions d'intendants. Ce module ne collecte rien : il relit les données déjà importées de Desk et les présente sous forme de listes.</p>
+<p><strong>Données traitées</strong> : uniquement des données déjà présentes dans le site et importées de Desk — nom et prénom, totem, date de naissance, niveau de formation, fonction, section, date de début de fonction. Le module <strong>ne stocke aucune donnée personnelle</strong> : sa seule table enregistre la correspondance entre une formulation de niveau de formation utilisée par Desk (par exemple « Animateur breveté ») et l'étape normalisée correspondante — une information sur un mot, jamais sur une personne. Tout le reste est recalculé à chaque affichage.</p>
+<p><strong>Ce que ce module ne contient jamais</strong> : aucune information relative au Code Qualité des Adultes (CQA) ni à un extrait de casier judiciaire — ni le document, ni une date, ni un statut, ni un motif, sous aucune forme et dans aucune table. Le site n'affiche donc jamais qu'un tel document serait en ordre, manquant, valide ou expiré : il se limite à répercuter le fait que Desk signale, ou non, une fonction comme « candidat » au moment de l'import, et à rappeler la date à laquelle un animateur atteindra 20 ans. La vérification elle-même se fait dans Desk, jamais ici.</p>
+<p><strong>Note d'unité</strong> : une note libre unique, rédigée par l'équipe d'unité et visible d'elle seule, est enregistrée avec les autres contenus éditables du site et <strong>n'est pas chiffrée au repos</strong>. La page qui permet de la rédiger le rappelle explicitement et invite à n'y consigner aucune information sensible.</p>
+<p><strong>Visibilité</strong> : les quatre pages du module sont réservées aux chefs d'unité. Chaque membre voit en revanche, sur sa propre page personnelle et sur elle seule, son propre parcours de formation — un chef consultant la page de quelqu'un d'autre ne le voit pas.</p>
+<p><strong>Base légale</strong> : Intérêt légitime (organisation de l'encadrement de l'unité et respect des obligations de formation de la fédération).</p>
+
 <h4>Modules Banner et Member Stats</h4>
 <p>Ces modules n'ajoutent aucun traitement de données personnelles. Banner affiche des bannières visuelles éditables. Member Stats génère des statistiques anonymisées sur la répartition des membres (par branche, genre, âge).</p>
 
@@ -392,6 +400,16 @@ Politique de confidentialité : <a href="https://www.scaleway.com/en/privacy-pol
 <li><strong>OVHcloud Object Storage</strong> (si sélectionné) — <a href="https://www.ovhcloud.com" target="_blank" rel="noopener">www.ovhcloud.com</a><br>
 Serveurs : France, Allemagne, Pologne (UE)<br>
 Politique de confidentialité : <a href="https://www.ovhcloud.com/fr/terms-and-conditions/privacy-policy/" target="_blank" rel="noopener">OVH Cloud Privacy Policy</a></li>
+</ul>
+
+<p><strong>Résumé automatique des lieux de camp</strong> (module camps avec connecteur IA actif) : un court texte résumant ce que les séjours et les avis d'un terrain racontent est écrit par le modèle configuré dans le connecteur IA (voir le paragraphe « Intelligence artificielle » de cette section). Ne lui sont transmis que les avis, notes, prix, statuts, dates, nombres de participants et sections — <strong>jamais les coordonnées des contacts, jamais les e-mails reçus</strong>. Cette fonctionnalité peut être désactivée dans la configuration du module.</p>
+
+<p><strong>Fond de carte et géocodage</strong> (module camps, uniquement si le module est activé) :</p>
+<ul>
+<li><strong>OpenStreetMap Foundation</strong> — <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">www.openstreetmap.org</a><br>
+Deux services distincts du même projet sont sollicités. Le <strong>fond de carte</strong> : lorsqu'un animateur ouvre la carte des lieux de camp, son navigateur télécharge les tuiles depuis les serveurs d'OpenStreetMap, qui reçoivent donc son adresse IP et l'identification de son navigateur. La carte est repliée par défaut et n'est chargée qu'au moment où elle est ouverte : un animateur qui ne l'ouvre pas ne contacte jamais ce service. Le <strong>géocodage</strong> (Nominatim) : l'adresse d'un lieu de camp — jamais celle d'une personne — est envoyée depuis le serveur du site, en tâche de fond, pour retrouver ses coordonnées. Aucune donnée personnelle n'est transmise dans ce cas, et le géocodage automatique peut être désactivé dans la configuration du module.<br>
+Serveurs : Royaume-Uni et Union européenne<br>
+Politique de confidentialité : <a href="https://osmfoundation.org/wiki/Privacy_Policy" target="_blank" rel="noopener">OpenStreetMap Foundation Privacy Policy</a></li>
 </ul>
 
 <h3>4.3. Garanties contractuelles</h3>
