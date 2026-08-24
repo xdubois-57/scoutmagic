@@ -136,8 +136,16 @@ class PlaceService
         if ($value === null) {
             return null;
         }
-        if (!preg_match('~^https?://~i', $value)) {
+        // Only a MISSING scheme gets https. Prefixing one that is
+        // already there would turn "file:///etc/passwd" into
+        // "https://file:///etc/passwd", which parses as https and passes
+        // the check below — see Service\LinkService::validateUrl(), which
+        // had exactly this hole.
+        if (preg_match('~^[a-z][a-z0-9+.-]*:~i', $value) !== 1) {
             $value = 'https://' . $value;
+        }
+        if (!in_array(strtolower((string) parse_url($value, PHP_URL_SCHEME)), ['http', 'https'], true)) {
+            throw new CampsException('L\'adresse du site web doit commencer par http:// ou https://.');
         }
         if (filter_var($value, FILTER_VALIDATE_URL) === false) {
             throw new CampsException('L\'adresse du site web n\'est pas une adresse valide.');

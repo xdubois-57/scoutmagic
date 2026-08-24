@@ -42,6 +42,42 @@ class CampsTestHelper
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
+        $pdo->exec('CREATE TABLE camp_contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            camp_id INTEGER NOT NULL,
+            name BLOB NULL,
+            role_label TEXT NULL,
+            email BLOB NULL,
+            email_blind_index TEXT NULL,
+            phone BLOB NULL,
+            other_details BLOB NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE camp_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            camp_id INTEGER NOT NULL,
+            url TEXT NOT NULL,
+            title TEXT NULL,
+            description TEXT NULL,
+            image_file_id INTEGER NULL,
+            site_name TEXT NULL,
+            fetched_at TEXT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE camp_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            camp_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            file_id INTEGER NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT "manual",
+            source_reference TEXT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
         $pdo->exec('CREATE TABLE camp_camp_sections (
             camp_id INTEGER NOT NULL,
             section_id INTEGER NOT NULL,

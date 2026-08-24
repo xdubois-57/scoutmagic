@@ -3181,9 +3181,45 @@ if (in_array('test_tools', $moduleManager->getEnabledModuleIds(), true)) {
 if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     $campsPlaceRepo = new \Modules\Camps\Repository\PlaceRepository($pdo);
     $campsCampRepo = new \Modules\Camps\Repository\CampRepository($pdo, $encryptionService);
+    $campsContactRepo = new \Modules\Camps\Repository\ContactRepository($pdo, $encryptionService);
+    $campsLinkRepo = new \Modules\Camps\Repository\LinkRepository($pdo);
+    $campsDocumentRepo = new \Modules\Camps\Repository\DocumentRepository($pdo);
+
     $campsSectionDescriber = new \Modules\Camps\Service\SectionDescriber($sectionService);
     $campsPlaceService = new \Modules\Camps\Service\PlaceService($campsPlaceRepo, $auditService);
     $campsCampService = new \Modules\Camps\Service\CampService($campsCampRepo, $auditService);
+    $campsContactService = new \Modules\Camps\Service\ContactService(
+        $campsContactRepo, $auditService, $journalService
+    );
+    $campsDocumentService = new \Modules\Camps\Service\DocumentService(
+        $campsDocumentRepo, $fileRepository, $uploadHandler, $auditService, $storagePath
+    );
+
+    // Two OPTIONAL gallery capabilities, both nullable and both degrading
+    // silently (ARCHITECTURE.md §7.4): link previews, and photos hosted
+    // as a delegated album. A module whose subject is camp sites must not
+    // become unusable because the gallery is switched off — without it a
+    // link is a bare URL and the photos section is absent, and nothing
+    // else changes.
+    $campsLinkService = new \Modules\Camps\Service\LinkService(
+        $campsLinkRepo,
+        $auditService,
+        $galleryLinkPreviewFetcher ?? null,
+        $uploadHandler
+    );
+    $campsAlbumService = new \Modules\Camps\Service\CampAlbumService(
+        $auditService,
+        $galleryDelegatedAlbumManager ?? null
+    );
+
+    // BOTH file gates, because they guard different routes and a module
+    // registering only one leaves its files reachable through the other:
+    // FileOwnershipChecker gates /files/{id} (documents, link preview
+    // images), DelegatedAlbumAccessChecker gates /gallery/media/{id}
+    // (the photos). They must agree, and here they do — every chief of
+    // the unit sees every stay.
+    $fileOwnershipCheckers[] = new \Modules\Camps\Service\CampFileOwnershipChecker();
+    $galleryDelegatedAlbumAccessCheckers[] = new \Modules\Camps\Service\CampAlbumAccessChecker();
 
     // Who may read a camp's or a place's change history (Core\Audit,
     // ARCHITECTURE.md §8.65). Both routes carrying the timeline are
@@ -3205,7 +3241,15 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Camps\Controller\CampsChiefController::class,
         new \Modules\Camps\Controller\CampsChiefController(
             $twig, $campsPlaceRepo, $campsCampRepo, $campsPlaceService, $campsCampService,
-            $campsSectionDescriber, $sectionService, $editableContentService, $auditService, $settingService
+            $campsSectionDescriber, $sectionService, $editableContentService, $auditService, $settingService,
+            $campsContactRepo, $campsLinkRepo, $campsDocumentRepo, $campsAlbumService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Camps\Controller\CampsAttachmentController::class,
+        new \Modules\Camps\Controller\CampsAttachmentController(
+            $twig, $campsCampRepo, $campsPlaceRepo, $campsContactRepo, $campsLinkRepo, $campsDocumentRepo,
+            $campsContactService, $campsLinkService, $campsDocumentService, $campsAlbumService
         )
     );
     $frontController->registerController(

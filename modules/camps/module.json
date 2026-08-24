@@ -2,7 +2,7 @@
   "id": "camps",
   "name": "Camps",
   "description": "Les lieux de camp de l'unité et les séjours qu'elle y a faits — passés et à venir : dates, sections, prix, contacts sur place, avis des staffs précédents. Un staff qui cherche un terrain lit ce que les staffs d'avant en ont pensé, au lieu de repartir de zéro.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -120,6 +120,141 @@
       "method": "POST",
       "controller": "Modules\\Camps\\Controller\\CampsChiefController",
       "action": "updateCamp",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/contacts",
+      "method": "POST",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "storeContact",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/contacts/{id}",
+      "method": "POST",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "updateContact",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/contacts/{id}/supprimer",
+      "method": "POST",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "deleteContact",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/contacts/{id}/anonymiser",
+      "method": "GET",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "confirmAnonymise",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Anonymiser un contact",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/contacts/{id}/anonymiser",
+      "method": "POST",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "anonymise",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/liens",
+      "method": "POST",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "storeLink",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/liens/{id}/supprimer",
+      "method": "POST",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "deleteLink",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/documents",
+      "method": "GET",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "documents",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Documents du séjour",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/documents",
+      "method": "POST",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "storeDocument",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/documents/{id}/supprimer",
+      "method": "POST",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "deleteDocument",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/photos",
+      "method": "GET",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "photos",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Photos du séjour",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/photos",
+      "method": "POST",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "storePhoto",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/sejours/{id}/photos/supprimer",
+      "method": "POST",
+      "controller": "Modules\\\\Camps\\\\Controller\\\\CampsAttachmentController",
+      "action": "deletePhoto",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""

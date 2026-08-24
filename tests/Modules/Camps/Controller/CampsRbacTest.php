@@ -20,13 +20,21 @@ use Core\Security\EncryptionService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\TwigFactory;
+use Modules\Camps\Controller\CampsAttachmentController;
 use Modules\Camps\Controller\CampsChiefController;
 use Modules\Camps\Controller\CampsConfigController;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
+use Modules\Camps\Repository\ContactRepository;
+use Modules\Camps\Repository\DocumentRepository;
+use Modules\Camps\Repository\LinkRepository;
 use Modules\Camps\Repository\PlaceRepository;
 use Modules\Camps\Service\CampService;
 use Modules\Camps\Service\PlaceService;
+use Modules\Camps\Service\CampAlbumService;
+use Modules\Camps\Service\ContactService;
+use Modules\Camps\Service\DocumentService;
+use Modules\Camps\Service\LinkService;
 use Modules\Camps\Service\SectionDescriber;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -49,6 +57,8 @@ class CampsRbacTest extends TestCase
     private int $accountId;
     private int $placeId;
     private int $campId;
+    private int $contactId;
+    private CampsAttachmentController $attachmentController;
 
     protected function setUp(): void
     {
@@ -85,6 +95,25 @@ class CampsRbacTest extends TestCase
         $twig->addGlobal('current_path', '/');
         $this->twig = $twig;
 
+        $contacts = new ContactRepository($this->pdo, $encryption);
+        $links = new LinkRepository($this->pdo);
+        $documentRepo = new DocumentRepository($this->pdo);
+        $contactService = new ContactService($contacts, $audit);
+        $albumService = new CampAlbumService($audit, null);
+        $this->contactId = $contacts->create($this->campId, 'Mme Lambert', 'Propriétaire', 'lambert@example.org', null, null);
+
+        $this->attachmentController = new CampsAttachmentController(
+            $twig, $camps, $places, $contacts, $links, $documentRepo,
+            $contactService,
+            new LinkService($links, $audit, null, null),
+            new DocumentService(
+                $documentRepo, new \Core\File\FileRepository($this->pdo),
+                new \Core\File\UploadHandler(new \Core\File\FileRepository($this->pdo), sys_get_temp_dir()),
+                $audit, sys_get_temp_dir()
+            ),
+            $albumService
+        );
+
         $this->chiefController = new CampsChiefController(
             $twig, $places, $camps,
             new PlaceService($places, $audit),
@@ -93,7 +122,11 @@ class CampsRbacTest extends TestCase
             $sections,
             new EditableContentService(new EditableContentRepository($this->pdo)),
             $audit,
-            $settings
+            $settings,
+            $contacts,
+            $links,
+            $documentRepo,
+            $albumService
         );
         $this->configController = new CampsConfigController($twig, $settings);
 
@@ -119,6 +152,11 @@ class CampsRbacTest extends TestCase
             'place form' => ['/chefs/camps/lieux/{place}/modifier', 'chief', 'editPlace', 'chief', 'intendant'],
             'camp detail' => ['/chefs/camps/sejours/{camp}', 'chief', 'showCamp', 'chief', 'intendant'],
             'camp form' => ['/chefs/camps/sejours/{camp}/modifier', 'chief', 'editCamp', 'chief', 'intendant'],
+            'documents' => ['/chefs/camps/sejours/{camp}/documents', 'attachment', 'documents', 'chief', 'intendant'],
+            'photos' => ['/chefs/camps/sejours/{camp}/photos', 'attachment', 'photos', 'chief', 'intendant'],
+            // Erasure is the module's one admin-only action: it is
+            // irreversible and reaches every stay that person appears on.
+            'anonymise a contact' => ['/chefs/camps/contacts/{contact}/anonymiser', 'attachment', 'confirmAnonymise', 'admin', 'chief'],
             'configuration' => ['/config/camps', 'config', 'index', 'superadmin', 'admin'],
         ];
     }
@@ -190,16 +228,20 @@ class CampsRbacTest extends TestCase
     private function resolve(string $path): string
     {
         return str_replace(
-            ['{place}', '{camp}'],
-            [(string) $this->placeId, (string) $this->campId],
+            ['{place}', '{camp}', '{contact}'],
+            [(string) $this->placeId, (string) $this->campId, (string) $this->contactId],
             $path
         );
     }
 
     private function frontController(string $path, string $controller, string $action, string $roleMin): FrontController
     {
-        $class = $controller === 'config' ? CampsConfigController::class : CampsChiefController::class;
-        $routePath = str_replace(['{place}', '{camp}'], ['{id}', '{id}'], $path);
+        $class = match ($controller) {
+            'config' => CampsConfigController::class,
+            'attachment' => CampsAttachmentController::class,
+            default => CampsChiefController::class,
+        };
+        $routePath = str_replace(['{place}', '{camp}', '{contact}'], ['{id}', '{id}', '{id}'], $path);
 
         $router = new Router();
         $router->addRoute('GET', $routePath, $class, $action, $roleMin);
@@ -208,10 +250,11 @@ class CampsRbacTest extends TestCase
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
 
         $fc = new FrontController($router, $this->twig, new AppConfig($configFile));
-        $fc->registerController(
-            $class,
-            $controller === 'config' ? $this->configController : $this->chiefController
-        );
+        $fc->registerController($class, match ($controller) {
+            'config' => $this->configController,
+            'attachment' => $this->attachmentController,
+            default => $this->chiefController,
+        });
 
         return $fc;
     }

@@ -20,11 +20,16 @@ use Core\Security\AuthSession;
 use Core\View\EditableContentService;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
+use Modules\Camps\Repository\ContactRepository;
+use Modules\Camps\Repository\DocumentRepository;
+use Modules\Camps\Repository\LinkRepository;
 use Modules\Camps\Repository\Place;
 use Modules\Camps\Repository\PlaceRepository;
+use Modules\Camps\Service\CampAlbumService;
 use Modules\Camps\Service\CampLabels;
 use Modules\Camps\Service\CampService;
 use Modules\Camps\Service\CampsException;
+use Modules\Camps\Service\ContactService;
 use Modules\Camps\Service\PlaceService;
 use Modules\Camps\Service\SectionDescriber;
 use Twig\Environment;
@@ -57,7 +62,11 @@ class CampsChiefController extends AbstractController
         private SectionService $sections,
         private EditableContentService $editableContent,
         private AuditService $audit,
-        private SettingService $settings
+        private SettingService $settings,
+        private ContactRepository $contacts,
+        private LinkRepository $links,
+        private DocumentRepository $documents,
+        private CampAlbumService $albumService
     ) {
     }
 
@@ -249,6 +258,17 @@ class CampsChiefController extends AbstractController
             'breadcrumb_current' => CampLabels::dateRange($camp->startDate, $camp->endDate, $camp->yearOnly),
             'breadcrumb_trail' => $this->trail($place),
             'note' => $this->editableContent->get(self::NOTE_KEY_PREFIX . $camp->id, '') ?? '',
+            'contacts' => $this->contacts->findByCamp($camp->id),
+            'contact_role_options' => $this->options(ContactService::ROLES, ''),
+            // Only whether photos are POSSIBLE, never how many. Counting
+            // them would mean resolving the album, and resolving it
+            // CREATES it (DelegatedAlbumManager::ensureAlbum is
+            // create-if-missing) — one gallery row written for every camp
+            // page anybody merely opens. The album is created on the
+            // photos page instead, which is the page actually about them.
+            'album_available' => $this->albumService->isAvailable(),
+            'links' => $this->links->findByCamp($camp->id),
+            'document_count' => $this->documents->countByCamp($camp->id),
             'audit_page' => $this->audit->page(CampService::ENTITY_TYPE, $camp->id, 1, AuditService::DEFAULT_PER_PAGE),
             'audit_labels' => CampLabels::FIELD_LABELS,
         ]);

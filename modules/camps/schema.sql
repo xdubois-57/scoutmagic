@@ -106,3 +106,110 @@ CREATE TABLE IF NOT EXISTS camp_camp_sections (
     CONSTRAINT fk_camp_camp_sections_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE,
     CONSTRAINT fk_camp_camp_sections_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- camp_contacts: the people to call about ONE stay — attached to the
+-- camp, not to the place, deliberately. It freezes the details used at
+-- the time of that booking; there is no global address book here, and a
+-- caretaker who has since left is not an error to correct but a fact
+-- about a stay that already happened.
+--
+-- These are external third parties with no relationship to the unit: an
+-- owner, a caretaker, a neighbour with the key. That is a category of
+-- data subject the rest of this site does not have, and it is why every
+-- personal field below is a BLOB.
+CREATE TABLE IF NOT EXISTS camp_contacts (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    camp_id INT UNSIGNED NOT NULL,
+
+    name BLOB NULL,
+
+    -- In CLEAR: a function, not a person. "Propriétaire", "Gestionnaire
+    -- sur place". Encrypting a job title would protect nothing and would
+    -- stop the contact list from being grouped by role.
+    role_label VARCHAR(60) NULL,
+
+    email BLOB NULL,
+    -- The only searchable thing about a contact, and it exists for one
+    -- purpose: finding every row that belongs to the same person when
+    -- that person asks to be erased. Exact match only, by construction.
+    email_blind_index CHAR(64) NULL,
+
+    phone BLOB NULL,
+
+    -- A second number, a "demander Jean-Marie", anything. Never used for
+    -- matching or search — a free-text field is exactly where someone
+    -- writes something that must not become a lookup key, and the form's
+    -- help text says so.
+    other_details BLOB NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    INDEX idx_camp_contacts_camp (camp_id),
+    INDEX idx_camp_contacts_blind (email_blind_index),
+    CONSTRAINT fk_camp_contacts_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- camp_links: web pages worth keeping next to a stay — the site of the
+-- place, a weather page, a map.
+--
+-- The Open Graph metadata comes from Modules\Gallery\Api\
+-- LinkPreviewFetcher and from nowhere else: that service carries
+-- Core\Security\SsrfUrlValidator, and it is the only place in this
+-- codebase allowed to make an outbound request to an address a member
+-- typed (SECURITY.md §17). It is an OPTIONAL dependency — without the
+-- gallery module the link is stored and shown as a bare URL.
+--
+-- The preview image is a `files` row, not a URL: the fetcher returns
+-- bytes, and re-fetching a remote image on every render would leak every
+-- reader's IP to the linked site. image_file_id is scoped to this
+-- module's own access-control domain (Service\CampFileOwnershipChecker).
+CREATE TABLE IF NOT EXISTS camp_links (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    camp_id INT UNSIGNED NOT NULL,
+    url VARCHAR(1000) NOT NULL,
+    title VARCHAR(255) NULL,
+    description VARCHAR(500) NULL,
+    image_file_id INT UNSIGNED NULL,
+    site_name VARCHAR(120) NULL,
+    -- Null when no preview was ever obtained (gallery absent, the site
+    -- unreachable, no Open Graph tags). Distinct from "fetched and found
+    -- nothing", which is a row with a date and no title.
+    fetched_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_camp_links_camp (camp_id),
+    CONSTRAINT fk_camp_links_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE,
+    CONSTRAINT fk_camp_links_image FOREIGN KEY (image_file_id) REFERENCES files(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- camp_documents: a flat list of files attached to a stay — a contract, a
+-- quote, an invoice, a map of the field.
+--
+-- No classification taxonomy on purpose. "Contrat / devis / facture" is a
+-- vocabulary somebody has to maintain and everybody fills in differently,
+-- and a stay carries four documents, not four hundred: a title and an
+-- order are enough to find one.
+CREATE TABLE IF NOT EXISTS camp_documents (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    camp_id INT UNSIGNED NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    file_id INT UNSIGNED NOT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+
+    -- 'manual': a chief uploaded it, and deleting the document deletes
+    -- the file. 'email': it is an inbound message's own attachment, and
+    -- deleting the document removes only THIS row — the file stays
+    -- attached to the message it came from, which still owns it.
+    source ENUM('manual', 'email') NOT NULL DEFAULT 'manual',
+    source_reference VARCHAR(190) NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_camp_documents_camp (camp_id, sort_order),
+    CONSTRAINT fk_camp_documents_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE,
+    CONSTRAINT fk_camp_documents_file FOREIGN KEY (file_id) REFERENCES files(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

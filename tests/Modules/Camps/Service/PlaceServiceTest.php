@@ -78,6 +78,32 @@ class PlaceServiceTest extends TestCase
         $this->service->create(['name' => 'X', 'website_url' => 'javascript:alert(1)'], 1);
     }
 
+    /**
+     * @dataProvider dangerousWebsites
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('dangerousWebsites')]
+    public function testAWebsiteWithANonHttpSchemeIsRefusedNotRewritten(string $typed): void
+    {
+        // The "add https:// if it is missing" convenience must never
+        // apply to a URL that already declares a scheme: prefixing
+        // "file:///etc/passwd" produces "https://file:///etc/passwd",
+        // which parses as https and passes every later check.
+        $this->expectException(CampsException::class);
+        $this->service->create(['name' => 'X', 'website_url' => $typed], 1);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function dangerousWebsites(): array
+    {
+        return [
+            'javascript' => ['javascript:alert(1)'],
+            'data uri' => ['data:text/html,<script>alert(1)</script>'],
+            'file' => ['file:///etc/passwd'],
+        ];
+    }
+
     public function testTheAddressIsRecordedAsOneReadableLine(): void
     {
         $id = $this->service->create(['name' => 'Domaine de Mozet'], 1);

@@ -54,6 +54,153 @@
         } only %}
     {% endif %}
 
+    <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Contacts</h2>
+    {% if contacts is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun contact enregistré pour ce séjour.', compact: true,
+        } only %}
+    {% else %}
+        <div class="row row-cols-1 row-cols-lg-2 g-3">
+            {% for contact in contacts %}
+                <div class="col">
+                    <div class="card h-100"><div class="card-body">
+                        <div class="fw-semibold">{{ contact.displayName() }}</div>
+                        {% if contact.roleLabel %}
+                            <div class="small text-body-secondary">{{ contact.roleLabel }}</div>
+                        {% endif %}
+                        <div class="mt-2 small">
+                            {% if contact.email %}
+                                <div><a href="mailto:{{ contact.email }}">{{ contact.email }}</a></div>
+                            {% endif %}
+                            {% if contact.phone %}
+                                <div><a href="tel:{{ contact.phone|replace({' ': ''}) }}">{{ contact.phone }}</a></div>
+                            {% endif %}
+                            {% if contact.otherDetails %}
+                                <div class="text-body-secondary">{{ contact.otherDetails }}</div>
+                            {% endif %}
+                        </div>
+                        {% if current_user_role == 'admin' or current_user_role == 'superadmin' %}
+                            <a class="btn btn-sm btn-outline-secondary mt-3"
+                               href="/chefs/camps/contacts/{{ contact.id }}/anonymiser">
+                                Anonymiser
+                            </a>
+                        {% endif %}
+                    </div></div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <form method="post" action="/chefs/camps/sejours/{{ camp.camp.id }}/contacts" class="card mt-3">
+        <div class="card-body">
+            <h3 class="h6 mb-3">Ajouter un contact</h3>
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            <div class="row">
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'contact-name', field_name: 'name', label: 'Nom', size: 'sm', maxlength: 150,
+                    } only %}
+                </div>
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'contact-role', field_name: 'role_label', label: 'Rôle',
+                        type: 'select', size: 'sm',
+                        options: [{ value: '', label: '—' }]|merge(contact_role_options),
+                    } only %}
+                </div>
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'contact-email', field_name: 'email', label: 'E-mail',
+                        type: 'email', size: 'sm', maxlength: 255,
+                    } only %}
+                </div>
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'contact-phone', field_name: 'phone', label: 'Téléphone',
+                        type: 'tel', size: 'sm', maxlength: 60,
+                    } only %}
+                </div>
+            </div>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'contact-other', field_name: 'other_details', label: 'Autres précisions',
+                type: 'textarea', rows: 2, size: 'sm',
+                help: 'Un second numéro, une consigne, une remarque. Ce champ n\'est jamais utilisé pour retrouver ou rapprocher un contact.',
+            } only %}
+            <button type="submit" class="btn btn-primary btn-sm">Ajouter le contact</button>
+        </div>
+    </form>
+
+    {% if links is not empty %}
+        <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Liens</h2>
+        <div class="row row-cols-1 row-cols-lg-2 g-3">
+            {% for link in links %}
+                <div class="col">
+                    <div class="card h-100 overflow-hidden">
+                        {% if link.imageFileId %}
+                            <img src="/files/{{ link.imageFileId }}" alt="" class="card-img-top"
+                                 style="max-height: 8rem; object-fit: cover;">
+                        {% endif %}
+                        <div class="card-body">
+                            <a class="fw-medium text-decoration-none" href="{{ link.url }}"
+                               target="_blank" rel="noopener noreferrer">{{ link.heading() }}</a>
+                            <div class="small text-body-secondary">{{ link.siteName ?? link.url }}</div>
+                            {% if link.description %}
+                                <p class="small text-body-secondary mt-2 mb-0">{{ link.description }}</p>
+                            {% endif %}
+                        </div>
+                        <div class="card-footer bg-transparent">
+                            <form method="post" action="/chefs/camps/liens/{{ link.id }}/supprimer" data-confirm="Retirer ce lien du séjour ?">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Retirer</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <form method="post" action="/chefs/camps/sejours/{{ camp.camp.id }}/liens" class="mt-3">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <div class="input-group">
+            <input type="url" name="url" class="form-control" placeholder="https://…"
+                   aria-label="Adresse de la page à retenir">
+            <button class="btn btn-outline-secondary" type="submit">Ajouter un lien</button>
+        </div>
+    </form>
+
+    <div class="row row-cols-2 row-cols-lg-4 g-3 mt-3">
+        <div class="col">
+            <a href="/chefs/camps/sejours/{{ camp.camp.id }}/documents"
+               class="card text-decoration-none text-body h-100">
+                <div class="card-body d-flex align-items-center gap-3">
+                    <i class="bi bi-file-earmark-text fs-4 {{ document_count ? 'text-primary' : 'text-body-secondary' }}"
+                       aria-hidden="true"></i>
+                    <div>
+                        <div class="fw-semibold">{{ document_count }}</div>
+                        <div class="small text-body-secondary">
+                            document{{ document_count > 1 ? 's' : '' }}
+                        </div>
+                    </div>
+                </div>
+            </a>
+        </div>
+        {% if album_available %}
+            <div class="col">
+                <a href="/chefs/camps/sejours/{{ camp.camp.id }}/photos"
+                   class="card text-decoration-none text-body h-100">
+                    <div class="card-body d-flex align-items-center gap-3">
+                        <i class="bi bi-images fs-4 text-body-secondary" aria-hidden="true"></i>
+                        <div>
+                            <div class="fw-semibold">Photos</div>
+                            <div class="small text-body-secondary">du séjour</div>
+                        </div>
+                    </div>
+                </a>
+            </div>
+        {% endif %}
+    </div>
+
     <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Historique</h2>
     {% include 'partials/audit_timeline.html.twig' with {
         entity_type: 'camp_camp',
