@@ -319,3 +319,21 @@ Les trois points de l'ancienne liste « À FAIRE » sont faits.
   vraie raison de l'extraction : Vitest importe des fichiers, pas du
   rendu Twig. Le verrou est
   `UxConventionsTest::testBehaviourLivesInFilesNotInTemplates`.
+- **`getByText('X')` cherche une SOUS-CHAÎNE, sans tenir compte de la
+  casse** — et chaque page porte désormais son panneau d'aide
+  contextuelle, donc la prose de `docs/help/*.md` compte comme du texte
+  de la page. « Toujours actif » (badge) a été rendu ambigu par
+  « Strictement nécessaires : toujours actifs, … », et « Inactif »
+  attendu à zéro par « Actif / Inactif : l'état de l'interrupteur ».
+  Un locator qui vise un badge ou un état doit être `{ exact: true }`.
+  Le recoupement se fait en une commande : chaque `getByText()` non
+  exact d'une spec, cherché en minuscules dans `docs/help/*.md` réduit à
+  une seule ligne.
+- **`actionTimeout` vaut 10 s pour TOUTE la suite** (playwright.config.js).
+  Une action qui transporte des données — `setInputFiles` avec un tampon
+  de 25 Mo passe en base64 sur la connexion CDP, soit ~33 Mo — tient sur
+  une machine au repos et déborde dans une exécution complète. Symptôme :
+  la spec échoue en run complet et passe relancée seule, avec un journal
+  qui dit « locator resolved to <input …> » puis plus rien. C'est un
+  budget de transfert, pas la page : donner son propre `{ timeout: … }` à
+  l'appel, sans toucher au réglage global.
