@@ -1878,6 +1878,26 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **Disabling the module denies these files rather than freeing them.** The registry is fail-closed: an `owner_type` with no registered checker is refused, so `finance` being switched off makes its receipts unreachable, never public.
 
+### 8.71 Writing to a form's respondents (`Modules\MassMail\Api\MassMailDraftInterface`)
+
+`MassMailService::createDraft()` was complete and tested and reachable from exactly one place: the mail-merge screen's own .xlsx import. A chief who wanted to write to the respondents of an article's form therefore exported to Excel, opened the mail merge, re-imported the file they had just downloaded as an audience, and only then started writing. Four manual steps around code that already did the work.
+
+**The provider publishes the interface, the consumer takes it nullable** (§7.5). `Modules\MassMail\Api\MassMailDraftInterface` lives in mass_mail's own `Api` namespace and names nothing about news — no article, no form, no response. `Modules\News\Controller\FormController` takes it as a nullable constructor dependency and degrades to "the button does not exist"; `public/index.php` is the only place that asks `ModuleManager::getEnabledModuleIds()`. With mass_mail disabled the route is still declared (a manifest is static) and answers 404: the feature is not offered, which is not an error.
+
+**The authorization is built by mass_mail, from the actor passed in.** The caller hands over a role and an address; which section that account may send from, and which lists it may target, is `Service\SenderAuthorization` — a rule only mass_mail knows. `Service\MergeDraftService` asserts nothing itself: it constructs the authorization and hands it to `createDraft()`, which re-checks it, so exactly one place decides. A caller able to supply the authorization could grant itself one.
+
+**The audience is stored exactly like an imported one, on purpose** — same `mass_mail_audiences` + `mass_mail_audience_rows`, same encryption, same composer, and above all the same `Task\PurgeMergeAudiencesHandler` retention (18 months after the last send, 7 days for an orphan). A parallel mechanism would be a second thing to get wrong and a second place to forget when the retention rules change.
+
+**`member_id` stays null, even when the address belongs to a member we know.** Resolving it would send to *every* address that member has ever registered, and the respondent answered with one precise address — the one they expect the reply on. The consequence is deliberate and is the reason this is written down: unsubscribing then goes through `mass_mail_suppressed_addresses` rather than through their `member_emails` row.
+
+**Rows are deduplicated by address**, compared lowercased and trimmed, first row winning. Two answers from one family address are one mail, not two.
+
+**The columns come from the export's own rule, not from a second list.** `FormController::responseColumns()` walks the same `isNonInput()` filter in the same field order that `buildXlsx()` uses, and a switch answer reads "Oui"/"Non" in both — the spreadsheet a chief downloads and the merge variables offered in the composer cannot describe the same form differently. The export's four payment columns are deliberately left out: they are accounting figures for a treasurer's spreadsheet, not something to offer as a merge variable in a mail to the respondent.
+
+**The role gap is real and is checked three times.** The responses page is `role_min: intendant`; the mail merge is `chief`. The new route declares `chief`, so the guard refuses an intendant outright; the button is hidden below `chief`, which is presentation only; and mass_mail then applies its own sending rules. A hidden button is not a boundary, and neither is a route's floor on its own (SECURITY.md §3).
+
+**It is a draft.** Nothing is sent, the body starts empty, and the user lands in the ordinary composition screen.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

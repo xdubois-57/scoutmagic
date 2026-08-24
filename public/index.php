@@ -2599,6 +2599,13 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
+// Optional dependency on the mass_mail module (ARCHITECTURE.md §7.5) —
+// seeded null so a consumer guards on `!== null` rather than assuming it
+// exists, and set below only when the module is enabled. Today's consumer
+// is the news form's "Écrire aux répondants" button, which simply does not
+// appear without it.
+$massMailDraftForOthers = null;
+
 if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
     $massMailListRepo = new \Modules\MassMail\Repository\MailingListRepository($pdo);
     $massMailResolutionRepo = new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService);
@@ -2622,6 +2629,10 @@ if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
         $massMailListService, $memberService, $memberEmailService, $sectionService, $mailService, $schedulerService, $journalService,
         new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath,
         $massMailAudienceRepo, $massMailResolutionRepo, $massMailSuppressedRepo, $massMailMergeRenderer
+    );
+
+    $massMailDraftForOthers = new \Modules\MassMail\Service\MergeDraftService(
+        $massMailService, $massMailAudienceRepo, $massMailAccessService, $memberService, $sectionService, $scoutYearService
     );
 
     $frontController->registerController(
@@ -2705,7 +2716,7 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\News\Controller\FormController::class,
         new \Modules\News\Controller\FormController(
             $twig, $newsArticleService, $newsFormService, $newsResponseService, $scoutYearService, $journalService,
-            $financeExpectedReceivableForOthers, $humanCheckService
+            $financeExpectedReceivableForOthers, $humanCheckService, $massMailDraftForOthers
         )
     );
 

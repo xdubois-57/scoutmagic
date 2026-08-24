@@ -5,7 +5,7 @@ summary: Un e-mail personnalisé par ligne d'un fichier Excel, variables compris
 category: Espace animateurs
 role_min: chief
 paths: /mass-mail
-related: envoi-de-mails, membres-admin
+related: envoi-de-mails, membres-admin, publier-une-actualite
 ---
 
 Le publipostage envoie un e-mail personnalisé par ligne d'un fichier
@@ -26,6 +26,10 @@ Deux colonnes ont un sens particulier :
 Chaque ligne doit avoir l'une ou l'autre. Les fichiers Excel exportés
 par le site — membres par section, recherche de membres, réponses de
 formulaire — se réimportent tels quels, sans retouche.
+
+Pour les réponses d'un formulaire d'article, vous n'avez d'ailleurs
+plus besoin du détour par Excel : le bouton « Écrire aux répondants »,
+sur l'onglet Réponses de l'article, prépare le brouillon directement.
 
 Un fichier fautif est **refusé en entier**, avec la liste complète des
 lignes en cause (Tiers inconnu, adresse invalide, ligne vide...) :
