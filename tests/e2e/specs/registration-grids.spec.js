@@ -144,7 +144,10 @@ test('the departures and passage grids save on change, with no save button anywh
     await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Retirer' }).click();
     await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
-    await expect(page.getByText('Retirée')).toBeVisible();
+    // `exact` because the contextual help panel on this page explains the
+    // status transitions in prose — « En attente → Acceptée ou Retirée » —
+    // so a substring match resolves to the badge AND that sentence.
+    await expect(page.getByText('Retirée', { exact: true })).toBeVisible();
 
     expect(alerts, 'a grid reported a failed save through window.alert()').toEqual([]);
     expect(serverErrors, 'the application returned a server error').toEqual([]);
