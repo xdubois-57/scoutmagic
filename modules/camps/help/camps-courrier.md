@@ -47,15 +47,21 @@ premières lignes.
 Un message qui annonce des dates sans ambiguïté peut devenir un séjour.
 
 **Automatiquement**, si la configuration l'autorise : le séjour est créé
-« à confirmer » et le message est classé dessous. Le lieu est celui que le
-site reconnaît ; sinon, il en crée un au nom de l'expéditeur — à relire,
-donc, et à fusionner s'il fait double emploi.
+« à confirmer » sous un terrain que le site reconnaît déjà, et le message
+est classé dessous. **Le nom d'expéditeur ne baptise jamais un terrain** :
+une ferme signe ses e-mails du nom de la personne qui les écrit, et ce
+nom-là n'a rien à faire dans votre liste de lieux.
+
+Un terrain inconnu n'est créé que si le module d'intelligence artificielle
+est actif : son nom est alors **lu dans le message**, avec la consigne de
+ne jamais renvoyer un nom de personne et de ne rien renvoyer en cas
+d'hésitation. Sinon, aucun terrain n'est créé et le message vous attend
+dans le courrier non classé.
 
 **À la main** : « Créer un camp depuis ce message » ouvre le formulaire
-habituel, dates, prix et lieu déjà remplis. Vous corrigez, vous
-enregistrez, le message va se ranger sous le séjour. Le bouton reste là
-même en mode automatique : ce qui traîne ici est justement ce que le site
-n'a pas su faire seul.
+habituel, dates, prix et lieu déjà remplis quand le site a su les lire.
+Vous corrigez, vous enregistrez, le message va se ranger sous le séjour.
+Le bouton reste là même en mode automatique.
 
 Ce que le site sait lire dans un message, et ce qu'il en fait sur la page
 du séjour : voir « Les informations lues dans un message ».
