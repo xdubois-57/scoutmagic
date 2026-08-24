@@ -173,6 +173,12 @@ class CampsRbacTest extends TestCase
             'camp form' => ['/chefs/camps/sejours/{camp}/modifier', 'chief', 'editCamp', 'chief', 'intendant'],
             'documents' => ['/chefs/camps/sejours/{camp}/documents', 'attachment', 'documents', 'chief', 'intendant'],
             'photos' => ['/chefs/camps/sejours/{camp}/photos', 'attachment', 'photos', 'chief', 'intendant'],
+            'edit a contact' => ['/chefs/camps/contacts/{contact}', 'attachment', 'updateContact', 'chief', 'intendant'],
+            'delete a contact' => ['/chefs/camps/contacts/{contact}/supprimer', 'attachment', 'deleteContact', 'chief', 'intendant'],
+            // Removing a review is a chief's correction, not an erasure:
+            // nothing about a person is involved, and a stale opinion no
+            // staff stands behind has to be removable by the staff.
+            'remove a review' => ['/chefs/camps/sejours/{camp}/avis/supprimer', 'attachment', 'deleteReview', 'chief', 'intendant'],
             // Erasure is the module's one admin-only action: it is
             // irreversible and reaches every stay that person appears on.
             'anonymise a contact' => ['/chefs/camps/contacts/{contact}/anonymiser', 'attachment', 'confirmAnonymise', 'admin', 'chief'],

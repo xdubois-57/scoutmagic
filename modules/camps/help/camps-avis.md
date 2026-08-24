@@ -30,6 +30,11 @@ l'avis. Celui qui était là est celui qui sait, et un avis verrouillé sur
 son auteur deviendrait incorrigible le jour où cette personne quitte
 l'unité.
 
+« Retirer l'avis » l'enlève complètement — la note et le commentaire.
+C'est ce qu'il faut faire pour un avis écrit sur le mauvais séjour : le
+réécrire par-dessus laisserait une opinion que personne ne défend, et un
+lieu affiche la note du dernier séjour qui en porte une.
+
 ## Les séjours annulés
 
 Ils peuvent recevoir un avis, et c'est voulu : un propriétaire qui annule

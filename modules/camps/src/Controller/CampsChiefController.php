@@ -16,11 +16,14 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\SectionService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\Role;
 use Core\View\EditableContentService;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
+use Modules\Camps\Repository\Contact;
 use Modules\Camps\Repository\ContactRepository;
 use Modules\Camps\Repository\DocumentRepository;
 use Modules\Camps\Repository\FieldProposalRepository;
@@ -72,7 +75,8 @@ class CampsChiefController extends AbstractController
         private PlaceArchiveService $archiveService,
         private ?InboundMailInterface $inboundMail = null,
         private ?FieldProposalRepository $proposals = null,
-        private ?PlaceSummaryService $summaries = null
+        private ?PlaceSummaryService $summaries = null,
+        private ?ScoutYearResolver $scoutYears = null
     ) {
     }
 
@@ -125,17 +129,9 @@ class CampsChiefController extends AbstractController
      */
     public function create(Request $request, array $params): Response
     {
-        return $this->render('@camps/camp_form.html.twig', [
-            'camp' => null,
-            'place' => $this->places->findById((int) $request->getQuery('lieu', 0)),
-            'breadcrumb_trail' => $this->trail(),
-            'place_options' => $this->placeOptions($this->places->findAllVisible(), (int) $request->getQuery('lieu', 0)),
-            'sections' => $this->sections->getAllWithBranches(),
-            'default_country' => (string) ($this->settings->get('camps_default_country', 'camps', 'Belgique') ?? ''),
-            'stay_type_options' => $this->options(CampLabels::STAY_TYPES, Camp::STAY_GRAND_CAMP),
-            'status_options' => $this->options(CampLabels::STATUSES, Camp::STATUS_TO_CONFIRM),
-            'note' => '',
-        ]);
+        $place = $this->places->findById((int) $request->getQuery('lieu', 0));
+
+        return $this->renderCampForm(null, $place, $this->campFormValues(null, $place, ''), []);
     }
 
     /**
@@ -192,9 +188,17 @@ class CampsChiefController extends AbstractController
             );
             $this->saveNote($campId, (string) $request->getBody('note', ''), null, $actorId);
         } catch (CampsException $e) {
-            FlashMessage::set('error', $e->getMessage());
-
-            return $this->redirect('/chefs/camps/nouveau');
+            // The form comes back with what was typed in it. A redirect to
+            // an empty form threw away a place description, a set of
+            // sections and a note over one bad date — and the message
+            // explaining why arrived on a screen that no longer showed the
+            // field it was about.
+            return $this->renderCampForm(
+                null,
+                $this->places->findById((int) $request->getBody('place_id', 0)),
+                $this->submittedCampValues($request),
+                [$e->getMessage()]
+            );
         }
 
         FlashMessage::set('success', 'Séjour enregistré.');
@@ -219,8 +223,18 @@ class CampsChiefController extends AbstractController
             ? array_values(array_filter($split['past'], static fn(Camp $c): bool => $c->status === $statusFilter))
             : $split['past'];
 
+        // A place the unit went back to every year for fifteen years is
+        // exactly the place whose sheet is worth reading, and it was the
+        // one that rendered fifteen cards nobody asked for. The setting
+        // has existed since the module shipped; nothing read it.
+        $perPage = max(1, (int) ($this->settings->get('camps_past_stays_per_page', 'camps', '20') ?? 20));
+        $pastTotal = count($past);
+        $pageCount = max(1, (int) ceil($pastTotal / $perPage));
+        $page = min($pageCount, max(1, (int) $request->getQuery('page', 1)));
+        $pastPage = array_slice($past, ($page - 1) * $perPage, $perPage);
+
         $pastReviews = $this->reviews->findByCamps(
-            array_map(static fn(Camp $c): int => $c->id, $split['past'])
+            array_map(static fn(Camp $c): int => $c->id, $pastPage)
         );
 
         return $this->render('@camps/place.html.twig', [
@@ -236,8 +250,12 @@ class CampsChiefController extends AbstractController
             'breadcrumb_current' => $place->name,
             'breadcrumb_trail' => $this->trail(),
             'upcoming' => $this->decorateCamps($split['upcoming']),
-            'past' => $this->decorateCamps($past),
+            'past' => $this->decorateCamps($pastPage),
             'past_total' => count($split['past']),
+            'past_page' => $page,
+            'past_page_count' => $pageCount,
+            'past_base_url' => '/chefs/camps/lieux/' . $place->id
+                . '?statut=' . rawurlencode($statusFilter) . '&page=',
             'status_filter' => $statusFilter,
             'status_chips' => $this->statusChips($statusFilter),
             'audit_page' => $this->audit->page(PlaceService::ENTITY_TYPE, $place->id, 1, AuditService::DEFAULT_PER_PAGE),
@@ -255,11 +273,7 @@ class CampsChiefController extends AbstractController
             return $this->notFound();
         }
 
-        return $this->render('@camps/place_form.html.twig', [
-            'place' => $place,
-            'breadcrumb_current' => 'Modifier ' . $place->name,
-            'breadcrumb_trail' => $this->trail($place),
-        ]);
+        return $this->renderPlaceForm($place, $this->placeFormValues($place), []);
     }
 
     /**
@@ -278,9 +292,11 @@ class CampsChiefController extends AbstractController
         try {
             $this->placeService->update($place, $this->placeFields($request), AuthSession::getUserAccountId());
         } catch (CampsException $e) {
-            FlashMessage::set('error', $e->getMessage());
-
-            return $this->redirect('/chefs/camps/lieux/' . $place->id . '/modifier');
+            return $this->renderPlaceForm(
+                $place,
+                $this->submittedPlaceValues($request),
+                [$e->getMessage()]
+            );
         }
 
         FlashMessage::set('success', 'Lieu mis à jour.');
@@ -309,7 +325,7 @@ class CampsChiefController extends AbstractController
             'breadcrumb_current' => CampLabels::dateRange($camp->startDate, $camp->endDate, $camp->yearOnly),
             'breadcrumb_trail' => $this->trail($place),
             'note' => $this->editableContent->get(CampService::noteKey($camp->id), '') ?? '',
-            'contacts' => $this->contacts->findByCamp($camp->id),
+            'contacts' => $this->decorateContacts($this->contacts->findByCamp($camp->id)),
             'contact_role_options' => $this->options(ContactService::ROLES, ''),
             // Only whether photos are POSSIBLE, never how many. Counting
             // them would mean resolving the album, and resolving it
@@ -324,6 +340,7 @@ class CampsChiefController extends AbstractController
             'review_allows_rating' => $this->reviewService->allowsRating($camp),
             'rating_options' => $this->ratingOptions($this->reviews->findByCamp($camp->id)),
             'links' => $this->links->findByCamp($camp->id),
+            'messages' => $this->campMessages($camp->id),
             'document_count' => $this->documents->countByCamp($camp->id),
             'audit_page' => $this->audit->page(CampService::ENTITY_TYPE, $camp->id, 1, AuditService::DEFAULT_PER_PAGE),
             'audit_labels' => CampLabels::FIELD_LABELS,
@@ -341,18 +358,9 @@ class CampsChiefController extends AbstractController
         }
 
         $formPlace = $this->places->findById($camp->placeId);
+        $note = $this->editableContent->get(CampService::noteKey($camp->id), '') ?? '';
 
-        return $this->render('@camps/camp_form.html.twig', [
-            'camp' => $camp,
-            'place' => $formPlace,
-            'breadcrumb_trail' => $this->trail($formPlace, $camp),
-            'place_options' => $this->placeOptions($this->places->findAllVisible(), $camp->placeId),
-            'sections' => $this->sections->getAllWithBranches(),
-            'default_country' => '',
-            'stay_type_options' => $this->options(CampLabels::STAY_TYPES, $camp->stayType),
-            'status_options' => $this->options(CampLabels::STATUSES, $camp->status),
-            'note' => $this->editableContent->get(CampService::noteKey($camp->id), '') ?? '',
-        ]);
+        return $this->renderCampForm($camp, $formPlace, $this->campFormValues($camp, $formPlace, $note), []);
     }
 
     /**
@@ -383,14 +391,213 @@ class CampsChiefController extends AbstractController
                 $actorId
             );
         } catch (CampsException $e) {
-            FlashMessage::set('error', $e->getMessage());
-
-            return $this->redirect('/chefs/camps/sejours/' . $camp->id . '/modifier');
+            return $this->renderCampForm(
+                $camp,
+                $this->places->findById($camp->placeId),
+                $this->submittedCampValues($request),
+                [$e->getMessage()]
+            );
         }
 
         FlashMessage::set('success', 'Séjour mis à jour.');
 
         return $this->redirect('/chefs/camps/sejours/' . $camp->id);
+    }
+
+    // ── The two forms, and what they keep ───────────────────────────
+
+    /**
+     * Renders the stay form from one bag of values, whether they come from
+     * the stored stay or from the POST that was just refused. One renderer
+     * so a field added to the form cannot be filled on the way in and
+     * dropped on the way back.
+     *
+     * @param array<string, mixed> $submitted
+     * @param string[] $errors
+     */
+    private function renderCampForm(?Camp $camp, ?Place $place, array $submitted, array $errors): Response
+    {
+        return $this->render('@camps/camp_form.html.twig', [
+            'camp' => $camp,
+            'place' => $place,
+            'breadcrumb_trail' => $camp !== null ? $this->trail($place, $camp) : $this->trail(),
+            'place_options' => $this->placeOptions(
+                $this->places->findAllVisible(),
+                (int) ($submitted['place_id'] ?? 0)
+            ),
+            'sections' => $this->sections->getAllWithBranches(),
+            'stay_type_options' => $this->options(CampLabels::STAY_TYPES, (string) ($submitted['stay_type'] ?? '')),
+            'status_options' => $this->options(CampLabels::STATUSES, (string) ($submitted['status'] ?? '')),
+            'booked_by_candidates' => $this->bookedByCandidates(),
+            'submitted' => $submitted,
+            'errors' => $errors,
+            'note' => (string) ($submitted['note'] ?? ''),
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $submitted
+     * @param string[] $errors
+     */
+    private function renderPlaceForm(Place $place, array $submitted, array $errors): Response
+    {
+        return $this->render('@camps/place_form.html.twig', [
+            'place' => $place,
+            'submitted' => $submitted,
+            'errors' => $errors,
+            'breadcrumb_current' => 'Modifier ' . $place->name,
+            'breadcrumb_trail' => $this->trail($place),
+        ]);
+    }
+
+    /**
+     * The stay form's fields as the stored stay holds them — the starting
+     * point a chief opening the form sees.
+     *
+     * @return array<string, mixed>
+     */
+    private function campFormValues(?Camp $camp, ?Place $place, string $note): array
+    {
+        return [
+            'place_id' => $camp !== null
+                ? (string) $camp->placeId
+                : ($place !== null ? (string) $place->id : ''),
+            'place_name' => '',
+            'address' => '',
+            'postal_code' => '',
+            'city' => '',
+            'country' => (string) ($this->settings->get('camps_default_country', 'camps', 'Belgique') ?? ''),
+            'website_url' => '',
+            'stay_type' => $camp !== null ? $camp->stayType : Camp::STAY_GRAND_CAMP,
+            'start_date' => $camp !== null ? ($camp->startDate ?? '') : '',
+            'end_date' => $camp !== null ? ($camp->endDate ?? '') : '',
+            'year_only' => $camp !== null && $camp->yearOnly !== null ? (string) $camp->yearOnly : '',
+            'status' => $camp !== null ? $camp->status : Camp::STATUS_TO_CONFIRM,
+            'price' => $camp !== null && $camp->priceCents !== null
+                ? number_format($camp->priceCents / 100, 2, ',', ' ')
+                : '',
+            'participant_count' => $camp !== null && $camp->participantCount !== null
+                ? (string) $camp->participantCount
+                : '',
+            'booked_by_member_id' => $camp !== null && $camp->bookedByMemberId !== null
+                ? (string) $camp->bookedByMemberId
+                : '',
+            'booked_by_name' => $camp !== null ? ($camp->bookedByName ?? '') : '',
+            'section_ids' => array_map('strval', $camp !== null ? $camp->sectionIds : []),
+            'note' => $note,
+        ];
+    }
+
+    /**
+     * The same bag, straight off the POST that was just refused. Strings
+     * throughout, exactly as they were typed — re-formatting a price a
+     * chief mistyped would hide the mistake they have to correct.
+     *
+     * @return array<string, mixed>
+     */
+    private function submittedCampValues(Request $request): array
+    {
+        $sections = $request->getBody('section_ids');
+
+        return [
+            'place_id' => (string) $request->getBody('place_id', ''),
+            'place_name' => (string) $request->getBody('place_name', ''),
+            'address' => (string) $request->getBody('address', ''),
+            'postal_code' => (string) $request->getBody('postal_code', ''),
+            'city' => (string) $request->getBody('city', ''),
+            'country' => (string) $request->getBody('country', ''),
+            'website_url' => (string) $request->getBody('website_url', ''),
+            'stay_type' => (string) $request->getBody('stay_type', Camp::STAY_GRAND_CAMP),
+            'start_date' => (string) $request->getBody('start_date', ''),
+            'end_date' => (string) $request->getBody('end_date', ''),
+            'year_only' => (string) $request->getBody('year_only', ''),
+            'status' => (string) $request->getBody('status', Camp::STATUS_TO_CONFIRM),
+            'price' => (string) $request->getBody('price', ''),
+            'participant_count' => (string) $request->getBody('participant_count', ''),
+            'booked_by_member_id' => (string) $request->getBody('booked_by_member_id', ''),
+            'booked_by_name' => (string) $request->getBody('booked_by_name', ''),
+            'section_ids' => is_array($sections) ? array_map('strval', $sections) : [],
+            'note' => (string) $request->getBody('note', ''),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function placeFormValues(Place $place): array
+    {
+        return [
+            'place_name' => $place->name,
+            'address' => $place->address ?? '',
+            'postal_code' => $place->postalCode ?? '',
+            'city' => $place->city ?? '',
+            'country' => $place->country ?? '',
+            'website_url' => $place->websiteUrl ?? '',
+            'latitude' => $place->latitude !== null ? (string) $place->latitude : '',
+            'longitude' => $place->longitude !== null ? (string) $place->longitude : '',
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function submittedPlaceValues(Request $request): array
+    {
+        return [
+            'place_name' => (string) $request->getBody('place_name', ''),
+            'address' => (string) $request->getBody('address', ''),
+            'postal_code' => (string) $request->getBody('postal_code', ''),
+            'city' => (string) $request->getBody('city', ''),
+            'country' => (string) $request->getBody('country', ''),
+            'website_url' => (string) $request->getBody('website_url', ''),
+            'latitude' => (string) $request->getBody('latitude', ''),
+            'longitude' => (string) $request->getBody('longitude', ''),
+        ];
+    }
+
+    /**
+     * Who could plausibly have booked a camp: this scout year's staff, as
+     * `booked_by_member_id` wants them (a `members` id, which outlives the
+     * year the person was on staff).
+     *
+     * The list is the one a chief already reads on « Staffs » — no new
+     * category of data reaches this screen, and no new endpoint had to
+     * open a member search to a role that does not have one. A stay booked
+     * eight years ago by somebody long gone keeps the free-text name, which
+     * is why the field stays a text input with suggestions rather than
+     * becoming a picker that refuses everybody else.
+     *
+     * @return array<int, array{id: int, name: string}>
+     */
+    private function bookedByCandidates(): array
+    {
+        if ($this->scoutYears === null) {
+            return [];
+        }
+
+        $year = $this->scoutYears->getEffectiveYear(
+            ScoutYearSession::getPreviewId(),
+            Role::fromString(AuthSession::getRole())
+        );
+
+        $names = [];
+        foreach ($this->sections->getAllWithBranches() as $section) {
+            foreach ($this->sections->getSectionStaff((int) $section['id'], $year->id) as $profile) {
+                $name = trim($profile->firstName . ' ' . $profile->lastName);
+                if ($name !== '') {
+                    $names[$profile->memberId] = $name;
+                }
+            }
+        }
+
+        asort($names, SORT_NATURAL | SORT_FLAG_CASE);
+
+        $candidates = [];
+        foreach ($names as $memberId => $name) {
+            $candidates[] = ['id' => $memberId, 'name' => $name];
+        }
+
+        return $candidates;
     }
 
     /**
@@ -530,6 +737,26 @@ class CampsChiefController extends AbstractController
     }
 
     /**
+     * Each contact with the picker already pointing at the role it holds,
+     * so the edit dialog opens on the current value rather than on « — ».
+     * Computed here rather than in Twig: turning a stored label back into
+     * the key its <option> carries is data preparation.
+     *
+     * @param Contact[] $contacts
+     * @return array<int, array<string, mixed>>
+     */
+    private function decorateContacts(array $contacts): array
+    {
+        return array_map(fn(Contact $contact): array => [
+            'contact' => $contact,
+            'role_options' => $this->options(
+                ContactService::ROLES,
+                ContactService::roleKeyForLabel($contact->roleLabel)
+            ),
+        ], $contacts);
+    }
+
+    /**
      * @param Camp[] $camps
      * @return array<int, array<string, mixed>>
      */
@@ -580,6 +807,28 @@ class CampsChiefController extends AbstractController
         );
 
         return $this->redirect('/chefs/camps/lieux/' . $place->id);
+    }
+
+    /**
+     * The correspondence filed under this stay.
+     *
+     * A message could be attached to a stay — automatically, or by hand
+     * from the unsorted screen — and then read nowhere: the stay's page
+     * never mentioned it. Empty when inbound_mail is absent, which is
+     * exactly true on a site that collects no mail.
+     *
+     * @return \Modules\InboundMail\Api\InboundMessage[]
+     */
+    private function campMessages(int $campId): array
+    {
+        if ($this->inboundMail === null) {
+            return [];
+        }
+
+        return $this->inboundMail->findForReference(
+            \Modules\Camps\Mail\CampsMessageConsumer::CONSUMER_ID,
+            \Modules\Camps\Mail\CampsMessageConsumer::referenceFor($campId)
+        );
     }
 
     /**

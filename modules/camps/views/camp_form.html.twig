@@ -8,6 +8,13 @@
             : 'Choisissez un lieu déjà connu, ou décrivez-en un nouveau : il sera créé avec le séjour.',
     } only %}
 
+    {# Le formulaire revient avec ce qui y avait été tapé : une date refusée
+       ne fait plus perdre la description d'un lieu, les sections cochées et
+       la note. #}
+    {% for error in errors %}
+        <div class="alert alert-danger" role="alert">{{ error }}</div>
+    {% endfor %}
+
     <form method="post"
           action="{{ camp ? '/chefs/camps/sejours/' ~ camp.id : '/chefs/camps' }}"
           class="mb-5">
@@ -32,32 +39,34 @@
             <div id="camps-new-place">
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'place-name', field_name: 'place_name', label: 'Nom du lieu',
-                    placeholder: 'Domaine de Mozet', maxlength: 150,
+                    placeholder: 'Domaine de Mozet', maxlength: 150, value: submitted.place_name,
                 } only %}
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'place-address', field_name: 'address', label: 'Adresse',
                     help: 'Facultative : beaucoup de terrains sont un pré sans adresse utilisable.',
-                    maxlength: 255,
+                    maxlength: 255, value: submitted.address,
                 } only %}
                 <div class="row">
                     <div class="col-4">
                         {% include 'partials/form_field.html.twig' with {
-                            field_id: 'place-postal', field_name: 'postal_code', label: 'Code postal', maxlength: 20,
+                            field_id: 'place-postal', field_name: 'postal_code', label: 'Code postal',
+                            maxlength: 20, value: submitted.postal_code,
                         } only %}
                     </div>
                     <div class="col-8">
                         {% include 'partials/form_field.html.twig' with {
-                            field_id: 'place-city', field_name: 'city', label: 'Ville', maxlength: 120,
+                            field_id: 'place-city', field_name: 'city', label: 'Ville',
+                            maxlength: 120, value: submitted.city,
                         } only %}
                     </div>
                 </div>
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'place-country', field_name: 'country', label: 'Pays',
-                    value: default_country, maxlength: 80,
+                    value: submitted.country, maxlength: 80,
                 } only %}
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'place-website', field_name: 'website_url', label: 'Site web du lieu',
-                    type: 'url', placeholder: 'https://…', maxlength: 500,
+                    type: 'url', placeholder: 'https://…', maxlength: 500, value: submitted.website_url,
                 } only %}
             </div>
         {% endif %}
@@ -73,20 +82,20 @@
             <div class="col-12 col-sm-6">
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'start-date', field_name: 'start_date', label: 'Début', type: 'date',
-                    value: camp ? camp.startDate : '',
+                    value: submitted.start_date,
                 } only %}
             </div>
             <div class="col-12 col-sm-6">
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'end-date', field_name: 'end_date', label: 'Fin', type: 'date',
-                    value: camp ? camp.endDate : '',
+                    value: submitted.end_date,
                 } only %}
             </div>
         </div>
 
         {% include 'partials/form_field.html.twig' with {
             field_id: 'year-only', field_name: 'year_only', label: 'Ou seulement l\'année',
-            type: 'number', min: 1900, max: 2200, value: camp and camp.yearOnly ? camp.yearOnly : '',
+            type: 'number', min: 1900, max: 2200, value: submitted.year_only,
             help: 'Pour un séjour dont on ne retrouve plus les dates exactes. Remplissez les dates ci-dessus OU cette année, jamais les deux.',
         } only %}
 
@@ -99,7 +108,7 @@
             <div class="col-12 col-sm-6">
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'price', field_name: 'price', label: 'Prix', inputmode: 'decimal',
-                    value: camp and camp.priceCents is not null ? (camp.priceCents / 100)|number_format(2, ',', ' ') : '',
+                    value: submitted.price,
                     placeholder: '2450,00', help: 'En euros. Les espaces et la virgule sont acceptés.',
                 } only %}
             </div>
@@ -107,16 +116,24 @@
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'participants', field_name: 'participant_count', label: 'Participants',
                     type: 'number', min: 0, max: 5000,
-                    value: camp ? camp.participantCount : '',
+                    value: submitted.participant_count,
                 } only %}
             </div>
         </div>
 
+        {# Texte libre AVEC suggestions : le staff de l'année en cours est
+           proposé et relie le séjour à la fiche du membre, mais un camp
+           réservé il y a huit ans par quelqu'un qui est parti garde son nom
+           écrit à la main. Le rapprochement se fait dans
+           public/assets/js/camps-booked-by.js. #}
         {% include 'partials/form_field.html.twig' with {
             field_id: 'booked-by', field_name: 'booked_by_name', label: 'Réservation faite par',
-            value: camp ? camp.bookedByName : '', maxlength: 150,
-            help: 'Le nom de la personne qui a réservé, tel qu\'on s\'en souviendra dans dix ans.',
+            value: submitted.booked_by_name, maxlength: 150,
+            help: 'Le nom de la personne qui a réservé, tel qu\'on s\'en souviendra dans dix ans. Les animateurs et chefs d\'unité de cette année vous sont proposés.',
         } only %}
+        <input type="hidden" id="booked-by-member-id" name="booked_by_member_id"
+               value="{{ submitted.booked_by_member_id }}">
+        <script type="application/json" id="camps-booked-by-members">{{ booked_by_candidates|json_encode|raw }}</script>
 
         <fieldset class="mb-3">
             <legend class="form-label">Sections concernées</legend>
@@ -125,7 +142,7 @@
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" name="section_ids[]"
                                value="{{ section.id }}" id="section-{{ section.id }}"
-                               {{ camp and section.id in camp.sectionIds ? 'checked' : '' }}>
+                               {{ (section.id ~ '') in submitted.section_ids ? 'checked' : '' }}>
                         <label class="form-check-label" for="section-{{ section.id }}">
                             {{ section.name ?? section.branch_name }}
                         </label>
@@ -155,4 +172,7 @@
     {# The rich text field's own requirement: a module script tag, because
        assets/js/rich-text-form-field.js uses `export`. #}
     <script type="module" src="/assets/js/rich-text-form-field.js"></script>
+{% endblock %}
+{% block scripts %}
+    <script src="/assets/js/camps-booked-by.js"></script>
 {% endblock %}

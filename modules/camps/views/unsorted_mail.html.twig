@@ -35,8 +35,26 @@
                             </span>
                         </div>
 
-                        {% if row.excerpt %}
-                            <p class="small text-body-secondary mt-2 mb-0">{{ row.excerpt }}…</p>
+                        {% if row.has_body %}
+                            {# Le message est lisible en entier ici. On ne
+                               supprime plus définitivement un courrier qu'on
+                               ne peut pas lire — et un extrait de 220
+                               caractères ne dit pas si le message parle du
+                               séjour de 2027 ou d'une facture. #}
+                            <details class="mt-2">
+                                <summary class="small text-body-secondary">
+                                    {{ row.excerpt }}{{ row.truncated ? '…' : '' }}
+                                </summary>
+                                <div class="mt-2 camps-message-body">
+                                    {% if row.message.bodyHtml is not empty %}
+                                        {# Déjà assaini et débarrassé des images
+                                           distantes au stockage (§8.58). #}
+                                        {{ row.message.bodyHtml|raw }}
+                                    {% else %}
+                                        <pre class="mb-0 text-body-secondary" style="white-space: pre-wrap;">{{ row.message.bodyText }}</pre>
+                                    {% endif %}
+                                </div>
+                            </details>
                         {% endif %}
 
                         {% if row.attachment_count > 0 %}

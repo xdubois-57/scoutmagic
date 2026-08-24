@@ -132,6 +132,17 @@ interface Window {
         insertLink: (surface: HTMLElement | null) => Promise<boolean>;
         normalizeUrl: (raw: string | null) => string | null;
     };
+    // public/assets/js/camps-booked-by.js — the « Réservation faite par »
+    // field of the camps stay form, present only on that page. Exposed so
+    // its matching rule can be exercised without a form (tests/js).
+    ScoutMagicCampsBookedBy?: {
+        matchMemberId: (members: Array<{ id: number, name: string }>, typed: string) => string;
+        bind: (
+            input: HTMLInputElement,
+            hidden: HTMLInputElement,
+            members: Array<{ id: number, name: string }>
+        ) => HTMLDataListElement;
+    };
     ScoutMagicNav?: {
         showDesktopMenu?: (menuId: string) => void;
         syncSwitchAriaChecked?: (input: HTMLInputElement) => void;

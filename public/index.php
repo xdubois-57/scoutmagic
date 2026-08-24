@@ -3347,7 +3347,10 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
             $campsSectionDescriber, $sectionService, $editableContentService, $auditService, $settingService,
             $campsContactRepo, $campsLinkRepo, $campsDocumentRepo, $campsAlbumService,
             $campsReviewRepo, $campsReviewService, $campsDuplicateDetector, $campsArchiveService,
-            $inboundMailForOthers ?? null, $campsProposalRepo, $campsSummaryService
+            $inboundMailForOthers ?? null, $campsProposalRepo, $campsSummaryService,
+            // Only to suggest this year's staff in « Réservation faite par »
+            // — the field stays free text when the resolver is absent.
+            $scoutYearResolver
         )
     );
     $frontController->registerController(
