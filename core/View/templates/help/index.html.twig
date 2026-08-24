@@ -11,6 +11,23 @@
         subtitle: "Tous les sujets d'aide disponibles, regroupés par espace du site."
     } only %}
 
+    {# Superadmin only, and empty on a healthy installation: a topic file
+       the registry could not read is dropped rather than allowed to take
+       every page down with it, so this is the one place it is announced. #}
+    {% if load_errors is not empty %}
+        <div class="alert alert-warning" role="alert">
+            <p class="fw-semibold mb-2">
+                <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                {{ load_errors|length }} sujet(s) d'aide n'ont pas pu être lus et sont absents de cette liste.
+            </p>
+            <ul class="mb-0 small">
+                {% for error in load_errors %}
+                    <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
     {# Plain GET, deliberately: the search travels as ?q= and nothing is
        persisted anywhere — no cookie, no session state (ARCHITECTURE.md
        §8.64). No CSRF field either, this form changes nothing. #}

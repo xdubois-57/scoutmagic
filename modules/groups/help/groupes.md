@@ -4,7 +4,7 @@ title: Participer aux groupes de discussion
 summary: Lire, publier, réagir et répondre aux sondages dans vos groupes.
 category: Espace membres
 role_min: identified
-paths: /groups, /groups/*, /groups/archives
+paths: /groups, /groups/*, /groups/archives, /groups/*/members, /groups/*/gallery, /groups/*/search, /groups/*/posts/*
 related: animer-un-groupe, notifications-preferences
 ---
 

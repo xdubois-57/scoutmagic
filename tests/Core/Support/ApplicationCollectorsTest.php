@@ -11,7 +11,9 @@ use Core\Scheduler\CoreTaskHandlers;
 use Core\Support\Collector\ConfigurationParametersCollector;
 use Core\Support\Collector\DatabaseStructureCollector;
 use Core\Support\Collector\EventJournalCollector;
+use Core\Support\Collector\OpcacheCollector;
 use Core\Support\Collector\ScheduledTasksCollector;
+use Core\Support\Collector\UpdateHistoryCollector;
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -270,11 +272,55 @@ class ApplicationCollectorsTest extends TestCase
         $rows = $this->readSheet($this->runCollector(new EventJournalCollector())['entries']['event-journal.xlsx']);
 
         $this->assertSame(
-            ['Horodatage', 'Compte utilisateur', 'Adresse IP', 'Catégorie', 'Type', 'Niveau', 'Description', 'Contexte'],
+            [
+                'Horodatage (heure locale du serveur)',
+                'Compte utilisateur', 'Adresse IP', 'Catégorie', 'Type', 'Niveau', 'Description', 'Contexte',
+            ],
             array_slice($rows[0], 0, 8)
         );
         $this->assertSame('login_success', $rows[1][4]);
         $this->assertSame('192.0.2.10', $rows[1][2]);
+    }
+
+    /**
+     * A DB DATETIME carries no zone. Reading these rows against the UTC
+     * stamps in collection-status.json, or against a server log, is the
+     * whole reason the sheet exists — so each cell states its own offset
+     * rather than leaving the reader to guess which clock it is on.
+     */
+    public function testEveryJournalTimestampCarriesItsUtcOffset(): void
+    {
+        $this->insertJournalEntry('-1 hour', 'login_success');
+
+        $rows = $this->readSheet($this->runCollector(new EventJournalCollector())['entries']['event-journal.xlsx']);
+
+        $this->assertMatchesRegularExpression(
+            '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/',
+            $rows[1][0]
+        );
+    }
+
+    /**
+     * The journal is dominated by whatever runs most often — two scheduled
+     * tasks were 475 of 884 rows on the archive that prompted this — so
+     * the shape of the 48 hours is stated before anyone starts scrolling.
+     */
+    public function testTheJournalShipsWithADigestOfWhatItContains(): void
+    {
+        $this->insertJournalEntry('-1 hour', 'login_success');
+        $this->insertJournalEntry('-2 hours', 'scheduler_task_done');
+        $this->insertJournalEntry('-3 hours', 'scheduler_task_done');
+
+        $digest = $this->runCollector(new EventJournalCollector())['entries']['event-journal-resume.txt'];
+
+        $this->assertStringContainsString('Total : 3 entrée(s)', $digest);
+        $this->assertStringContainsString('scheduler_task_done', $digest);
+        // Most frequent first: the noisiest type is the one worth seeing.
+        $this->assertLessThan(
+            strpos($digest, 'login_success'),
+            (int) strpos($digest, 'scheduler_task_done'),
+            'the digest must list the most frequent event type first'
+        );
     }
 
     // --- scheduled-tasks.xlsx ---
@@ -326,6 +372,66 @@ class ApplicationCollectorsTest extends TestCase
         $this->assertSame('auto', $row[9]);
     }
 
+    /**
+     * The column that would have named the busy-loop. "Last run" showed a
+     * tidy `done` for a task that had re-armed itself 277 times in ten
+     * hours doing nothing; a count over the journal's own window makes the
+     * difference between a daily task and a runaway one obvious.
+     */
+    public function testHowOftenATaskRanIsCountedNotJustWhetherItRan(): void
+    {
+        for ($i = 0; $i < 12; $i++) {
+            $this->pdo->prepare(
+                'INSERT INTO scheduled_actions (module_id, task_key, run_at, status, executed_at) VALUES (?, ?, ?, ?, ?)'
+            )->execute([
+                'core', 'auto_backup',
+                (new \DateTimeImmutable("-{$i} hours"))->format('Y-m-d H:i:s'), 'done',
+                (new \DateTimeImmutable("-{$i} hours"))->format('Y-m-d H:i:s'),
+            ]);
+        }
+        // Outside the window, so it must not be counted.
+        $this->pdo->prepare(
+            'INSERT INTO scheduled_actions (module_id, task_key, run_at, status, executed_at) VALUES (?, ?, ?, ?, ?)'
+        )->execute([
+            'core', 'auto_backup',
+            (new \DateTimeImmutable('-60 hours'))->format('Y-m-d H:i:s'), 'done',
+            (new \DateTimeImmutable('-60 hours'))->format('Y-m-d H:i:s'),
+        ]);
+
+        $row = $this->taskRow('auto_backup');
+
+        $this->assertSame('12', $row[10], 'runs inside the 48 h window');
+        $this->assertSame('0', $row[11], 'no failures');
+        $this->assertSame('0', $row[12], 'nothing pending');
+        $this->assertSame('13', $row[13], 'every instance ever recorded');
+    }
+
+    public function testAQueueNothingIsDrainingIsVisibleAsPending(): void
+    {
+        for ($i = 0; $i < 3; $i++) {
+            $this->pdo->prepare(
+                'INSERT INTO scheduled_actions (module_id, task_key, run_at, status) VALUES (?, ?, ?, ?)'
+            )->execute(['core', 'auto_backup', '2026-08-01 03:00:00', 'pending']);
+        }
+
+        $this->assertSame('3', $this->taskRow('auto_backup')[12]);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function taskRow(string $taskKey): array
+    {
+        $rows = $this->readSheet($this->runCollector(new ScheduledTasksCollector())['entries']['scheduled-tasks.xlsx']);
+        foreach (array_slice($rows, 1) as $candidate) {
+            if ($candidate[1] === $taskKey) {
+                return $candidate;
+            }
+        }
+
+        $this->fail("No row for task '{$taskKey}' in scheduled-tasks.xlsx");
+    }
+
     public function testALastErrorQuotingASecretIsRedacted(): void
     {
         $secret = 'sup3r-s3cret-db-password';
@@ -353,6 +459,110 @@ class ApplicationCollectorsTest extends TestCase
 
         $this->assertCount(1, $autoBackupRows);
         $this->assertSame('2026-08-05 03:00:05', array_values($autoBackupRows)[0][4]);
+    }
+
+    // --- update-history.xlsx ---
+
+    /**
+     * The question the archive could not answer: an error logged at 19:57
+     * belongs to whatever was installed at 19:57, which on an
+     * auto-updating installation may be four versions back. Rebuilding
+     * that from the event journal meant picking 46 rows out of 884.
+     */
+    public function testTheVersionTimelineIsReportedNewestFirst(): void
+    {
+        $this->insertUpdate('1.0.31', '1.0.32', 'completed', '2026-08-01 03:00:00', '2026-08-01 03:00:20');
+        $this->insertUpdate('1.0.32', '1.0.33', 'completed', '2026-08-02 03:00:00', '2026-08-02 03:01:30');
+
+        $rows = $this->readSheet($this->runCollector(new UpdateHistoryCollector())['entries']['update-history.xlsx']);
+
+        $this->assertSame('1.0.33', $rows[1][4], 'newest install first');
+        $this->assertSame('1.0.32', $rows[2][4]);
+        // A duration says whether an install is genuinely stuck.
+        $this->assertSame('1 min 30 s', $rows[1][2]);
+        $this->assertSame('20 s', $rows[2][2]);
+    }
+
+    /**
+     * An update that failed and restored itself leaves no trace a reader
+     * would otherwise notice — the site looks healthy afterwards.
+     */
+    public function testARolledBackUpdateIsVisibleWithItsReason(): void
+    {
+        $this->insertUpdate('1.0.32', '1.0.33', 'rolled_back', '2026-08-02 03:00:00', '2026-08-02 03:02:00', 'migration échouée');
+
+        $rows = $this->readSheet($this->runCollector(new UpdateHistoryCollector())['entries']['update-history.xlsx']);
+
+        $this->assertSame('rolled_back', $rows[1][5]);
+        $this->assertStringContainsString('migration échouée', $rows[1][7]);
+    }
+
+    public function testAnUpdateErrorQuotingASecretIsRedacted(): void
+    {
+        $secret = 'sup3r-s3cret-db-password';
+        $this->insertUpdate('1.0.32', '1.0.33', 'failed', '2026-08-02 03:00:00', null, 'access denied using ' . $secret);
+
+        $xlsx = $this->runCollector(new UpdateHistoryCollector(), [$secret])['entries']['update-history.xlsx'];
+        $flattened = implode(' ', array_map(static fn(array $row): string => implode(' ', $row), $this->readSheet($xlsx)));
+
+        $this->assertStringNotContainsString($secret, $flattened);
+        $this->assertStringContainsString('[REDACTED]', $flattened);
+    }
+
+    public function testTheTimelineIsBoundedAndSaysSo(): void
+    {
+        for ($i = 0; $i < UpdateHistoryCollector::MAX_ROWS + 5; $i++) {
+            $this->insertUpdate('dev-a', 'dev-b', 'completed', (new \DateTimeImmutable("-{$i} hours"))->format('Y-m-d H:i:s'), null);
+        }
+
+        $result = $this->runCollector(new UpdateHistoryCollector());
+        $rows = $this->readSheet($result['entries']['update-history.xlsx']);
+
+        $this->assertCount(UpdateHistoryCollector::MAX_ROWS + 1, $rows, 'header plus the cap');
+        $this->assertNotEmpty(
+            array_filter($result['notes'], static fn(string $n): bool => str_contains($n, 'tronqué')),
+            'a bounded collector must say what it dropped'
+        );
+    }
+
+    // --- opcache.json ---
+
+    /**
+     * phpinfo.html already carries the ini values; what it cannot say is
+     * how long this installation can keep running code an update has
+     * already replaced. That window returned 500 on every route for 54
+     * seconds on a real site.
+     */
+    public function testTheOpcacheReportStatesTheStaleCodeWindow(): void
+    {
+        $result = $this->runCollector(new OpcacheCollector());
+
+        if ($result['unavailable'] !== null) {
+            // OPcache is off for CLI by default, which is itself a valid
+            // outcome: the collector must say why rather than throw.
+            $this->assertStringContainsString('opcache', $result['unavailable']);
+
+            return;
+        }
+
+        $report = json_decode($result['entries']['opcache.json'], true);
+        $this->assertIsArray($report);
+        $this->assertArrayHasKey('stale_window_seconds', $report);
+        $this->assertArrayHasKey('note', $report);
+        $this->assertArrayNotHasKey('scripts', $report, 'the per-file inventory would dwarf the archive');
+    }
+
+    private function insertUpdate(
+        string $from,
+        string $to,
+        string $status,
+        string $startedAt,
+        ?string $completedAt,
+        ?string $error = null
+    ): void {
+        $this->pdo->prepare(
+            'INSERT INTO update_history (version_from, version_to, status, started_at, completed_at, error_message) VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([$from, $to, $status, $startedAt, $completedAt, $error]);
     }
 
     private function insertJournalEntry(string $relativeTime, string $eventType): void

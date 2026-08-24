@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Http;
 
 use Core\Config\AppConfig;
+use Core\Help\HelpException;
 use Core\Help\HelpService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Controller\HelpController;
@@ -158,14 +159,28 @@ class FrontController
         }
 
         $role = Role::fromString(AuthSession::getRole());
-        $entries = [];
-        foreach ($this->helpService->findForPath($request->getPath(), $role) as $topic) {
-            $entries[] = [
-                'id' => $topic->id,
-                'title' => $topic->title,
-                'summary' => $topic->summary,
-                'html' => MarkdownRenderer::toHtml($topic->body(), HelpController::RENDER_OPTIONS),
-            ];
+
+        // Core\Help\HelpRegistry already contains a topic it cannot parse
+        // (it drops that one and carries on), so what is left to fail here
+        // is the body: HelpTopic::body() re-reads the file, and a file that
+        // parsed at the start of the request can be gone or truncated by
+        // the time the panel is rendered — an update copying over the live
+        // install is exactly that race. A help panel is never worth the
+        // page it sits on, so the page wins.
+        try {
+            $entries = [];
+            foreach ($this->helpService->findForPath($request->getPath(), $role) as $topic) {
+                $entries[] = [
+                    'id' => $topic->id,
+                    'title' => $topic->title,
+                    'summary' => $topic->summary,
+                    'html' => MarkdownRenderer::toHtml($topic->body(), HelpController::RENDER_OPTIONS),
+                ];
+            }
+        } catch (HelpException $e) {
+            error_log('ScoutMagic contextual help unavailable for ' . $request->getPath() . ': ' . $e->getMessage());
+
+            return [];
         }
 
         return $entries;

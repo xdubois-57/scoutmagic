@@ -47,9 +47,15 @@ class EventJournalCollector implements SupportCollectorInterface
         $stmt->execute([$cutoff]);
 
         $rows = [];
+        $byType = [];
+        $byLevel = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $entry) {
+            $type = self::asString($entry['event_type'] ?? null);
+            $level = self::asString($entry['level'] ?? null);
+            $byType[$type] = ($byType[$type] ?? 0) + 1;
+            $byLevel[$level] = ($byLevel[$level] ?? 0) + 1;
             $rows[] = [
-                self::asString($entry['logged_at'] ?? null),
+                self::localTimestamp(self::asString($entry['logged_at'] ?? null)),
                 self::asString($entry['user_account_id'] ?? null),
                 self::asString($entry['ip_address'] ?? null),
                 self::asString($entry['category'] ?? null),
@@ -64,11 +70,77 @@ class EventJournalCollector implements SupportCollectorInterface
         $context->addFileFromContent(
             'event-journal.xlsx',
             SupportSpreadsheet::build(
-                ['Horodatage', 'Compte utilisateur', 'Adresse IP', 'Catégorie', 'Type', 'Niveau', 'Description', 'Contexte'],
+                [
+                    'Horodatage (heure locale du serveur)',
+                    'Compte utilisateur', 'Adresse IP', 'Catégorie', 'Type', 'Niveau', 'Description', 'Contexte',
+                ],
                 $rows,
                 'Journal 48h'
             )
         );
+        $context->addFileFromContent('event-journal-resume.txt', self::renderDigest($byType, $byLevel, count($rows)));
+    }
+
+    /**
+     * A DB `DATETIME` carries no zone, and the journal's does not mean UTC
+     * — it means whatever `date.timezone` was when the row was written. A
+     * reader lining these up against `collection-status.json` (UTC) or a
+     * server log has to know which, so every row says so itself rather
+     * than relying on a header being read.
+     */
+    private static function localTimestamp(string $storedValue): string
+    {
+        if ($storedValue === '') {
+            return '';
+        }
+
+        try {
+            return (new \DateTimeImmutable($storedValue))->format('Y-m-d H:i:sP');
+        } catch (\Throwable) {
+            // Unparseable is still worth carrying: the raw value is the
+            // only evidence of whatever wrote it.
+            return $storedValue;
+        }
+    }
+
+    /**
+     * What the 48 hours actually consist of, before anyone scrolls.
+     *
+     * The journal is dominated by whatever runs most often: on the archive
+     * that prompted this file, two scheduled tasks were 475 of 884 rows,
+     * and the three entries worth reading were somewhere underneath. A
+     * reader who sees the shape first knows whether to scroll at all —
+     * and a task suddenly accounting for a third of the journal is itself
+     * the finding, which no amount of scrolling makes obvious.
+     *
+     * @param array<string, int> $byType
+     * @param array<string, int> $byLevel
+     */
+    private static function renderDigest(array $byType, array $byLevel, int $total): string
+    {
+        arsort($byType);
+        arsort($byLevel);
+
+        $lines = [
+            '# Journal des événements — résumé des ' . self::WINDOW_HOURS . ' dernières heures',
+            '# Le détail ligne à ligne est dans event-journal.xlsx.',
+            '',
+            "Total : {$total} entrée(s)",
+            '',
+            '## Par niveau',
+        ];
+        foreach ($byLevel as $level => $count) {
+            $lines[] = sprintf('%8d  %s', $count, $level === '' ? '(vide)' : $level);
+        }
+
+        $lines[] = '';
+        $lines[] = '## Par type (du plus fréquent au plus rare)';
+        foreach ($byType as $type => $count) {
+            $share = $total > 0 ? sprintf(' (%d %%)', (int) round($count * 100 / $total)) : '';
+            $lines[] = sprintf('%8d  %s%s', $count, $type === '' ? '(vide)' : $type, $share);
+        }
+
+        return implode("\n", $lines) . "\n";
     }
 
     private static function asString(mixed $value): string

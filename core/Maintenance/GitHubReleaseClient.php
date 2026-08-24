@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Maintenance;
 
+use Core\Http\StreamResponseHeaders;
+
 /**
  * Thin, unauthenticated GitHub REST client used by
  * Core\Maintenance\GitHubWebhookService (composerLockChanged(), when a
@@ -171,13 +173,14 @@ final class GitHubReleaseClient implements GitHubReleaseClientInterface
             ],
         ]);
 
+        StreamResponseHeaders::clear();
         $body = @file_get_contents($url, false, $context);
         if ($body === false) {
             throw new UpdateException("Impossible de contacter l'API GitHub.");
         }
 
         $status = 0;
-        foreach ($http_response_header as $header) {
+        foreach (StreamResponseHeaders::last() as $header) {
             if (preg_match('#^HTTP/\S+\s+(\d+)#', $header, $matches)) {
                 $status = (int) $matches[1];
             }

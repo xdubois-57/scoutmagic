@@ -4,7 +4,7 @@ title: La page d'un animé ou d'un membre
 summary: Ce que montre la page personnelle : photo, section, documents, informations.
 category: Espace membres
 role_min: identified
-paths: /members/*
+paths: /members/*, /members/*/emails/*
 related: adresses-email, un-email-plusieurs-animes, mon-compte
 ---
 

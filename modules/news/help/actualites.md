@@ -4,7 +4,7 @@ title: Lire les actualités et s'inscrire
 summary: Les articles de l'unité et leurs formulaires d'inscription.
 category: Premiers pas
 role_min: public
-paths: /news, /news/*
+paths: /news, /news/*, /news/*/form/responses/*/edit
 related: publier-une-actualite, decouvrir-le-site
 ---
 

@@ -260,6 +260,29 @@ class SupportControllerTest extends TestCase
         $this->assertStringContainsString('http_500', $body);
     }
 
+    /**
+     * On the receiver, "no report is ever sent" is the correct, permanent
+     * answer — so the panel says it, rather than leaving a first-day
+     * failure sitting there dated and unexplained.
+     */
+    public function testTheReceiverIsToldWhyItNeverSendsAnything(): void
+    {
+        $this->settingRepository->updateValue(null, 'base_url', 'https://www.scoutmagic.be');
+        $this->settings->clearCache();
+
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('il ne s\'envoie pas de rapport à lui-même', $body);
+        $this->assertStringNotContainsString('Aucun envoi n\'a encore abouti', $body);
+    }
+
+    public function testAnOrdinaryInstallationIsNotToldItIsTheReceiver(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('il ne s\'envoie pas de rapport à lui-même', $body);
+    }
+
     public function testNoNextScheduledSendIsAdvertised(): void
     {
         $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
