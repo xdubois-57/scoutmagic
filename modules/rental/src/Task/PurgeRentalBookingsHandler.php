@@ -26,12 +26,14 @@ use Modules\Rental\Service\RentalRetentionService;
  * the same pattern as `Core\Notification\Task\PurgeNotificationsHandler`,
  * which §6.35 names as the model.
  *
- * **`inbound_mail` is null here.** Under a real crontab the composition
- * root that knows whether that module is enabled has not run, so the
- * handler cannot reach it — which would leave a purged booking's emails
- * behind. It is therefore registered explicitly with a fully-wired service
- * in **both** entry points, like the reminder task; this self-built
- * fallback purges everything else, and a test pins both call sites.
+ * **`inbound_mail` and Finance are null here.** Under a real crontab the
+ * composition root that knows whether those modules are enabled has not
+ * run, so the handler cannot reach them — which would leave a purged
+ * booking's emails behind, and Finance still expecting money for a stay
+ * that no longer exists. It is therefore registered explicitly with a
+ * wired service in **both** entry points, like the reminder task; this
+ * self-built fallback purges everything else, and a test pins both call
+ * sites.
  */
 class PurgeRentalBookingsHandler implements TaskHandlerInterface
 {

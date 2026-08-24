@@ -154,6 +154,16 @@ class CampsMessageConsumer implements MessageConsumerInterface
         if ($campId === null) {
             return;
         }
+
+        // The reference names a stay; it does not prove one still exists.
+        // A message can be claimed under `camp-{id}` and the stay deleted
+        // or merged away before the sync that stores it gets here — and
+        // camp_documents.camp_id is a foreign key, so attaching would fail
+        // the whole synchronisation pass over a row nobody can even see.
+        if ($this->camps->findById($campId) === null) {
+            return;
+        }
+
         if ($this->documents === null || $message->attachments === []) {
             // No attachments to file, but the body may still say
             // something about the stay.

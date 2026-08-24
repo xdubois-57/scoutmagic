@@ -72,6 +72,18 @@ class PlaceService
 
         $this->places->update($place->id, $name, $address, $postalCode, $city, $country, $websiteUrl);
 
+        // A changed address is a different place on the map. `geocoded_at`
+        // means "we have tried this address", so leaving it stamped kept
+        // the pin the OLD address produced for ever — the map went on
+        // showing the wrong field, and nothing ever asked again. Cleared
+        // only for an automatically-placed pin: the repository's own
+        // `coordinates_are_manual = 0` fence keeps a hand-placed one.
+        if ($this->addressLine($place->address, $place->postalCode, $place->city, $place->country)
+            !== $this->addressLine($address, $postalCode, $city, $country)
+        ) {
+            $this->places->clearGeocoding($place->id);
+        }
+
         // Coordinates are their own decision, taken only when the form
         // actually carried them: a chief editing an address must not
         // silently wipe a pin somebody placed by hand.

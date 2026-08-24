@@ -47,6 +47,15 @@ use Modules\Rental\Repository\RentalChangeRequestRepository;
  */
 class RentalOperationsService
 {
+    /**
+     * How many requests a renter may have waiting at once (§6.16).
+     *
+     * The renter's form is reached with a tracking token and no login, so
+     * nothing else bounds how often it can be posted — and every post
+     * lands in a manager's queue.
+     */
+    public const MAX_PENDING_RENTER_REQUESTS = 3;
+
     public function __construct(
         private RentalBookingRepository $bookingRepository,
         private RentalBookingEventRepository $eventRepository,
@@ -88,6 +97,24 @@ class RentalOperationsService
         ?int $actorMemberId,
         \DateTimeImmutable $now
     ): void {
+        $this->applyStatus($booking, $target, $actorMemberId, $now, null);
+    }
+
+    /**
+     * `changeStatus()`'s body, plus the one thing only an internal caller
+     * knows: which pending change request is being decided right now and
+     * must therefore survive the sweep below (`acceptChange()` applying a
+     * cancellation).
+     *
+     * @throws RentalException
+     */
+    private function applyStatus(
+        RentalBooking $booking,
+        BookingStatus $target,
+        ?int $actorMemberId,
+        \DateTimeImmutable $now,
+        ?int $exceptChangeRequestId
+    ): void {
         if ($target === BookingStatus::CONFIRMED) {
             throw new RentalException(
                 'Une confirmation passe par le contrôle de disponibilité. Utilisez le bouton « Confirmer ».'
@@ -112,6 +139,14 @@ class RentalOperationsService
         // deadline would only reappear in the expiry sweep later.
         if (!$target->occupiesTheAsset()) {
             $this->bookingRepository->clearHold($booking->id);
+        }
+
+        // A file that is closed has nothing left to decide. Leaving the
+        // pending requests standing showed the renter a proposal they could
+        // still press "Accepter" on — refused, but only at the very last
+        // step, after they had been invited to it.
+        if ($target->isFinal()) {
+            $this->refusePendingChangeRequests($booking->id, $actorMemberId, $exceptChangeRequestId);
         }
 
         $this->recordStatusChange($booking, $target, $actorMemberId);
@@ -426,6 +461,20 @@ class RentalOperationsService
         return $value;
     }
 
+    /**
+     * The one sentence a final booking is refused with, wherever the
+     * refusal happens.
+     *
+     * Written once because it is read on both sides: a renter meets it on
+     * the tracking page, a manager on the booking page, and two different
+     * wordings for one rule read as two different rules.
+     */
+    private static function finalRefusal(BookingStatus $status): string
+    {
+        return 'Cette réservation est ' . mb_strtolower($status->label())
+            . ' : elle ne peut plus être modifiée.';
+    }
+
     public function requestChange(
         RentalBooking $booking,
         ChangeRequestOrigin $origin,
@@ -439,10 +488,32 @@ class RentalOperationsService
         ?int $actorMemberId = null
     ): int {
         if ($booking->status->isFinal()) {
-            throw new RentalException(
-                'Cette réservation est ' . mb_strtolower($booking->status->label())
-                . ' : elle ne peut plus être modifiée.'
-            );
+            throw new RentalException(self::finalRefusal($booking->status));
+        }
+
+        // The renter's side of this form is anonymous: it is reached with a
+        // tracking token and nothing else, so a script — or an impatient
+        // person — can post it as often as it likes, and every post lands
+        // in a manager's queue. Three at once is already more than anybody
+        // answers in one go, and a manager can clear them by deciding.
+        // The manager's own proposals are not capped: they are made from
+        // behind a login, and a manager competing with themselves is not a
+        // failure mode.
+        if ($origin === ChangeRequestOrigin::RENTER) {
+            $pending = 0;
+            foreach ($this->changeRequestRepository->findPendingForBooking($booking->id) as $request) {
+                if ($request->origin === ChangeRequestOrigin::RENTER) {
+                    $pending++;
+                }
+            }
+
+            if ($pending >= self::MAX_PENDING_RENTER_REQUESTS) {
+                throw new RentalException(
+                    'Vous avez déjà ' . self::MAX_PENDING_RENTER_REQUESTS
+                    . ' demandes en attente de réponse pour cette réservation. '
+                    . "Attendez notre réponse avant d'en envoyer une autre."
+                );
+            }
         }
 
         if ($kind === ChangeRequestKind::DATES && ($arrivalDate === null || $departureDate === null)) {
@@ -516,13 +587,22 @@ class RentalOperationsService
         }
 
         if ($request->kind === ChangeRequestKind::CANCELLATION) {
+            // A booking that reached a final state after this request was
+            // loaded is refused in the module's own words rather than by
+            // the transition table's, which would answer "on ne passe pas
+            // de annulé à annulé" — true, and unhelpful.
+            $current = $this->bookingRepository->findById($booking->id);
+            if ($current !== null && $current->status->isFinal()) {
+                throw new RentalException(self::finalRefusal($current->status));
+            }
+
             // The status change first, deliberately. `decide()` consumes the
             // request and there is no way to un-decide one: marking it
             // accepted before a changeStatus() that then refuses the
             // transition — because a manager cancelled the booking by hand
             // in the meantime — left the renter's request permanently
             // accepted with nothing applied and no way back.
-            $this->changeStatus($booking, BookingStatus::CANCELLED, $actorMemberId, $now);
+            $this->applyStatus($booking, BookingStatus::CANCELLED, $actorMemberId, $now, $request->id);
 
             if (!$this->changeRequestRepository->decide($request->id, ChangeRequestStatus::ACCEPTED, $actorMemberId)) {
                 throw new RentalException('Cette demande a déjà été traitée.');
@@ -546,6 +626,17 @@ class RentalOperationsService
             $current = $this->bookingRepository->findById($booking->id);
             if ($current === null) {
                 throw new RentalException("Cette réservation n'existe plus.");
+            }
+
+            // Re-read INSIDE the lock, and checked on every kind of
+            // request rather than only the ones that touch availability.
+            // The copy the controller loaded is from before the lock was
+            // taken: a booking cancelled between the page render and this
+            // click used to have its dates and its price rewritten anyway,
+            // silently, on a file everybody considers closed. Same refusal
+            // as `requestChange()`, because it is the same rule.
+            if ($current->status->isFinal()) {
+                throw new RentalException(self::finalRefusal($current->status));
             }
 
             $arrival = $request->proposedArrivalDate ?? $current->arrivalDate;
@@ -711,6 +802,32 @@ class RentalOperationsService
             $request->summary(),
             $actorMemberId
         );
+    }
+
+    /**
+     * Refuses every request still waiting on a booking that has just been
+     * closed, cancelled, refused or expired.
+     *
+     * Each one is recorded in the history like any other decision: a
+     * request that simply vanished would leave the renter's page one item
+     * shorter with nothing saying why.
+     */
+    private function refusePendingChangeRequests(
+        int $bookingId,
+        ?int $actorMemberId,
+        ?int $exceptChangeRequestId
+    ): void {
+        foreach ($this->changeRequestRepository->findPendingForBooking($bookingId) as $pending) {
+            if ($pending->id === $exceptChangeRequestId) {
+                continue;
+            }
+
+            if (!$this->changeRequestRepository->decide($pending->id, ChangeRequestStatus::REFUSED, $actorMemberId)) {
+                continue;
+            }
+
+            $this->recordChangeDecision($pending, ChangeRequestStatus::REFUSED, $actorMemberId);
+        }
     }
 
     /**

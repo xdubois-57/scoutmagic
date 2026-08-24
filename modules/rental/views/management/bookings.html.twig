@@ -43,10 +43,26 @@
                     {% endfor %}
                 </select>
             </div>
+            {% if years is not empty %}
+                <div class="col-6 col-sm-3 col-md-2">
+                    <label class="form-label small" for="booking-year">Année</label>
+                    <select class="form-select form-select-sm" id="booking-year" name="annee">
+                        <option value="" {{ year == '' ? 'selected' : '' }}>Toutes</option>
+                        {% for value in years %}
+                            <option value="{{ value }}" {{ year == value ? 'selected' : '' }}>{{ value }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endif %}
+            <div class="col-12 col-sm-6 col-md-3">
+                <label class="form-label small" for="booking-search">Recherche</label>
+                <input type="search" class="form-control form-control-sm" id="booking-search"
+                       name="q" value="{{ search }}" placeholder="Référence ou nom">
+            </div>
             <div class="col-6 col-sm-3 col-md-2">
                 <button type="submit" class="btn btn-sm btn-primary w-100">Filtrer</button>
             </div>
-            {% if filter != '' %}
+            {% if filter != '' or year != '' or search != '' %}
                 <div class="col-6 col-sm-3 col-md-2">
                     <a href="/mes-locations/{{ asset.slug }}/reservations"
                        class="btn btn-sm btn-outline-secondary w-100">Tout voir</a>
@@ -60,6 +76,9 @@
                 icon: 'bi-calendar-x',
             } only %}
         {% else %}
+            <p class="text-body-secondary small">
+                {{ total_matching }} réservation{{ total_matching > 1 ? 's' : '' }}.
+            </p>
             <div class="table-responsive">
                 <table class="table align-middle">
                     <thead>
@@ -99,6 +118,13 @@
                     </tbody>
                 </table>
             </div>
+
+            {% include 'partials/pagination.html.twig' with {
+                page: page,
+                total_pages: total_pages,
+                base_url: pagination_base_url,
+                label: 'Pagination des réservations',
+            } only %}
         {% endif %}
     </div>
 {% endblock %}

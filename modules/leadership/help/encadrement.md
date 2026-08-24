@@ -35,9 +35,15 @@ affiché est donc un minimum, jamais une surestimation.
 
 ## Obligations
 
-Les animateurs qui atteignent 20 ans dans les six prochaines semaines :
-la seule échéance qui se voit venir, puisqu'à partir de cet âge un
-extrait de casier judiciaire est requis.
+Les animateurs et les intendants qui atteignent 20 ans dans les six
+prochaines semaines : la seule échéance qui se voit venir, puisqu'à
+partir de cet âge un extrait de casier judiciaire est requis. Le balayage
+couvre tout le staff, parce que l'obligation vient du contact avec des
+mineurs et non de la fonction d'animation.
+
+Une phrase sous le bloc indique combien de personnes n'ont pas de date de
+naissance exploitable dans Desk : une liste vide ne veut donc pas
+toujours dire « personne ».
 
 Puis les personnes que Desk signalait comme **candidates** au dernier
 import. Ce n'est pas une liste d'arrivées : Desk remet ce statut de

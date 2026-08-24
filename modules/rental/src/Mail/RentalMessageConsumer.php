@@ -16,6 +16,7 @@ use Modules\InboundMail\Api\MessageClaim;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
+use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Service\RentalDocumentService;
 
@@ -128,11 +129,17 @@ class RentalMessageConsumer implements MessageConsumerInterface
         }
 
         foreach ($message->attachments as $attachment) {
+            // Registered as email-sourced: the row points at the message's
+            // OWN file id, not at a copy, so deleting the document later
+            // must leave the bytes — and the message's attachment — alone
+            // (§8.59).
             $this->documentService->attachUploaded(
                 $booking,
                 $attachment->fileId,
                 DocumentType::UNSORTED,
-                false
+                false,
+                null,
+                RentalDocument::SOURCE_EMAIL
             );
         }
     }

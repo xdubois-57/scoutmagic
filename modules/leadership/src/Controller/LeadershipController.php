@@ -71,7 +71,8 @@ class LeadershipController extends AbstractController
             $context['staff'],
             $context['scout_year_id'],
             $context['scout_year_label'],
-            $context['previous_scout_year_id']
+            $context['previous_scout_year_id'],
+            $context['resolver']
         );
         $toFinish = $this->trainingService->toFinish($context['staff'], $context['resolver']);
         $birthdays = $this->obligationsService->upcomingAdultBirthdays($context['staff'], $context['today']);
@@ -107,7 +108,10 @@ class LeadershipController extends AbstractController
                 $context['staff'],
                 $context['scout_year_id'],
                 $context['scout_year_label'],
-                $context['previous_scout_year_id']
+                $context['previous_scout_year_id'],
+                // So somebody who arrives with a T1 already behind them is
+                // on "à terminer" and not on "à convaincre de commencer".
+                $context['resolver']
             ),
             // With a single imported year there is nothing to compare
             // against, so the first-year half of the list cannot be
@@ -148,6 +152,10 @@ class LeadershipController extends AbstractController
         return $this->render('@leadership/obligations.html.twig', $this->withFooter($context, [
             'birthdays' => $this->obligationsService->upcomingAdultBirthdays($context['staff'], $context['today']),
             'candidates' => $this->obligationsService->candidates($context['staff'], $context['today']),
+            // An empty birthday block means "nobody turns 20 soon" only
+            // when every birth date is known; this is how many people it
+            // could say nothing about.
+            'without_birth_date' => $this->obligationsService->countWithoutBirthDate($context['staff']),
             'alert_weeks' => LeadershipRules::ADULT_AGE_ALERT_WEEKS,
             'adult_age' => LeadershipRules::ADULT_AGE,
         ]));

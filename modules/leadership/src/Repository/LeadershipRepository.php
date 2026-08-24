@@ -250,6 +250,42 @@ class LeadershipRepository
      * real record, and where it too is empty the page shows no countdown
      * rather than an invented one.
      */
+    /**
+     * The same answer for a whole list of members, in one query.
+     *
+     * The stewards page called the single-member version once per line, so
+     * a unit with a dozen intendants issued a dozen round trips to render
+     * one table — and the number grows with the very list it is rendering.
+     *
+     * @param int[] $memberIds
+     * @return array<int, string> members.id => earliest start date
+     */
+    public function findEarliestSectionPeriodStarts(array $memberIds, int $scoutYearId): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->connection->getPdo()->prepare(
+            "SELECT member_id, MIN(start_date) AS earliest
+               FROM member_section_periods
+              WHERE member_id IN ({$placeholders}) AND scout_year_id = ?
+              GROUP BY member_id"
+        );
+        $stmt->execute([...$memberIds, $scoutYearId]);
+
+        $starts = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            if ($row['earliest'] !== null) {
+                $starts[(int) $row['member_id']] = (string) $row['earliest'];
+            }
+        }
+
+        return $starts;
+    }
+
     public function findEarliestSectionPeriodStart(int $memberId, int $scoutYearId): ?string
     {
         $stmt = $this->connection->getPdo()->prepare(

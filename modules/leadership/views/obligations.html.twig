@@ -11,14 +11,25 @@
             <div class="card-body">
                 <h2 class="h6 mb-1">Anniversaires des {{ adult_age }} ans</h2>
                 <p class="small text-body-secondary mb-3">
-                    Animateurs qui atteignent {{ adult_age }} ans dans les {{ alert_weeks }} prochaines semaines.
-                    C'est la seule échéance de cette page qui se voit venir : à partir de cet âge, un extrait de
-                    casier judiciaire est légalement requis.
+                    Animateurs et intendants qui atteignent {{ adult_age }} ans dans les
+                    {{ alert_weeks }} prochaines semaines. C'est la seule échéance de cette page qui se voit
+                    venir : à partir de cet âge, un extrait de casier judiciaire est légalement requis.
                 </p>
                 {% include '@leadership/partials/_person_list.html.twig' with {
                     lines: birthdays,
                     empty_message: 'Aucun anniversaire des ' ~ adult_age ~ ' ans dans les ' ~ alert_weeks ~ ' prochaines semaines.',
                 } only %}
+                {% if without_birth_date > 0 %}
+                    {# Sans cette phrase, une liste vide se lit « personne
+                       n'atteint 20 ans bientôt », alors qu'elle veut aussi
+                       dire « le site n'a pas pu le savoir ». #}
+                    <p class="small text-body-secondary mt-3 mb-0">
+                        {{ without_birth_date }} personne{{ without_birth_date > 1 ? 's' : '' }} du staff
+                        {{ without_birth_date > 1 ? 'n\'ont' : "n'a" }} pas de date de naissance exploitable
+                        dans Desk : cette liste ne dit rien
+                        {{ without_birth_date > 1 ? "d'elles" : "d'elle" }}.
+                    </p>
+                {% endif %}
             </div>
         </div>
 

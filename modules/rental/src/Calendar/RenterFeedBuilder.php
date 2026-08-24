@@ -68,7 +68,14 @@ class RenterFeedBuilder
             description: $this->description($booking, $asset, $renterContacts),
             url: $this->trackingUrl($booking, $trackingToken),
             isCancelled: !$booking->status->occupiesTheAsset(),
-            sequence: $booking->status->isFinal() ? 1 : 0
+            sequence: $booking->status->isFinal() ? 1 : 0,
+            updatedAt: null,
+            // A request that has been received, is being examined, or has
+            // a proposal out is not a booking yet. Published as CONFIRMED
+            // it reads, in the renter's own calendar, exactly like the
+            // week they have been promised — and a refusal a fortnight
+            // later leaves them having planned around it.
+            isTentative: !$booking->status->firmlyOccupiesTheAsset()
         );
     }
 

@@ -55,8 +55,29 @@ final class VirtualEvent
          */
         public readonly int $sequence = 0,
         /** When the underlying thing last changed, for `LAST-MODIFIED`. */
-        public readonly ?\DateTimeImmutable $updatedAt = null
+        public readonly ?\DateTimeImmutable $updatedAt = null,
+        /**
+         * Not settled yet — `STATUS:TENTATIVE` (RFC 5545 §3.8.1.11).
+         *
+         * The third value the standard defines, and the honest one for
+         * anything a human still has to agree to: a rental request that
+         * has been received but not confirmed is neither CONFIRMED nor
+         * CANCELLED, and calling it CONFIRMED is how somebody blocks a
+         * weekend in their own calendar for a booking that is later
+         * refused. Ignored when $isCancelled is true — cancelled wins.
+         */
+        public readonly bool $isTentative = false
     ) {
+    }
+
+    /** The RFC 5545 `STATUS` value this event publishes. */
+    public function icsStatus(): string
+    {
+        if ($this->isCancelled) {
+            return 'CANCELLED';
+        }
+
+        return $this->isTentative ? 'TENTATIVE' : 'CONFIRMED';
     }
 
     public function isAllDay(): bool

@@ -89,4 +89,39 @@ final class TextMatcher
 
         return $folded !== '' && str_contains($folded, $needle);
     }
+
+    /**
+     * True when $needle appears in the folded $haystack **as a whole word**.
+     *
+     * Folding collapses every run of non-alphanumerics to one space, so a
+     * word here is a run bounded by spaces or by the ends of the string —
+     * and "POST2015" therefore does NOT contain the word "t2", though it
+     * plainly contains the letters. That distinction is the whole point:
+     * a two-character needle matched as a substring fires on export
+     * wordings nobody thought about, and a confidently-wrong training step
+     * never announces itself the way an unrecognised one does.
+     */
+    public static function containsWord(?string $haystack, string $needle): bool
+    {
+        $folded = self::fold($haystack);
+        if ($folded === '' || $needle === '') {
+            return false;
+        }
+
+        return preg_match('/(^| )' . preg_quote($needle, '/') . '( |$)/', $folded) === 1;
+    }
+
+    /**
+     * Locale-independent comparison of two names for display order.
+     *
+     * `strcasecmp()` compares bytes, so "Émilie" sorts after "Zoé" and a
+     * unit's list of animateurs reads as if the accented names had been
+     * appended at the end. Comparing the folded forms puts them where a
+     * reader looks for them; ties fall back to the raw strings so two
+     * names that differ only by an accent still have a stable order.
+     */
+    public static function compareNames(string $a, string $b): int
+    {
+        return (self::fold($a) <=> self::fold($b)) ?: strcmp($a, $b);
+    }
 }

@@ -16,9 +16,11 @@ use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Repository\ContactRepository;
 use Modules\Camps\Repository\DocumentRepository;
 use Modules\Camps\Repository\LinkRepository;
+use Modules\Camps\Mail\CampsMessageConsumer;
 use Modules\Camps\Repository\Place;
 use Modules\Camps\Repository\PlaceRepository;
 use Modules\Camps\Repository\ReviewRepository;
+use Modules\InboundMail\Api\InboundMailInterface;
 
 /**
  * Bringing two rows that are one thing back together.
@@ -36,6 +38,19 @@ use Modules\Camps\Repository\ReviewRepository;
  *   nothing is silently lost: every losing value is appended to the
  *   surviving stay's note, timestamped. A chief who merges the wrong pair
  *   still has the numbers, in prose, on the page.
+ *
+ * **Both merges are one transaction.** Each moves half a dozen tables, and
+ * a failure halfway through used to leave the pair in a state neither
+ * screen can describe: stays under an archived place, contacts on a stay
+ * that no longer exists, a note appended to a merge that never happened.
+ * Every table involved is InnoDB and every repository here shares one PDO,
+ * so one `BEGIN`/`COMMIT` covers the lot.
+ *
+ * **The gallery is the exception, and runs last.** Moving photos is
+ * another module's write behind a public API (§7.5); it is done after the
+ * commit and its failure is explicitly non-fatal — a merge that is
+ * otherwise complete must not be rolled back because the gallery is
+ * disabled, misconfigured, or simply refused the storage location.
  */
 class MergeService
 {
@@ -48,8 +63,44 @@ class MergeService
         private ReviewRepository $reviews,
         private EditableContentService $editableContent,
         private AuditService $audit,
-        private CampAlbumService $albums
+        private CampAlbumService $albums,
+        private \PDO $pdo,
+        private ?InboundMailInterface $inboundMail = null
     ) {
+    }
+
+    /**
+     * Runs $work as one unit of work.
+     *
+     * Nested calls are tolerated (`inTransaction()`): PDO has no savepoint
+     * abstraction and a second `beginTransaction()` would throw, so an
+     * outer transaction simply wins and this becomes a plain call.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    private function transactionally(callable $work): mixed
+    {
+        $owned = !$this->pdo->inTransaction();
+        if ($owned) {
+            $this->pdo->beginTransaction();
+        }
+
+        try {
+            $result = $work();
+            if ($owned) {
+                $this->pdo->commit();
+            }
+
+            return $result;
+        } catch (\Throwable $e) {
+            if ($owned) {
+                $this->pdo->rollBack();
+            }
+
+            throw $e;
+        }
     }
 
     /**
@@ -96,50 +147,69 @@ class MergeService
         if ($from->id === $to->id) {
             throw new CampsException('Un lieu ne peut pas être fusionné avec lui-même.');
         }
+        // Merging INTO an archived place would move live stays onto a row
+        // that no ordinary screen shows: the stays would simply vanish
+        // from the module, and the chief who pressed the button would have
+        // no way of guessing where they went.
+        if ($to->isArchived) {
+            throw new CampsException(
+                'Ce lieu est archivé : désarchivez-le d\'abord si vous voulez y regrouper des séjours.'
+            );
+        }
 
         $winner = $from->updatedAt > $to->updatedAt ? $from : $to;
         $loser = $winner === $from ? $to : $from;
 
-        $this->places->update(
-            $to->id,
-            $to->name,
-            $this->pick($winner->address, $loser->address),
-            $this->pick($winner->postalCode, $loser->postalCode),
-            $this->pick($winner->city, $loser->city),
-            $this->pick($winner->country, $loser->country),
-            $this->pick($winner->websiteUrl, $loser->websiteUrl),
-        );
-
-        // Coordinates are the one field that does not follow the
-        // most-recently-updated rule: a point a human placed beats an
-        // automatic one whatever the timestamps say, and a place with no
-        // point at all takes whatever the other side has.
-        if ($from->hasCoordinates()
-            && (!$to->hasCoordinates() || ($from->coordinatesAreManual && !$to->coordinatesAreManual))
-        ) {
-            $this->places->copyCoordinates(
+        return $this->transactionally(function () use ($from, $to, $winner, $loser, $actorUserAccountId): int {
+            $this->places->update(
                 $to->id,
-                (float) $from->latitude,
-                (float) $from->longitude,
-                $from->coordinatesAreManual
+                $to->name,
+                $this->pick($winner->address, $loser->address),
+                $this->pick($winner->postalCode, $loser->postalCode),
+                $this->pick($winner->city, $loser->city),
+                $this->pick($winner->country, $loser->country),
+                $this->pick($winner->websiteUrl, $loser->websiteUrl),
             );
-        }
 
-        $moved = $this->camps->movePlace($from->id, $to->id);
-        $this->places->archive($from->id, true);
+            // Coordinates are the one field that does not follow the
+            // most-recently-updated rule: a point a human placed beats an
+            // automatic one whatever the timestamps say, and a place with
+            // no point at all takes whatever the other side has.
+            if ($from->hasCoordinates()
+                && (!$to->hasCoordinates() || ($from->coordinatesAreManual && !$to->coordinatesAreManual))
+            ) {
+                $this->places->copyCoordinates(
+                    $to->id,
+                    (float) $from->latitude,
+                    (float) $from->longitude,
+                    $from->coordinatesAreManual
+                );
+            }
 
-        $this->audit->record(
-            PlaceService::ENTITY_TYPE, $to->id, 'name', null, $to->name, AuditSource::Human,
-            sprintf('Fusion : %d séjour(s) repris depuis « %s »', $moved, $from->name),
-            null, $actorUserAccountId
-        );
-        $this->audit->record(
-            PlaceService::ENTITY_TYPE, $from->id, 'name', $from->name, $to->name, AuditSource::Human,
-            'Lieu fusionné dans un autre et archivé',
-            null, $actorUserAccountId
-        );
+            $moved = $this->camps->movePlace($from->id, $to->id);
+            $this->places->archive($from->id, true);
 
-        return $moved;
+            $this->audit->record(
+                PlaceService::ENTITY_TYPE, $to->id, 'name', null, $to->name, AuditSource::Human,
+                sprintf('Fusion : %d séjour(s) repris depuis « %s »', $moved, $from->name),
+                null, $actorUserAccountId
+            );
+            $this->audit->record(
+                PlaceService::ENTITY_TYPE, $from->id, 'name', $from->name, $to->name, AuditSource::Human,
+                'Lieu fusionné dans un autre et archivé',
+                null, $actorUserAccountId
+            );
+
+            // What the AI wrote about either place describes stays that
+            // have just moved. Left alone, the surviving place's summary
+            // goes on describing a shorter history than it now has, and
+            // nothing would ever mark it stale — no stay was created or
+            // edited, only re-parented.
+            $this->places->markSummaryStale($to->id);
+            $this->places->markSummaryStale($from->id);
+
+            return $moved;
+        });
     }
 
     /**
@@ -165,67 +235,132 @@ class MergeService
 
         $lost = $this->losingValues($from, $to);
 
-        $this->camps->update(
-            $to->id,
-            $to->stayType,
-            $to->startDate ?? $from->startDate,
-            $to->endDate ?? $from->endDate,
-            $to->endDate === null && $from->endDate === null ? ($to->yearOnly ?? $from->yearOnly) : null,
-            $to->status,
-            $to->priceCents ?? $from->priceCents,
-            $to->participantCount ?? $from->participantCount,
-            $to->bookedByMemberId ?? $from->bookedByMemberId,
-            $to->bookedByName ?? $from->bookedByName,
-            array_values(array_unique(array_merge($to->sectionIds, $from->sectionIds))),
-        );
+        $this->transactionally(function () use ($from, $to, $lost, $actorUserAccountId, $today): void {
+            $this->camps->update(
+                $to->id,
+                $to->stayType,
+                $to->startDate ?? $from->startDate,
+                $to->endDate ?? $from->endDate,
+                $to->endDate === null && $from->endDate === null ? ($to->yearOnly ?? $from->yearOnly) : null,
+                $to->status,
+                $to->priceCents ?? $from->priceCents,
+                $to->participantCount ?? $from->participantCount,
+                $to->bookedByMemberId ?? $from->bookedByMemberId,
+                $to->bookedByName ?? $from->bookedByName,
+                array_values(array_unique(array_merge($to->sectionIds, $from->sectionIds))),
+            );
 
-        $this->contacts->moveCamp($from->id, $to->id);
-        $this->links->moveCamp($from->id, $to->id);
-        $this->documents->moveCamp($from->id, $to->id);
+            $this->contacts->moveCamp($from->id, $to->id);
+            $this->links->moveCamp($from->id, $to->id);
+            $this->documents->moveCamp($from->id, $to->id);
+            $this->moveReview($from, $to);
+            $this->moveMail($from, $to);
+
+            $this->appendToNote($from, $to, $lost, $actorUserAccountId, $today);
+            $this->camps->delete($from->id);
+
+            $this->audit->record(
+                CampService::ENTITY_TYPE, $to->id, 'camp', null, null, AuditSource::Human,
+                'Séjour fusionné depuis un autre — les valeurs remplacées sont reprises dans la note',
+                null, $actorUserAccountId
+            );
+
+            // The place has one stay fewer, and the surviving one carries
+            // different dates: whatever the AI wrote about the place is now
+            // describing a history that no longer exists.
+            $this->places->markSummaryStale($to->placeId);
+        });
+
+        // Another module's write, after the commit and explicitly
+        // non-fatal: a merge that is otherwise complete must not be undone
+        // — nor reported as failed — because the gallery is disabled,
+        // misconfigured, or refused the storage location.
         $this->movePhotos($from, $to);
-        $this->moveReview($from, $to);
-
-        $this->appendToNote($from, $to, $lost, $actorUserAccountId, $today);
-        $this->camps->delete($from->id);
-
-        $this->audit->record(
-            CampService::ENTITY_TYPE, $to->id, 'camp', null, null, AuditSource::Human,
-            'Séjour fusionné depuis un autre — les valeurs remplacées sont reprises dans la note',
-            null, $actorUserAccountId
-        );
 
         return $lost;
     }
 
     /**
-     * The values the losing stay carried that the surviving one already
-     * had. These are what get written into the note — nothing is silently
+     * The correspondence follows the stay.
+     *
+     * `inbound_mail` keys its messages on a business reference of ours
+     * (`camp-{id}`), which no database constraint knows about: without
+     * this, every message filed under the losing stay would point at a row
+     * that has just been deleted, and would be reachable from no screen at
+     * all. Moved one message at a time because that is the whole API §7.11
+     * offers — and it is scoped to this consumer, so nothing else's mail
+     * can move by accident.
+     */
+    private function moveMail(Camp $from, Camp $to): void
+    {
+        if ($this->inboundMail === null) {
+            return;
+        }
+
+        $fromReference = CampsMessageConsumer::referenceFor($from->id);
+        $toReference = CampsMessageConsumer::referenceFor($to->id);
+
+        foreach ($this->inboundMail->findForReference(CampsMessageConsumer::CONSUMER_ID, $fromReference) as $message) {
+            $this->inboundMail->move(
+                CampsMessageConsumer::CONSUMER_ID,
+                $fromReference,
+                $toReference,
+                $message->id
+            );
+        }
+    }
+
+    /**
+     * The values a side carried that the merged stay will NOT carry.
+     *
+     * These are what get written into the note — nothing is silently
      * dropped, which is precisely what makes camp merges safe to open to
-     * every chief.
+     * every chief. So they are computed against the row the merge actually
+     * produces, never against the surviving row as it stands beforehand:
+     * every field resolves to $to's value only when $to HAS one, and the
+     * dates resolve across both sides at once. A bare year on the
+     * surviving stay next to a real range on the losing one produces a
+     * merged stay carrying the range — and it is then the surviving stay's
+     * year that was dropped, which comparing $from against $to could never
+     * say.
      *
      * @return array<int, string>
      */
     private function losingValues(Camp $from, Camp $to): array
     {
+        $price = $to->priceCents ?? $from->priceCents;
+        $participants = $to->participantCount ?? $from->participantCount;
+        $bookedBy = $to->bookedByName ?? $from->bookedByName;
+        $dates = CampLabels::dateRange(
+            $to->startDate ?? $from->startDate,
+            $to->endDate ?? $from->endDate,
+            $to->endDate === null && $from->endDate === null ? ($to->yearOnly ?? $from->yearOnly) : null
+        );
+
         $lost = [];
-        if ($from->priceCents !== null && $to->priceCents !== null && $from->priceCents !== $to->priceCents) {
-            $lost[] = 'prix précédent : ' . CampLabels::money($from->priceCents);
+        foreach ([$from, $to] as $side) {
+            if ($side->priceCents !== null && $side->priceCents !== $price) {
+                $lost[] = 'prix précédent : ' . CampLabels::money($side->priceCents);
+            }
         }
-        if ($from->participantCount !== null && $to->participantCount !== null
-            && $from->participantCount !== $to->participantCount
-        ) {
-            $lost[] = 'participants précédents : ' . $from->participantCount;
+        foreach ([$from, $to] as $side) {
+            if ($side->participantCount !== null && $side->participantCount !== $participants) {
+                $lost[] = 'participants précédents : ' . $side->participantCount;
+            }
         }
-        if ($from->bookedByName !== null && $to->bookedByName !== null
-            && $from->bookedByName !== $to->bookedByName
-        ) {
-            $lost[] = 'réservation faite par : ' . $from->bookedByName;
+        foreach ([$from, $to] as $side) {
+            if ($side->bookedByName !== null && $side->bookedByName !== $bookedBy) {
+                $lost[] = 'réservation faite par : ' . $side->bookedByName;
+            }
         }
-        $fromDates = CampLabels::dateRange($from->startDate, $from->endDate, $from->yearOnly);
-        $toDates = CampLabels::dateRange($to->startDate, $to->endDate, $to->yearOnly);
-        if ($fromDates !== '' && $toDates !== '' && $fromDates !== $toDates) {
-            $lost[] = 'dates précédentes : ' . $fromDates;
+        foreach ([$from, $to] as $side) {
+            $sideDates = CampLabels::dateRange($side->startDate, $side->endDate, $side->yearOnly);
+            if ($sideDates !== '' && $sideDates !== $dates) {
+                $lost[] = 'dates précédentes : ' . $sideDates;
+            }
         }
+        // The status is the one field the surviving stay always keeps, so
+        // only the losing side's can be dropped.
         if ($from->status !== $to->status) {
             $lost[] = 'statut précédent : ' . CampLabels::status($from->status);
         }
@@ -261,18 +396,51 @@ class MergeService
         $this->editableContent->delete($fromKey);
     }
 
+    /**
+     * Gallery's half of a camp merge — deliberately outside the
+     * transaction and deliberately swallowed.
+     *
+     * The stays are already merged when this runs. Letting a gallery
+     * failure propagate would report a completed merge as an error and
+     * invite the chief to try again on a pair that no longer exists;
+     * letting it roll the merge back would make a photo album's storage
+     * configuration able to veto a data correction. Photos left behind are
+     * visible and re-movable by hand — neither of the other two is.
+     */
     private function movePhotos(Camp $from, Camp $to): void
     {
-        $fromAlbum = $this->albums->existingAlbumIdFor($from);
-        if ($fromAlbum === null) {
-            return;
-        }
-        $toAlbum = $this->albums->albumIdFor($to, 'Camp', 0);
-        if ($toAlbum === null) {
-            return;
-        }
+        try {
+            $fromAlbum = $this->albums->existingAlbumIdFor($from);
+            if ($fromAlbum === null) {
+                return;
+            }
+            // Named the way every other album of a stay is named
+            // (CampsAttachmentController::albumId()): "Domaine de Mozet —
+            // 12–19 juillet 2027". An album called "Camp" tells a reader
+            // browsing the gallery nothing at all, and this is the ONE
+            // place that could create one. Re-read, because the merge has
+            // just changed the surviving stay's dates.
+            $merged = $this->camps->findById($to->id) ?? $to;
+            $toAlbum = $this->albums->albumIdFor($merged, $this->albumTitleFor($merged), 0);
+            if ($toAlbum === null) {
+                return;
+            }
 
-        $this->albums->movePhotos($fromAlbum, $toAlbum);
+            $this->albums->movePhotos($fromAlbum, $toAlbum);
+        } catch (\Throwable) {
+            // Non-fatal, by design. See the docblock above.
+        }
+    }
+
+    private function albumTitleFor(Camp $camp): string
+    {
+        $place = $this->places->findById($camp->placeId);
+
+        return trim(
+            ($place !== null ? $place->name : 'Camp')
+            . ' — '
+            . CampLabels::dateRange($camp->startDate, $camp->endDate, $camp->yearOnly)
+        );
     }
 
     /**

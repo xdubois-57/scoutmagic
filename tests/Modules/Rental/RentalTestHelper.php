@@ -231,6 +231,7 @@ class RentalTestHelper
             sent_at TEXT,
             created_by_member_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            source TEXT NOT NULL DEFAULT \'manual\',
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 

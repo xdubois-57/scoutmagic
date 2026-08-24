@@ -220,6 +220,74 @@ class AuditServiceTest extends TestCase
         $this->assertSame(AuditRepository::ANONYMISED_MARKER, $this->encryption->decrypt($stored, 'entity_changes.value'));
     }
 
+    // ── Erasing one person out of a shared field ────────────────────
+
+    public function testAnonymiseValuesMatchingTouchesOnlyTheEntriesNamingThePerson(): void
+    {
+        // A camp's `contact` history holds three different people's
+        // details. Clearing all of them to erase one would destroy two
+        // histories nobody asked to lose.
+        $this->service->record('camp_camp', 7, 'contact', null, 'Mme Lambert, lambert@example.org', AuditSource::Human);
+        $this->service->record('camp_camp', 7, 'contact', null, 'M. Martin, martin@example.org', AuditSource::Human);
+
+        $changed = $this->service->anonymiseValuesMatching(
+            'camp_camp',
+            [7],
+            ['contact'],
+            ['lambert@example.org']
+        );
+
+        $this->assertSame(1, $changed);
+        $values = array_map(
+            static fn($entry): ?string => $entry->toValue,
+            $this->service->page('camp_camp', 7, 1, 10)->entries
+        );
+        $this->assertContains(AuditRepository::ANONYMISED_MARKER, $values);
+        $this->assertContains('M. Martin, martin@example.org', $values);
+    }
+
+    public function testAnonymiseValuesMatchingReadsEveryColumnOfTheEntry(): void
+    {
+        // The name can be in the summary alone — "Contact supprimé (Mme
+        // Lambert)" — and an erasure that only read from/to would leave it.
+        $this->service->record(
+            'camp_camp', 7, 'contact', null, null, AuditSource::Human, 'Contact supprimé (Mme Lambert)'
+        );
+
+        $this->assertSame(1, $this->service->anonymiseValuesMatching('camp_camp', [7], ['contact'], ['Mme Lambert']));
+        $this->assertSame(
+            AuditRepository::ANONYMISED_MARKER,
+            $this->service->page('camp_camp', 7, 1, 10)->entries[0]->summary
+        );
+    }
+
+    public function testAnonymiseValuesMatchingIgnoresCase(): void
+    {
+        $this->service->record('camp_camp', 7, 'contact', null, 'LAMBERT@EXAMPLE.ORG', AuditSource::Human);
+
+        $this->assertSame(1, $this->service->anonymiseValuesMatching('camp_camp', [7], ['contact'], ['lambert@example.org']));
+    }
+
+    public function testAnonymiseValuesMatchingWithNothingToMatchChangesNothing(): void
+    {
+        $this->service->record('camp_camp', 7, 'contact', null, 'Mme Lambert', AuditSource::Human);
+
+        $this->assertSame(0, $this->service->anonymiseValuesMatching('camp_camp', [7], ['contact'], []));
+        $this->assertSame(0, $this->service->anonymiseValuesMatching('camp_camp', [7], ['contact'], ['  ']));
+        $this->assertSame(0, $this->service->anonymiseValuesMatching('camp_camp', [], ['contact'], ['Lambert']));
+        $this->assertSame('Mme Lambert', $this->service->page('camp_camp', 7, 1, 10)->entries[0]->toValue);
+    }
+
+    public function testAMatchedValueIsStillCiphertextAtRest(): void
+    {
+        $this->service->record('camp_camp', 7, 'contact', null, 'Mme Lambert', AuditSource::Human);
+        $this->service->anonymiseValuesMatching('camp_camp', [7], ['contact'], ['Lambert']);
+
+        $stored = (string) $this->pdo->query('SELECT to_value FROM entity_changes')->fetchColumn();
+        $this->assertNotSame(AuditRepository::ANONYMISED_MARKER, $stored);
+        $this->assertSame(AuditRepository::ANONYMISED_MARKER, $this->encryption->decrypt($stored, 'entity_changes.value'));
+    }
+
     private function createAccount(string $first, string $last): int
     {
         $stmt = $this->pdo->prepare(

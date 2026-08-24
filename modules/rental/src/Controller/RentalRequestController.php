@@ -225,14 +225,23 @@ class RentalRequestController extends AbstractController
             return $this->renderForm($asset, $request, $errors);
         }
 
-        $quote = $this->pricingService->quoteWithSettings($pricing, new PricingRequest(
-            arrivalDate: $arrival,
-            departureDate: $departure,
-            persons: $persons,
-            units: $units,
-            rooms: 1,
-            renterCategoryId: $categoryId !== '' ? (int) $categoryId : null
-        ));
+        // With no rate configured at all, the quote adds up to 0,00 € — and
+        // snapshotting that would freeze "Total 0,00 €" onto the booking,
+        // where the tracking page shows it to the renter as if it were the
+        // price agreed. The public estimate block already refuses to show
+        // it (RentalPublicController's `has_tariff`); the same rule has to
+        // hold at submission, or the unit spends the first email walking a
+        // number back. Null means "no price yet", which is the truth.
+        $quote = $pricing->hasAnyRate()
+            ? $this->pricingService->quoteWithSettings($pricing, new PricingRequest(
+                arrivalDate: $arrival,
+                departureDate: $departure,
+                persons: $persons,
+                units: $units,
+                rooms: 1,
+                renterCategoryId: $categoryId !== '' ? (int) $categoryId : null
+            ))
+            : null;
 
         try {
             $result = $this->bookingService->createFromPublicRequest(
@@ -547,15 +556,17 @@ class RentalRequestController extends AbstractController
      */
     private function managerEmails(int $assetId, int $scoutYearId): array
     {
-        $emails = [];
-        foreach ($this->managerService->listManagersForAsset($assetId, $scoutYearId) as $row) {
-            $profile = $this->memberService->findProfileByMemberAndYear($row['manager']->memberId, $scoutYearId);
-            if ($profile?->email !== null && $profile->email !== '') {
-                $emails[] = $profile->email;
-            }
-        }
+        $memberIds = array_map(
+            static fn(array $row): int => $row['manager']->memberId,
+            $this->managerService->listManagersForAsset($assetId, $scoutYearId)
+        );
 
-        return array_values(array_unique($emails));
+        // One query for everybody, not one profile per manager: a profile
+        // lookup costs several queries each — for addresses, functions and
+        // badges nothing here reads — and this runs on the public request
+        // form, where a unit staff of fifteen turned one visitor's
+        // submission into dozens of queries.
+        return array_values(array_unique($this->memberService->findEmailsByMemberIds($memberIds, $scoutYearId)));
     }
 
     /**

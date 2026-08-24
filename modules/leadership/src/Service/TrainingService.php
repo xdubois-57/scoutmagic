@@ -55,12 +55,13 @@ class TrainingService
         array $staff,
         int $scoutYearId,
         string $scoutYearLabel,
-        ?int $previousScoutYearId
+        ?int $previousScoutYearId,
+        ?FormationLevelResolver $resolver = null
     ): array {
         $lines = $this->lastYearPionniers($scoutYearId, $scoutYearLabel);
 
         if ($previousScoutYearId !== null) {
-            foreach ($this->firstYearAnimators($staff, $previousScoutYearId) as $line) {
+            foreach ($this->firstYearAnimators($staff, $previousScoutYearId, $resolver) as $line) {
                 $lines[] = $line;
             }
         }
@@ -108,7 +109,17 @@ class TrainingService
         $referenceDate = $referenceYear . '-09-01';
 
         $lines = [];
+        // One line per PERSON. `member_section_periods` has a row per
+        // period, so a pionnier who moved between two Pionniers sections
+        // during the year — or whose section was re-encoded — comes back
+        // from the query twice, and the page printed them twice.
+        $seen = [];
         foreach ($this->repository->findMembersInBranchSections($scoutYearId, $pionniers, $referenceDate) as $row) {
+            $memberYearId = (int) $row['member_year_id'];
+            if (isset($seen[$memberYearId])) {
+                continue;
+            }
+
             $effectiveAge = $this->memberYearService->getEffectiveAge(
                 MemberYearService::extractBirthYear($row['birth_date']),
                 $row['scout_year_offset'],
@@ -120,6 +131,7 @@ class TrainingService
                 continue;
             }
 
+            $seen[$memberYearId] = true;
             $lines[] = new PersonLine(
                 memberYearId: $row['member_year_id'],
                 totem: ($row['totem'] !== null && $row['totem'] !== '') ? $row['totem'] : null,
@@ -130,7 +142,7 @@ class TrainingService
             );
         }
 
-        usort($lines, static fn (PersonLine $a, PersonLine $b) => strcasecmp($a->fullName, $b->fullName));
+        usort($lines, static fn (PersonLine $a, PersonLine $b) => TextMatcher::compareNames($a->fullName, $b->fullName));
 
         return $lines;
     }
@@ -146,17 +158,33 @@ class TrainingService
      * standing who moved from Louveteaux to Éclaireurs as a beginner, and
      * would do it silently.
      *
+     * **Somebody already on the path is not on this list.** "À convaincre
+     * de commencer" and "Parcours à terminer" are two answers to two
+     * different questions, and a first-year animateur who arrives with a
+     * T1 already behind them belongs to the second: telling a chief to
+     * convince them to start is telling them to have a conversation that
+     * has already happened. UNKNOWN stays listed, which is this module's
+     * standing doctrine — an unrecognised Desk value is never counted as
+     * anything, so it cannot be counted as "already started" either, and
+     * the honest answer is to let a human look.
+     *
      * @param list<\Modules\Leadership\Value\StaffFunctionRow> $staff
      * @return list<PersonLine>
      */
-    private function firstYearAnimators(array $staff, int $previousScoutYearId): array
-    {
+    private function firstYearAnimators(
+        array $staff,
+        int $previousScoutYearId,
+        ?FormationLevelResolver $resolver = null
+    ): array {
         $previous = array_flip($this->repository->findMemberIdsWithAnimationFunction($previousScoutYearId));
 
         $lines = [];
         $seen = [];
         foreach ($staff as $row) {
             if (!$row->isAnimation() || isset($previous[$row->memberId]) || isset($seen[$row->memberId])) {
+                continue;
+            }
+            if ($resolver !== null && self::hasStartedThePath($resolver->resolve($row->formationLevel))) {
                 continue;
             }
             $seen[$row->memberId] = true;
@@ -171,9 +199,23 @@ class TrainingService
             );
         }
 
-        usort($lines, static fn (PersonLine $a, PersonLine $b) => strcasecmp($a->fullName, $b->fullName));
+        usort($lines, static fn (PersonLine $a, PersonLine $b) => TextMatcher::compareNames($a->fullName, $b->fullName));
 
         return $lines;
+    }
+
+    /**
+     * Whether this step means the person is already somewhere on the path
+     * or past it.
+     *
+     * NONE and UNKNOWN are not: NONE is Desk saying the column is empty,
+     * which is the very profile "à convaincre" is about, and UNKNOWN is
+     * the site saying it does not know — which this module never turns
+     * into a conclusion in either direction.
+     */
+    private static function hasStartedThePath(FormationStep $step): bool
+    {
+        return $step->isPathInProgress() || $step === FormationStep::BREVET;
     }
 
     /**
@@ -216,7 +258,7 @@ class TrainingService
 
         usort($entries, static function (array $a, array $b): int {
             return ($b['rank'] <=> $a['rank'])
-                ?: strcasecmp($a['line']->fullName, $b['line']->fullName);
+                ?: TextMatcher::compareNames($a['line']->fullName, $b['line']->fullName);
         });
 
         return array_map(static fn (array $e): PersonLine => $e['line'], $entries);
@@ -292,7 +334,7 @@ class TrainingService
             $rows[] = ['raw_value' => (string) $rawValue, 'holders' => $holders];
         }
 
-        usort($rows, static fn (array $a, array $b) => strcasecmp($a['raw_value'], $b['raw_value']));
+        usort($rows, static fn (array $a, array $b) => TextMatcher::compareNames($a['raw_value'], $b['raw_value']));
 
         return $rows;
     }

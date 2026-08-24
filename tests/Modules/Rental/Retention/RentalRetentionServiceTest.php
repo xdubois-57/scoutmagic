@@ -10,18 +10,29 @@ use Core\File\FileRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
+use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\ExpectedReceivableRepository;
+use Modules\Finance\Repository\TransactionRepository;
+use Modules\Finance\Service\ExpectedReceivableService;
+use Modules\Finance\Service\StructuredCommunicationService;
 use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Payment\DepositMode;
+use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Repository\RentalAggregateRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalDocumentRepository;
+use Modules\Rental\Repository\RentalBookingEventRepository;
+use Modules\Rental\Repository\RentalPaymentRepository;
 use Modules\Rental\Repository\RentalReminderRepository;
+use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalRetentionService;
 use Modules\Rental\Service\RentalStatisticsService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Modules\Finance\FinanceTestHelper;
 use Tests\Modules\Rental\RentalTestHelper;
 
 /**
@@ -45,13 +56,16 @@ class RentalRetentionServiceTest extends TestCase
     private RentalAggregateRepository $aggregateRepository;
     private RentalRetentionService $service;
     private FileRepository $fileRepository;
+    private RentalPaymentService $payments;
     private int $assetId;
+    private int $accountId;
     private string $storagePath;
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         RentalTestHelper::createTables($this->pdo);
+        FinanceTestHelper::createTables($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $this->bookingRepository = new RentalBookingRepository($this->pdo, $this->encryption);
@@ -76,6 +90,21 @@ class RentalRetentionServiceTest extends TestCase
         $this->storagePath = sys_get_temp_dir() . '/rental-retention-' . bin2hex(random_bytes(6));
         mkdir($this->storagePath . '/rental/documents', 0777, true);
 
+        // The real Finance services, not a mock of them: what matters is
+        // that the receivables actually disappear from Finance's own
+        // tables, which a mock could never show.
+        $receivableRepository = new ExpectedReceivableRepository($this->pdo, $this->encryption);
+        $this->payments = new RentalPaymentService(
+            new RentalPaymentRepository($this->pdo, $this->encryption),
+            new RentalBookingEventRepository($this->pdo),
+            new JournalService(new JournalRepository($this->pdo)),
+            new ExpectedReceivableService(
+                $receivableRepository,
+                new TransactionRepository($this->pdo, $this->encryption)
+            ),
+            new StructuredCommunicationService($receivableRepository)
+        );
+
         $this->service = new RentalRetentionService(
             $this->bookingRepository,
             $this->documentRepository,
@@ -86,11 +115,22 @@ class RentalRetentionServiceTest extends TestCase
             $this->pdo,
             $this->fileRepository,
             null,
-            $this->storagePath
+            $this->storagePath,
+            $this->payments
         );
 
         $this->assetId = (new RentalAssetRepository($this->pdo, $this->encryption))
             ->create('Local', 'Local Saint-Georges', 'local-saint-georges', 60, 1, '18:00', '11:00', null, true);
+
+        $this->accountId = (new AccountRepository($this->pdo, $this->encryption))->create(
+            'Compte unité',
+            'bank',
+            null,
+            'BE68539007547034',
+            'Unité Saint-Georges',
+            'intendant'
+        );
+        $this->pdo->exec("UPDATE finance_accounts SET status = 'active'");
 
         // Accounting years, so the cutoff has something to resolve against.
         foreach ([['2017-2018', '2017-09-01', '2018-08-31'], ['2018-2019', '2018-09-01', '2019-08-31']] as $year) {
@@ -260,6 +300,86 @@ class RentalRetentionServiceTest extends TestCase
         $this->createBooking('LOC-2018-0002', '2018-07-01', '2018-07-04', BookingStatus::REFUSED, null);
 
         $this->assertSame(1, $this->service->purge(new \DateTimeImmutable('2026-01-01')));
+        $this->assertSame(0, $this->countBookings());
+    }
+
+    // ── Finance goes with it (§6.35) ────────────────────────────────────
+
+    private function paymentSettings(): PaymentSettings
+    {
+        return new PaymentSettings(
+            enabled: true,
+            financeAccountId: $this->accountId,
+            depositMode: DepositMode::NONE,
+            depositAmountCents: null,
+            depositPercentage: null,
+            depositDueDays: 14,
+            balanceDueDays: 30,
+            securityDepositEnabled: true,
+            securityDepositAmountCents: 25000,
+            securityDepositDueDays: 30
+        );
+    }
+
+    private function countReceivables(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM finance_expected_receivables')->fetchColumn();
+    }
+
+    public function testPurgingABookingDropsTheReceivablesItRaised(): void
+    {
+        // Finance's tables are outside every cascade this module declares,
+        // so without an explicit call the unit keeps being owed money for a
+        // stay whose every other trace has just been erased — under a label
+        // that carries the renter's name.
+        $booking = $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
+        $this->payments->ensureReceivables(
+            $booking,
+            $this->paymentSettings(),
+            new \DateTimeImmutable('2018-06-01 10:00:00')
+        );
+        $this->assertSame(2, $this->countReceivables());
+
+        $this->assertSame(1, $this->service->purge(new \DateTimeImmutable('2026-01-01')));
+
+        $this->assertSame(0, $this->countReceivables());
+    }
+
+    public function testAnotherBookingsReceivablesAreUntouched(): void
+    {
+        $old = $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
+        $recent = $this->createBooking('LOC-2025-0001', '2025-07-01', '2025-07-04');
+        $settings = $this->paymentSettings();
+        $this->payments->ensureReceivables($old, $settings, new \DateTimeImmutable('2018-06-01 10:00:00'));
+        $this->payments->ensureReceivables($recent, $settings, new \DateTimeImmutable('2025-06-01 10:00:00'));
+        $this->assertSame(4, $this->countReceivables());
+
+        $this->service->purge(new \DateTimeImmutable('2026-01-01'));
+
+        $rows = $this->pdo->query(
+            "SELECT source_reference_id FROM finance_expected_receivables WHERE source_module = 'rental'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame([$recent->id, $recent->id], array_map('intval', $rows));
+    }
+
+    public function testThePurgeStillRunsWithFinanceDisabled(): void
+    {
+        // A unit that settles its rentals by hand is a normal unit.
+        $service = new RentalRetentionService(
+            $this->bookingRepository,
+            $this->documentRepository,
+            $this->aggregateRepository,
+            new RentalReminderRepository($this->pdo),
+            new SettingService(new SettingRepository($this->pdo)),
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->pdo,
+            $this->fileRepository,
+            null,
+            $this->storagePath
+        );
+        $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
+
+        $this->assertSame(1, $service->purge(new \DateTimeImmutable('2026-01-01')));
         $this->assertSame(0, $this->countBookings());
     }
 

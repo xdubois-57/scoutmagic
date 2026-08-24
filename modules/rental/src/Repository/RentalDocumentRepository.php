@@ -37,13 +37,14 @@ class RentalDocumentRepository
         int $version,
         bool $isForRenter,
         ?string $snapshot,
-        ?int $createdByMemberId
+        ?int $createdByMemberId,
+        string $source = RentalDocument::SOURCE_MANUAL
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_documents
                 (booking_id, file_id, document_type, version, is_for_renter,
-                 generated_snapshot, created_by_member_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                 generated_snapshot, created_by_member_id, created_at, source)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $bookingId,
@@ -54,9 +55,28 @@ class RentalDocumentRepository
             $snapshot,
             $createdByMemberId,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $source === RentalDocument::SOURCE_EMAIL
+                ? RentalDocument::SOURCE_EMAIL
+                : RentalDocument::SOURCE_MANUAL,
         ]);
 
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Whether another document row points at the same file.
+     *
+     * Two rows can legitimately share one file: an email's attachment
+     * reclassified on one booking and moved to another, a document
+     * re-filed by `moveToBooking()`. Deleting the bytes while a second row
+     * still points at them turns that row into a broken download.
+     */
+    public function isFileReferencedElsewhere(int $fileId, int $exceptDocumentId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM rental_documents WHERE file_id = ? AND id <> ?');
+        $stmt->execute([$fileId, $exceptDocumentId]);
+
+        return (int) $stmt->fetchColumn() > 0;
     }
 
     public function findById(int $id): ?RentalDocument
@@ -255,7 +275,10 @@ class RentalDocumentRepository
             sizeBytes: isset($row['size_bytes']) ? (int) $row['size_bytes'] : null,
             sentAt: $row['sent_at'] !== null ? new \DateTimeImmutable((string) $row['sent_at']) : null,
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
-            createdAt: new \DateTimeImmutable((string) $row['created_at'])
+            createdAt: new \DateTimeImmutable((string) $row['created_at']),
+            source: isset($row['source']) && (string) $row['source'] !== ''
+                ? (string) $row['source']
+                : RentalDocument::SOURCE_MANUAL
         );
     }
 }

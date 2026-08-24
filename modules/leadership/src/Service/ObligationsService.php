@@ -32,12 +32,20 @@ class ObligationsService
     }
 
     /**
-     * Animateurs whose 20th birthday falls inside the alert window.
+     * Everybody in the unit's staff whose 20th birthday falls inside the
+     * alert window.
      *
      * The only genuinely anticipable event on this page, and therefore the
      * main block: turning 20 is a date, known in advance, after which an
      * extrait de casier judiciaire is legally required. Everything else
      * here is Desk reporting something that has already happened.
+     *
+     * **Intendants are included**, and there is no `isAnimation()` filter
+     * here at all. The requirement follows from being an adult in contact
+     * with minors on a camp, not from carrying an animation function: an
+     * intendant who turns 20 in three weeks needs the same extrait as an
+     * animateur, and filtering them out made this page quietly answer a
+     * narrower question than its title asks.
      *
      * The age used is the real one, computed from the birth date — never
      * the effective age, which carries a chief's scout-year offset. That
@@ -55,7 +63,7 @@ class ObligationsService
         $entries = [];
         $seen = [];
         foreach ($staff as $row) {
-            if (!$row->isAnimation() || isset($seen[$row->memberId])) {
+            if (isset($seen[$row->memberId])) {
                 continue;
             }
 
@@ -86,6 +94,31 @@ class ObligationsService
         usort($entries, static fn (array $a, array $b) => $a['birthday'] <=> $b['birthday']);
 
         return array_map(static fn (array $e): PersonLine => $e['line'], $entries);
+    }
+
+    /**
+     * How many of the unit's staff the birthday scan could say nothing
+     * about, because Desk carries no usable birth date for them.
+     *
+     * The count is the honest footnote under a list of dates: an empty
+     * block means "nobody turns 20 soon" only if every birth date is
+     * known, and it silently means "we could not tell" for as many people
+     * as this returns. Counted per person, on the same rule the scan
+     * itself uses, so the two can never disagree.
+     *
+     * @param list<StaffFunctionRow> $staff
+     */
+    public function countWithoutBirthDate(array $staff): int
+    {
+        $seen = [];
+        foreach ($staff as $row) {
+            if (isset($seen[$row->memberId]) || $this->parseBirthDate($row->birthDate) !== null) {
+                continue;
+            }
+            $seen[$row->memberId] = true;
+        }
+
+        return count($seen);
     }
 
     /**
@@ -125,7 +158,7 @@ class ObligationsService
             );
         }
 
-        usort($lines, static fn (PersonLine $a, PersonLine $b) => strcasecmp($a->fullName, $b->fullName));
+        usort($lines, static fn (PersonLine $a, PersonLine $b) => TextMatcher::compareNames($a->fullName, $b->fullName));
 
         return $lines;
     }
