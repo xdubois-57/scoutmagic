@@ -28,11 +28,24 @@ export async function openSectionEditor(page, dialogId) {
     await page.locator(`[data-bs-target="#${dialogId}"]`).first().click();
     await expect(dialog).toBeVisible();
 
-    // section-editor.js focuses the dialog's first real field on
-    // `shown.bs.modal` — the one event that means "Bootstrap has finished
-    // opening this". Waiting for the focus to have landed is waiting for
-    // that event without reaching into Bootstrap's internals.
-    await expect(dialog.locator(':focus')).toHaveCount(1);
+    // Waiting for the focus to have landed is waiting for `shown.bs.modal`
+    // without reaching into Bootstrap's internals: that event is when the
+    // opening transition is over and the dialog is usable.
+    //
+    // `:focus-within`, not `:focus` on a descendant. Two things focus this
+    // dialog at the same moment and either may win: Bootstrap's focus trap
+    // focuses the modal ELEMENT (`trapElement.focus()`, plus a `focusin`
+    // handler that pulls focus back to it), while section-editor.js's
+    // `shown.bs.modal` handler focuses the first real field inside — and
+    // focusFirstField() legitimately focuses nothing at all when every
+    // control is hidden, disabled or readonly. A descendant-only match
+    // therefore counted 0 whenever the root won, which made this helper
+    // fail roughly one run in two: four failures across local runs and CI,
+    // including one where the same spec passed in the e2e job and failed
+    // in the DAST job on the identical commit. `:focus-within` matches the
+    // element itself or any descendant, so it is true for every legitimate
+    // outcome and still false until the dialog has actually been focused.
+    await expect(page.locator(`#${dialogId}:focus-within`)).toHaveCount(1);
 
     return dialog;
 }
