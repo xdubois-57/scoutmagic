@@ -177,7 +177,7 @@ $superadminId = $demoAccounts->ensureSuperadmin();
 printf("Superadministrateur : %s (id %d)\n\n", DemoAccounts::SUPERADMIN_EMAIL, $superadminId);
 
 // 2. Les trois années scoutes, puis les trois imports Desk dans l'ordre.
-$replay = new DeskImportReplay($pdo, $encryption, $datasetRoot);
+$replay = new DeskImportReplay($pdo, $encryption, $datasetRoot, $context->storagePath());
 $yearIds = $replay->ensureYears();
 echo "Années scoutes créées : " . implode(', ', UnitBlueprint::YEARS) . "\n";
 

@@ -122,6 +122,15 @@ class LlmConnectorService implements LlmConnectorInterface
             throw $e;
         }
 
+        // `truncated` and `content_length` are here because "completed"
+        // alone is a lie by omission on a reasoning model: it spends the
+        // max_tokens cap thinking, returns an EMPTY answer with
+        // finish_reason "length", and the journal said the request had
+        // completed — which it had, having produced nothing. The caller
+        // then reports "the model said nothing" and nobody can tell that
+        // from "the budget was too small". Two integers make the entry
+        // answer that on its own; neither is content, so the rule that
+        // this journal never carries prompt or response text still holds.
         $this->journalService->log(
             'llm_connector',
             'llm_request_completed',
@@ -133,6 +142,9 @@ class LlmConnectorService implements LlmConnectorInterface
                 'model' => $model['model_id'],
                 'input_tokens' => $providerResponse->inputTokens,
                 'output_tokens' => $providerResponse->outputTokens,
+                'max_tokens' => (int) $options['max_tokens'],
+                'truncated' => $providerResponse->truncated,
+                'content_length' => mb_strlen($providerResponse->content),
             ],
             null
         );

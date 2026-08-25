@@ -689,6 +689,17 @@ $settingService->register('notifications_retention_days', '90', 'number', 'Conse
     'Une notification lue est supprimée automatiquement après ce délai. Une notification non lue n\'est jamais supprimée.',
     null, null, null, true, 260);
 
+// Desk import retention, in scout years (Core\Import\ImportRetentionService,
+// SECURITY.md §13). In seasons rather than in a number of imports on
+// purpose: `fees` needs November's roster snapshot for the deposit invoice
+// and February's for the settlement, and a count would quietly drop
+// November after half a dozen ordinary re-imports.
+$settingService->register(\Core\Import\ImportRetentionService::SETTING_KEY,
+    (string) \Core\Import\ImportRetentionService::DEFAULT_YEARS, 'number',
+    'Conservation des imports Desk (années scoutes)',
+    'Nombre d\'années scoutes pendant lesquelles un import Desk est conservé — sa ligne, son fichier CSV chiffré et l\'instantané du roster qu\'il a figé. La valeur 2 conserve l\'année en cours et la précédente. Au-delà, la saison entière est supprimée définitivement.',
+    null, null, null, true, 261);
+
 // Offline content caching (Lot 3) — how old a cached copy of a
 // whitelisted page (Core\Offline\OfflineWhitelist) may be before the
 // service worker refuses to serve it and falls back to the offline page
@@ -1020,11 +1031,6 @@ if ($settingService->get('member_section_periods_backfilled') !== '1') {
 }
 
 $sectionDocumentRepository = new \Core\Member\SectionDocumentRepository($pdo);
-$importService = new DeskImportService(
-    $pdo, $encryptionService, $csvParser, $mappingResolver,
-    $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService,
-    $sectionMembershipService
-);
 // Multi-email support per member (Core\Member\MemberEmailService) — built
 // before $roleResolver so login-by-email resolution can also match a
 // currently-valid secondary address (see RoleResolver's own docblock).
@@ -1096,6 +1102,7 @@ $memberEmailService = new \Core\Member\MemberEmailService(
 
 // Scout year resolution (public / staff / session-preview priority)
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
+
 $scoutYearAdminService = new ScoutYearAdminService($settingService);
 
 // "Membres par section" (core, role_min intendant) — read-only roster of
@@ -1119,6 +1126,36 @@ $fileRepository = new FileRepository($pdo);
 $attachedFileRemover = new \Core\File\AttachedFileRemover($fileRepository, $storagePath);
 $uploadHandler = new UploadHandler($fileRepository, $storagePath);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
+
+// The Desk import, its roster-replacement barrier and its retention.
+// Built here rather than beside the other import repositories above
+// because it needs two things that only exist from this point on:
+// $scoutYearResolver, so the barrier knows which scout year the site
+// actually resolves access against (an import into a year prepared in
+// advance takes nobody's access away), and $encryptedFileStorageService,
+// which is how the consumed CSV is kept.
+$rosterSnapshotRepository = new \Core\Import\RosterSnapshotRepository($pdo);
+$importDiffCalculator = new \Core\Import\ImportDiffCalculator($rosterSnapshotRepository);
+$duplicateMemberRepository = new \Core\Member\Duplicate\DuplicateMemberRepository($pdo, $encryptionService);
+$duplicateMemberDetector = new \Core\Member\Duplicate\DuplicateMemberDetector($duplicateMemberRepository, $encryptionService);
+$memberMergeService = new \Core\Member\Duplicate\MemberMergeService($pdo, $duplicateMemberRepository, $journalService);
+$rosterReplacementGuard = new \Core\Import\RosterReplacementGuard(
+    new \Core\Import\RosterComparisonRepository($pdo),
+    $scoutYearResolver
+);
+$importService = new DeskImportService(
+    $pdo, $encryptionService, $csvParser, $mappingResolver,
+    $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService,
+    $sectionMembershipService, $rosterReplacementGuard, $journalService, $rosterSnapshotRepository,
+    $encryptedFileStorageService, $importDiffCalculator, $duplicateMemberDetector
+);
+$importReportPresenter = new \Core\Import\ImportReportPresenter(
+    new \Core\Import\ImportReportRepository($pdo, $encryptionService)
+);
+$importRetentionService = new \Core\Import\ImportRetentionService(
+    $pdo, $importJournalRepo, $rosterSnapshotRepository, $fileRepository,
+    $scoutYearService, $settingService, $journalService, $storagePath
+);
 
 // Image variant pipeline (thumb/md derivatives of the core photo contexts
 // — member_photo, section_photo, editable_image, age_branch_logo). Siblings
@@ -1260,7 +1297,22 @@ $sectionDocumentOwnershipChecker = new \Core\Member\SectionDocumentOwnershipChec
 // it is immutable by design, so its registry has to be complete first,
 // and module blocks only run after loadEnabledModules(). See where
 // FileController is wired, at the end of this file.
-$fileOwnershipCheckers = [$sectionDocumentOwnershipChecker];
+$fileOwnershipCheckers = [$sectionDocumentOwnershipChecker, new \Core\Import\DeskImportFileOwnershipChecker()];
+
+// The registry Core\Attention\AttentionService consults for the
+// attention-points page — same shape and same reason as
+// $fileOwnershipCheckers above: core seeds its own contributor here, a
+// module appends its own from inside its getEnabledModuleIds() block
+// further down (ARCHITECTURE.md §7.4), and the service itself is built
+// only once every module block has run. Unlike the Desk-import listener,
+// these run at DISPLAY time and their exceptions are caught: a module
+// that is wrong about the unit must never break a page.
+$attentionProviders = [
+    new \Core\Attention\CoreAttentionProvider(new \Core\Attention\CoreAttentionRepository($pdo)),
+    new \Core\Member\Duplicate\DuplicateAttentionProvider(
+        new \Core\Member\Duplicate\DuplicateMemberRepository($pdo, $encryptionService)
+    ),
+];
 
 // The registry Modules\Gallery\Service\DelegatedAlbumAccessRegistry
 // consults for a delegated album — gallery's own equivalent of
@@ -1385,6 +1437,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Membres par section', '/c
 // menu (order 10) — the most-used entry for a chief d'unité.
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Édition du site', '/config/general', 'admin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-pencil-square', null, 'contenu');
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 20, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-cloud-arrow-down', null, 'membres_annee');
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, "Points d'attention", '/admin/points-attention', 'admin', 21, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-exclamation-triangle', null, 'membres_annee');
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-person-lines-fill', null, 'membres_annee');
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 40, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-calendar-range', null, 'membres_annee');
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 50, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-journal-text', null, 'suivi');
@@ -1531,6 +1584,13 @@ $schedulerService->rearm('core', \Core\Statistics\Task\SendStatisticsHandler::TA
 // artefact this codebase produces on demand, so the purge must be running
 // from the first boot, not from the first generation.
 $schedulerService->rearm('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE, new DateTimeImmutable());
+
+// Same bootstrap for the Desk-import retention purge (Core\Import\Task\
+// PurgeImportsHandler). It must run even if nobody imports any more: a
+// retention hung off the next import would keep its RGPD promise only
+// while the unit keeps importing, and a unit that stops importing is
+// exactly the one whose kept CSVs should stop being kept.
+$schedulerService->rearm('core', \Core\Import\Task\PurgeImportsHandler::TASK_KEY, \Core\Import\Task\PurgeImportsHandler::REFERENCE, new DateTimeImmutable());
 
 // Add dynamic member entries to Espace membres — group: SORT_GROUP_DYNAMIC keeps
 // these (and the empty-state placeholder below) sorted ahead of every core
@@ -1756,6 +1816,12 @@ $router->addRoute('POST', '/setup/generate-dkim-key', SetupController::class, 'g
 // Import
 $router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'admin', ['label' => 'Import Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
 $router->addRoute('POST', '/admin/import', ImportController::class, 'import', 'admin');
+$router->addRoute('GET', '/admin/import/historique', ImportController::class, 'history', 'admin', ['label' => 'Historique des imports', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'breadcrumb_trail' => [['label' => 'Import Desk', 'url' => '/admin/import']]]);
+$router->addRoute('GET', '/admin/import/{id}/rapport', ImportController::class, 'report', 'admin', ['label' => "Rapport d'import", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'breadcrumb_trail' => [['label' => 'Import Desk', 'url' => '/admin/import'], ['label' => 'Historique des imports', 'url' => '/admin/import/historique']]]);
+$router->addRoute('GET', '/admin/points-attention', \Core\Http\Controller\AttentionController::class, 'index', 'admin', ['label' => "Points d'attention", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
+$router->addRoute('GET', '/admin/doublons', \Core\Http\Controller\DuplicateMemberController::class, 'index', 'admin', ['label' => 'Fiches en double', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'breadcrumb_trail' => [['label' => "Points d'attention", 'url' => '/admin/points-attention']]]);
+$router->addRoute('POST', '/admin/doublons/{id}/fusionner', \Core\Http\Controller\DuplicateMemberController::class, 'merge', 'admin');
+$router->addRoute('POST', '/admin/doublons/{id}/distinctes', \Core\Http\Controller\DuplicateMemberController::class, 'markDistinct', 'admin');
 
 // Journal
 $router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'admin', ['label' => 'Journal', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
@@ -1878,20 +1944,12 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $journalService
     );
 }
-if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
-    // Freezes what Desk contained, which nothing else keeps: member_years
-    // is overwritten at every import, so an invoice can only be checked
-    // against a composition somebody wrote down at the time.
-    $deskImportListeners[] = new \Modules\Fees\Service\FeesDeskImportListener(
-        new \Modules\Fees\Repository\RosterSnapshotRepository($pdo),
-        $journalService
-    );
-}
 if ($deskImportListeners !== []) {
     $importService = new DeskImportService(
         $pdo, $encryptionService, $csvParser, $mappingResolver,
         $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService,
-        $sectionMembershipService, $deskImportListeners
+        $sectionMembershipService, $rosterReplacementGuard, $journalService, $rosterSnapshotRepository,
+        $encryptedFileStorageService, $importDiffCalculator, $duplicateMemberDetector, $deskImportListeners
     );
 }
 
@@ -2131,7 +2189,7 @@ $passwordResetController = new PasswordResetController($twig, $passwordResetServ
 $passwordResetController->setHumanCheck($humanCheckService);
 $frontController->registerController(PasswordResetController::class, $passwordResetController);
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
-$frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath, $registrationReconciliation ?? null));
+$frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $importRetentionService, $rosterSnapshotRepository, $fileRepository, $userAccountRepo, $importReportPresenter, $storagePath, $registrationReconciliation ?? null));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService, $departureService));
 $frontController->registerController(
     \Core\Http\Controller\MemberEmailAddressController::class,
@@ -3783,7 +3841,9 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         ImportController::class,
         new ImportController(
-            $twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath, $registrationReconciliation
+            $twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo,
+            $importRetentionService, $rosterSnapshotRepository, $fileRepository, $userAccountRepo,
+            $importReportPresenter, $storagePath, $registrationReconciliation
         )
     );
 
@@ -4379,6 +4439,18 @@ if (in_array('leadership', $moduleManager->getEnabledModuleIds(), true)) {
         )
     );
 
+    $attentionProviders[] = new \Modules\Leadership\Service\LeadershipAttentionProvider(
+        $leadershipRepository,
+        new \Modules\Leadership\Service\TrainingService(
+            $leadershipRepository,
+            $sectionService,
+            $memberYearService,
+            new \Modules\Leadership\Service\SupervisionCalculator()
+        ),
+        $leadershipResolver,
+        new \Modules\Leadership\Service\StewardService($leadershipRepository, $leadershipObligationsService)
+    );
+
     $frontController->registerController(
         \Modules\Leadership\Controller\FormationMappingController::class,
         new \Modules\Leadership\Controller\FormationMappingController(
@@ -4407,7 +4479,7 @@ if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Fees\Controller\FeesController::class,
         new \Modules\Fees\Controller\FeesController(
             $twig,
-            new \Modules\Fees\Repository\RosterSnapshotRepository($pdo),
+            $rosterSnapshotRepository,
             $feesImportRepo,
             $scoutYearResolver
         )
@@ -4433,8 +4505,18 @@ if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
         )
     );
 
+    $attentionProviders[] = new \Modules\Fees\Service\FeesAttentionProvider(
+        new \Modules\Fees\Service\FeeAccuracyService(
+            $householdService,
+            new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService),
+            $feesTariffService,
+            $feesIgnoredHouseholdRepo,
+            $feeCategoryRepo
+        )
+    );
+
     $feesInvoiceRepo = new \Modules\Fees\Repository\InvoiceRepository($pdo);
-    $feesSnapshotRepo = new \Modules\Fees\Repository\RosterSnapshotRepository($pdo);
+    $feesSnapshotRepo = $rosterSnapshotRepository;
     $feesVerification = new \Modules\Fees\Service\InvoiceVerificationService(
         $feesInvoiceRepo,
         $feesSnapshotRepo,
@@ -4524,6 +4606,28 @@ if (
 // consumer of the guard, so nothing earlier needs it. $linkedMemberIds was
 // snapshotted where $linkedMembers is first resolved, well before the menu
 // re-resolves it.
+// Built here, after every module block, for the same reason the file
+// access guard below is: the registry has to be complete first.
+$frontController->registerController(
+    \Core\Http\Controller\AttentionController::class,
+    new \Core\Http\Controller\AttentionController(
+        $twig,
+        new \Core\Attention\AttentionService($attentionProviders),
+        $scoutYearResolver
+    )
+);
+
+$frontController->registerController(
+    \Core\Http\Controller\DuplicateMemberController::class,
+    new \Core\Http\Controller\DuplicateMemberController(
+        $twig,
+        $duplicateMemberRepository,
+        $memberMergeService,
+        new \Core\Import\ImportReportRepository($pdo, $encryptionService),
+        $scoutYearResolver
+    )
+);
+
 $fileAccessGuard = new FileAccessGuard(
     $fileRepository,
     Role::fromString($currentRole),

@@ -9,9 +9,9 @@ declare(strict_types=1);
 namespace Modules\Registration\Repository;
 
 use Core\Member\AddressNormalizer;
+use Core\Member\NameDobKey;
 use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
-use Core\Service\TextNormalizerService;
 
 /**
  * All identity data is encrypted at rest (SECURITY.md §5) — this is the
@@ -557,17 +557,20 @@ class RegistrationRequestRepository
     }
 
     /**
-     * Comparison-only key, never displayed — Core\Service\
-     * TextNormalizerService::normalizeName() (module spec) folds accents/
-     * spacing/particle-casing consistently regardless of how the source
-     * spelled it, then a final lowercase pass keeps the blind index itself
-     * fully case-insensitive.
+     * Comparison-only key, never displayed.
+     *
+     * The rule itself moved into the core (`Core\Member\NameDobKey`) when
+     * a second consumer appeared — the duplicate detector for members
+     * re-created in Desk. "Is this the same person?" is a question about
+     * members, not about registration requests, and two normalisations of
+     * it would be one edit away from disagreeing; a blind index that
+     * misses answers "not found" rather than failing, which is the worst
+     * way for that to go wrong. This forwarder stays because it is what
+     * this module's own call sites and tests grip.
      */
     public static function normalizeForNameDobBlindIndex(string $lastName, string $firstName, string $birthDate): string
     {
-        $fold = static fn(string $s): string => mb_strtolower(TextNormalizerService::normalizeName($s), 'UTF-8');
-
-        return $fold($lastName) . '|' . $fold($firstName) . '|' . trim($birthDate);
+        return NameDobKey::normalize($lastName, $firstName, $birthDate);
     }
 
     /**

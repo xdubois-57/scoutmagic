@@ -9,17 +9,28 @@ declare(strict_types=1);
 namespace Tests\Fixtures\ReferenceDataset;
 
 use Core\Config\ScoutYearService;
+use Core\File\EncryptedFileStorageService;
+use Core\File\FileRepository;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Import\AgeBranchRepository;
 use Core\Import\DeskCsvParser;
 use Core\Import\DeskImportService;
 use Core\Import\FeeCategoryRepository;
 use Core\Import\FunctionRepository;
+use Core\Import\ImportDiffCalculator;
 use Core\Import\ImportJournalRepository;
 use Core\Import\ImportResult;
 use Core\Import\ImportSectionRepository;
 use Core\Import\MappingResolver;
 use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
+use Core\Import\RosterComparisonRepository;
+use Core\Import\RosterSnapshotRepository;
+use Core\Import\RosterReplacementGuard;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Member\SectionMembershipRepository;
 use Core\Member\SectionMembershipService;
 use Core\Member\UnitStaffSectionService;
@@ -52,11 +63,22 @@ use Core\Security\UserAccountRepository;
  */
 final class DeskImportReplay
 {
+    /**
+     * $storagePath is where the kept, encrypted copy of each replayed
+     * export lands (Core\File\EncryptedFileStorageService) — the import
+     * keeps the CSV it consumed now, so a replay needs somewhere to put
+     * it. Defaults to a throwaway directory, which is what every test
+     * caller wants; `build.php` passes the real instance's storage root.
+     */
+    private readonly string $storagePath;
+
     public function __construct(
         private readonly \PDO $pdo,
         private readonly EncryptionService $encryption,
         private readonly string $datasetRoot,
+        ?string $storagePath = null,
     ) {
+        $this->storagePath = $storagePath ?? sys_get_temp_dir() . '/scoutmagic_dataset_storage';
     }
 
     /**
@@ -205,6 +227,22 @@ final class DeskImportReplay
                 new SectionMembershipRepository($this->pdo),
                 new ScoutYearService($this->pdo),
             ),
+            new RosterReplacementGuard(
+                new RosterComparisonRepository($this->pdo),
+                new ScoutYearResolver(
+                    new ScoutYearService($this->pdo),
+                    new SettingService(new SettingRepository($this->pdo)),
+                    new MemberYearRepository($this->pdo),
+                ),
+            ),
+            new JournalService(new JournalRepository($this->pdo)),
+            new RosterSnapshotRepository($this->pdo),
+            new EncryptedFileStorageService(
+                new FileRepository($this->pdo),
+                $this->encryption,
+                $this->storagePath,
+            ),
+            new ImportDiffCalculator(new RosterSnapshotRepository($this->pdo)),
         );
     }
 }

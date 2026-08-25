@@ -38,7 +38,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.2.0', $this->manifest->version);
+        $this->assertSame('1.3.0', $this->manifest->version);
     }
 
     /**
@@ -115,21 +115,25 @@ class ModuleManifestTest extends TestCase
     }
 
     /**
-     * The snapshot pair is the whole reason this module shipped before it
-     * had a screen worth opening: the composition of the roster at each
-     * import is the only past state of Desk the site will ever hold. Two
-     * more carry the barème and the households a chef d'unité set aside,
-     * and three the invoices themselves.
+     * Two tables carry the barème and the households a chef d'unité set
+     * aside, and three the invoices themselves.
+     *
+     * The roster snapshot pair is deliberately NOT among them any more.
+     * It was this module's first table and the reason it shipped before
+     * it had a screen worth opening — but a frozen roster is a fact about
+     * members, produced by the core's own Desk import, and a core needing
+     * an optional module to describe its own import is the inversion
+     * ARCHITECTURE.md §7.4 forbids. It lives in schema/core.sql now, and
+     * this module reads it through Core\Import\RosterSnapshotRepository
+     * like any other core table.
      */
     public function testTheSchemaDeclaresTheTablesTheModuleOwns(): void
     {
         $schema = file_get_contents(dirname(__DIR__, 3) . '/modules/fees/schema.sql');
         $this->assertNotFalse($schema);
 
-        $this->assertSame(7, preg_match_all('/^CREATE TABLE/mi', $schema));
+        $this->assertSame(5, preg_match_all('/^CREATE TABLE/mi', $schema));
         foreach ([
-            'fees_roster_snapshots',
-            'fees_roster_snapshot_members',
             'fees_household_tariffs',
             'fees_ignored_households',
             'fees_invoices',
@@ -138,6 +142,21 @@ class ModuleManifestTest extends TestCase
         ] as $table) {
             $this->assertStringContainsString($table, $schema);
         }
+
+        $this->assertSame(0, preg_match_all('/^CREATE TABLE.*fees_roster_snapshot/mi', $schema));
+    }
+
+    /**
+     * And the core declares them, which is the other half of the same
+     * claim: a table nobody declares is a table nobody creates.
+     */
+    public function testTheCoreSchemaDeclaresTheRosterSnapshotThisModuleReads(): void
+    {
+        $schema = file_get_contents(dirname(__DIR__, 3) . '/schema/core.sql');
+        $this->assertNotFalse($schema);
+
+        $this->assertSame(1, preg_match_all('/^CREATE TABLE fees_roster_snapshots \(/mi', $schema));
+        $this->assertSame(1, preg_match_all('/^CREATE TABLE fees_roster_snapshot_members \(/mi', $schema));
     }
 
     /**
@@ -176,7 +195,10 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheSnapshotStoresNoPersonalData(): void
     {
-        $schema = file_get_contents(dirname(__DIR__, 3) . '/modules/fees/schema.sql');
+        // In the core now, not this module — but still checked from here:
+        // this module is what reads the snapshot, and the claim that it
+        // carries no personal data is the reason it can be read freely.
+        $schema = file_get_contents(dirname(__DIR__, 3) . '/schema/core.sql');
         $this->assertNotFalse($schema);
         // Comments explain the rule and therefore name what it forbids —
         // assert on the DDL itself, not on the prose above it.

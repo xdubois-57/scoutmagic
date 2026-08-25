@@ -286,8 +286,90 @@ these drifts silently.
 - Lines grouped by `desk_id`.
 - Raw values resolved via mapping tables (functions, branches, tariffs, sections).
 - New functions default to lowest role — require admin confirmation.
-- CSV deleted immediately after import.
+- CSV **kept**, encrypted at rest, for a retention expressed in scout years — see below.
 - Import journaled (metadata only).
+
+**The roster-replacement barrier** (`Core\Import\RosterReplacementGuard`,
+SECURITY.md §13). A Desk export filtered on one section is a valid CSV
+that replaces the roster with a fortieth of it — and takes the importer's
+own `admin` role with it, leaving them without the pages they would need
+to undo it. The guard confronts the parsed CSV with the roster of the
+targeted scout year **before the transaction opens**, the same place and
+posture as the header validation: refuse before writing, never repair
+after. It reads through `RosterComparisonRepository`, whose every query is
+scoped to one scout year — which is what makes the first import of a
+season, run against an empty roster, correctly unremarkable rather than a
+mass deactivation. Refusal is the default; `ImportController` re-renders
+the page as a barrier stating the counted consequences, and passing
+outside needs the typed word `REMPLACER` checked server-side. One verdict
+is not a warning but a refusal, and the confirmation word does not lift
+it: an import that would take away the site's last administrative access
+(`RosterReplacementVerdict::NO_ADMIN_LEFT`).
+
+**The consumed CSV is kept, and `import_journal` is the parent row.** The
+site used to delete the file the moment the import finished; it keeps an
+encrypted copy instead, so a doubtful import can be investigated by
+replaying its report against the exact file that produced it. That was a
+documented rule, revoked deliberately (SECURITY.md §13 carries the
+security requirements that come with it, and §5 the corrected
+cross-reference the bank-statement CSVs used to lean on). The file, the
+roster snapshot (§8.74) and — from the diff onwards — the report all hang
+off one `import_journal` row: one object, one lifecycle, one purge.
+
+**The diff between two imports** (`Core\Import\ImportDiffCalculator`,
+`ImportDiff`). Two consecutive roster snapshots of the same scout year
+*are* the diff — there is nothing to capture before or after, since the
+previous one has been in the database since the previous import and the
+new one is written a few statements earlier in the same transaction. It
+is computed once, at the end of the import, and stored on
+`import_journal.diff_json`, because it is a dated fact: "12 members
+added, 7 gone on 3 September" will never become anything else, and a
+page that recomputed it would be describing today under a heading that
+says September. Foreign keys and codes only, never a name.
+
+It reports arrivals and departures, section, function, role and fee
+category changes, the `admin` role gained and lost in isolation (somebody
+just got, or just lost, the Configuration), sections that lost their last
+member or gained their first, and the functions/sections/branches/fee
+categories this installation had never seen — those last come from
+`MappingResolver`, which created them, since no snapshot can say that a
+code is brand new. A new function arrives at the lowest role by
+construction (SECURITY.md §3), so the report names it as **to qualify in
+Config Desk**, never as a neutral addition: it is the first cause of "I
+can't see anything any more" after an import.
+
+Two absences are kept apart deliberately. The season's first import has
+no predecessor; an import whose predecessor's snapshot the retention
+purge has taken had one and no longer does. Both are stored as an
+*unavailable* diff with a reason — never as an empty one, which would
+read as "nothing changed", and never as 260 arrivals, which would present
+a starting point as a movement.
+
+**The report page** (`/admin/import/{id}/rapport`, `role_min: admin`).
+One page per import, reachable from `/admin/import` and from the history.
+`Core\Import\ImportReportPresenter` resolves the stored diff's ids into
+names and **recomputes nothing** — that is what lets the page still be
+honest in June about an import that ran in September. Reading order is
+by weight of consequence, not alphabetical: access impact first (somebody
+just gained or lost the Configuration; a new function still at the
+minimum role), structural impact next (a section that lost its last
+member and vanished from every picker — spectacular, and until now
+unexplained), data quality last. The one deliberate live read is whether
+a new function is *still* unqualified: that is a call to action, not a
+fact about the past, and a months-old report must not keep demanding
+something somebody has since done.
+
+**Retention in scout years, purged by a task on a clock.** Two seasons by
+default (`import_retention_scout_years`), the current one and the
+previous. In seasons rather than in a number of imports because `fees`
+needs November's snapshot for the deposit invoice and February's for the
+settlement, and a count would drop November after six ordinary re-imports
+— silently, and noticed in June. `Core\Import\Task\PurgeImportsHandler`
+runs daily and reschedules itself, so the promise holds for a unit that
+has stopped importing altogether, which is precisely the unit whose kept
+CSVs should stop being kept. `Core\Import\ImportRetentionService` deletes
+whole seasons in one transaction: row, file and snapshot together, or
+nothing.
 
 **`scout_year_offset` survives the year boundary** (`MemberYearRepository::inheritedScoutYearOffset()`). It is the one `member_years` column Desk knows nothing about — ScoutMagic-local, set by a chief on the member page for someone who skipped or repeated a year (§8.26, `MemberYearService::getEffectiveAge()`). The import's INSERT never listed it, so every newly imported scout year silently reset it to the schema default `0`, and an advanced or held-back member's branch and year-in-branch quietly became wrong the moment their new year was imported — on the member page, in `member_stats`, in the registration module's capacity projections, and most starkly on Prévisions (§8.38), where a member Desk had just placed in Éclaireurs was still ranked by a Louveteaux-era effective age. A brand-new row now inherits the offset from the member's most recent **earlier** scout year, ordered by `scout_years.start_date` — never by row id or scout year id, neither of which stays chronological once a past year is back-filled. Deliberately on INSERT only: the UPDATE branch never touches the column, so a chief's correction to an existing row always survives a re-import of that same year. Note this repairs the mechanism, not history: rows already flattened to `0` by a past import keep that value until a chief sets them again.
 
@@ -1060,6 +1142,8 @@ A Desk import is the moment the unit's roster becomes authoritative again: whoev
 
 **The convention is deactivate, never delete**, the one core follows itself: a member missing from an import loses access, but the row recording that they had it is kept and marked inactive, so a member absent from one import (a data-entry slip, a late registration) comes back without an admin re-granting anything. `Modules\Rental\Service\RentalDeskImportListener` is the first implementation, and journals **counts only** — a quiet mass deactivation is exactly what an admin needs to notice after a botched import, while "who manages what" must not become readable as personal data in the journal (SECURITY.md §5).
 
+**Not every end-of-import job belongs here, and one moved out.** The roster snapshot (§8.74) used to be taken by a `fees` listener; it is taken by `DeskImportService` itself now, because it is not a module reconciling its own references but a fact about the import that has to exist whatever the module configuration. The distinction generalises: this hook is for a module's *own* derived state. A description of the unit that a module merely happens to be first to want does not belong to that module — and a description that must never be able to abort an import does not belong in this transaction at all (§8.75, the attention-point hook, which runs at display time with its exceptions caught).
+
 
 ### 8.47 Usage statistics — installation identity and receiver resolution (`Core\Statistics`)
 
@@ -1562,7 +1646,11 @@ recognition is alias-based, case/accent-insensitive — `Tiers` ≡
 news form responses) re-import as audiences unchanged; every other column
 is simply a merge variable. Hard cap `MAX_ROWS` (5000). The uploaded
 `.xlsx` is parsed straight from the PHP upload tmp file and deleted
-immediately (same rule as the Desk CSV import): what remains is
+immediately — the file itself is never kept, only what was extracted from
+it (a rule that used to be stated as "same rule as the Desk CSV import";
+the Desk CSV is kept now, §8.1, and this one is not: an audience file is
+a list somebody assembled and can assemble again, not the evidence
+behind a report): what remains is
 `mass_mail_audiences` (headers in clear — names, never values) plus one
 `mass_mail_audience_rows` per line, whose address and full `{header:
 value}` JSON map are **encrypted BLOBs** decrypted only in
@@ -1877,6 +1965,8 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **A module asks the connector about the tier it is going to use.** `LlmConnectorInterface::isAvailable()` answers "is anything configured at all" and every AI feature in this module used it, while every call it makes is `LlmTier::CHEAP` — so an installation with a model on `capable` and none on `cheap` passed the check, the place sheet offered « Écrire le résumé maintenant », and `complete()` refused the tier before reaching a provider: no summary, and (until the connector started journaling its own refusals) nothing anywhere saying why. `Service\PlaceSummaryService`, `Service\DuplicatePlaceDetector` and `Mail\StayFromMailService` all ask `isTierAvailable(LlmTier::CHEAP)` now, which is the same question their `complete()` will ask.
 
+**A token budget pays for the model's THINKING, not just its answer** — and on this module's own installation that is what actually broke the summary. `PlaceSummaryService::MAX_TOKENS` was 400, sized for the three sentences it asks for; the `cheap` model there is a hybrid reasoning model (glm-5.2 on Scaleway), the cap covers reasoning tokens too, and the whole 400 went on thinking: an HTTP 200, `finish_reason: "length"`, and an EMPTY answer. The journal said "LLM request completed", which was true and useless. So: the caps are sized for reasoning + answer (1500 for a summary, 600 for `Mail\StayFromMailService`'s one place name, which was 60 and had therefore been failing silently on every message), `Service\LlmConnectorService` records `truncated`, `max_tokens` and `content_length` on the completed entry — no content, the journal still never carries prompt or response text — and a truncated answer is refused rather than stored, because three sentences that stop mid-way through the second are not a summary and would replace a good one. A model that finishes stops billing, so a generous cap costs nothing on a model that does not think.
+
 **"Not written" is five different answers, and the page gives the right one** (`Service\SummaryOutcome`). `refresh()` used to return a `bool` and the place sheet turned every false into one sentence — "il n'y a pas assez à raconter, ou le connecteur IA n'est pas disponible" — led by the only cause a chief can act on and the one it almost never was. A chief who had just given four stars and written a comment was told their material was too thin. The outcome is now named (written, nothing to summarise, unavailable, provider refused, empty answer) and each case carries its own sentence, because the three failures are fixed by three different people: the one writing reviews, the administrator, and nobody at all.
 
 **Reading a message is patterns, not a model** (`Mail\MessageReader`). A date range and a single price, only when stated unambiguously: a lone date is far more often a meeting than a departure, and TWO amounts in one message means no reading at all — a quote naming a deposit and a total is precisely where guessing wrong is most expensive. The AI in this module is reserved for the three jobs a pattern genuinely cannot do: recognising that two place names are one field, writing a summary, and — when a message in a dedicated mailbox is about to become a stay — reading the VENUE's name out of its body. That last one replaced the `From:` display name, which put a farmer's own name into `camp_places.name`, a clear-text column justified by "a place is not a natural person". The model is told never to answer a person's name nor the sender's and to answer nothing when unsure, and whatever comes back still has to be long enough and not an address. **Without the connector the flow matches and never creates**: a message whose place resolves to nothing stays unsorted, where a human validates a name before it enters the database. The sender's display name survives as a MATCHING hint only — recognising a farmer writes nothing anywhere, which is what makes it safe when naming a new place from it is not.
@@ -2000,13 +2090,15 @@ Two small utilities that share nothing but a page, both answers to a question a 
 
 **Validation is the real thing, not a pattern.** The IBAN goes through `isValidFullIban()`'s length-and-mod-97 check, so a single altered digit is refused; the amount accepts the comma every French-speaking keyboard produces and refuses zero, negatives and words.
 
-### 8.74 The fees module and the roster snapshot (`modules/fees`)
+### 8.74 The fees module and the roster snapshot (`Core\Import\RosterSnapshotRepository`, `modules/fees`)
 
-What the federation invoices a unit is what **Desk** contained on the day the invoice was issued. This module exists to check that, and its first piece has to ship before anything it will eventually check exists — because it is the only thing that accumulates.
+What the federation invoices a unit is what **Desk** contained on the day the invoice was issued. The `fees` module exists to check that, and the snapshot it checks against had to ship before anything it would eventually check existed — because it is the only thing that accumulates.
 
-**Why a snapshot at all.** `member_years` is overwritten wholesale at every import (`MemberYearRepository::upsert()`, `deactivateAllForYear()`, §8.1), so the site can only ever describe today's roster. Checking February's invoice against March's roster manufactures differences that were never real, and the first thing a verification tool shows a treasurer decides whether they open it a second time. `Modules\Fees\Service\FeesDeskImportListener` therefore freezes the composition at the end of **every** Desk import (`Core\Import\DeskImportListener`, §8.46).
+**Why a snapshot at all.** `member_years` is overwritten wholesale at every import (`MemberYearRepository::upsert()`, `deactivateAllForYear()`, §8.1), so the site can only ever describe today's roster. Checking February's invoice against March's roster manufactures differences that were never real, and the first thing a verification tool shows a treasurer decides whether they open it a second time. `Core\Import\DeskImportService` therefore freezes the composition at the end of **every** Desk import, inside the same transaction.
 
-**No personal data in it, deliberately.** `fees_roster_snapshot_members` holds foreign keys and codes: `member_id`, `fee_category_id`, `section_id`, the function's site role, `formation_level`, `leaving`. Names and birth dates stay in `member_years`, which persists for the whole scout year even for a member gone inactive, so a screen that needs a readable person joins back on (member_id, the snapshot's scout year). The consequences are the point: no BLOB, no encryption, no retention rule to invent, and one paragraph to add to `RgpdContentService`.
+**It belongs to the core, and its table names are history.** The snapshot was born in `modules/fees` — `fees_roster_snapshots` / `fees_roster_snapshot_members` — because that module was the first thing that needed it. It moved into `schema/core.sql`, and the capture moved from a `DeskImportListener` into the import service itself, for the reason §7.4 states: a core that needs an optional module in order to describe its own import is the dependency running the wrong way, and everything since built on the snapshot (the import report, the diff between two imports) is core's own. `fees` is now one consumer among others — a module → core dependency, which needs no interface; the indirection is only ever necessary in the other direction. Same history as `Core\File\EncryptedFileStorageService`, born of the finance receipts, and `list_editor`, born of the banners. The tables kept their prefix on the way over: renaming them would strand `fees_invoices`' foreign key on any installation that already has one, and `Core\Database\SchemaComparator` deliberately never drops a table or a constraint. Two consequences worth stating: a snapshot now exists from the site's first Desk import whether or not `fees` was ever enabled, and `FeesDeskImportListener` no longer exists.
+
+**No personal data in it, deliberately.** `fees_roster_snapshot_members` holds foreign keys and codes: `member_id`, `fee_category_id`, `section_id`, the function's site role, `formation_level`, `leaving`. Names and birth dates stay in `member_years`, which persists for the whole scout year even for a member gone inactive, so a screen that needs a readable person joins back on (member_id, the snapshot's scout year). The consequences are the point: no BLOB, no encryption, and one paragraph to add to `RgpdContentService`.
 
 **One row per member, from the main function.** A member holding two functions gets one row, carrying their **main** function's section and role (their first function when Desk flagged none). An invoice bills a person once, under one section; two rows would report an expected quantity nobody could reconcile against it.
 
@@ -2016,7 +2108,8 @@ What the federation invoices a unit is what **Desk** contained on the day the in
 
 **Two imports are two snapshots**, never one overwritten: an old snapshot is what makes an old invoice checkable.
 
-**The module has no memory before it is switched on**, and the home page says so rather than letting a treasurer find out in March. Operationally it has to be enabled before November's deposit invoice for the season to be usable.
+**That last point used to be the other way round**, and it is worth stating because the module's own page still carries the older, more cautious wording in places: the snapshot was this module's, so it had no memory before the module was switched on, and enabling it before November's deposit invoice was an operational requirement. Since the snapshot moved into the core it is taken at every Desk import whether or not this module has ever been enabled — the earliest checkable invoice is now the one issued after the site's first import, not after the module's activation.
+
 
 ### 8.75 « Justesse des tarifs » (`Modules\Fees\Service\FeeAccuracyService`)
 
@@ -2102,6 +2195,37 @@ Two restrictions that exist to keep the page readable rather than merely correct
 Prices are read **off the document itself**, not off the barème a chef d'unité typed: this is what the federation charged on this invoice, which is the only price a difference on this invoice can honestly be costed at.
 
 `NominativeDiscrepancy::ORDER` is the one ordering the service, the screen and the export all use, declared on the value object so a spreadsheet cannot come out sorted differently from the screen it was exported from. Names are grafted on at the end, in one batched join back to `member_years` — neither the snapshot nor a stored invoice holds one, on purpose — and every export cell is written `TYPE_STRING`, numbers included, because a per-column exception is how one of them eventually becomes a live formula (SECURITY.md §23).
+
+### 8.79 Attention points (`Core\Attention`)
+
+The unit's **current state**, recalculated at every consultation, on a permanent page in Espace chefs d'U (`/admin/points-attention`, `role_min: admin`). A badge nobody holds, a section no longer supervised in sufficient numbers, departure flags still raised on members Desk still lists, a household whose tariff has become wrong since somebody moved.
+
+**Nothing is stored and nothing is ever acknowledged.** A point disappears from the page because it stopped being true — somebody removed the member, reassigned the badge, updated Desk — never because anyone clicked. That is what makes the mechanism tiny and what makes it honest: a stored point needs an acknowledgement flow, and an acknowledgement flow accumulates "already dealt with" entries that stopped being dealt with months ago. The page says so at the top, once, so a reader stops looking for the button and the next developer stops considering adding one.
+
+**It is the opposite of §8.1's import diff, and the two are separate pages for that reason.** A diff is a dated, frozen fact ("12 members added, 7 gone on 3 September") computed once and never recomputed. An attention point is a live state an import *reveals* without creating, and which outlives it. A single page carrying both would have a dated top half and a live bottom half, and no way for a reader to tell which was which.
+
+**The hook is `Core\Attention\AttentionPointProvider`, and it is deliberately NOT `Core\Import\DeskImportListener`** (§8.46). That one runs inside the import transaction and a listener that throws rolls the import back — right for reconciling a module's derived state, catastrophic here. This one is called **at display time**, and `AttentionService` **catches** whatever a provider throws: the module is named on the page as unable to contribute, and every other provider still renders. The failure is shown, never hidden — a page that silently drops a contributor quietly stops warning about whatever that contributor watched. Nullable wiring in the composition root through an `$attentionProviders` registry, exactly like `$fileOwnershipCheckers` (§7.4): core seeds its own, each enabled module appends its own, and the service is built once every module block has run.
+
+**Only modules with something to say implement it**, and that is a convention rather than an oversight: `fees` (households whose encoded tariff no longer matches who lives there) and `leadership` (a section under the ONE ratio; an intendant whose free registration window is running out — the rule, its constants and the countdown all live there, so putting it in `fees` would be the same reasoning in two places). Twenty no-op implementations would be dead code that PHPStan and Sonar would flag, and — worse — a reviewer could no longer tell "this module has nothing to contribute" from "this is not done yet". The consistency is carried by documentation instead: a section of `docs/module-development.md`, and a point on `AGENTS.md`'s module checklist phrased as **a question to answer** rather than a file to create.
+
+
+### 8.80 Members split in two, and merging them back (`Core\Member\Duplicate`)
+
+Somebody leaves, comes back a year later, and is created as a **new person** in Desk instead of having their old record reopened. New `desk_id`, new `members` row — and photos, badges, private documents, section periods, totem and every file scoped by `files.owner_member_id` stay attached to the abandoned identity. The returning member's page is empty and nothing explains why. It is not supposed to happen; it is an ordinary human error, and the damage is silent and delayed.
+
+**Detection.** On the members one import **created**, against the `member_years` of **earlier** scout years. Desk guarantees `desk_id` uniqueness within an export, so the problem is strictly inter-year and there is nothing to look for inside one season. The key is surname + first name + date of birth, normalised — never surname + date of birth, which twins share. `Core\Member\NameDobKey` is that normalisation, and it moved into the core out of `Modules\Registration` when this second consumer appeared, the same structural correction `Core\Member\FeeEstimationService` went through: two normalisations of "the same person" are two normalisations one edit away from disagreeing, and a blind index that misses reports "not found" rather than failing. The technique is `Modules\Registration\Service\ReconciliationService`'s — decrypt and recompute the blind index in memory, no persisted column — which is one more reason the pass runs **after the import commits**, never inside its transaction, and why its result is stored rather than recomputed on every page view.
+
+**The result is an attention point** (§8.79), not a line in an import's report: a split identity stays true until somebody decides, and the returning member's page is just as empty a month later. It has one property the other attention points do not, and the reason is worth stating: a candidate carries a `distinct` outcome as well as a `merged` one, because "these are two different people" **is a decision** and the site has to remember it — otherwise every import re-proposes the same pair for ever, and a list that re-asks an answered question stops being read.
+
+**Merging is never automatic.** Two people can share a surname, a first name and a birth date. The site proposes pairs; a human decides, on `/admin/doublons` (`role_min: admin`).
+
+**A merge deletes nothing** — it repoints foreign keys onto the kept identity and leaves the abandoned row marked `merged_into_member_id`. Nothing in this codebase deletes a member, and this is not the place to start. It is also **not reversible**, deliberately: an undo would have to remember which of a hundred repointed rows came from where, and would be wrong the first time somebody edited one in between. What replaces it is the screen stating exactly what will move — years, section periods, photos, badges, documents, files — before the confirmation.
+
+**The Desk alias is what makes the repair stick.** The abandoned `desk_id` stays in the federation's exports for ever, so `member_desk_id_aliases` records it against the kept identity and `MemberRepository::findByDeskId()` consults it. Without that table the very next import carrying the old code would create a brand-new `members` row and re-open the split — silently, and for the same reason as the first time. The direct lookup skips a row that has been merged away, since it keeps its own `desk_id`; that exclusion is what makes the two lookups mutually exclusive rather than the direct one always winning.
+
+**One refusal worth knowing about**: two identities present in the same scout year cannot be merged. Desk considers them two people (one `desk_id` per person per export), and the merge would collide head-on with `member_years`' (member, year) unique index. Refused before anything moves, with a French sentence, rather than half-applied.
+
+Only **core** tables are repointed. A module holding its own `members.id` reference is not, and must not be — core does not know those tables exist, and reaching into them would be the §7.4 inversion. What a module gets instead is the alias: a later import resolves the old Desk id to the kept member, so nothing new accumulates on the abandoned identity.
 
 ## 9. Installation / bootstrap
 

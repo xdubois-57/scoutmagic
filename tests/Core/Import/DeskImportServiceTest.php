@@ -30,6 +30,7 @@ class DeskImportServiceTest extends TestCase
     private DeskImportService $service;
     private EncryptionService $encryption;
     private string $fixturePath;
+    private string $storagePath;
     private int $scoutYearId;
 
     protected function setUp(): void
@@ -40,6 +41,8 @@ class DeskImportServiceTest extends TestCase
             str_repeat('b', 32)
         );
         $this->fixturePath = dirname(__DIR__, 2) . '/fixtures/desk_export_sample.csv';
+        $this->storagePath = sys_get_temp_dir() . '/scoutmagic_test_' . bin2hex(random_bytes(8));
+        mkdir($this->storagePath, 0777, true);
 
         // Create scout year
         $stmt = $this->pdo->prepare(
@@ -74,7 +77,23 @@ class DeskImportServiceTest extends TestCase
             $this->pdo, $this->encryption, $parser, $mappingResolver,
             $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo,
             new UnitStaffSectionService($this->pdo),
-            new \Core\Member\SectionMembershipService(new \Core\Member\SectionMembershipRepository($this->pdo), new \Core\Config\ScoutYearService($this->pdo))
+            new \Core\Member\SectionMembershipService(new \Core\Member\SectionMembershipRepository($this->pdo), new \Core\Config\ScoutYearService($this->pdo)),
+            new \Core\Import\RosterReplacementGuard(
+                new \Core\Import\RosterComparisonRepository($this->pdo),
+                new \Core\ScoutYear\ScoutYearResolver(
+                    new \Core\Config\ScoutYearService($this->pdo),
+                    new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                    $memberYearRepo
+                )
+            ),
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo)),
+            new \Core\Import\RosterSnapshotRepository($this->pdo),
+            new \Core\File\EncryptedFileStorageService(
+                new \Core\File\FileRepository($this->pdo),
+                $this->encryption,
+                $this->storagePath
+            ),
+            new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo))
         );
     }
 
@@ -188,14 +207,115 @@ class DeskImportServiceTest extends TestCase
         $this->assertSame($staffduId, (int) $stmt->fetchColumn());
     }
 
-    public function testCsvFileDeletedAfterImport(): void
+    /**
+     * The import no longer deletes the file it is handed — it keeps an
+     * encrypted copy of it instead (SECURITY.md §13), and closing the
+     * plaintext window is `ImportController`'s `finally`, which owns the
+     * deposited file because it is the one that wrote it.
+     *
+     * That reversal is why the reference dataset can now replay its
+     * committed exports without them being consumed.
+     */
+    public function testTheDepositedFileIsLeftForItsOwnerToDelete(): void
     {
         $tmpFile = tempnam(sys_get_temp_dir(), 'csv');
         copy($this->fixturePath, $tmpFile);
 
         $this->service->import($tmpFile, $this->scoutYearId, 1);
 
-        $this->assertFileDoesNotExist($tmpFile);
+        $this->assertFileExists($tmpFile);
+        unlink($tmpFile);
+    }
+
+    public function testTheConsumedCsvIsKeptEncryptedAndAttachedToItsImport(): void
+    {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'csv');
+        copy($this->fixturePath, $tmpFile);
+        $this->service->import($tmpFile, $this->scoutYearId, 1);
+        unlink($tmpFile);
+
+        $row = $this->pdo->query(
+            'SELECT ij.id AS import_id, f.id AS file_id, f.role_min, f.encrypted, f.owner_type, f.owner_id, f.relative_path
+             FROM import_journal ij JOIN files f ON f.id = ij.file_id'
+        )->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertIsArray($row, 'The import must have kept its CSV.');
+        $this->assertSame('admin', $row['role_min']);
+        $this->assertSame(1, (int) $row['encrypted']);
+        $this->assertSame('desk_import', $row['owner_type']);
+        $this->assertSame((int) $row['import_id'], (int) $row['owner_id']);
+
+        // On disk, and not in clear: the stored bytes must not be the CSV.
+        $onDisk = file_get_contents($this->storagePath . '/' . $row['relative_path']);
+        $this->assertIsString($onDisk);
+        $this->assertStringNotContainsString('Dupont', $onDisk);
+        $this->assertStringNotContainsString('jean.dupont@example.com', $onDisk);
+
+        // And it comes back out through the storage service, unchanged.
+        $storage = new \Core\File\EncryptedFileStorageService(
+            new \Core\File\FileRepository($this->pdo),
+            $this->encryption,
+            $this->storagePath
+        );
+        $this->assertStringContainsString('Dupont', $storage->retrieve((int) $row['file_id']));
+    }
+
+    public function testTheFirstImportOfASeasonStoresAnUnavailableDiff(): void
+    {
+        $this->importFixture();
+
+        $importId = (int) $this->pdo->query('SELECT id FROM import_journal')->fetchColumn();
+        $diff = (new \Core\Import\ImportJournalRepository($this->pdo))->findDiff($importId);
+
+        $this->assertNotNull($diff, 'Every import stores a diff, even when there is nothing to compare against.');
+        $this->assertFalse($diff->available);
+        $this->assertSame(\Core\Import\ImportDiff::UNAVAILABLE_FIRST_OF_SEASON, $diff->unavailableReason);
+    }
+
+    public function testTheSecondImportStoresARealDiffAgainstTheFirst(): void
+    {
+        $this->importFixture();
+        $firstImportId = (int) $this->pdo->query('SELECT id FROM import_journal')->fetchColumn();
+
+        $this->importFixture();
+        $secondImportId = (int) $this->pdo->query('SELECT MAX(id) FROM import_journal')->fetchColumn();
+
+        $diff = (new \Core\Import\ImportJournalRepository($this->pdo))->findDiff($secondImportId);
+
+        $this->assertNotNull($diff);
+        $this->assertTrue($diff->available);
+        $this->assertSame($firstImportId, $diff->previousImportId);
+        // Same file twice: nothing moved, and saying so is not the same
+        // as having nothing to say.
+        $this->assertTrue($diff->isEmpty());
+    }
+
+    public function testTheFirstImportReportsTheFunctionsItHadToCreate(): void
+    {
+        $this->importFixture();
+        $this->importFixture();
+
+        $secondImportId = (int) $this->pdo->query('SELECT MAX(id) FROM import_journal')->fetchColumn();
+        $diff = (new \Core\Import\ImportJournalRepository($this->pdo))->findDiff($secondImportId);
+
+        $this->assertNotNull($diff);
+        // The second import creates nothing: the fixture's functions,
+        // sections and tariffs all already exist.
+        $this->assertSame([], $diff->newFunctionIds);
+        $this->assertSame([], $diff->newSectionIds);
+    }
+
+    public function testTheSnapshotIsAttachedToItsImport(): void
+    {
+        $this->importFixture();
+
+        $row = $this->pdo->query(
+            'SELECT s.import_journal_id, ij.id FROM fees_roster_snapshots s
+             JOIN import_journal ij ON ij.id = s.import_journal_id'
+        )->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertIsArray($row);
+        $this->assertSame((int) $row['id'], (int) $row['import_journal_id']);
     }
 
     public function testPersonalDataIsEncryptedInDatabase(): void

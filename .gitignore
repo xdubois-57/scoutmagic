@@ -9,7 +9,10 @@ node_modules/
 # All runtime storage content is ignored so a new module writing to
 # storage/<name>/ can never produce files that are untracked but NOT ignored
 # (and so accidentally committed). .gitkeep files preserve the directory
-# structure (audit hardening).
+# structure (audit hardening). This wildcard is what covers storage/imports/,
+# where the kept Desk CSVs live encrypted (SECURITY.md §13) — the densest
+# personal-data artefact the site holds, and one nobody has to remember to
+# add here.
 storage/**
 !storage/**/
 !storage/**/.gitkeep

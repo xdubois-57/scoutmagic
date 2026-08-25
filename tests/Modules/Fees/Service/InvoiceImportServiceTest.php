@@ -15,7 +15,7 @@ use Modules\Fees\Invoice\InvoiceParser;
 use Modules\Fees\Invoice\InvoiceReader;
 use Modules\Fees\Repository\InvoiceMemberMatchRepository;
 use Modules\Fees\Repository\InvoiceRepository;
-use Modules\Fees\Repository\RosterSnapshotRepository;
+use Core\Import\RosterSnapshotRepository;
 use Modules\Fees\Service\InvoiceImportService;
 use Modules\Fees\Value\InvoiceImportOutcome;
 use PHPUnit\Framework\TestCase;

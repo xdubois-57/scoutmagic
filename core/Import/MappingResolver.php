@@ -12,12 +12,39 @@ class MappingResolver
 {
     private int $newFunctionsCount = 0;
 
+    /**
+     * What this import had to create because the installation had never
+     * seen it. Counting was enough while the only consumer was a line on
+     * the import page; the report has to NAME the new functions, because
+     * a function nobody has qualified yet leaves its holders seeing
+     * nothing (SECURITY.md §3).
+     *
+     * @var array{functions: int[], sections: int[], branches: int[], fee_categories: int[]}
+     */
+    private array $created = ['functions' => [], 'sections' => [], 'branches' => [], 'fee_categories' => []];
+
     public function __construct(
         private FunctionRepository $functionRepo,
         private AgeBranchRepository $ageBranchRepo,
         private ImportSectionRepository $sectionRepo,
         private FeeCategoryRepository $feeCategoryRepo
     ) {
+    }
+
+    /**
+     * Forget what the previous import created.
+     *
+     * This object is built once per request and an import is normally the
+     * only thing a request does, so in production the counters were never
+     * observed to accumulate — but "normally" is not a guarantee, and a
+     * second import through the same instance would otherwise report the
+     * first one's new functions as its own. Called at the top of
+     * {@see DeskImportService::import()}.
+     */
+    public function resetImportState(): void
+    {
+        $this->newFunctionsCount = 0;
+        $this->created = ['functions' => [], 'sections' => [], 'branches' => [], 'fee_categories' => []];
     }
 
     /**
@@ -33,6 +60,7 @@ class MappingResolver
 
         $id = $this->functionRepo->create($deskCode, $deskCode, 'identified', false);
         $this->newFunctionsCount++;
+        $this->created['functions'][] = $id;
         return $id;
     }
 
@@ -51,7 +79,10 @@ class MappingResolver
             return $existing['id'];
         }
 
-        return $this->ageBranchRepo->create($deskCode, $deskCode);
+        $id = $this->ageBranchRepo->create($deskCode, $deskCode);
+        $this->created['branches'][] = $id;
+
+        return $id;
     }
 
     /**
@@ -67,7 +98,10 @@ class MappingResolver
             return $existing['id'];
         }
 
-        return $this->sectionRepo->create($sectionCode, $branchId, $sectionName);
+        $id = $this->sectionRepo->create($sectionCode, $branchId, $sectionName);
+        $this->created['sections'][] = $id;
+
+        return $id;
     }
 
     /**
@@ -90,7 +124,10 @@ class MappingResolver
             return $existing['id'];
         }
 
-        return $this->feeCategoryRepo->create($deskCode, $deskCode);
+        $id = $this->feeCategoryRepo->create($deskCode, $deskCode);
+        $this->created['fee_categories'][] = $id;
+
+        return $id;
     }
 
     /**
@@ -99,5 +136,21 @@ class MappingResolver
     public function getNewFunctionsCount(): int
     {
         return $this->newFunctionsCount;
+    }
+
+    /**
+     * Everything this import created on the way, for the import diff
+     * ({@see ImportDiffCalculator}) — which cannot derive any of it from
+     * the roster snapshots, since a snapshot says who holds what, never
+     * that the "what" is brand new.
+     */
+    public function getNewMappings(): NewMappings
+    {
+        return new NewMappings(
+            functionIds: array_values(array_unique($this->created['functions'])),
+            sectionIds: array_values(array_unique($this->created['sections'])),
+            branchIds: array_values(array_unique($this->created['branches'])),
+            feeCategoryIds: array_values(array_unique($this->created['fee_categories']))
+        );
     }
 }
