@@ -373,6 +373,20 @@ class FinanceRbacTest extends TestCase
                 'https://scoutmagic.test',
                 null
             ),
+            new \Modules\Finance\Service\CampaignNotificationService(
+                $campaignRowRepository,
+                $this->expectedReceivableRepository,
+                FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
+                new \Core\Member\MemberAccountResolver(
+                    new \Core\Import\MemberYearRepository($this->pdo),
+                    new \Core\Member\MemberEmailRepository($this->pdo, $encryption),
+                    new \Core\Security\UserAccountRepository($this->pdo, $encryption),
+                    $encryption
+                ),
+                $this->memberServiceForCampaigns(),
+                new \Core\Import\MemberYearRepository($this->pdo),
+                null
+            ),
             $this->financeService,
             FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
             $scoutYearService

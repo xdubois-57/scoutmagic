@@ -10,6 +10,7 @@ namespace Modules\Groups\Service;
 
 use Core\Config\ScoutYearService;
 use Core\Import\MemberYearRepository;
+use Core\Member\MemberAccountResolver;
 use Core\Member\MemberEmailRepository;
 use Core\Member\SectionMembershipRepository;
 use Core\Security\DecryptionException;
@@ -63,6 +64,8 @@ class GroupRecipientResolver
         private ?ScoutYearService $scoutYearService = null
     ) {
     }
+
+    private ?MemberAccountResolver $memberAccounts = null;
 
     /**
      * Everyone who can currently read $group, as dispatch() wants them.
@@ -229,15 +232,23 @@ class GroupRecipientResolver
      */
     public function accountIdsForMember(int $memberId): array
     {
-        $ids = [];
-        foreach ($this->blindIndexesForMember($memberId) as $blindIndex) {
-            $account = $this->userAccountRepository->findByBlindIndex($blindIndex);
-            if ($account !== null && !in_array($account->id, $ids, true)) {
-                $ids[] = $account->id;
-            }
-        }
+        return $this->memberAccounts()->accountIdsForMember($memberId);
+    }
 
-        return $ids;
+    /**
+     * Built here rather than injected so this class keeps the exact
+     * constructor its ~40 existing call sites pass — the resolution it
+     * wraps is core's (Core\Member\MemberAccountResolver), and this is
+     * the one place that had a second copy of it.
+     */
+    private function memberAccounts(): MemberAccountResolver
+    {
+        return $this->memberAccounts ??= new MemberAccountResolver(
+            $this->memberYearRepository,
+            $this->memberEmailRepository,
+            $this->userAccountRepository,
+            $this->encryption
+        );
     }
 
     /**
@@ -359,29 +370,4 @@ class GroupRecipientResolver
         return array_values($byAccount);
     }
 
-    /**
-     * Every blind index that could name this member's account: the Desk
-     * address first (the one Core\Import\DeskImportService creates the
-     * account under), then any currently-valid secondary address. A
-     * 'pending' or 'inactive' secondary never resolves a login
-     * (Core\Security\RoleResolver) and must not resolve a notification
-     * either.
-     *
-     * @return string[]
-     */
-    private function blindIndexesForMember(int $memberId): array
-    {
-        $indexes = [];
-
-        $deskIndex = $this->memberYearRepository->findMostRecentEmailBlindIndexForMember($memberId);
-        if ($deskIndex !== null && $deskIndex !== '') {
-            $indexes[] = $deskIndex;
-        }
-
-        foreach ($this->memberEmailRepository->findValidByMember($memberId) as $secondary) {
-            $indexes[] = $this->encryption->blindIndex(strtolower(trim($secondary->email)), 'email');
-        }
-
-        return array_values(array_unique($indexes));
-    }
 }

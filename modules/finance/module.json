@@ -475,6 +475,20 @@
       "handler": "Modules\\Finance\\Task\\PurgeCampaignFilesHandler"
     }
   ],
+  "notifications": [
+    {
+      "id": "finance.payment_due",
+      "label": "Paiement à effectuer",
+      "description": "Quand le trésorier prévient les familles qu'un paiement est attendu — cotisation, camp, week-end. Une seule notification par compte, même avec plusieurs enfants concernés.",
+      "group": "Finances",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    }
+  ],
   "storage": {
     "receipts": {
       "role_min": "intendant"

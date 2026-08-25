@@ -1035,6 +1035,14 @@ $sectionDocumentRepository = new \Core\Member\SectionDocumentRepository($pdo);
 // before $roleResolver so login-by-email resolution can also match a
 // currently-valid secondary address (see RoleResolver's own docblock).
 $memberEmailRepository = new \Core\Member\MemberEmailRepository($pdo, $encryptionService);
+
+// "Which logins can read a notification addressed to this member?" — the
+// Desk address plus every confirmed secondary one, resolved in one place
+// so a module can never answer it differently (Core\Member\
+// MemberAccountResolver).
+$memberAccountResolver = new \Core\Member\MemberAccountResolver(
+    $memberYearRepo, $memberEmailRepository, $userAccountRepo, $encryptionService
+);
 $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo, $memberEmailRepository);
 
 // Notification centre (Lot 2) — built here, not alongside $webPush/
@@ -2085,6 +2093,13 @@ $sectionResponsableProvider = null;
 $bannerService = null;
 $newsArticleService = null;
 
+// The homepage's "il reste quelque chose à payer" band and the member
+// page's payment block (ARCHITECTURE.md §8.85), both set in finance's
+// block below and both null when that module is disabled — the band and
+// the block then simply do not render.
+$homePaymentDueProvider = null;
+$memberPaymentProvider = null;
+
 // Optional dependency on the calendar module (ARCHITECTURE.md §7.5) for
 // the member page's "next upcoming event" (§3) — set below only when
 // 'calendar' is enabled, same pattern as $sectionResponsableProvider
@@ -2791,10 +2806,57 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
                 (string) $settingService->get('base_url'),
                 $draft
             ),
+            new \Modules\Finance\Service\CampaignNotificationService(
+                $financeCampaignRowRepo,
+                $financeExpectedReceivableRepo,
+                $financeAllocationService,
+                $memberAccountResolver,
+                $memberService,
+                $memberYearRepo,
+                $notificationService
+            ),
             $financeService,
             $financeAllocationService,
             $scoutYearService
         );
+
+    // The family side (ARCHITECTURE.md §8.85): the payment block on a
+    // member's own page and the homepage band summarising a whole
+    // family's open demands. One service for both, because they are one
+    // question asked at two scales.
+    $financeFamilyPaymentService = new \Modules\Finance\Api\FamilyPaymentService(
+        $financeExpectedReceivableRepo,
+        $financeAllocationService,
+        $financeAccountRepo,
+        $financeCampaignRowRepo,
+        $financeCampaignRepo,
+        $financeStatementImportRepo,
+        $financeQrTokenService,
+        $memberService,
+        $scoutYearResolver,
+        (string) $settingService->get('base_url')
+    );
+    $homePaymentDueProvider = $financeFamilyPaymentService;
+    $memberPaymentProvider = $financeFamilyPaymentService;
+
+    // Re-registers PageController with the payment band's provider —
+    // same core-hook precedent, and the same "reuse whatever the earlier
+    // blocks already set" rule, as the banner/news/groups blocks
+    // (ARCHITECTURE.md §7.4). news' and groups' own re-registrations run
+    // after this one and carry $homePaymentDueProvider forward, so no
+    // hook is lost whichever combination is enabled.
+    $frontController->registerController(
+        PageController::class,
+        new PageController(
+            $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
+            $sectionService, $unitStaffSectionService, $scoutYearService,
+            in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
+            $newsArticleService,
+            $sectionResponsableProvider,
+            null,
+            $homePaymentDueProvider
+        )
+    );
 
     $frontController->registerController(
         \Modules\Finance\Controller\ReceivableQrController::class,
@@ -2991,7 +3053,9 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
             $sectionService, $unitStaffSectionService, $scoutYearService,
             in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
             $newsArticleService,
-            $sectionResponsableProvider
+            $sectionResponsableProvider,
+            null,
+            $homePaymentDueProvider
         )
     );
 }
@@ -3374,7 +3438,8 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
                 \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
                 \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
                 $notificationRepo
-            )
+            ),
+            $homePaymentDueProvider
         )
     );
     $frontController->registerController(
@@ -4689,7 +4754,9 @@ if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
 // récentes", gallery's "Galeries photos", trombinoscope's section-
 // responsable lookup (via $sectionResponsableProvider, ARCHITECTURE.md
 // §7.4), calendar's next-upcoming-event lookup (via $calendarEventLookup),
-// and leadership's own training path (via $formationPathProvider); each
+// leadership's own training path (via $formationPathProvider), and
+// finance's "ce qu'il reste à payer" block (via $memberPaymentProvider);
+// each
 // stays null when its module is disabled and the corresponding page block
 // just doesn't render. Placed after every one of those modules' blocks
 // above so their repositories/services are in scope.
@@ -4699,6 +4766,7 @@ if (
     || in_array('calendar', $moduleManager->getEnabledModuleIds(), true)
     || in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)
     || in_array('leadership', $moduleManager->getEnabledModuleIds(), true)
+    || in_array('finance', $moduleManager->getEnabledModuleIds(), true)
 ) {
     $massMailQueryForMember = in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)
         ? new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
@@ -4712,7 +4780,8 @@ if (
     $memberPageService = new \Core\Member\MemberPageService(
         $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
         $sectionDocumentService, $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookup,
-        $formationPathProvider
+        $formationPathProvider,
+        $memberPaymentProvider
     );
 
     $frontController->registerController(

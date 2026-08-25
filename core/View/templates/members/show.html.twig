@@ -451,6 +451,73 @@
            rather than wrapping onto a new row. #}
         {% if branch_card or (section_info and trombinoscope_enabled) %}
             <div class="col-12 col-lg-4">
+                {# What this member still owes — one card per demand, each
+                   with its own communication and its own QR. Rendered
+                   from Core\Module\MemberPaymentView, which the finance
+                   module fills in through Core\Module\
+                   MemberPaymentProvider; the list is empty when the
+                   module is disabled, when nothing is owed, and for a
+                   viewer the page did not clear for personal data.
+
+                   First in this column on purpose: a payment to make
+                   outranks a branch logo. The amount asked for is what is
+                   STILL due, never the original amount — a parent who
+                   paid half and reads the whole sum concludes their
+                   transfer was lost.
+
+                   The IBAN and the communication are written out under
+                   the code, because a code is unreadable to a human and
+                   a phone that will not scan must never leave somebody
+                   without a way to pay. #}
+                {% for payment in open_payments|default([]) %}
+                    <div class="card border-primary mb-3">
+                        <div class="card-header bg-primary text-white">
+                            <p class="small text-uppercase mb-0 opacity-75">{{ payment.label }}</p>
+                            <p class="h5 mb-0">
+                                {% if payment.isPartiallyPaid %}
+                                    Il reste {{ payment.amountRemainingCents|money_cents }}
+                                {% else %}
+                                    {{ payment.amountRemainingCents|money_cents }} à payer
+                                {% endif %}
+                            </p>
+                        </div>
+                        <div class="card-body">
+                            {% if payment.qrUrl %}
+                                <img src="{{ payment.qrUrl }}" alt="QR de paiement" class="d-block mx-auto img-fluid" style="max-width:180px;">
+                                <p class="small text-body-secondary text-center mt-2 mb-0">
+                                    Scannez avec votre application bancaire
+                                </p>
+                            {% endif %}
+                            <dl class="border-top mt-3 pt-3 mb-0 small">
+                                {% if payment.beneficiary %}
+                                    <dt class="text-body-secondary fw-normal">Bénéficiaire</dt>
+                                    <dd class="fw-medium">{{ payment.beneficiary }}</dd>
+                                {% endif %}
+                                {% if payment.iban %}
+                                    <dt class="text-body-secondary fw-normal">IBAN</dt>
+                                    <dd class="font-monospace text-break">{{ payment.iban }}</dd>
+                                {% endif %}
+                                <dt class="text-body-secondary fw-normal">Communication</dt>
+                                <dd class="font-monospace text-break mb-0">{{ payment.communication }}</dd>
+                            </dl>
+                            {% if payment.isPartiallyPaid %}
+                                <p class="small text-body-secondary mt-3 mb-0">
+                                    {{ payment.amountReceivedCents|money_cents }} déjà reçus sur
+                                    {{ payment.amountDueCents|money_cents }}.
+                                </p>
+                            {% endif %}
+                            {# Always, not only for a family with several
+                               children: this page shows one member, so
+                               the reader cannot see from here that they
+                               have two more demands elsewhere. #}
+                            <div class="alert alert-warning small mt-3 mb-0" role="alert">
+                                Un virement par enfant, s'il vous plaît — c'est ce qui nous permet
+                                d'identifier chaque paiement à son arrivée.
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+
                 {% if branch_card %}
                     <div class="card mb-3">
                         <div class="card-body text-center">

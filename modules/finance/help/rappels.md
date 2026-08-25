@@ -5,7 +5,7 @@ summary: Préparer le publipostage de rappel d'une campagne, et marquer les fami
 category: Espace animateurs
 role_min: intendant
 paths: /finance/campaigns/*
-related: campagnes, rapprochement, publipostage
+related: campagnes, rapprochement, mes-paiements, publipostage
 ---
 
 Le bouton « Brouillon de rappel », sur l'écran d'une campagne, prépare un

@@ -13,6 +13,7 @@ use Core\Badge\BadgeRepository;
 use Core\Badge\MemberBadgeRepository;
 use Core\Import\AgeBranchRepository;
 use Core\Module\FormationPathProvider;
+use Core\Module\MemberPaymentProvider;
 use Core\Module\SectionResponsableProvider;
 use Core\Security\Role;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
@@ -44,7 +45,8 @@ class MemberPageService
         private ?MassMailQueryInterface $massMailQuery = null,
         private ?GalleryAlbumProvider $galleryAlbumProvider = null,
         private ?CalendarEventLookupInterface $calendarEventLookup = null,
-        private ?FormationPathProvider $formationPathProvider = null
+        private ?FormationPathProvider $formationPathProvider = null,
+        private ?MemberPaymentProvider $memberPaymentProvider = null
     ) {
     }
 
@@ -108,6 +110,16 @@ class MemberPageService
             // data and left the hiding to a Twig condition, and a block
             // that is never built cannot leak through a later template
             // edit. Same posture as member_documents above.
+            // What this member still owes — the amount, the
+            // communication and the QR to pay it with. Under
+            // $showPersonal rather than $isSelf: a treasurer looking at
+            // the page is exactly who gets asked "où en est-elle ?" at
+            // the section's door, and the same block answers it. Who may
+            // be on this page at all was decided by
+            // Core\Http\Controller\MemberController::show().
+            'open_payments' => $showPersonal
+                ? ($this->memberPaymentProvider?->getOpenPayments($profile->memberId) ?? [])
+                : [],
             'formation_path' => $isSelf
                 ? $this->formationPathProvider?->getFormationPath($profile->memberId, $scoutYearId)
                 : null,

@@ -13,6 +13,7 @@ use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Member\MemberProfile;
 use Core\Module\HomeBannerProvider;
+use Core\Module\HomePaymentDueProvider;
 use Core\Module\HomeNewsProvider;
 use Core\Module\SectionResponsableProvider;
 use Core\Security\AuthSession;
@@ -70,6 +71,16 @@ class PageControllerTest extends TestCase
         }));
         $twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
             return '';
+        }));
+        // Core\View\TwigFactory registers this in production; this test
+        // builds a bare Environment, so the homepage's payment band needs
+        // it declared here too.
+        $twig->addFilter(new \Twig\TwigFilter('money_cents', function ($cents): string {
+            if ($cents === null || $cents === '') {
+                return '';
+            }
+
+            return number_format(((int) $cents) / 100, 2, ',', ' ') . ' €';
         }));
         $twig->addFunction(new \Twig\TwigFunction('param', function (string $key): string {
             $params = ['contact_email' => 'test@example.com', 'site_name' => 'Test'];
@@ -175,6 +186,111 @@ class PageControllerTest extends TestCase
         $response = $controller->home($request, []);
 
         $this->assertStringContainsString('Message important', $response->getBody());
+    }
+
+    /**
+     * A parent of two sees ONE band with two lines, never two bands —
+     * and the total is what the strong line says.
+     */
+    public function testHomePageRendersOneBandForTheWholeFamily(): void
+    {
+        $controller = $this->controllerWithPaymentDue([
+            'total_cents' => 8325,
+            'demands' => [
+                ['member_year_id' => 11, 'member_name' => 'Margaux', 'label' => 'Cotisation', 'amount_cents' => 3825],
+                ['member_year_id' => 12, 'member_name' => 'Antoine', 'label' => 'Week-end', 'amount_cents' => 4500],
+            ],
+            'single_member_year_id' => null,
+            'statement_date' => '2026-02-20',
+        ]);
+
+        $body = $controller->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        $this->assertSame(1, substr_count($body, 'id="home-payment-due"'), 'one band, not one per child');
+        $this->assertStringContainsString('Margaux', $body);
+        $this->assertStringContainsString('Antoine', $body);
+        $this->assertStringContainsString('/members/11', $body);
+        $this->assertStringContainsString('/members/12', $body);
+    }
+
+    /**
+     * The warning quotes the last statement actually imported and then a
+     * plain-prose delay — never a computed bank-closing time.
+     */
+    public function testTheBandQuotesTheImportDateAndTheDelayInProse(): void
+    {
+        $controller = $this->controllerWithPaymentDue([
+            'total_cents' => 3825,
+            'demands' => [['member_year_id' => 11, 'member_name' => 'Margaux', 'label' => 'Cotisation', 'amount_cents' => 3825]],
+            'single_member_year_id' => 11,
+            'statement_date' => '2026-02-20',
+        ]);
+
+        $body = $controller->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('20/02/2026', $body);
+        $this->assertStringContainsString('un à deux jours ouvrables', $body);
+    }
+
+    /** Nothing imported: the promise is dropped rather than made up. */
+    public function testTheBandDropsTheDateSentenceWhenNothingHasBeenImported(): void
+    {
+        $controller = $this->controllerWithPaymentDue([
+            'total_cents' => 3825,
+            'demands' => [['member_year_id' => 11, 'member_name' => 'Margaux', 'label' => 'Cotisation', 'amount_cents' => 3825]],
+            'single_member_year_id' => 11,
+            'statement_date' => null,
+        ]);
+
+        $body = $controller->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('un à deux jours ouvrables', $body);
+        $this->assertStringContainsString('Voir le détail et payer', $body);
+    }
+
+    /**
+     * The provider answers null for everyone with nothing to pay, and the
+     * band is then not rendered at all — there is no access check in the
+     * template to get wrong.
+     */
+    public function testNoBandAtAllWhenTheProviderHasNothingToSay(): void
+    {
+        $request = new Request('GET', '/', [], [], [], []);
+
+        $this->assertStringNotContainsString(
+            'id="home-payment-due"',
+            $this->controller->home($request, [])->getBody()
+        );
+    }
+
+    /**
+     * @param array{total_cents: int, demands: list<array{member_year_id: int, member_name: string, label: string, amount_cents: int}>, single_member_year_id: ?int, statement_date: ?string} $summary
+     */
+    private function controllerWithPaymentDue(array $summary): PageController
+    {
+        $provider = new class ($summary) implements HomePaymentDueProvider {
+            /** @param array<string, mixed> $summary */
+            public function __construct(private array $summary)
+            {
+            }
+
+            /**
+             * @return null|array{total_cents: int, demands: list<array{member_year_id: int, member_name: string, label: string, amount_cents: int}>, single_member_year_id: ?int, statement_date: ?string}
+             */
+            public function getHomePaymentSummaryForCurrentUser(): ?array
+            {
+                /** @var array{total_cents: int, demands: list<array{member_year_id: int, member_name: string, label: string, amount_cents: int}>, single_member_year_id: ?int, statement_date: ?string} $summary */
+                $summary = $this->summary;
+
+                return $summary;
+            }
+        };
+
+        return new PageController(
+            $this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService,
+            $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService,
+            null, null, null, null, $provider
+        );
     }
 
     public function testHomePagePassesTheCurrentViewerRoleToTheBannerProvider(): void

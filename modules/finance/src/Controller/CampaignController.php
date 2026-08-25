@@ -18,6 +18,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Modules\Finance\Service\CampaignExportService;
 use Modules\Finance\Service\CampaignImportException;
+use Modules\Finance\Service\CampaignNotificationService;
 use Modules\Finance\Service\CampaignReminderService;
 use Modules\Finance\Service\CampaignOverviewService;
 use Modules\Finance\Service\CampaignService;
@@ -47,6 +48,7 @@ class CampaignController extends AbstractController
         private CampaignOverviewService $overviewService,
         private CampaignExportService $exportService,
         private CampaignReminderService $reminderService,
+        private CampaignNotificationService $notificationService,
         private FinanceService $financeService,
         private ReceivableAllocationService $allocationService,
         private ScoutYearService $scoutYears
@@ -364,12 +366,23 @@ class CampaignController extends AbstractController
         }
 
         try {
-            $this->campaignService->markNotified(
+            $actorAccountId = AuthSession::getUserAccountId();
+            $campaign = $this->campaignService->markNotified(
                 $campaignId,
                 Role::fromString(AuthSession::getRole()),
-                AuthSession::getUserAccountId()
+                $actorAccountId
             );
-            FlashMessage::set('success', 'Les familles sont marquées comme prévenues.');
+
+            // The mark and the notification are two steps of one gesture,
+            // in this order: the date is what the screen reads, and a
+            // notification that failed to reach anybody must still leave
+            // the campaign marked rather than invite a second round of
+            // messages to the families who did get one.
+            $notified = $this->notificationService->notifyFamilies($campaign, $actorAccountId);
+
+            FlashMessage::set('success', $notified > 0
+                ? 'Les familles sont prévenues — ' . $notified . ' compte' . ($notified > 1 ? 's' : '') . ' notifié' . ($notified > 1 ? 's' : '') . '.'
+                : "La campagne est marquée comme notifiée. Aucun compte n'a reçu de notification : soit tout est réglé, soit aucune famille n'a de compte sur le site.");
         } catch (FinanceException $e) {
             FlashMessage::set('error', $e->getMessage());
         }

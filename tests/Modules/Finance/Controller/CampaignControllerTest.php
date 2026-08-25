@@ -137,6 +137,22 @@ class CampaignControllerTest extends TestCase
                 // mass_mail disabled: the button is simply not offered.
                 null
             ),
+            new \Modules\Finance\Service\CampaignNotificationService(
+                $this->rows,
+                $this->receivables,
+                $allocations,
+                new \Core\Member\MemberAccountResolver(
+                    new MemberYearRepository($this->pdo),
+                    new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption),
+                    new UserAccountRepository($this->pdo, $this->encryption),
+                    $this->encryption
+                ),
+                new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+                new MemberYearRepository($this->pdo),
+                // The notification centre is exercised on its own, in
+                // Service\CampaignNotificationServiceTest.
+                null
+            ),
             $financeService,
             $allocations,
             $scoutYearService

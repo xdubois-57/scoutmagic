@@ -94,6 +94,30 @@ class CampaignRowRepository
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
+    /**
+     * Rows by id — what a family-facing page reads to learn which
+     * campaign each of its receivables belongs to, in one query rather
+     * than one per demand.
+     *
+     * @param int[] $ids
+     * @return CampaignRow[]
+     */
+    public function findByIds(array $ids): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM finance_campaign_rows WHERE id IN ($placeholders) ORDER BY id ASC"
+        );
+        $stmt->execute($ids);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
     public function countByCampaignId(int $campaignId): int
     {
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM finance_campaign_rows WHERE campaign_id = ?');
