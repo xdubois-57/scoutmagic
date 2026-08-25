@@ -13,8 +13,16 @@
        mismatched mix of old/new versions. A plain <meta http-equiv="refresh">
        re-checks status periodically without needing any script at all,
        which also sidesteps the CSP nonce this app requires for inline
-       <script> (script-src 'self' 'nonce-…', no 'unsafe-inline'). #}
-    <style>
+       <script> (script-src 'self' 'nonce-…', no 'unsafe-inline').
+
+       The <style> below does carry a nonce: since style-src-elem dropped
+       'unsafe-inline' (Core\Http\Response::buildStyleSrc()), an inline
+       style ELEMENT needs one or the browser refuses it — and this page
+       has nowhere else to put its CSS, precisely because it may not load
+       an external stylesheet. FrontController::renderMaintenanceInProgress()
+       returns an ordinary Response, so public/index.php stamps it with
+       the same per-request nonce the template reads here. #}
+    <style nonce="{{ csp_nonce }}">
         body {
             margin: 0;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;

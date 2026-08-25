@@ -211,6 +211,17 @@ class Request
     }
 
     /**
+     * Whether this request reached us over HTTPS. Delegates to
+     * Core\Http\RequestScheme, the single source of truth shared with
+     * the call sites that only have $_SERVER to work with (session
+     * cookie flags, HSTS emission).
+     */
+    public function isHttps(): bool
+    {
+        return RequestScheme::isHttps($this->server);
+    }
+
+    /**
      * Get the HTTP_REFERER header.
      */
     public function getReferer(): ?string

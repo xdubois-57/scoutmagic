@@ -37,6 +37,59 @@ if (!baseURL) {
     );
 }
 
+/**
+ * How much slower than a plain `npm run e2e` this run is expected to be.
+ *
+ * scripts/dast.sh sets E2E_TIMEOUT_FACTOR because a security scan drives
+ * every request through OWASP ZAP and a TLS terminator, and serves it
+ * from a single-worker PHP built-in server: the same scenarios do the
+ * same work, they just take a few times longer to do it (about 12
+ * minutes against about 8). Scaling the ceilings is the honest response
+ * — leaving them would report the harness's own latency as application
+ * failures.
+ *
+ * Unset, which is every other caller, this is 1 and every timeout below
+ * is the value it has always been.
+ *
+ * @param {number} milliseconds
+ * @returns {number}
+ */
+function scaled(milliseconds) {
+    const raw = Number(process.env.E2E_TIMEOUT_FACTOR);
+    const factor = Number.isFinite(raw) && raw >= 1 ? raw : 1;
+
+    return Math.round(milliseconds * factor);
+}
+
+/**
+ * Chromium launch overrides, assembled from the two environment opt-ins
+ * above. Returns an empty object when neither is set, so the project
+ * definition is byte-identical to what it was before either existed.
+ *
+ * @returns {{launchOptions?: import('@playwright/test').LaunchOptions, proxy?: {server: string}}}
+ */
+function launchArguments() {
+    /** @type {import('@playwright/test').LaunchOptions} */
+    const launchOptions = {};
+    /** @type {{launchOptions?: import('@playwright/test').LaunchOptions, proxy?: {server: string}}} */
+    const use = {};
+
+    if (process.env.E2E_CHROMIUM_EXECUTABLE) {
+        launchOptions.executablePath = process.env.E2E_CHROMIUM_EXECUTABLE;
+    }
+
+    if (process.env.E2E_PROXY_SERVER) {
+        use.proxy = { server: process.env.E2E_PROXY_SERVER };
+        launchOptions.args = ['--proxy-bypass-list=<-loopback>'];
+    }
+
+    if (Object.keys(launchOptions).length > 0) {
+        use.launchOptions = launchOptions;
+    }
+
+    return use;
+}
+
 export default defineConfig({
     testDir: './specs',
     outputDir: './test-results',
@@ -46,8 +99,8 @@ export default defineConfig({
     // A generous but finite ceiling: a cold first request pays for Twig
     // template compilation and the module registry scan, and CI runners
     // are slower than a laptop. Nothing here should ever wait this long.
-    timeout: 60_000,
-    expect: { timeout: 10_000 },
+    timeout: scaled(60_000),
+    expect: { timeout: scaled(10_000) },
     // Fails the run if a test is left focused with .only, which would
     // silently reduce a release gate to a subset of itself.
     forbidOnly: !!process.env.CI,
@@ -69,8 +122,15 @@ export default defineConfig({
         // own future scenario; it is not part of "does the application
         // boot and render".
         serviceWorkers: 'block',
-        actionTimeout: 10_000,
-        navigationTimeout: 30_000,
+        actionTimeout: scaled(10_000),
+        navigationTimeout: scaled(30_000),
+        // The security scan (scripts/dast.sh) serves the throwaway
+        // instance over a certificate generated for that one run and
+        // trusted by nothing — see scripts/dast-support.php's
+        // generate-cert. Unset, which is every other caller including
+        // `npm run e2e`, this stays false and a certificate problem is
+        // still a test failure.
+        ignoreHTTPSErrors: process.env.E2E_IGNORE_HTTPS_ERRORS === '1',
     },
     projects: [
         {
@@ -84,9 +144,22 @@ export default defineConfig({
                 // /opt/pw-browsers). Unset — the normal case, CI and
                 // developer machines alike — Playwright resolves its own
                 // managed browser exactly as before.
-                ...(process.env.E2E_CHROMIUM_EXECUTABLE
-                    ? { launchOptions: { executablePath: process.env.E2E_CHROMIUM_EXECUTABLE } }
-                    : {}),
+                //
+                // E2E_PROXY_SERVER routes the whole run through a proxy —
+                // OWASP ZAP, when scripts/dast.sh is driving. Same
+                // opt-in shape and same reasoning: unset, behaviour is
+                // strictly unchanged and `npm run e2e` never sees a
+                // proxy.
+                //
+                // --proxy-bypass-list=<-loopback> is NOT optional when
+                // the proxy is set. Chromium bypasses any proxy for
+                // loopback addresses by default, and this application is
+                // served on localhost: without it ZAP records nothing,
+                // every scenario still passes, and the scan reports a
+                // clean site it never saw. scripts/dast-support.php's
+                // assert-sitemap exists to catch that, but the argument
+                // is what prevents it.
+                ...launchArguments(),
             },
         },
     ],

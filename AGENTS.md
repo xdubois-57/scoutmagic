@@ -99,7 +99,7 @@ When creating a new module:
 Automated tests are **mandatory** for every feature, without exception.
 
 - Write tests alongside the code, never as a separate follow-up task.
-- `tests/` mirrors the structure of `core/` and `modules/` for PHP; `tests/js/` holds Vitest specs for first-party browser JavaScript (`public/assets/js/`), one `<name>.test.js` per script under test; `tests/e2e/` holds the Playwright end-to-end specs — see ARCHITECTURE.md § 15.
+- `tests/` mirrors the structure of `core/` and `modules/` for PHP; `tests/js/` holds Vitest specs for first-party browser JavaScript (`public/assets/js/`), one `<name>.test.js` per script under test; `tests/e2e/` holds the Playwright end-to-end specs, and `tests/dast/` the OWASP ZAP plans the dynamic security scan runs (`scripts/dast.sh`, README.md § Analyse de sécurité dynamique) — see ARCHITECTURE.md § 15. `tests/dast/` holds configuration, not tests: nothing in it is run by `vendor/bin/phpunit`, and it needs no `<testsuite>` entry.
 - **A new PHP test directory must be added to `phpunit.xml` as a `<testsuite>` in the same change.** `vendor/bin/phpunit` runs the suites that file lists and nothing else, so a directory nobody listed is a directory nobody runs — which is exactly what happened to `tests/Security/` and `tests/Integration/` for months, audits included.
 - Every new Service method must have at least one test.
 - Every new Controller route must have at least one integration test verifying the correct response and the RBAC boundary (access allowed at `role_min`, denied one level below).

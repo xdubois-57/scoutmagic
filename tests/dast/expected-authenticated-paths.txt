@@ -1,0 +1,19 @@
+# Paths the ZAP site map must contain after a passive run.
+#
+# Every one of these needs a signed-in session: an anonymous visitor is
+# redirected to /login before reaching any of them. That is the point —
+# an empty site map, or one holding only public pages, means the browser
+# never proxied through ZAP (Chromium bypasses a proxy for loopback
+# unless told otherwise) and the scan examined nothing. Asserted by
+# scripts/dast-support.php assert-sitemap, which fails the run.
+#
+# Keep this list to pages the Playwright suite genuinely visits on every
+# run, spread across roles and modules so one disabled scenario cannot
+# satisfy it alone. It is a smoke test for "did the proxy work", not a
+# coverage target: a longer list only makes the harness brittle.
+/account
+/config/functions
+/config/modules
+/groups
+/chefs/membres
+/gallery/manage
