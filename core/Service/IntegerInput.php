@@ -98,6 +98,28 @@ final class IntegerInput
     }
 
     /**
+     * A row identifier as it arrived from a request.
+     *
+     * Zero is refused on purpose: no row has id 0, so a 0 here is the
+     * signature of `(int) $somethingThatWasNeverAnId`.
+     *
+     * That cast is also what an active scanner probes for. It replaces
+     * an id with an arithmetic expression evaluating to the same number
+     * — `4/2`, `4-2` where the id was 2 — on the theory that an
+     * unchanged response means the database evaluated it. PHP does
+     * something else again: the cast stops at the first non-digit, so
+     * both become **4**, which is neither what the visitor sent nor what
+     * the expression evaluates to. There is no injection here (every
+     * statement is prepared) and the scanner's conclusion is wrong, but
+     * its suspicion was not baseless: the endpoint really was acting on
+     * a row nobody named. Refusing the value answers both.
+     */
+    public static function id(mixed $value): ?int
+    {
+        return self::bounded($value, 1, self::UNSIGNED_INT_MAX);
+    }
+
+    /**
      * The common case: a non-negative value headed for an
      * `INT UNSIGNED` column.
      */

@@ -442,7 +442,7 @@ Two new capability tokens and one new class of untrusted file arrive with the re
 
 An active dynamic scan (`scripts/dast.sh --profile=deep`) produced **542 uncaught exceptions across 13 statements in 7 modules**. Not one was an injection — every write here is a prepared statement, so a value can never change what a query *does*. Every one was a value the schema refused: an id whose row was gone, a number wider than `INT UNSIGNED`, a path-traversal payload sitting in a `DATE` column, a NUL byte in a date field. PDO raised, nobody caught, and the visitor got the 500 page written for "the application has crashed" — alarming, and untrue.
 
-The scanner also reported six of these as **High: SQL Injection**, which they are not: `(int) "2'"` is `2`, so the quote never reaches SQL and the 500 came from the FK behind it. A finding that is wrong about the cause can still be right that something is broken, and this one was.
+The scanner also reported six of these as **High: SQL Injection**, which they are not: `(int) "2'"` is `2`, so the quote never reaches SQL and the 500 came from the FK behind it. A finding that is wrong about the cause can still be right that something is broken, and both halves of this one were — see « An id is digits, or it is nothing » below for the other three.
 
 Three layers, in the order they matter.
 
@@ -463,6 +463,18 @@ The idiom was `max(0, (int) $request->getBody('capacity'))`: a floor, never a ce
 `IntegerInput` refuses out of range rather than clamping — storing 4 294 967 295 because somebody typed more records a number they never chose — and refuses to salvage, because `(int) '12 places'` being `12` reads as helpful right up to the day a mistyped field is stored as a number that was never in it. The bounds it names are the storage layer's; nothing in it knows that a scout hall sleeps fewer than four billion people, and a field with a real-world ceiling should state its own.
 
 Where an allow-list was already at hand it is used instead, because it is stricter: the on-call grid now checks each cell's member against the roster the page is displaying, and each cell's date against the month being saved. That closes the out-of-range value, the foreign key **and** a row dated outside the month, which `saveMonth()` would have written once and never cleared.
+
+### An id is digits, or it is nothing
+
+The same scan reported six **High: SQL Injection**. None is one — every statement is prepared, so a value cannot change what a query does — but three of them were pointing at something real.
+
+An active scanner probes for injection by replacing an id with an arithmetic expression that evaluates to the same number: `4/2`, `4-2` where the id was 2. If the response does not change, it concludes the database evaluated the arithmetic. PHP does something else again: `(int) '4/2'` stops at the first non-digit and is **4** — neither the value the visitor sent nor the 2 the expression evaluates to. So `/config/banner/delete`, `/config/banner/role-min` and `/chefs/calendar/event-delete` were each acting on a row nobody had named, and answering as if nothing were odd.
+
+The scanner's conclusion was wrong and its suspicion was not. `Core\Service\IntegerInput::id()` is the fix: digits, within what an `INT UNSIGNED` primary key holds, and never zero — no row has id 0, so a 0 is the signature of a cast that salvaged something. These endpoints now answer **400 « Identifiant invalide. »** rather than acting. No alert filter was written for those three findings: silencing a rule is for a finding that is false, and the response changing is what makes this one stop firing.
+
+The other three (`/groups/*`, on a `2'` payload) were the uncaught-exception class above, reported under the wrong rule — a 500 is an error page, and an error page where the original request succeeded looks to a scanner exactly like a database complaining.
+
+**What is not done, and why.** There are ~180 further `(int) $params['id']` reads on path parameters. A rule in the router — "a placeholder named `id` matches digits only" — would fix them all in one line, and it is wrong: `/aide/{id}` takes a help topic's slug, and it is not alone. Enforcing it per route (`{id:int}`) is the shape that would work, and it is a change to every route declaration rather than to one file. Until then, a path id is still cast rather than validated; what protects those routes is that a repository lookup returns null for a row that does not exist, and the controller renders its 404.
 
 ### `Core\Database\ConstraintViolation` — the floor underneath validation
 

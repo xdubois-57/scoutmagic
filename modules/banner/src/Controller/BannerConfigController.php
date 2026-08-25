@@ -16,6 +16,7 @@ use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Service\IntegerInput;
 use Modules\Banner\Service\BannerException;
 use Modules\Banner\Service\BannerService;
 use Twig\Environment;
@@ -100,7 +101,10 @@ class BannerConfigController extends AbstractController
             return $data;
         }
 
-        $id = (int) ($data['id'] ?? 0);
+        $id = IntegerInput::id($data['id'] ?? null);
+        if ($id === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+        }
         $active = (bool) ($data['active'] ?? false);
 
         try {
@@ -133,7 +137,10 @@ class BannerConfigController extends AbstractController
             return $data;
         }
 
-        $id = (int) ($data['id'] ?? 0);
+        $id = IntegerInput::id($data['id'] ?? null);
+        if ($id === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+        }
         $roleMin = (string) ($data['role_min'] ?? '');
 
         try {
@@ -184,7 +191,10 @@ class BannerConfigController extends AbstractController
             return $data;
         }
 
-        $id = (int) ($data['id'] ?? 0);
+        $id = IntegerInput::id($data['id'] ?? null);
+        if ($id === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+        }
 
         try {
             $this->bannerService->delete($id);
