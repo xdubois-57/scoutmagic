@@ -120,6 +120,33 @@ class FeeEstimationServiceTest extends TestCase
 
         $this->assertSame(0, $estimate->householdSize);
         $this->assertSame(HouseholdFeeCategory::NORMAL, $estimate->category);
+        // A real address nobody lives at IS an answer — the address was
+        // usable, the household is simply empty.
+        $this->assertTrue($estimate->addressUsable);
+    }
+
+    /**
+     * An address that normalizes to nothing produces the very same
+     * NORMAL/0 as a genuine household of one, which is the trap
+     * FeeEstimate::$addressUsable exists to close: "I cannot say" must
+     * never read as "this household is on the normal tariff".
+     */
+    public function testAnUnusableAddressSaysSoRatherThanClaimingNormal(): void
+    {
+        $estimate = $this->service->estimate(null, null, null, null, $this->scoutYearId);
+
+        $this->assertFalse($estimate->addressUsable);
+        $this->assertSame(0, $estimate->householdSize);
+        $this->assertSame(HouseholdFeeCategory::NORMAL, $estimate->category);
+    }
+
+    public function testAKnownAddressIsReportedAsUsable(): void
+    {
+        $this->createMemberAtAddress('Rue de la Station', '5', null, '1000');
+
+        $estimate = $this->service->estimate('Rue de la Station', '5', null, '1000', $this->scoutYearId);
+
+        $this->assertTrue($estimate->addressUsable);
     }
 
     /**
@@ -145,6 +172,11 @@ class FeeEstimationServiceTest extends TestCase
             public function countAtAddress(string $addressBlindIndex, int $scoutYearId, ?int $excludeRequestId): int
             {
                 return 2;
+            }
+
+            public function countsAtAddresses(array $addressBlindIndexes, int $scoutYearId): array
+            {
+                return array_fill_keys($addressBlindIndexes, 2);
             }
         };
         $service = new FeeEstimationService(new FeeEstimationRepository($this->pdo), $this->encryption, $provider);

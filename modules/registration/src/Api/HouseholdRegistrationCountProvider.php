@@ -26,4 +26,20 @@ interface HouseholdRegistrationCountProvider
      * estimated on its own fiche must never count itself).
      */
     public function countAtAddress(string $addressBlindIndex, int $scoutYearId, ?int $excludeRequestId): int;
+
+    /**
+     * The same count for a whole batch of addresses, in one query.
+     *
+     * Core\Member\Household\HouseholdService enumerates every household of
+     * a scout year at once; asking {@see countAtAddress()} per household
+     * would be one query per address, over the entire unit. There is no
+     * exclusion parameter here on purpose: that one exists for a request
+     * estimating its own fiche, which is a single-address question by
+     * construction.
+     *
+     * @param string[] $addressBlindIndexes
+     * @return array<string, int> blind index => count; an address with no
+     *         matching request is simply absent, never a zero row
+     */
+    public function countsAtAddresses(array $addressBlindIndexes, int $scoutYearId): array;
 }

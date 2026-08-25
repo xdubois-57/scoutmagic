@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Leadership\Service;
 
+use Core\Service\DeskDateParser;
 use Modules\Leadership\LeadershipRules;
 use Modules\Leadership\Value\PersonLine;
 use Modules\Leadership\Value\StaffFunctionRow;
@@ -213,36 +214,15 @@ class ObligationsService
 
     /**
      * Desk exports a birth date in more than one shape depending on the
-     * export, so both are accepted here — the same two
-     * Core\Member\MemberYearService::extractBirthYear() already handles,
-     * except that a legal threshold needs the day and the month too, which
-     * that helper deliberately does not return.
+     * export, and `Core\Service\DeskDateParser` is the one place that
+     * knows which — the same two `Core\Member\MemberYearService::
+     * extractBirthYear()` already handles, except that a legal threshold
+     * needs the day and the month too, which that helper deliberately does
+     * not return.
      */
     private function parseBirthDate(?string $birthDate): ?\DateTimeImmutable
     {
-        if ($birthDate === null || trim($birthDate) === '') {
-            return null;
-        }
-
-        $birthDate = trim($birthDate);
-
-        // A datetime column that came through as "1998-03-15 00:00:00"
-        // is the same date; drop the time part before matching.
-        if (preg_match('/^(\d{4}-\d{2}-\d{2})[T ]/', $birthDate, $m) === 1) {
-            $birthDate = $m[1];
-        }
-
-        foreach (['Y-m-d', 'd/m/Y', 'd-m-Y'] as $format) {
-            // '!' zeroes the time fields; the round-trip check rejects
-            // PHP's overflow tolerance, which would otherwise turn an
-            // impossible 31/02 into 3 March rather than into "unknown".
-            $parsed = \DateTimeImmutable::createFromFormat('!' . $format, $birthDate);
-            if ($parsed !== false && $parsed->format($format) === $birthDate) {
-                return $parsed;
-            }
-        }
-
-        return null;
+        return DeskDateParser::parse($birthDate);
     }
 
     /**

@@ -209,14 +209,18 @@ class DeskCsvParserTest extends TestCase
         $this->assertSame('Louveteaux', $fn->branchCode);
         // The section code always comes from the "Section" column, never
         // "SECTION" (all-caps), which can hold incorrect Desk export data.
-        $this->assertSame('Meute Akela', $fn->sectionCode);
-        $this->assertSame('Meute Akela', $fn->sectionName);
+        // In a real export "Section" holds the code (SV025L1) and "SECTION"
+        // the display label ("Meute Akela") — desk_export_comma.csv shows
+        // the same shape.
+        $this->assertSame('SV025L1', $fn->sectionCode);
+        $this->assertSame('SV025L1', $fn->sectionName);
     }
 
     public function testFunctionSectionCodeIgnoresUppercaseSectionColumn(): void
     {
-        // T001's "SECTION" (all-caps) column holds "SV025L1", a different
-        // value from "Section" ("Meute Akela") — the parser must ignore it.
+        // T001's "SECTION" (all-caps) column holds "Meute Akela", a
+        // different value from "Section" ("SV025L1") — the parser must
+        // ignore it.
         $result = $this->parser->parse($this->fixturePath);
 
         $jean = null;
@@ -227,7 +231,7 @@ class DeskCsvParserTest extends TestCase
             }
         }
         $this->assertNotNull($jean);
-        $this->assertNotSame('SV025L1', $jean->functions[0]->sectionCode);
+        $this->assertNotSame('Meute Akela', $jean->functions[0]->sectionCode);
     }
 
     public function testAddressFieldsExtracted(): void

@@ -17,9 +17,10 @@
   itself. Those two words are all the room a phone has, and a dozen
   calendars down the page would otherwise give a screen reader a dozen
   identically-named controls, so the accessible name adds the calendar's
-  own name after them (`aria_label`, « Vu par — Meute »): it starts with
-  what is written on screen, which is what keeps voice control working
-  (WCAG 2.5.3).
+  own name after them (`label_suffix`, hidden inside the label itself —
+  « Vu par » on screen, « Vu par — Meute » to a screen reader): it starts
+  with what is written on screen, which is what keeps voice control
+  working (WCAG 2.5.3).
 
   Params:
     calendar_id      -- int, the row's calendar
@@ -52,7 +53,7 @@
                 label: 'Vu par', type: 'select', size: 'sm', wrapper_class: '',
                 control_class_extra: 'visibility-select',
                 data: { 'calendar-id': calendar_id },
-                aria_label: 'Vu par — ' ~ name,
+                label_suffix: ' — ' ~ name,
                 options: [
                     { value: 'public', label: 'Tous', selected: visibility == 'public' },
                     { value: 'chief', label: 'Les animateurs', selected: visibility == 'chief' },
@@ -66,7 +67,7 @@
                 label: 'Modifié par', type: 'select', size: 'sm', wrapper_class: '',
                 control_class_extra: 'edit-role-select',
                 data: { 'calendar-id': calendar_id },
-                aria_label: 'Modifié par — ' ~ name,
+                label_suffix: ' — ' ~ name,
                 options: [
                     { value: 'chief', label: edit_chief_label, selected: edit_role_min == 'chief' },
                     { value: 'admin', label: "Les chefs d'unité", selected: edit_role_min == 'admin' },

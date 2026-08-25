@@ -997,3 +997,282 @@ Le journal du site retient qu'une vérification a eu lieu et son résultat, **ja
 ### 30.4 Hors périmètre
 
 Enregistrer un paiement, créer une créance depuis le générateur, un historique des QR produits, et la recherche par montant ou par nom — la communication est la seule clé.
+
+
+## 31. Cotisations — vérifier ce que la fédération facture (module fees)
+
+### 31.1 Ce que le module fait, et ce qu'il ne fait pas
+
+Il vérifie. Il confronte ce que l'unité a encodé dans Desk et ce que la
+fédération facture, et prépare les corrections à faire.
+
+**Il n'écrit jamais dans Desk** et ne propose aucune action qui prétende le
+faire : Desk est la source de vérité, le module la relit. **Il ne demande
+pas d'argent aux familles** non plus — appel de fonds, part unité par
+section, supplément précamp et page famille sont hors périmètre.
+
+Toutes ses pages sont dans l'espace des chefs d'unité, réservées au chef
+d'unité. Aucune route à un rôle inférieur, exports et points d'entrée
+internes compris.
+
+### 31.2 La photographie du roster
+
+Une facture reflète l'état de Desk à sa date d'émission. Le site, lui,
+réécrit la liste des membres à chaque import : il ne garde aucun état
+intermédiaire. Comparer une facture de février à la situation de mars
+fabriquerait de faux écarts, et ce sont ces faux écarts qui feraient
+abandonner l'outil.
+
+À chaque import Desk, le module fige donc la composition du roster.
+
+**Cette photographie ne contient aucune donnée personnelle** : pour chaque
+membre, son identifiant interne et des codes — catégorie tarifaire,
+section, rôle de sa fonction, niveau de formation, et le fait qu'un départ
+ait été annoncé. Les noms et les dates de naissance restent dans la fiche
+annuelle du membre, qui persiste toute l'année même pour quelqu'un devenu
+inactif.
+
+Le drapeau « départ annoncé » est enregistré tel quel, jamais utilisé
+comme filtre : Desk contient encore la personne, et la fédération la
+facture encore.
+
+Deux imports laissent deux photographies. Une photographie ancienne n'est
+jamais réécrite : c'est elle qui rend une facture ancienne vérifiable.
+
+### 31.3 La mémoire commence à l'activation
+
+**Les factures antérieures à la première photographie ne seront jamais
+vérifiables ligne par ligne.** La page d'accueil du module le dit, plutôt
+que de laisser l'utilisateur le découvrir. Opérationnellement, le module
+doit être activé avant la facture d'acompte de novembre pour que la saison
+soit exploitable.
+
+### 31.4 La page d'accueil
+
+Date de la dernière photographie et nombre de personnes qu'elle contient,
+nombre de photographies enregistrées pour l'année scoute en cours, date du
+dernier import Desk — rien de ce qui est affiché n'est plus frais que cet
+import — et la liste de ce que le module proposera.
+
+### 31.5 Justesse des tarifs
+
+L'écran confronte la catégorie tarifaire encodée dans Desk à celle
+qu'implique le nombre de personnes au même foyer. On corrige ensuite dans
+Desk ; le site n'y écrit jamais.
+
+**Deux onglets d'action, et c'est la correction d'une erreur de
+conception.** Un foyer dont un départ est annoncé n'est *pas* en écart
+aujourd'hui : Desk contient encore l'ancienne composition, et c'est celle-là
+que la fédération facture.
+
+- **« À corriger dans Desk »** — l'encodage ne correspond pas au compte
+  *Desk*. Action immédiate, chiffrée en euros parce qu'elle pèse sur la
+  prochaine facture.
+- **« À prévoir »** — le foyer est correct aujourd'hui et basculera quand le
+  fait sera acté. Chaque carte nomme son déclencheur (« Camille — départ
+  annoncé le 06/01/2026 »). Montant étiqueté « à la bascule », jamais « en
+  écart », sous un bandeau qui dit de ne pas y toucher maintenant.
+
+Un foyer peut légitimement figurer dans les deux : l'écran affiche
+l'arbitrage — corriger maintenant puis à la bascule fait deux modifications,
+attendre n'en fait qu'une au prix d'une facture intermédiaire inexacte — et
+ne tranche pas à la place du trésorier.
+
+Deux onglets de contexte complètent l'écran : **« Ignorés »** et **« Sans
+adresse »**.
+
+Un changement de compte qui ne change pas de catégorie (quatre personnes qui
+passent à trois restent « famille ») n'apparaît nulle part : ce ne serait pas
+une action.
+
+### 31.6 Ce que chaque foyer affiche
+
+Une ligne de décompte explicite — « 3 membres dans Desk — tarif attendu
+Famille » — qui porte l'explication, puis la comparaison membre par membre :
+l'encodé barré, l'attendu à côté.
+
+Un membre sur un tarif qui n'est pas un tarif de foyer (animateur, réduit,
+iAM) est **compté** dans le foyer — la fédération compte des personnes — mais
+n'est jamais comparé ni signalé comme une erreur.
+
+**« Copier pour Desk »** met le foyer dans le presse-papiers, volontairement
+bête. **« Ignorer ce foyer »** le met de côté avec un motif libre : c'est la
+réponse à la garde alternée et aux colocations, sans construire de fusion ni
+de séparation de foyers. Le foyer réapparaît si sa composition change. Un
+export tableur reprend les mêmes lignes.
+
+### 31.7 Le barème, et ce qu'il ne fait pas
+
+Trois montants (normal / couple / famille), repliés, saisis à la main, qui ne
+servent qu'à traduire un écart en euros. Sans eux, un écart s'affiche sans
+montant plutôt qu'avec un montant faux.
+
+Le site devine seul lequel des tarifs Desk de l'unité signifie « couple » ou
+« famille » ; le sélecteur n'existe que pour le corriger.
+
+**L'écart va dans les deux sens** et le signe n'est jamais masqué :
+sous-déclarer revient dans la facture de régularisation, sur-déclarer non.
+
+### 31.8 Ce que l'écran ne prétend pas savoir
+
+Un foyer sans adresse exploitable n'est ni conforme ni en écart : il a son
+onglet, et le résumé ne le compte pas comme vérifié. La date de l'import Desk
+sur lequel l'écran se fonde est affichée : rien de ce qui est montré n'est
+plus frais que cet import.
+
+### 31.9 Lire une facture de la fédération
+
+Le document est un PDF avec une vraie couche texte. Une ligne de tarif y
+porte une référence, une description, une section, un prix unitaire, une
+quantité et un montant, suivie de la liste nominative des personnes qu'elle
+concerne. Un pied de document donne le total à payer, un IBAN et une
+communication structurée.
+
+**Le site refuse plutôt que de deviner.** L'arithmétique est le contrôle :
+prix unitaire × quantité = montant sur chaque ligne, nombre de noms listés =
+quantité sur chaque ligne qui en a une, somme des montants = total à payer.
+Un seul échec et la facture n'est pas lue — le message désigne la ligne
+fautive et donne les deux chiffres.
+
+**Une référence tarifaire inconnue ne bloque jamais.** Sa nature se déduit de
+sa forme : une ligne sans liste nominative est un ajustement global (la
+déduction d'un acompte), un prix unitaire négatif avec liste est une
+réduction (l'animateur breveté), un prix positif avec liste est une
+cotisation. Les Iama ne sont pas exonérés : leur cotisation locale est une
+ligne comme les autres.
+
+**Une répétition au saut de page est une seule ligne.** La même combinaison
+(référence, section, prix, quantité, montant) vue deux fois est reconnue
+comme telle et ses listes sont fusionnées.
+
+**Ce que le site n'a pas compris est compté.** Un en-tête, un pied de page,
+un sous-total : tout ce qui ne correspond à aucune des deux formes est
+ignoré, et le nombre de lignes ignorées est rapporté. Un bond de ce compteur
+d'une facture à l'autre signale que le gabarit a changé.
+
+Les personnes se rapprochent sur **nom + prénom + date de naissance** : les
+jumeaux existent et figurent sur la même facture. Les sections se rapprochent
+sur le code Desk, jamais sur le nom affiché — un renommage depuis Config Desk
+ne doit rien casser. « Staff d'unité » est un libellé, pas un code, et
+correspond au Staff d'U du site.
+
+### 31.10 La séquence de la saison
+
+La fédération n'envoie pas une facture, elle en envoie plusieurs : un acompte
+en novembre, les factures finales de janvier et de février, une
+régularisation du dernier trimestre. L'écran **Factures** les présente dans
+l'ordre où elles sont arrivées, chacune avec son total, son statut de
+vérification, et le cumul de ce que l'unité a payé.
+
+**Le cumul additionne le total de chaque document, jamais ses montants
+bruts.** L'acompte est déduit à l'intérieur de la facture finale par une
+ligne négative : additionner l'acompte au brut de la finale compterait cet
+argent deux fois. Le total imprimé, lui, est déjà net.
+
+### 31.11 Importer une facture : trois issues, deux échecs
+
+Il n'y a pas d'écran de correspondance. C'est délibéré.
+
+**Dépôt.** Avant même que le fichier soit choisi, l'écran rappelle la date du
+dernier import Desk et celle de la dernière photographie du roster. Ce rappel
+est ce qui évite les deux autres états.
+
+**Total incohérent.** La lecture ne retombe pas sur le total du document.
+L'écran nomme la ligne où elle décroche et donne les deux chiffres. Rien
+n'est enregistré : une facture à moitié lue produirait une vérification à
+moitié fausse, ce qui est pire que pas de vérification. C'est le document qui
+est en cause, et la réponse appartient à la fédération.
+
+**Roster périmé.** Le document se lit parfaitement et tombe juste, mais il
+facture une section que le site ne connaît pas. Ce n'est pas une
+correspondance oubliée : c'est que Desk a changé et que le site n'a pas été
+réimporté. L'écran le dit dans ces termes et offre un seul bouton — importer
+Desk. **Aucun écran ne propose d'associer un code de section à la main** :
+cela permettrait de masquer un roster périmé, et toutes les vérifications
+suivantes seraient silencieusement fausses.
+
+**Importer deux fois le même document ne fait rien.** Le numéro du document
+est son identité. Un trésorier qui ne sait plus s'il a déjà importé janvier
+doit pouvoir simplement essayer.
+
+### 31.12 Ce qui est conservé, et ce qui ne l'est pas
+
+Le site enregistre l'en-tête de la facture, ses lignes tarifaires, et — pour
+chaque personne qu'une ligne nomme — **uniquement l'identifiant du membre
+reconnu**. Ni nom, ni prénom, ni date de naissance ne sont recopiés. Une
+personne que le site n'a pas su reconnaître devient une ligne anonyme : le
+compte reste juste, et le rapport peut dire « 3 personnes facturées que le
+site n'a pas reconnues » sans que cette table ait jamais porté un nom.
+
+Deux membres que le site ne peut pas distinguer — mêmes nom, prénom et date
+de naissance — ne sont rapprochés ni l'un ni l'autre. Un mauvais
+rapprochement est pire que pas de rapprochement.
+
+**Le PDF conservé.** Si le module Finances est actif, une case permet de
+rattacher le PDF à un compte de l'unité : il y devient un justificatif de
+dépense ordinaire, chiffré au repos, visible des mêmes personnes que ce
+compte. C'est le seul endroit où les noms figurant sur la facture sont
+conservés, et c'est précisément à cela qu'il sert. Le rapprochement avec le
+mouvement bancaire reste manuel : un rapprochement automatique erroné dans
+une comptabilité est pire qu'un rapprochement manuel.
+
+Si Finances est désactivé, la case n'apparaît pas, aucun PDF n'est conservé,
+et la vérification fonctionne à l'identique. Finances n'est jamais une
+dépendance dure de ce module.
+
+### 31.13 Le rapport de vérification d'une facture
+
+Chaque facture importée s'ouvre sur son rapport. Il compare le document à
+la **photographie du roster** prise à l'import Desk le plus proche avant
+son émission — pas à la situation d'aujourd'hui.
+
+Deux onglets, parce que ce sont deux questions.
+
+**Lignes reconstituées — combien.** Pour chaque référence et chaque
+section : le prix unitaire, la quantité facturée, la quantité que la
+photographie contenait, et l'écart chiffré au prix de la ligne. La
+quantité attendue vient de la photographie, **jamais d'un calcul de
+tarif** : c'est ce qui sépare cette page de « Justesse des tarifs », l'une
+vérifiant le compte et l'autre les catégories. Une ligne que le site ne
+sait pas juger est affichée sans verdict — référence inconnue, ligne sans
+section, ajustement global — parce que le silence n'est pas une
+accusation.
+
+Les lignes conformes sont **repliées et comptées**, jamais supprimées. Un
+premier écran de quarante lignes « conforme » cache les deux qui ne le sont
+pas ; les faire disparaître empêcherait de rapprocher le rapport du
+document papier.
+
+**Écarts nominatifs — qui.** Cinq types, parce que chacun désigne une
+action différente : *facturé mais parti* (c'est Desk qu'il faut corriger,
+pas la fédération), *membre absent de la facture* (l'unité est
+sous-facturée, la régularisation le rattrapera), *section différente*,
+*catégorie différente*, *réduction breveté non appliquée*.
+
+**Un écart de section ne coûte rien et n'est jamais chiffré.** Le tarif est
+identique de part et d'autre ; lui donner un montant mettrait des euros sur
+une différence qui n'en est pas. Le site distingue cela de « le site ne
+peut pas chiffrer » : ce ne sont pas la même affirmation.
+
+Deux restrictions existent pour que la page reste lisible plutôt que
+seulement exacte. Une section que la facture ne couvre pas n'est pas
+signalée comme absente en entier — une facture portant sur trois sections
+sur cinq n'« oublie » pas les deux autres. Et un document ne comportant
+aucune ligne de réduction breveté ne signale personne : la fédération peut
+la facturer séparément, et une page de faux positifs est la manière dont un
+rapport cesse d'être lu.
+
+**L'écart de dates est affiché.** Si la photographie précède ou suit
+l'émission de plusieurs jours, tout ce qui a été encodé entre les deux
+apparaîtra comme un écart sans en être un — mieux vaut le dire que le
+laisser découvrir.
+
+**Les personnes non reconnues sont comptées.** Un nom que le site n'a pas
+rapproché d'un membre compte dans les quantités mais n'apparaît dans aucun
+écart nominatif : le site ne conserve aucun nom des factures. Une
+vérification de quarante personnes qui en a discrètement contrôlé
+trente-quatre est pire qu'aucune vérification, donc le nombre est annoncé
+en haut de page.
+
+L'export tableur reprend les deux onglets sur deux feuilles, **dans l'ordre
+exact des colonnes de l'écran**.

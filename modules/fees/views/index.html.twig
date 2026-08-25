@@ -1,0 +1,83 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Cotisations — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Cotisations',
+            subtitle: "Vérifier ce que la fédération facture. Ce module lit Desk et les factures reçues ; il n'écrit jamais dans Desk et ne demande jamais d'argent aux familles.",
+        } only %}
+
+        {% include '@fees/partials/_nav.html.twig' %}
+
+        <div class="alert alert-warning" role="alert">
+            <h2 class="h6 alert-heading">
+                <i class="bi bi-clock-history" aria-hidden="true"></i>
+                La mémoire du roster commence aujourd'hui
+            </h2>
+            <p class="mb-0">
+                Une facture reflète l'état de Desk le jour de son émission. Le site, lui, réécrit
+                la liste des membres à chaque import : sans photographie intermédiaire, comparer
+                une facture de février à la situation de mars fabrique des écarts qui n'existent pas.
+                Depuis l'activation de ce module, chaque import Desk laisse donc une photographie
+                derrière lui. <strong>Les factures antérieures à la première photographie ne seront
+                jamais vérifiables ligne par ligne</strong> — activez le module avant la facture
+                d'acompte de novembre pour que la saison soit exploitable.
+            </p>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Photographies du roster — {{ scout_year_label }}</h2>
+                {% if latest_snapshot %}
+                    <p class="mb-1">
+                        Dernière photographie prise le <strong>{{ latest_snapshot.takenAt|datetime_fr }}</strong>,
+                        {{ latest_snapshot.memberCount }} membre(s).
+                    </p>
+                    <p class="small text-body-secondary mb-0">
+                        {{ snapshot_count }} photographie(s) enregistrée(s) pour cette année scoute,
+                        une par import Desk.
+                    </p>
+                {% else %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: "Aucune photographie pour l'instant : la première sera prise au prochain import Desk.",
+                        icon: 'bi-camera',
+                        compact: true,
+                    } only %}
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Les fonctions du module</h2>
+                <ul class="mb-0">
+                    <li><a href="/admin/fees/tarifs">Justesse des tarifs</a> — les foyers dont la
+                        catégorie encodée dans Desk ne correspond pas au nombre de personnes qui y
+                        vivent, et ceux qui basculeront plus tard. <em>Disponible.</em></li>
+                    <li><a href="/admin/fees/factures">Factures de la fédération</a> — l'acompte, les
+                        factures finales et la régularisation de la saison, avec leur total et leur
+                        statut. <em>Disponible.</em></li>
+                    <li><strong>Rapport de vérification</strong> — ce que la fédération a compté,
+                        ce que le site attendait, et nominativement où les deux divergent. Il
+                        s'ouvre depuis chaque facture de la liste. <em>Disponible.</em></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="small text-body-secondary border-top pt-3 mt-4">
+            <p class="mb-0">
+                <i class="bi bi-clock-history" aria-hidden="true"></i>
+                {% if last_import_at %}
+                    Dernier import Desk pour {{ scout_year_label }} : le {{ last_import_at|datetime_fr }}.
+                    Tout changement encodé dans Desk depuis cette date n'est pas encore connu du site.
+                {% else %}
+                    Aucun import Desk n'a encore été enregistré pour {{ scout_year_label }}.
+                {% endif %}
+            </p>
+        </div>
+    </div>
+{% endblock %}

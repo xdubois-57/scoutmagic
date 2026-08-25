@@ -51,7 +51,7 @@
       control_class_extra: 'w-auto',-- optional, extra classes ON the control
       label_visually_hidden: true, -- optional: the row itself names the field
       data: { id: 4, url: '/x' },  -- optional data-* ON THE CONTROL
-      aria_label: 'Vu par — Meute',-- optional, see below
+      label_suffix: ' — Meute',   -- optional, see below
   } only %}
 
   On `size`: the survey that preceded this partial's second pass found 34
@@ -82,16 +82,23 @@
   must still say WHICH row it belongs to (« Rôle pour ANIM01 », not
   « Rôle »).
 
-  On `aria_label`: the same problem when the label IS visible and has to
+  On `label_suffix`: the same problem when the label IS visible and has to
   stay short. A dozen calendars down a page each carrying a « Vu par »
   select gives a screen-reader user a dozen identically-named controls;
-  the row names them on screen and nowhere else. This overrides the
-  accessible name — so it MUST start with the visible label's own words
-  (« Vu par — Meute », never « Visibilité du calendrier Meute »), or a
-  visitor driving the page by voice asks for the control they can read
-  and nothing answers (WCAG 2.5.3, Label in Name). Reach for
-  `label_visually_hidden` first; this is for the case where the short
-  label has to be on screen too.
+  the row names them on screen and nowhere else. The suffix is appended
+  INSIDE the label, visually hidden: « Vu par » stays on screen while the
+  accessible name becomes « Vu par — Meute ».
+
+  Appended to the label rather than set as an `aria-label`, which is what
+  this used to be. An aria-label REPLACES the accessible name, so it had
+  to be written to re-state the visible words and could silently drift
+  from them; a suffix cannot, because the visible text and the accessible
+  name are now the same element. That the one starts with the other is
+  what keeps voice control working (WCAG 2.5.3, Label in Name) — a
+  visitor asking for the control they can read gets an answer.
+
+  Reach for `label_visually_hidden` first; this is for the case where the
+  short label has to be on screen too.
 
   On `control_class_extra`: layout classes the caller owns — `w-auto` for
   a control inside a flex row, a hook class a script grips. Never a
@@ -119,6 +126,7 @@
 <div{% if _wrapper %} class="{{ _wrapper }}"{% endif %}>
     <label class="{{ label_visually_hidden|default(false) ? 'visually-hidden' : 'form-label' ~ (_small ? ' small' : '') }}" for="{{ field_id }}">
         {{- label -}}
+        {%- if label_suffix|default('') %}<span class="visually-hidden">{{ label_suffix }}</span>{% endif -%}
         {%- if _required %} <span class="text-danger" aria-hidden="true">*</span>{% endif -%}
     </label>
     {% if _type == 'textarea' %}
@@ -132,7 +140,6 @@
                   {%- if maxlength|default(0) %} maxlength="{{ maxlength }}"{% endif %}
                   {%- if placeholder|default('') %} placeholder="{{ placeholder }}"{% endif %}
                   {%- if _described %} aria-describedby="{{ _described }}"{% endif %}
-                  {%- if aria_label|default('') %} aria-label="{{ aria_label }}"{% endif %}
                   {%- for key, dval in data|default({}) %} data-{{ key }}="{{ dval }}"{% endfor %}>{{ value|default('') }}</textarea>
     {% elseif _type == 'select' %}
         <select class="{{ _control_class }}" id="{{ field_id }}"
@@ -141,7 +148,6 @@
                 {%- if disabled|default(false) %} disabled{% endif %}
                 {%- if autofocus|default(false) %} autofocus{% endif %}
                 {%- if _described %} aria-describedby="{{ _described }}"{% endif %}
-                {%- if aria_label|default('') %} aria-label="{{ aria_label }}"{% endif %}
                 {%- for key, dval in data|default({}) %} data-{{ key }}="{{ dval }}"{% endfor %}>
             {% for option in options|default([]) %}
                 <option value="{{ option.value }}"
@@ -168,7 +174,6 @@
                {%- if placeholder|default('') %} placeholder="{{ placeholder }}"{% endif %}
                {%- if autocomplete|default('') %} autocomplete="{{ autocomplete }}"{% endif %}
                {%- if _described %} aria-describedby="{{ _described }}"{% endif %}
-               {%- if aria_label|default('') %} aria-label="{{ aria_label }}"{% endif %}
                {%- for key, dval in data|default({}) %} data-{{ key }}="{{ dval }}"{% endfor %}>
     {% endif %}
     {% if help|default('') %}
