@@ -118,8 +118,10 @@ final class UxConventionsTest extends TestCase
      * breadcrumb was never declared.
      *
      * Permanent exceptions, each with a reason:
-     * - errors/403, errors/404: error pages render outside any navigable
-     *   hierarchy; « Retour à l'accueil » is the recovery action.
+     * - errors/403, errors/404, errors/constraint: error pages render
+     *   outside any navigable hierarchy; « Retour à l'accueil » is the
+     *   recovery action. (errors/constraint is the 409/400 a write the
+     *   database refused produces — SECURITY.md § 35.)
      * - pwa/offline: the offline interstitial's Retour is history.back(),
      *   there is no server-side trail to stand in for it.
      * - mass_mail/_compose_dialog: « Retour au brouillon » is a wizard
@@ -130,6 +132,7 @@ final class UxConventionsTest extends TestCase
     private const BACK_BUTTON_EXCEPTIONS = [
         'core/View/templates/errors/403.html.twig',
         'core/View/templates/errors/404.html.twig',
+        'core/View/templates/errors/constraint.html.twig',
         'core/View/templates/pwa/offline.html.twig',
         'modules/mass_mail/views/_compose_dialog.html.twig',
     ];
