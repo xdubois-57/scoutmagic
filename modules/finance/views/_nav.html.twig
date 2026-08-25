@@ -2,13 +2,15 @@
   Shared across the "Finances" chef-facing pages (dashboard, movements,
   receipts, import, receivables — only /finance carries the espace_chefs
   menu label, the others are sub-pages of it). The page layer is the
-  shared partials/page_picker.html.twig (the pages[] → chip_picker
-  mapping written once — this file used to carry its own copy of that
-  layer); the account layer below stays a direct chip_picker include
-  because its items are dynamic accounts, not pages.
+  shared partials/page_picker.html.twig (the pages[] → nav rail mapping
+  written once — this file used to carry its own copy of that layer);
+  the account layer below is a direct partials/select_bar.html.twig
+  include, because its items are an open-ended list of accounts from the
+  database rather than a fixed set of pages. Two different needs, two
+  different components — see docs/module-development.md for the rule.
 
   Requires `accounts` and `current_path` in scope; `selected_account` is
-  optional (its absence just means no chip is highlighted/no account
+  optional (its absence just means no account is marked current/no account
   query param gets appended). Set `hide_account_picker` to suppress the
   picker below — every finance page now has its own account <select>
   (dashboard/movements/receipts filter forms, import's own form field),
@@ -39,12 +41,13 @@
         }]) %}
     {% endfor %}
     <div class="finance-account-picker mb-4">
-        {% include 'partials/chip_picker.html.twig' with {
+        {% include 'partials/select_bar.html.twig' with {
             picker_id: 'finance-account-picker',
+            label: 'Compte',
             items: finance_account_items,
             mode: 'single',
             base_url: current_path ~ '?account_id=',
-            sheet_title: 'Choisir un compte',
+            none_selected_text: 'Choisir un compte',
             empty_text: 'Aucun compte disponible.',
         } %}
     </div>
