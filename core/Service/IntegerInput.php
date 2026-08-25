@@ -120,6 +120,38 @@ final class IntegerInput
     }
 
     /**
+     * A list of row identifiers — a reorder, a bulk selection — as one
+     * value, or null if ANY element is not an id.
+     *
+     * All or nothing on purpose. Silently dropping the elements that do
+     * not parse would carry out a reorder over a subset nobody asked
+     * for, and the result would look like a success: the list comes back
+     * shorter, the rows come back in an order the caller never chose,
+     * and nothing anywhere reports it. `array_map('intval', …)` is
+     * exactly that failure, and it is what an active scan reached on
+     * /finance/receipts/{id}/associate by sending `2/2`.
+     *
+     * @return list<int>|null
+     */
+    public static function idList(mixed $value): ?array
+    {
+        if (!is_array($value)) {
+            return null;
+        }
+
+        $ids = [];
+        foreach ($value as $element) {
+            $id = self::id($element);
+            if ($id === null) {
+                return null;
+            }
+            $ids[] = $id;
+        }
+
+        return $ids;
+    }
+
+    /**
      * The common case: a non-negative value headed for an
      * `INT UNSIGNED` column.
      */

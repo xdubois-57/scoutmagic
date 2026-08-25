@@ -14,6 +14,7 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Service\IntegerInput;
 use Modules\Finance\Repository\CategoryRule;
 use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\CategoryRuleRepository;
@@ -137,8 +138,12 @@ class ConfigRuleController extends AbstractController
                 // any posted anyway keeps their own fixed, always-first
                 // priority untouched rather than folding them into the
                 // admin-authored ordering.
+                $postedIds = IntegerInput::idList($data['ordered_ids'] ?? []);
+                if ($postedIds === null) {
+                    return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+                }
                 $orderedIds = array_values(array_filter(
-                    array_map('intval', (array) ($data['ordered_ids'] ?? [])),
+                    $postedIds,
                     fn(int $id) => $this->ruleRepository->findById($id)?->isSystem === false
                 ));
                 $this->ruleRepository->reorder($orderedIds);

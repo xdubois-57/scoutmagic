@@ -16,6 +16,7 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Core\Service\IntegerInput;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\Transaction;
@@ -469,7 +470,10 @@ class ReceiptController extends AbstractController
             return $attachment;
         }
 
-        $transactionIds = array_map('intval', (array) ($data['transaction_ids'] ?? []));
+        $transactionIds = IntegerInput::idList($data['transaction_ids'] ?? []);
+        if ($transactionIds === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+        }
 
         try {
             $this->receiptService->associate($id, $transactionIds);

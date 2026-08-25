@@ -20,6 +20,7 @@ use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Core\Service\IntegerInput;
 use Twig\Environment;
 
 /**
@@ -182,7 +183,10 @@ class SectionDocumentController extends AbstractController
             return $guard;
         }
 
-        $ids = array_map('intval', is_array($data['ids'] ?? null) ? $data['ids'] : []);
+        $ids = IntegerInput::idList($data['ids'] ?? []);
+        if ($ids === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+        }
         if (($denial = $this->guardDocuments('reorder', $ids)) !== null) {
             return $denial;
         }

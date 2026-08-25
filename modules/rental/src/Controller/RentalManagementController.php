@@ -20,6 +20,7 @@ use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Service\DateInput;
+use Core\Service\IntegerInput;
 use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
 use Modules\Calendar\Service\CalendarService;
@@ -1439,10 +1440,11 @@ class RentalManagementController extends AbstractController
             static fn(array $calendar) => $calendar['id'],
             $this->calendarService->listSelectableCalendars()
         );
-        $calendarIds = array_values(array_intersect(
-            array_map('intval', (array) ($request->getBody('calendar_ids') ?? [])),
-            $existingIds
-        ));
+        $postedCalendarIds = IntegerInput::idList((array) ($request->getBody('calendar_ids') ?? []));
+        if ($postedCalendarIds === null) {
+            throw new RentalException('Un des calendriers choisis n\'est pas valide.');
+        }
+        $calendarIds = array_values(array_intersect($postedCalendarIds, $existingIds));
         $enabled = $request->getBody('publication_enabled') !== null;
 
         if ($enabled && $calendarIds === []) {

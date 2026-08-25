@@ -102,6 +102,44 @@ class IntegerInputTest extends TestCase
         $this->assertNotSame(100, IntegerInput::bounded('5000', 0, 100));
     }
 
+    public function testAListOfIdsIsReadAsOne(): void
+    {
+        $this->assertSame([3, 1, 2], IntegerInput::idList(['3', '1', '2']));
+        $this->assertSame([3, 1, 2], IntegerInput::idList([3, 1, 2]));
+        $this->assertSame([], IntegerInput::idList([]), 'an empty selection is a selection');
+    }
+
+    /**
+     * All or nothing. Dropping the elements that do not parse would
+     * carry out a reorder over a subset nobody asked for, and the result
+     * would look like a success: a shorter list, an order the caller
+     * never chose, and nothing reporting it.
+     */
+    public function testOneBadElementRefusesTheWholeList(): void
+    {
+        $this->assertNull(IntegerInput::idList(['1', '2/2', '3']));
+        $this->assertNull(IntegerInput::idList(['1', '', '3']));
+        $this->assertNull(IntegerInput::idList(['1', '0', '3']));
+        $this->assertNull(IntegerInput::idList(['1', 'deux', '3']));
+        $this->assertNull(IntegerInput::idList(['1', null, '3']));
+    }
+
+    public function testAListThatIsNotAListIsRefused(): void
+    {
+        $this->assertNull(IntegerInput::idList('1,2,3'));
+        $this->assertNull(IntegerInput::idList(null));
+        $this->assertNull(IntegerInput::idList(7));
+    }
+
+    /**
+     * The idiom this replaces, and what it would have done instead.
+     */
+    public function testTheOldIdiomWouldHaveReorderedOverTheWrongRows(): void
+    {
+        $this->assertSame([1, 2, 3], array_map('intval', ['1', '2/2', '3']));
+        $this->assertSame([1, 0, 3], array_map('intval', ['1', 'deux', '3']));
+    }
+
     public function testUnsignedOrFallsBackWithoutComplaining(): void
     {
         $this->assertSame(5, IntegerInput::unsignedOr('douze', 5));

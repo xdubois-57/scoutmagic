@@ -173,7 +173,10 @@ class BannerConfigController extends AbstractController
             return $data;
         }
 
-        $ids = is_array($data['ids'] ?? null) ? array_map('intval', $data['ids']) : [];
+        $ids = IntegerInput::idList($data['ids'] ?? []);
+        if ($ids === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+        }
         $this->bannerService->reorder($ids);
 
         return $this->json(['success' => true]);

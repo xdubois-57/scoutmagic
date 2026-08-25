@@ -474,6 +474,10 @@ The scanner's conclusion was wrong and its suspicion was not. `Core\Service\Inte
 
 The other three (`/groups/*`, on a `2'` payload) were the uncaught-exception class above, reported under the wrong rule — a 500 is an error page, and an error page where the original request succeeded looks to a scanner exactly like a database complaining.
 
+**The same defect exists one size up, and the re-scan found it.** With those six gone, a seventh appeared on `POST /finance/receipts/{id}/associate`: the attacked parameter was not the path id but the **list** `transaction_ids`, read as `array_map('intval', …)`. `intval('2/2')` is 2, so the receipt was being associated with a row nobody had named. `IntegerInput::idList()` now reads the nine sites that take a list of ids that way — reorders of banners, media, form fields, categorisation rules and section documents, the SOS excluded sections, an asset's calendars, a group's media. It is **all or nothing**: dropping the elements that do not parse would carry out a reorder over a subset nobody asked for, and that failure looks like a success — a shorter list, an order the caller never chose, and nothing anywhere reporting it.
+
+That finding had not appeared in the previous run because `finance-receipts.spec.js` had not been replayed that time. It is the clearest illustration of the rule the DAST gate needs: **a spec that fails is not a green area, it is an area nobody looked at.**
+
 **What is not done, and why.** There are ~180 further `(int) $params['id']` reads on path parameters. A rule in the router — "a placeholder named `id` matches digits only" — would fix them all in one line, and it is wrong: `/aide/{id}` takes a help topic's slug, and it is not alone. Enforcing it per route (`{id:int}`) is the shape that would work, and it is a change to every route declaration rather than to one file. Until then, a path id is still cast rather than validated; what protects those routes is that a repository lookup returns null for a row that does not exist, and the controller renders its 404.
 
 ### `Core\Database\ConstraintViolation` — the floor underneath validation

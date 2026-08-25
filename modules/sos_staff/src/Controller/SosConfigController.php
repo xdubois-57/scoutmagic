@@ -16,6 +16,7 @@ use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Service\IntegerInput;
 use Modules\SosStaff\Provider\PhoneLine;
 use Modules\SosStaff\Provider\ProviderException;
 use Modules\SosStaff\Service\ProviderConfigService;
@@ -257,7 +258,10 @@ class SosConfigController extends AbstractController
             return $data;
         }
 
-        $sectionIds = array_map('intval', is_array($data['section_ids'] ?? null) ? $data['section_ids'] : []);
+        $sectionIds = IntegerInput::idList($data['section_ids'] ?? []);
+        if ($sectionIds === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+        }
         $this->settingsService->updateExcludedSections($sectionIds);
 
         $this->journalService->log(
