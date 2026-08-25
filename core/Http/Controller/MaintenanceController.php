@@ -21,8 +21,10 @@ use Core\Maintenance\BackupService;
 use Core\Maintenance\GitHubReleaseClient;
 use Core\Maintenance\GitHubReleaseClientInterface;
 use Core\Maintenance\GitHubWebhookService;
+use Core\Maintenance\ReleaseInfo;
 use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistoryRepository;
+use Core\Maintenance\UpdateTargetSelector;
 use Core\Maintenance\VersionFile;
 use Core\Module\ModuleManager;
 use Core\Scheduler\SchedulerService;
@@ -242,10 +244,16 @@ class MaintenanceController extends AbstractController
      * POST /config/maintenance/update/check-now (AJAX, JSON) — on-demand
      * check for the "Vérifier maintenant" button, since detection is
      * otherwise purely webhook-driven with no polling in between. Checks
-     * the stable channel (GET .../releases/latest) unless development mode
+     * the stable channel (resolveStableTarget()) unless development mode
      * (auto_update_level === 'dev') is configured, in which case it checks
      * the latest commit on the configured branch instead — never both,
      * mirroring GitHubWebhookService's release/push mutual exclusivity.
+     *
+     * Development mode aside, the configured "Types de versions à
+     * installer" level plays no part here: it gates GitHubWebhookService's
+     * unattended installs, and an admin who clicks the button is asking
+     * what they can install right now, not what the weekly slot would have
+     * picked on its own.
      * Does not itself schedule an install — the client shows a confirm
      * dialog and, if accepted, calls installUpdate() (stable channel) or
      * relies on the result already caching update_download_url the same
@@ -290,7 +298,7 @@ class MaintenanceController extends AbstractController
                 ]);
             }
 
-            $release = $client->getLatestRelease();
+            [$release, $latestVersion] = $this->resolveStableTarget($client, $installedVersion);
             if ($release === null) {
                 return $this->json(['success' => true, 'channel' => 'release', 'update_available' => false]);
             }
@@ -312,6 +320,10 @@ class MaintenanceController extends AbstractController
                 'notes' => $release->body,
                 'notes_html' => MarkdownRenderer::toHtml($release->body),
                 'url' => $release->htmlUrl,
+                // Differs from 'version' only when the major-by-major
+                // stepping held the proposal back; the page then tells the
+                // admin this install is a step, not the last word.
+                'latest_version' => $latestVersion,
             ]);
         } catch (UpdateException $e) {
             // Same reasoning as installDevBranchUpdate() above.
@@ -320,6 +332,37 @@ class MaintenanceController extends AbstractController
                 "La dernière version n'a pas pu être récupérée depuis GitHub — vérifiez la connexion du serveur et les paramètres du dépôt."
             )], 502);
         }
+    }
+
+    /**
+     * The release "Vérifier maintenant" proposes on the stable channel:
+     * the newest one available, except that a pending major bump stops at
+     * the first major so multiple majors are installed (and their
+     * migrations run) one at a time — see Maintenance\UpdateTargetSelector.
+     *
+     * Falls back to GET .../releases/latest when the listing comes back
+     * empty, so a repository whose release list this client cannot
+     * enumerate still behaves exactly as it did before the selector
+     * existed.
+     *
+     * @return array{0: ?ReleaseInfo, 1: string} the release to propose, and
+     *         the newest published version (empty when there is none) —
+     *         the two differ exactly when the stepping held the proposal
+     *         back.
+     */
+    private function resolveStableTarget(GitHubReleaseClientInterface $client, string $installedVersion): array
+    {
+        $releases = $client->listReleases();
+        if ($releases === []) {
+            $latest = $client->getLatestRelease();
+
+            return [$latest, $latest?->version() ?? ''];
+        }
+
+        return [
+            UpdateTargetSelector::selectTarget($installedVersion, $releases),
+            UpdateTargetSelector::latestVersion($releases),
+        ];
     }
 
     private function releaseClient(): GitHubReleaseClientInterface

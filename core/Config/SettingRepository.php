@@ -110,6 +110,47 @@ class SettingRepository
     }
 
     /**
+     * Deletes a module's `settings` rows that its manifest no longer
+     * declares — the rows a removed setting leaves behind. Without this, a
+     * setting dropped from a module.json stayed in the table forever and
+     * kept rendering as an editable row on Configuration > Réglages, doing
+     * nothing: the very confusion that dropping it was meant to end (the
+     * calendar module's `event_reminder_hour` is the case that surfaced it).
+     *
+     * **Only editable rows**, and that restriction is what makes this safe:
+     * every setting a module registers at RUNTIME rather than from its
+     * manifest — finance's `..._seeded`/`..._running` bookkeeping flags,
+     * and any future one — is registered with `editable = false` precisely
+     * because it must never show up as a row someone can hand-edit. A
+     * non-editable row is therefore never a candidate here, so an internal
+     * flag can never be deleted for the crime of not being in the manifest.
+     * Keep that contract: a runtime-registered module setting is always
+     * non-editable.
+     *
+     * Returns the number of rows deleted. An empty $declaredKeys is a
+     * no-op rather than "delete everything" — a manifest with no settings
+     * at all is far more likely to be a caller mistake than a deliberate
+     * "clear this module's settings".
+     *
+     * @param string[] $declaredKeys the keys the manifest declares
+     */
+    public function deleteUndeclaredEditable(string $moduleId, array $declaredKeys): int
+    {
+        if ($declaredKeys === []) {
+            return 0;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($declaredKeys), '?'));
+        $stmt = $this->pdo->prepare(
+            "DELETE FROM settings
+             WHERE module_id = ? AND editable = 1 AND setting_key NOT IN ({$placeholders})"
+        );
+        $stmt->execute(array_merge([$moduleId], array_values($declaredKeys)));
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * Conditional write: set the value only while the setting is still
      * empty, and report whether THIS call is the one that wrote it.
      *

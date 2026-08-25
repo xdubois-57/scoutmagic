@@ -122,6 +122,24 @@ class SettingService
     }
 
     /**
+     * Drops a module's settings rows that its manifest no longer declares
+     * (Core\Module\ModuleManager runs this once per module upgrade) —
+     * see SettingRepository::deleteUndeclaredEditable() for why only
+     * editable rows are ever touched. Returns how many were removed.
+     *
+     * @param string[] $declaredKeys
+     */
+    public function pruneUndeclared(string $moduleId, array $declaredKeys): int
+    {
+        $deleted = $this->repository->deleteUndeclaredEditable($moduleId, $declaredKeys);
+        if ($deleted > 0) {
+            $this->clearCache();
+        }
+
+        return $deleted;
+    }
+
+    /**
      * Get all settings grouped by module_id.
      *
      * @return array<string, array{label: string, icon: string|null, description: string|null, settings: array<int, array<string, mixed>>}>

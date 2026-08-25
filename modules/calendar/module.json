@@ -2,7 +2,7 @@
   "id": "calendar",
   "name": "Calendrier",
   "description": "Calendrier des activités : un calendrier par section (automatique) et des calendriers supplémentaires configurables, avec abonnement ICS.",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "enabled_by_default": true,
   "routes": [
     {
@@ -200,7 +200,7 @@
     },
     {
       "key": "event_default_location",
-      "default_value": "",
+      "default_value": "Local",
       "type": "text",
       "label": "Localisation par défaut",
       "description": "Lieu pré-rempli dans le formulaire de création d'un évènement."
@@ -218,13 +218,6 @@
       "type": "text",
       "label": "Délai avant l'évènement (jours)",
       "description": "Nombre de jours avant le début de l'évènement auquel le rappel est envoyé."
-    },
-    {
-      "key": "event_reminder_hour",
-      "default_value": "18:00",
-      "type": "text",
-      "label": "Heure du rappel d'activité",
-      "description": "Heure à laquelle la notification de rappel (\"votre activité a lieu demain\") est envoyée aux membres, la veille de chaque évènement."
     }
   ],
   "cookies": [],

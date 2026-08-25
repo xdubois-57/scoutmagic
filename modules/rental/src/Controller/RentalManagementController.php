@@ -29,6 +29,7 @@ use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
+use Modules\Rental\Booking\MilestoneEvidence;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Calendar\PublishFrom;
@@ -640,12 +641,33 @@ class RentalManagementController extends AbstractController
 
         $now = new \DateTimeImmutable();
 
+        $documents = $this->documentService?->forBooking($booking->id);
+        $payment = $this->paymentStatus($booking, $asset);
+        // Null, not [], when the stay module is unavailable: the checklist
+        // reads the difference between "no inventory on this asset" and
+        // "inventories do not exist here" (Booking\MilestoneEvidence).
+        $inventory = $this->stayService?->inventoryFor($booking->id);
+        $consumptions = $this->stayService?->consumptionsFor($booking, $asset->id);
+        $evidence = MilestoneEvidence::collect(
+            $booking,
+            $documents,
+            $payment,
+            $inventory,
+            $consumptions,
+            $this->stayService?->latestSettlement($booking->id)
+        );
+
         return $this->render('@rental/management/booking.html.twig', [
             'asset' => $asset,
             'booking' => $booking,
             'breadcrumb_current' => $booking->reference,
             'breadcrumb_trail' => $this->bookingTrail($asset),
-            'milestones' => BookingMilestones::for($booking, $now),
+            // The checklist is derived from what the booking's own records
+            // say — the contract that was sent, the deposit that arrived,
+            // the inventory that was finished — never from a stored flag,
+            // so pressing a button on this page moves the box it belongs to
+            // (§6.15).
+            'milestones' => BookingMilestones::for($booking, $now, $evidence->done, $evidence->details),
             'allowed_transitions' => BookingTransition::allowedFrom($booking->status),
             // Keyed by status value so the template can ask "does this
             // button write to the renter?" without knowing which statuses
@@ -666,8 +688,8 @@ class RentalManagementController extends AbstractController
             'audit_labels' => BookingAudit::FIELD_LABELS,
             'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
             'is_in_progress' => $booking->isInProgress($now),
-            'payment' => $this->paymentStatus($booking, $asset),
-            'documents' => $this->documentService?->forBooking($booking->id) ?? [],
+            'payment' => $payment,
+            'documents' => $documents ?? [],
             // Communications (§7.7). Absent rather than empty when
             // `inbound_mail` is disabled or no mailbox is enabled: a tab
             // that can only ever be empty is noise on a busy page.
@@ -2169,7 +2191,14 @@ class RentalManagementController extends AbstractController
      */
     private function bookingAction(Request $request, callable $work): Response
     {
-        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+        // The JSON twin for the asynchronous path: a 302 to /mes-locations
+        // would reach the page's fetch as an HTML body it cannot read, and
+        // the manager would be told "erreur réseau" for what is really an
+        // expired session.
+        $guard = self::wantsJson($request)
+            ? $this->guardCsrfJson($request)
+            : $this->guardCsrf($request, '/mes-locations');
+        if ($guard !== null) {
             return $guard;
         }
 
@@ -2189,7 +2218,52 @@ class RentalManagementController extends AbstractController
             FlashMessage::set('error', $e->getMessage());
         }
 
+        if (self::wantsJson($request)) {
+            return $this->json(self::flashAsJson());
+        }
+
         return $this->redirect($this->bookingUrl($asset, $booking));
+    }
+
+    /**
+     * Whether this POST came from the booking page's own fetch rather than
+     * from a browser submitting the form (public/assets/js/rental-booking.js
+     * sets the header). Same signal as Modules\Groups\Controller\
+     * ReplyController::wantsJson().
+     *
+     * Every button on that page posts through bookingAction(), which is why
+     * this lives here and not in sixteen handlers: one branch turns the whole
+     * page asynchronous, and each handler goes on doing exactly what it did —
+     * work, then a flash — with no idea who is listening.
+     */
+    private static function wantsJson(Request $request): bool
+    {
+        return $request->getServer('HTTP_X_REQUESTED_WITH') === 'XMLHttpRequest';
+    }
+
+    /**
+     * The flash the handler just set, as the JSON body the page reads.
+     *
+     * Consumed here rather than left in the session: nothing is going to
+     * render it — the caller stays on the page it is already on — and a
+     * flash left behind would surface on whatever page the manager opened
+     * next, minutes later and out of context.
+     *
+     * A handler that set no flash at all answers success with no message,
+     * and the page says nothing rather than inventing a confirmation.
+     *
+     * @return array{success: bool, type: string, message: ?string}
+     */
+    private static function flashAsJson(): array
+    {
+        $flash = FlashMessage::get();
+        $type = (string) ($flash['type'] ?? 'success');
+
+        return [
+            'success' => $type !== 'error',
+            'type' => $type,
+            'message' => isset($flash['message']) ? (string) $flash['message'] : null,
+        ];
     }
 
     /**

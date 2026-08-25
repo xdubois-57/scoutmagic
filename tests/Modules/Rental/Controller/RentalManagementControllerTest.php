@@ -402,6 +402,32 @@ class RentalManagementControllerTest extends TestCase
         return $this->dispatch($router, new Request('POST', $path, [], $body, [], []));
     }
 
+    /**
+     * The same POST as the booking page's own fetch makes
+     * (public/assets/js/rental-booking.js): the X-Requested-With header is
+     * the whole difference, and what makes bookingAction() answer JSON
+     * instead of redirecting.
+     *
+     * @param array<string, string> $body
+     */
+    private function postAsync(string $path, string $action, array $body): Response
+    {
+        $body['_csrf_token'] ??= CsrfGuard::generateToken();
+        $_POST = $body;
+
+        $router = new Router();
+        $router->addRoute('POST', $path, RentalManagementController::class, $action, 'identified');
+
+        return $this->dispatch($router, new Request(
+            'POST',
+            $path,
+            [],
+            $body,
+            [],
+            ['HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest']
+        ));
+    }
+
     private function dispatch(Router $router, Request $request): Response
     {
         $configFile = sys_get_temp_dir() . '/test_rental_mgmt_' . uniqid() . '.php';
@@ -1191,6 +1217,153 @@ class RentalManagementControllerTest extends TestCase
         $documents = $this->documentService->forBooking($booking->id);
         $this->assertCount(1, $documents);
         $this->assertSame('contrat-LOC-2027-0001-v1.pdf', $documents[0]->originalName);
+    }
+
+    /**
+     * The bug this covers, end to end: the checklist took its extra
+     * milestones from an `$extras` map nobody ever built, so « Contrat
+     * envoyé » stayed greyed — "sans objet" — however many contracts went
+     * out. It is now derived from the documents themselves.
+     */
+    public function testSendingTheContractTicksTheChecklistLineOnTheBookingPage(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+
+        $before = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        // Rendered as an unticked box, never as the greyed "sans objet"
+        // dash it used to be.
+        $this->assertMatchesRegularExpression('/bi-square[^<]*<\/i>\s*<span class="visually-hidden">À faire :<\/span>\s*Contrat envoyé/', $before);
+
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $document = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $document->id,
+        ]);
+
+        $after = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertMatchesRegularExpression('/bi-check-square[^<]*<\/i>\s*<span class="visually-hidden">Fait :<\/span>\s*Contrat envoyé/', $after);
+    }
+
+    /**
+     * A milestone belonging to something this installation cannot do at
+     * all still renders greyed — that is what the applicability flag is
+     * for, and ticking every box unconditionally would be the opposite
+     * bug.
+     */
+    public function testAMilestoneWithNothingBehindItStaysGreyed(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        // No security deposit is configured on this asset.
+        $this->assertMatchesRegularExpression('/bi-dash-square[^<]*<\/i>\s*<span class="visually-hidden">Sans objet :<\/span>\s*Caution reçue/', $body);
+    }
+
+    /**
+     * Every panel the page's own fetch swaps carries its wrapper, and the
+     * wrapper is present even when what it holds is not — a card that
+     * appears or disappears has to swap like any other.
+     */
+    public function testTheBookingPageMarksItsRefreshablePanels(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('data-rental-booking', $body);
+        foreach (['milestones', 'lifecycle', 'documents', 'price', 'history'] as $panel) {
+            $this->assertStringContainsString('data-booking-panel="' . $panel . '"', $body);
+        }
+    }
+
+    // ── The page acts without reloading ─────────────────────────────────
+
+    public function testAnAsyncActionAnswersTheFlashAsJsonInsteadOfRedirecting(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $response = $this->postAsync('/mes-locations/commentaire', 'addComment', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'body' => 'Le locataire a téléphoné.',
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertStringContainsString('Commentaire enregistré', (string) $decoded['message']);
+    }
+
+    /**
+     * A refused action reports itself as one — the manager stays on the
+     * page, so the message has to arrive with the answer rather than in a
+     * flash nobody is going to render.
+     */
+    public function testAnAsyncActionThatFailsAnswersSuccessFalseWithTheReason(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $response = $this->postAsync('/mes-locations/demande', 'decideChange', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'request_id' => '999999',
+            'decision' => 'accept',
+        ]);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame('error', $decoded['type']);
+        $this->assertNotNull($decoded['message']);
+    }
+
+    /**
+     * The flash is consumed by the JSON answer: left in the session it
+     * would surface, out of context, on whatever page the manager opened
+     * next.
+     */
+    public function testAnAsyncActionLeavesNoFlashBehindForTheNextPage(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->postAsync('/mes-locations/commentaire', 'addComment', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'body' => 'Note interne.',
+        ]);
+
+        $this->assertNull(\Core\Http\FlashMessage::get());
+    }
+
+    /**
+     * The classic path is untouched: a browser posting the form still gets
+     * its redirect, so the page works with no JavaScript at all.
+     */
+    public function testAPlainFormPostStillRedirects(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $response = $this->post('/mes-locations/commentaire', 'addComment', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'body' => 'Note interne.',
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode());
     }
 
     public function testRegeneratingAddsAVersionRatherThanReplacingTheFirst(): void

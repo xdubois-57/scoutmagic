@@ -229,7 +229,20 @@ Four variants, nothing else:
 
 A full-width mobile button is `w-100 w-sm-auto`, never `w-100` alone.
 Icon vocabulary is fixed: `bi-trash` delete, `bi-pencil` edit, `bi-plus-lg`
-add, `bi-three-dots-vertical` overflow menus.
+add, `bi-three-dots-vertical` overflow menus, `bi-magic` "let the AI do
+this field for me". Only icons present in the **vendored** Bootstrap Icons
+release exist: a class from a newer upstream version renders nothing at
+all, silently (`bi-tent` shipped that way in the Camps menu), and
+`UxConventionsTest::testEveryIconClassExistsInTheVendoredStylesheet()`
+now catches it.
+
+An AI helper attached to a field or a result is icon-only, through
+`partials/ai_button.html.twig`: the wand, with the French wording moved to
+`title` and `aria-label`. « Générer avec l'IA » beside an input is wider
+than a phone can spare — on the article editor it squeezed the summary
+field, the one that needed the room, down to a few characters. This is for
+helpers; a page-level primary action that happens to call an AI
+(« Générer le contenu » on the RGPD page) keeps its label.
 
 ### 7.5 Feedback
 
@@ -285,6 +298,12 @@ add, `bi-three-dots-vertical` overflow menus.
 - Exactly one `<h1>` per page, one size site-wide (the `page_header`
   partial's). The `<h1>` matches the page's `<title>` — eight pages all
   titled « Finances » is a bug, not a convention.
+- A page whose figures belong to one scout year says which, in the
+  header: `page_header`'s `badge`, beside the title and never inside it
+  (so « Statistiques » stays « Statistiques » in the tab, the breadcrumb
+  and the menu). A subtitle sentence is not a substitute — on the three
+  pages that pushed for this the year was already there, mid-paragraph in
+  grey small text, and read by nobody before the numbers.
 - Every `<table>` sits in a `.table-responsive` wrapper (or a documented
   overflow container).
 
@@ -412,3 +431,24 @@ selection survives the dialog (a modal takes focus, and a contenteditable
 that loses focus loses its range), a bare host becomes `https://…` rather
 than a relative link that 404s, and a `javascript:` URL is refused with a
 reason rather than silently stripped later by the server-side sanitiser.
+
+### 7.13 Saving: a button, or on change
+
+Two shapes, and which one a control gets is not a preference:
+
+- **One independent control** — a switch, a select, a checkbox in a
+  repeated row — saves **on change**, with a `ScoutMagicToast` confirming
+  it. No button. That is how the notification preferences, the module
+  toggles, the backup frequency, the SOS default number, the passage and
+  départs rows, and each calendar's « Vu par » / « Modifié par » already
+  work.
+- **A group of fields that only means anything together** — the event
+  defaults (title + hours + place), a reminder's switch + delay, any real
+  form — gets one « Enregistrer » button and saves as a unit. Saving
+  half of a coherent set on each keystroke is not autosave, it is a
+  half-applied form.
+
+An autosaving page **says so**, once, near the controls: « L'enregistrement
+est automatique — il n'y a pas de bouton "Enregistrer". » A visitor cannot
+tell the two shapes apart by looking, and someone who assumes the other
+one either loses their change or hunts for a button that does not exist.

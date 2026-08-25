@@ -1,0 +1,43 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The site's one "let the AI do this field for me" button: a magic wand,
+  no text (design.md §7.4's icon vocabulary).
+
+  It exists because « Générer avec l'IA » next to an input is wider than
+  most phones can spare — on the article editor the summary field, the
+  one that actually needs the room, was squeezed to a few characters by
+  the button beside it. The four buttons that carried that kind of label
+  (« Générer avec l'IA » twice, « Raccourcir avec l'IA »,
+  « Expliquer avec l'IA ») now all render the same way, so the wand means
+  the same thing everywhere it appears.
+
+  The wording never disappears: it becomes `title` (hover) and
+  `aria-label` (screen readers), which is what makes an icon-only control
+  legitimate rather than a guessing game.
+
+  This is for a helper attached to a field or a result. A page-level
+  primary action that happens to call an AI (« Générer le contenu » on
+  the RGPD page) is not one of these and keeps its label.
+
+  Usage:
+  {% include 'partials/ai_button.html.twig' with {
+      id: 'news-ai-summary-btn',
+      label: "Générer avec l'IA",   -- title + aria-label, always French
+      variant: 'outline-secondary', -- optional, default outline-secondary
+      size: 'sm',                   -- optional, '' for the default size
+      class_extra: 'd-none',        -- optional
+      disabled: true,               -- optional
+      data: { 'shorten-btn': '' },  -- optional data-* attributes
+  } only %}
+#}
+<button type="button"
+        class="btn btn-{{ variant|default('outline-secondary') }}{{ size|default('') ? ' btn-' ~ size : '' }}{{ class_extra|default('') ? ' ' ~ class_extra : '' }}"
+        {%- if id|default('') %} id="{{ id }}"{% endif %}
+        {%- if disabled|default(false) %} disabled{% endif %}
+        {%- for key, value in data|default({}) %} data-{{ key }}="{{ value }}"{% endfor %}
+        title="{{ label }}" aria-label="{{ label }}">
+    <i class="bi bi-magic" aria-hidden="true"></i>
+</button>

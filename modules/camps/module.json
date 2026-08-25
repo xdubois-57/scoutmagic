@@ -13,7 +13,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Camps",
-      "menu_icon": "bi-tent",
+      "menu_icon": "bi-tree",
       "menu_group": "activites",
       "breadcrumb": {
         "label": "Camps",
@@ -411,7 +411,7 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "Camps",
-      "menu_icon": "bi-tent",
+      "menu_icon": "bi-tree",
       "menu_group": "modules",
       "breadcrumb": {
         "label": "Camps",

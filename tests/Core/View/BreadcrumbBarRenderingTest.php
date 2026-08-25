@@ -80,6 +80,28 @@ class BreadcrumbBarRenderingTest extends TestCase
         $this->assertStringContainsString('aria-current="page"', $html);
     }
 
+    /**
+     * Bootstrap draws the "/" separator as `::before` padding on every
+     * breadcrumb item after the first. Any whitespace between an item's
+     * `<li>` and its content collapses into a real space that lands right
+     * after that separator, so the trail read « / &nbsp;Statistiques »
+     * with a visible double gap — on the last crumb and on every
+     * ancestor-page link, the two the template indented. No breadcrumb
+     * item may start with whitespace.
+     */
+    public function testNoBreadcrumbItemStartsWithAWhitespaceTextNode(): void
+    {
+        $html = $this->render(
+            ['label' => 'Louveteaux', 'parents' => ['Espace chefs d\'U']],
+            '/groups/5',
+            'Louveteaux',
+            [$this->menu('espace_admin', 'Espace chefs d\'U')],
+            [['label' => 'Groupes', 'url' => '/groups']]
+        );
+
+        $this->assertDoesNotMatchRegularExpression('/<li class="breadcrumb-item[^"]*"[^>]*>\s/', $html);
+    }
+
     public function testRouteWithoutBreadcrumbStopsAtHomeIconWithoutError(): void
     {
         $html = $this->render(null, '/contact');

@@ -123,6 +123,8 @@ class MaintenanceControllerTest extends TestCase
             public ?CommitInfo $commit = null;
             public ?ReleaseInfo $releaseByTag = null;
             public ?CommitInfo $commitBySha = null;
+            /** @var array<int, ReleaseInfo>|null every published release; null = fall back to $release alone */
+            public ?array $releases = null;
 
             public function getLatestRelease(): ?ReleaseInfo
             {
@@ -132,6 +134,16 @@ class MaintenanceControllerTest extends TestCase
             public function getReleaseByTag(string $tag): ?ReleaseInfo
             {
                 return $this->releaseByTag;
+            }
+
+            /** @return array<int, ReleaseInfo> */
+            public function listReleases(): array
+            {
+                if ($this->releases !== null) {
+                    return $this->releases;
+                }
+
+                return $this->release !== null ? [$this->release] : [];
             }
 
             public function composerLockChanged(string $base, string $head): bool
@@ -1100,6 +1112,111 @@ class MaintenanceControllerTest extends TestCase
                 @unlink($versionFile);
             }
         }
+    }
+
+    /**
+     * "Vérifier maintenant" proposes what can be installed right now, not
+     * what the weekly automatic slot would have picked: a minor release is
+     * offered even though auto_update_level is 'patch' (setUp's default),
+     * which would have blocked the *unattended* install of that same
+     * release.
+     */
+    public function testCheckForUpdatesNowProposesTheLatestReleaseWhateverTheConfiguredLevel(): void
+    {
+        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
+        file_put_contents($versionFile, "1.0.36\n");
+        $this->fakeReleaseClient->releases = [
+            new ReleaseInfo('v1.0.37', 'Patch', 'https://github.test/r/1.0.37', 'https://github.test/1.0.37.zip'),
+            new ReleaseInfo('v1.2.0', 'Minor', 'https://github.test/r/1.2.0', 'https://github.test/1.2.0.zip'),
+        ];
+        $token = $this->csrfToken();
+
+        try {
+            $response = $this->controller->checkForUpdatesNow($this->jsonRequest(['_csrf_token' => $token]), []);
+
+            $decoded = json_decode($response->getBody(), true);
+            $this->assertTrue($decoded['success']);
+            $this->assertTrue($decoded['update_available']);
+            $this->assertSame('1.2.0', $decoded['version']);
+            $this->assertSame('1.2.0', $decoded['latest_version']);
+
+            // The install endpoint re-validates from this cache, so it has
+            // to name the very release the dialog just offered.
+            $this->settingService->clearCache();
+            $this->assertSame('1.2.0', $this->settingService->get('update_latest_version'));
+            $this->assertSame('https://github.test/1.2.0.zip', $this->settingService->get('update_download_url'));
+        } finally {
+            if ($original !== null) {
+                file_put_contents($versionFile, $original);
+            } else {
+                @unlink($versionFile);
+            }
+        }
+    }
+
+    /**
+     * Two majors published since the installed version: the first of them
+     * is proposed, not the newest release, so each major's migrations run
+     * on their own (Maintenance\UpdateTargetSelector).
+     */
+    public function testCheckForUpdatesNowProposesTheNextMajorReleaseRatherThanTheLatest(): void
+    {
+        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
+        file_put_contents($versionFile, "1.4.2\n");
+        $this->settingService->set('auto_update_level', 'major');
+        $this->settingService->clearCache();
+        $this->fakeReleaseClient->releases = [
+            new ReleaseInfo('v1.5.0', 'Minor', 'https://github.test/r/1.5.0', 'https://github.test/1.5.0.zip'),
+            new ReleaseInfo('v3.0.0', 'Major 3', 'https://github.test/r/3.0.0', 'https://github.test/3.0.0.zip'),
+            new ReleaseInfo('v2.0.0', 'Major 2', 'https://github.test/r/2.0.0', 'https://github.test/2.0.0.zip'),
+        ];
+        $token = $this->csrfToken();
+
+        try {
+            $response = $this->controller->checkForUpdatesNow($this->jsonRequest(['_csrf_token' => $token]), []);
+
+            $decoded = json_decode($response->getBody(), true);
+            $this->assertTrue($decoded['success']);
+            $this->assertTrue($decoded['update_available']);
+            $this->assertSame('2.0.0', $decoded['version']);
+            // The page tells the admin this is a step, not the last word.
+            $this->assertSame('3.0.0', $decoded['latest_version']);
+
+            $this->settingService->clearCache();
+            $this->assertSame('2.0.0', $this->settingService->get('update_latest_version'));
+            $this->assertSame('https://github.test/2.0.0.zip', $this->settingService->get('update_download_url'));
+        } finally {
+            if ($original !== null) {
+                file_put_contents($versionFile, $original);
+            } else {
+                @unlink($versionFile);
+            }
+        }
+    }
+
+    /**
+     * Development mode is the other exception: the branch's latest commit
+     * is proposed whatever it is, and the release listing is never
+     * consulted at all.
+     */
+    public function testCheckForUpdatesNowIgnoresReleasesEntirelyInDevelopmentMode(): void
+    {
+        $this->settingService->set('auto_update_level', 'dev');
+        $this->settingService->clearCache();
+        $this->fakeReleaseClient->releases = [
+            new ReleaseInfo('v99.0.0', 'Notes', 'https://github.test/r/99.0.0', 'https://github.test/99.0.0.zip'),
+        ];
+        $this->fakeReleaseClient->commit = new CommitInfo('a1b2c3d4e5f6', 'Fix something', 'https://github.com/x/y/commit/a1b2c3d4e5f6');
+        $token = $this->csrfToken();
+
+        $response = $this->controller->checkForUpdatesNow($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame('dev', $decoded['channel']);
+        $this->assertSame('dev-a1b2c3d', $decoded['version']);
     }
 
     public function testCheckForUpdatesNowChecksTheConfiguredBranchWhenDevLevelSelected(): void

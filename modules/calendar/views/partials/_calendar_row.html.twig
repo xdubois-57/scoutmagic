@@ -1,0 +1,78 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  One calendar's row on Configuration > Calendrier — the SAME card for a
+  section calendar and a supplementary one, which is the whole point of
+  this partial: the two lists used to hand-roll their own layout, so the
+  identical pair of permission selects sat on one line here and on
+  another line there, and neither survived a phone screen (two selects
+  capped at 200/230px squeezed onto one non-wrapping flex row next to the
+  name).
+
+  The pair now sits in a grid that stacks on mobile and pairs up from
+  `sm` on, each select carrying a visible label — « Vu par » /
+  « Modifié par » — instead of relying on the option text to explain
+  itself. Those two words are all the room a phone has, and a dozen
+  calendars down the page would otherwise give a screen reader a dozen
+  identically-named controls, so the accessible name adds the calendar's
+  own name after them (`aria_label`, « Vu par — Meute »): it starts with
+  what is written on screen, which is what keeps voice control working
+  (WCAG 2.5.3).
+
+  Params:
+    calendar_id      -- int, the row's calendar
+    name             -- string, displayed name
+    color            -- string|null, the section's colour dot (sections only)
+    badges           -- string[], optional badges after the name
+    visibility       -- 'public'|'chief'|'admin'
+    edit_role_min    -- 'chief'|'admin'
+    edit_chief_label -- the wording of the 'chief' option ("ses animateurs"
+                        on a section calendar, "les animateurs" elsewhere)
+
+  Block `extra` -- filled through {% embed %} by the supplementary list
+  (its ICS link block and its Régénérer/Supprimer buttons), empty for a
+  section calendar, which has no individual ICS link of its own.
+#}
+<div class="border rounded-3 p-3" data-calendar-id="{{ calendar_id }}">
+    <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+        {% if color|default(null) %}
+            <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.7rem;height:0.7rem;background-color:{{ color }};"></span>
+        {% endif %}
+        <span class="fw-semibold">{{ name }}</span>
+        {% for badge in badges|default([]) %}
+            <span class="badge text-bg-secondary">{{ badge }}</span>
+        {% endfor %}
+    </div>
+    <div class="row g-2">
+        <div class="col-12 col-sm-6">
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'calendar-visibility-' ~ calendar_id,
+                label: 'Vu par', type: 'select', size: 'sm', wrapper_class: '',
+                control_class_extra: 'visibility-select',
+                data: { 'calendar-id': calendar_id },
+                aria_label: 'Vu par — ' ~ name,
+                options: [
+                    { value: 'public', label: 'Tous', selected: visibility == 'public' },
+                    { value: 'chief', label: 'Les animateurs', selected: visibility == 'chief' },
+                    { value: 'admin', label: "Les chefs d'unité", selected: visibility == 'admin' },
+                ],
+            } only %}
+        </div>
+        <div class="col-12 col-sm-6">
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'calendar-edit-role-' ~ calendar_id,
+                label: 'Modifié par', type: 'select', size: 'sm', wrapper_class: '',
+                control_class_extra: 'edit-role-select',
+                data: { 'calendar-id': calendar_id },
+                aria_label: 'Modifié par — ' ~ name,
+                options: [
+                    { value: 'chief', label: edit_chief_label, selected: edit_role_min == 'chief' },
+                    { value: 'admin', label: "Les chefs d'unité", selected: edit_role_min == 'admin' },
+                ],
+            } only %}
+        </div>
+    </div>
+    {% block extra %}{% endblock %}
+</div>
