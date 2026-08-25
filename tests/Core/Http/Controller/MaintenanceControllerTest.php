@@ -207,6 +207,113 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('Aucune sauvegarde', $response->getBody());
     }
 
+    /**
+     * The auto-update health signal. It exists because everything else
+     * about that channel stays green when it stops working — a push
+     * webhook answers 200 whether it installed or ignored the push — so a
+     * site can sit frozen for hundreds of commits and look healthy. These
+     * four tests pin the only place that says otherwise.
+     */
+    public function testMaintenancePageReportsWhenTheLastAutomaticUpdateInstalled(): void
+    {
+        $id = $this->updateHistoryRepository->create('dev-aaaaaaa', 'dev-bbbbbbb', false, null);
+        $this->updateHistoryRepository->markCompleted($id);
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Dernière mise à jour automatique installée', $body);
+        $this->assertStringContainsString('dev-bbbbbbb', $body);
+    }
+
+    public function testMaintenancePageSaysSoWhenNoAutomaticUpdateEverInstalled(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Dernière mise à jour automatique installée', $body);
+        $this->assertStringContainsString('aucune', $body);
+    }
+
+    /**
+     * A dev channel that has never installed anything has never worked —
+     * that is a fault on day one, not a site waiting to get going.
+     */
+    public function testDevChannelThatNeverInstalledAnythingRaisesTheWarning(): void
+    {
+        $this->settingService->set('auto_update_enabled', '1');
+        $this->settingService->set('auto_update_level', 'dev');
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('auto-update-silence-warning', $body);
+    }
+
+    /**
+     * The threshold itself: a dev channel that DID install, but long ago.
+     * Distinct from the never-installed case above, which warns whatever
+     * the threshold is and so cannot pin it.
+     */
+    public function testDevChannelSilentBeyondTheThresholdRaisesTheWarning(): void
+    {
+        $this->settingService->set('auto_update_enabled', '1');
+        $this->settingService->set('auto_update_level', 'dev');
+        $id = $this->updateHistoryRepository->create('dev-aaaaaaa', 'dev-bbbbbbb', false, null);
+        $this->updateHistoryRepository->markCompleted($id);
+        $this->ageCompletedAt($id, 30);
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('auto-update-silence-warning', $body);
+        $this->assertStringContainsString('30 jours', $body);
+    }
+
+    /**
+     * And the other side of that threshold: silent, but not yet long
+     * enough to be worth saying anything about.
+     */
+    public function testDevChannelSilentWithinTheThresholdRaisesNoWarning(): void
+    {
+        $this->settingService->set('auto_update_enabled', '1');
+        $this->settingService->set('auto_update_level', 'dev');
+        $id = $this->updateHistoryRepository->create('dev-aaaaaaa', 'dev-bbbbbbb', false, null);
+        $this->updateHistoryRepository->markCompleted($id);
+        $this->ageCompletedAt($id, 3);
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('auto-update-silence-warning', $body);
+    }
+
+    /**
+     * The same silence on a stable channel is not a fault: it only means
+     * nobody published a release. Warning about it would teach an
+     * administrator to ignore the warning that matters.
+     */
+    public function testStableChannelSilenceRaisesNoWarning(): void
+    {
+        $this->settingService->set('auto_update_enabled', '1');
+        $this->settingService->set('auto_update_level', 'minor');
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('auto-update-silence-warning', $body);
+    }
+
+    /**
+     * A dev channel that installed something today is working — the
+     * warning must stay away, or it is noise from the first day.
+     */
+    public function testRecentDevInstallRaisesNoWarning(): void
+    {
+        $this->settingService->set('auto_update_enabled', '1');
+        $this->settingService->set('auto_update_level', 'dev');
+        $id = $this->updateHistoryRepository->create('dev-aaaaaaa', 'dev-bbbbbbb', false, null);
+        $this->updateHistoryRepository->markCompleted($id);
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('auto-update-silence-warning', $body);
+    }
+
     public function testDatabaseBackupButtonIsLabeledGenerer(): void
     {
         $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
@@ -1365,4 +1472,11 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
     }
+
+    private function ageCompletedAt(int $id, int $daysAgo): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE update_history SET completed_at = ? WHERE id = ?');
+        $stmt->execute([(new \DateTimeImmutable("-{$daysAgo} days"))->format('Y-m-d H:i:s'), $id]);
+    }
+
 }

@@ -216,9 +216,71 @@ class UpdateHistoryRepositoryTest extends TestCase
         $this->assertSame('completed', $this->repository->findById($completed)->status);
     }
 
+    public function testFindLastCompletedIsNullWhenNothingEverSucceeded(): void
+    {
+        $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+
+        $this->assertNull($this->repository->findLastCompleted());
+    }
+
+    /**
+     * The point of the health signal: a run that failed leaves the site on
+     * the version it already had, so counting it as "last updated" would
+     * report the opposite of the truth.
+     */
+    public function testFindLastCompletedIgnoresFailedAndRolledBackRuns(): void
+    {
+        $failed = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->repository->markFailed($failed, 'boom');
+        $rolledBack = $this->repository->create('1.0.0', '1.2.0', false, $this->userId);
+        $this->repository->markRolledBack($rolledBack, 'reverted');
+
+        $this->assertNull($this->repository->findLastCompleted());
+    }
+
+    public function testFindLastCompletedReturnsTheMostRecentlyFinishedRun(): void
+    {
+        $older = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->repository->markCompleted($older);
+        $this->ageCompletedAt($older, 5000);
+
+        $newer = $this->repository->create('1.1.0', '1.2.0', false, $this->userId);
+        $this->repository->markCompleted($newer);
+
+        $last = $this->repository->findLastCompleted();
+        $this->assertNotNull($last);
+        $this->assertSame('1.2.0', $last->versionTo);
+    }
+
+    /**
+     * Ordered by completed_at, not started_at — a long update that began
+     * before a short later one still finished after it, and it is the
+     * finishing that put the site on that version.
+     */
+    public function testFindLastCompletedOrdersByCompletionNotByStart(): void
+    {
+        $startedFirst = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+        $startedSecond = $this->repository->create('1.0.0', '1.2.0', false, $this->userId);
+
+        // The one that started second finishes first.
+        $this->repository->markCompleted($startedSecond);
+        $this->ageCompletedAt($startedSecond, 60);
+        $this->repository->markCompleted($startedFirst);
+
+        $last = $this->repository->findLastCompleted();
+        $this->assertNotNull($last);
+        $this->assertSame('1.1.0', $last->versionTo);
+    }
+
     private function ageStartedAt(int $id, int $minutesAgo): void
     {
         $stmt = $this->pdo->prepare('UPDATE update_history SET started_at = ? WHERE id = ?');
+        $stmt->execute([(new \DateTimeImmutable("-{$minutesAgo} minutes"))->format('Y-m-d H:i:s'), $id]);
+    }
+
+    private function ageCompletedAt(int $id, int $minutesAgo): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE update_history SET completed_at = ? WHERE id = ?');
         $stmt->execute([(new \DateTimeImmutable("-{$minutesAgo} minutes"))->format('Y-m-d H:i:s'), $id]);
     }
 }

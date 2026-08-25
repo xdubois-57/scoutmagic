@@ -75,6 +75,36 @@ class UpdateHistoryRepository
     }
 
     /**
+     * The most recent update that actually finished and stuck — the health
+     * signal behind Configuration > Maintenance's "dernière mise à jour
+     * automatique".
+     *
+     * Only 'completed' counts. A 'failed' or 'rolled_back' row means the
+     * site is still on the version it was on before, so reporting either as
+     * "last updated" would say the opposite of the truth — which is the
+     * whole failure this exists to make visible: an install channel can
+     * stop working while every outward sign stays green (a push webhook
+     * answers 200 whether it installed or ignored the push, so GitHub's
+     * delivery log looks healthy either way).
+     *
+     * Ordered by completed_at, not started_at: a long update that began
+     * before a short later one still finished after it.
+     */
+    public function findLastCompleted(): ?UpdateHistory
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM update_history
+             WHERE status = 'completed'
+             ORDER BY completed_at DESC, id DESC
+             LIMIT 1"
+        );
+        $stmt->execute();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
+    /**
      * The most recent update actively running (backing_up/downloading/
      * installing/migrating) — 'pending' is deliberately excluded, since a
      * scheduled-but-not-yet-started task hasn't touched the live site at

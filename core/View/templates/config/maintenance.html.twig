@@ -205,6 +205,44 @@
                             {{ webhook_configured ? '✓ Configuré' : '✗ Non configuré' }}
                         </span>
                     </p>
+
+                    {# « Configuré » ne dit que la moitié : le webhook répond 200
+                       même quand il ignore la poussée, donc le journal GitHub
+                       reste vert alors que plus rien ne s'installe. Cette ligne
+                       est le seul endroit du site qui dise si le canal a
+                       réellement installé quelque chose — voir
+                       MaintenanceController::autoUpdateHealth(). #}
+                    <p class="small mb-2" id="auto-update-last-success">
+                        Dernière mise à jour automatique installée :
+                        {% if auto_update_last_success %}
+                            <strong>{{ auto_update_last_success|datetime_fr }}</strong>
+                            {%- if auto_update_last_success_version %} ({{ auto_update_last_success_version }}){% endif -%}
+                            {%- if auto_update_silent_days is not null %}
+                                <span class="text-body-secondary">
+                                    — il y a {{ auto_update_silent_days }} jour{{ auto_update_silent_days > 1 ? 's' : '' }}
+                                </span>
+                            {%- endif -%}
+                        {% else %}
+                            <strong>aucune</strong>
+                        {% endif %}
+                    </p>
+
+                    {% if auto_update_silence_warning %}
+                        <div class="alert alert-warning small" id="auto-update-silence-warning">
+                            {% if auto_update_last_success %}
+                                Aucune mise à jour automatique n'a été installée depuis
+                                {{ auto_update_silent_days }} jours, alors que ce site suit la branche de
+                                développement et devrait s'installer à chaque poussée.
+                            {% else %}
+                                Aucune mise à jour automatique n'a jamais été installée sur ce site, alors
+                                qu'il suit la branche de développement et devrait s'installer à chaque poussée.
+                            {% endif %}
+                            Vérifiez que le webhook GitHub parvient bien au site : dans le dépôt,
+                            Settings → Webhooks → Recent Deliveries. Une livraison peut répondre
+                            « 200 » tout en étant ignorée (mauvaise branche, dépôt non correspondant,
+                            mises à jour désactivées) — la réponse indique alors la raison.
+                        </div>
+                    {% endif %}
                     <div class="small mb-3 {{ webhook_configured ? 'd-none' : '' }}" id="webhook-setup-instructions">
                         <p class="mb-1">Dans les paramètres du dépôt GitHub (Settings → Webhooks → Add webhook), configurez :</p>
                         <ul class="mb-2">

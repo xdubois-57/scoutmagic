@@ -46,6 +46,15 @@ class MaintenanceController extends AbstractController
 
     private const KEEP_BACKUPS = 5;
 
+    /**
+     * How long the `dev` channel may go without installing anything before
+     * the page says so. Long enough that an ordinary quiet stretch — a
+     * week with no push to the tracked branch — stays silent; short enough
+     * that a channel which has genuinely stopped is noticed in days rather
+     * than in hundreds of commits. See autoUpdateHealth().
+     */
+    private const AUTO_UPDATE_SILENT_DAYS = 7;
+
     // Each "Réinitialisation" action requires the admin to type this exact
     // word server-side (module spec: "Ne pas permettre aucune action de
     // réinitialisation/restauration sans confirmation par mot-clé vérifiée
@@ -101,6 +110,7 @@ class MaintenanceController extends AbstractController
 
         $autoUpdateEnabled = (bool) ((int) ($this->settingService->get('auto_update_enabled') ?: '0'));
         $webhookConfigured = $this->webhookSecret() !== '';
+        $autoUpdateHealth = $this->autoUpdateHealth($autoUpdateEnabled, $level);
         [$installedVersionDisplay, $installedVersionCommit] = self::splitInstalledVersion($installedVersion);
         $installedNotes = $this->installedVersionNotes($installedVersion, $installedVersionCommit);
 
@@ -127,6 +137,10 @@ class MaintenanceController extends AbstractController
             'auto_update_time' => (string) ($this->settingService->get('auto_update_time') ?: '03:00'),
             'webhook_configured' => $webhookConfigured,
             'webhook_warning' => $autoUpdateEnabled && $level === 'dev' && !$webhookConfigured,
+            'auto_update_last_success' => $autoUpdateHealth['last_success'],
+            'auto_update_last_success_version' => $autoUpdateHealth['last_version'],
+            'auto_update_silent_days' => $autoUpdateHealth['silent_days'],
+            'auto_update_silence_warning' => $autoUpdateHealth['warn'],
             'webhook_url' => rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/api/webhook/github',
             'dev_update_branch' => (string) ($this->settingService->get('dev_update_branch') ?: 'main'),
         ]);
@@ -1057,6 +1071,65 @@ class MaintenanceController extends AbstractController
         }
 
         return [$raw, null];
+    }
+
+    /**
+     * The automatic-update channel's health: when it last actually
+     * installed something, and whether its silence has gone on long enough
+     * to be worth an administrator's attention.
+     *
+     * This exists because every other sign of that channel is green even
+     * when it has stopped working. A push webhook answers HTTP 200 whether
+     * it installed the push or ignored it (Core\Http\Controller\
+     * WebhookController returns GitHubWebhookService's result as-is, and
+     * "ignored" is a perfectly ordinary result — a push to another branch
+     * is one), so GitHub's delivery log shows success either way. Nothing
+     * else on this page changes. A site can therefore sit frozen for
+     * hundreds of commits and look healthy from every angle, which is
+     * exactly what happened before this was added.
+     *
+     * Only the `dev` channel is warned about. It installs every push to
+     * the tracked branch, so silence there means something stopped
+     * working. A patch/minor/major channel is legitimately silent for as
+     * long as nobody publishes a release, and crying wolf about that is
+     * how an administrator learns to ignore the badge.
+     *
+     * @return array{last_success: ?string, last_version: ?string, silent_days: ?int, warn: bool}
+     */
+    private function autoUpdateHealth(bool $enabled, string $level): array
+    {
+        $last = $this->updateHistoryRepository->findLastCompleted();
+        $lastAt = ($last !== null && $last->completedAt !== null && $last->completedAt !== '')
+            ? $last->completedAt
+            : null;
+
+        $silentDays = null;
+        if ($lastAt !== null) {
+            try {
+                $since = new \DateTimeImmutable($lastAt);
+                $elapsed = (new \DateTimeImmutable())->getTimestamp() - $since->getTimestamp();
+                $silentDays = (int) floor($elapsed / 86400);
+            } catch (\Exception) {
+                // An unparseable stored timestamp is a reason to say
+                // "unknown", never a reason to fail rendering the page the
+                // administrator came here to read.
+                $silentDays = null;
+            }
+        }
+
+        // No completed update at all warns too: on the dev channel that is
+        // not "new site, nothing to do yet" but "this has never once
+        // worked", which is the same thing an administrator needs to check.
+        $warn = $enabled
+            && $level === 'dev'
+            && ($silentDays === null || $silentDays >= self::AUTO_UPDATE_SILENT_DAYS);
+
+        return [
+            'last_success' => $lastAt,
+            'last_version' => $last?->versionTo,
+            'silent_days' => $silentDays,
+            'warn' => $warn,
+        ];
     }
 
     private function webhookSecret(): string
