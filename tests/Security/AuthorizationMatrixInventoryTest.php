@@ -15,7 +15,7 @@ require_once dirname(__DIR__, 2) . '/scripts/authz-support.php';
 /**
  * The half of the authorization matrix that needs no server, and
  * therefore runs on every commit rather than only when somebody
- * remembers to scan.
+ * remembers to run `scripts/dast.sh --profile=standard`.
  *
  * The matrix itself (`scripts/authz-support.php matrix`) replays every
  * route as every role against a provisioned instance. That is the part

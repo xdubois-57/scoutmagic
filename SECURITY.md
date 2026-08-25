@@ -492,6 +492,41 @@ The driver's own text never reaches the page: MySQL names the table, the column 
 
 **This is a floor, not a replacement for validation.** A request refused with a French sentence next to the offending field beats a generic error page every time. Reaching this handler at all means a boundary check was missing.
 
+## 36. The authorization matrix
+
+`scripts/dast.sh --profile=standard` replays **every route as every role** and checks the answer against the `role_min` the route declares. 528 routes × 6 roles = 3 168 pairs, in about a minute, with no scanner and no browser.
+
+It was meant to be ZAP's "Access Control Testing" add-on, which is not in the `stable` image. Doing it here turned out to be the better home rather than a fallback: the question has one right answer per pair — the application states it in `module.json`, `Core\Security\RbacGuard` enforces it — so this is a comparison, not a heuristic. No payloads, no false positives, and a result that means the same thing on every run.
+
+**The two ways to be wrong are not equally bad.** A role reaching a route it may not is the security hole, and it fails the run. A role refused a route `role_min` admits is reported and never fatal, because a module may legitimately narrow access further than its route declares.
+
+### Replaying 500 POSTs without writing anything
+
+Replaying every route as six roles, for real, would rewrite the instance halfway through its own audit — and every later probe would then be measuring a site the audit itself had changed.
+
+So a POST is sent **without a CSRF token, deliberately**. The guard runs *before* the controller and the CSRF check runs *inside* it, so the two refusals are distinguishable and the authorized case stops at the CSRF wall having changed nothing:
+
+| | anonymous | authenticated |
+|---|---|---|
+| **RBAC refusal** | 302 → `/login` | 403, `text/html` |
+| **CSRF refusal** | 302 → elsewhere | 403, `application/json` |
+
+A 403 is therefore read by its `Content-Type` and a 302 by where it points — never by status alone.
+
+### The two things that would make it lie
+
+Both are guarded, because both would produce a **green** run rather than a red one.
+
+**A session that does not carry the role it claims.** An account whose role failed to resolve still signs in perfectly well — it is simply `identified`. The matrix would then watch every admin route correctly refuse it, report a clean run, and have checked nothing. So each session is asked for a page only its own role may reach, and the run stops if the answer is no. That check caught a wrong assumption the first time it ran.
+
+**A route the inventory cannot see.** A missing route does not make the matrix red; it makes it *shorter*, and a shorter green run reads exactly like a complete one. `Tests\Security\AuthorizationMatrixInventoryTest` therefore runs on every commit, with no server: every `addRoute()` in `public/index.php` accounted for (by count, so a route written in an unfamiliar shape fails the parse loudly), every module's routes present, every parameterised route addressable by a fixture, no fixture group left describing a route that no longer exists, and the role ladder the matrix reasons with identical to the one `Core\Security\Role` enforces — checked in both directions.
+
+Fixtures are keyed by route-pattern prefix, not by placeholder name: `{id}` is a member on `/members/{id}` and a discussion group on `/groups/{id}`. Their values need only be **well-formed, not real** — the guard runs before the controller, so a 404 for a row that is not there still means the caller got past it.
+
+### The result, and how to read it
+
+**Zero over-permissive routes.** 68 refusals are stricter than `role_min`: a member may only edit their *own* record, a file goes through `FileAccessGuard`. That is defence in depth, and the report lists every one — they are to be read, not assumed.
+
 ## 33. Deferred hardening (known, tracked)
 
 The remaining audit items are understood and intentionally deferred — each is a UX-changing product decision or a broad template rework whose cost currently exceeds the risk it retires. Documented so they are tracked, not forgotten.

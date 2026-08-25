@@ -61,9 +61,11 @@ set -euo pipefail
 #             cross-site scripting, path traversal). Attacks the site.
 #   audit     passive + every active rule ZAP ships, no time budget.
 #             Manual, on demand, never a gate.
-#   standard  Not implemented: it needs the authorization matrix, which
-#             is blocked on the Access Control Testing add-on (see the
-#             session report on roadmap IT-04).
+#   standard  The authorization matrix: every route replayed as every
+#             role, checked against the role_min it declares. No ZAP and
+#             no browser — see scripts/authz-support.php for why the
+#             question is arithmetic rather than a scan, and for how a
+#             POST is replayed without writing anything.
 #
 # An active profile REPLAYS every recorded request hundreds of times with
 # attack payloads, carrying the session cookies the browser was using —
@@ -184,12 +186,14 @@ case "${PROFILE}" in
         DAST_ACTIVE_POLICY="scoutmagic-audit"
         ;;
     standard)
-        echo "ERROR: the 'standard' profile is not implemented yet — it needs the" >&2
-        echo "       authorization matrix (roadmap IT-04), which is blocked." >&2
-        exit 1
+        # The authorization matrix. No ZAP, no browser: the question it
+        # asks — does every route answer exactly the roles its role_min
+        # admits — has one right answer per pair, so it is replayed and
+        # compared rather than scanned for. See scripts/authz-support.php.
+        PLAN_FILE=""
         ;;
     *)
-        echo "ERROR: unknown profile '${PROFILE}' (expected: passive, deep or audit)." >&2
+        echo "ERROR: unknown profile '${PROFILE}' (expected: passive, standard, deep or audit)." >&2
         exit 1
         ;;
 esac
@@ -361,11 +365,16 @@ trap 'exit 143' TERM
 command -v php > /dev/null 2>&1 || { echo "ERROR: php is required to run the security scan." >&2; exit 1; }
 command -v npm > /dev/null 2>&1 || { echo "ERROR: npm is required to run the security scan (Node.js >= 22)." >&2; exit 1; }
 [[ -f "${REPO_ROOT}/vendor/autoload.php" ]] || { echo "ERROR: vendor/autoload.php not found — run 'composer install' first." >&2; exit 1; }
-[[ -d "${REPO_ROOT}/node_modules/@playwright/test" ]] || {
-    echo "ERROR: @playwright/test is not installed — run 'npm ci' then 'npm run e2e:install'." >&2
-    exit 1
-}
-[[ -f "${PLAN_FILE}" ]] || { echo "ERROR: no ZAP plan for profile '${PROFILE}' at ${PLAN_FILE}." >&2; exit 1; }
+# The matrix profile drives no browser and starts no scanner, so it is
+# not made to depend on either being installed — a prerequisite that is
+# never used is a prerequisite that turns somebody away for nothing.
+if [[ "${PROFILE}" != "standard" ]]; then
+    [[ -d "${REPO_ROOT}/node_modules/@playwright/test" ]] || {
+        echo "ERROR: @playwright/test is not installed — run 'npm ci' then 'npm run e2e:install'." >&2
+        exit 1
+    }
+    [[ -f "${PLAN_FILE}" ]] || { echo "ERROR: no ZAP plan for profile '${PROFILE}' at ${PLAN_FILE}." >&2; exit 1; }
+fi
 
 php -r 'exit(extension_loaded("openssl") && extension_loaded("pcntl") ? 0 : 1);' || {
     echo "ERROR: the security scan needs PHP's 'openssl' and 'pcntl' extensions." >&2
@@ -373,21 +382,28 @@ php -r 'exit(extension_loaded("openssl") && extension_loaded("pcntl") ? 0 : 1);'
     exit 1
 }
 
-command -v docker > /dev/null 2>&1 || {
-    echo "ERROR: Docker is required — OWASP ZAP runs as a container." >&2
-    echo "       Install Docker Desktop (macOS) or the docker engine (Linux), then re-run." >&2
-    exit 1
-}
-docker info > /dev/null 2>&1 || {
-    echo "ERROR: the Docker daemon is not reachable. Start Docker, then re-run." >&2
-    exit 1
-}
-docker image inspect "${DAST_ZAP_IMAGE}" > /dev/null 2>&1 || {
-    echo "ERROR: the ZAP image is not present locally. Pull it once with:" >&2
-    echo "           docker pull ${DAST_ZAP_IMAGE}" >&2
-    echo "       (about 1.2 GB; nothing here downloads it for you.)" >&2
-    exit 1
-}
+# Docker is ZAP's requirement, not the harness's. The matrix profile
+# runs no container, and a MySQL server is looked for on the host first
+# either way (below) — so this is asked only of the profiles that
+# actually need it, rather than turning somebody away from the one
+# profile that would have worked.
+if [[ "${PROFILE}" != "standard" ]]; then
+    command -v docker > /dev/null 2>&1 || {
+        echo "ERROR: Docker is required — OWASP ZAP runs as a container." >&2
+        echo "       Install Docker Desktop (macOS) or the docker engine (Linux), then re-run." >&2
+        exit 1
+    }
+    docker info > /dev/null 2>&1 || {
+        echo "ERROR: the Docker daemon is not reachable. Start Docker, then re-run." >&2
+        exit 1
+    }
+    docker image inspect "${DAST_ZAP_IMAGE}" > /dev/null 2>&1 || {
+        echo "ERROR: the ZAP image is not present locally. Pull it once with:" >&2
+        echo "           docker pull ${DAST_ZAP_IMAGE}" >&2
+        echo "       (about 1.2 GB; nothing here downloads it for you.)" >&2
+        exit 1
+    }
+fi
 
 # ---------------------------------------------------------------
 # 2. MySQL. Reuse whatever is already reachable; otherwise start a
@@ -464,19 +480,24 @@ export E2E_INSTANCE_DIR="${INSTANCE_DIR}/instance"
 
 # Shared with the ZAP container: the plan reads the release file from
 # here and writes its reports into it. One mount, so nothing else of the
-# host filesystem is visible to the scanner.
+# host filesystem is visible to the scanner. The matrix profile has no
+# plan and no container, so it skips the copy.
 ZAP_WORK_DIR="${INSTANCE_DIR}/zap"
 mkdir -p "${ZAP_WORK_DIR}/reports"
-cp "${PLAN_FILE}" "${ZAP_WORK_DIR}/plan.yaml"
-# One placeholder the Automation Framework cannot expand for us: it
-# resolves an activeScan job's `policy` against the policies it knows
-# while VERIFYING the plan, which happens before environment-variable
-# expansion, so a ${VAR} there arrives verbatim and the whole plan
-# aborts. Substituted into the copy, never into the file under version
-# control. Harmless for the passive plan, which has no such placeholder.
-if [[ -n "${DAST_ACTIVE_POLICY}" ]]; then
-    sed -i.bak "s/__DAST_ACTIVE_POLICY__/${DAST_ACTIVE_POLICY}/g" "${ZAP_WORK_DIR}/plan.yaml"
-    rm -f "${ZAP_WORK_DIR}/plan.yaml.bak"
+if [[ -n "${PLAN_FILE}" ]]; then
+    cp "${PLAN_FILE}" "${ZAP_WORK_DIR}/plan.yaml"
+
+    # One placeholder the Automation Framework cannot expand for us: it
+    # resolves an activeScan job's `policy` against the policies it knows
+    # while VERIFYING the plan, which happens before environment-variable
+    # expansion, so a ${VAR} there arrives verbatim and the whole plan
+    # aborts. Substituted into the copy, never into the file under
+    # version control. Harmless for the passive plan, which has no such
+    # placeholder.
+    if [[ -n "${DAST_ACTIVE_POLICY}" ]]; then
+        sed -i.bak "s/__DAST_ACTIVE_POLICY__/${DAST_ACTIVE_POLICY}/g" "${ZAP_WORK_DIR}/plan.yaml"
+        rm -f "${ZAP_WORK_DIR}/plan.yaml.bak"
+    fi
 fi
 # The container runs as the `zap` user, not as whoever started this
 # script. Only the reports directory needs to be writable by that other
@@ -485,8 +506,10 @@ fi
 # resolved by the kernel at mount time, so the container never needs to
 # walk through it.
 chmod 0755 "${ZAP_WORK_DIR}"
-chmod 0644 "${ZAP_WORK_DIR}/plan.yaml"
 chmod 0777 "${ZAP_WORK_DIR}/reports"
+if [[ -n "${PLAN_FILE}" ]]; then
+    chmod 0644 "${ZAP_WORK_DIR}/plan.yaml"
+fi
 
 find "${REPO_ROOT}/storage/temp" -maxdepth 1 -type f -name 'backup_*.sql' 2>/dev/null | sort > "${BACKUP_SNAPSHOT}"
 
@@ -563,6 +586,30 @@ if ! php -r '
     exit 1
 fi
 echo "DAST: HSTS confirmed on the throwaway instance — the HTTPS wiring is live."
+
+# ---------------------------------------------------------------
+# 6-bis. The authorization matrix, and nothing else.
+#
+# `standard` stops here. It shares everything above — the throwaway
+# database, the provisioning, the server, the real TLS — because the
+# matrix must sign in the way a visitor does, and it needs none of what
+# follows: there is no traffic to scan and nothing to attack, only 528
+# routes to ask the same question of six times each. That makes it the
+# one profile fast enough to run on a whim.
+# ---------------------------------------------------------------
+if [[ "${PROFILE}" == "standard" ]]; then
+    mkdir -p "${DAST_REPORT_DIR}"
+    php "${REPO_ROOT}/scripts/authz-support.php" matrix "${BASE_URL}" "${DAST_REPORT_DIR}/authz-matrix.json"
+    MATRIX_EXIT=$?
+
+    if [[ "${MATRIX_EXIT}" -ne 0 ]]; then
+        echo "DAST FAILED (profile standard). Report: ${DAST_REPORT_DIR}/authz-matrix.json" >&2
+        exit "${MATRIX_EXIT}"
+    fi
+
+    echo "DAST OK (profile standard). Report: ${DAST_REPORT_DIR}/authz-matrix.json"
+    exit 0
+fi
 
 # ---------------------------------------------------------------
 # 6. ZAP. Daemon mode, so the plan can configure the passive scanner and

@@ -78,25 +78,34 @@ declare(strict_types=1);
  * would still say "no finding".
  *
  * Subcommands:
- *   routes   the route inventory, as JSON
+ *   routes                        the route inventory, as JSON
+ *   matrix <base-url> <report>    the replay itself
  *
- * The replay itself — `matrix`, which needs a provisioned instance — is
- * NOT here yet, and `dast.sh --profile=standard` still refuses to run
- * for that reason. What is here is the inventory and the fixtures it
- * will replay, plus the commit-time check that both stay complete;
- * everything above about CSRF and denial-reading is the design that half
- * will follow, written down now because it is the part that is easy to
- * get wrong later.
+ * `matrix` needs a provisioned instance and the role credentials in the
+ * environment, so it is run through `scripts/dast.sh --profile=standard`
+ * rather than by hand. The inventory half needs neither, and
+ * `Tests\Security\AuthorizationMatrixInventoryTest` runs it on every
+ * commit — that is what keeps the replay from quietly shrinking.
  */
 
 const AUTHZ_REPO_ROOT = __DIR__ . '/..';
+
+/**
+ * The role ladder, weakest first. Mirrors Core\Security\Role, and is
+ * spelled out here rather than derived from it so that a change to the
+ * enum's ordering shows up as a failing matrix rather than as a matrix
+ * that silently agrees with whatever the code now says.
+ *
+ * @var list<string>
+ */
+const AUTHZ_ROLES = ['public', 'identified', 'intendant', 'chief', 'admin', 'superadmin'];
 
 // Defined by tests/Security/AuthorizationMatrixInventoryTest.php before
 // it requires this file, exactly as scripts/e2e-support.php is guarded
 // by E2E_SUPPORT_TEST: the inventory helpers below are the half worth
 // running on every commit, and the command dispatcher must not run when
-// they are. The constant above is declared first because `const` at file
-// scope is evaluated in order, and main() reads it.
+// they are. Both constants above are declared first because `const` at
+// file scope is evaluated in order, and main() reaches them.
 if (!defined('AUTHZ_SUPPORT_TEST')) {
     authz_main($argv);
 }
@@ -129,21 +138,20 @@ function authz_main(array $argv): void
             echo json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), "\n";
             exit(0);
 
+        case 'matrix':
+            $baseUrl = $argv[2] ?? '';
+            $reportPath = $argv[3] ?? '';
+            if ($baseUrl === '' || $reportPath === '') {
+                fwrite(STDERR, "Usage: authz-support.php matrix <base-url> <report-path>\n");
+                exit(1);
+            }
+            exit(authz_matrix($baseUrl, $reportPath));
+
         default:
             fwrite(STDERR, "authz-support.php: unknown subcommand '{$command}'.\n");
             exit(1);
     }
 }
-
-/**
- * The role ladder, weakest first. Mirrors Core\Security\Role, and is
- * spelled out here rather than derived from it so that a change to the
- * enum's ordering shows up as a failing matrix rather than as a matrix
- * that silently agrees with whatever the code now says.
- *
- * @var list<string>
- */
-const AUTHZ_ROLES = ['public', 'identified', 'intendant', 'chief', 'admin', 'superadmin'];
 
 /**
  * Whether $role satisfies $roleMin, by position on the ladder above.
@@ -360,4 +368,374 @@ function authz_concrete_path(string $routePath, array $groups): ?string
     }
 
     return $concrete;
+}
+
+/**
+ * One HTTP exchange with the instance under test.
+ *
+ * Streams rather than cURL, and no proxy, for the same reasons
+ * scripts/dast-support.php gives: everything here is on loopback, and
+ * some environments export HTTPS_PROXY, which would simply hang.
+ *
+ * @return array{status: int, content_type: string, location: string, cookie: ?string}|null
+ *         null on a transport failure (including a timeout)
+ */
+function authz_http(string $url, string $method, ?string $cookie, ?string $jsonBody = null, int $timeout = 15): ?array
+{
+    $headers = ["Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"];
+    if ($cookie !== null) {
+        $headers[] = 'Cookie: ' . $cookie;
+    }
+    if ($jsonBody !== null) {
+        $headers[] = 'Content-Type: application/json';
+    }
+
+    $context = stream_context_create([
+        'http' => [
+            'method' => $method,
+            'header' => implode("\r\n", $headers),
+            'content' => $jsonBody ?? '',
+            'timeout' => $timeout,
+            // The status IS the answer here — a 403 must come back as a
+            // response to read, not as a warning and `false`.
+            'ignore_errors' => true,
+            // Never followed: where a redirect POINTS is half the
+            // verdict. A 302 to /login is the guard turning an anonymous
+            // caller away; a 302 anywhere else is a controller that was
+            // reached and did something else.
+            'follow_location' => 0,
+        ],
+        'ssl' => [
+            // Same reasoning as dast-support.php: the instance serves a
+            // certificate generated for this run and trusted by nothing,
+            // over loopback.
+            'verify_peer' => false,
+            'verify_peer_name' => false,
+        ],
+    ]);
+
+    $body = @file_get_contents($url, false, $context);
+    if ($body === false && !isset($http_response_header)) {
+        return null;
+    }
+
+    $status = 0;
+    $contentType = '';
+    $location = '';
+    $setCookie = null;
+
+    foreach ($http_response_header ?? [] as $header) {
+        if (preg_match('#^HTTP/\S+\s+(\d{3})#', $header, $m)) {
+            // A redirect chain would leave several status lines; the last
+            // one is this response's, and follow_location is off anyway.
+            $status = (int) $m[1];
+            continue;
+        }
+        if (preg_match('/^Content-Type:\s*(.+)$/i', $header, $m)) {
+            $contentType = strtolower(trim($m[1]));
+            continue;
+        }
+        if (preg_match('/^Location:\s*(.+)$/i', $header, $m)) {
+            $location = trim($m[1]);
+            continue;
+        }
+        if (preg_match('/^Set-Cookie:\s*([^;]+)/i', $header, $m)) {
+            $setCookie = trim($m[1]);
+        }
+    }
+
+    return ['status' => $status, 'content_type' => $contentType, 'location' => $location, 'cookie' => $setCookie];
+}
+
+/**
+ * Sign in over real HTTP and return the session cookie, or null.
+ *
+ * Two exchanges, because the CSRF token is session-bound: GET /login to
+ * be given a session and the token the page carries in its
+ * `<meta name="csrf-token">` (base.html.twig), then POST the credentials
+ * as JSON exactly as public/assets/js/auth.js does — `rgpd_consent`
+ * included, since AuthController::hasRgpdConsent() refuses the login
+ * without it and would otherwise fail here for a reason that looks like
+ * a wrong password.
+ */
+function authz_login(string $baseUrl, string $email, string $password): ?string
+{
+    $context = stream_context_create([
+        'http' => ['method' => 'GET', 'timeout' => 15, 'ignore_errors' => true, 'follow_location' => 0],
+        'ssl' => ['verify_peer' => false, 'verify_peer_name' => false],
+    ]);
+
+    $page = @file_get_contents($baseUrl . '/login', false, $context);
+    if ($page === false) {
+        return null;
+    }
+
+    $cookie = null;
+    foreach ($http_response_header ?? [] as $header) {
+        if (preg_match('/^Set-Cookie:\s*([^;]+)/i', $header, $m)) {
+            $cookie = trim($m[1]);
+        }
+    }
+    if ($cookie === null || preg_match('/<meta name="csrf-token" content="([^"]+)"/', $page, $m) !== 1) {
+        return null;
+    }
+
+    $response = authz_http($baseUrl . '/login/password', 'POST', $cookie, json_encode([
+        'email' => $email,
+        'password' => $password,
+        'rgpd_consent' => true,
+        '_csrf_token' => $m[1],
+    ]) ?: '');
+
+    if ($response === null) {
+        return null;
+    }
+
+    // Signing in regenerates the session id, so the cookie to keep is the
+    // one this response set — carrying the pre-login one forward would
+    // leave every later request anonymous, and the matrix would report
+    // every authenticated role as denied everywhere.
+    return $response['cookie'] ?? $cookie;
+}
+
+/**
+ * Did the RBAC guard turn this response away?
+ *
+ * Read from the shape of the response rather than from its status alone,
+ * because a 403 has two possible authors and they mean opposite things
+ * here — see this file's header. The guard's own two answers
+ * (Core\Security\RbacGuard::enforce) are a 302 to /login for an
+ * anonymous caller and a 403 rendered as the site's HTML error page for
+ * an authenticated one. A CSRF refusal is a 403 carrying JSON, or a 302
+ * pointing somewhere that is not /login.
+ *
+ * @param array{status: int, content_type: string, location: string, cookie: ?string} $response
+ */
+function authz_was_denied(array $response): bool
+{
+    if ($response['status'] === 302) {
+        return preg_match('#(^|//[^/]*)/login(\?|$)#', $response['location']) === 1;
+    }
+
+    return $response['status'] === 403 && !str_contains($response['content_type'], 'json');
+}
+
+/**
+ * The credentials for each role, as scripts/dast.sh exports them.
+ *
+ * `public` is absent on purpose: it is the anonymous caller, and it has
+ * no credentials by definition.
+ *
+ * @return array<string, array{email: string, password: string}>
+ */
+function authz_credentials(): array
+{
+    $prefixes = [
+        'identified' => 'E2E_MEMBER',
+        'intendant' => 'E2E_INTENDANT',
+        'chief' => 'E2E_CHIEF',
+        'admin' => 'E2E_UNIT_ADMIN',
+        'superadmin' => 'E2E_ADMIN',
+    ];
+
+    $credentials = [];
+    foreach ($prefixes as $role => $prefix) {
+        $email = (string) getenv($prefix . '_EMAIL');
+        $password = (string) getenv($prefix . '_PASSWORD');
+        if ($email === '' || $password === '') {
+            fwrite(STDERR, "authz: {$prefix}_EMAIL/{$prefix}_PASSWORD are not set — run this through scripts/dast.sh.\n");
+            exit(1);
+        }
+        $credentials[$role] = ['email' => $email, 'password' => $password];
+    }
+
+    return $credentials;
+}
+
+/**
+ * Sign in as each role and prove the session really carries it.
+ *
+ * The proof matters more than the login. An account whose role failed to
+ * resolve still signs in perfectly well — it is simply `identified` —
+ * and the matrix would then find every admin route correctly refusing
+ * it, report a clean run, and have checked nothing at all. So each
+ * session is asked for a page only its own role may reach, and the run
+ * stops if the answer is no.
+ *
+ * @return array<string, ?string> role => session cookie (null for public)
+ */
+function authz_sessions(string $baseUrl): array
+{
+    // One route per role that the role below it may NOT reach. Chosen
+    // from the inventory rather than invented: each is a real page whose
+    // role_min is exactly this role.
+    $proof = [
+        'identified' => '/account',
+        'intendant' => '/chefs/staffs',
+        'chief' => '/chefs/calendar',
+        'admin' => '/admin/journal',
+        'superadmin' => '/config/settings',
+    ];
+
+    $sessions = ['public' => null];
+
+    foreach (authz_credentials() as $role => $credentials) {
+        $cookie = authz_login($baseUrl, $credentials['email'], $credentials['password']);
+        if ($cookie === null) {
+            fwrite(STDERR, "authz: could not sign in as '{$role}' ({$credentials['email']}).\n");
+            exit(1);
+        }
+
+        $response = authz_http($baseUrl . $proof[$role], 'GET', $cookie);
+        if ($response === null || authz_was_denied($response)) {
+            fwrite(STDERR, sprintf(
+                "authz: signed in as '%s' but %s was refused — the session does not carry that role.\n"
+                . "       A matrix run from here would check nothing and still come back green.\n",
+                $role,
+                $proof[$role]
+            ));
+            exit(1);
+        }
+
+        $sessions[$role] = $cookie;
+    }
+
+    return $sessions;
+}
+
+/**
+ * Replay every route as every role.
+ *
+ * @return int the process exit code
+ */
+function authz_matrix(string $baseUrl, string $reportPath): int
+{
+    $baseUrl = rtrim($baseUrl, '/');
+    $groups = authz_fixtures();
+    $routes = authz_routes();
+
+    echo "authz: signing in as each role.\n";
+    $sessions = authz_sessions($baseUrl);
+
+    echo 'authz: replaying ' . count($routes) . ' routes as ' . count($sessions) . " roles.\n";
+
+    $overPermissive = [];
+    $underPermissive = [];
+    $unreachable = [];
+    $checked = 0;
+
+    foreach ($routes as $route) {
+        $path = authz_concrete_path($route['path'], $groups);
+        if ($path === null) {
+            // Cannot happen with a green AuthorizationMatrixInventoryTest,
+            // and is fatal rather than skipped if it ever does: a route
+            // silently left out is the one failure this whole design is
+            // built to prevent.
+            fwrite(STDERR, "authz: no fixture for {$route['method']} {$route['path']}.\n");
+            return 1;
+        }
+
+        foreach ($sessions as $role => $cookie) {
+            $response = authz_http(
+                $baseUrl . $path,
+                $route['method'],
+                $cookie,
+                $route['method'] === 'GET' ? null : '{}'
+            );
+
+            if ($response === null) {
+                $unreachable[] = "{$route['method']} {$route['path']} as {$role}";
+                continue;
+            }
+
+            $checked++;
+            $reached = !authz_was_denied($response);
+            $shouldReach = authz_has_access($role, $route['role_min']);
+
+            if ($reached && !$shouldReach) {
+                $overPermissive[] = sprintf(
+                    '%s %s — reached by %s (role_min: %s, HTTP %d)',
+                    $route['method'],
+                    $route['path'],
+                    $role,
+                    $route['role_min'],
+                    $response['status']
+                );
+            } elseif (!$reached && $shouldReach) {
+                $underPermissive[] = sprintf(
+                    '%s %s — refused to %s (role_min: %s, HTTP %d)',
+                    $route['method'],
+                    $route['path'],
+                    $role,
+                    $route['role_min'],
+                    $response['status']
+                );
+            }
+        }
+    }
+
+    $report = [
+        'checked' => $checked,
+        'routes' => count($routes),
+        'roles' => array_keys($sessions),
+        'over_permissive' => $overPermissive,
+        'under_permissive' => $underPermissive,
+        'unreachable' => $unreachable,
+    ];
+    @file_put_contents($reportPath, json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+
+    echo "\nauthz: {$checked} (route, role) pairs checked.\n";
+
+    // A transport failure is not a verdict either way, so it is neither
+    // counted nor quietly dropped: an unanswered route is a route nobody
+    // checked, and it says so.
+    if ($unreachable !== []) {
+        echo "\nauthz: " . count($unreachable) . " pair(s) got no answer at all — NOT CHECKED:\n";
+        foreach (array_slice($unreachable, 0, 20) as $line) {
+            echo "  - {$line}\n";
+        }
+        if (count($unreachable) > 20) {
+            echo '  … and ' . (count($unreachable) - 20) . " more (see the report).\n";
+        }
+    }
+
+    // Reported, never fatal. A module may narrow access further than its
+    // route declares — the retro module gates board creation on a setting
+    // of its own — so this is a list to read, not a wall.
+    if ($underPermissive !== []) {
+        echo "\nauthz: " . count($underPermissive) . " route(s) refused a role that role_min admits:\n";
+        foreach (array_slice($underPermissive, 0, 20) as $line) {
+            echo "  - {$line}\n";
+        }
+        if (count($underPermissive) > 20) {
+            echo '  … and ' . (count($underPermissive) - 20) . " more (see the report).\n";
+        }
+    }
+
+    if ($overPermissive !== []) {
+        echo "\nauthz: " . count($overPermissive) . " ROUTE(S) REACHED BY A ROLE THAT MAY NOT:\n";
+        foreach ($overPermissive as $line) {
+            echo "  - {$line}\n";
+        }
+        echo "\nauthz: FAILED. Report: {$reportPath}\n";
+
+        return 1;
+    }
+
+    if ($unreachable !== []) {
+        echo "\nauthz: no route is over-permissive, but some got no answer — treat this as a failed run.\n";
+
+        return 1;
+    }
+
+    if ($underPermissive === []) {
+        echo "\nauthz: every route answers exactly the roles its role_min admits.\n";
+    } else {
+        echo "\nauthz: no route is reachable by a role that may not reach it.\n";
+        echo '       (' . count($underPermissive) . " refusals above are stricter than role_min, which is\n";
+        echo "       defence in depth rather than a fault — a member may only edit their OWN record,\n";
+        echo "       a file goes through FileAccessGuard. Read them; do not assume them.)\n";
+    }
+
+    return 0;
 }
