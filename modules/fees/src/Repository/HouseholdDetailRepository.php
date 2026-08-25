@@ -72,6 +72,48 @@ class HouseholdDetailRepository
     }
 
     /**
+     * Names, by `members.id`, for one scout year.
+     *
+     * The snapshot side of this module holds no name at all (see
+     * `modules/fees/schema.sql`) and neither does a stored invoice's
+     * people, so a report that has to *show* somebody joins back here —
+     * on (member_id, scout_year_id), which is the pair the snapshot was
+     * designed to be readable through. Batched on purpose: a verification
+     * report names dozens of people and a query each would be dozens.
+     *
+     * @param int[] $memberIds
+     * @return array<int, array{first_name: string, last_name: string, totem: ?string}>
+     */
+    public function findNamesByMemberId(array $memberIds, int $scoutYearId): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT member_id, first_name_encrypted, last_name_encrypted, totem_encrypted
+             FROM member_years
+             WHERE scout_year_id = ? AND member_id IN ($placeholders)"
+        );
+        $stmt->execute(array_merge([$scoutYearId], $memberIds));
+
+        $names = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $names[(int) $row['member_id']] = [
+                'first_name' => $this->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
+                'last_name' => $this->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
+                'totem' => $row['totem_encrypted'] === null
+                    ? null
+                    : ($this->decrypt($row['totem_encrypted'], 'member_years.totem') ?: null),
+            ];
+        }
+
+        return $names;
+    }
+
+    /**
      * One readable address per blind index — the first one found, since
      * every row sharing an index is by construction the same address in
      * some encoding of it.

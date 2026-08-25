@@ -49,7 +49,7 @@
                             <tr>
                                 <td>{{ row.invoice.issueDate ? row.invoice.issueDate|date_fr : '—' }}</td>
                                 <td>
-                                    <span class="font-monospace">{{ row.invoice.documentNumber }}</span>
+                                    <a href="/admin/fees/factures/{{ row.invoice.id }}" class="font-monospace">{{ row.invoice.documentNumber }}</a>
                                     {% if row.invoice.financeFileId %}
                                         <a href="/files/{{ row.invoice.financeFileId }}"
                                            class="ms-1 text-body-secondary" title="Le PDF conservé dans Finances">
@@ -68,13 +68,15 @@
                                     {{ row.running_total_cents|money_cents }}
                                 </td>
                                 <td>
-                                    {% if row.invoice.snapshotId is null %}
-                                        <span class="badge text-bg-secondary">Aucune photographie</span>
-                                    {% elseif row.discrepancies > 0 %}
-                                        <span class="badge text-bg-warning">{{ row.discrepancies }} écart(s)</span>
-                                    {% else %}
-                                        <span class="badge text-bg-success">Conforme</span>
-                                    {% endif %}
+                                    <a href="/admin/fees/factures/{{ row.invoice.id }}" class="text-decoration-none">
+                                        {% if row.invoice.snapshotId is null %}
+                                            <span class="badge text-bg-secondary">Aucune photographie</span>
+                                        {% elseif row.discrepancies > 0 %}
+                                            <span class="badge text-bg-warning">{{ row.discrepancies }} écart(s)</span>
+                                        {% else %}
+                                            <span class="badge text-bg-success">Conforme</span>
+                                        {% endif %}
+                                    </a>
                                 </td>
                                 <td class="d-none d-lg-table-cell small text-body-secondary">
                                     {{ row.invoice.importedAt|datetime_fr }}

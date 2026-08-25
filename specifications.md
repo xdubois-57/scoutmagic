@@ -1215,3 +1215,60 @@ une comptabilité est pire qu'un rapprochement manuel.
 Si Finances est désactivé, la case n'apparaît pas, aucun PDF n'est conservé,
 et la vérification fonctionne à l'identique. Finances n'est jamais une
 dépendance dure de ce module.
+
+### 31.13 Le rapport de vérification d'une facture
+
+Chaque facture importée s'ouvre sur son rapport. Il compare le document à
+la **photographie du roster** prise à l'import Desk le plus proche avant
+son émission — pas à la situation d'aujourd'hui.
+
+Deux onglets, parce que ce sont deux questions.
+
+**Lignes reconstituées — combien.** Pour chaque référence et chaque
+section : le prix unitaire, la quantité facturée, la quantité que la
+photographie contenait, et l'écart chiffré au prix de la ligne. La
+quantité attendue vient de la photographie, **jamais d'un calcul de
+tarif** : c'est ce qui sépare cette page de « Justesse des tarifs », l'une
+vérifiant le compte et l'autre les catégories. Une ligne que le site ne
+sait pas juger est affichée sans verdict — référence inconnue, ligne sans
+section, ajustement global — parce que le silence n'est pas une
+accusation.
+
+Les lignes conformes sont **repliées et comptées**, jamais supprimées. Un
+premier écran de quarante lignes « conforme » cache les deux qui ne le sont
+pas ; les faire disparaître empêcherait de rapprocher le rapport du
+document papier.
+
+**Écarts nominatifs — qui.** Cinq types, parce que chacun désigne une
+action différente : *facturé mais parti* (c'est Desk qu'il faut corriger,
+pas la fédération), *membre absent de la facture* (l'unité est
+sous-facturée, la régularisation le rattrapera), *section différente*,
+*catégorie différente*, *réduction breveté non appliquée*.
+
+**Un écart de section ne coûte rien et n'est jamais chiffré.** Le tarif est
+identique de part et d'autre ; lui donner un montant mettrait des euros sur
+une différence qui n'en est pas. Le site distingue cela de « le site ne
+peut pas chiffrer » : ce ne sont pas la même affirmation.
+
+Deux restrictions existent pour que la page reste lisible plutôt que
+seulement exacte. Une section que la facture ne couvre pas n'est pas
+signalée comme absente en entier — une facture portant sur trois sections
+sur cinq n'« oublie » pas les deux autres. Et un document ne comportant
+aucune ligne de réduction breveté ne signale personne : la fédération peut
+la facturer séparément, et une page de faux positifs est la manière dont un
+rapport cesse d'être lu.
+
+**L'écart de dates est affiché.** Si la photographie précède ou suit
+l'émission de plusieurs jours, tout ce qui a été encodé entre les deux
+apparaîtra comme un écart sans en être un — mieux vaut le dire que le
+laisser découvrir.
+
+**Les personnes non reconnues sont comptées.** Un nom que le site n'a pas
+rapproché d'un membre compte dans les quantités mais n'apparaît dans aucun
+écart nominatif : le site ne conserve aucun nom des factures. Une
+vérification de quarante personnes qui en a discrètement contrôlé
+trente-quatre est pire qu'aucune vérification, donc le nombre est annoncé
+en haut de page.
+
+L'export tableur reprend les deux onglets sur deux feuilles, **dans l'ordre
+exact des colonnes de l'écran**.

@@ -8,10 +8,14 @@ declare(strict_types=1);
 
 namespace Modules\Fees\Service;
 
+use Core\Member\HouseholdFeeCategory;
 use Core\Member\SectionService;
+use Modules\Fees\HouseholdCategoryLabel;
 use Modules\Fees\Invoice\InvoiceLine;
+use Modules\Fees\Repository\HouseholdDetailRepository;
 use Modules\Fees\Repository\InvoiceRepository;
 use Modules\Fees\Repository\RosterSnapshotRepository;
+use Modules\Fees\Value\NominativeDiscrepancy;
 use Modules\Fees\Value\ReconstitutedLine;
 use Modules\Fees\Value\RosterSnapshotMember;
 use Modules\Fees\Value\StoredInvoice;
@@ -38,7 +42,8 @@ class InvoiceVerificationService
         private InvoiceRepository $invoices,
         private RosterSnapshotRepository $snapshots,
         private HouseholdTariffService $tariffs,
-        private SectionService $sections
+        private SectionService $sections,
+        private HouseholdDetailRepository $names
     ) {
     }
 
@@ -73,6 +78,356 @@ class InvoiceVerificationService
         }
 
         return $count;
+    }
+
+
+    /**
+     * Where the invoice and the roster disagree **about a person**.
+     *
+     * The count check ({@see reconstitutedLines()}) says a section is one
+     * short; this says who. Five different things, deliberately kept
+     * apart because each names a different thing to go and do — see
+     * {@see NominativeDiscrepancy}.
+     *
+     * Everything here is read against the snapshot the invoice was tied to
+     * at import, never against today's roster: a member who has since left
+     * was on the invoice legitimately, and reporting them would be an
+     * accusation manufactured by the passage of time.
+     *
+     * @return NominativeDiscrepancy[]
+     */
+    public function nominativeDiscrepancies(StoredInvoice $invoice): array
+    {
+        if ($invoice->snapshotId === null) {
+            return [];
+        }
+
+        $lines = $this->invoices->findLines($invoice->id);
+        $snapshot = $this->indexByMemberId($this->snapshots->findMembers($invoice->snapshotId));
+        $sectionLabels = $this->sectionLabels();
+        $prices = $this->pricesByCategory($lines);
+        $billedSections = $this->billedSectionIds($lines);
+
+        $found = [];
+        $billed = [];
+
+        foreach ($lines as $line) {
+            if ($line->nature !== InvoiceLine::NATURE_FEE) {
+                continue;
+            }
+            $billedCategory = FeeCategoryClassifier::classify($line->reference, $line->descriptor);
+
+            foreach ($line->memberIds as $memberId) {
+                $billed[$memberId] = true;
+                $member = $snapshot[$memberId] ?? null;
+                if ($member === null) {
+                    // Billed, and the roster of the day did not hold them.
+                    // The count check already reports the section as one
+                    // over; naming them here would need a name the site
+                    // does not have, so this stays a counted line rather
+                    // than a nominative one.
+                    continue;
+                }
+
+                if ($member->leaving) {
+                    $found[] = $this->discrepancy(
+                        NominativeDiscrepancy::BILLED_BUT_LEAVING,
+                        $memberId,
+                        $sectionLabels[$line->sectionId] ?? null,
+                        $sectionLabels[$member->sectionId] ?? null,
+                        $billedCategory,
+                        $this->tariffs->categoryForFeeCategoryId($member->feeCategoryId),
+                        $line->unitPriceCents
+                    );
+                }
+
+                if ($line->sectionId !== null && $member->sectionId !== null && $line->sectionId !== $member->sectionId) {
+                    // No amount, ever: the tariff is the same on either
+                    // section, so a figure here would put euros on a
+                    // difference that is not money.
+                    $found[] = $this->discrepancy(
+                        NominativeDiscrepancy::DIFFERENT_SECTION,
+                        $memberId,
+                        $sectionLabels[$line->sectionId] ?? null,
+                        $sectionLabels[$member->sectionId] ?? null,
+                        $billedCategory,
+                        $this->tariffs->categoryForFeeCategoryId($member->feeCategoryId),
+                        null
+                    );
+                }
+
+                $rosterCategory = $this->tariffs->categoryForFeeCategoryId($member->feeCategoryId);
+                if ($billedCategory !== null && $rosterCategory !== null && $billedCategory !== $rosterCategory) {
+                    $expectedPrice = $prices[$rosterCategory->value] ?? null;
+                    $found[] = $this->discrepancy(
+                        NominativeDiscrepancy::DIFFERENT_CATEGORY,
+                        $memberId,
+                        $sectionLabels[$line->sectionId] ?? null,
+                        $sectionLabels[$member->sectionId] ?? null,
+                        $billedCategory,
+                        $rosterCategory,
+                        $expectedPrice === null ? null : $line->unitPriceCents - $expectedPrice
+                    );
+                }
+            }
+        }
+
+        foreach ($this->missingFromInvoice($snapshot, $billed, $billedSections) as [$member, $category]) {
+            $found[] = $this->discrepancy(
+                NominativeDiscrepancy::NOT_ON_INVOICE,
+                $member->memberId,
+                null,
+                $sectionLabels[$member->sectionId] ?? null,
+                null,
+                $category,
+                isset($prices[$category->value]) ? -$prices[$category->value] : null
+            );
+        }
+
+        foreach ($this->brevetsNotReduced($lines, $snapshot) as [$member, $reductionCents]) {
+            $found[] = $this->discrepancy(
+                NominativeDiscrepancy::BREVET_REDUCTION_MISSING,
+                $member->memberId,
+                null,
+                $sectionLabels[$member->sectionId] ?? null,
+                null,
+                $this->tariffs->categoryForFeeCategoryId($member->feeCategoryId),
+                abs($reductionCents)
+            );
+        }
+
+        return $this->withNames($found, $invoice->scoutYearId);
+    }
+
+    /**
+     * How many people the document billed that this site could not tie to
+     * a member. Not a nominative discrepancy — there is no name to show,
+     * by construction — but the number belongs on the report, because a
+     * verification of 40 people that quietly checked 34 is worse than no
+     * verification.
+     */
+    public function unmatchedPeopleCount(StoredInvoice $invoice): int
+    {
+        $count = 0;
+        foreach ($this->invoices->findLines($invoice->id) as $line) {
+            $count += $line->unmatchedPeopleCount;
+        }
+
+        return $count;
+    }
+
+    /**
+     * Held by Desk, in a section this invoice bills, on a household
+     * tariff — and named by no fee line.
+     *
+     * Restricted to the sections the document actually bills: an invoice
+     * that covers three sections out of five is not "missing" the other
+     * two, and reporting their whole roster as absent would bury the one
+     * real omission under a hundred false ones. A member on a tariff
+     * outside the three is skipped for the same reason the count check
+     * skips their line — the site cannot say what they should cost.
+     *
+     * @param array<int, RosterSnapshotMember> $snapshot
+     * @param array<int, true> $billed
+     * @param array<int, true> $billedSections
+     * @return array<array{RosterSnapshotMember, HouseholdFeeCategory}>
+     */
+    private function missingFromInvoice(array $snapshot, array $billed, array $billedSections): array
+    {
+        $missing = [];
+        foreach ($snapshot as $member) {
+            if (isset($billed[$member->memberId]) || $member->sectionId === null) {
+                continue;
+            }
+            if (!isset($billedSections[$member->sectionId])) {
+                continue;
+            }
+            $category = $this->tariffs->categoryForFeeCategoryId($member->feeCategoryId);
+            if ($category === null) {
+                continue;
+            }
+            $missing[] = [$member, $category];
+        }
+
+        return $missing;
+    }
+
+    /**
+     * Brevetés the document did not reduce — **only on a document that
+     * reduces somebody**.
+     *
+     * An invoice carrying no brevet line at all is not an invoice that
+     * forgot one: the federation may bill the reduction separately, or
+     * this may be a deposit. Flagging every breveté of the unit on such a
+     * document would be a page of false alarms, which is how a report
+     * stops being read.
+     *
+     * @param StoredInvoiceLine[] $lines
+     * @param array<int, RosterSnapshotMember> $snapshot
+     * @return array<array{RosterSnapshotMember, int}>
+     */
+    private function brevetsNotReduced(array $lines, array $snapshot): array
+    {
+        $reduced = [];
+        $unitPriceBySection = [];
+        foreach ($lines as $line) {
+            if ($line->nature !== InvoiceLine::NATURE_REDUCTION || !self::mentionsBrevet($line)) {
+                continue;
+            }
+            $unitPriceBySection[$line->sectionId ?? 0] = $line->unitPriceCents;
+            foreach ($line->memberIds as $memberId) {
+                $reduced[$memberId] = true;
+            }
+        }
+
+        if ($unitPriceBySection === []) {
+            return [];
+        }
+
+        $missing = [];
+        foreach ($snapshot as $member) {
+            if (isset($reduced[$member->memberId]) || !BrevetDetector::isBrevet($member->formationLevel)) {
+                continue;
+            }
+            // Only where the document actually applied the reduction: a
+            // section it never mentions is not a section it forgot.
+            if (!array_key_exists($member->sectionId ?? 0, $unitPriceBySection)) {
+                continue;
+            }
+            $missing[] = [$member, $unitPriceBySection[$member->sectionId ?? 0]];
+        }
+
+        return $missing;
+    }
+
+    /**
+     * What this document charges for each household tariff.
+     *
+     * Read off the document itself rather than off the barème a chef
+     * d'unité typed: this is what the federation charged **on this
+     * invoice**, which is the only price a difference on this invoice can
+     * honestly be costed at. First occurrence wins; a document pricing one
+     * tariff two ways is not something to average.
+     *
+     * @param StoredInvoiceLine[] $lines
+     * @return array<string, int> household category => unit price in cents
+     */
+    private function pricesByCategory(array $lines): array
+    {
+        $prices = [];
+        foreach ($lines as $line) {
+            if ($line->nature !== InvoiceLine::NATURE_FEE) {
+                continue;
+            }
+            $category = FeeCategoryClassifier::classify($line->reference, $line->descriptor);
+            if ($category === null) {
+                continue;
+            }
+            $prices[$category->value] ??= $line->unitPriceCents;
+        }
+
+        return $prices;
+    }
+
+    /**
+     * @param StoredInvoiceLine[] $lines
+     * @return array<int, true>
+     */
+    private function billedSectionIds(array $lines): array
+    {
+        $sections = [];
+        foreach ($lines as $line) {
+            if ($line->nature === InvoiceLine::NATURE_FEE && $line->sectionId !== null) {
+                $sections[$line->sectionId] = true;
+            }
+        }
+
+        return $sections;
+    }
+
+    /**
+     * @param RosterSnapshotMember[] $members
+     * @return array<int, RosterSnapshotMember>
+     */
+    private function indexByMemberId(array $members): array
+    {
+        $indexed = [];
+        foreach ($members as $member) {
+            $indexed[$member->memberId] = $member;
+        }
+
+        return $indexed;
+    }
+
+    private function discrepancy(
+        string $kind,
+        int $memberId,
+        ?string $billedSectionLabel,
+        ?string $rosterSectionLabel,
+        ?HouseholdFeeCategory $billedCategory,
+        ?HouseholdFeeCategory $rosterCategory,
+        ?int $costCents
+    ): NominativeDiscrepancy {
+        return new NominativeDiscrepancy(
+            $kind,
+            $memberId,
+            '',
+            '',
+            null,
+            $billedSectionLabel,
+            $rosterSectionLabel,
+            $billedCategory === null ? null : HouseholdCategoryLabel::for($billedCategory),
+            $rosterCategory === null ? null : HouseholdCategoryLabel::for($rosterCategory),
+            $costCents
+        );
+    }
+
+    /**
+     * The names, fetched once for the whole report and grafted on at the
+     * end — neither the snapshot nor a stored invoice holds one, on
+     * purpose, so this is the single join back to a readable person.
+     *
+     * @param NominativeDiscrepancy[] $discrepancies
+     * @return NominativeDiscrepancy[]
+     */
+    private function withNames(array $discrepancies, int $scoutYearId): array
+    {
+        if ($discrepancies === []) {
+            return [];
+        }
+
+        $names = $this->names->findNamesByMemberId(
+            array_map(static fn(NominativeDiscrepancy $d): int => $d->memberId, $discrepancies),
+            $scoutYearId
+        );
+
+        $named = array_map(
+            static function (NominativeDiscrepancy $d) use ($names): NominativeDiscrepancy {
+                $name = $names[$d->memberId] ?? ['first_name' => '', 'last_name' => '', 'totem' => null];
+
+                return new NominativeDiscrepancy(
+                    $d->kind,
+                    $d->memberId,
+                    $name['first_name'],
+                    $name['last_name'],
+                    $name['totem'],
+                    $d->billedSectionLabel,
+                    $d->rosterSectionLabel,
+                    $d->billedCategoryLabel,
+                    $d->rosterCategoryLabel,
+                    $d->costCents
+                );
+            },
+            $discrepancies
+        );
+
+        usort(
+            $named,
+            static fn(NominativeDiscrepancy $a, NominativeDiscrepancy $b): int
+                => [$a->rank(), $a->lastName, $a->firstName] <=> [$b->rank(), $b->lastName, $b->firstName]
+        );
+
+        return $named;
     }
 
     /**

@@ -2055,6 +2055,30 @@ Robustness here is not cleverer patterns. It is never leaning on position, and r
 
 **The kept PDF is an optional dependency on `finance`** (§7.5), and the only place a name survives. The provider publishes `Modules\Finance\Api\ExpenseReceiptInterface`; `ExpenseReceiptService` implements it, adds no storage path of its own (`ReceiptService::upload()` is unchanged), and **builds the authorization itself** from the actor the caller names — a consumer able to supply the decision could grant itself one. What comes back is the **file** id, not the receipt row's: finance offers no page for a single receipt, so the id a consumer can actually turn into a link (`/files/{id}`, under the account's own rule, §8.70) is the useful one. With finance disabled the control is not rendered, the PDF is not kept, and the verification is identical. There is deliberately **no automatic reconciliation** with a bank movement: a wrong automatic match in a ledger is worse than a manual one.
 
+### 8.78 The verification report (`Modules\Fees\Controller\InvoiceReportController`)
+
+Two tabs, answering two different questions, and the split is the point: **how many** (the reconstituted lines) and **who** (the nominative discrepancies). Run together they produce a screen that says a section is one over and leaves a treasurer to work out which of thirty children it is.
+
+**Reconstituted lines.** Per (reference, section): unit price, billed quantity, the quantity the snapshot held, and the gap costed at the line's own price. The expected figure comes from the **snapshot** and never from a tariff calculation — that is the line between this report and « Justesse des tarifs » (§8.75): one checks the count, the other checks the categories, and confusing them produces a screen that accuses the federation of an error the unit made. A line the site cannot judge carries `null`, never zero, with the reason (`ReconstitutedLine::UNDETERMINED_*`): unknown reference, no section, global adjustment, no snapshot. Conforming lines are **collapsed and counted, never dropped** — a first screenful of forty "conforme" rows hides the two that are not, and omitting them would stop the report reconciling against the paper document.
+
+**Nominative discrepancies**, five kinds because each names a different thing to go and do (`Value\NominativeDiscrepancy`):
+
+| kind | what it means | costed |
+|---|---|---|
+| `BILLED_BUT_LEAVING` | billed, and Desk marks them leaving | at the line's price |
+| `NOT_ON_INVOICE` | Desk holds them, in a section this invoice bills, on a household tariff, and no line names them | negative — the regularisation will bring it |
+| `DIFFERENT_SECTION` | billed under one section, held in another | **never** |
+| `DIFFERENT_CATEGORY` | billed on another household tariff than Desk encodes | the difference between the two |
+| `BREVET_REDUCTION_MISSING` | snapshot says breveté, no reduction line names them | what the reduction was worth |
+
+**A section discrepancy costs nothing and is never given a figure.** The tariff is the same either way; inventing an amount would put euros on a difference that is not money. `costsNothingByNature()` keeps that apart from `costCents === null`, which means "this document's lines do not carry the price it would take" — two different claims, and running them together is how a report starts accusing a federation of an error that costs nobody anything.
+
+Two restrictions that exist to keep the page readable rather than merely correct: a section the invoice never bills is **not** reported as missing its whole roster (an invoice covering three sections out of five is not missing the other two), and a document carrying no brevet line at all flags nobody (the federation may bill the reduction separately). Both were the difference between a page of two real findings and a page of a hundred false ones.
+
+Prices are read **off the document itself**, not off the barème a chef d'unité typed: this is what the federation charged on this invoice, which is the only price a difference on this invoice can honestly be costed at.
+
+`NominativeDiscrepancy::ORDER` is the one ordering the service, the screen and the export all use, declared on the value object so a spreadsheet cannot come out sorted differently from the screen it was exported from. Names are grafted on at the end, in one batched join back to `member_years` — neither the snapshot nor a stored invoice holds one, on purpose — and every export cell is written `TYPE_STRING`, numbers included, because a per-column exception is how one of them eventually becomes a live formula (SECURITY.md §23).
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

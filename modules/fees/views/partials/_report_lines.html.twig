@@ -1,0 +1,63 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# The reconstituted-lines table, included twice on one page: once for the
+   lines in disagreement, once inside the collapsed block that holds the
+   conforming ones. One markup, so the collapsed half cannot drift into
+   showing different columns from the half above it. #}
+<div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead>
+                <tr>
+                    <th scope="col">Référence</th>
+                    <th scope="col" class="d-none d-lg-table-cell">Description</th>
+                    <th scope="col">Section</th>
+                    <th scope="col" class="text-end">P.U.</th>
+                    <th scope="col" class="text-end">Facturé</th>
+                    <th scope="col" class="text-end">Attendu</th>
+                    <th scope="col" class="text-end">Écart</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for line in lines %}
+                    <tr>
+                        <td class="font-monospace small">{{ line.reference }}</td>
+                        <td class="d-none d-lg-table-cell small">{{ line.descriptor }}</td>
+                        <td>{{ line.sectionLabel ?? '—' }}</td>
+                        <td class="text-end">{{ line.unitPriceCents|money_cents }}</td>
+                        <td class="text-end">{{ line.billedQuantity }}</td>
+                        <td class="text-end">
+                            {% if line.isDetermined() %}
+                                {{ line.expectedQuantity }}
+                            {% else %}
+                                <span class="text-body-secondary small">
+                                    {% if line.undeterminedReason == 'unknown_reference' %}
+                                        Référence inconnue
+                                    {% elseif line.undeterminedReason == 'no_section' %}
+                                        Sans section
+                                    {% elseif line.undeterminedReason == 'global_adjustment' %}
+                                        Ajustement global
+                                    {% else %}
+                                        Aucune photographie
+                                    {% endif %}
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if line.difference() is null %}
+                                <span class="text-body-secondary">—</span>
+                            {% elseif line.difference() == 0 %}
+                                <span class="text-success"><i class="bi bi-check2" aria-hidden="true"></i></span>
+                            {% else %}
+                                <span class="{{ line.difference() > 0 ? 'text-danger' : 'text-warning' }}">
+                                    {{ line.difference() > 0 ? '+' }}{{ line.difference() }}
+                                    <span class="d-block small">{{ line.differenceCents()|money_cents }}</span>
+                                </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>

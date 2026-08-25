@@ -204,6 +204,8 @@ final class UxConventionsTest extends TestCase
     private const NON_PAGE_MODULE_ROUTES = [
         // XLSX download of the fee-accuracy screen, never a page.
         '/admin/fees/tarifs/export',
+        // XLSX download of one invoice's verification report, likewise.
+        '/admin/fees/factures/{id}/export',
         '/admin/locations/gestionnaire-recherche',
         '/admin/sos/transitions',
         '/calendar/feed/personal/{token}.ics',

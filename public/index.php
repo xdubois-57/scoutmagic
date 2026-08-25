@@ -4419,6 +4419,13 @@ if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
 
     $feesInvoiceRepo = new \Modules\Fees\Repository\InvoiceRepository($pdo);
     $feesSnapshotRepo = new \Modules\Fees\Repository\RosterSnapshotRepository($pdo);
+    $feesVerification = new \Modules\Fees\Service\InvoiceVerificationService(
+        $feesInvoiceRepo,
+        $feesSnapshotRepo,
+        $feesTariffService,
+        $sectionService,
+        new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService)
+    );
     $frontController->registerController(
         \Modules\Fees\Controller\InvoiceController::class,
         new \Modules\Fees\Controller\InvoiceController(
@@ -4435,9 +4442,7 @@ if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
                 $journalService
             ),
             new \Modules\Fees\Service\InvoiceSeasonService($feesInvoiceRepo),
-            new \Modules\Fees\Service\InvoiceVerificationService(
-                $feesInvoiceRepo, $feesSnapshotRepo, $feesTariffService, $sectionService
-            ),
+            $feesVerification,
             $feesInvoiceRepo,
             $feesSnapshotRepo,
             $feesImportRepo,
@@ -4447,6 +4452,12 @@ if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
             // Optional (ARCHITECTURE.md §7.5): null whenever finance is off,
             // and the "conserver le PDF" control simply is not rendered.
             $expenseReceiptProvider
+        )
+    );
+    $frontController->registerController(
+        \Modules\Fees\Controller\InvoiceReportController::class,
+        new \Modules\Fees\Controller\InvoiceReportController(
+            $twig, $feesInvoiceRepo, $feesVerification, $scoutYearResolver, $journalService
         )
     );
 }

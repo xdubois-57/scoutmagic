@@ -83,6 +83,25 @@
       "role_min": "admin"
     },
     {
+      "path": "/admin/fees/factures/{id}",
+      "method": "GET",
+      "controller": "Modules\\Fees\\Controller\\InvoiceReportController",
+      "action": "show",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin",
+      "breadcrumb": { "label": "Vérification d'une facture", "parents": ["Espace chefs d'U"] }
+    },
+    {
+      "path": "/admin/fees/factures/{id}/export",
+      "method": "GET",
+      "controller": "Modules\\Fees\\Controller\\InvoiceReportController",
+      "action": "export",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin"
+    },
+    {
       "path": "/admin/fees/tarifs/bareme",
       "method": "POST",
       "controller": "Modules\\Fees\\Controller\\FeeAccuracyController",

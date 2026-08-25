@@ -12,6 +12,7 @@ use Core\Security\EncryptionService;
 use Modules\Fees\Invoice\InvoiceLine;
 use Modules\Fees\Invoice\InvoicePerson;
 use Modules\Fees\Invoice\ParsedInvoice;
+use Modules\Fees\Repository\HouseholdDetailRepository;
 use Modules\Fees\Repository\HouseholdTariffRepository;
 use Modules\Fees\Repository\InvoiceRepository;
 use Modules\Fees\Repository\RosterSnapshotRepository;
@@ -42,6 +43,7 @@ class InvoiceVerificationServiceTest extends TestCase
     private InvoiceRepository $invoices;
     private RosterSnapshotRepository $snapshots;
     private InvoiceVerificationService $service;
+    private EncryptionService $encryption;
     private int $scoutYearId;
     private int $louveteauxId;
     private int $staffId;
@@ -53,7 +55,8 @@ class InvoiceVerificationServiceTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         FeesTestHelper::createTables($this->pdo);
-        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $encryption = $this->encryption;
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
@@ -78,7 +81,8 @@ class InvoiceVerificationServiceTest extends TestCase
             $this->invoices,
             $this->snapshots,
             new HouseholdTariffService(new HouseholdTariffRepository($this->pdo), $feeCategories),
-            new SectionService(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
+            new SectionService(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo)),
+            new HouseholdDetailRepository($this->pdo, $encryption)
         );
     }
 

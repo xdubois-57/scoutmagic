@@ -29,6 +29,7 @@ use Modules\Fees\Invoice\InvoiceParser;
 use Modules\Fees\Invoice\InvoiceReader;
 use Modules\Fees\Invoice\ParsedInvoice;
 use Modules\Fees\Repository\FeesImportRepository;
+use Modules\Fees\Repository\HouseholdDetailRepository;
 use Modules\Fees\Repository\HouseholdTariffRepository;
 use Modules\Fees\Repository\InvoiceMemberMatchRepository;
 use Modules\Fees\Repository\InvoiceRepository;
@@ -145,7 +146,8 @@ class InvoiceControllerTest extends TestCase
                 $this->invoices,
                 $this->snapshots,
                 new HouseholdTariffService(new HouseholdTariffRepository($this->pdo), new FeeCategoryRepository($this->pdo)),
-                $sections
+                $sections,
+                new HouseholdDetailRepository($this->pdo, $encryption)
             ),
             $this->invoices,
             $this->snapshots,
