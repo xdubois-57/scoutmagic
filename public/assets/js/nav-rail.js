@@ -19,10 +19,10 @@
     }
 
     function init() {
-        var behavior = /** @type {ScrollBehavior} */ (prefersReducedMotion() ? 'auto' : 'smooth');
+        const behavior = /** @type {ScrollBehavior} */ (prefersReducedMotion() ? 'auto' : 'smooth');
 
         document.querySelectorAll('.nav-rail').forEach(function (railEl) {
-            var selected = railEl.querySelector('.nav-link[aria-current="page"]');
+            const selected = railEl.querySelector('.nav-link[aria-current="page"]');
             if (!selected || typeof selected.scrollIntoView !== 'function') return;
 
             selected.scrollIntoView({ behavior: behavior, inline: 'center', block: 'nearest' });
