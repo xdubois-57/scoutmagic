@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Calendar\Service;
 
 use Core\Security\Role;
+use Core\Service\DateInput;
 use Modules\Calendar\Repository\Calendar;
 use Modules\Calendar\Repository\CalendarEvent;
 use Modules\Calendar\Repository\CalendarEventRepository;
@@ -271,8 +272,7 @@ class CalendarEventService
 
     private function isValidDate(string $value): bool
     {
-        $date = \DateTimeImmutable::createFromFormat('Y-m-d', $value);
-        return $date !== false && $date->format('Y-m-d') === $value;
+        return DateInput::isIso($value);
     }
 
     private function emptyToNull(?string $value): ?string

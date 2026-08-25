@@ -148,7 +148,7 @@ class Response
      *
      * What this does NOT do is retire the attribute risk itself. That
      * needs the ~260 attributes gone, which is a template rework
-     * SECURITY.md § 33 prices and tracks. This is the half that was free.
+     * SECURITY.md § 34 prices and tracks. This is the half that was free.
      */
     private function buildStyleSrc(): string
     {

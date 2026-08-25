@@ -1,0 +1,17 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Action impossible — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <div class="text-center py-5">
+        <h1>Action impossible</h1>
+        {# The sentence comes from Core\Database\ConstraintViolation, never
+           from the database driver: MySQL's own text names the table, the
+           column and the constraint, in English. #}
+        <p>{{ constraint_message }}</p>
+        {# No "go back" button: a `javascript:` href is refused by the
+           site's own script-src (SECURITY.md § 9), and the browser's back
+           control does the same job without one. #}
+        <a href="/" class="btn btn-primary">Retour à l'accueil</a>
+    </div>
+{% endblock %}

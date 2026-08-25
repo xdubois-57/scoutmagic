@@ -15,6 +15,7 @@ use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Core\Service\IntegerInput;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
@@ -344,7 +345,10 @@ class GalleryChiefController extends AbstractController
         }
 
         [$role, $email] = $this->currentIdentity();
-        $orderedIds = array_map('intval', (array) ($data['ordered_ids'] ?? []));
+        $orderedIds = IntegerInput::idList($data['ordered_ids'] ?? []);
+        if ($orderedIds === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+        }
 
         try {
             $this->mediaService->reorder($album, $orderedIds, $role, $email);

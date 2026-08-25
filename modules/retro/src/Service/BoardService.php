@@ -15,6 +15,8 @@ use Core\Member\SectionService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\CapabilityToken;
 use Core\Security\Role;
+use Core\Service\DateInput;
+use Core\Service\IntegerInput;
 use Core\Url\ShortUrlService;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
 use Modules\Calendar\Api\EventSummary;
@@ -461,6 +463,14 @@ class BoardService implements RetroEventLinkLookupInterface
         if ($voteBudget < 1) {
             $voteBudget = 1;
         }
+        // The ceiling is the column's, not a rule about retrospectives:
+        // `vote_budget` is INT UNSIGNED, and a larger number reached
+        // MySQL as an uncaught PDOException and a 500 (SECURITY.md § 35).
+        // A tighter, meaningful maximum would be a product decision and
+        // is deliberately not invented here.
+        if ($voteBudget > IntegerInput::UNSIGNED_INT_MAX) {
+            throw new RetroException('Le budget de points est trop grand.');
+        }
 
         return [$title, $voteBudget, $maxCommentLength];
     }
@@ -488,8 +498,8 @@ class BoardService implements RetroEventLinkLookupInterface
 
     private function resolveManualDate(?string $manualDate): string
     {
-        $date = $manualDate !== null ? \DateTimeImmutable::createFromFormat('Y-m-d', $manualDate) : false;
-        return $date !== false ? $date->format('Y-m-d') : (new \DateTimeImmutable('today'))->format('Y-m-d');
+        return DateInput::isoStringOrNull($manualDate)
+            ?? (new \DateTimeImmutable('today'))->format('Y-m-d');
     }
 
     /**

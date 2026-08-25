@@ -14,6 +14,7 @@ use Core\File\FileRepository;
 use Core\Journal\JournalService;
 use Core\Pdf\DocumentPdfService;
 use Core\Security\HtmlSanitizer;
+use Core\Service\DateInput;
 use Core\View\EditableContentService;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\RentalBooking;
@@ -593,10 +594,10 @@ class RentalDocumentService
 
     private static function nightsBetween(string $arrival, string $departure): int
     {
-        $from = \DateTimeImmutable::createFromFormat('Y-m-d', $arrival);
-        $to = \DateTimeImmutable::createFromFormat('Y-m-d', $departure);
+        $from = DateInput::iso($arrival);
+        $to = DateInput::iso($departure);
 
-        if ($from === false || $to === false) {
+        if ($from === null || $to === null) {
             return 0;
         }
 
@@ -605,8 +606,8 @@ class RentalDocumentService
 
     private static function frenchDate(string $isoDate): string
     {
-        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $isoDate);
+        $parsed = DateInput::iso($isoDate);
 
-        return $parsed !== false ? $parsed->format('d/m/Y') : $isoDate;
+        return $parsed !== null ? $parsed->format('d/m/Y') : $isoDate;
     }
 }

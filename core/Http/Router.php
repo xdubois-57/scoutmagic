@@ -110,6 +110,40 @@ class Router
     }
 
     /**
+     * A placeholder NAMED like a row identifier only ever matches digits.
+     *
+     * `{id}`, `{postId}`, `{comment_id}` — every one of the 230 such
+     * placeholders in this application's route table is read by its
+     * controller as `(int) $params[…]`, and that cast is a salvage
+     * operation: `(int) '2-1'` is 2, so `/gallery/2-1/edit` used to edit
+     * album 2. The visitor named no album; PHP picked one. It is the
+     * same defect SECURITY.md § 35 describes for form fields, one layer
+     * out.
+     *
+     * Enforced here rather than at those 230 call sites because here it
+     * cannot be forgotten, and because the right answer for a malformed
+     * identifier is exactly what the router already does with a path it
+     * does not recognise: 404. No controller changes, no error path to
+     * write, and a route that would have found nothing anyway now says
+     * so before any code runs.
+     *
+     * The rule is the NAME, so there is no opt-out flag to get wrong: a
+     * placeholder that is not an identifier is not named like one.
+     * `/aide/{topic}` carries a help topic's slug, and says so.
+     * `Tests\Core\Http\RouterIdentifierParametersTest` walks the real
+     * route table and fails on an id-named placeholder that a
+     * non-numeric value can still reach.
+     */
+    private static function placeholderPattern(string $name): string
+    {
+        $isIdentifier = $name === 'id'
+            || str_ends_with($name, '_id')
+            || (str_ends_with($name, 'Id') && $name !== 'Id');
+
+        return $isIdentifier ? '\\d+' : '[^/]+';
+    }
+
+    /**
      * Match a route pattern against a request path, extracting parameters.
      *
      * @return array<string, string>|null Parameters if match, null otherwise
@@ -118,7 +152,7 @@ class Router
     {
         // Convert route pattern to regex
         $regex = preg_replace_callback('/\{([a-zA-Z_]+)\}/', function (array $matches): string {
-            return '(?P<' . $matches[1] . '>[^/]+)';
+            return '(?P<' . $matches[1] . '>' . self::placeholderPattern($matches[1]) . ')';
         }, $pattern);
 
         $regex = '#^' . $regex . '$#';

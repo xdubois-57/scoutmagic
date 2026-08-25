@@ -10,6 +10,7 @@ namespace Modules\Camps\Service;
 
 use Core\Audit\AuditService;
 use Core\Audit\AuditSource;
+use Core\Service\DateInput;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Repository\PlaceRepository;
@@ -326,8 +327,7 @@ class CampService
         if ($value === '') {
             return null;
         }
-        $date = \DateTimeImmutable::createFromFormat('Y-m-d', $value);
-        if ($date === false || $date->format('Y-m-d') !== $value) {
+        if (!DateInput::isIso($value)) {
             throw new CampsException('Cette date n\'est pas une date valide.');
         }
 

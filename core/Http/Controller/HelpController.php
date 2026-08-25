@@ -19,7 +19,14 @@ use Twig\Environment;
 /**
  * The help pages (ARCHITECTURE.md §8.64): /aide, the index of every topic
  * the visitor's role may see, grouped by category with a ?q= search; and
- * /aide/{id}, one topic rendered as a full page.
+ * /aide/{topic}, one topic rendered as a full page.
+ *
+ * The placeholder is `{topic}`, not `{id}`: a help topic is addressed by
+ * its slug ("premiers-pas"), and Core\Http\Router matches an id-NAMED
+ * placeholder against digits only (see Router::placeholderPattern). A
+ * route whose parameter is not a row identifier must not be named as
+ * though it were — that naming IS the rule, which is why there is no
+ * opt-out flag to forget.
  *
  * Both routes are role_min: public — the per-topic gate is
  * Core\Help\HelpService's role filter, and a topic below the caller's
@@ -90,7 +97,7 @@ class HelpController extends AbstractController
     public function show(Request $request, array $params): Response
     {
         $role = Role::fromString(AuthSession::getRole());
-        $topic = $this->helpService->findById($params['id'] ?? '', $role);
+        $topic = $this->helpService->findById($params['topic'] ?? '', $role);
 
         if ($topic === null) {
             // Unknown id and below-role topic share this branch on

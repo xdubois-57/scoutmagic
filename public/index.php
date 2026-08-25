@@ -1742,7 +1742,7 @@ $router->addRoute('POST', '/api/rich-text-content', EditableContentController::c
 // empty on purpose: the help belongs to no menu, and a `parents` entry
 // that matches no MenuBuilder label renders as dead text (design.md §7.3).
 $router->addRoute('GET', '/aide', \Core\Http\Controller\HelpController::class, 'index', 'public', ['label' => 'Aide', 'parents' => []]);
-$router->addRoute('GET', '/aide/{id}', \Core\Http\Controller\HelpController::class, 'show', 'public', ['label' => 'Aide', 'parents' => []]);
+$router->addRoute('GET', '/aide/{topic}', \Core\Http\Controller\HelpController::class, 'show', 'public', ['label' => 'Aide', 'parents' => []]);
 
 // Cookie consent
 $router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public', ['label' => 'Préférences cookies', 'parents' => []]);

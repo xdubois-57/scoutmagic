@@ -17,6 +17,7 @@ use Core\Http\Response;
 use Core\Member\MemberDirectoryEntry;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Service\IntegerInput;
 use Modules\Rental\Mail\MailboxSelection;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAssetRepository;
@@ -284,7 +285,7 @@ class RentalConfigController extends AbstractController
                 (string) $request->getBody('name', ''),
                 (string) $request->getBody('asset_type', ''),
                 self::optionalInt($request->getBody('capacity')),
-                max(1, (int) $request->getBody('quantity', 1)),
+                max(1, self::optionalInt($request->getBody('quantity')) ?? 1),
                 Support::optionalString($request->getBody('arrival_time')),
                 Support::optionalString($request->getBody('departure_time')),
                 Support::optionalString($request->getBody('emergency_phone')),
@@ -329,7 +330,7 @@ class RentalConfigController extends AbstractController
                 (string) $request->getBody('name', ''),
                 (string) $request->getBody('asset_type', ''),
                 self::optionalInt($request->getBody('capacity')),
-                max(1, (int) $request->getBody('quantity', 1)),
+                max(1, self::optionalInt($request->getBody('quantity')) ?? 1),
                 Support::optionalString($request->getBody('arrival_time')),
                 Support::optionalString($request->getBody('departure_time')),
                 Support::optionalString($request->getBody('emergency_phone')),
@@ -584,10 +585,23 @@ class RentalConfigController extends AbstractController
         return $this->assetService->allowedTypes();
     }
 
+    /**
+     * A blank box means "not filled in"; a filled one has to be a number
+     * the column can hold. Out of range used to reach MySQL, which
+     * refuses it as an uncaught PDOException and a 500 — every one of
+     * these fields is `INT UNSIGNED` (SECURITY.md § 35).
+     *
+     * @throws RentalException when the box holds something that is not
+     *         one of those numbers
+     */
     private static function optionalInt(mixed $value): ?int
     {
         $value = is_string($value) ? trim($value) : $value;
+        if ($value === null || $value === '') {
+            return null;
+        }
 
-        return $value === null || $value === '' ? null : (int) $value;
+        return IntegerInput::unsigned($value)
+            ?? throw new RentalException('Ce nombre n\'est pas valide — saisissez un entier positif.');
     }
 }

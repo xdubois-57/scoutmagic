@@ -163,6 +163,22 @@ Cross-origin `target="_blank"` links carry `rel="noopener"` (the sanitizer force
 
 **The mail sandbox's HTML preview needs no new directive, and that was verified rather than assumed.** `modules/test_tools`' detail page (ARCHITECTURE.md §8.63) renders a captured message's HTML half into an `<iframe srcdoc="…" sandbox>` with **no `allow-same-origin` and no `allow-scripts`**, so the frame gets an opaque origin and cannot reach the page, its DOM or its cookies, and nothing inside it executes. A `srcdoc` frame issues no navigation request, so no `frame-src`/`child-src` value is consulted; it instead **inherits the embedding document's CSP**, which is checked in a real headless Chromium against the exact policy `Core\Http\Response::buildCsp()` emits: the frame renders, its script is blocked, and — because the inherited `img-src 'self' data: blob:` applies inside it — a remote tracking pixel in a captured message is blocked too. Since `style-src-elem` stopped allowing inline styles, a captured message's own `<style>` block is refused inside the frame as well: the preview then shows the message as a mail client that strips `<style>` would, which most of them do, and which is why real senders put their styling in `style="…"` attributes — those still apply. Two independent controls, neither relied on alone. The captured HTML is never written into the page itself under any circumstance; Twig's auto-escaping handles the `srcdoc` attribute.
 
+### The files PHP never sees
+
+"Every response" above is emitted by `Core\Http\Response`, and a static file never reaches it. The rewrite rule in `.htaccess` forwards to `index.php` only what does **not** exist on disk, so a request for `/assets/css/app.css` is answered by Apache alone — no PHP, no headers. That was the gap a dynamic scan reported on ~70 URLs, all of them under `/assets/`, and it is a real one rather than a scanner artefact.
+
+Both `.htaccess` files now carry the two headers that make sense for a static file — `X-Content-Type-Options: nosniff` and, over a connection Apache knows is encrypted, `Strict-Transport-Security`. **Both** files, because the two install layouts (§ ARCHITECTURE) reach an asset by different routes: layout A merges `public/` into the document root, so `public/.htaccess` is the root one; layout B keeps a single tree and bootstrap writes its own root `.htaccess` (`bootstrap_htaccess_content()`), which is the file a static request meets first. Covering one and not the other leaves half the installed base uncovered without anything looking wrong.
+
+Three properties are deliberate, and `Tests\Security\StaticAssetHeadersTest` pins all three against both sources:
+
+- **Scoped to static extensions**, never blanket. A blanket `Header always set` would also apply to PHP responses and overwrite what the application built for that request — the CSP carries a per-request nonce, and a fixed copy of it in a config file would go stale and silently invalidate the nonce it no longer matches.
+- **`env=HTTPS` on the HSTS line.** Behind a separate TLS terminator mod_ssl sets nothing, and announcing HSTS for an origin whose TLS the server cannot see is how a site locks its own visitors out. That deployment is covered on the PHP side by the `trust_forwarded_proto` opt-in below; here the correct behaviour is to stay quiet.
+- **Wrapped in `<IfModule mod_headers.c>`.** mod_headers is not universal on shared hosting, and an unguarded `Header` directive is a 500 on every page of a host that lacks it — much worse than the missing header.
+
+**What this is worth, stated plainly.** The `nosniff` half is the useful one, and it is cheap: it is what stops a browser content-sniffing a file whose declared type it distrusts. Its practical exposure here is small, though — nothing under `public/assets/` is user-supplied (§6 forbids uploads under `public/` outright), and user files are served through `/files/{id}`, which *is* PHP and already carried both headers. The HSTS half is lower value still: HSTS is an origin-wide policy, so any HTML response already covers the assets; this closes only the case of a visitor whose first-ever request to the origin is an asset. Neither is the reason to have done it. The reason is that "every response carries the baseline headers" should be true as written rather than true-except-for-one-directory, and an exception nobody has written down is one that gets extended.
+
+**The DAST harness cannot verify this, and that is not a gap in the fix.** `scripts/dast.sh` serves the instance through `php -S`, which does not read `.htaccess` at all, so a scan will keep reporting both alerts on every asset URL for as long as the harness works that way. They are not filtered out in `tests/dast/zap-*.yaml`: an alert filter there asserts a finding is a false positive, and this one is a true finding about a server the harness is not running. Reading a passive report means knowing that the `/assets/*` instances of those two rules are answered here, and that an instance on any other path is not.
+
 ### Deciding whether the request is HTTPS — one method, and one opt-in
 
 Two security controls hang on the answer: the session cookie's `Secure` flag (§2, and the same for the cookie-consent and last-login-method cookies) and the emission of `Strict-Transport-Security` above. **`Core\Http\RequestScheme::isHttps()` is the only place that answers it** — `Core\Http\Request::isHttps()` is the same method reading a request's own captured `$_SERVER` — and every one of those controls calls it. `Core\Http\Response::setHttps()` still overrides the verdict when a caller states the scheme outright.
@@ -449,6 +465,7 @@ An automatic rollback (and the manual "Restaurer" action) extracts a backup ZIP 
 
 - **No stack trace or credential ever reaches the browser.** `display_errors` is forced off in production; an uncaught throwable or fatal produces a self-contained, hardcoded French 500 page that touches neither Twig nor the database (either of which may be the very thing that failed). The exception detail is written to the error log, never to the response — it is shown in the page only when the app is explicitly in debug mode, and HTML-escaped even then.
 - **The 500 page still carries the full security-header set** (§9) — an error response is not an excuse to drop `Content-Security-Policy` or `X-Frame-Options`.
+- **Not every uncaught throwable belongs here.** A write the database refused because of the values the request carried is a client error, not a crash, and is answered as one before it ever reaches this handler — see §35.
 
 ## 23. Spreadsheet export safety
 
@@ -562,3 +579,106 @@ The remaining audit items are understood and intentionally deferred — each is 
 - **Inline style ATTRIBUTES** — `style-src-attr 'unsafe-inline'`. **The element half of this item is now closed** (§9): `style-src-elem` allows nothing but a nonce, so an injected `<style>` block — the primitive that restyles the *whole* page — is refused outright on every browser that understands the directive. What remains is the narrower half: roughly **260** `style="…"` attributes across **~90 templates** set computed geometry (progress-bar widths, section colours) and static presentation, and `style-src-attr` still permits them. The count is an order of magnitude above the "roughly thirty" this entry used to claim — it was measured, not estimated, when the dynamic scan (§15) put a number on it.
   *Not fixing exposes:* nothing by itself — it is an **amplifier** for a future attribute-injection bug (attacker-controlled CSS on one element: overlay/clickjacking tricks; script execution stays blocked by the nonce CSP). The known attribute-injection bugs are fixed and regression-tested (§7, §28). Note also that on a browser predating `style-src-elem` (Safari before 26.2) the element half falls back to `style-src`, so *there* the amplifier is still page-wide.
   *Fixing costs:* the ~229 **static** attributes are mechanical — they move to classes, though a class can be overridden where an inline style could not, so each is a small cascade decision. The ~32 **computed** ones have no cheap home: a nonce'd `<style>` block collected per request is the only shape that keeps working without JavaScript, and it has to be emitted after the content that registers it. Neither half has any test coverage of rendered geometry, across ninety pages nobody can eyeball in one sitting. Chip away opportunistically — when a template with inline geometry is touched anyway, convert it; `style-src-attr` drops `'unsafe-inline'`, and the `style-src` fallback with it, once the last one is gone.
+
+## 35. Input the database refuses is not a crash
+
+An active dynamic scan (`scripts/dast.sh --profile=deep`) produced **542 uncaught exceptions across 13 statements in 7 modules**. Not one was an injection — every write here is a prepared statement, so a value can never change what a query *does*. Every one was a value the schema refused: an id whose row was gone, a number wider than `INT UNSIGNED`, a path-traversal payload sitting in a `DATE` column, a NUL byte in a date field. PDO raised, nobody caught, and the visitor got the 500 page written for "the application has crashed" — alarming, and untrue.
+
+The scanner also reported six of these as **High: SQL Injection**, which they are not: `(int) "2'"` is `2`, so the quote never reaches SQL and the 500 came from the FK behind it. A finding that is wrong about the cause can still be right that something is broken, and both halves of this one were — see « An id is digits, or it is nothing » below for the other three.
+
+Three layers, in the order they matter.
+
+### `Core\Service\DateInput` — one date parser, and it never throws
+
+PHP offers two ways to read a submitted date, and each has a trap; almost every site here had one of them.
+
+`createFromFormat($f, $v)` returns `false` for `"../../.."`, so ~20 sites wrote `$d !== false && $d->format($f) === $v` and reasonably believed that was total. It is not: a `$v` containing a **NUL byte** raises a `ValueError`. Sending `2026-01-01%00` costs an attacker nothing and turns every one of those sites into a 500.
+
+`new DateTimeImmutable($v)` fails the other way. It throws on `"../../.."` — so it looks stricter — but returns **the current moment** for `""`, `"now"`, `"yesterday"` and `"a\0b"`. An unvalidated field then becomes today's date, is written as if the visitor typed it, and nothing anywhere reports it.
+
+`DateInput` answers one question — is this string the date it claims to be — and returns `null` when it is not. It refuses control characters before parsing, round-trips the result so `2026-02-31` is refused rather than rolled forward to 3 March, and `fromStorage()` refuses MySQL's zero date, which PHP reads as the 30th of November, year -1. `Tests\Security\DateParsingConvergenceTest` fails on any `createFromFormat` anywhere outside that one file — the same convergence argument, and the same shape of test, as `HttpsDetectionConvergenceTest` in §9. It deliberately does **not** cover `new DateTimeImmutable($v)`: some forty sites read a timestamp column that way, `fromStorage()` is the safe replacement, and converting them is a migration of its own rather than something this section claims is done.
+
+### `Core\Service\IntegerInput` — a floor is half a bound
+
+The idiom was `max(0, (int) $request->getBody('capacity'))`: a floor, never a ceiling. The missing half is the reachable one. Every count, capacity and delay in this schema is `INT UNSIGNED`, so `4294967296` is a value the form accepts, the cast preserves and MySQL refuses. The scan reached that on `capacity`, `min_nights`, `vote_budget` and `member_id` by typing a long number.
+
+`IntegerInput` refuses out of range rather than clamping — storing 4 294 967 295 because somebody typed more records a number they never chose — and refuses to salvage, because `(int) '12 places'` being `12` reads as helpful right up to the day a mistyped field is stored as a number that was never in it. The bounds it names are the storage layer's; nothing in it knows that a scout hall sleeps fewer than four billion people, and a field with a real-world ceiling should state its own.
+
+Where an allow-list was already at hand it is used instead, because it is stricter: the on-call grid now checks each cell's member against the roster the page is displaying, and each cell's date against the month being saved. That closes the out-of-range value, the foreign key **and** a row dated outside the month, which `saveMonth()` would have written once and never cleared.
+
+### An id is digits, or it is nothing
+
+The same scan reported six **High: SQL Injection**. None is one — every statement is prepared, so a value cannot change what a query does — but three of them were pointing at something real.
+
+An active scanner probes for injection by replacing an id with an arithmetic expression that evaluates to the same number: `4/2`, `4-2` where the id was 2. If the response does not change, it concludes the database evaluated the arithmetic. PHP does something else again: `(int) '4/2'` stops at the first non-digit and is **4** — neither the value the visitor sent nor the 2 the expression evaluates to. So `/config/banner/delete`, `/config/banner/role-min` and `/chefs/calendar/event-delete` were each acting on a row nobody had named, and answering as if nothing were odd.
+
+The scanner's conclusion was wrong and its suspicion was not. `Core\Service\IntegerInput::id()` is the fix: digits, within what an `INT UNSIGNED` primary key holds, and never zero — no row has id 0, so a 0 is the signature of a cast that salvaged something. These endpoints now answer **400 « Identifiant invalide. »** rather than acting. No alert filter was written for those three findings: silencing a rule is for a finding that is false, and the response changing is what makes this one stop firing.
+
+The other three (`/groups/*`, on a `2'` payload) were the uncaught-exception class above, reported under the wrong rule — a 500 is an error page, and an error page where the original request succeeded looks to a scanner exactly like a database complaining.
+
+**The same defect exists one size up, and the re-scan found it.** With those six gone, a seventh appeared on `POST /finance/receipts/{id}/associate`: the attacked parameter was not the path id but the **list** `transaction_ids`, read as `array_map('intval', …)`. `intval('2/2')` is 2, so the receipt was being associated with a row nobody had named. `IntegerInput::idList()` now reads the nine sites that take a list of ids that way — reorders of banners, media, form fields, categorisation rules and section documents, the SOS excluded sections, an asset's calendars, a group's media. It is **all or nothing**: dropping the elements that do not parse would carry out a reorder over a subset nobody asked for, and that failure looks like a success — a shorter list, an order the caller never chose, and nothing anywhere reporting it.
+
+That finding had not appeared in the previous run because `finance-receipts.spec.js` had not been replayed that time. It is the clearest illustration of the rule the DAST gate needs: **a spec that fails is not a green area, it is an area nobody looked at.**
+
+### The same rule, one layer out: the router
+
+The other ~230 casts are on **path** parameters — `(int) $params['id']` — and they have the same edge: `/gallery/2-1/edit` used to edit album 2. Nobody named album 2; PHP picked it, and the page then looked entirely normal.
+
+`Core\Http\Router` now matches a placeholder **named** like a row identifier — `{id}`, `{postId}`, `{comment_id}` — against digits and nothing else. That is enforced in the router rather than at 230 call sites because there it cannot be forgotten, and because the right answer for a malformed identifier is exactly what the router already does with a path it does not recognise: **404**. No controller changes, no error path to write, and a route that would have found nothing anyway now says so before any code runs.
+
+**The rule is the name, deliberately, so that there is no opt-out flag anyone can forget.** A parameter that is not a row identifier is not named like one: `/aide/{topic}` carries a help topic's slug and says so — it was `/aide/{id}`, and renaming it was the whole cost of making the rule unconditional. An earlier reading of this said a router rule "would be wrong" for that reason; the rule is right, the *name* was.
+
+Checked against the real route table rather than a sample: `Tests\Core\Http\RouterIdentifierParametersTest` walks every route the application registers and fails on an id-named placeholder a non-numeric value can still reach — 209 routes, and it also checks the other direction, so the rule cannot be "tightened" into matching digits everywhere and silently 404 every slug on the site.
+
+### A display filter must never take a page down
+
+`|date_fr`, `|datetime_fr`, `|french_date` and `|relative_date` used to read their argument with `new DateTimeImmutable((string) $date)`. One unreadable timestamp anywhere on a page therefore produced a **500 for the whole render** rather than a blank field — and an empty string rendered as *today*, which is how a missing value gets believed. All four now read through `DateInput::fromStorage()` and answer what they already answered for null: nothing at all.
+
+**What is not done.** ~190 further `new DateTimeImmutable($value)` reads remain, most of them on `DATETIME` columns that MySQL will not let hold a malformed value — which is what makes them low-risk, not a reason to call them checked. `fromStorage()` is the safe replacement wherever a value's origin is less certain than that.
+
+### `Core\Database\ConstraintViolation` — the floor underneath validation
+
+One class of these cannot be fixed at a boundary at all. Between checking that a member exists and the INSERT that references them, another administrator can delete them. Checking first narrows the race; it never closes it.
+
+So `Core\Http\FrontController` catches around the one place every controller action is invoked, and answers **409** for a conflict (a referenced row that is gone, a duplicate on a unique key) or **400** for a malformed value (too wide, too long, not a date), with a French sentence and the site's normal error page.
+
+**Classified by driver code, never by SQLSTATE, and that is the whole design.** SQLSTATE 23000 covers a foreign key a visitor got wrong *and* a NOT NULL column this codebase forgot to populate. The first is a client error; the second is a bug here, and a bug that stops shouting is a bug that stops being fixed. Only `errorInfo[1]` separates them. Seven driver codes are listed as caller fault (1451, 1452, 1062, 1264, 1292, 1366, 1406); everything else — a missing table, a syntax error, a deadlock, a server that went away, a code with no driver code at all — is rethrown and reaches `ErrorHandler` as a 500, unchanged. `Tests\Core\Http\FrontControllerConstraintViolationTest` pins both halves, because a net that catches too much is worse than the problem.
+
+The driver's own text never reaches the page: MySQL names the table, the column and the constraint, in English. The sentence is written in `ConstraintViolation::message()`, for the reason §9 and `Core\Exception\UserFacingException` both give. The event is written with `error_log` rather than the journal on purpose — the journal is a table, and the one thing just established about this request is that a write to that database did not go through.
+
+**This is a floor, not a replacement for validation.** A request refused with a French sentence next to the offending field beats a generic error page every time. Reaching this handler at all means a boundary check was missing.
+
+## 36. The authorization matrix
+
+`scripts/dast.sh --profile=standard` replays **every route as every role** and checks the answer against the `role_min` the route declares. 528 routes × 6 roles = 3 168 pairs, in about a minute, with no scanner and no browser.
+
+It was meant to be ZAP's "Access Control Testing" add-on, which is not in the `stable` image. Doing it here turned out to be the better home rather than a fallback: the question has one right answer per pair — the application states it in `module.json`, `Core\Security\RbacGuard` enforces it — so this is a comparison, not a heuristic. No payloads, no false positives, and a result that means the same thing on every run.
+
+**The two ways to be wrong are not equally bad.** A role reaching a route it may not is the security hole, and it fails the run. A role refused a route `role_min` admits is reported and never fatal, because a module may legitimately narrow access further than its route declares.
+
+### Replaying 500 POSTs without writing anything
+
+Replaying every route as six roles, for real, would rewrite the instance halfway through its own audit — and every later probe would then be measuring a site the audit itself had changed.
+
+So a POST is sent **without a CSRF token, deliberately**. The guard runs *before* the controller and the CSRF check runs *inside* it, so the two refusals are distinguishable and the authorized case stops at the CSRF wall having changed nothing:
+
+| | anonymous | authenticated |
+|---|---|---|
+| **RBAC refusal** | 302 → `/login` | 403, `text/html` |
+| **CSRF refusal** | 302 → elsewhere | 403, `application/json` |
+
+A 403 is therefore read by its `Content-Type` and a 302 by where it points — never by status alone.
+
+### The two things that would make it lie
+
+Both are guarded, because both would produce a **green** run rather than a red one.
+
+**A session that does not carry the role it claims.** An account whose role failed to resolve still signs in perfectly well — it is simply `identified`. The matrix would then watch every admin route correctly refuse it, report a clean run, and have checked nothing. So each session is asked for a page only its own role may reach, and the run stops if the answer is no. That check caught a wrong assumption the first time it ran.
+
+**A route the inventory cannot see.** A missing route does not make the matrix red; it makes it *shorter*, and a shorter green run reads exactly like a complete one. `Tests\Security\AuthorizationMatrixInventoryTest` therefore runs on every commit, with no server: every `addRoute()` in `public/index.php` accounted for (by count, so a route written in an unfamiliar shape fails the parse loudly), every module's routes present, every parameterised route addressable by a fixture, no fixture group left describing a route that no longer exists, and the role ladder the matrix reasons with identical to the one `Core\Security\Role` enforces — checked in both directions.
+
+Fixtures are keyed by route-pattern prefix, not by placeholder name: `{id}` is a member on `/members/{id}` and a discussion group on `/groups/{id}`. Their values need only be **well-formed, not real** — the guard runs before the controller, so a 404 for a row that is not there still means the caller got past it.
+
+### The result, and how to read it
+
+**Zero over-permissive routes.** 68 refusals are stricter than `role_min`: a member may only edit their *own* record, a file goes through `FileAccessGuard`. That is defence in depth, and the report lists every one — they are to be read, not assumed.

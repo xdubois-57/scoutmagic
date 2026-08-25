@@ -16,6 +16,7 @@ use Core\Notification\NotificationService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\Role;
 use Core\Security\UserAccountRepository;
+use Core\Service\DateInput;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
@@ -108,6 +109,7 @@ class AlbumService
     ): Album {
         $this->assertValidType($type);
         $this->assertTypeAllowed($type);
+        $this->assertValidDate($albumDate);
         if (!$this->accessService->canManageAlbum($role, $sectionId, $email)) {
             throw new GalleryException('Vous ne gérez pas cette section.');
         }
@@ -222,6 +224,7 @@ class AlbumService
         $this->assertValidTitle($title);
         $this->assertValidLength($title, self::MAX_TITLE_LENGTH, 'Le titre');
         $this->assertValidLength($subtitle, self::MAX_SUBTITLE_LENGTH, 'Le sous-titre');
+        $this->assertValidDate($albumDate);
         if (!$this->accessService->canManageAlbum($role, $existing->sectionId, $email)
             || !$this->accessService->canManageAlbum($role, $sectionId, $email)) {
             throw new GalleryException('Vous ne gérez pas cette section.');
@@ -558,6 +561,21 @@ class AlbumService
     {
         if (!in_array($type, Album::TYPES, true)) {
             throw new GalleryException('Type d\'album invalide.');
+        }
+    }
+
+    /**
+     * `album_date` is a DATE column, and what the form posts went into it
+     * unread. A dynamic scan put a path-traversal payload there, which
+     * MySQL refused as an uncaught PDOException and a 500 — the value was
+     * never dangerous, the absence of a check was (SECURITY.md § 35).
+     *
+     * @throws GalleryException when $value is not a calendar date
+     */
+    private function assertValidDate(string $value): void
+    {
+        if (!DateInput::isIso(trim($value))) {
+            throw new GalleryException('La date de l\'album n\'est pas une date valide.');
         }
     }
 

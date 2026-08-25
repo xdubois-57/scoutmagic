@@ -18,6 +18,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\Role;
 use Core\Http\FlashMessage;
+use Core\Service\IntegerInput;
 use Modules\Finance\Api\ExpectedReceivableInterface;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\FormField;
@@ -478,8 +479,12 @@ class FormController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
         }
 
+        $ids = IntegerInput::idList($data['ids'] ?? []);
+        if ($ids === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+        }
+
         try {
-            $ids = array_map('intval', (array) ($data['ids'] ?? []));
             $this->formService->reorderFields($form->id, $ids);
         } catch (NewsException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);

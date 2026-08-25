@@ -656,6 +656,46 @@ RewriteRule ^ index.php [L]
 <Files "cron.php">
     Require all denied
 </Files>
+
+# ---------------------------------------------------------------------
+# Baseline security headers for the files Apache serves ITSELF.
+#
+# Everything routed through index.php gets its headers from
+# Core\Http\Response. A request for /assets/css/app.css never enters PHP
+# at all — the rewrite above only forwards what does NOT exist on disk —
+# so nothing sets them there, and a dynamic scan reports the gap on every
+# static file (which is how this was found).
+#
+# Scoped to static extensions on purpose. A blanket rule here would also
+# apply to PHP responses and overwrite the headers the application builds
+# per request — the Content-Security-Policy carries a per-request nonce,
+# and a fixed copy of it in this file would go stale the moment the
+# policy changes.
+#
+# mod_headers is not universal on shared hosting, so this degrades
+# silently when it is absent, like the rest of this file.
+# ---------------------------------------------------------------------
+<IfModule mod_headers.c>
+    <FilesMatch "\.(css|js|mjs|map|png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|eot|webmanifest)$">
+        Header always set X-Content-Type-Options "nosniff"
+
+        # HSTS is an origin-wide policy: one HTML response already covers
+        # the assets too. This closes the single remaining gap — a
+        # visitor whose first-ever request to the origin is an asset.
+        #
+        # env=HTTPS so it is never announced on a connection Apache
+        # cannot see is encrypted. Behind a separate TLS terminator
+        # mod_ssl sets nothing, which is exactly the deployment
+        # Core\Http\RequestScheme's trust_forwarded_proto opt-in exists
+        # for (SECURITY.md § 9) — there the PHP side still emits it, and
+        # this file correctly stays quiet.
+        #
+        # The value is kept identical to Core\Http\Response's, and
+        # Tests\Security\StaticAssetHeadersTest pins the two to each
+        # other so they cannot drift apart.
+        Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+    </FilesMatch>
+</IfModule>
 HTACCESS;
 }
 

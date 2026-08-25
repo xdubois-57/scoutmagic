@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Booking;
 
+use Core\Service\DateInput;
 use Modules\Rental\Pricing\PriceQuote;
 
 /**
@@ -75,8 +76,8 @@ final class ChangeRequest
             return '—';
         }
 
-        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $isoDate);
+        $parsed = DateInput::iso($isoDate);
 
-        return $parsed !== false ? $parsed->format('d/m/Y') : $isoDate;
+        return $parsed !== null ? $parsed->format('d/m/Y') : $isoDate;
     }
 }

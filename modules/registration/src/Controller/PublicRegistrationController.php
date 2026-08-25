@@ -19,6 +19,7 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
+use Core\Service\DateInput;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Service\RegistrationService;
 use Modules\Registration\Service\RegistrationSubmissionReceipt;
@@ -368,9 +369,7 @@ class PublicRegistrationController extends AbstractController
             $errors[] = 'Genre invalide.';
         }
 
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $fields['birth_date'])
-            || \DateTimeImmutable::createFromFormat('Y-m-d', $fields['birth_date']) === false
-        ) {
+        if (!DateInput::isIso($fields['birth_date'])) {
             $errors[] = 'Date de naissance invalide.';
         }
 

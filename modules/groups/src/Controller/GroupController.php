@@ -18,6 +18,7 @@ use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Core\Service\IntegerInput;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\PostRepository;
@@ -425,10 +426,14 @@ class GroupController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $ids = array_values(array_filter(
-            array_map('intval', explode(',', (string) $request->getQuery('ids', ''))),
-            fn (int $id) => $id > 0
-        ));
+        // A query string of ids, all or nothing: IntegerInput::idList
+        // refuses the whole list if one element is not an id, rather than
+        // quietly serving whichever subset happened to parse.
+        $raw = trim((string) $request->getQuery('ids', ''));
+        $ids = $raw === '' ? [] : IntegerInput::idList(explode(',', $raw));
+        if ($ids === null) {
+            return new Response('Bad Request', 400);
+        }
 
         $result = [];
         foreach ($this->postMediaService->mediaByIds($group, $ids) as $media) {

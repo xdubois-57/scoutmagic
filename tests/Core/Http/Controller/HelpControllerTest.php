@@ -157,7 +157,7 @@ class HelpControllerTest extends TestCase
         $this->assertStringNotContainsString("n'ont pas pu être lus", $body);
     }
 
-    // --- /aide/{id} ---
+    // --- /aide/{topic} ---
 
     public function testShowRendersTheTopicBodyAndRelatedLinks(): void
     {
@@ -165,7 +165,7 @@ class HelpControllerTest extends TestCase
         $this->writeTopic($dir, 'principal', ['related' => 'annexe'], "## Étapes\n\nFaites ceci.");
         $this->writeTopic($dir, 'annexe', ['title' => 'Sujet annexe']);
 
-        $response = $this->controller($dir)->show(new Request('GET', '/aide/principal', [], [], [], []), ['id' => 'principal']);
+        $response = $this->controller($dir)->show(new Request('GET', '/aide/principal', [], [], [], []), ['topic' => 'principal']);
 
         $this->assertSame(200, $response->getStatusCode());
         // '## Étapes' renders as the <h2> it reads as (base level 1 —
@@ -179,14 +179,14 @@ class HelpControllerTest extends TestCase
     {
         $dir = $this->makeTopicDir();
 
-        $response = $this->controller($dir)->show(new Request('GET', '/aide/inconnu', [], [], [], []), ['id' => 'inconnu']);
+        $response = $this->controller($dir)->show(new Request('GET', '/aide/inconnu', [], [], [], []), ['topic' => 'inconnu']);
 
         $this->assertSame(404, $response->getStatusCode());
     }
 
     public function testShowAnswers404NeverAContentPageForATopicBelowTheVisitorsRole(): void
     {
-        // The RBAC boundary of this feature: /aide/{id} is role_min:
+        // The RBAC boundary of this feature: /aide/{topic} is role_min:
         // public, so the gate is HelpService's role filter — an intendant
         // asking for a chief topic gets the same 404 as an unknown id
         // (a 403 would confirm the topic exists).
@@ -196,13 +196,13 @@ class HelpControllerTest extends TestCase
         $request = new Request('GET', '/aide/pour-chefs', [], [], [], []);
 
         $this->loginAs('intendant');
-        $denied = $controller->show($request, ['id' => 'pour-chefs']);
+        $denied = $controller->show($request, ['topic' => 'pour-chefs']);
         $this->assertSame(404, $denied->getStatusCode());
         $this->assertStringNotContainsString('Contenu réservé', $denied->getBody());
 
         // At the boundary role, the very same request serves the topic.
         $this->loginAs('chief');
-        $allowed = $controller->show($request, ['id' => 'pour-chefs']);
+        $allowed = $controller->show($request, ['topic' => 'pour-chefs']);
         $this->assertSame(200, $allowed->getStatusCode());
         $this->assertStringContainsString('Contenu réservé', $allowed->getBody());
     }

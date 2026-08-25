@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Availability;
 
+use Core\Service\DateInput;
+
 /**
  * Which month a calendar is showing, and where its arrows may go.
  *
@@ -57,8 +59,8 @@ final class MonthWindow
 
         $candidate = $current;
         if (preg_match('/^(\d{4})-(\d{2})$/', $requested, $matches) === 1) {
-            $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $matches[1] . '-' . $matches[2] . '-01');
-            if ($parsed !== false) {
+            $parsed = DateInput::iso($matches[1] . '-' . $matches[2] . '-01');
+            if ($parsed !== null) {
                 $candidate = $parsed->setTime(0, 0);
             }
         }

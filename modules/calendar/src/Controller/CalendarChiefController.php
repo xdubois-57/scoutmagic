@@ -22,6 +22,7 @@ use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Core\Service\IntegerInput;
 use Core\View\MonthGrid\MonthGridBuilder;
 use Core\View\SectionPickerHelper;
 use Modules\Calendar\Service\CalendarEventService;
@@ -205,11 +206,16 @@ class CalendarChiefController extends AbstractController
             return $data;
         }
 
+        $calendarId = IntegerInput::id($data['calendar_id'] ?? null);
+        if ($calendarId === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+        }
+
         $role = Role::fromString(AuthSession::getRole());
 
         try {
             $event = $this->calendarEventService->createEvent(
-                (int) ($data['calendar_id'] ?? 0),
+                $calendarId,
                 (string) ($data['title'] ?? ''),
                 (string) ($data['start_date'] ?? ''),
                 $this->stringOrNull($data['end_date'] ?? null),
@@ -250,12 +256,18 @@ class CalendarChiefController extends AbstractController
             return $data;
         }
 
+        $eventId = IntegerInput::id($data['event_id'] ?? null);
+        $calendarId = IntegerInput::id($data['calendar_id'] ?? null);
+        if ($eventId === null || $calendarId === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+        }
+
         $role = Role::fromString(AuthSession::getRole());
 
         try {
             $event = $this->calendarEventService->updateEvent(
-                (int) ($data['event_id'] ?? 0),
-                (int) ($data['calendar_id'] ?? 0),
+                $eventId,
+                $calendarId,
                 (string) ($data['title'] ?? ''),
                 (string) ($data['start_date'] ?? ''),
                 $this->stringOrNull($data['end_date'] ?? null),
@@ -296,7 +308,10 @@ class CalendarChiefController extends AbstractController
             return $data;
         }
 
-        $eventId = (int) ($data['event_id'] ?? 0);
+        $eventId = IntegerInput::id($data['event_id'] ?? null);
+        if ($eventId === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiant invalide.'], 400);
+        }
 
         try {
             $role = Role::fromString(AuthSession::getRole());

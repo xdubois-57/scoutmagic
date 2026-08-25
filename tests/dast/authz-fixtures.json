@@ -1,0 +1,217 @@
+{
+  "_": [
+    "Fixtures for scripts/authz-support.php — the authorization matrix.",
+    "",
+    "Keyed by ROUTE PATTERN PREFIX, never by placeholder name alone: {id} is a",
+    "member on /members/{id} and a discussion group on /groups/{id}, and a single",
+    "global value for {id} would hide that. Each key ends at its own first",
+    "placeholder, so no two keys can both prefix the same route and the longest",
+    "match is always the only match.",
+    "",
+    "THE VALUES NEED ONLY BE WELL-FORMED, NOT REAL. RbacGuard runs before the",
+    "controller (ARCHITECTURE.md 12), so a route answers the authorization",
+    "question identically whether the row exists or not: refused is refused, and",
+    "a 404 for a row that is not there still means the caller got past the guard.",
+    "Ids are therefore 1, and tokens are the right shape rather than a real one.",
+    "",
+    "A route whose prefix is absent from this file FAILS the matrix rather than",
+    "being skipped. Tests\\Security\\AuthorizationMatrixInventoryTest enforces that",
+    "on every commit, so a new route arrives with its fixture or not at all — a",
+    "matrix that silently shrinks would keep reporting no finding while covering",
+    "less and less."
+  ],
+  "groups": {
+    "/admin/doublons/{id}": {
+      "id": "1"
+    },
+    "/admin/fees/factures/{id}": {
+      "id": "1"
+    },
+    "/admin/import/{id}": {
+      "id": "1"
+    },
+    "/admin/members/{id}": {
+      "id": "1"
+    },
+    "/aide/{topic}": {
+      "topic": "premiers-pas"
+    },
+    "/api/audit/{entity_type}": {
+      "entity_id": "1",
+      "entity_type": "camp_camp"
+    },
+    "/api/maintenance/backup-status/{id}": {
+      "id": "1"
+    },
+    "/api/maintenance/reset-status/{id}": {
+      "id": "1"
+    },
+    "/api/maintenance/update-status/{id}": {
+      "id": "1"
+    },
+    "/api/support/package-status/{id}": {
+      "id": "1"
+    },
+    "/auth/poll/{id}": {
+      "id": "1"
+    },
+    "/calendar/feed/personal/{token}": {
+      "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "/calendar/feed/unit/{token}": {
+      "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "/calendar/feed/{token}": {
+      "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "/chefs/camps/contacts/{id}": {
+      "id": "1"
+    },
+    "/chefs/camps/courrier/{id}": {
+      "id": "1"
+    },
+    "/chefs/camps/documents/{id}": {
+      "id": "1"
+    },
+    "/chefs/camps/liens/{id}": {
+      "id": "1"
+    },
+    "/chefs/camps/lieux/{id}": {
+      "id": "1"
+    },
+    "/chefs/camps/propositions/{id}": {
+      "id": "1"
+    },
+    "/chefs/camps/sejours/{id}": {
+      "id": "1"
+    },
+    "/chefs/staffs/documents/{id}": {
+      "id": "1"
+    },
+    "/config/courrier-entrant/boites/{id}": {
+      "id": "1"
+    },
+    "/config/gallery/albums/{id}": {
+      "id": "1"
+    },
+    "/config/gallery/locations/{id}": {
+      "id": "1"
+    },
+    "/config/inscriptions/demandes/{id}": {
+      "id": "1"
+    },
+    "/config/llm/providers/{id}": {
+      "id": "1"
+    },
+    "/config/mass-mail/lists/{id}": {
+      "id": "1"
+    },
+    "/departs/{member_year_id}": {
+      "member_year_id": "1"
+    },
+    "/files/{id}": {
+      "id": "1",
+      "variant": "thumbnail"
+    },
+    "/finance/movements/{id}": {
+      "id": "1"
+    },
+    "/finance/receipts/{id}": {
+      "id": "1"
+    },
+    "/gallery/media/{media_id}": {
+      "media_id": "1",
+      "size": "192"
+    },
+    "/gallery/{id}": {
+      "id": "1",
+      "media_id": "1"
+    },
+    "/groups/{id}": {
+      "id": "1",
+      "postId": "1",
+      "replyId": "1"
+    },
+    "/inscriptions/suivi/demande/{id}": {
+      "email_id": "1",
+      "id": "1"
+    },
+    "/inscriptions/suivi/emails/confirm/{id}": {
+      "id": "1"
+    },
+    "/inscriptions/suivi/{id}": {
+      "id": "1",
+      "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "/locations/suivi/{id}": {
+      "id": "1",
+      "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "/locations/{slug}": {
+      "slug": "salle-des-fetes"
+    },
+    "/mass-mail/attachments/{id}": {
+      "id": "1"
+    },
+    "/mass-mail/audiences/{id}": {
+      "id": "1"
+    },
+    "/mass-mail/recipients/{id}": {
+      "id": "1"
+    },
+    "/mass-mail/unsubscribe/{id}": {
+      "id": "1"
+    },
+    "/mass-mail/{id}": {
+      "id": "1"
+    },
+    "/members/emails/confirm/{id}": {
+      "id": "1"
+    },
+    "/members/{id}": {
+      "email_id": "1",
+      "id": "1",
+      "recipient_id": "1"
+    },
+    "/mes-locations/{slug}": {
+      "id": "1",
+      "slug": "salle-des-fetes",
+      "type": "contrat"
+    },
+    "/news/{id}": {
+      "id": "1",
+      "response_id": "1"
+    },
+    "/notifications/{id}": {
+      "id": "1"
+    },
+    "/passage/inscription/{id}": {
+      "id": "1"
+    },
+    "/passage/membre/{id}": {
+      "id": "1"
+    },
+    "/password-reset/{id}": {
+      "id": "1"
+    },
+    "/pwa/icon-{size}": {
+      "size": "192"
+    },
+    "/r/{token}": {
+      "comment_id": "1",
+      "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "/retro/{id}": {
+      "id": "1"
+    },
+    "/s/{code}": {
+      "code": "abcdefg"
+    },
+    "/support-dashboard/installations/{id}": {
+      "id": "1"
+    },
+    "/test-tools/mail-sandbox/{id}": {
+      "id": "1"
+    }
+  }
+}

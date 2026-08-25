@@ -19,6 +19,8 @@ use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Service\DateInput;
+use Core\Service\IntegerInput;
 use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
 use Modules\Calendar\Service\CalendarService;
@@ -1135,10 +1137,8 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("Le module « Finances » n'est pas actif.");
             }
 
-            $returnedAt = \DateTimeImmutable::createFromFormat(
-                'Y-m-d',
-                (string) $request->getBody('returned_at', '')
-            ) ?: new \DateTimeImmutable('today');
+            $returnedAt = DateInput::iso((string) $request->getBody('returned_at', ''))
+                ?? new \DateTimeImmutable('today');
 
             $this->paymentService->recordSecurityDepositReturn(
                 $booking,
@@ -1440,10 +1440,11 @@ class RentalManagementController extends AbstractController
             static fn(array $calendar) => $calendar['id'],
             $this->calendarService->listSelectableCalendars()
         );
-        $calendarIds = array_values(array_intersect(
-            array_map('intval', (array) ($request->getBody('calendar_ids') ?? [])),
-            $existingIds
-        ));
+        $postedCalendarIds = IntegerInput::idList((array) ($request->getBody('calendar_ids') ?? []));
+        if ($postedCalendarIds === null) {
+            throw new RentalException('Un des calendriers choisis n\'est pas valide.');
+        }
+        $calendarIds = array_values(array_intersect($postedCalendarIds, $existingIds));
         $enabled = $request->getBody('publication_enabled') !== null;
 
         if ($enabled && $calendarIds === []) {
@@ -1593,8 +1594,8 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("Cette phase n'existe pas.");
             }
 
-            $readAt = \DateTimeImmutable::createFromFormat('Y-m-d\TH:i', (string) $request->getBody('read_at', ''))
-                ?: new \DateTimeImmutable();
+            $readAt = DateInput::parse(DateInput::ISO_DATETIME_LOCAL, (string) $request->getBody('read_at', ''))
+                ?? new \DateTimeImmutable();
 
             $fileId = null;
             $uploaded = $request->getFile('photo');
@@ -1867,10 +1868,10 @@ class RentalManagementController extends AbstractController
                 return;
             }
 
-            $deadline = \DateTimeImmutable::createFromFormat('Y-m-d\TH:i', $until)
-                ?: \DateTimeImmutable::createFromFormat('Y-m-d', $until);
+            $deadline = DateInput::parse(DateInput::ISO_DATETIME_LOCAL, $until)
+                ?? DateInput::iso($until);
 
-            if ($deadline === false) {
+            if ($deadline === null) {
                 throw new RentalException("L'échéance n'est pas une date valide.");
             }
 

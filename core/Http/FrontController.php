@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Http;
 
 use Core\Config\AppConfig;
+use Core\Database\ConstraintViolation;
 use Core\Help\HelpException;
 use Core\Help\HelpService;
 use Core\Http\Controller\AbstractController;
@@ -131,10 +132,90 @@ class FrontController
             $controller = new $controllerClass($this->twig);
         }
 
-        /** @var Response $response */
-        $response = $controller->$action($request, $resolvedRoute->params);
+        try {
+            /** @var Response $response */
+            $response = $controller->$action($request, $resolvedRoute->params);
+        } catch (\Throwable $e) {
+            $verdict = ConstraintViolation::classify($e);
+            if ($verdict === null) {
+                throw $e;
+            }
+
+            return $this->renderConstraintViolation($verdict, $e, $request);
+        }
 
         return $this->applyEtagIfEligible($request, $response);
+    }
+
+    /**
+     * The floor underneath input validation: a write the schema refused
+     * because of the values this request carried is answered as the
+     * client error it is, not as "the application has crashed".
+     *
+     * This is caught here, at the one place every controller action is
+     * invoked, rather than around each of the ~13 statements a dynamic
+     * scan managed to reach. Not because per-site handling would be
+     * wrong — where a boundary check can refuse the value with a French
+     * sentence beside the field, it should, and Core\Service\DateInput
+     * and Core\Service\IntegerInput exist so that it can — but because a
+     * per-site net is only ever as complete as the last audit. The
+     * remaining case is genuinely unpreventable at a boundary: between
+     * checking that a row exists and inserting the row that references
+     * it, somebody else can delete it.
+     *
+     * ConstraintViolation decides what counts, by driver code, and is
+     * deliberately narrow: a NOT NULL column this application forgot to
+     * populate shares its SQLSTATE with a foreign key a visitor got
+     * wrong, and only the first is a bug that must keep shouting.
+     * Anything it cannot place is rethrown and reaches ErrorHandler as a
+     * 500, unchanged.
+     *
+     * Logged with error_log rather than the journal on purpose: the
+     * journal is a table, and the one thing just established about this
+     * request is that a write to that database did not go through.
+     */
+    private function renderConstraintViolation(string $verdict, \Throwable $e, Request $request): Response
+    {
+        error_log(
+            'Constraint violation (' . $verdict . ') answered as '
+            . ConstraintViolation::statusCode($verdict) . ': ' . $e->getMessage()
+            . ' in ' . $e->getFile() . ':' . $e->getLine()
+        );
+
+        $status = ConstraintViolation::statusCode($verdict);
+        $message = ConstraintViolation::message($verdict);
+
+        // A page gets the page; a fetch() gets JSON. Handing an HTML
+        // document to caller that asked for JSON — the duty grid, the
+        // gallery uploader — produces a parse error in the browser
+        // instead of the sentence written above, which is the one part
+        // of this the visitor was supposed to see.
+        if ($this->expectsJson($request)) {
+            return (new Response(json_encode(['success' => false, 'error' => $message]), $status))
+                ->setHeader('Content-Type', 'application/json');
+        }
+
+        $html = $this->twig->render('errors/constraint.html.twig', [
+            'constraint_message' => $message,
+        ]);
+
+        return (new Response($html))->setStatusCode($status);
+    }
+
+    /**
+     * Whether this request came from a script rather than a navigation.
+     * Both signals are the caller's own: the body it sent, and what it
+     * said it would accept.
+     */
+    private function expectsJson(Request $request): bool
+    {
+        if (str_contains((string) $request->getServer('CONTENT_TYPE', ''), 'application/json')) {
+            return true;
+        }
+
+        $accept = (string) $request->getServer('HTTP_ACCEPT', '');
+
+        return str_contains($accept, 'application/json') && !str_contains($accept, 'text/html');
     }
 
     /**

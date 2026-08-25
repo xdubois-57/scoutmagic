@@ -102,7 +102,15 @@ test.describe('Camps', () => {
         // a hidden control — see ../support/section-editor.js for the
         // failure mode that helper rules out.
         const dialog = await openSectionEditor(page, 'review-modal');
-        await dialog.locator('select[name="rating"]').selectOption('4');
+        // The note is five radios drawn as stars now, not a dropdown
+        // (modules/camps/views/_rating_input.html.twig). The input itself
+        // is a 1×1 transparent box; the LABEL is the 44px target a finger
+        // actually hits, so that is what this clicks. Asserting the radio
+        // afterwards is what proves the label was wired to the right one —
+        // clicking a label that points at the wrong input looks identical
+        // from the outside, and would silently save a different rating.
+        await dialog.locator('label[for="review-rating-4"]').click();
+        await expect(dialog.getByRole('radio', { name: '4 étoiles sur 5' })).toBeChecked();
         await dialog.locator('textarea[name="comment"]').fill(REVIEW_COMMENT);
         await dialog.getByRole('button', { name: /Enregistrer l'avis/ }).click();
 

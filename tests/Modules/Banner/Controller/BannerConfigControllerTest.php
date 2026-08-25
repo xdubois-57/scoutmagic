@@ -18,6 +18,7 @@ use Core\View\EditableContentService;
 use Modules\Banner\Controller\BannerConfigController;
 use Modules\Banner\Repository\BannerRepository;
 use Modules\Banner\Service\BannerService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Modules\Banner\BannerTestHelper;
 use Twig\Environment;
@@ -203,6 +204,63 @@ class BannerConfigControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
+    }
+
+    /**
+     * The payload a dynamic scan sends, and the reason it reported SQL
+     * injection on this endpoint: `(int) "4/2"` is 2, so the banner the
+     * visitor never named got deleted and the page came back identical
+     * to the original. There is no injection — the statement is prepared
+     * — but acting on an id nobody sent is a real defect, and refusing
+     * the value is what answers both (SECURITY.md § 35).
+     */
+    #[DataProvider('idsThatAreNotIds')]
+    public function testAnIdThatIsNotAWholeNumberIsRefusedRatherThanTruncated(mixed $payload): void
+    {
+        $banner = $this->bannerService->create();
+        $token = $this->csrfToken();
+
+        $response = $this->controller->delete(
+            $this->jsonRequest(['id' => $payload, '_csrf_token' => $token]),
+            []
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertCount(1, $this->bannerService->getAllForConfig(), 'the banner must still be there');
+        $this->assertSame($banner->id, (int) $this->bannerService->getAllForConfig()[0]['id']);
+    }
+
+    /**
+     * @return array<string, array{0: mixed}>
+     */
+    public static function idsThatAreNotIds(): array
+    {
+        return [
+            'the scanner\'s division' => ['4/2'],
+            'the scanner\'s subtraction' => ['4-2'],
+            'a number with a suffix' => ['2abc'],
+            'wider than the column' => ['99999999999999999999'],
+            'zero, which no row has' => [0],
+            'negative' => [-1],
+            'absent' => [null],
+            'blank' => [''],
+        ];
+    }
+
+    /**
+     * Proof the cast really would have acted on a row of its own
+     * choosing: PHP stops at the first non-digit, so both payloads
+     * become 4 — neither the value the visitor sent nor the 2 the
+     * expression evaluates to.
+     */
+    public function testTheCastWouldHaveActedOnARowNobodyNamed(): void
+    {
+        $this->assertSame(4, (int) '4/2');
+        $this->assertSame(4, (int) '4-2');
+        $this->assertNull(\Core\Service\IntegerInput::id('4/2'));
+        $this->assertNull(\Core\Service\IntegerInput::id('4-2'));
     }
 
     public function testUpdateRoleMinPersistsVisibility(): void

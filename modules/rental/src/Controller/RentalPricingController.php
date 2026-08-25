@@ -15,6 +15,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Service\IntegerInput;
 use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Pricing\PricingSettings;
@@ -247,13 +248,13 @@ class RentalPricingController extends AbstractController
 
             $this->availabilityService->saveConstraints(
                 $asset->id,
-                max(0, (int) $request->getBody('min_nights', 0)),
-                max(0, (int) $request->getBody('max_nights', 0)),
-                max(0, (int) $request->getBody('min_notice_days', 0)),
-                max(0, (int) $request->getBody('max_horizon_days', 0)),
+                self::optionalInt($request->getBody('min_nights')) ?? 0,
+                self::optionalInt($request->getBody('max_nights')) ?? 0,
+                self::optionalInt($request->getBody('min_notice_days')) ?? 0,
+                self::optionalInt($request->getBody('max_horizon_days')) ?? 0,
                 is_array($weekdays) ? $weekdays : [],
                 self::optionalInt($request->getBody('max_persons')),
-                max(0, (int) $request->getBody('buffer_nights', 0)),
+                self::optionalInt($request->getBody('buffer_nights')) ?? 0,
                 AuthSession::getUserAccountId()
             );
 
@@ -410,10 +411,23 @@ class RentalPricingController extends AbstractController
         ];
     }
 
+    /**
+     * A blank box means "not filled in"; a filled one has to be a number
+     * the column can hold. Out of range used to reach MySQL, which
+     * refuses it as an uncaught PDOException and a 500 — every one of
+     * these fields is `INT UNSIGNED` (SECURITY.md § 35).
+     *
+     * @throws RentalException when the box holds something that is not
+     *         one of those numbers
+     */
     private static function optionalInt(mixed $value): ?int
     {
         $value = is_string($value) ? trim($value) : $value;
+        if ($value === null || $value === '') {
+            return null;
+        }
 
-        return $value === null || $value === '' ? null : (int) $value;
+        return IntegerInput::unsigned($value)
+            ?? throw new RentalException('Ce nombre n\'est pas valide — saisissez un entier positif.');
     }
 }
