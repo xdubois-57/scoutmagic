@@ -221,6 +221,8 @@ final class UxConventionsTest extends TestCase
         // XLSX download of a campaign's lines — the file the filter
         // on screen selected, never a page.
         '/finance/campaigns/{id}/export',
+        // The PNG of one receivable's QR, fetched by a mail client.
+        '/finance/qr/{id}/{token}',
         '/finance/movements/export',
         '/finance/movements/search',
         '/finance/movements/{id}/attachments',

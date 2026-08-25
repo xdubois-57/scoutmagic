@@ -104,6 +104,33 @@
       "label": ""
     },
     {
+      "path": "/finance/campaigns/{id}/reminder",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\CampaignController",
+      "action": "reminder",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/campaigns/{id}/notify",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\CampaignController",
+      "action": "notify",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/qr/{id}/{token}",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ReceivableQrController",
+      "action": "png",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
       "path": "/finance/reconciliation",
       "method": "GET",
       "controller": "Modules\\Finance\\Controller\\ReconciliationController",

@@ -127,6 +127,11 @@
         {% endif %}
         {% if not campaign.isNotified %}
             {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Familles non notifiées' } only %}
+        {% else %}
+            <span class="text-body-secondary small">
+                <i class="bi bi-bell" aria-hidden="true"></i>
+                Familles prévenues le {{ campaign.notifiedAt|date('d/m/Y') }}
+            </span>
         {% endif %}
     </div>
 
@@ -148,6 +153,22 @@
     </div>
 
     <div class="d-flex flex-wrap gap-2 mb-3">
+        {% if reminder_available|default(false) %}
+            <form method="post" action="/finance/campaigns/{{ campaign.id }}/reminder" class="d-inline">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-primary btn-sm tap-target">
+                    <i class="bi bi-envelope" aria-hidden="true"></i> Brouillon de rappel
+                </button>
+            </form>
+        {% endif %}
+        {% if not campaign.isNotified %}
+            <form method="post" action="/finance/campaigns/{{ campaign.id }}/notify" class="d-inline">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-secondary btn-sm tap-target">
+                    <i class="bi bi-bell" aria-hidden="true"></i> Notifier les familles
+                </button>
+            </form>
+        {% endif %}
         <a class="btn btn-outline-secondary btn-sm tap-target"
            href="/finance/campaigns/{{ campaign.id }}/export?filter={{ filter }}">
             <i class="bi bi-download" aria-hidden="true"></i> Exporter ({{ rows|length }})
@@ -176,6 +197,15 @@
                href="/finance/campaigns/{{ campaign.id }}?filter={{ tab.key }}">{{ tab.label }} ({{ tab.count }})</a>
         {% endfor %}
     </div>
+
+    {% if reminder_available|default(false) %}
+        <div class="alert alert-info" role="alert">
+            <i class="bi bi-envelope" aria-hidden="true"></i>
+            Le brouillon est préparé avec les destinataires, leur montant, leur communication et leur QR —
+            mais <strong>n'est jamais envoyé automatiquement</strong>. Vous le relisez et vous l'envoyez
+            depuis le publipostage.
+        </div>
+    {% endif %}
 
     <p class="text-body-secondary small">
         Triées par nom de famille — les créances d'un même foyer se suivent.

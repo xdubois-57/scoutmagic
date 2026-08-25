@@ -2737,6 +2737,11 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Finance\Controller\ReceivablesController($twig, $financeReceivablesOverviewService)
     );
 
+    // The QR of one receivable, served to a mail client by an
+    // unguessable derived token (ARCHITECTURE.md §8.84): an image in an
+    // e-mail is fetched by a program that has no session and never will.
+    $financeQrTokenService = new \Modules\Finance\Service\ReceivableQrTokenService($encryptionService);
+
     // Payment campaigns (ARCHITECTURE.md §8.82). The import resolves a
     // spreadsheet line to a person through the identifier the site's own
     // member export produces, and through nothing else — hence the plain
@@ -2765,16 +2770,41 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         $memberService,
         $userAccountRepo
     );
-    $frontController->registerController(
-        \Modules\Finance\Controller\CampaignController::class,
-        new \Modules\Finance\Controller\CampaignController(
+    // Everything the campaign controller needs, closed over here where
+    // the finance services live — but NOT registered here. Its reminder
+    // draft is an optional dependency on mass_mail (ARCHITECTURE.md
+    // §7.5), and in a straight-line script that provider does not exist
+    // yet; the closure is called a few hundred lines down, once it does.
+    $financeCampaignControllerFactory = static fn(?\Modules\MassMail\Api\MassMailDraftInterface $draft):
+        \Modules\Finance\Controller\CampaignController => new \Modules\Finance\Controller\CampaignController(
             $twig,
             $financeCampaignService,
             $financeCampaignOverviewService,
             new \Modules\Finance\Service\CampaignExportService(),
+            new \Modules\Finance\Service\CampaignReminderService(
+                $financeCampaignRowRepo,
+                $financeExpectedReceivableRepo,
+                $financeAllocationService,
+                $financeAccountRepo,
+                $memberService,
+                $financeQrTokenService,
+                (string) $settingService->get('base_url'),
+                $draft
+            ),
             $financeService,
             $financeAllocationService,
             $scoutYearService
+        );
+
+    $frontController->registerController(
+        \Modules\Finance\Controller\ReceivableQrController::class,
+        new \Modules\Finance\Controller\ReceivableQrController(
+            $twig,
+            $financeExpectedReceivableRepo,
+            $financeAccountRepo,
+            $financeAllocationService,
+            $financeQrTokenService,
+            $financeSepaQrCodeForOthers
         )
     );
 
@@ -2893,6 +2923,19 @@ if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
     // MemberController is re-registered once, with every optional
     // provider (mass_mail included), in the combined block further down
     // — see the comment there for why.
+}
+
+// Payment campaigns (ARCHITECTURE.md §8.82), registered here rather than
+// in the finance block: the reminder draft is an optional dependency on
+// mass_mail (§7.5) and $massMailDraftForOthers only exists once that
+// block has run. It is null when mass_mail is disabled, which is exactly
+// the graceful degradation the pattern asks for — the button disappears
+// and the campaigns work unchanged.
+if (isset($financeCampaignControllerFactory)) {
+    $frontController->registerController(
+        \Modules\Finance\Controller\CampaignController::class,
+        $financeCampaignControllerFactory($massMailDraftForOthers)
+    );
 }
 
 if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {

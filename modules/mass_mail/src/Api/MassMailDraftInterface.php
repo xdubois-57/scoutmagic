@@ -42,12 +42,23 @@ interface MassMailDraftInterface
      * people who answered with the same address are one recipient, and
      * the first row wins.
      *
+     * $bodyHtml is the draft's starting BODY, sanitized on the way in
+     * like any other. It is optional because a caller that has nothing
+     * useful to say leaves the composer empty, and mandatory in practice
+     * for anything whose body is not the same for everybody: a payment
+     * reminder carries one block per receivable, and the number of blocks
+     * is what the caller knows and the composer cannot guess. Such a body
+     * uses sections ({{#Colonne}} … {{/Colonne}}, Service\MergeRenderer)
+     * so a household with one child does not receive the empty blocks the
+     * household with three needs.
+     *
      * @param string $label      what this audience is, for the composer's own listing
      * @param string $subject    the draft's starting subject line
      * @param string[] $columns  column headers, in order
      * @param list<array{email: string, values: array<string, string>}> $rows
      * @param string $actorRole  the acting account's role, as Core\Security\Role's string value
      * @param string $actorEmail the acting account's address, for resolving its own sections
+     * @param ?string $bodyHtml  the draft's starting body, or null for an empty composer
      * @return string the draft's edit URL
      *
      * @throws \Modules\MassMail\Service\MassMailException when the actor may not send at all,
@@ -60,6 +71,7 @@ interface MassMailDraftInterface
         array $rows,
         string $actorRole,
         string $actorEmail,
-        ?int $actorAccountId
+        ?int $actorAccountId,
+        ?string $bodyHtml = null
     ): string;
 }

@@ -18,6 +18,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Modules\Finance\Service\CampaignExportService;
 use Modules\Finance\Service\CampaignImportException;
+use Modules\Finance\Service\CampaignReminderService;
 use Modules\Finance\Service\CampaignOverviewService;
 use Modules\Finance\Service\CampaignService;
 use Modules\Finance\Service\FinanceException;
@@ -45,6 +46,7 @@ class CampaignController extends AbstractController
         private CampaignService $campaignService,
         private CampaignOverviewService $overviewService,
         private CampaignExportService $exportService,
+        private CampaignReminderService $reminderService,
         private FinanceService $financeService,
         private ReceivableAllocationService $allocationService,
         private ScoutYearService $scoutYears
@@ -146,6 +148,7 @@ class CampaignController extends AbstractController
 
         return $this->render('@finance/campaigns/detail.html.twig', $detail + [
             'filter' => $filter,
+            'reminder_available' => $this->reminderService->isAvailable(),
             'scout_year' => $this->scoutYearLabel($campaign->scoutYearId),
             'account' => $this->financeService->getAccount($campaign->accountId),
             'breadcrumb_trail' => [['label' => 'Campagnes', 'url' => '/finance/campaigns']],
@@ -286,6 +289,87 @@ class CampaignController extends AbstractController
                 $this->allocationService->waive($receivableId, $role, AuthSession::getUserAccountId());
                 FlashMessage::set('success', 'La créance a été abandonnée.');
             }
+        } catch (FinanceException $e) {
+            FlashMessage::set('error', $e->getMessage());
+        }
+
+        return $this->redirect($redirect);
+    }
+
+    /**
+     * POST /finance/campaigns/{id}/reminder
+     *
+     * Prepares a mail-merge draft with the recipients, their amounts,
+     * their communications and their QR — and **sends nothing**. The
+     * treasurer reads it, edits it, and sends it from the mail-merge
+     * screen like any other draft.
+     *
+     * @param array<string, string> $params
+     */
+    public function reminder(Request $request, array $params): Response
+    {
+        $campaignId = (int) ($params['id'] ?? 0);
+        $redirect = '/finance/campaigns/' . $campaignId;
+
+        $csrf = $this->guardCsrf($request, $redirect);
+        if ($csrf !== null) {
+            return $csrf;
+        }
+
+        try {
+            $campaign = $this->campaignService->requireCampaign($campaignId, Role::fromString(AuthSession::getRole()));
+            $url = $this->reminderService->createDraft(
+                $campaign,
+                AuthSession::getRole(),
+                AuthSession::getEmail() ?? '',
+                AuthSession::getUserAccountId()
+            );
+        } catch (FinanceException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect($redirect);
+        } catch (\Throwable $e) {
+            // The mail-merge module's own refusal survives, its internals
+            // do not (AGENTS.md § Exception messages that reach a visitor).
+            FlashMessage::set('error', \Core\Exception\UserFacingMessage::from(
+                $e,
+                "Le brouillon de rappel n'a pas pu être créé. Vérifiez que le publipostage est configuré pour votre section."
+            ));
+
+            return $this->redirect($redirect);
+        }
+
+        FlashMessage::set('success', "Le brouillon est prêt — relisez-le, il n'a pas été envoyé.");
+
+        return $this->redirect($url);
+    }
+
+    /**
+     * POST /finance/campaigns/{id}/notify
+     *
+     * "Les familles ont été prévenues." A separate, explicit gesture,
+     * because the reminder leaves by hand from the mail-merge screen and
+     * the site cannot know when it actually went out.
+     *
+     * @param array<string, string> $params
+     */
+    public function notify(Request $request, array $params): Response
+    {
+        $campaignId = (int) ($params['id'] ?? 0);
+        $redirect = '/finance/campaigns/' . $campaignId;
+
+        $csrf = $this->guardCsrf($request, $redirect);
+        if ($csrf !== null) {
+            return $csrf;
+        }
+
+        try {
+            $this->campaignService->markNotified(
+                $campaignId,
+                Role::fromString(AuthSession::getRole()),
+                AuthSession::getUserAccountId()
+            );
+            FlashMessage::set('success', 'Les familles sont marquées comme prévenues.');
         } catch (FinanceException $e) {
             FlashMessage::set('error', $e->getMessage());
         }

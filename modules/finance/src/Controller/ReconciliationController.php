@@ -226,7 +226,9 @@ class ReconciliationController extends AbstractController
         }
         \assert($account !== null);
 
-        $settlement = $this->allocations->settlementFor($receivable);
+        // Refreshed rather than read: the amount on a QR somebody is
+        // about to scan is the one thing that must never be stale.
+        $settlement = $this->allocations->refreshAndSettle([$receivable])[$receivable->id];
         $remaining = $settlement->amountRemainingCents();
 
         $png = null;

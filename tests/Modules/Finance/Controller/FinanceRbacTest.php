@@ -363,6 +363,16 @@ class FinanceRbacTest extends TestCase
                 new \Core\Security\UserAccountRepository($this->pdo, $encryption)
             ),
             new \Modules\Finance\Service\CampaignExportService(),
+            new \Modules\Finance\Service\CampaignReminderService(
+                $campaignRowRepository,
+                $this->expectedReceivableRepository,
+                FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
+                $this->accountRepository,
+                $this->memberServiceForCampaigns(),
+                new \Modules\Finance\Service\ReceivableQrTokenService($encryption),
+                'https://scoutmagic.test',
+                null
+            ),
             $this->financeService,
             FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
             $scoutYearService

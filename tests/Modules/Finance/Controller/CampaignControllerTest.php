@@ -126,6 +126,17 @@ class CampaignControllerTest extends TestCase
                 new UserAccountRepository($this->pdo, $this->encryption)
             ),
             new CampaignExportService(),
+            new \Modules\Finance\Service\CampaignReminderService(
+                $this->rows,
+                $this->receivables,
+                $allocations,
+                $accountRepository,
+                new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+                new \Modules\Finance\Service\ReceivableQrTokenService($this->encryption),
+                'https://scoutmagic.test',
+                // mass_mail disabled: the button is simply not offered.
+                null
+            ),
             $financeService,
             $allocations,
             $scoutYearService
@@ -329,6 +340,59 @@ class CampaignControllerTest extends TestCase
         );
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Clôturée', $response->getBody());
+    }
+
+    /**
+     * With the mail-merge module off, the button is not offered at all —
+     * the campaign works exactly as before (ARCHITECTURE.md §7.5).
+     */
+    public function testWithoutTheMailMergeModuleTheReminderButtonIsNotOffered(): void
+    {
+        $campaignId = $this->createCampaign();
+
+        $body = $this->controller->show(
+            new Request('GET', '/finance/campaigns/' . $campaignId, [], [], [], []),
+            ['id' => (string) $campaignId]
+        )->getBody();
+
+        $this->assertStringNotContainsString('Brouillon de rappel', $body);
+    }
+
+    public function testTheDetailPageOffersToMarkTheFamiliesNotified(): void
+    {
+        $campaignId = $this->createCampaign();
+
+        $body = $this->controller->show(
+            new Request('GET', '/finance/campaigns/' . $campaignId, [], [], [], []),
+            ['id' => (string) $campaignId]
+        )->getBody();
+
+        $this->assertStringContainsString('Familles non notifiées', $body);
+        $this->assertStringContainsString('Notifier les familles', $body);
+    }
+
+    /**
+     * The mark is a separate gesture because the reminder leaves by hand
+     * from the mail-merge screen: the site cannot know when the request
+     * actually went out.
+     */
+    public function testMarkingTheFamiliesNotifiedRecordsItAndDropsTheBadge(): void
+    {
+        $campaignId = $this->createCampaign();
+
+        $response = $this->controller->notify(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken()], [], []),
+            ['id' => (string) $campaignId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertTrue($this->campaigns->findById($campaignId)?->isNotified());
+
+        $body = $this->controller->show(
+            new Request('GET', '/finance/campaigns/' . $campaignId, [], [], [], []),
+            ['id' => (string) $campaignId]
+        )->getBody();
+        $this->assertStringNotContainsString('Familles non notifiées', $body);
     }
 
     // ── helpers ─────────────────────────────────────────────────────────
