@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Security;
 
+use Core\Service\DateInput;
+
 /**
  * Same conventions as Core\Security\PasswordResetRepository: every
  * timestamp comparison is computed in PHP and bound as a parameter rather
@@ -110,10 +112,10 @@ class MagicLinkRepository
             id: (int) $row['id'],
             emailBlindIndex: $row['email_blind_index'],
             tokenHash: $row['token_hash'],
-            expiresAt: new \DateTimeImmutable($row['expires_at']),
+            expiresAt: DateInput::requireFromStorage((string) $row['expires_at'], 'expires_at'),
             used: (bool) $row['used'],
-            confirmedAt: !empty($row['confirmed_at']) ? new \DateTimeImmutable($row['confirmed_at']) : null,
-            createdAt: new \DateTimeImmutable($row['created_at'])
+            confirmedAt: DateInput::fromStorage($row['confirmed_at'] === null ? null : (string) $row['confirmed_at']),
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
         );
     }
 }

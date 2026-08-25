@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Client;
 
+use Core\Service\DateInput;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Mailbox\MailboxCredentials;
 use Webklex\PHPIMAP\Attachment;
@@ -233,7 +234,10 @@ class ImapMailboxClient implements IncomingMailboxClientInterface
     {
         $date = $message->getDate()->first();
         if (is_object($date) && method_exists($date, 'format')) {
-            return new \DateTimeImmutable((string) $date->format('Y-m-d H:i:s'));
+            $sent = DateInput::fromStorage((string) $date->format('Y-m-d H:i:s'));
+            if ($sent !== null) {
+                return $sent;
+            }
         }
 
         // A message with no parseable Date: is still a message. Dropping it

@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Service;
 
+use Core\Service\DateInput;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Repository\RentalAggregateRepository;
@@ -104,15 +105,15 @@ class RentalStatisticsService
             return false;
         }
 
-        $arrival = new \DateTimeImmutable($booking->arrivalDate);
+        $arrival = DateInput::requireFromStorage($booking->arrivalDate, 'rental_bookings.arrival_date');
 
         return $arrival >= $from && $arrival <= $to;
     }
 
     private static function occupiedDays(RentalBooking $booking): int
     {
-        $arrival = new \DateTimeImmutable($booking->arrivalDate);
-        $departure = new \DateTimeImmutable($booking->departureDate);
+        $arrival = DateInput::requireFromStorage($booking->arrivalDate, 'rental_bookings.arrival_date');
+        $departure = DateInput::requireFromStorage($booking->departureDate, 'rental_bookings.departure_date');
 
         return max(1, (int) $arrival->diff($departure)->format('%a'));
     }

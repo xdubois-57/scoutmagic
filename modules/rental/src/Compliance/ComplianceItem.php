@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Compliance;
 
+use Core\Service\DateInput;
+
 /**
  * One entry in an asset's paperwork register (§6.33).
  *
@@ -41,8 +43,18 @@ class ComplianceItem
      */
     public function hasExpired(\DateTimeImmutable $today): bool
     {
-        return $this->expiresOn !== null
-            && new \DateTimeImmutable($this->expiresOn) < $today->setTime(0, 0);
+        if ($this->expiresOn === null) {
+            return false;
+        }
+
+        $expiry = $this->expiry();
+
+        // A date that is there but unreadable counts as expired. That is
+        // the direction compliance has to fail in — "we cannot read the
+        // date on this certificate" is not a reason to call an asset
+        // compliant — and it is also what the old reading did: MySQL's
+        // zero date came back as the year -1, comfortably in the past.
+        return $expiry === null || $expiry < $today->setTime(0, 0);
     }
 
     /**
@@ -54,7 +66,10 @@ class ComplianceItem
             return false;
         }
 
-        return new \DateTimeImmutable($this->expiresOn) <= $today->setTime(0, 0)->modify('+' . $days . ' days');
+        $expiry = $this->expiry();
+        \assert($expiry !== null); // hasExpired() answered true for an unreadable one
+
+        return $expiry <= $today->setTime(0, 0)->modify('+' . $days . ' days');
     }
 
     /**
@@ -68,6 +83,21 @@ class ComplianceItem
             return null;
         }
 
-        return (int) $today->setTime(0, 0)->diff(new \DateTimeImmutable($this->expiresOn))->format('%r%a');
+        $expiry = $this->expiry();
+        if ($expiry === null) {
+            return null;
+        }
+
+        return (int) $today->setTime(0, 0)->diff($expiry)->format('%r%a');
+    }
+
+    /**
+     * The date on the entry, or null when there is none — or when what is
+     * stored is not a date. hasExpired() is the one place that tells those
+     * two apart, because they need opposite answers there.
+     */
+    private function expiry(): ?\DateTimeImmutable
+    {
+        return DateInput::fromStorage($this->expiresOn);
     }
 }

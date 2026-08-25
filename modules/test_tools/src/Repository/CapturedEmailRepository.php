@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\TestTools\Repository;
 
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 use Modules\TestTools\Service\CapturedEmail;
 
 /**
@@ -363,7 +364,7 @@ class CapturedEmailRepository
     {
         return new CapturedEmail(
             id: (int) $row['id'],
-            capturedAt: new \DateTimeImmutable((string) $row['captured_at']),
+            capturedAt: DateInput::requireFromStorage((string) $row['captured_at'], 'captured_at'),
             subject: (string) $row['subject'],
             recipient: $this->encryption->decrypt((string) $row['recipient'], self::ENCRYPTION_PURPOSE),
             fromAddress: (string) $row['from_address'],

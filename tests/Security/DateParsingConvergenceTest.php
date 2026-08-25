@@ -29,15 +29,17 @@ use PHPUnit\Framework\TestCase;
  * same reasoning, and the same shape of test, as
  * `HttpsDetectionConvergenceTest`.
  *
- * **What this does NOT cover, deliberately.** `new DateTimeImmutable($v)`
+ * **The other constructor has its own test.** `new DateTimeImmutable($v)`
  * has the opposite trap — it throws on "../../.." but silently answers
- * *the current moment* for `""`, `"now"` and `"a\0b"` — and there are
- * some forty call sites, nearly all reading a column that should hold a
- * timestamp. `DateInput::fromStorage()` is the safe replacement and is
- * used where a value's origin is untrusted, but converting the rest is a
- * migration of its own and is not claimed here. A reader of this file
- * should not conclude that every date parse in the project is guarded —
- * only every `createFromFormat`.
+ * *the current moment* for `""`, `"now"` and `"a\0b"`. All 161 of those
+ * call sites were converted to `DateInput::fromStorage()` and
+ * `::requireFromStorage()`;
+ * `Tests\Security\StoredDateReadingRatchetTest` bans the rest, with five
+ * named exceptions, and
+ * `Tests\Core\Service\DateInputEquivalenceTest` is what proves the
+ * conversion answers the same thing the constructor did. So this file
+ * covers `createFromFormat` and only `createFromFormat` — but a reader
+ * can now conclude that both halves are guarded.
  */
 class DateParsingConvergenceTest extends TestCase
 {

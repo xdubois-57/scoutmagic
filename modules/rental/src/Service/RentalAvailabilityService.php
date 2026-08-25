@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Journal\JournalService;
+use Core\Service\DateInput;
 use Core\View\MonthGrid\DayState;
 use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Availability\BookingConstraints;
@@ -192,7 +193,7 @@ class RentalAvailabilityService
         $constraints = $this->constraintsFor($asset->id);
         $pad = $this->windowPadDays($constraints);
 
-        $first = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $first = DateInput::firstOfMonth($year, $month);
         $occupancies = $this->occupanciesFor(
             $asset->id,
             $first->modify('-' . $pad . ' days'),

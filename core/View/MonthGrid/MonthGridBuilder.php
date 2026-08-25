@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\View\MonthGrid;
 
+use Core\Service\DateInput;
+
 /**
  * Builds an iCal-style month grid — one entry per week (rows), each with 7
  * days (columns, Monday first) plus a list of event "bars" laid out so
@@ -40,7 +42,7 @@ class MonthGridBuilder
      */
     public function build(int $year, int $month, array $events, int $maxVisibleRows = self::DEFAULT_MAX_VISIBLE_ROWS): array
     {
-        $firstOfMonth = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $firstOfMonth = DateInput::firstOfMonth($year, $month);
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
 
         $isoWeekdayOfFirst = (int) $firstOfMonth->format('N'); // 1 (Mon) .. 7 (Sun)

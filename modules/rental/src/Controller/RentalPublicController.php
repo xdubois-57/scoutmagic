@@ -290,7 +290,7 @@ class RentalPublicController extends AbstractController
     private function previousMonth(int $year, int $month, \DateTimeImmutable $today): ?string
     {
         $current = $today->modify('first day of this month');
-        $shown = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $shown = DateInput::firstOfMonth($year, $month);
 
         if ($shown <= $current) {
             return null;
@@ -301,7 +301,7 @@ class RentalPublicController extends AbstractController
 
     private function nextMonth(int $year, int $month, \DateTimeImmutable $today): ?string
     {
-        $shown = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $shown = DateInput::firstOfMonth($year, $month);
         $latest = $today->modify('first day of this month')->modify('+' . self::MAX_MONTHS_AHEAD . ' months');
 
         if ($shown >= $latest) {
@@ -382,8 +382,8 @@ class RentalPublicController extends AbstractController
             'errors' => $this->availabilityService->validateRange(
                 $asset,
                 $pricing->billingUnit,
-                new \DateTimeImmutable($selection[0]),
-                new \DateTimeImmutable($selection[1]),
+                DateInput::requireFromStorage($selection[0], 'the selected arrival date'),
+                DateInput::requireFromStorage($selection[1], 'the selected departure date'),
                 $units,
                 $today,
                 $persons > 0 ? $persons : null

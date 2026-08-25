@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Repository;
 
 use Core\File\AttachedFileRepository;
+use Core\Service\DateInput;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 
@@ -274,9 +275,9 @@ class RentalDocumentRepository implements AttachedFileRepository
             isForRenter: (bool) $row['is_for_renter'],
             originalName: isset($row['original_name']) ? (string) $row['original_name'] : null,
             sizeBytes: isset($row['size_bytes']) ? (int) $row['size_bytes'] : null,
-            sentAt: $row['sent_at'] !== null ? new \DateTimeImmutable((string) $row['sent_at']) : null,
+            sentAt: DateInput::fromStorage($row['sent_at'] === null ? null : (string) $row['sent_at']),
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
-            createdAt: new \DateTimeImmutable((string) $row['created_at']),
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
             source: isset($row['source']) && (string) $row['source'] !== ''
                 ? (string) $row['source']
                 : RentalDocument::SOURCE_MANUAL

@@ -7,130 +7,71 @@ namespace Tests\Security;
 use PHPUnit\Framework\TestCase;
 
 /**
- * A ratchet on `new \DateTimeImmutable($variable)`.
+ * `new \DateTimeImmutable($variable)` is banned, with four exceptions
+ * named below.
  *
  * The constructor has two edges, and they pull in opposite directions:
  * it THROWS on a malformed string, and it silently answers *the current
  * moment* for `''`, `'now'` and `"a\0b"`. So the same call turns one bad
  * value into a 500 and another into today's date, believed and stored.
- * `Core\Service\DateInput::fromStorage()` answers null for both
- * (SECURITY.md § 35).
+ * `Core\Service\DateInput::fromStorage()` answers null for both, and
+ * `::requireFromStorage()` answers loudly (SECURITY.md § 35).
  *
- * WHY A RATCHET AND NOT A BAN
+ * This started as a ratchet over 161 sites. It is now a ban, because all
+ * 161 were converted and the equivalence was pinned test-by-test in
+ * Tests\Core\Service\DateInputEquivalenceTest — which is the file to
+ * read before doubting that the conversion preserved behaviour.
  *
- * The 161 sites below are not equally exposed, and pretending otherwise
- * would be the wrong kind of tidy. Most read a `DATETIME` column, and
- * MySQL will not let a malformed value into one — that is what makes
- * them low-risk. It is NOT what makes them checked: MySQL's zero date
- * (`0000-00-00`) passes the column and PHP reads it as the 30th of
- * November, year -1, and a nullable column read without a guard gives
- * the empty string, which is *now*.
+ * WHY EXCEPTIONS AND NOT ZERO
  *
- * Converting all 161 at once would mean 158 decisions about what a null
- * should do at each call site, in files nobody is otherwise touching —
- * churn with a real chance of introducing the bug it is meant to
- * prevent. So the list is frozen instead: no NEW site may appear, and
- * the ones here come off as their files are touched for other reasons.
+ * `fromStorage()` refuses a relative expression on purpose: a stored
+ * moment that reads differently every time is not a stored moment. But
+ * "+1 day" and "Mon, 12 Jul 2027 09:30:00 +0200" are both perfectly
+ * legitimate arguments to the constructor — they are simply not values
+ * that came out of a column. Forcing those four through a reader built
+ * to refuse them would be the wrong kind of tidy: the code would look
+ * uniform and do less.
  *
- * The most exposed family is the one this does NOT protect on its own:
- * a value from a SETTING, an import or a JSON payload has no column type
- * behind it. When one of those files appears in a diff, that is the
- * moment to convert it.
+ * So each exception carries its reason here, and the reason is repeated
+ * at the call site. A fifth one is a decision somebody has to defend in
+ * this file, which is the entire point.
  *
  * BOTH DIRECTIONS, like Tests\Core\View\UxConventionsTest: a new site
- * fails, and so does a stale entry for a file that has been fixed. A
- * list that only shrinks is a list that stays true; one that is merely
- * "not exceeded" drifts into fiction.
+ * fails, and so does a stale entry for a file that no longer has one.
  */
 class StoredDateReadingRatchetTest extends TestCase
 {
     /**
-     * Files calling `new \DateTimeImmutable($variable)`, and how many
-     * times. A literal — `new \DateTimeImmutable()`, `'now'`, `'+1 day'`
-     * — is not counted: it cannot come from anywhere untrusted.
+     * The four files allowed to call the constructor with a variable, and
+     * why. Permanent — this is not debt, and it is not a budget for the
+     * next person to spend.
      *
-     * @var array<string, int>
+     * @var array<string, array{count: int, reason: string}>
      */
-    private const ALLOWLIST = [
-        'core/Http/Controller/MaintenanceController.php' => 1,
-        'core/Http/Controller/NotificationController.php' => 3,
-        'core/Http/Controller/PageController.php' => 1,
-        'core/Http/Controller/SupportController.php' => 2,
-        'core/Http/FrontController.php' => 1,
-        'core/Import/ImportRecord.php' => 1,
-        'core/Import/RosterComparisonRepository.php' => 1,
-        'core/Import/RosterSnapshotRepository.php' => 1,
-        'core/Maintenance/Task/AutoBackupHandler.php' => 1,
-        'core/Maintenance/UpdateHistoryRepository.php' => 1,
-        'core/Member/DepartureRepository.php' => 1,
-        'core/Member/Export/MemberExportService.php' => 1,
-        'core/Member/MemberEmailRepository.php' => 5,
-        'core/Member/MemberService.php' => 1,
-        'core/Member/SectionDocumentRepository.php' => 1,
-        'core/Scheduler/SchedulerService.php' => 1,
-        'core/Security/LoginThrottler.php' => 1,
-        'core/Security/MagicLinkRepository.php' => 3,
-        'core/Security/PasswordResetRepository.php' => 2,
-        'core/Security/UserAccountRepository.php' => 3,
-        'core/Service/DateInput.php' => 1,
-        'core/Statistics/InstallationDateService.php' => 1,
-        'core/Statistics/StatisticsPayloadBuilder.php' => 1,
-        'core/Statistics/StatisticsSender.php' => 1,
-        'core/Support/Collector/EventJournalCollector.php' => 1,
-        'core/Support/Collector/UpdateHistoryCollector.php' => 3,
-        'core/Support/SupportPackageService.php' => 1,
-        'core/View/MonthGrid/DayStateGridBuilder.php' => 1,
-        'core/View/MonthGrid/MonthGridBuilder.php' => 1,
-        'modules/calendar/src/Service/CalendarNotificationService.php' => 2,
-        'modules/calendar/src/Service/CalendarRetroAutoCreateService.php' => 2,
-        'modules/calendar/src/Service/CalendarService.php' => 1,
-        'modules/calendar/src/Service/IcsBuilder.php' => 9,
-        'modules/calendar/src/Task/AutoCreateRetroHandler.php' => 1,
-        'modules/camps/src/Mail/CampsMessageConsumer.php' => 2,
-        'modules/camps/src/Service/CampLabels.php' => 2,
-        'modules/fees/src/Repository/IgnoredHouseholdRepository.php' => 1,
-        'modules/fees/src/Repository/InvoiceRepository.php' => 1,
-        'modules/fees/src/Service/InvoiceVerificationService.php' => 1,
-        'modules/finance/src/Controller/MovementController.php' => 5,
-        'modules/finance/src/Service/AiCategorizationService.php' => 1,
-        'modules/finance/src/Service/FinanceService.php' => 2,
-        'modules/finance/src/Service/ImportService.php' => 1,
-        'modules/finance/src/Service/ReceiptMatchingService.php' => 2,
-        'modules/finance/src/Task/PurgeOldMovementsHandler.php' => 1,
-        'modules/groups/src/Support/Timestamps.php' => 1,
-        'modules/inbound_mail/src/Client/ImapMailboxClient.php' => 1,
-        'modules/inbound_mail/src/Mime/MimeMessageParser.php' => 1,
-        'modules/inbound_mail/src/Repository/InboundMailboxRepository.php' => 2,
-        'modules/inbound_mail/src/Repository/InboundMessageRepository.php' => 1,
-        'modules/registration/src/Repository/RegistrationRequestRepository.php' => 4,
-        'modules/registration/src/Repository/RegistrationSecondaryEmailRepository.php' => 5,
-        'modules/rental/src/Availability/AvailabilityCalculator.php' => 6,
-        'modules/rental/src/Availability/MonthWindow.php' => 1,
-        'modules/rental/src/Booking/MilestoneEvidence.php' => 1,
-        'modules/rental/src/Compliance/ComplianceItem.php' => 3,
-        'modules/rental/src/Controller/RentalPublicController.php' => 4,
-        'modules/rental/src/Controller/RentalRequestController.php' => 2,
-        'modules/rental/src/Mail/RentalMessageConsumer.php' => 1,
-        'modules/rental/src/Pricing/PricingRequest.php' => 4,
-        'modules/rental/src/Reminder/ReminderPlanner.php' => 5,
-        'modules/rental/src/Repository/RentalBlockRepository.php' => 1,
-        'modules/rental/src/Repository/RentalBookingCommentRepository.php' => 1,
-        'modules/rental/src/Repository/RentalBookingRepository.php' => 5,
-        'modules/rental/src/Repository/RentalChangeRequestRepository.php' => 2,
-        'modules/rental/src/Repository/RentalComplianceRepository.php' => 2,
-        'modules/rental/src/Repository/RentalDocumentRepository.php' => 2,
-        'modules/rental/src/Repository/RentalStayRepository.php' => 5,
-        'modules/rental/src/Service/RentalAvailabilityService.php' => 1,
-        'modules/rental/src/Service/RentalOperationsService.php' => 4,
-        'modules/rental/src/Service/RentalRetentionService.php' => 3,
-        'modules/rental/src/Service/RentalStatisticsService.php' => 3,
-        'modules/retro/src/Service/BoardService.php' => 2,
-        'modules/sos_staff/src/Controller/SosAdminController.php' => 4,
-        'modules/sos_staff/src/Service/CalendarSyncService.php' => 1,
-        'modules/sos_staff/src/Service/OnCallService.php' => 3,
-        'modules/support_dashboard/src/Service/StatisticsIntakeService.php' => 1,
-        'modules/support_dashboard/src/Service/SupportDashboardService.php' => 1,
-        'modules/test_tools/src/Repository/CapturedEmailRepository.php' => 1,
+    private const DELIBERATE = [
+        'core/Service/DateInput.php' => [
+            'count' => 1,
+            'reason' => 'The home. Every other reading in the project goes through this one, '
+                . 'inside the try/catch that is the whole point of the class.',
+        ],
+        'core/Scheduler/SchedulerService.php' => [
+            'count' => 1,
+            'reason' => 'rearm() takes a strtotime-style expression ("tomorrow 05:00") from a '
+                . 'task handler in this repository, never from a request. The one edge worth '
+                . 'closing — the empty string, which is *now* — is refused explicitly there.',
+        ],
+        'core/Maintenance/Task/AutoBackupHandler.php' => [
+            'count' => 1,
+            'reason' => 'A relative expression looked up in a class constant with a literal '
+                . 'fallback, so the value is always one of this class\'s own constants.',
+        ],
+        'modules/inbound_mail/src/Mime/MimeMessageParser.php' => [
+            'count' => 1,
+            'reason' => 'An RFC 2822 Date: header, not a stored timestamp. fromStorage() '
+                . 'requires the value to open with an ISO calendar date and would refuse every '
+                . 'well-formed mail header there is. The blank and the malformed value are both '
+                . 'already handled at the call site.',
+        ],
     ];
 
     /**
@@ -180,24 +121,27 @@ class StoredDateReadingRatchetTest extends TestCase
         return $found;
     }
 
-    public function testNoNewSiteReadsADateWithTheRawConstructor(): void
+    public function testNoSiteReadsADateWithTheRawConstructor(): void
     {
-        $new = [];
+        $offenders = [];
 
         foreach (self::found() as $file => $count) {
-            $allowed = self::ALLOWLIST[$file] ?? 0;
+            $allowed = self::DELIBERATE[$file]['count'] ?? 0;
             if ($count > $allowed) {
-                $new[] = "{$file}: {$count} (allowlist: {$allowed})";
+                $offenders[] = "{$file}: {$count} (deliberate: {$allowed})";
             }
         }
 
         $this->assertSame(
             [],
-            $new,
-            "Read the value through Core\\Service\\DateInput::fromStorage() instead.\n"
-            . "`new DateTimeImmutable(\$v)` throws on a malformed string AND answers *now* for an empty\n"
-            . "one — so one bad value 500s the page and another silently becomes today's date:\n"
-            . implode("\n", $new)
+            $offenders,
+            "Read the value through Core\\Service\\DateInput::fromStorage() — or\n"
+            . "::requireFromStorage() where the schema says the value is always there.\n"
+            . "`new DateTimeImmutable(\$v)` throws on a malformed string AND answers *now* for an\n"
+            . "empty one, so one bad value 500s the page and another silently becomes today's date.\n"
+            . "If this really is a relative expression or a mail header rather than a stored\n"
+            . "moment, add it to self::DELIBERATE with the reason, and say the same at the call\n"
+            . "site:\n" . implode("\n", $offenders)
         );
     }
 
@@ -206,15 +150,16 @@ class StoredDateReadingRatchetTest extends TestCase
      * the codebase as it was, and a file that was cleaned up keeps its
      * budget for the next person to spend.
      */
-    public function testTheAllowlistOnlyEverShrinks(): void
+    public function testTheListOfDeliberateSitesIsNotStale(): void
     {
         $found = self::found();
         $stale = [];
 
-        foreach (self::ALLOWLIST as $file => $allowed) {
+        foreach (self::DELIBERATE as $file => $exception) {
             $count = $found[$file] ?? 0;
-            if ($count < $allowed) {
-                $stale[] = "{$file} is listed for {$allowed} but now has {$count} — shrink the allowlist";
+            if ($count < $exception['count']) {
+                $stale[] = "{$file} is listed for {$exception['count']} but now has {$count}"
+                    . ' — shrink or remove the entry';
             }
         }
 
@@ -222,12 +167,29 @@ class StoredDateReadingRatchetTest extends TestCase
     }
 
     /**
-     * The safe reading exists and is the one to reach for. Pinned so the
-     * failure message above never points at something that was deleted.
+     * An exception with no reason is an allowlist entry wearing a
+     * disguise. This is what stops the list growing back.
+     */
+    public function testEveryDeliberateSiteSaysWhy(): void
+    {
+        foreach (self::DELIBERATE as $file => $exception) {
+            $this->assertGreaterThan(
+                80,
+                strlen($exception['reason']),
+                "{$file} needs a real reason, not a label"
+            );
+        }
+    }
+
+    /**
+     * The safe readings exist and are the ones to reach for. Pinned so
+     * the failure message above never points at something that was
+     * deleted.
      */
     public function testTheReplacementExists(): void
     {
         $this->assertTrue(method_exists(\Core\Service\DateInput::class, 'fromStorage'));
+        $this->assertTrue(method_exists(\Core\Service\DateInput::class, 'requireFromStorage'));
         $this->assertNull(\Core\Service\DateInput::fromStorage(''));
         $this->assertNull(\Core\Service\DateInput::fromStorage('0000-00-00 00:00:00'));
     }

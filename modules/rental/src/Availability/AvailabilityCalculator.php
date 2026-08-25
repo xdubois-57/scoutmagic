@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Availability;
 
+use Core\Service\DateInput;
 use Core\View\MonthGrid\DayState;
 use Modules\Rental\Pricing\BillingUnit;
 
@@ -108,7 +109,7 @@ class AvailabilityCalculator
      */
     private function lastOccupiedDay(Occupancy $occupancy, BillingUnit $billingUnit, int $bufferNights): string
     {
-        $departure = new \DateTimeImmutable($occupancy->departureDate);
+        $departure = DateInput::requireFromStorage($occupancy->departureDate, 'an occupancy departure date');
 
         $last = ($billingUnit->isNightBased() && !$occupancy->endDateIsHeld)
             ? $departure->modify('-1 day')
@@ -120,7 +121,7 @@ class AvailabilityCalculator
 
         // A same-day occupancy in a nights model would otherwise end before
         // it starts. It still holds its arrival day: somebody has the thing.
-        $arrival = new \DateTimeImmutable($occupancy->arrivalDate);
+        $arrival = DateInput::requireFromStorage($occupancy->arrivalDate, 'an occupancy arrival date');
 
         return max($last->format('Y-m-d'), $arrival->format('Y-m-d'));
     }
@@ -339,7 +340,7 @@ class AvailabilityCalculator
         // produced for the padding days of the adjacent months too —
         // otherwise a booking running across the month boundary would appear
         // to stop at the first of the month.
-        $first = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $first = DateInput::firstOfMonth($year, $month);
         $from = $first->modify('-7 days');
         $to = $first->modify('last day of this month')->modify('+7 days');
 
@@ -463,16 +464,24 @@ class AvailabilityCalculator
             return [];
         }
 
-        $arrival = new \DateTimeImmutable($selection[0]);
-        $departureRaw = $selection[1] ?? null;
+        // The selection reaches this class already read through DateInput
+        // (the controller's resolveSelection()), so a value that is not a
+        // date here is a bug in the caller, not a visitor's doing.
+        $arrival = DateInput::fromStorage($selection[0]);
+        if ($arrival === null) {
+            return [];
+        }
 
-        if ($departureRaw === null || $departureRaw === '') {
+        $departureRaw = $selection[1] ?? null;
+        $departure = DateInput::fromStorage($departureRaw);
+
+        if ($departure === null) {
             // First tap: only the arrival is chosen yet.
             return [$arrival->format('Y-m-d') => true];
         }
 
         $days = [];
-        foreach ($this->daysCoveredByStay($arrival, new \DateTimeImmutable($departureRaw), $billingUnit) as $day) {
+        foreach ($this->daysCoveredByStay($arrival, $departure, $billingUnit) as $day) {
             $days[$day->format('Y-m-d')] = true;
         }
 
@@ -480,7 +489,7 @@ class AvailabilityCalculator
         // nights model, where it is not billed: a visitor who picked "17 to
         // 20" expects to see the 20th highlighted, and a gap there reads as
         // a bug rather than as a subtlety of night counting.
-        $days[(new \DateTimeImmutable($departureRaw))->format('Y-m-d')] = true;
+        $days[$departure->format('Y-m-d')] = true;
 
         return $days;
     }

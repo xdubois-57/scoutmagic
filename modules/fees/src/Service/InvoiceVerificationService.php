@@ -10,6 +10,7 @@ namespace Modules\Fees\Service;
 
 use Core\Member\HouseholdFeeCategory;
 use Core\Member\SectionService;
+use Core\Service\DateInput;
 use Modules\Fees\HouseholdCategoryLabel;
 use Modules\Fees\Invoice\InvoiceLine;
 use Modules\Fees\Repository\HouseholdDetailRepository;
@@ -446,7 +447,10 @@ class InvoiceVerificationService
             if ($snapshot->id !== $invoice->snapshotId) {
                 continue;
             }
-            $issued = new \DateTimeImmutable($invoice->issueDate);
+            $issued = DateInput::fromStorage($invoice->issueDate);
+            if ($issued === null) {
+                return null;
+            }
 
             return (int) $issued->diff($snapshot->takenAt->setTime(0, 0))->format('%r%a');
         }

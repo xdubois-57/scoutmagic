@@ -13,6 +13,7 @@ use Core\Config\SettingService;
 use Core\Notification\NotificationService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\UserAccountRepository;
+use Core\Service\DateInput;
 use Modules\Calendar\Repository\CalendarEvent;
 use Modules\Calendar\Repository\CalendarEventRepository;
 
@@ -118,7 +119,7 @@ class CalendarNotificationService
         }
 
         $now = new \DateTimeImmutable();
-        $eventStart = new \DateTimeImmutable($event->startDate);
+        $eventStart = DateInput::requireFromStorage($event->startDate, 'calendar_events.start_date');
         if ($eventStart <= $now) {
             return; // already started/passed — nothing to remind about
         }
@@ -232,7 +233,7 @@ class CalendarNotificationService
         }
 
         $now = new \DateTimeImmutable();
-        $eventStart = new \DateTimeImmutable($event->startDate);
+        $eventStart = DateInput::requireFromStorage($event->startDate, 'calendar_events.start_date');
         [$hour, $minute] = array_map('intval', explode(':', self::REMINDER_HOUR));
         $runAt = $eventStart->modify('-1 day')->setTime($hour, $minute);
 

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Member;
 
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 
 /**
  * member_years.leaving/leaving_marked_at/leaving_comment_encrypted —
@@ -75,7 +76,7 @@ class DepartureRepository
 
         return new DepartureStatus(
             leaving: (bool) $row['leaving'],
-            markedAt: $row['leaving_marked_at'] !== null ? new \DateTimeImmutable($row['leaving_marked_at']) : null,
+            markedAt: DateInput::fromStorage($row['leaving_marked_at'] === null ? null : (string) $row['leaving_marked_at']),
             comment: $row['leaving_comment_encrypted'] !== null ? $this->encryption->decrypt($row['leaving_comment_encrypted'], 'member_years.leaving_comment') : null
         );
     }

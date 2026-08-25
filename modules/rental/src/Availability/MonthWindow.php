@@ -97,7 +97,7 @@ final class MonthWindow
 
     public function firstDay(): \DateTimeImmutable
     {
-        return new \DateTimeImmutable(sprintf('%04d-%02d-01', $this->year, $this->month));
+        return DateInput::firstOfMonth($this->year, $this->month);
     }
 
     public function lastDay(): \DateTimeImmutable

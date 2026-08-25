@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\InboundMail\Repository;
 
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 use Modules\InboundMail\Api\InboundAttachment;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
@@ -418,7 +419,7 @@ class InboundMessageRepository
             inReplyTo: $row['in_reply_to_encrypted'] !== null
                 ? $this->encryption->decrypt((string) $row['in_reply_to_encrypted'], 'inbound_messages.in_reply_to')
                 : null,
-            sentAt: new \DateTimeImmutable((string) $row['sent_at']),
+            sentAt: DateInput::requireFromStorage((string) $row['sent_at'], 'sent_at'),
             bodyText: $this->encryption->decrypt((string) $row['body_text_encrypted'], 'inbound_messages.body_text'),
             bodyHtml: $this->encryption->decrypt((string) $row['body_html_encrypted'], 'inbound_messages.body_html'),
             toEmails: $toEmails,

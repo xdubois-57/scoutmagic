@@ -12,6 +12,7 @@ use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
+use Core\Service\DateInput;
 
 /**
  * Builds the diagnostic support package (ARCHITECTURE.md §8.48).
@@ -171,9 +172,8 @@ class SupportPackageService
             return false;
         }
 
-        try {
-            $generated = new \DateTimeImmutable($generatedAt);
-        } catch (\Throwable) {
+        $generated = DateInput::fromStorage($generatedAt);
+        if ($generated === null) {
             // An unreadable stamp is itself a reason to drop the archive:
             // it cannot be proven to be within retention.
             $this->deleteCurrentPackage();

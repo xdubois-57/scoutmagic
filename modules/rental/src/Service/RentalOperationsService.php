@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Journal\JournalService;
+use Core\Service\DateInput;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\BookingTransition;
@@ -211,8 +212,8 @@ class RentalOperationsService
             $free = $this->availabilityService->isRangeFree(
                 $asset,
                 $billingUnit,
-                new \DateTimeImmutable($current->arrivalDate),
-                new \DateTimeImmutable($current->departureDate),
+                DateInput::requireFromStorage($current->arrivalDate, 'rental_bookings.arrival_date'),
+                DateInput::requireFromStorage($current->departureDate, 'rental_bookings.departure_date'),
                 $current->units,
                 $now,
                 $current->reference,
@@ -649,8 +650,8 @@ class RentalOperationsService
                 $free = $this->availabilityService->isRangeFree(
                     $asset,
                     $billingUnit,
-                    new \DateTimeImmutable($arrival),
-                    new \DateTimeImmutable($departure),
+                    DateInput::requireFromStorage($arrival, 'the requested arrival date'),
+                    DateInput::requireFromStorage($departure, 'the requested departure date'),
                     $units,
                     $now,
                     $current->reference,

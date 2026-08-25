@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Repository;
 
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 
 /**
  * Internal comments on a booking (§6.4, §6.6).
@@ -62,7 +63,7 @@ class RentalBookingCommentRepository
                 'id' => (int) $row['id'],
                 'author_member_id' => $row['author_member_id'] !== null ? (int) $row['author_member_id'] : null,
                 'body' => $this->encryption->decrypt((string) $row['body_encrypted'], self::CTX_BODY),
-                'created_at' => new \DateTimeImmutable((string) $row['created_at']),
+                'created_at' => DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
             ],
             $stmt->fetchAll(\PDO::FETCH_ASSOC)
         );

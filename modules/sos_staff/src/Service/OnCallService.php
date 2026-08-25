@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\SosStaff\Service;
 
 use Core\Scheduler\SchedulerService;
+use Core\Service\DateInput;
 use Modules\SosStaff\Repository\OnCallAssignment;
 use Modules\SosStaff\Repository\OnCallRepository;
 
@@ -37,7 +38,7 @@ class OnCallService
      */
     public function getMonthGrid(int $year, int $month): array
     {
-        $firstOfMonth = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $firstOfMonth = DateInput::firstOfMonth($year, $month);
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
 
         $assignments = $this->repository->findForRange($firstOfMonth->format('Y-m-d'), $lastOfMonth->format('Y-m-d'));
@@ -83,7 +84,7 @@ class OnCallService
      */
     public function saveMonth(int $year, int $month, array $cells, array $orderedStaffMemberIds, int $scoutYearId): array
     {
-        $firstOfMonth = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $firstOfMonth = DateInput::firstOfMonth($year, $month);
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
 
         $assignments = array_map(
@@ -127,7 +128,7 @@ class OnCallService
      */
     private function computeAndScheduleTransitions(int $year, int $month, array $orderedStaffMemberIds, int $scoutYearId): array
     {
-        $firstOfMonth = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $firstOfMonth = DateInput::firstOfMonth($year, $month);
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
         $prevMonthLastDay = $firstOfMonth->modify('-1 day');
 

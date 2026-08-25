@@ -10,6 +10,7 @@ namespace Core\Statistics;
 
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
+use Core\Service\DateInput;
 
 /**
  * Reports this installation's usage statistics to the configured receiver,
@@ -345,13 +346,12 @@ class StatisticsSender
             return false;
         }
 
-        try {
-            $timestamp = (new \DateTimeImmutable($lastSuccess))->getTimestamp();
-        } catch (\Throwable) {
+        $sentAt = DateInput::fromStorage($lastSuccess);
+        if ($sentAt === null) {
             return false;
         }
 
-        return (time() - $timestamp) < self::MIN_INTERVAL_SECONDS;
+        return (time() - $sentAt->getTimestamp()) < self::MIN_INTERVAL_SECONDS;
     }
 
     private function recordSuccess(int $statusCode, int $durationMs, bool $scheduled = true): StatisticsSendResult

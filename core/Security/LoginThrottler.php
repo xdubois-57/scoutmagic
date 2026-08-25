@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Security;
 
 use Core\Database\Connection;
+use Core\Service\DateInput;
 
 /**
  * Progressive lockout on failed password logins, counted along two
@@ -147,7 +148,7 @@ class LoginThrottler
             return 0;
         }
 
-        $unlockAt = (new \DateTimeImmutable($row['attempted_at']))
+        $unlockAt = (DateInput::requireFromStorage((string) $row['attempted_at'], 'attempted_at'))
             ->modify('+' . $lockoutSeconds . ' seconds');
         $now = new \DateTimeImmutable();
 

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Member;
 
+use Core\Service\DateInput;
+
 class SectionDocumentRepository
 {
     public function __construct(private \PDO $pdo)
@@ -193,7 +195,7 @@ class SectionDocumentRepository
             compressionStatus: (string) $row['compression_status'],
             sizeBeforeBytes: $row['size_before_bytes'] !== null ? (int) $row['size_before_bytes'] : null,
             sizeAfterBytes: $row['size_after_bytes'] !== null ? (int) $row['size_after_bytes'] : null,
-            createdAt: new \DateTimeImmutable((string) $row['created_at'])
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
         );
     }
 }

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Finance\Service;
 
 use Core\Journal\JournalService;
+use Core\Service\DateInput;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarRepository;
 use Modules\Finance\Repository\AccountRepository;
@@ -237,7 +238,10 @@ class AiCategorizationService
             return [];
         }
 
-        $transactionDate = new \DateTimeImmutable($transaction->transactionDate);
+        $transactionDate = DateInput::requireFromStorage(
+            $transaction->transactionDate,
+            'finance_transactions.transaction_date'
+        );
         $fromDate = $transactionDate->modify('-21 days')->format('Y-m-d');
         $toDate = $transactionDate->modify('+21 days')->format('Y-m-d');
 

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Maintenance;
 
+use Core\Service\DateInput;
+
 class UpdateHistoryRepository
 {
     /**
@@ -141,9 +143,8 @@ class UpdateHistoryRepository
 
     private function isStale(UpdateHistory $history): bool
     {
-        try {
-            $started = new \DateTimeImmutable($history->startedAt);
-        } catch (\Exception) {
+        $started = DateInput::fromStorage($history->startedAt);
+        if ($started === null) {
             return false;
         }
 

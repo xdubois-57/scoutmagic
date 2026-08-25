@@ -46,14 +46,28 @@ final class DateInput
      * The one format almost every caller wants: an ISO calendar date, no
      * time. Named so a reader does not have to know whether this file
      * spells it 'Y-m-d' or 'Y/m/d'.
+     *
+     * The leading `!` is not decoration. `createFromFormat()` fills every
+     * field the format does not mention from the CURRENT time, so
+     * `createFromFormat('Y-m-d', '2026-08-01')` is the first of August at
+     * whatever o'clock it happens to be — while
+     * `new DateTimeImmutable('2026-08-01')`, which is what most callers
+     * are used to, is midnight. That difference is invisible in a
+     * `format('d/m/Y')` and decisive the moment two of these are compared
+     * or subtracted, and it is silent either way. `!` resets the unnamed
+     * fields instead, which is what a date with no time should mean; every
+     * caller in the project that spells its own format out already writes
+     * it (`'!d/m/Y'`, `'!Y-m-d'`).
      */
-    public const ISO_DATE = 'Y-m-d';
+    public const ISO_DATE = '!Y-m-d';
 
     /**
      * `Y-m-d` with a `datetime-local` input's `T` separator, which is what
-     * a browser posts for `<input type="datetime-local">`.
+     * a browser posts for `<input type="datetime-local">`. Reset for the
+     * same reason as ISO_DATE: the format names no seconds, so without the
+     * `!` a submitted 09:30 would carry the current second.
      */
-    public const ISO_DATETIME_LOCAL = 'Y-m-d\TH:i';
+    public const ISO_DATETIME_LOCAL = '!Y-m-d\TH:i';
 
     /**
      * Parse $value as exactly $format, or return null.
@@ -142,6 +156,71 @@ final class DateInput
     }
 
     /**
+     * The first day of a month, from a year and a month number.
+     *
+     * `new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month))` was
+     * written out ELEVEN times, identically, in month grids, availability
+     * calculators and on-call planners. Eleven copies of a composition is
+     * eleven places for the same question — what if the month is 13? —
+     * and none of them asked it: the sprintf produced "2026-13-01", the
+     * constructor raised a DateMalformedStringException from four frames
+     * down, and the page 500ed with a message about a string.
+     *
+     * Here it is one place, and the refusal names the values it was
+     * given. The bounds are the format's own — `Y-m-d` writes a year in
+     * four digits, and a month is one of twelve — so nothing about a
+     * product rule is invented.
+     *
+     * @throws \InvalidArgumentException when there is no such month
+     */
+    public static function firstOfMonth(int $year, int $month): \DateTimeImmutable
+    {
+        if ($year < 1 || $year > 9999 || $month < 1 || $month > 12) {
+            throw new \InvalidArgumentException("No such month: {$year}-{$month}.");
+        }
+
+        // Midnight, because ISO_DATE resets — which is what the
+        // `new DateTimeImmutable(sprintf(...))` this replaces answered, and
+        // what a calendar comparing months against each other needs
+        // (Rental\Availability\MonthWindow pages back on `<=`).
+        $first = self::iso(sprintf('%04d-%02d-01', $year, $month));
+        \assert($first !== null);
+
+        return $first;
+    }
+
+    /**
+     * The same reading, for a value the schema says is always there.
+     *
+     * A `NOT NULL DATETIME` that does not parse is corrupt storage, and
+     * the honest answer to corrupt storage is to stop. What this replaces
+     * did something worse than stopping: `new DateTimeImmutable('')` is
+     * *now*, so an empty column rendered as today and was believed, and
+     * MySQL's zero date read as the 30th of November, year -1. Both were
+     * silent. This is loud, and for a value that parses it is the same
+     * object as before, byte for byte.
+     *
+     * $what names the column so the log says which one, and is written
+     * in English and never shown to a visitor: it reaches
+     * Core\Http\ErrorHandler as a 500, which is what a corrupt row
+     * deserves (SECURITY.md § 35).
+     *
+     * $timezone is passed straight through to the constructor and means
+     * what it means there — see fromStorage().
+     *
+     * @throws \RuntimeException when $value is not a stored date
+     */
+    public static function requireFromStorage(
+        ?string $value,
+        string $what,
+        ?\DateTimeZone $timezone = null
+    ): \DateTimeImmutable {
+        return self::fromStorage($value, $timezone) ?? throw new \RuntimeException(
+            'Not a stored date: ' . $what . '.'
+        );
+    }
+
+    /**
      * A datetime read back from a column, or from anywhere else that is
      * supposed to hold one — never the current moment as a consolation
      * prize.
@@ -151,8 +230,18 @@ final class DateInput
      * empty string. A column that should hold a timestamp and does not is
      * a fact worth handling; it is not worth a 500, and it is certainly
      * not worth being silently reported as today.
+     *
+     * $timezone is handed to the constructor unchanged and therefore means
+     * exactly what it means there: the zone a NAIVE value is read in, and
+     * nothing at all when the value carries its own offset. Passing null
+     * — the usual case — reads the value on the default clock, which is
+     * what `new DateTimeImmutable($v)` did. It is here for the callers
+     * that were already passing a second argument (an ICS export reading
+     * an all-day date as UTC, a repository reading a naive column on the
+     * application clock); a caller that only wants to CONVERT a moment
+     * should keep using ->setTimezone() on the result.
      */
-    public static function fromStorage(?string $value): ?\DateTimeImmutable
+    public static function fromStorage(?string $value, ?\DateTimeZone $timezone = null): ?\DateTimeImmutable
     {
         if ($value === null) {
             return null;
@@ -176,7 +265,7 @@ final class DateInput
         }
 
         try {
-            return new \DateTimeImmutable($value);
+            return new \DateTimeImmutable($value, $timezone);
         } catch (\Throwable) {
             return null;
         }

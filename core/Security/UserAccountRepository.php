@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Security;
 
+use Core\Service\DateInput;
+
 class UserAccountRepository
 {
     public function __construct(
@@ -342,17 +344,17 @@ class UserAccountRepository
 
         $lastLoginAt = null;
         if (!empty($row['last_login_at'])) {
-            $lastLoginAt = new \DateTimeImmutable($row['last_login_at']);
+            $lastLoginAt = DateInput::requireFromStorage((string) $row['last_login_at'], 'last_login_at');
         }
 
         $passwordChangedAt = null;
         if (!empty($row['password_changed_at'])) {
-            $passwordChangedAt = new \DateTimeImmutable($row['password_changed_at']);
+            $passwordChangedAt = DateInput::requireFromStorage((string) $row['password_changed_at'], 'password_changed_at');
         }
 
         $sessionsValidFrom = null;
         if (!empty($row['sessions_valid_from'])) {
-            $sessionsValidFrom = new \DateTimeImmutable($row['sessions_valid_from']);
+            $sessionsValidFrom = DateInput::requireFromStorage((string) $row['sessions_valid_from'], 'sessions_valid_from');
         }
 
         return new UserAccount(

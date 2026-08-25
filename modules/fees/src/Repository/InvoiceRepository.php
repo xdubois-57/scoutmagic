@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Fees\Repository;
 
+use Core\Service\DateInput;
 use Modules\Fees\Invoice\InvoiceLine;
 use Modules\Fees\Invoice\ParsedInvoice;
 use Modules\Fees\Value\StoredInvoice;
@@ -244,7 +245,7 @@ class InvoiceRepository
             $row['template_number'] === null ? null : (string) $row['template_number'],
             (int) $row['ignored_row_count'],
             $row['snapshot_id'] === null ? null : (int) $row['snapshot_id'],
-            new \DateTimeImmutable((string) $row['imported_at']),
+            DateInput::requireFromStorage((string) $row['imported_at'], 'imported_at'),
             $row['finance_file_id'] === null ? null : (int) $row['finance_file_id']
         );
     }

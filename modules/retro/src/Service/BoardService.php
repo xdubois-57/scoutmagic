@@ -47,9 +47,6 @@ class BoardService implements RetroEventLinkLookupInterface
     private const MIN_MAX_COMMENT_LENGTH = 120;
     private const MAX_MAX_COMMENT_LENGTH = 200;
 
-    /** @var array<string, string> */
-    private const AUTO_CLOSE_INTERVALS = ['2h' => '+2 hours', '24h' => '+24 hours', '3d' => '+3 days', '7d' => '+7 days'];
-
     public function __construct(
         private BoardRepository $boardRepository,
         private CommentRepository $commentRepository,
@@ -540,13 +537,31 @@ class BoardService implements RetroEventLinkLookupInterface
         return $event;
     }
 
+    /**
+     * When a board with this auto-close delay should close, or null when
+     * the delay is not one this class offers.
+     *
+     * A match rather than the lookup table this used to keep, so that the
+     * argument handed to the constructor is a LITERAL. The table was
+     * private and read only here, and its every value was a relative
+     * expression — which is precisely what DateInput::fromStorage()
+     * refuses on purpose (SECURITY.md § 35), so no reader could be used
+     * and the safety rested on an isset() three lines up. Written this
+     * way there is nothing left to argue about: the delay is one of four
+     * or the answer is null, and no variable ever reaches the
+     * constructor.
+     */
     private function computeAutoCloseAt(string $autoCloseDelay): ?string
     {
-        if (!isset(self::AUTO_CLOSE_INTERVALS[$autoCloseDelay])) {
-            return null;
-        }
+        $closesAt = match ($autoCloseDelay) {
+            '2h' => new \DateTimeImmutable('+2 hours'),
+            '24h' => new \DateTimeImmutable('+24 hours'),
+            '3d' => new \DateTimeImmutable('+3 days'),
+            '7d' => new \DateTimeImmutable('+7 days'),
+            default => null,
+        };
 
-        return (new \DateTimeImmutable(self::AUTO_CLOSE_INTERVALS[$autoCloseDelay]))->format('Y-m-d H:i:s');
+        return $closesAt?->format('Y-m-d H:i:s');
     }
 
     private function scheduleAutoClose(int $boardId, string $autoCloseAt): void
@@ -554,7 +569,7 @@ class BoardService implements RetroEventLinkLookupInterface
         $this->schedulerService->schedule(
             'retro',
             'auto_close_board',
-            new \DateTimeImmutable($autoCloseAt),
+            DateInput::requireFromStorage($autoCloseAt, 'retro_boards.auto_close_at'),
             ['board_id' => $boardId],
             'board_' . $boardId
         );

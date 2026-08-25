@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Mail;
 
+use Core\Service\DateInput;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
@@ -198,7 +199,7 @@ class RentalMessageConsumer implements MessageConsumerInterface
     private function covers(RentalBooking $booking, \DateTimeImmutable $sentAt): bool
     {
         $opensAt = $booking->receivedAt->setTime(0, 0);
-        $closesAt = (new \DateTimeImmutable($booking->departureDate))
+        $closesAt = DateInput::requireFromStorage($booking->departureDate, 'rental_bookings.departure_date')
             ->modify('+' . $this->windowDaysAfter . ' days')
             ->setTime(23, 59, 59);
 

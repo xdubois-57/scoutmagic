@@ -32,6 +32,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
+use Core\Service\DateInput;
 use Core\View\MarkdownRenderer;
 use Twig\Environment;
 
@@ -1105,18 +1106,14 @@ class MaintenanceController extends AbstractController
             ? $last->completedAt
             : null;
 
+        // An unparseable stored timestamp is a reason to say "unknown",
+        // never a reason to fail rendering the page the administrator came
+        // here to read — which is exactly what fromStorage() answers.
+        $since = DateInput::fromStorage($lastAt);
         $silentDays = null;
-        if ($lastAt !== null) {
-            try {
-                $since = new \DateTimeImmutable($lastAt);
-                $elapsed = (new \DateTimeImmutable())->getTimestamp() - $since->getTimestamp();
-                $silentDays = (int) floor($elapsed / 86400);
-            } catch (\Exception) {
-                // An unparseable stored timestamp is a reason to say
-                // "unknown", never a reason to fail rendering the page the
-                // administrator came here to read.
-                $silentDays = null;
-            }
+        if ($since !== null) {
+            $elapsed = (new \DateTimeImmutable())->getTimestamp() - $since->getTimestamp();
+            $silentDays = (int) floor($elapsed / 86400);
         }
 
         // No completed update at all warns too: on the dev channel that is

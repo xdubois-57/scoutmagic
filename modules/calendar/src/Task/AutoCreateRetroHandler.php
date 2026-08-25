@@ -80,7 +80,8 @@ class AutoCreateRetroHandler implements TaskHandlerInterface
 
         $title = "Rétrospective {$event->title} - {$calendarName} - {$event->startDate}";
         $token = CapabilityToken::generate();
-        $autoCloseAt = (new \DateTimeImmutable('+7 days'))->format('Y-m-d H:i:s');
+        $autoCloseMoment = new \DateTimeImmutable('+7 days');
+        $autoCloseAt = $autoCloseMoment->format('Y-m-d H:i:s');
 
         $boardId = $boardRepository->create(
             $title,
@@ -106,7 +107,7 @@ class AutoCreateRetroHandler implements TaskHandlerInterface
         $schedulerService->schedule(
             'retro',
             'auto_close_board',
-            new \DateTimeImmutable($autoCloseAt),
+            $autoCloseMoment,
             ['board_id' => $boardId],
             'board_' . $boardId
         );

@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Repository;
 
+use Core\Service\DateInput;
 use Modules\Rental\Compliance\ComplianceItem;
 
 /**
@@ -167,8 +168,8 @@ class RentalComplianceRepository
             expiresOn: $row['expires_on'] !== null ? (string) $row['expires_on'] : null,
             remark: $row['remark'] !== null && (string) $row['remark'] !== '' ? (string) $row['remark'] : null,
             remindedOn: $row['reminded_on'] !== null ? (string) $row['reminded_on'] : null,
-            createdAt: new \DateTimeImmutable((string) $row['created_at']),
-            updatedAt: new \DateTimeImmutable((string) $row['updated_at'])
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
+            updatedAt: DateInput::requireFromStorage((string) $row['updated_at'], 'updated_at')
         );
     }
 
