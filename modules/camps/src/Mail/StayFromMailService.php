@@ -92,13 +92,15 @@ class StayFromMailService
      *
      * It was 60 — the size of the ANSWER — which on a hybrid reasoning
      * model (an installation running glm-5.2 as its cheap model) is spent
-     * thinking before a single character of JSON is written. The reading
+     * thinking before a single character of JSON is written. On that
+     * installation the summary's own 400-token cap came back fully spent
+     * with an empty answer, so 60 never stood a chance. The reading
      * then comes back empty, the message stays unsorted, and nothing
      * anywhere says why: this path degrades silently by design, so it had
      * been failing quietly on every message. See
      * Service\PlaceSummaryService::MAX_TOKENS for the same lesson.
      */
-    private const MAX_TOKENS = 600;
+    private const MAX_TOKENS = 1500;
 
     public function __construct(
         private CampRepository $camps,

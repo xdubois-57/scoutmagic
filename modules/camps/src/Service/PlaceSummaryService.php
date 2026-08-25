@@ -46,11 +46,23 @@ class PlaceSummaryService
      * reported it as "il n'y a pas assez à raconter" — about a stay
      * carrying four stars and a comment.
      *
+     * The journal entry that proved it, and what sized this number:
+     * `input_tokens: 176, output_tokens: 400` — the model produced
+     * exactly the cap and not one sentence of it was the answer. How far
+     * past 400 that model's reasoning would have run is unknowable from
+     * here, so the cap is set well clear of it rather than one guess
+     * above.
+     *
      * A model that finishes stops billing, so a generous cap costs
      * nothing on a model that does not think, and is the difference
-     * between working and not on one that does.
+     * between working and not on one that does. Providers that let a
+     * caller ask for less reasoning do it with their own parameter
+     * (Scaleway: `reasoning_effort`), which this module does not send:
+     * it is not in Api\LlmRequest, the accepted values differ per
+     * provider, and an unknown one is a rejected request — a worse
+     * failure than a large cap.
      */
-    private const MAX_TOKENS = 1500;
+    private const MAX_TOKENS = 3000;
 
     /**
      * The only tier this service ever asks for — three sentences off a
