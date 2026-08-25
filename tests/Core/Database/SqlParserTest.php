@@ -189,7 +189,7 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(39, $tables);
+        $this->assertCount(43, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('scout_years', $tableNames);
@@ -198,6 +198,11 @@ class SqlParserTest extends TestCase
         $this->assertContains('magic_links', $tableNames);
         $this->assertContains('editable_contents', $tableNames);
         $this->assertContains('entity_changes', $tableNames);
+        // Moved in from modules/fees with the roster snapshot itself.
+        $this->assertContains('fees_roster_snapshots', $tableNames);
+        $this->assertContains('fees_roster_snapshot_members', $tableNames);
+        $this->assertContains('member_desk_id_aliases', $tableNames);
+        $this->assertContains('member_duplicate_candidates', $tableNames);
         $this->assertContains('files', $tableNames);
         $this->assertContains('age_branches', $tableNames);
         $this->assertContains('sections', $tableNames);

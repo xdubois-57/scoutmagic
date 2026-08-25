@@ -8,6 +8,9 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\File\EncryptedFileStorageService;
+use Core\Member\Duplicate\DuplicateMemberDetector;
+use Core\Journal\JournalService;
 use Core\Member\AddressNormalizer;
 use Core\Member\SectionMembershipService;
 use Core\Member\UnitStaffSectionService;
@@ -27,6 +30,19 @@ class DeskImportService
         private UserAccountRepository $userAccountRepository,
         private UnitStaffSectionService $unitStaffSectionService,
         private SectionMembershipService $sectionMembershipService,
+        private RosterReplacementGuard $replacementGuard,
+        private JournalService $journal,
+        private RosterSnapshotRepository $rosterSnapshotRepository,
+        private EncryptedFileStorageService $encryptedFileStorage,
+        private ImportDiffCalculator $diffCalculator,
+        /**
+         * Duplicate detection runs AFTER the commit — it decrypts names
+         * and birth dates in bulk, and nothing that slow belongs inside a
+         * transaction holding the whole roster's locks. Nullable so a
+         * caller that has no use for it (a fixture replay) can leave it
+         * out.
+         */
+        private ?DuplicateMemberDetector $duplicateDetector = null,
         /**
          * Modules reconciling their own member-referencing data at the end
          * of an import (ARCHITECTURE.md §7.4). Empty unless the composition
@@ -40,12 +56,42 @@ class DeskImportService
 
     /**
      * Import a Desk CSV file for a given scout year.
+     *
+     * $replacementConfirmed carries the typed confirmation word an admin
+     * gave on the barrier screen ({@see RosterReplacementGuard}). It is
+     * never enough on its own: the guard has verdicts it does not lift.
+     *
+     * @throws ImportException when the file cannot be read or its headers do not match
+     * @throws RosterReplacementRefusedException when the file would replace the roster with something it should not
      */
-    public function import(string $filePath, int $scoutYearId, int $importedBy): ImportResult
+    public function import(string $filePath, int $scoutYearId, int $importedBy, bool $replacementConfirmed = false): ImportResult
     {
         $parsed = $this->parser->parse($filePath);
+        $this->mappingResolver->resetImportState();
+        $this->memberRepository->resetCreatedMemberIds();
+
+        // The barrier sits exactly where header validation already sits:
+        // after the file is read, before a single write. Refusing here
+        // leaves the roster untouched; refusing after the transaction
+        // would mean repairing what is already broken, from pages the
+        // import may just have locked the admin out of.
+        $this->assertReplacementAllowed($parsed, $scoutYearId, $importedBy, $replacementConfirmed);
+
         $warnings = [];
         $asOf = new \DateTimeImmutable();
+
+        // The CSV is kept, encrypted, so a doubtful import can later be
+        // investigated by replaying its report against the exact file that
+        // produced it. Stored before the transaction because a `files` row
+        // written inside it would vanish on a rollback while its blob
+        // stayed on disk; a rollback below deletes it explicitly instead.
+        //
+        // This is where the rule "Desk CSV: deleted immediately after
+        // import" was revoked — deliberately, and documented at the seven
+        // places that stated or relied on it. What is NOT revoked is that
+        // the plaintext never lingers: `ImportController` deletes the
+        // deposited file in a `finally`, success or failure alike.
+        $fileId = $this->storeSourceFile($filePath, $asOf, $importedBy);
 
         $this->pdo->beginTransaction();
 
@@ -73,6 +119,55 @@ class DeskImportService
             // membership from whatever functions are already role='admin'.
             $this->unitStaffSectionService->syncMembership($scoutYearId);
 
+            // Freeze what Desk contained. member_years is overwritten
+            // wholesale above, so without this the only roster the site
+            // could ever describe is the current one — and an invoice, a
+            // report or a diff describing "the day it happened" would have
+            // nothing to describe it against.
+            //
+            // Taken here, by the core itself, rather than by a module
+            // listening for the end of an import: it has to be present
+            // whatever the module configuration, and everything built on
+            // top of it (the import report, the diff between two imports)
+            // is core's. Inside the transaction and before the listeners,
+            // on the same roster the passes above just wrote.
+            // The parent row first, so the snapshot can point at it: one
+            // object, one lifecycle, one purge.
+            $newFunctions = $this->mappingResolver->getNewFunctionsCount();
+            $importId = $this->importJournalRepository->create(
+                $scoutYearId,
+                $importedBy,
+                $parsed->lineCount,
+                count($parsed->members),
+                $newFunctions,
+                $fileId
+            );
+
+            // The previous import and its snapshot, resolved BEFORE the
+            // new snapshot is written so "the one before this one" cannot
+            // accidentally mean this one.
+            $previousImport = $this->importJournalRepository->findPreviousInYear($scoutYearId, $importId);
+            $previousSnapshot = $previousImport !== null
+                ? $this->rosterSnapshotRepository->findByImport($previousImport->id)
+                : null;
+
+            $snapshot = $this->rosterSnapshotRepository->capture($scoutYearId, $asOf, $importId);
+
+            // Two consecutive snapshots ARE the diff — nothing to capture
+            // before or after, everything is already in the database.
+            // Computed once, here, and stored: it describes this day and
+            // will never describe another one.
+            $this->importJournalRepository->storeDiff(
+                $importId,
+                $this->diffCalculator->calculate(
+                    $snapshot,
+                    $previousSnapshot,
+                    $previousImport?->id,
+                    $this->mappingResolver->getNewMappings(),
+                    ImportQuality::fromParsedImport($parsed)
+                )
+            );
+
             // Modules with their own references to members.id reconcile
             // here, on the same roster and inside the same transaction as
             // core's own deactivate-then-reactivate passes above. Before
@@ -89,22 +184,47 @@ class DeskImportService
             $this->pdo->commit();
         } catch (\Throwable $e) {
             $this->pdo->rollBack();
+            // The encrypted copy was written before the transaction, so
+            // the rollback does not take it with it. An import that never
+            // happened must leave no copy of the unit's personal data.
+            if ($fileId !== null) {
+                $this->encryptedFileStorage->delete($fileId);
+            }
             throw $e;
         }
 
-        // Record in import_journal
-        $newFunctions = $this->mappingResolver->getNewFunctionsCount();
-        $this->importJournalRepository->create(
-            $scoutYearId,
-            $importedBy,
-            $parsed->lineCount,
-            count($parsed->members),
-            $newFunctions
+        if ($fileId !== null) {
+            // Only now: FileAccessGuard denies any owner_type without a
+            // registered checker, and the checker for this one keys on the
+            // import id that only exists once the transaction committed.
+            $this->encryptedFileStorage->assignOwner($fileId, DeskImportFileOwnershipChecker::OWNER_TYPE, $importId);
+        }
+
+        // A count and two ids, and nothing else: who was on the roster is
+        // exactly what must not become readable in the journal
+        // (SECURITY.md §11).
+        $this->journal->log(
+            'core',
+            'roster_snapshot_taken',
+            'info',
+            'Composition du roster figée après un import Desk : ' . $snapshot->memberCount . ' membre(s)',
+            ['snapshot_id' => $snapshot->id, 'scout_year_id' => $scoutYearId, 'count' => $snapshot->memberCount],
+            $importedBy > 0 ? $importedBy : null
         );
 
-        // Delete CSV file
-        if (file_exists($filePath)) {
-            @unlink($filePath);
+        // Members this import CREATED, compared with earlier scout years:
+        // somebody who left and came back was re-created in Desk under a
+        // new code instead of having their old record reopened (§8.80).
+        // After the commit, deliberately — a bulk decryption has no place
+        // inside the import's transaction — and failing here must never
+        // undo an import that has already succeeded.
+        if ($this->duplicateDetector !== null) {
+            try {
+                $this->duplicateDetector->detect($this->memberRepository->getCreatedMemberIds(), $scoutYearId);
+            } catch (\Throwable) {
+                // The next import will propose the same pairs: a missed
+                // detection costs a delay, never data.
+            }
         }
 
         return new ImportResult(
@@ -113,6 +233,71 @@ class DeskImportService
             newFunctionsCount: $newFunctions,
             warnings: $warnings
         );
+    }
+
+    /**
+     * Encrypt the deposited CSV and register it as a `FileRecord`.
+     *
+     * `role_min: 'admin'` and nothing else: the file is the whole unit's
+     * personal data in clear, in one document, and it is served only by
+     * `/files/{id}` under `FileAccessGuard`. No second storage path, no
+     * dedicated route, no exception (SECURITY.md §13).
+     *
+     * Returns null when the file cannot be read — which the parser above
+     * has already ruled out in practice, and which must in any case never
+     * be the reason an otherwise valid import fails.
+     */
+    private function storeSourceFile(string $filePath, \DateTimeImmutable $asOf, int $importedBy): ?int
+    {
+        $content = @file_get_contents($filePath);
+        if ($content === false) {
+            return null;
+        }
+
+        return $this->encryptedFileStorage->store(
+            $content,
+            'text/csv',
+            'desk_export_' . $asOf->format('Ymd_His') . '.csv',
+            'imports',
+            'admin',
+            null,
+            $importedBy > 0 ? $importedBy : null
+        );
+    }
+
+    /**
+     * Run the roster-replacement barrier and journal any refusal.
+     *
+     * The journal entry is `security` level and carries counters only —
+     * how many members would go, how many sections the file names, how
+     * many admins would remain. Never a name, never a Desk identifier,
+     * never a line of CSV (SECURITY.md §11 and §13).
+     *
+     * @throws RosterReplacementRefusedException
+     */
+    private function assertReplacementAllowed(ParsedImport $parsed, int $scoutYearId, int $importedBy, bool $confirmed): void
+    {
+        $assessment = $this->replacementGuard->assess($parsed, $scoutYearId, $importedBy);
+        if ($assessment->isClear()) {
+            return;
+        }
+
+        $overridden = $confirmed && $assessment->verdict->allowsOverride();
+
+        $this->journal->log(
+            'core',
+            $overridden ? 'desk_import_barrier_overridden' : 'desk_import_barrier_triggered',
+            'security',
+            $overridden
+                ? "Barrière d'import Desk franchie après confirmation typée"
+                : "Import Desk refusé par la barrière de remplacement du roster",
+            ['scout_year_id' => $scoutYearId] + $assessment->journalContext(),
+            $importedBy > 0 ? $importedBy : null
+        );
+
+        if (!$overridden) {
+            throw new RosterReplacementRefusedException($assessment);
+        }
     }
 
     /**

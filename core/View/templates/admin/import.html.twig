@@ -55,22 +55,41 @@
         </div>
     </div>
 
+    {# La conservation est annoncée AVANT le dépôt, pas découverte après. #}
+    <div class="alert alert-warning d-flex gap-2" role="note">
+        <i class="bi bi-lock flex-shrink-0" aria-hidden="true"></i>
+        <span>
+            <strong>Ce fichier sera conservé, chiffré, pendant {{ retention_years }} année{{ retention_years > 1 ? 's' : '' }}
+            scoute{{ retention_years > 1 ? 's' : '' }}.</strong>
+            Il contient les données personnelles de toute l'unité. Seuls les chefs d'unité peuvent le
+            télécharger, et chaque téléchargement est journalisé. Passé ce délai, il est supprimé
+            définitivement avec l'instantané du roster qui l'accompagne.
+        </span>
+    </div>
+
     {# Last import info #}
-    {% if last_import %}
-        <div class="card mb-3">
-            <div class="card-body">
-                <h2 class="h5">Dernier import</h2>
-                <p class="small text-body-secondary mb-0">
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Dernier import</h2>
+            {% if last_import %}
+                <p class="small text-body-secondary mb-2">
                     {{ last_import.imported_at|datetime_fr }}
+                    {% if last_import_author %} — par {{ last_import_author }}{% endif %}
                     — {{ last_import.member_count }} membres,
                     {{ last_import.line_count }} lignes
                     {% if last_import.new_functions_count > 0 %}
                         , {{ last_import.new_functions_count }} nouvelle(s) fonction(s)
                     {% endif %}
                 </p>
-            </div>
+            {% else %}
+                <p class="small text-body-secondary mb-2">Aucun import pour l'année publique.</p>
+            {% endif %}
+            {% if last_import %}
+                <a href="/admin/import/{{ last_import.id }}/rapport" class="btn btn-outline-secondary btn-sm">Voir son rapport</a>
+            {% endif %}
+            <a href="/admin/import/historique" class="btn btn-outline-secondary btn-sm">Historique complet</a>
         </div>
-    {% endif %}
+    </div>
 
     {# Import result (shown after successful import) #}
     {% if import_result %}
@@ -80,6 +99,9 @@
             {% if import_result.newFunctionsCount > 0 %}
                 {{ import_result.newFunctionsCount }} nouvelle(s) fonction(s) créée(s)
                 — <a href="/config/functions">configurer les rôles</a>.
+            {% endif %}
+            {% if last_import %}
+                <a href="/admin/import/{{ last_import.id }}/rapport">Voir le rapport de cet import</a>.
             {% endif %}
         </div>
         {% if import_result.warnings|length > 0 %}

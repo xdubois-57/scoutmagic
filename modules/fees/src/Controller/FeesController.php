@@ -16,7 +16,7 @@ use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\Role;
 use Modules\Fees\Repository\FeesImportRepository;
-use Modules\Fees\Repository\RosterSnapshotRepository;
+use Core\Import\RosterSnapshotRepository;
 use Twig\Environment;
 
 /**

@@ -1,0 +1,241 @@
+{% extends 'base.html.twig' %}
+{% block title %}Import Desk — {{ site_name }}{% endblock %}
+
+{#
+   The roster-replacement barrier (Core\Import\RosterReplacementGuard).
+   Rendered instead of the import result when a file would replace the
+   year's roster with something it probably should not.
+
+   Two shapes on one page, and the difference is the whole point:
+   a verdict that allows an override gets a danger zone with a typed
+   word; the verdict that does not gets a plain statement of why no
+   override is offered. The consequences are named and counted rather
+   than summarised into a question — a generic « êtes-vous sûr ? » is a
+   thing people learn to click through.
+#}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Import Desk',
+        badge: scout_year ? scout_year.label : null,
+    } only %}
+
+    {% set overridable = assessment.verdict.allowsOverride %}
+    {% set verdict = assessment.verdict.value %}
+
+    <div class="card border-{{ overridable ? 'warning' : 'danger' }} mb-3">
+        <div class="card-body">
+            <p class="text-uppercase fw-semibold small text-{{ overridable ? 'warning-emphasis' : 'danger-emphasis' }} mb-1">
+                <i class="bi bi-{{ overridable ? 'exclamation-triangle' : 'slash-circle' }}" aria-hidden="true"></i>
+                {{ overridable ? 'Import interrompu' : 'Import refusé' }}
+            </p>
+            <h2 class="h5">
+                {% if verdict == 'filtered_export' %}
+                    Ce fichier ne contient qu'une seule section
+                {% elseif verdict == 'mass_deactivation' %}
+                    Ce fichier retire {{ assessment.deactivationPercent }} % des membres actifs
+                {% else %}
+                    Cet import laisserait le site sans administrateur
+                {% endif %}
+            </h2>
+            <p class="mb-0">
+                {% if verdict == 'filtered_export' %}
+                    L'export Desk semble avoir été filtré sur une section au lieu de porter sur tous
+                    les membres. Aucune modification n'a été faite.
+                {% elseif verdict == 'mass_deactivation' %}
+                    Toutes les sections sont présentes, mais l'écart avec le roster actuel est
+                    inhabituel. Aucune modification n'a été faite.
+                {% else %}
+                    Plus aucune personne n'aurait accès à la Configuration, à la Maintenance ni à
+                    cette page — y compris pour réparer. Cet import est refusé.
+                {% endif %}
+            </p>
+        </div>
+
+        {# La comparaison, en clair : ce que contient le fichier, ce que contient le site. #}
+        <div class="row g-0 border-top">
+            <div class="col-6 border-end p-3">
+                <p class="text-uppercase fw-semibold small text-body-secondary mb-1">Le fichier déposé</p>
+                <p class="h5 mb-0">{{ assessment.fileMemberCount }} membre{{ assessment.fileMemberCount > 1 ? 's' : '' }}</p>
+                <p class="small text-body-secondary mb-1">{{ assessment.fileLineCount }} ligne{{ assessment.fileLineCount > 1 ? 's' : '' }}</p>
+                <p class="small fw-medium mb-0">
+                    {% if assessment.fileSectionCodes is empty %}
+                        Aucune section nommée
+                    {% elseif assessment.fileSectionCodes|length == 1 %}
+                        Seule la section {{ assessment.fileSectionCodes|first }} figure dans ce fichier
+                    {% else %}
+                        {{ assessment.fileSectionCodes|length }} sections
+                    {% endif %}
+                </p>
+            </div>
+            <div class="col-6 p-3">
+                <p class="text-uppercase fw-semibold small text-body-secondary mb-1">Le roster actuel</p>
+                <p class="h5 mb-0">{{ assessment.rosterMemberCount }} membre{{ assessment.rosterMemberCount > 1 ? 's' : '' }}</p>
+                <p class="small text-body-secondary mb-1">
+                    {% if assessment.rosterImportedAt %}
+                        import du {{ assessment.rosterImportedAt|date('d/m/Y') }}
+                    {% else %}
+                        aucun import antérieur
+                    {% endif %}
+                </p>
+                <p class="small fw-medium mb-0">{{ assessment.rosterSectionCount }} section{{ assessment.rosterSectionCount > 1 ? 's' : '' }}</p>
+            </div>
+        </div>
+
+        {#
+           Les conséquences, nommées et chiffrées. Celles qui sont
+           favorables s'affichent en vert : une liste qui ne dit que du
+           mal cesse d'être lue, et c'est précisément la liste qu'il faut
+           lire ici.
+        #}
+        <div class="border-top p-3">
+            <p class="small fw-semibold mb-2">Ce que cet import ferait</p>
+            <ul class="list-unstyled mb-0">
+                {% if assessment.deactivatedCount > 0 %}
+                    <li class="d-flex gap-2 mb-2">
+                        <i class="bi bi-people text-danger flex-shrink-0" aria-hidden="true"></i>
+                        <span>{{ assessment.deactivatedCount }} membre{{ assessment.deactivatedCount > 1 ? 's seraient désactivés' : ' serait désactivé' }}</span>
+                    </li>
+                {% endif %}
+
+                {#
+                   Les conséquences d'accès ne s'affichent que pour l'année
+                   dont les rôles sont réellement lus : sur une année
+                   préparée à l'avance, elles parleraient d'un avenir que
+                   personne n'a encore choisi.
+                #}
+                {% if not assessment.yearBearsAccess %}
+                    <li class="d-flex gap-2 mb-2">
+                        <i class="bi bi-info-circle text-body-secondary flex-shrink-0" aria-hidden="true"></i>
+                        <span>Cette année n'est pas l'année publique : les accès au site ne changent pas.</span>
+                    </li>
+                {% elseif assessment.unitStaffWipedOut %}
+                    <li class="d-flex gap-2 mb-2">
+                        <i class="bi bi-people text-danger flex-shrink-0" aria-hidden="true"></i>
+                        <span>Le Staff d'Unité disparaîtrait entièrement — {{ assessment.unitStaffCount }} personne{{ assessment.unitStaffCount > 1 ? 's' : '' }}</span>
+                    </li>
+                {% elseif assessment.unitStaffLostCount > 0 %}
+                    <li class="d-flex gap-2 mb-2">
+                        <i class="bi bi-key text-danger flex-shrink-0" aria-hidden="true"></i>
+                        <span>{{ assessment.unitStaffLostCount }} chef{{ assessment.unitStaffLostCount > 1 ? 's' : '' }} d'unité perdrai{{ assessment.unitStaffLostCount > 1 ? 'ent' : 't' }} l'accès à la Configuration</span>
+                    </li>
+                {% elseif assessment.unitStaffCount > 0 %}
+                    <li class="d-flex gap-2 mb-2">
+                        <i class="bi bi-check-lg text-success flex-shrink-0" aria-hidden="true"></i>
+                        <span class="text-success-emphasis">Le Staff d'Unité reste complet</span>
+                    </li>
+                {% endif %}
+
+                {% if assessment.sectionCodesGoingInactive|length > 0 %}
+                    <li class="d-flex gap-2 mb-2">
+                        <i class="bi bi-exclamation-triangle text-warning flex-shrink-0" aria-hidden="true"></i>
+                        <span>
+                            {{ assessment.sectionCodesGoingInactive|length }} section{{ assessment.sectionCodesGoingInactive|length > 1 ? 's deviendraient inactives et sortiraient' : ' deviendrait inactive et sortirait' }}
+                            de tous les sélecteurs — {{ assessment.sectionCodesGoingInactive|join(', ') }}
+                        </span>
+                    </li>
+                {% endif %}
+
+                {% if not assessment.yearBearsAccess %}
+                {% elseif verdict == 'no_admin_left' %}
+                    <li class="d-flex gap-2 mb-2">
+                        <i class="bi bi-slash-circle text-danger flex-shrink-0" aria-hidden="true"></i>
+                        <span>Aucun compte superadmin distinct n'existe sur cette installation</span>
+                    </li>
+                {% elseif assessment.hasSuperAdminAccount and assessment.adminCountAfter == 0 %}
+                    <li class="d-flex gap-2 mb-2">
+                        <i class="bi bi-check-lg text-success flex-shrink-0" aria-hidden="true"></i>
+                        <span class="text-success-emphasis">Un compte superadmin distinct conserve l'accès à la Configuration</span>
+                    </li>
+                {% elseif not assessment.importerLosesAdmin %}
+                    <li class="d-flex gap-2 mb-2">
+                        <i class="bi bi-check-lg text-success flex-shrink-0" aria-hidden="true"></i>
+                        <span class="text-success-emphasis">Votre accès à la Configuration est préservé</span>
+                    </li>
+                {% endif %}
+            </ul>
+
+            {#
+               La conséquence qui vous concerne est isolée plutôt que
+               noyée au milieu des autres : c'est la seule que personne ne
+               peut réparer à votre place.
+            #}
+            {% if assessment.importerLosesAdmin %}
+                <div class="alert alert-danger d-flex gap-2 mt-2 mb-0" role="alert">
+                    <i class="bi bi-key flex-shrink-0" aria-hidden="true"></i>
+                    <span class="fw-semibold">Vous perdriez votre propre accès à la Configuration et à cette page.</span>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="card-footer">
+            <a href="/admin/import" class="btn btn-primary w-100 w-sm-auto">Choisir un autre fichier</a>
+            <p class="small text-body-secondary mt-2 mb-0">
+                {% if overridable %}
+                    Dans la plupart des cas, il suffit de refaire l'export depuis Desk sans filtre de
+                    section.
+                {% else %}
+                    Refaites l'export sans filtre, ou faites lancer cet import par une personne
+                    disposant d'un accès superadmin distinct de sa fonction Desk.
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    {% if overridable %}
+        {# Zone dangereuse — seulement là où passer outre a un sens. #}
+        <div class="card border-danger">
+            <details>
+                <summary class="card-body fw-semibold text-danger-emphasis tap-target">
+                    <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+                    Forcer l'import malgré tout
+                </summary>
+                <div class="card-body border-top">
+                    <p>
+                        Si ce fichier est bien celui que vous vouliez importer, redéposez-le et tapez
+                        <strong>{{ confirmation_word }}</strong> pour confirmer. Le fichier refusé n'a
+                        pas été conservé sur le serveur, c'est pourquoi il faut le redéposer.
+                    </p>
+                    <form method="post" action="/admin/import" enctype="multipart/form-data">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="scout_year_id" value="{{ scout_year_id }}">
+                        <div class="mb-3">
+                            <label class="form-label" for="barrier-csv-file">Le même fichier CSV</label>
+                            <input type="file" name="csv_file" accept=".csv" class="form-control"
+                                   id="barrier-csv-file" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="barrier-confirm-keyword">
+                                Tapez <strong>{{ confirmation_word }}</strong> pour confirmer
+                            </label>
+                            <input type="text" class="form-control text-uppercase" name="confirm_keyword"
+                                   id="barrier-confirm-keyword" autocomplete="off" required
+                                   placeholder="{{ confirmation_word }}"
+                                   data-confirm-word="{{ confirmation_word }}">
+                        </div>
+                        <button type="submit" class="btn btn-danger w-100 w-sm-auto" id="barrier-submit" disabled>
+                            Remplacer le roster
+                        </button>
+                        <p class="small text-body-secondary mt-2 mb-0">
+                            Le mot est vérifié côté serveur : réactiver ce bouton dans le navigateur ne
+                            suffit pas à contourner le contrôle.
+                        </p>
+                    </form>
+                </div>
+            </details>
+        </div>
+    {% else %}
+        <div class="alert alert-secondary d-flex gap-2" role="note">
+            <i class="bi bi-info-circle flex-shrink-0" aria-hidden="true"></i>
+            <span>
+                <strong>Aucun passage outre n'est proposé ici.</strong> Un site sans administrateur ne
+                peut plus être réparé depuis le site lui-même — c'est le seul cas où la confirmation
+                est retirée plutôt que rendue difficile.
+            </span>
+        </div>
+    {% endif %}
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/import-barrier.js" defer></script>
+{% endblock %}

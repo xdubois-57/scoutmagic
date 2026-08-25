@@ -56,7 +56,7 @@ rebase sur `main`.
 | « les 34 en-têtes de `EXPECTED_HEADERS` » | Il y en a **35**. |
 | « Séparateur `;` » | `DeskCsvParser::detectDelimiter()` autodétecte `;` ou `,` (cf. `desk_export_comma.csv`). La consigne reste bonne pour la génération, mais ce n'est pas une contrainte du parseur. |
 | — | L'en-tête réel est `Sizaine/Patrouillle`, avec **trois L**. L'orthographe correcte fait échouer `validateHeaders()`. |
-| — | **`DeskImportService::import()` supprime le CSV** qu'on lui donne (`@unlink`). Non mentionné, et destructeur pour des fixtures commitées. |
+| — | ~~**`DeskImportService::import()` supprime le CSV** qu'on lui donne (`@unlink`). Non mentionné, et destructeur pour des fixtures commitées.~~ **Corrigé** : le service conserve une copie chiffrée et ne supprime plus l'original (`SECURITY.md` §13). Le chantier « historique et rapport d'import » a levé cette gêne au passage. |
 | — | `ScoutYearService::ensureYear()` insère toujours `is_current = 1`, et rien ne remet jamais la colonne à 0. |
 | « photo posée en A1/A2/A3 exerce la résolution par année » | Faux — voir décision 5 ci-dessus. |
 | « passer par `UploadController` » | Impossible en CLI — voir décision 3 ci-dessus. |

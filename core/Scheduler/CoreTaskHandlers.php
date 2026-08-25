@@ -48,6 +48,7 @@ final class CoreTaskHandlers
             \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY => \Core\Statistics\Task\SendStatisticsHandler::class,
             \Core\Support\Task\GenerateSupportPackageHandler::TASK_KEY => \Core\Support\Task\GenerateSupportPackageHandler::class,
             \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY => \Core\Support\Task\PurgeSupportPackagesHandler::class,
+            \Core\Import\Task\PurgeImportsHandler::TASK_KEY => \Core\Import\Task\PurgeImportsHandler::class,
         ];
     }
 

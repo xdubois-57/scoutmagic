@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Modules\Fees\Value;
+namespace Core\Import;
 
 /** One frozen roster composition: which import, when, how many people. */
 final class RosterSnapshot

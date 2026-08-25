@@ -1,0 +1,111 @@
+{% extends 'base.html.twig' %}
+{% block title %}Fiches en double — {{ site_name }}{% endblock %}
+
+{#
+   Duplicate member records (Core\Http\Controller\DuplicateMemberController).
+
+   Two decisions per pair, and both are decisions the site remembers:
+   merging, and saying they are two different people. A merge cannot be
+   undone, so what replaces an undo is the list of exactly what will be
+   reattached, stated before the confirmation.
+#}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Fiches en double',
+        badge: scout_year.label,
+        subtitle: "Des fiches qui semblent désigner la même personne, recréée dans Desk au lieu d'être
+                   rouverte. Le site propose ; vous décidez.",
+    } only %}
+
+    {% if rows is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            icon: 'bi-check-lg',
+            message: 'Aucune fiche en double à examiner.',
+        } only %}
+    {% else %}
+        <div class="alert alert-secondary small d-flex gap-2" role="note">
+            <i class="bi bi-info-circle flex-shrink-0" aria-hidden="true"></i>
+            <span>
+                Deux personnes peuvent porter le même nom, le même prénom et la même date de naissance.
+                Vérifiez chaque paire avant de fusionner : <strong>une fusion ne se défait pas</strong>.
+            </span>
+        </div>
+
+        {% for row in rows %}
+            {% set preview = row.preview %}
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-12 col-sm-6">
+                            <p class="text-uppercase fw-semibold small text-body-secondary mb-1">Fiche conservée</p>
+                            <p class="fw-medium mb-0">
+                                {{ row.kept ? row.kept|display_name_full : 'Membre #' ~ row.candidate.kept_member_id }}
+                            </p>
+                            <p class="small text-body-secondary mb-0">
+                                {% if row.kept %}vue pour la dernière fois en {{ row.kept.year }}{% endif %}
+                            </p>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <p class="text-uppercase fw-semibold small text-body-secondary mb-1">Fiche recréée</p>
+                            <p class="fw-medium mb-0">
+                                {{ row.duplicate ? row.duplicate|display_name_full : 'Membre #' ~ row.candidate.duplicate_member_id }}
+                            </p>
+                            <p class="small text-body-secondary mb-0">
+                                {% if row.duplicate %}année {{ row.duplicate.year }}{% endif %}
+                            </p>
+                        </div>
+                    </div>
+
+                    {% if row.candidate.same_address %}
+                        <p class="small text-body-secondary mt-3 mb-0">
+                            <i class="bi bi-house" aria-hidden="true"></i>
+                            Les deux fiches ont partagé une même adresse — un indice, jamais une preuve :
+                            un frère ou une sœur partage la même adresse.
+                        </p>
+                    {% endif %}
+                </div>
+
+                {# Ce qui va être rattaché, énuméré avant la confirmation : c'est ce qui remplace l'annulation. #}
+                <div class="card-body border-top">
+                    <p class="small fw-semibold mb-2">Ce qu'une fusion rattacherait à la fiche conservée</p>
+                    {% if preview.total == 0 %}
+                        <p class="small text-body-secondary mb-0">
+                            Rien : la fiche recréée ne porte encore aucun historique.
+                        </p>
+                    {% else %}
+                        <ul class="list-unstyled small mb-0">
+                            {% for item in [
+                                { value: preview.scoutYears, label: 'année(s) scoute(s)' },
+                                { value: preview.sectionPeriods, label: 'période(s) de section' },
+                                { value: preview.photos, label: 'photo(s)' },
+                                { value: preview.badges, label: 'badge(s)' },
+                                { value: preview.documents, label: 'document(s) privé(s)' },
+                                { value: preview.files, label: 'fichier(s) personnel(s)' },
+                                { value: preview.emailAddresses, label: 'adresse(s) e-mail secondaire(s)' },
+                                { value: preview.notifications, label: 'notification(s)' },
+                                { value: preview.rosterSnapshotRows, label: 'ligne(s) d\'instantané du roster' },
+                            ] %}
+                                {% if item.value > 0 %}
+                                    <li><strong>{{ item.value }}</strong> {{ item.label }}</li>
+                                {% endif %}
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                </div>
+
+                <div class="card-footer d-flex flex-wrap gap-2">
+                    <form method="post" action="/admin/doublons/{{ row.candidate.id }}/fusionner"
+                          data-confirm="Fusionner ces deux fiches ? Tout l'historique de la fiche recréée sera rattaché à la fiche conservée, et cette opération ne se défait pas.">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-outline-danger btn-sm">Fusionner les deux fiches</button>
+                    </form>
+                    <form method="post" action="/admin/doublons/{{ row.candidate.id }}/distinctes">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">Ce sont deux personnes</button>
+                    </form>
+                </div>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endblock %}
