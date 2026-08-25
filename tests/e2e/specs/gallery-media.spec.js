@@ -113,22 +113,61 @@ test('a chief uploads plain and chunked, reorders by drag, and a member browses 
     // ---------------------------------------------------------------
     // Drag the first item onto the last: the grid re-slots it during
     // dragover and dragend persists the full new order.
+    //
+    // The drop point is deliberately NOT the target's centre.
+    // sortable.js's dragover decides "before or after" with
+    // `(clientX - rect.left) > rect.width / 2` — a STRICT comparison
+    // whose boundary is exactly the centre, which is where dragTo() aims
+    // by default. Landing on that boundary makes the outcome depend on
+    // sub-pixel rounding: the same drag inserts before the target on one
+    // run and after it on the next. Aiming at 90% of the width puts the
+    // pointer unambiguously past the midpoint, so this asserts one exact
+    // order rather than "something changed" — and a drag that stops
+    // working now fails HERE, saying what it expected, instead of
+    // surfacing twelve lines later as a control that never appears.
     // ---------------------------------------------------------------
+    const dropTarget = items.nth(2);
+    const targetBox = await dropTarget.boundingBox();
+    if (targetBox === null) {
+        throw new Error('the third tile has no box — the grid did not render');
+    }
+
     const reorderSaved = page.waitForResponse((response) => response.url().includes('/media/reorder'));
-    await items.first().dragTo(items.nth(2));
+    await items.first().dragTo(dropTarget, {
+        targetPosition: { x: targetBox.width * 0.9, y: targetBox.height / 2 },
+    });
     expect((await reorderSaved).ok()).toBe(true);
 
     await page.reload({ waitUntil: 'load' });
     const orderAfter = await gridOrder();
-    expect(orderAfter, 'the persisted order must differ from the original').not.toEqual(orderBefore);
-    expect([...orderAfter].sort(), 'and be a permutation of the same media').toEqual([...orderBefore].sort());
+    const [first, ...rest] = orderBefore;
+    expect(orderAfter, 'the dragged tile must have moved to the end, and nothing else moved')
+        .toEqual([...rest, first]);
 
     // ---------------------------------------------------------------
-    // Cover: picked from a tile, confirmed by the badge after the
-    // page's own reload.
+    // Cover: picked from a tile, confirmed by the badge on THAT tile
+    // after the page's own reload.
+    //
+    // The tile is chosen by the button rather than by position.
+    // album_form.html.twig renders « Définir comme couverture » only on
+    // the tiles that are NOT already the cover — and the first upload
+    // became the cover automatically (Gallery\Service\MediaService) — so
+    // `items.first()` is a tile with no such button whenever the drag
+    // leaves the cover in front. That coupling was invisible: the click
+    // simply waited out its timeout on an element the page was right not
+    // to render.
     // ---------------------------------------------------------------
-    await items.first().locator('.gallery-media-set-cover').click();
-    await expect(page.locator('.gallery-media-item').first().getByText('Couverture')).toBeVisible({ timeout: 15_000 });
+    const settable = items.filter({ has: page.locator('.gallery-media-set-cover') });
+    await expect(settable, 'some tile must not already be the cover').not.toHaveCount(0);
+
+    const newCoverId = await settable.first().evaluate(
+        (node) => /** @type {HTMLElement} */ (node).dataset.mediaId ?? '',
+    );
+    await settable.first().locator('.gallery-media-set-cover').click();
+    await expect(
+        page.locator(`.gallery-media-item[data-media-id="${newCoverId}"]`).getByText('Couverture'),
+        'the badge must land on the tile that was clicked, not merely somewhere',
+    ).toBeVisible({ timeout: 15_000 });
 
     // ---------------------------------------------------------------
     // Delete one media (its own confirm) — down to two. Setting the
