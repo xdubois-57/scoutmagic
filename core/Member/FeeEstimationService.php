@@ -51,15 +51,18 @@ class FeeEstimationService
     ): FeeEstimate {
         $normalized = AddressNormalizer::normalize($street, $number, $box, $postalCode);
         if ($normalized === '') {
-            return new FeeEstimate(HouseholdFeeCategory::NORMAL, 0);
+            // Not "this household is on the normal tariff" — "no address to
+            // look one up with". FeeEstimate::addressNotUsable() is what
+            // keeps the two apart for the caller (see that class).
+            return FeeEstimate::addressNotUsable();
         }
 
         $blindIndex = $this->encryption->blindIndex($normalized, 'address');
-        $count = $this->repository->countHouseholdMembers($blindIndex, $scoutYearId);
+        $count = $this->repository->countProjectedHouseholdMembers($blindIndex, $scoutYearId);
         if ($this->registrationCount !== null) {
             $count += $this->registrationCount->countAtAddress($blindIndex, $scoutYearId, $excludeRegistrationRequestId);
         }
 
-        return new FeeEstimate(HouseholdFeeCategory::fromHouseholdSize($count), $count);
+        return FeeEstimate::forHouseholdSize($count);
     }
 }

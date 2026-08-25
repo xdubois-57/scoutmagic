@@ -171,6 +171,11 @@ interface Window {
         collect: (list: ParentNode) => string[];
         format: (addresses: string[]) => string;
     };
+    // public/assets/js/fees-copy.js — « Copier pour Desk » on Cotisations >
+    // Justesse des tarifs, present only on that page.
+    ScoutMagicFeesCopy?: {
+        blockFor: (texts: Record<string, string> | null, key: string) => string;
+    };
     ScoutMagicNav?: {
         showDesktopMenu?: (menuId: string) => void;
         syncSwitchAriaChecked?: (input: HTMLInputElement) => void;

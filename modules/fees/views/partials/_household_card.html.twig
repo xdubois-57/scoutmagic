@@ -1,0 +1,149 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  One household, in whichever tab it appears.
+
+  The decisive line is the sentence under the address — « 3 membres dans
+  Desk — tarif attendu Famille ». That is what carries the explanation; a
+  coloured badge saying "écart" explains nothing and invites a treasurer to
+  guess at the reason.
+
+  Usage:
+  {% include '@fees/partials/_household_card.html.twig' with {
+      review: review, mode: 'corriger'|'prevoir'|'ignores',
+      category_labels: category_labels,
+  } only %}
+#}
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-column flex-sm-row justify-content-between gap-2 mb-2">
+            <div>
+                <h3 class="h6 mb-1">{{ review.addressLabel }}</h3>
+                <p class="small text-body-secondary mb-0">
+                    {{ review.deskSize }} membre{{ review.deskSize > 1 ? 's' : '' }} dans Desk —
+                    tarif attendu {{ category_labels[review.expectedCategory.value] }}
+                </p>
+            </div>
+            <div class="text-sm-end flex-shrink-0">
+                {% if mode == 'corriger' and review.differenceCents is not null %}
+                    <div class="fw-semibold {{ review.differenceCents > 0 ? 'text-danger' : 'text-body-secondary' }}">
+                        {{ (review.differenceCents / 100)|money }}
+                    </div>
+                    <div class="small text-body-secondary">
+                        {{ review.differenceCents > 0 ? 'à déclarer en plus' : 'déclaré en trop' }}
+                    </div>
+                {% elseif mode == 'prevoir' and review.projectedDifferenceCents is not null %}
+                    <div class="fw-semibold">{{ (review.projectedDifferenceCents / 100)|money }}</div>
+                    <div class="small text-body-secondary">à la bascule</div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if mode == 'prevoir' %}
+            <p class="small mb-2">
+                <i class="bi bi-hourglass-split" aria-hidden="true"></i>
+                Passera à {{ category_labels[review.projectedCategory.value] }}
+                ({{ review.projectedSize }} membre{{ review.projectedSize > 1 ? 's' : '' }}) —
+                {% for member in review.leavingMembers %}
+                    {{ member.nameParts|display_name_full }} — départ annoncé{% if member.leavingMarkedAt %} le {{ member.leavingMarkedAt|date_fr }}{% endif %}{{ not loop.last or review.incomingRegistrations > 0 ? ' ; ' : '' }}
+                {% endfor %}
+                {% if review.incomingRegistrations > 0 %}
+                    {{ review.incomingRegistrations }} inscription{{ review.incomingRegistrations > 1 ? 's' : '' }} acceptée{{ review.incomingRegistrations > 1 ? 's' : '' }} à cette adresse
+                {% endif %}
+            </p>
+        {% endif %}
+
+        {% if mode == 'ignores' and review.ignored %}
+            <p class="small text-body-secondary mb-2">
+                <i class="bi bi-eye-slash" aria-hidden="true"></i>
+                Ignoré le {{ review.ignored.createdAt|date_fr }} : {{ review.ignored.reason }}
+            </p>
+        {% endif %}
+
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th scope="col">Membre</th>
+                        <th scope="col">Encodé dans Desk</th>
+                        <th scope="col">Attendu</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for member in review.members %}
+                        <tr>
+                            <td>{{ member.nameParts|display_name_full }}</td>
+                            <td>
+                                {% if not member.comparable %}
+                                    {{ member.encodedFeeCategoryLabel|default('—') }}
+                                {% elseif member.matches(review.expectedCategory) %}
+                                    {{ member.encodedFeeCategoryLabel }}
+                                {% else %}
+                                    <s>{{ member.encodedFeeCategoryLabel|default('aucun tarif') }}</s>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if not member.comparable %}
+                                    <span class="text-body-secondary small">Hors tarif de foyer — non comparé</span>
+                                {% elseif member.matches(review.expectedCategory) %}
+                                    <span class="text-body-secondary small">Conforme</span>
+                                {% else %}
+                                    <span class="fw-semibold">{{ category_labels[review.expectedCategory.value] }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="d-flex flex-wrap gap-2 mt-3">
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-fees-copy="{{ review.addressBlindIndex }}">
+                <i class="bi bi-clipboard" aria-hidden="true"></i> Copier pour Desk
+            </button>
+            {% if mode == 'ignores' %}
+                <form method="post" action="/admin/fees/tarifs/reprendre" class="d-inline">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="address_blind_index" value="{{ review.addressBlindIndex }}">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Remettre dans la vérification
+                    </button>
+                </form>
+            {% else %}
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        data-bs-toggle="collapse" data-bs-target="#fees-ignore-{{ review.addressBlindIndex }}"
+                        aria-expanded="false" aria-controls="fees-ignore-{{ review.addressBlindIndex }}">
+                    <i class="bi bi-eye-slash" aria-hidden="true"></i> Ignorer ce foyer
+                </button>
+            {% endif %}
+        </div>
+
+        {% if mode != 'ignores' %}
+            <div class="collapse mt-3" id="fees-ignore-{{ review.addressBlindIndex }}">
+                <form method="post" action="/admin/fees/tarifs/ignorer" class="row g-2 align-items-end">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="address_blind_index" value="{{ review.addressBlindIndex }}">
+                    <div class="col-12 col-sm">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'fees-reason-' ~ review.addressBlindIndex,
+                            field_name: 'reason',
+                            label: 'Pourquoi ignorer ce foyer ?',
+                            type: 'text',
+                            maxlength: 255,
+                            required: true,
+                            size: 'sm',
+                            help: "Garde alternée, colocation… Le foyer réapparaîtra si sa composition change.",
+                            wrapper_class: 'mb-0',
+                        } only %}
+                    </div>
+                    <div class="col-12 col-sm-auto">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100 w-sm-auto">Ignorer</button>
+                    </div>
+                </form>
+            </div>
+        {% endif %}
+    </div>
+</div>
