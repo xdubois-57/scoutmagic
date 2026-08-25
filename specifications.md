@@ -1115,3 +1115,39 @@ Un foyer sans adresse exploitable n'est ni conforme ni en écart : il a son
 onglet, et le résumé ne le compte pas comme vérifié. La date de l'import Desk
 sur lequel l'écran se fonde est affichée : rien de ce qui est montré n'est
 plus frais que cet import.
+
+### 31.9 Lire une facture de la fédération
+
+Le document est un PDF avec une vraie couche texte. Une ligne de tarif y
+porte une référence, une description, une section, un prix unitaire, une
+quantité et un montant, suivie de la liste nominative des personnes qu'elle
+concerne. Un pied de document donne le total à payer, un IBAN et une
+communication structurée.
+
+**Le site refuse plutôt que de deviner.** L'arithmétique est le contrôle :
+prix unitaire × quantité = montant sur chaque ligne, nombre de noms listés =
+quantité sur chaque ligne qui en a une, somme des montants = total à payer.
+Un seul échec et la facture n'est pas lue — le message désigne la ligne
+fautive et donne les deux chiffres.
+
+**Une référence tarifaire inconnue ne bloque jamais.** Sa nature se déduit de
+sa forme : une ligne sans liste nominative est un ajustement global (la
+déduction d'un acompte), un prix unitaire négatif avec liste est une
+réduction (l'animateur breveté), un prix positif avec liste est une
+cotisation. Les Iama ne sont pas exonérés : leur cotisation locale est une
+ligne comme les autres.
+
+**Une répétition au saut de page est une seule ligne.** La même combinaison
+(référence, section, prix, quantité, montant) vue deux fois est reconnue
+comme telle et ses listes sont fusionnées.
+
+**Ce que le site n'a pas compris est compté.** Un en-tête, un pied de page,
+un sous-total : tout ce qui ne correspond à aucune des deux formes est
+ignoré, et le nombre de lignes ignorées est rapporté. Un bond de ce compteur
+d'une facture à l'autre signale que le gabarit a changé.
+
+Les personnes se rapprochent sur **nom + prénom + date de naissance** : les
+jumeaux existent et figurent sur la même facture. Les sections se rapprochent
+sur le code Desk, jamais sur le nom affiché — un renommage depuis Config Desk
+ne doit rien casser. « Staff d'unité » est un libellé, pas un code, et
+correspond au Staff d'U du site.

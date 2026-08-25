@@ -2012,6 +2012,25 @@ The encoded fee category against the number of people at the same address, and t
 
 **Four views, four real URLs** (`?vue=`), drawn through the site's own chip picker (§8.30) rather than a fifth tab style: the page works with no JavaScript and a treasurer keeps it open beside Desk. The date of the import it reads is on the page, because nothing on it is fresher than that.
 
+### 8.76 Reading a federation invoice (`Modules\Fees\Invoice`)
+
+A PDF with a real text layer, read through `Core\File\PdfTextExtractor` (`smalot/pdfparser`, already a dependency — this adds none). No screen: `InvoiceParser` takes **text**, `InvoiceReader` is the thin PDF half, and keeping them apart is what makes every rule below exercisable without a binary file.
+
+Robustness here is not cleverer patterns. It is never leaning on position, and refusing loudly.
+
+1. **Recognise shapes.** A tariff line ends with three numbers. A nominative line contains a `jj/mm/aaaa` date — the most stable mark in the document: what precedes it is the name, what follows it is the function. The footer is tested **before** both, because `Date : 08/01/2026` carries that same marker and would otherwise be read as somebody called "Date"; and every word before the date must look like part of a name, for the same reason.
+2. **No hardcoded list of references.** An unknown reference never blocks a reading; the nature comes off the line's own shape (`InvoiceLine::nature()`). **The absence of a nominative list is tested first**, and that ordering is the rule: `RED_ANIM_BREV` and `COT_ACOMPTE` are both negative, and what tells them apart is that one names nobody.
+3. **Arithmetic is the integrity check, in three layers** — `P.U. × Qt = Montant` per line, `names listed = Qt` on every line that has a list, `Σ Montants = TOTAL A PAYER`. One failure and the reading is refused, naming the offending line. `InvoiceProblem` carries the reference, the section and both figures, because "invalid file" is not something a treasurer can act on.
+4. **A page-break repetition deduplicates by tuple identity** — the same `(reference, section, P.U., Qt, Montant)` seen twice is one line whose lists merge. Not page detection: the second occurrence genuinely is the same line, and anything looking for "where does the page end" is reading a layout rather than a document. The section is part of the tuple, so two sections on one reference stay two lines.
+5. **Tolerate the unknown, count it.** Anything matching neither shape is ignored and counted, on a refusal as well as on an acceptance. The number means nothing on its own; a jump in it between two imports is the only warning this parser can give that the template changed.
+6. **Belgian numbers** (`BelgianNumber`, its own class with its own tests, because this is the single most frequent way such a reading silently totals zero): comma decimals, **non-breaking** space between thousands, negatives. Only NBSP-class characters are collapsed, never an ordinary space — an ordinary space separates the *columns*, and collapsing it turns "3 117,00" (a quantity and an amount) into one number. Cents are integers end to end.
+
+**People match on name + first name + birth date, never name + birth date.** Twins exist, they are registered together, and they appear on the same invoice. Casing and accents are inconsistent inside the document itself, so the key folds through `Core\Service\TextNormalizerService::fold()` (§8.0) rather than through a second folding written here.
+
+**Sections match on `sections.desk_code`, never on a displayed name.** A code is recognised by its shape inside the line's descriptor; a rename in Config Desk touches `sections.name` and must break nothing. `Staff d'unité` is a label rather than a code and maps onto `UnitStaffSectionService::DESK_CODE`, straight apostrophe or typographic. A line with no code at all is not a defect — `COT_iAM_LOCAL` and the deposit deduction genuinely have none.
+
+**The golden fixture** (`tests/fixtures/pdf/federation_invoice_sample.pdf`) is replayed on every change, recomputed to the centime, and a copy tampered with by one cent is refused naming the line. It reproduces the *shape* of a real invoice with invented names — its generator sits beside it, says so at length, and carries a `--check` mode a test runs, so a change to the generator nobody re-ran cannot pass.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
