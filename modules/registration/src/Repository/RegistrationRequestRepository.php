@@ -329,6 +329,45 @@ class RegistrationRequestRepository
     }
 
     /**
+     * The same count for a batch of addresses, in one query — Api\
+     * HouseholdRegistrationCountProvider::countsAtAddresses(), which
+     * Core\Member\Household\HouseholdService calls once for a whole
+     * scout year rather than once per household.
+     *
+     * @param string[] $addressBlindIndexes
+     * @return array<string, int> blind index => count (addresses with no
+     *         matching request are absent)
+     */
+    public function countHouseholdsAtAddresses(array $addressBlindIndexes, int $scoutYearId): array
+    {
+        $addressBlindIndexes = array_values(array_unique(array_filter(
+            $addressBlindIndexes,
+            static fn(string $index): bool => $index !== ''
+        )));
+        if ($addressBlindIndexes === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($addressBlindIndexes), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT address_normalized_blind_index AS blind_index, COUNT(*) AS total
+             FROM registration_requests
+             WHERE scout_year_id = ?
+               AND status IN ('accepted', 'encoded')
+               AND address_normalized_blind_index IN ($placeholders)
+             GROUP BY address_normalized_blind_index"
+        );
+        $stmt->execute(array_merge([$scoutYearId], $addressBlindIndexes));
+
+        $counts = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $counts[(string) $row['blind_index']] = (int) $row['total'];
+        }
+
+        return $counts;
+    }
+
+    /**
      * Declared siblings for a whole batch of requests, one query — the
      * per-request lookup below issued one query per row of the Passage page
      * and of the management list.

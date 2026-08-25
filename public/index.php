@@ -1862,6 +1862,15 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $journalService
     );
 }
+if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
+    // Freezes what Desk contained, which nothing else keeps: member_years
+    // is overwritten at every import, so an invoice can only be checked
+    // against a composition somebody wrote down at the time.
+    $deskImportListeners[] = new \Modules\Fees\Service\FeesDeskImportListener(
+        new \Modules\Fees\Repository\RosterSnapshotRepository($pdo),
+        $journalService
+    );
+}
 if ($deskImportListeners !== []) {
     $importService = new DeskImportService(
         $pdo, $encryptionService, $csvParser, $mappingResolver,
@@ -1937,6 +1946,35 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
 }
 $rgpdContentService = new RgpdContentService($moduleManager, $settingService, $llmConnectorForRgpd, $llmProviderRepoForRgpd, $llmModelRepoForRgpd);
 
+// Household size and the fee category it implies (ARCHITECTURE.md §8.34).
+// A core service, built once here rather than inside the registration
+// module's own block: it was assembled in there because that module was
+// its first caller, which made a CORE service disappear the moment an
+// optional module was switched off. The module still contributes its
+// accepted/encoded requests to the PROJECTED count, through the same
+// nullable Api provider as before (ARCHITECTURE.md §7.5) — null when it is
+// disabled, and the service degrades to counting members alone.
+$householdRegistrationCount = null;
+if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
+    $householdRegistrationCount = new \Modules\Registration\Service\HouseholdRegistrationCountService(
+        new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryptionService)
+    );
+}
+$feeEstimationService = new \Core\Member\FeeEstimationService(
+    new \Core\Member\FeeEstimationRepository($pdo),
+    $encryptionService,
+    $householdRegistrationCount
+);
+// Its twin, and core for the same reason: the two counts a household has
+// (what Desk holds, what it will hold) are not the fees module's notion,
+// they are the roster's. Built here so a module can consume it without
+// owning it.
+$householdService = new \Core\Member\Household\HouseholdService(
+    new \Core\Member\Household\HouseholdRepository($pdo),
+    $encryptionService,
+    $householdRegistrationCount
+);
+
 // Handle the request
 $maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
 $frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService);
@@ -1983,6 +2021,13 @@ $calendarEventLookup = null;
 // the member page's own "Mon parcours de formation" card (§6bis) — set in
 // that module's block below, same pattern as the two above.
 $formationPathProvider = null;
+
+// Optional dependency on the finance module (ARCHITECTURE.md §7.5) for
+// keeping a document as a receipt on one of the unit's accounts — set in
+// finance's own block below. The fees module's federation invoice is the
+// first consumer: with finance disabled the checkbox is simply not
+// offered, the PDF is not kept, and the verification works the same.
+$expenseReceiptProvider = null;
 
 // Baseline MemberPageService (core deps only) — re-registered further
 // down, once mass_mail/gallery/trombinoscope/calendar/leadership
@@ -2497,6 +2542,15 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeReceiptService = new \Modules\Finance\Service\ReceiptService(
         $financeAttachmentRepo, $financeAccountRepo, $financeTransactionAttachmentRepo, $financeEncryptedFileStorage,
         $financeTransactionRepo, $settingService
+    );
+
+    // What another module reaches this one through (Api\ExpenseReceiptInterface,
+    // ARCHITECTURE.md §7.5). It adds no storage path of its own — the
+    // ReceiptService above does everything — and builds the authorization
+    // itself from the actor its caller names, rather than accepting a
+    // decision a consumer could have granted itself.
+    $expenseReceiptProvider = new \Modules\Finance\Service\ExpenseReceiptService(
+        $financeAccountRepo, $financeTreasurerScopeService, $financeReceiptService, $effectiveScoutYear->id
     );
 
     // A receipt's FILE follows its account's rule too (ARCHITECTURE.md
@@ -3599,10 +3653,11 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     $registrationMenuHookService = new \Modules\Registration\Service\RegistrationMenuHookService($registrationTrackingService, $settingService);
 
     // Iteration 5's staff-side services — status transitions, acceptance/
-    // refusal emails, the one migration path shared by automatic
-    // reconciliation and manual linking, and the household count Api\
-    // HouseholdRegistrationCountProvider implementation wired nullable into
-    // Core\Member\FeeEstimationService (ARCHITECTURE.md §7.5).
+    // refusal emails, and the one migration path shared by automatic
+    // reconciliation and manual linking. The Api\
+    // HouseholdRegistrationCountProvider implementation is NOT built here:
+    // Core\Member\FeeEstimationService is core and is assembled in the
+    // common trunk above, whatever this module's state.
     $registrationStatusService = new \Modules\Registration\Service\RequestStatusService($registrationRequestRepo, $journalService);
     $registrationEmailService = new \Modules\Registration\Service\RequestEmailService(
         $registrationRequestRepo, $mailService, $editableContentService, $journalService, $registrationBaseUrl, $registrationSiteName
@@ -3613,10 +3668,6 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     $registrationReconciliation = new \Modules\Registration\Service\ReconciliationService(
         $pdo, $registrationRequestRepo, $encryptionService, $registrationMigrationService, $journalService
     );
-    $registrationHouseholdCountService = new \Modules\Registration\Service\HouseholdRegistrationCountService($registrationRequestRepo);
-    $feeEstimationRepository = new \Core\Member\FeeEstimationRepository($pdo);
-    $feeEstimationService = new \Core\Member\FeeEstimationService($feeEstimationRepository, $encryptionService, $registrationHouseholdCountService);
-
     $frontController->registerController(
         \Modules\Registration\Controller\PublicRegistrationController::class,
         new \Modules\Registration\Controller\PublicRegistrationController(
@@ -4325,6 +4376,89 @@ if (in_array('leadership', $moduleManager->getEnabledModuleIds(), true)) {
         $leadershipRepository,
         $leadershipMappingRepository,
         $leadershipResolver
+    );
+}
+
+if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
+    $feesImportRepo = new \Modules\Fees\Repository\FeesImportRepository($pdo);
+    $feesIgnoredHouseholdRepo = new \Modules\Fees\Repository\IgnoredHouseholdRepository($pdo, $encryptionService);
+    $feesTariffService = new \Modules\Fees\Service\HouseholdTariffService(
+        new \Modules\Fees\Repository\HouseholdTariffRepository($pdo),
+        $feeCategoryRepo
+    );
+
+    $frontController->registerController(
+        \Modules\Fees\Controller\FeesController::class,
+        new \Modules\Fees\Controller\FeesController(
+            $twig,
+            new \Modules\Fees\Repository\RosterSnapshotRepository($pdo),
+            $feesImportRepo,
+            $scoutYearResolver
+        )
+    );
+    $frontController->registerController(
+        \Modules\Fees\Controller\FeeAccuracyController::class,
+        new \Modules\Fees\Controller\FeeAccuracyController(
+            $twig,
+            new \Modules\Fees\Service\FeeAccuracyService(
+                $householdService,
+                new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService),
+                $feesTariffService,
+                $feesIgnoredHouseholdRepo,
+                $feeCategoryRepo
+            ),
+            $feesTariffService,
+            $feesIgnoredHouseholdRepo,
+            $householdService,
+            $feesImportRepo,
+            $feeCategoryRepo,
+            $scoutYearResolver,
+            $journalService
+        )
+    );
+
+    $feesInvoiceRepo = new \Modules\Fees\Repository\InvoiceRepository($pdo);
+    $feesSnapshotRepo = new \Modules\Fees\Repository\RosterSnapshotRepository($pdo);
+    $feesVerification = new \Modules\Fees\Service\InvoiceVerificationService(
+        $feesInvoiceRepo,
+        $feesSnapshotRepo,
+        $feesTariffService,
+        $sectionService,
+        new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService)
+    );
+    $frontController->registerController(
+        \Modules\Fees\Controller\InvoiceController::class,
+        new \Modules\Fees\Controller\InvoiceController(
+            $twig,
+            new \Modules\Fees\Service\InvoiceImportService(
+                new \Modules\Fees\Invoice\InvoiceReader(
+                    new \Core\File\PdfTextExtractor(),
+                    new \Modules\Fees\Invoice\InvoiceParser()
+                ),
+                $feesInvoiceRepo,
+                new \Modules\Fees\Repository\InvoiceMemberMatchRepository($pdo, $encryptionService),
+                $feesSnapshotRepo,
+                $sectionService,
+                $journalService
+            ),
+            new \Modules\Fees\Service\InvoiceSeasonService($feesInvoiceRepo),
+            $feesVerification,
+            $feesInvoiceRepo,
+            $feesSnapshotRepo,
+            $feesImportRepo,
+            $scoutYearResolver,
+            $linkedMemberIds,
+            $journalService,
+            // Optional (ARCHITECTURE.md §7.5): null whenever finance is off,
+            // and the "conserver le PDF" control simply is not rendered.
+            $expenseReceiptProvider
+        )
+    );
+    $frontController->registerController(
+        \Modules\Fees\Controller\InvoiceReportController::class,
+        new \Modules\Fees\Controller\InvoiceReportController(
+            $twig, $feesInvoiceRepo, $feesVerification, $scoutYearResolver, $journalService
+        )
     );
 }
 
