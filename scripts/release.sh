@@ -561,11 +561,20 @@ launch_gate() {
             done
         fi
         export GATE_REPORT_FILE="${GATE_TMP_DIR}/${key}.report"
+        # The sentinel a dependent gate polls for, written from an EXIT
+        # trap rather than a line after the call. A gate function aborts by
+        # calling `exit` itself (every guard in check_tests_gate does), and
+        # `exit` leaves the subshell without running any following line —
+        # so a plain `touch` after "${func}" is skipped exactly when the
+        # gate fails, and the gate waiting on this key polls `sleep 1`
+        # forever. Observed: a failing Tests gate left End-to-end spinning
+        # and the whole release hung with four gates already green.
+        # Expanded now, not at trap time, so it cannot depend on what is
+        # still in scope when the subshell unwinds.
+        trap "touch '${GATE_TMP_DIR}/${key}.done'" EXIT
         set +e
         "${func}"
-        status=$?
-        touch "${GATE_TMP_DIR}/${key}.done"
-        exit "${status}"
+        exit $?
     ) > "${GATE_TMP_DIR}/${key}.log" 2>&1 < /dev/null &
     GATE_PIDS+=("$!")
 }
