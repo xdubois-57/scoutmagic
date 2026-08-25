@@ -573,10 +573,10 @@ idiom already used by `cookie-consent.test.js`, `fetch` mocking, `classList`/`da
 These are genuine, not fixable with a stub, and are the honest boundary of this approach:
 
 - **Layout.** jsdom has no layout engine: `offsetTop`, `offsetWidth`, `getBoundingClientRect()`
-  all return `0`. This killed `chip-picker.js`'s `rowsFor()`/`truncate()` (every chip collapsed
-  into one row, so the test would have asserted a jsdom artefact) and still kills the geometry
-  parts of `gallery.js` and `list-editor.js`. Stubbing geometry means testing the stub.
-  `chip-picker.js` no longer exists: the components that replaced it, `select-bar.js` and
+  all return `0`. This killed the old selection component's line-measuring `truncate()` (every
+  chip collapsed into one row, so the test would have asserted a jsdom artefact) and still kills
+  the geometry parts of `gallery.js` and `list-editor.js`. Stubbing geometry means testing the
+  stub. That component no longer exists: the two that replaced it, `select-bar.js` and
   `nav-rail.js`, measure no geometry at all, which is what made them testable — see
   `tests/js/select-bar.test.js` and `tests/js/nav-rail.test.js`.
 - **Canvas.** No rendering backend, so `upload.js`'s `downscaleToWebp()` and
@@ -637,8 +637,8 @@ Narrowed considerably, and on the §3.2 test rather than on "it's glue":
   genuinely no contract outside themselves beyond a single `fetch` URL. Pick those up free
   via §7.4 rather than writing per-file specs.
 - The geometry halves of `gallery.js` and `list-editor.js` — blocked by §7.3, not by
-  judgment. (`chip-picker.js` was listed here too; it was deleted rather than tested, and
-  its replacements measure nothing and are covered.)
+  judgment. (The old selection component was listed here too; it was deleted rather than
+  tested, and its replacements measure nothing and are covered.)
 - `push-notifications.js`, `setup.js` — dominated by permission and installer flows that mock
   out to near-tautology. `setup.js`'s `escapeHtml`/`escapeAttr` are covered by P1.4 instead.
 
