@@ -8,18 +8,20 @@
 
   Each section entry may optionally carry a `color` key (e.g. from
   Core\Member\SectionService::colorForSection()) to show a small
-  branch-colored dot. Callers that don't set it get a plain chip.
+  branch-colored dot. Callers that don't set it get a plain row.
 
-  Thin mapping layer over the generic partials/chip_picker.html.twig
+  Thin mapping layer over the generic partials/select_bar.html.twig
   (mode: single) — see docs/module-development.md for that contract.
-  This partial owns nothing about *how* selection is presented; it only
-  knows how a section row maps to a chip_picker item. Sections are never
-  refiltered here — Core\Member\SectionService::getAllWithBranches()
+  A section list is open-ended, comes from the database and carries long
+  labels, which is exactly what the select bar is for rather than the nav
+  rail. This partial owns nothing about *how* selection is presented; it
+  only knows how a section row maps to a select_bar item. Sections are
+  never refiltered here — Core\Member\SectionService::getAllWithBranches()
   already excludes hidden/inactive ones, ARCHITECTURE.md §8.8.
 #}
-{% set chip_items = [] %}
+{% set _items = [] %}
 {% for section in sections %}
-    {% set chip_items = chip_items|merge([{
+    {% set _items = _items|merge([{
         id: section.id,
         label: section.name ?? section.desk_code,
         sublabel: section.branch_name is defined ? section.branch_name : null,
@@ -28,13 +30,14 @@
         selected: section.id == selected_id,
     }]) %}
 {% endfor %}
-<div class="section-picker">
-    {% include 'partials/chip_picker.html.twig' with {
+<div class="section-picker mb-3">
+    {% include 'partials/select_bar.html.twig' with {
         picker_id: 'section-picker',
-        items: chip_items,
+        label: 'Section',
+        items: _items,
         mode: 'single',
         base_url: base_url,
-        sheet_title: 'Choisir une section',
+        none_selected_text: 'Choisir une section',
         empty_text: 'Aucune section disponible.',
     } %}
 </div>

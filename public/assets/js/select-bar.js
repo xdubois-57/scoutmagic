@@ -57,7 +57,7 @@
             return;
         }
         if (selected.length === 1) {
-            var labelEl = selected[0].querySelector('.select-bar-item-label');
+            var labelEl = selected[0].querySelector('.select-bar-row-label');
             trigger.textContent = labelEl ? (labelEl.textContent || '').trim() : '';
             return;
         }

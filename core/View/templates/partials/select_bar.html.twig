@@ -96,7 +96,7 @@
         <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.6rem;height:0.6rem;background-color:{{ item.color }};"></span>
     {% endif %}
     <span class="flex-grow-1 text-start">
-        <span class="d-block select-bar-item-label">{{ item.label }}</span>
+        <span class="d-block select-bar-row-label">{{ item.label }}</span>
         {% if item.sublabel is defined and item.sublabel %}
             <span class="d-block text-body-secondary" style="font-size:0.75rem;">{{ item.sublabel }}</span>
         {% endif %}
@@ -127,15 +127,25 @@
     {% if items|length == 0 %}
         <p class="text-body-secondary fst-italic mb-0">{{ empty_text|default('Aucun élément.') }}</p>
     {% elseif _mode != 'multi' and items|length == 1 %}
-        {# Nothing to choose from is not a control (see docblock). #}
+        {# Nothing to choose from is not a control (see docblock). The
+           row's own detail — sublabel, badge, colour dot — still shows:
+           it describes the value, it is not part of choosing one, and
+           dropping it would cost a one-section unit its branch name and
+           its « Non configurée » badge. #}
         <div class="select-bar-static d-flex align-items-center gap-2 px-3 py-2 border rounded bg-body-tertiary">
-            {% if _dot %}
-                <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.6rem;height:0.6rem;background-color:{{ _dot }};"></span>
+            {% if items[0].color is defined and items[0].color %}
+                <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.6rem;height:0.6rem;background-color:{{ items[0].color }};"></span>
             {% endif %}
             <span class="flex-grow-1 text-start">
                 <span class="d-block text-body-secondary" style="font-size:0.75rem;">{{ label|default('') }}</span>
-                <span class="d-block">{{ items[0].label }}</span>
+                <span class="d-block select-bar-value">{{ items[0].label }}</span>
+                {% if items[0].sublabel is defined and items[0].sublabel %}
+                    <span class="d-block text-body-secondary" style="font-size:0.75rem;">{{ items[0].sublabel }}</span>
+                {% endif %}
             </span>
+            {% if items[0].badge is defined and items[0].badge %}
+                <span class="badge bg-warning-subtle text-warning-emphasis flex-shrink-0">{{ items[0].badge }}</span>
+            {% endif %}
         </div>
     {% else %}
         <details class="select-bar-details border rounded bg-body-tertiary">

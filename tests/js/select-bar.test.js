@@ -29,11 +29,11 @@ function multiModeMarkup() {
                     <ul>
                         <li><button type="button" class="select-bar-item" data-id="1" data-selected="false" aria-pressed="false">
                             <span><i class="bi bi-check-lg invisible"></i></span>
-                            <span><span class="select-bar-item-label">Infirmier</span></span>
+                            <span><span class="select-bar-row-label">Infirmier</span></span>
                         </button></li>
                         <li><button type="button" class="select-bar-item" data-id="2" data-selected="false" aria-pressed="false">
                             <span><i class="bi bi-check-lg invisible"></i></span>
-                            <span><span class="select-bar-item-label">Trésorier</span></span>
+                            <span><span class="select-bar-row-label">Trésorier</span></span>
                         </button></li>
                     </ul>
                 </div>
@@ -52,10 +52,10 @@ function singleModeMarkup() {
                 <div class="select-bar-panel">
                     <ul>
                         <li><a class="select-bar-item" href="/chefs/staffs?section=1" data-id="1" data-selected="true" aria-current="true">
-                            <span class="select-bar-item-label">Louveteaux</span>
+                            <span class="select-bar-row-label">Louveteaux</span>
                         </a></li>
                         <li><a class="select-bar-item" href="/chefs/staffs?section=2" data-id="2" data-selected="false">
-                            <span class="select-bar-item-label">Éclaireurs</span>
+                            <span class="select-bar-row-label">Éclaireurs</span>
                         </a></li>
                     </ul>
                 </div>

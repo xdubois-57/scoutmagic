@@ -68,17 +68,10 @@
     font-size: 1.5rem;
 }
 
-.section-picker {
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
-}
-.section-picker::-webkit-scrollbar {
-    height: 4px;
-}
-
-@media (min-width: 992px) {
-    .section-picker { flex-wrap: wrap; overflow: visible; }
-}
+/* .section-picker's horizontal-scroll rules are gone with the chips they
+   scrolled: partials/section_picker.html.twig now maps onto the select
+   bar, which is one full-width row opening a panel and never scrolls
+   sideways. The wrapper class stays as a page-level hook. */
 
 /* partials/select_bar.html.twig — the disclosure panel anchored under
    the bar. Bootstrap has no disclosure component, so nothing here

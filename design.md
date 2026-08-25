@@ -22,8 +22,37 @@ The row this replaced wrapped to three lines at Configuration's nineteen entries
 ### 1.3 Configuration mode
 Banner when active. Text: click → rich text editor. Images: click → upload page (drag-drop, file picker, camera).
 
-### 1.4 SectionPicker
-Reusable. Sections with branch subtitle. Horizontal scroll mobile, wraps desktop. Unconfigured sections show badge. Pre-selects highest-role member's section.
+### 1.4 Selection components
+
+Two components, for two genuinely different needs. They share no markup and
+no JS, and the choice between them is not a preference:
+
+- **Select bar** (`partials/select_bar.html.twig`) — picking a piece of
+  **data**: a section, a calendar, an account, a rentable asset, badges. The
+  list is open-ended, comes from the database, and its labels are long. One
+  full-width row (field name, current value, chevron) opening a disclosure
+  panel anchored under the bar. The panel is a native `<details>`, never an
+  offcanvas: that is what keeps every item operable with JS off, which the
+  offline pages depend on. `mode: 'multi'` adds toggling and a
+  `select-bar:change` event; the component never persists anything.
+- **Nav rail** (`partials/nav_rail.html.twig`) — moving between the fixed
+  sub-pages or views of **one page**: finance pages, rental management pages,
+  groups tabs, a status filter declared in code. The set is small, fixed and
+  short-labelled. One horizontally-scrollable row of Bootstrap
+  `nav-underline` tabs, never wrapped and never folded, selected tab
+  auto-centred.
+
+**The rule when a new call site appears**: *fixed set, declared in code,
+short labels → nav rail. Open-ended set, coming from the database → select
+bar.* A call site that seems to need a use-case-specific parameter on either
+component is using the wrong one.
+
+Neither hides anything: no `+N` overflow, no client-side fold, no
+post-render DOM measurement. Both render every item server-side.
+
+**SectionPicker** (`partials/section_picker.html.twig`) is a thin mapping
+layer over the select bar: sections with branch subtitle, unconfigured
+sections show a badge, pre-selects the highest-role member's section.
 
 ### 1.5 Login page
 Three-tab segmented control: "Lien magique" (default), "Mot de passe", "Clé numérique".
