@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Service;
 
+use Core\View\EditableContentService;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Repository\Place;
@@ -24,13 +25,24 @@ use Modules\LlmConnector\Api\LlmTier;
  * Optional `llm_connector` consumer: absent, disabled or failing, a place
  * simply has no summary and every other screen is unaffected.
  *
- * **What goes in is a closed list**: reviews, notes, prices, statuses,
- * dates, participant counts and sections. Linked e-mails are deliberately
+ * **What goes in is a closed list**: reviews, the stays' own free-text
+ * notes, prices, statuses, dates, participant counts and sections — the
+ * list `module.json` states to the administrator, and for a long time
+ * larger than what this service actually sent. Notes and sections were
+ * named there and read nowhere, so a staff who wrote three paragraphs
+ * about a field in the note and pressed « Écrire le résumé » was told
+ * their place had no qualitative review. Linked e-mails are deliberately
  * excluded — they are long, they are expensive, and they are third
  * parties' correspondence. Sending a farmer's letters to a subprocessor
  * so a model can add one adjective is not a trade this module makes.
  * Contacts are excluded for the same reason and more bluntly: their names
  * and numbers have no business leaving this database at all.
+ *
+ * A note is free text and a chief may well have written a person's name
+ * in it ("demander Jean-Marie"). That is why the system prompt forbids
+ * the model to return one — the same instruction Mail\StayFromMailService
+ * relies on — and why the note is bounded: it is the one input here with
+ * no natural size.
  */
 class PlaceSummaryService
 {
@@ -75,10 +87,26 @@ class PlaceSummaryService
      */
     private const TIER = LlmTier::CHEAP;
 
+    /**
+     * How much of ONE stay's note may travel, and how much material may
+     * be built out of a whole place.
+     *
+     * A note is the only unbounded thing here — a chief can write four
+     * screens about a field — and a place can hold twenty stays. Without
+     * a bound, an old place would send a prompt costing more than the
+     * summary is worth, on a schedule nobody watches. The place cap cuts
+     * the OLDEST stays, because `CampRepository::findByPlace()` returns
+     * them newest first and a place is what it was like last time.
+     */
+    private const MAX_NOTE_CHARS = 1200;
+    private const MAX_MATERIAL_CHARS = 12000;
+
     public function __construct(
         private PlaceRepository $places,
         private CampRepository $camps,
         private ReviewRepository $reviews,
+        private EditableContentService $notes,
+        private SectionDescriber $sectionDescriber,
         private ?LlmConnectorInterface $llm = null
     ) {
     }
@@ -186,6 +214,10 @@ class PlaceSummaryService
             if ($camp->participantCount !== null) {
                 $parts[] = $camp->participantCount . ' participants';
             }
+            $sections = $this->sectionNames($camp);
+            if ($sections !== '') {
+                $parts[] = $sections;
+            }
 
             $review = $reviews[$camp->id] ?? null;
             if ($review !== null) {
@@ -198,13 +230,90 @@ class PlaceSummaryService
                 $hasSomethingToSay = true;
             }
 
-            $lines[] = '- ' . implode(', ', $parts);
+            $line = '- ' . implode(', ', $parts);
+
+            // The note goes on its own line, and it is the line that
+            // matters most: the review field is one box on one screen,
+            // while the note is where a staff actually writes what the
+            // next one needs — "la cuisine était petite mais bien", "pas
+            // d'endroit pour un tabou", "penser aux couvertures". A
+            // summary built without it describes a field nobody camped on.
+            $note = $this->noteText($camp->id);
+            if ($note !== '') {
+                $line .= "\n  notes du staff : " . $note;
+                $hasSomethingToSay = true;
+            }
+
+            $lines[] = $line;
         }
 
         if (!$hasSomethingToSay) {
             return null;
         }
 
-        return "Lieu : {$place->name}\nSéjours :\n" . implode("\n", $lines);
+        return "Lieu : {$place->name}\nSéjours :\n" . $this->bounded($lines);
+    }
+
+    /**
+     * One stay's note, as plain text.
+     *
+     * The note is rich text (`partials/rich_text_form_field.html.twig`),
+     * and markup is neither information for a model nor something worth
+     * paying tokens for — so the tags come off and the entities come
+     * back, the same way every other consumer of stored rich text on this
+     * site does it.
+     */
+    private function noteText(int $campId): string
+    {
+        $stored = $this->notes->get(CampService::noteKey($campId), '') ?? '';
+        if (trim($stored) === '') {
+            return '';
+        }
+
+        // A block element with no space around it would run two sentences
+        // together ("...bien.Par contre..."), which is exactly what the
+        // reported note looked like once its tags were stripped.
+        $spaced = (string) preg_replace('~<(?:/p|br\s*/?|/li|/h[1-6]|/div)\s*>~i', ' ', $stored);
+        $text = trim((string) preg_replace(
+            '~\s+~u',
+            ' ',
+            html_entity_decode(strip_tags($spaced), ENT_QUOTES | ENT_HTML5, 'UTF-8')
+        ));
+
+        return mb_strlen($text) > self::MAX_NOTE_CHARS
+            ? mb_substr($text, 0, self::MAX_NOTE_CHARS) . '…'
+            : $text;
+    }
+
+    /**
+     * Which sections went, by name. Never an id: "3, 5" tells a model
+     * nothing, and a section whose id no longer resolves is dropped by
+     * Service\SectionDescriber rather than invented.
+     */
+    private function sectionNames(Camp $camp): string
+    {
+        $names = array_map(
+            static fn(array $section): string => $section['name'],
+            $this->sectionDescriber->describe($camp->sectionIds)
+        );
+
+        return $names !== [] ? implode(' et ', $names) : '';
+    }
+
+    /**
+     * The stay lines, oldest dropped first if the whole thing is too long
+     * to be worth sending.
+     *
+     * @param array<int, string> $lines newest first
+     */
+    private function bounded(array $lines): string
+    {
+        $material = implode("\n", $lines);
+        while (mb_strlen($material) > self::MAX_MATERIAL_CHARS && count($lines) > 1) {
+            array_pop($lines);
+            $material = implode("\n", $lines);
+        }
+
+        return $material;
     }
 }

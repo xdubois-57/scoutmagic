@@ -3414,7 +3414,8 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService, $campsPlaceRepo);
     $campsSummaryService = new \Modules\Camps\Service\PlaceSummaryService(
-        $campsPlaceRepo, $campsCampRepo, $campsReviewRepo, $llmConnectorForRgpd ?? null
+        $campsPlaceRepo, $campsCampRepo, $campsReviewRepo, $editableContentService,
+        $campsSectionDescriber, $llmConnectorForRgpd ?? null
     );
     $campsArchiveService = new \Modules\Camps\Service\PlaceArchiveService(
         $campsPlaceRepo, $campsCampRepo, $auditService

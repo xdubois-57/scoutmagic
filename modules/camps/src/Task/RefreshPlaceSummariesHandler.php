@@ -8,13 +8,19 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Task;
 
+use Core\Badge\MemberBadgeRepository;
+use Core\Database\Connection;
+use Core\Member\SectionService;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\View\EditableContentRepository;
+use Core\View\EditableContentService;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Repository\PlaceRepository;
 use Modules\Camps\Repository\ReviewRepository;
 use Modules\Camps\Service\PlaceSummaryService;
+use Modules\Camps\Service\SectionDescriber;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 
 /**
@@ -75,10 +81,22 @@ class RefreshPlaceSummariesHandler implements TaskHandlerInterface
     private function refresh(\PDO $pdo, TaskContext $context): void
     {
         $places = new PlaceRepository($pdo);
+        // The notes and the sections are half of what a summary is made
+        // of (Service\PlaceSummaryService's own closed list), so the
+        // nightly run has to build them exactly like the composition root
+        // does — a handler assembling a thinner service than the button
+        // would write a thinner summary every night, and nothing on any
+        // screen would say the two differ.
         $service = new PlaceSummaryService(
             $places,
             new CampRepository($pdo, $context->encryption),
             new ReviewRepository($pdo),
+            new EditableContentService(new EditableContentRepository($pdo)),
+            new SectionDescriber(new SectionService(
+                Connection::withPdo($pdo),
+                $context->encryption,
+                new MemberBadgeRepository($pdo)
+            )),
             $this->llm
         );
 

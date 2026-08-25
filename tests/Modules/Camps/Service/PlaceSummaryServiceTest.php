@@ -6,13 +6,20 @@ namespace Tests\Modules\Camps\Service;
 
 use Core\Audit\AuditRepository;
 use Core\Audit\AuditService;
+use Core\Badge\MemberBadgeRepository;
+use Core\Database\Connection;
+use Core\Member\SectionService;
+use Core\View\EditableContentRepository;
+use Core\View\EditableContentService;
 use Core\Security\EncryptionService;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Repository\ContactRepository;
 use Modules\Camps\Repository\PlaceRepository;
 use Modules\Camps\Repository\ReviewRepository;
+use Modules\Camps\Service\CampService;
 use Modules\Camps\Service\PlaceSummaryService;
+use Modules\Camps\Service\SectionDescriber;
 use Modules\Camps\Service\SummaryOutcome;
 use Modules\Camps\Service\ReviewService;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
@@ -57,6 +64,117 @@ class PlaceSummaryServiceTest extends TestCase
         $this->assertStringContainsString('61 participants', (string) $material);
         $this->assertStringContainsString('note 5/5', (string) $material);
         $this->assertStringContainsString('Propriétaire très arrangeant.', (string) $material);
+    }
+
+    /**
+     * The reported bug: a chief wrote three paragraphs about a field in
+     * the stay's NOTE — the box whose own help text says "tout ce qu'un
+     * staff suivant devrait savoir" — and the generated summary said the
+     * place had no qualitative review. It did not: `material()` never read
+     * the note, although both this service's docblock and the setting
+     * shown to the administrator listed notes among what goes in.
+     *
+     * The note is the most valuable input here. A place sheet without it
+     * summarises the paperwork of a camp and none of the camping.
+     */
+    public function testTheStaysOwnNoteReachesTheModel(): void
+    {
+        $camp = $this->stay('2024-07-19', 210000);
+        $this->writeNote($camp, '<p>Le camp était super. La cuisine était petite mais bien.</p>'
+            . '<p>Par contre il n\'y avait pas d\'endroit pour faire un tabou pour les chefs.</p>'
+            . '<p>Les animés ont eu un peu froid la nuit, penser à demander de prendre des '
+            . 'couvertures chaudes.</p>');
+
+        $material = (string) $this->service()->material($this->place());
+
+        $this->assertStringContainsString('La cuisine était petite mais bien', $material);
+        $this->assertStringContainsString('pas d\'endroit pour faire un tabou', $material);
+        $this->assertStringContainsString('couvertures chaudes', $material);
+        // Plain text: markup is not information, and tokens cost money.
+        $this->assertStringNotContainsString('<p>', $material);
+    }
+
+    /**
+     * Two paragraphs run together read as one sentence to a model —
+     * "bien.Par contre" — and that is what stripping the tags naively
+     * produced on the very note that was reported.
+     */
+    public function testParagraphsDoNotRunIntoEachOtherOnceTheMarkupIsGone(): void
+    {
+        $camp = $this->stay('2024-07-19', null);
+        $this->writeNote($camp, '<p>La cuisine était petite mais bien.</p><p>Par contre il n\'y avait pas '
+            . 'd\'endroit pour un tabou.</p>');
+
+        $material = (string) $this->service()->material($this->place());
+
+        $this->assertStringContainsString('bien. Par contre', $material);
+        $this->assertStringNotContainsString('bien.Par contre', $material);
+    }
+
+    /**
+     * A note alone is a place worth summarising. It used to take a review
+     * or a price, so a stay documented entirely in its note summed up to
+     * "rien à résumer".
+     */
+    public function testANoteAloneIsAlreadySomethingToSummarise(): void
+    {
+        $camp = $this->stay('2024-07-19', null);
+        $this->writeNote($camp, '<p>Terrain en pente, prévoir des sardines longues.</p>');
+
+        $this->assertNotNull($this->service()->material($this->place()));
+    }
+
+    public function testWhichSectionsWentReachesTheModelByName(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO age_branches (id, desk_code, label, sort_order) VALUES (1, 'LOU', 'Louveteaux', 1)"
+        );
+        $this->pdo->exec(
+            "INSERT INTO sections (id, name, desk_code, age_branch_id, is_active) VALUES (7, 'La Meute', 'MEU', 1, 1)"
+        );
+        $sectionId = 7;
+        $camp = $this->camps->create(
+            $this->placeId, Camp::STAY_GRAND_CAMP, '2024-07-12', '2024-07-19', null,
+            Camp::STATUS_CONFIRMED, 210000, 61, null, null, [$sectionId]
+        );
+        $this->reviews->save($camp, 4, 'Bon terrain.', null);
+
+        $material = (string) $this->service()->material($this->place());
+
+        // A field that suits Baladins is not the field that suits
+        // Pionniers, and the summary is read to choose one.
+        $this->assertStringContainsString($this->sectionName($sectionId), $material);
+    }
+
+    /**
+     * A note has no natural size — a chief can write four screens — and a
+     * place can hold twenty stays. Both are bounded, and the place keeps
+     * its most RECENT stays: a place is what it was like last time.
+     */
+    public function testAVeryLongNoteIsBoundedRatherThanSentWhole(): void
+    {
+        $camp = $this->stay('2024-07-19', null);
+        $this->writeNote($camp, '<p>' . str_repeat('Terrain en pente. ', 400) . '</p>');
+
+        $material = (string) $this->service()->material($this->place());
+
+        $this->assertLessThan(2000, mb_strlen($material));
+        $this->assertStringEndsWith('…', $material);
+    }
+
+    public function testAnOldStayIsDroppedBeforeTheMaterialGrowsUnbounded(): void
+    {
+        for ($year = 2005; $year <= 2024; $year++) {
+            $camp = $this->stay($year . '-07-19', 210000);
+            $this->writeNote($camp, '<p>' . str_repeat('Note de ' . $year . '. ', 90) . '</p>');
+        }
+
+        $material = (string) $this->service()->material($this->place());
+
+        $this->assertLessThanOrEqual(12000, mb_strlen($material));
+        // The recent ones are the ones that survive.
+        $this->assertStringContainsString('Note de 2024', $material);
+        $this->assertStringNotContainsString('Note de 2005', $material);
     }
 
     public function testContactsNeverReachTheModel(): void
@@ -334,7 +452,29 @@ class PlaceSummaryServiceTest extends TestCase
 
     private function service(?LlmConnectorInterface $llm = null): PlaceSummaryService
     {
-        return new PlaceSummaryService($this->places, $this->camps, $this->reviews, $llm);
+        return new PlaceSummaryService(
+            $this->places,
+            $this->camps,
+            $this->reviews,
+            $this->notes(),
+            new SectionDescriber(new SectionService(
+                Connection::withPdo($this->pdo),
+                $this->encryption,
+                new MemberBadgeRepository($this->pdo)
+            )),
+            $llm
+        );
+    }
+
+    private function notes(): EditableContentService
+    {
+        return new EditableContentService(new EditableContentRepository($this->pdo));
+    }
+
+    /** Writes a stay's free-text note the way the stay form does. */
+    private function writeNote(int $campId, string $html): void
+    {
+        $this->notes()->set(CampService::noteKey($campId), $html, 'html', 1);
     }
 
     private function availableLlm(string $content): LlmConnectorInterface
@@ -383,6 +523,19 @@ class PlaceSummaryServiceTest extends TestCase
             $this->placeId, Camp::STAY_GRAND_CAMP, $endDate, $endDate, null,
             Camp::STATUS_CONFIRMED, $priceCents, $participants, null, null, []
         );
+    }
+
+    private function sectionName(int $sectionId): string
+    {
+        $sections = new SectionService(
+            Connection::withPdo($this->pdo),
+            $this->encryption,
+            new MemberBadgeRepository($this->pdo)
+        );
+        $found = $sections->findByIds([$sectionId]);
+        $this->assertArrayHasKey($sectionId, $found);
+
+        return (string) $found[$sectionId]['name'];
     }
 
     private function place(): \Modules\Camps\Repository\Place
