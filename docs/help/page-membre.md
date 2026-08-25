@@ -5,7 +5,7 @@ summary: Ce que montre la page personnelle : photo, section, documents, informat
 category: Espace membres
 role_min: identified
 paths: /members/*, /members/*/emails/*
-related: adresses-email, un-email-plusieurs-animes, mon-compte
+related: adresses-email, un-email-plusieurs-animes, envoyer-une-photo, mon-compte
 ---
 
 Chaque animé lié à votre adresse a sa page, ouverte depuis le menu

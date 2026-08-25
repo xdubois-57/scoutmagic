@@ -554,7 +554,7 @@ formulaire, groupes de discussion, demandes d'inscription, locations — chacun
 demandant de recomposer la chaîne complète de son module (notifications,
 planificateur, stockage chiffré, connecteur IA optionnel), soit beaucoup de
 surface de câblage à maintenir pour une fixture. La liste et la raison sont
-dans README.md §8.3.
+dans ARCHITECTURE.md §8.3.
 
 **Décisions prises en autonomie.**
 

@@ -64,6 +64,26 @@ set -euo pipefail
 #                               too. Emergency use only — prints a
 #                               warning. See check_dast_gate.
 
+# Keep the machine awake for the whole run. A release takes 20–30 minutes
+# — the complete PHPUnit suite, then a real browser suite — and a laptop
+# that sleeps partway through leaves it dead at an unpredictable point,
+# possibly after the tag has been pushed but before the GitHub release
+# exists (a state this script has already been caught in once, for another
+# reason). `caffeinate` holds sleep off for exactly as long as the command
+# it wraps, and lets go afterwards, so there is nothing to remember to
+# undo.
+#
+# Re-executes this script under caffeinate once; the exported marker makes
+# the second pass fall through instead of recursing. macOS only —
+# caffeinate does not exist on Linux (CI, a remote dev host), where
+# `command -v` simply fails and the release proceeds exactly as it did
+# before this block existed. `-i` blocks idle sleep, `-s` blocks system
+# sleep while on mains power (this build takes -disu; there is no -m).
+if [[ -z "${SCOUTMAGIC_RELEASE_AWAKE:-}" ]] && command -v caffeinate &> /dev/null; then
+    export SCOUTMAGIC_RELEASE_AWAKE=1
+    exec caffeinate -i -s "$0" "$@"
+fi
+
 BUMP="patch"
 NOTES_FILE=""
 SKIP_SECURITY_GATE=0

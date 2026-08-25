@@ -605,6 +605,12 @@ $settingService->register('auto_update_time', '03:00', 'text', 'Heure d\'install
 $settingService->register('dev_update_branch', 'main', 'text', 'Branche de développement',
     'Branche GitHub surveillée pour l\'installation immédiate en mode développement.',
     null, null, null, true, 125);
+$settingService->register('auto_update_last_push_at', '', 'text', 'Dernière poussée GitHub traitée',
+    'Horodatage de la dernière poussée GitHub reçue et effectivement examinée par le webhook. Géré automatiquement.',
+    null, null, null, false, 126);
+$settingService->register('auto_update_last_push_result', '', 'text', 'Résultat de la dernière poussée',
+    'Ce que le webhook a fait de cette poussée : « ok » si l\'installation a été programmée, sinon la raison du rejet. Géré automatiquement.',
+    null, null, null, false, 127);
 $settingService->register('scheduler_last_run', '0', 'number', 'Dernier passage du planificateur',
     'Horodatage Unix du dernier passage du planificateur de tâches. Géré automatiquement.',
     null, null, null, false, 200);

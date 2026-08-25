@@ -88,7 +88,7 @@ class RefreshPlaceSummariesHandler implements TaskHandlerInterface
 
         $written = 0;
         foreach ($places->findStaleSummaries(self::MAX_PER_RUN) as $place) {
-            if ($service->refresh($place)) {
+            if ($service->refresh($place)->wasWritten()) {
                 $written++;
             }
         }

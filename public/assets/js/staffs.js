@@ -31,13 +31,13 @@
 // described the native box's two buttons: the dialog now names both actions
 // on the buttons themselves, which is where §7.5 wants that sentence.
 //
-// The badge picker is partials/chip_picker.html.twig in mode:multi.
-// chip-picker.js already flips the chip/sheet-row visual state
-// optimistically on click and dispatches chip-picker:change with the
-// picker's full new selection (docs/module-development.md); this only
-// translates that into the single-badge-toggle endpoint (one member_year_id
-// + the one badge_id that just changed) and reverts the optimistic state
-// when the server rejects the toggle.
+// The badge picker is partials/select_bar.html.twig in mode:multi.
+// select-bar.js already flips the row's visual state optimistically on
+// click and dispatches select-bar:change with the picker's full new
+// selection (docs/module-development.md); this only translates that into
+// the single-badge-toggle endpoint (one member_year_id + the one badge_id
+// that just changed) and reverts the optimistic state when the server
+// rejects the toggle.
 (function () {
     var api = window.ScoutMagicApi;
 
@@ -132,7 +132,7 @@
 
     // --- Badge picker, one per staff member ---
     badgePickers.forEach(function (wrapper) {
-        var picker = /** @type {HTMLElement|null} */ (wrapper.querySelector('.chip-picker'));
+        var picker = /** @type {HTMLElement|null} */ (wrapper.querySelector('.select-bar'));
         if (!picker) {
             return;
         }
@@ -144,11 +144,11 @@
 
         var previousSelected = new Set(
             Array.prototype.slice
-                .call(picker.querySelectorAll('.chip-picker-item[data-selected="true"]'))
+                .call(picker.querySelectorAll('.select-bar-item[data-selected="true"]'))
                 .map(function (el) { return el.dataset.id; })
         );
 
-        picker.addEventListener('chip-picker:change', async function (e) {
+        picker.addEventListener('select-bar:change', async function (e) {
             var nextSelected = new Set(/** @type {CustomEvent} */ (e).detail.selectedIds);
             /** @type {string|null} */
             var badgeId = null;
@@ -170,11 +170,11 @@
                 previousSelected = nextSelected;
                 return;
             }
-            // Revert the optimistic state chip-picker.js already applied,
+            // Revert the optimistic state select-bar.js already applied,
             // then say why. setSelected deliberately does not re-dispatch
-            // chip-picker:change (see chip-picker.js), so this cannot loop.
-            if (window.ChipPicker && window.ChipPicker.setSelected) {
-                window.ChipPicker.setSelected(picker.id, badgeId, !assigned);
+            // select-bar:change (see select-bar.js), so this cannot loop.
+            if (window.SelectBar && window.SelectBar.setSelected) {
+                window.SelectBar.setSelected(picker.id, badgeId, !assigned);
             }
             toastError(res, 'Erreur.');
         });

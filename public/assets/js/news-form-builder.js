@@ -1274,7 +1274,7 @@
     // ONE namespaced global so tests/js/news-form-builder.test.js can reach
     // the HTML sanitizer directly and exercise the real implementation rather
     // than reimplementing its logic in a test-only copy — the same reason
-    // window.ChipPicker and window.ScoutMagicNav already exist.
+    // window.SelectBar and window.ScoutMagicNav already exist.
     //
     // Test-only: nothing in production reads this, and nothing should. The
     // sanitizer in particular must never be called from a page as a

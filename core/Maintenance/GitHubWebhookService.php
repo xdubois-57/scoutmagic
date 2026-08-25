@@ -227,10 +227,67 @@ class GitHubWebhookService
     }
 
     /**
+     * Records what became of the push, then answers exactly as before.
+     *
+     * The decision itself is untouched in processPushEvent() below; this
+     * wrapper exists only so the site remembers the outcome. Without it
+     * the reason is written into the HTTP response and immediately
+     * forgotten — and since an ignored push still answers 200 (an ignore
+     * is an ordinary result: a push to another branch is one), GitHub's
+     * delivery log shows success either way. That left Configuration >
+     * Maintenance able to say the channel had gone quiet but never why,
+     * which is the half of the diagnosis an administrator actually needs.
+     *
      * @param array<string, mixed> $payload
      * @return array{status: string, reason?: string}
      */
     public function handlePushEvent(array $payload): array
+    {
+        /** @var array{status: string, reason?: string} $result */
+        $result = $this->processPushEvent($payload);
+        $this->recordPushOutcome($result);
+
+        return $result;
+    }
+
+    /**
+     * @param array{status: string, reason?: string} $result
+     */
+    private function recordPushOutcome(array $result): void
+    {
+        $reason = (string) ($result['reason'] ?? '');
+
+        // `branch_mismatch` is the one outcome that is not a symptom of
+        // anything: GitHub sends a push event for every ref, so every
+        // feature branch and every tag lands here and is rightly dropped.
+        // Recording it would overwrite the last meaningful outcome within
+        // minutes and leave the page reporting noise as the diagnosis.
+        if ($reason === 'branch_mismatch') {
+            return;
+        }
+
+        try {
+            $this->settings->setInternal(
+                'auto_update_last_push_at',
+                (new \DateTimeImmutable())->format('Y-m-d H:i:s')
+            );
+            $this->settings->setInternal(
+                'auto_update_last_push_result',
+                $reason !== '' ? $reason : (string) $result['status']
+            );
+        } catch (\Throwable) {
+            // Bookkeeping must never turn a working install into a failed
+            // webhook: an unregistered setting (an install predating this
+            // feature, before its migration has run) would otherwise throw
+            // out of a request that had already done its real work.
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array{status: string, reason?: string}
+     */
+    private function processPushEvent(array $payload): array
     {
         $enabled = (bool) ((int) ($this->settings->get('auto_update_enabled') ?: '0'));
         $level = (string) ($this->settings->get('auto_update_level') ?: 'minor');

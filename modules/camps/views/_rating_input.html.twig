@@ -1,0 +1,60 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# The note a chief gives a stay — five stars, clicked.
+
+   It used to be a select. A rating out of five is read as stars
+   everywhere it is SHOWN on this module (_stars.html.twig, the place
+   sheet, every camp card); asking for it through a dropdown made the one
+   screen where the number is given the only one that spoke another
+   language, and cost two taps on a phone for what is one.
+
+   Five radios of the same group, no JavaScript: the stars ARE the
+   control. A label is what the browser activates its radio from, so a tap
+   anywhere on a star selects it; arrow keys move through the group in
+   reading order because the radios are in that order in the DOM; and the
+   accessible name of each one says the number out loud, which five
+   identical shapes never could.
+
+   « Pas de note » is a sixth radio in the same group rather than a reset
+   button, and it is not decoration: a comment without a number is a
+   normal, complete review (a chief who has nothing to quantify must not
+   have to invent a number), and it is the only way back once a star has
+   been clicked.
+
+   Params:
+     field_id    id prefix — each radio gets `{field_id}-{1..5}`, and the
+                 « pas de note » one `{field_id}-none`
+     field_name  posted name, the same on all six
+     value       the rating currently stored, or null
+     label       the legend
+     help        optional, wired to the group with aria-describedby
+     max         the top of the scale, Review::MAX_RATING
+#}
+{% set _help_id = field_id ~ '-help' %}
+<fieldset class="{{ wrapper_class is defined ? wrapper_class : 'mb-3' }}"
+          {%- if help|default('') %} aria-describedby="{{ _help_id }}"{% endif %}>
+    <legend class="form-label small">{{ label }}</legend>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        <div class="rating-input">
+            {% for i in 1..max %}
+                <span class="rating-input-star">
+                    <input type="radio" name="{{ field_name }}" id="{{ field_id }}-{{ i }}"
+                           value="{{ i }}" autocomplete="off"{{ value == i ? ' checked' : '' }}>
+                    <label for="{{ field_id }}-{{ i }}" title="{{ i }} / {{ max }}">
+                        <i class="bi bi-star" aria-hidden="true"></i>
+                        <i class="bi bi-star-fill" aria-hidden="true"></i>
+                        <span class="visually-hidden">{{ i }} étoile{{ i > 1 ? 's' : '' }} sur {{ max }}</span>
+                    </label>
+                </span>
+            {% endfor %}
+        </div>
+        <input type="radio" class="btn-check" name="{{ field_name }}" id="{{ field_id }}-none"
+               value="" autocomplete="off"{{ value is null ? ' checked' : '' }}>
+        <label class="btn btn-sm btn-outline-secondary" for="{{ field_id }}-none">Pas de note</label>
+    </div>
+    {% if help|default('') %}
+        <div class="form-text" id="{{ _help_id }}">{{ help }}</div>
+    {% endif %}
+</fieldset>

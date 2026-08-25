@@ -5,7 +5,7 @@
 //
 // The file is an IIFE that binds a delegated listener at import time, so
 // each test builds its DOM first and then imports the module via
-// vi.resetModules() + await import() (the tests/js/chip-picker.test.js
+// vi.resetModules() + await import() (the tests/js/select-bar.test.js
 // pattern).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

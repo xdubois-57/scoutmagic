@@ -101,6 +101,7 @@ class StayFromMailServiceTest extends TestCase
     {
         $llm = $this->createStub(LlmConnectorInterface::class);
         $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
         $llm->method('complete')->willReturnCallback(
             function (LlmRequest $request) use ($placeName): LlmResponse {
                 $this->asked[] = $request;
@@ -121,6 +122,7 @@ class StayFromMailServiceTest extends TestCase
     {
         $llm = $this->createStub(LlmConnectorInterface::class);
         $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
         $llm->method('complete')->willThrowException(new LlmException('provider down'));
 
         return $llm;

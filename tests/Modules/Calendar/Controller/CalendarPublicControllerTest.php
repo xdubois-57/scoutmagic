@@ -391,7 +391,7 @@ class CalendarPublicControllerTest extends TestCase
         $response = $this->controller->index($request, []);
 
         $this->assertMatchesRegularExpression(
-            '/href="\/calendar\?calendar=' . $sectionCalendar->id . '[^"]*"\s+class="btn btn-sm btn-primary/',
+            '/href="\/calendar\?calendar=' . $sectionCalendar->id . '[^"]*"[^>]*aria-current="true"/',
             $response->getBody()
         );
     }

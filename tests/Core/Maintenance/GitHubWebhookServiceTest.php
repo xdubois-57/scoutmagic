@@ -49,6 +49,8 @@ class GitHubWebhookServiceTest extends TestCase
         $this->settings->register('auto_update_day', 'monday', 'select', 'D', 'D', null, null, ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']);
         $this->settings->register('auto_update_time', '03:00', 'text', 'D', 'D');
         $this->settings->register('dev_update_branch', 'main', 'text', 'D', 'D');
+        $this->settings->register('auto_update_last_push_at', '', 'text', 'D', 'D');
+        $this->settings->register('auto_update_last_push_result', '', 'text', 'D', 'D');
 
         $this->schedulerRepository = new SchedulerRepository($this->pdo);
         $this->updateHistoryRepository = new UpdateHistoryRepository($this->pdo);
@@ -703,4 +705,59 @@ class GitHubWebhookServiceTest extends TestCase
 
         $this->assertSame('2026-01-19 02:00:00', $runAt->format('Y-m-d H:i:s'));
     }
+
+    /**
+     * The reason a push was dropped used to live only in the HTTP response
+     * and was then forgotten, while GitHub logged a 200 either way — so
+     * nothing on the site could say why the channel had gone quiet.
+     */
+    public function testAnIgnoredPushRecordsItsReasonForTheMaintenancePage(): void
+    {
+        $this->service()->handlePushEvent($this->pushPayload('main'));
+
+        $this->settings->clearCache();
+        $this->assertSame('dev_mode_disabled', $this->settings->get('auto_update_last_push_result'));
+        $this->assertNotSame('', (string) $this->settings->get('auto_update_last_push_at'));
+    }
+
+    /**
+     * GitHub sends a push event for every ref, so feature branches and tags
+     * land here constantly and are rightly dropped. Recording them would
+     * overwrite the last meaningful outcome within minutes and leave the
+     * page reporting noise as the diagnosis.
+     */
+    public function testAPushToAnotherBranchIsNotRecorded(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->clearCache();
+
+        $result = $this->service()->handlePushEvent($this->pushPayload('claude/some-feature'));
+
+        $this->assertSame('branch_mismatch', $result['reason']);
+        $this->settings->clearCache();
+        $this->assertSame('', (string) $this->settings->get('auto_update_last_push_result'));
+        $this->assertSame('', (string) $this->settings->get('auto_update_last_push_at'));
+    }
+
+    /**
+     * A branch_mismatch arriving after a real outcome must not erase it —
+     * that is the case that makes the record useless in practice, since
+     * other branches are pushed far more often than the tracked one.
+     */
+    public function testABranchMismatchDoesNotOverwriteAnEarlierRecordedOutcome(): void
+    {
+        $this->service()->handlePushEvent($this->pushPayload('main'));
+        $this->settings->clearCache();
+        $this->assertSame('dev_mode_disabled', $this->settings->get('auto_update_last_push_result'));
+
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->clearCache();
+        $this->service()->handlePushEvent($this->pushPayload('claude/other'));
+
+        $this->settings->clearCache();
+        $this->assertSame('dev_mode_disabled', $this->settings->get('auto_update_last_push_result'));
+    }
+
 }

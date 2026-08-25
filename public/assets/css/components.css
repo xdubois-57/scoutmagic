@@ -68,16 +68,70 @@
     font-size: 1.5rem;
 }
 
-.section-picker {
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
+/* .section-picker's horizontal-scroll rules are gone with the chips they
+   scrolled: partials/section_picker.html.twig now maps onto the select
+   bar, which is one full-width row opening a panel and never scrolls
+   sideways. The wrapper class stays as a page-level hook. */
+
+/* partials/select_bar.html.twig — the disclosure panel anchored under
+   the bar. Bootstrap has no disclosure component, so nothing here
+   duplicates one (AGENTS.md): this is the native <details> marker being
+   removed and the panel being given a scroll of its own, and that is
+   all. Touch sizing is NOT here — the <summary> carries .tap-target and
+   takes its height from app.css's `pointer: coarse` block (design.md
+   §7.2), which is the only place touch sizing lives. */
+.select-bar-details > summary {
+    cursor: pointer;
+    list-style: none;
 }
-.section-picker::-webkit-scrollbar {
-    height: 4px;
+.select-bar-details > summary::-webkit-details-marker {
+    display: none;
+}
+.select-bar-chevron {
+    transition: transform 0.15s ease-in-out;
+}
+.select-bar-details[open] .select-bar-chevron {
+    transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+    .select-bar-chevron { transition: none; }
+}
+/* The panel scrolls itself rather than the page: a unit with thirty
+   sections must not push the page content it sits above off-screen. */
+.select-bar-panel {
+    max-height: 60vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
-@media (min-width: 992px) {
-    .section-picker { flex-wrap: wrap; overflow: visible; }
+/* partials/nav_rail.html.twig — one horizontally-scrollable row of
+   Bootstrap `nav-underline` tabs. The component itself is Bootstrap's;
+   these rules only hide the scrollbar and add the scroll affordance it
+   leaves behind. */
+.nav-rail .nav {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    /* Scrolling shadows: the two body-coloured gradients are painted with
+       `background-attachment: local` so they travel WITH the content and
+       cover the shadow beneath them at each end, while the two dark
+       gradients are `scroll` and stay pinned to the box. The result is a
+       fade that appears only when the rail actually overflows and
+       disappears once that end is reached — a plain always-on mask would
+       dim the last tab even on a two-tab rail that never scrolls.
+       --bs-body-bg is Bootstrap's own token, so this follows dark mode
+       (design.md §7.8) instead of hardcoding white. */
+    background-image:
+        linear-gradient(to right, var(--bs-body-bg), rgba(0, 0, 0, 0)),
+        linear-gradient(to left, var(--bs-body-bg), rgba(0, 0, 0, 0)),
+        linear-gradient(to right, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0)),
+        linear-gradient(to left, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0));
+    background-position: left center, right center, left center, right center;
+    background-repeat: no-repeat;
+    background-size: 1.25rem 100%, 1.25rem 100%, 0.6rem 100%, 0.6rem 100%;
+    background-attachment: local, local, scroll, scroll;
+}
+.nav-rail .nav::-webkit-scrollbar {
+    display: none;
 }
 
 /* Core\View\MonthGrid\MonthGridBuilder month view, rendered by
@@ -833,4 +887,96 @@
    prevented. */
 .min-w-0 {
     min-width: 0;
+}
+
+/* ── Star rating input (Modules\Camps\views\_rating_input.html.twig) ──
+   Five radio buttons drawn as stars. No JavaScript anywhere in here:
+   what fills a star is the state of a radio, which the browser already
+   maintains, and a rating widget that stops working when a script fails
+   to load would be a worse dropdown than the dropdown it replaced.
+
+   The radios stay in the page — moved out of sight, never `display: none`
+   — because a hidden-by-display radio leaves the tab order and the radio
+   group with it: no arrow keys, no focus ring, nothing for a screen
+   reader to land on. Each one keeps its accessible name from the
+   visually-hidden text inside its own label. */
+.rating-input {
+    display: inline-flex;
+    align-items: center;
+}
+/* The star is what the radio is positioned against, so focusing one by
+   keyboard scrolls the page to the star and not to wherever an
+   unpositioned absolute box happened to land — inside a dialog, that is
+   somewhere else entirely. */
+.rating-input-star {
+    position: relative;
+    display: inline-flex;
+}
+.rating-input input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+/* Icon-only tappable targets in a row, sized here rather than left to
+   app.css's pointer:coarse block for the same reason .groups-reaction-btn
+   above is: the drawn star IS the control, and a 20px star that only
+   grows on a touch device is a control a mouse user aims at too. */
+.rating-input label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    margin: 0;
+    cursor: pointer;
+    font-size: 1.35rem;
+    line-height: 1;
+    color: var(--bs-secondary-color);
+    border-radius: var(--bs-border-radius);
+}
+.rating-input input:focus-visible + label {
+    outline: 2px solid var(--bs-primary);
+    outline-offset: -2px;
+}
+/* Both icons are always in the markup and exactly one of them is shown —
+   the outline and the fill are different glyphs, and swapping a class
+   would need the script this component does without. */
+.rating-input .bi-star-fill {
+    display: none;
+    /* The same yellow as the stars this note is READ as afterwards
+       (_stars.html.twig's .text-warning), so the row a chief clicks and
+       the row the next staff sees are one thing. */
+    color: var(--bs-warning);
+}
+/* A star is filled when it is the one chosen, or when a star further
+   along the row is: a note of 3 fills the first three, which is what
+   makes the row read as a number rather than as five switches. */
+.rating-input-star:has(input:checked) .bi-star,
+.rating-input-star:has(~ .rating-input-star input:checked) .bi-star {
+    display: none;
+}
+.rating-input-star:has(input:checked) .bi-star-fill,
+.rating-input-star:has(~ .rating-input-star input:checked) .bi-star-fill {
+    display: inline-block;
+}
+
+/* Hover preview, on pointers that have a hover: the row shows the note
+   that a click would give, and the stored one steps aside while it does —
+   two ratings lit at once would be a lie about which one is recorded. */
+@media (hover: hover) {
+    .rating-input:hover .rating-input-star .bi-star {
+        display: inline-block;
+    }
+    .rating-input:hover .rating-input-star .bi-star-fill {
+        display: none;
+    }
+    .rating-input:hover .rating-input-star:hover .bi-star,
+    .rating-input:hover .rating-input-star:has(~ .rating-input-star:hover) .bi-star {
+        display: none;
+    }
+    .rating-input:hover .rating-input-star:hover .bi-star-fill,
+    .rating-input:hover .rating-input-star:has(~ .rating-input-star:hover) .bi-star-fill {
+        display: inline-block;
+    }
 }

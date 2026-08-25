@@ -32,6 +32,7 @@ import { expect, test } from '@playwright/test';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { chooseInSelectBar } from '../support/select-bar.js';
 
 const MEMBER_NAME = 'Kaa Serpent';
 const DEPARTURE_COMMENT = 'Déménage à Namur cet été.';
@@ -80,8 +81,10 @@ test('the departures and passage grids save on change, with no save button anywh
     await expect(page.getByRole('heading', { level: 1, name: 'Départs' })).toBeVisible();
 
     // An admin staffs every section; walk to the one the harness seeded
-    // both members into.
-    await page.getByRole('link', { name: 'Meute E2E' }).click();
+    // both members into. The section picker is a select bar, so its
+    // options live in a panel that has to be opened first — see
+    // ../support/select-bar.js.
+    await chooseInSelectBar(page, 'section-picker', 'Meute E2E');
     await page.waitForURL(/\/departs\?section_id=\d+/, { waitUntil: 'domcontentloaded' });
 
     const leavingBox = page.getByRole('checkbox', { name: `Ne sera plus là l'année prochaine — ${MEMBER_NAME}` });

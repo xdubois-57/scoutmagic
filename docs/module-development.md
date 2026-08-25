@@ -246,71 +246,165 @@ markup around it is a template that has to remember to escape it.
 The controller side is `$this->guardCsrf($request, '/where/to/go/back')`
 — see `AbstractController`; the guard is never called by the router.
 
-## Chip picker (`partials/chip_picker.html.twig`)
+## Selection components: select bar and nav rail
 
-The site's one selection component — mobile-friendly wrapping chips with a
-"+N" overflow chip opening a bottom sheet for the full list. Core,
-content-agnostic (same precedent as `partials/list_editor.html.twig`): it
-knows nothing about what an item *is*. Any module that needs a picker
-(a filter, a multi-select toggle, anything selecting from a list of
-labeled things) maps its data to the item format below and includes this
-partial — no new CSS, no new JS, same appearance and behavior everywhere.
-If your case forces you to override its style or duplicate its JS, you're
-using it wrong — ask whether the component needs a new *generic*
-parameter instead (never a use-case-specific one — no `is_section`, no
-`for_calendar`).
+The site has **two** selection components, for two genuinely different
+needs. They share no markup and no JS. Picking between them is not a
+preference:
+
+> **The rule**: *fixed set, declared in code, short labels → nav rail.
+> Open-ended set, coming from the database → select bar.*
+
+| Need | Component | Shape |
+|---|---|---|
+| Pick a piece of **data** — a section, a calendar, an account, a rentable asset, badges. The list is data-driven, grows with the unit, labels are long. | **Select bar** (`partials/select_bar.html.twig`) | One full-width row: field name + current value + chevron, opening a disclosure panel with the full list. |
+| Move between the fixed **sub-pages or views of one page** — finance pages, rental management pages, groups tabs, a status filter declared in code. The set is small, fixed, short-labelled. | **Nav rail** (`partials/nav_rail.html.twig`) | One horizontally-scrollable row of underlined tabs, never wrapped, never folded, selected tab auto-centred. |
+
+Both render **every item server-side**. Neither hides anything: no `+N`
+overflow chip, no client-side fold, no post-render DOM measurement. The
+single component these replaced did all three, and on a phone it served
+both needs badly — `/finance` could show four rows of chips before the
+first line of content.
+
+Do **not** add a use-case-specific parameter to either one (no
+`is_section`, no `for_finance`). If a call site seems to need one, it is
+using the wrong component — re-read the rule above.
+
+### Select bar (`partials/select_bar.html.twig`)
 
 ```twig
-{% include 'partials/chip_picker.html.twig' with {
+{% include 'partials/select_bar.html.twig' with {
     picker_id: 'my-picker',
+    label: 'Section',
     items: [
         { id: 1, label: 'Louveteaux', sublabel: 'Meute', color: '#f5a623', badge: null, selected: true },
         { id: 2, label: 'Éclaireurs', sublabel: 'Troupe', color: '#4a90d9', selected: false }
     ],
     mode: 'single',
     base_url: '/my-page?item=',
-    sheet_title: 'Choisir un élément',
     empty_text: 'Aucun élément disponible.'
 } %}
 ```
 
 **Item fields**: `id` and `label` required. `sublabel` and `badge` are
-optional and only ever appear in the bottom sheet — a chip has no room
-for them. `color` (optional hex string) draws a small dot on both the
-chip and the sheet row; always source it from whatever this app's single
-color source of truth is for your data (e.g.
-`Core\Member\SectionService::colorForSection()` for anything
-section-derived) — never recompute or hardcode a color here. `selected`
-(bool) marks the current selection(s).
+optional and appear on the panel row. `color` (optional hex string) draws
+a small dot; always source it from whatever this app's single color source
+of truth is for your data (e.g. `Core\Member\SectionService::colorForSection()`
+for anything section-derived) — never recompute or hardcode a color here.
+`selected` (bool) marks the current selection(s).
+
+**Other parameters**: `label` is the field name shown as a caption above
+the current value. `extra_query` is appended to every row's href.
+`empty_text` replaces the whole control when `items` is empty.
+`none_selected_text` is the trigger's value when nothing is selected.
+`count_label` is the plural noun the `multi` trigger uses when more than
+one item is selected (« 2 badges »).
+
+**The panel is a native `<details>`/`<summary>`** — never a Bootstrap
+offcanvas, a modal, or a `<select>`. The precedent is
+`modules/groups/views/list.html.twig`, which uses one because it "opens,
+closes and announces its own state with no JavaScript at all". That is
+what preserves the JS-off guarantee: an offcanvas panel could never be
+opened at all with JS off, which would break every page in
+`Core\Offline\OfflineWhitelist` (`/calendar`, `/trombinoscope`,
+`/notifications`). The panel is anchored under the bar with its own
+`max-height` and scroll — not a fixed bottom sheet, so there is no
+backdrop, no scroll-lock and no iOS safe-area handling to get wrong.
 
 **Modes**:
-- `single` — chips and sheet rows are `<a href="{{ base_url }}{{ item.id }}{{ extra_query|default('') }}">`, the exact same link both places. Selection needs no JS at all (a plain click, or a screen reader, already works) — `public/assets/js/chip-picker.js` only handles truncation and opening the sheet.
-- `multi` — chips and sheet rows are `<button>` elements toggled by `chip-picker.js`, which dispatches a `chip-picker:change` `CustomEvent` (`detail: { selectedIds }`) on the picker container after every toggle. The partial and its JS never persist a selection themselves — listen for that event and do whatever your case needs (a cookie, a form submit, a fetch call). The bottom sheet stays open across toggles in this mode; a dedicated "Fermer" button closes it.
+- `single` — panel rows are `<a href="{{ base_url }}{{ item.id }}{{ extra_query|default('') }}">`.
+  Selection needs no JS at all: a plain click, a screen reader, a JS-off
+  browser and a cached offline page all already work. `aria-current="true"`
+  marks the selected row.
+- `multi` — panel rows are `<button aria-pressed>` toggled by
+  `public/assets/js/select-bar.js`, which dispatches a `select-bar:change`
+  `CustomEvent` (`detail: { selectedIds }`) on the picker container after
+  every toggle. **The partial and its JS never persist a selection
+  themselves** — listen for that event and do whatever your case needs (a
+  cookie, a form submit, a fetch call). The panel stays open across
+  toggles, which is native `<details>` behaviour and needs no code. The
+  trigger summarises the selection (« Aucun badge » / « Infirmier » /
+  « 2 badges ») rather than drawing every pick.
 
-**`picker_id`** must be unique per instance on a page — it becomes both
-the picker's DOM id and its offcanvas sheet's id
-(`{picker_id}-sheet`), so two picker instances on the same page need two
-different values.
+`window.SelectBar.setSelected(pickerId, id, selected)` is the escape hatch
+for a `multi` caller that must correct a selection from outside a user
+click — typically reverting its own optimistic toggle after the server
+rejects it. It applies the same visual update a click does but **never
+dispatches `select-bar:change`**, so correcting a rejected toggle cannot
+loop back into your own listener.
 
-**Truncation** (2 lines, "+N" overflow chip opening the sheet) is entirely
-client-side, measured from each chip's real `offsetTop` after render —
-never a hardcoded chip count — and only activates below the `lg`
-breakpoint (992px); at `lg` and up chips wrap fully with no cap, matching
-this site's existing desktop picker behavior. Selected chips are always
-moved to the front before measuring, so truncation can never hide the
-current selection; if the selection itself spans more than 2 lines, the
-cutoff extends rather than hiding part of it. The partial always renders
-every item unconditionally (no chip is ever hidden server-side) — a
-visitor with JS disabled, or before it has run, sees and can operate
-every item exactly as if truncation didn't exist.
+**Degenerate cases**: zero items renders `empty_text` and no control at
+all. A single item in `mode: single` renders as static text — no chevron,
+no `<details>` — because navigating to the only option is a no-op; its
+sublabel, badge and colour dot still show, since they describe the value
+rather than being part of choosing one. `mode: multi` keeps its control at
+one item, because "assigned or not" is still a real choice.
 
-**Existing callers, as reference implementations of the "thin mapping
-layer" pattern**: `core/View/templates/partials/section_picker.html.twig`
-(mode `single`, sections → items) and
-`modules/calendar/views/partials/calendar_picker.html.twig` (mode
-`single`, calendar options → items). Neither owns any chip/sheet/
-truncation logic itself — each only maps its own domain data into the
-generic item format and includes `chip_picker.html.twig`.
+### Nav rail (`partials/nav_rail.html.twig`)
+
+```twig
+{% include 'partials/nav_rail.html.twig' with {
+    picker_id: 'my-page-picker',
+    items: [
+        { id: '/my/page', label: 'Vue A', selected: true },
+        { id: '/my/page/other', label: 'Vue B', selected: false }
+    ],
+    base_url: '',
+    extra_query: '?filter=3',
+    aria_label: 'Pages de mon module'
+} %}
+```
+
+Bootstrap's own `nav nav-underline` + `flex-nowrap` + `overflow-auto`, so
+nothing here duplicates a Bootstrap component. `id` and `label` are
+required, `selected` and `color` optional. The link is
+`{{ base_url }}{{ item.id }}{{ extra_query }}`, so an `id` may equally be
+a numeric id or a full path. `aria-current="page"` marks the selected tab.
+`public/assets/js/nav-rail.js` scrolls that tab into view (honouring
+`prefers-reduced-motion`) and does nothing else — the rail is complete and
+operable without it.
+
+Underlined tabs here are a deliberate, approved **partial reversal of
+UX-convergence decision #4** ("nav-pills → chips"); see `design.md` §7.6.
+Chips remain wrong for sub-navigation — but so were pills.
+
+### `picker_id`
+
+Unique per instance on a page, for either component: it becomes the DOM
+id, and it is what `window.SelectBar.setSelected` and your own scripts
+grip. Two instances on one page need two different values (the Staffs
+page uses `'badge-picker-' ~ member.memberYearId`).
+
+### Touch sizing
+
+Never write `style="min-height:44px"` in either component or in a mapping
+layer over it. The `<summary>` and the rail's tabs carry `.tap-target`,
+which `app.css`'s `pointer: coarse` block sizes — that block is the only
+place touch sizing lives (`design.md` §7.2), and an inline style would
+override it including the desktop restore.
+
+### Thin mapping layers — the pattern to copy
+
+Three shipped examples, none of which owns any presentation of its own;
+each only maps its domain data into the generic item format and includes
+the component:
+
+- `core/View/templates/partials/section_picker.html.twig` — sections →
+  select bar (`mode: single`).
+- `modules/calendar/views/partials/calendar_picker.html.twig` — calendar
+  options → select bar (`mode: single`), keeping `extra_query` so the
+  displayed month survives switching calendar.
+- `core/View/templates/partials/page_picker.html.twig` — a `pages[]` list
+  → nav rail, with the longest-match selection rule (`/finance/movements/12`
+  selects « Mouvements », never also « Tableau de bord »).
+
+Their include signatures are the point: a layer's callers never change
+when the component underneath does. All eight call sites of
+`section_picker` and `page_picker` were untouched when both were moved
+off the old chip picker. If you find yourself editing a call site to
+accommodate a component change, the layer's signature has drifted and
+that is the bug.
+
 
 ## Contributing menu entries (`Core\Module\MenuEntryProvider`)
 
@@ -661,7 +755,7 @@ One file per topic, named `{id}.md`, front matter between `---` lines
 id: reserver-un-local
 title: Demander la location d'un local
 summary: Choisir des dates libres et envoyer une demande.
-category: Notre unité
+category: Premiers pas
 role_min: public
 paths: /locations/*
 related: suivre-ma-demande
@@ -674,7 +768,17 @@ Corps en Markdown…
   — a collision is a load error, and `tests/Core/Help/HelpInvariantsTest`
   pins the whole corpus.
 - `role_min`: below it the topic exists nowhere (panel, index, search,
-  direct URL — 404). Same role vocabulary as routes.
+  direct URL — 404). Same role vocabulary as routes. Declare the floor of
+  the page the topic documents, not the audience you had in mind: a topic
+  above its page's floor leaves the people who can open that page without
+  help. `tests/Core/Help/HelpMenuCoverageTest` fails on that for a menu
+  page; below one, it is on you.
+- `category`: one of the five the corpus uses — `Premiers pas`,
+  `Espace membres`, `Espace animateurs`, `Espace chefs d'U`,
+  `Configuration` (`Core\Help\HelpService::CATEGORY_ORDER`, which is also
+  the order `/aide` shows them in). An unknown category still renders,
+  alphabetically after those five; introducing one is a product decision,
+  not a shortcut around picking the right existing one.
 - `paths`: pages the topic covers, in three forms — exact
   (`/locations`), direct child (`/locations/*`, the path plus exactly one
   segment; `offline`'s exact/child semantics), and a segment pattern
@@ -689,6 +793,14 @@ Corps en Markdown…
   Write to the editorial charter in design.md §7.11 — vouvoiement, the
   §7.1 lexicon, ~400 words, at most one `> ` warning callout, no external
   link but the federation's.
+- What the renderer understands, and nothing else: `##` headings,
+  paragraphs, bullet lists, numbered lists, an indented continuation line
+  that joins the item above it, `**gras**`, `*italique*`, `` `code` ``,
+  one `> ` callout, and an image under `/assets/`. No tables, no code
+  fences, no nested lists — and **no relative links**: only an absolute
+  `http(s)://` URL becomes an `<a>`, so `[voir](/aide/x)` renders as its
+  own source text. Point at another topic with `related`, and name a page
+  by its label rather than its route.
 - A new end-user-facing page should ship with a topic covering it, in the
   same change (AGENTS.md § Module creation checklist).
 

@@ -1,0 +1,78 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Nav rail — one of the site's two selection components, for moving
+  between the fixed sub-pages or views of one page: the finance pages,
+  the rental management pages, the groups tabs, a status filter declared
+  in code. The set is small, fixed and short-labelled.
+
+  The other one is partials/select_bar.html.twig, for picking a piece of
+  data. The rule, when a new call site appears
+  (docs/module-development.md carries it too):
+
+      fixed set, declared in code, short labels  → nav rail
+      open-ended set, coming from the database   → select bar
+
+  They share no markup and no JS. A nav rail never opens a panel; a
+  select bar never renders chips. Do not add a use-case-specific
+  parameter to either (no `is_section`, no `for_finance`) — a call site
+  that seems to need one is using the wrong component.
+
+  Shape: one horizontally-scrollable row of underlined tabs. Never
+  wrapped, never folded, nothing hidden behind a "+N", and the selected
+  tab is scrolled into view by public/assets/js/nav-rail.js. Every item
+  is rendered server-side, so the rail is complete and operable with no
+  JS at all — the script only centres the current tab.
+
+  Bootstrap's own `nav nav-underline` + `flex-nowrap` + `overflow-auto`,
+  no custom component (AGENTS.md: never duplicate a Bootstrap component).
+  This is a deliberate, approved partial reversal of UX-convergence
+  decision #4 ("nav-pills → chips"): chips remain wrong for
+  sub-navigation, but so were pills — see design.md §7.6.
+
+  Usage:
+  {% include 'partials/nav_rail.html.twig' with {
+      picker_id: 'finance-page-picker',
+      items: [
+          { id: '/finance', label: 'Tableau de bord', selected: true },
+          { id: '/finance/movements', label: 'Mouvements', selected: false }
+      ],
+      base_url: '',
+      extra_query: '?account_id=3'
+  } %}
+
+  Parameters:
+  - `picker_id`  — unique per instance on a page; it is the DOM id.
+  - `items`      — `id` and `label` required, `selected` and `color`
+                   optional. The link is
+                   `{{ base_url }}{{ item.id }}{{ extra_query }}`, so an
+                   `id` may equally be a numeric id or a full path.
+  - `base_url` / `extra_query` — both optional, both default to ''.
+  - `aria_label` — names the <nav> landmark; defaults to 'Navigation'.
+
+  `aria-current="page"` marks the selected tab. Selection is a plain
+  <a href> — no JS, no client-side state.
+#}
+{% if items|length > 0 %}
+    <nav class="nav-rail" id="{{ picker_id }}" aria-label="{{ aria_label|default('Navigation') }}">
+        <ul class="nav nav-underline flex-nowrap overflow-auto">
+            {% for item in items %}
+                {% set selected = item.selected is defined and item.selected %}
+                <li class="nav-item">
+                    <a href="{{ base_url|default('') }}{{ item.id }}{{ extra_query|default('') }}"
+                       class="nav-link tap-target text-nowrap d-inline-flex align-items-center gap-1{{ selected ? ' active' : '' }}"
+                       data-id="{{ item.id }}"
+                       data-selected="{{ selected ? 'true' : 'false' }}"
+                       {{ selected ? 'aria-current="page"' : '' }}>
+                        {% if item.color is defined and item.color %}
+                            <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.55rem;height:0.55rem;background-color:{{ item.color }};"></span>
+                        {% endif %}
+                        <span>{{ item.label }}</span>
+                    </a>
+                </li>
+            {% endfor %}
+        </ul>
+    </nav>
+{% endif %}

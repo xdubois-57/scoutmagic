@@ -4,6 +4,35 @@
 
 Belgian scout units in the "Les Scouts" federation manage their members through Desk (federation web platform). This website complements Desk by providing a public-facing and member-facing site for the unit, generated primarily from the Desk CSV export. The same codebase is reusable across units — all unit-specific content is configurable.
 
+### 1.1 Modules, and where each one is specified
+
+Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §7). Each one has a section of its own here; the pages a module adds are also listed, per menu, in §4. This table is the index, and it is meant to stay exhaustive — a module without a section in this document is a gap in the document, not a module without a specification.
+
+| Module | Name in the interface | Specified in |
+|---|---|---|
+| `banner` | Bannière | §36 |
+| `calendar` | Calendrier | §27 |
+| `camps` | Camps | §26 |
+| `fees` | Cotisations | §31 |
+| `finance` | Finances | §28, §30 |
+| `gallery` | Galerie photos et vidéos | §33 |
+| `groups` | Groupes | §20 |
+| `inbound_mail` | Courrier entrant | §23 |
+| `leadership` | Encadrement | §25 |
+| `llm_connector` | Intelligence artificielle | §39 |
+| `mass_mail` | Envoi de mails | §24, §29 |
+| `member_stats` | Statistiques des membres | §35 |
+| `news` | Actualités | §32, §29 |
+| `registration` | Inscriptions | §17, §18, §19 |
+| `rental` | Locations | §22 |
+| `retro` | Rétrospectives | §37 |
+| `sos_staff` | SOS Staff d'U | §38 |
+| `support_dashboard` | Tableau de bord support | §21.3 |
+| `test_tools` | Outils de test | §40 |
+| `trombinoscope` | Trombinoscope | §34 |
+
+Two of them never exist on a unit's installation: `test_tools` (reference and development installations only) and `support_dashboard` (the statistics receiver only). Both declare that in their manifest — see §21.3 and §40.
+
 ## 2. Users and roles
 
 ### 2.1 Role hierarchy
@@ -74,7 +103,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 
 | Page | Content |
 |---|---|
-| Accueil | Editable text and photos (configuration mode); optional banner (module) and latest-articles column (news module) when those modules are enabled |
+| Accueil | Editable text and photos (configuration mode). Three optional module blocks, each absent when its module is disabled: one randomly drawn banner (banner module, §36), a column of the most recent **public** articles (news module, §32) and, for an identified visitor with unread groups, a summary of what happened in their groups since they last looked (groups module, §20) |
 | Contact | Editable text; Staff d'U section's group photo and name/totem roster; Les Scouts federation logo (links to lesscouts.be) with its own editable text |
 | Sections | Generated from Desk import; each card shows the section's staff photo, its designated "responsable" name, email, and a small editable text block |
 | RGPD | Content set via the RGPD configuration page (§4.5): default reference text, admin-edited custom text, or AI-generated text. Links to the cookie preferences page for the cookie list (no longer embedded inline). |
@@ -103,7 +132,8 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Calendrier (module) | chief | Chiefs' calendar view (month grid, event edit) |
 | Camps (module) | chief | Camp sites and the stays made there. Search over places (name, address, postal code, city); "À venir" and "Lieux" lists; a collapsed map of the places that have coordinates. A place sheet shows its stays, the rating of its most recent RATED stay (never an average), an optional AI summary, and — for a chef d'unité only — merge and archive. A stay carries its sections, price, participant count, contacts, links, documents, photos, a free-text note, a review and its own change history. When a dedicated mailbox is configured, a "Courrier non classé" screen lists the inbound mail nobody could attribute. |
 | Envoi de mails (module) | chief | Mass email to selected members/sections across one or more scout years; a mail-merge mode sending one personalized email per row of an uploaded Excel file (see §24); when the Inscriptions module is also active, an extra predefined, non-editable "Inscriptions {année cible}" list is available (see §18.3) |
-| Rétrospectives (module) | intendant | Create/manage post-activity retrospective boards |
+| Actualités (module) | chief | Article list with each one's visibility, editor (rich text, mandatory summary and image, form builder, A4 poster with QR code, optional AI keywords/summary), responses and their payment state, Excel export and « Écrire aux répondants » — see §32. An article belongs to its author: only they and the Staff d'U may edit it |
+| Rétrospectives (module) | intendant | Create/manage post-activity retrospective boards (§37) |
 | Galerie (module) | chief | Manage photo/video albums |
 | Départs (module registration) | chief | Mark which of this year's animés won't be back next scout year, per section — see §18.1 |
 | Prévisions (module registration) | chief | Read-only projected headcount for next scout year, per section and unit-wide — see §19.1 |
@@ -116,12 +146,14 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Journal | admin | Searchable event log. |
 | Année scoute | admin | The whole scout-year transition, as a workflow of three phases and fourteen steps (§16.3): preparing next year with the staffs, encoding it into Desk, then updating the site. The order is advice, not a gate; steps are either observed by the site or ticked off by hand, per target year. Steps belonging to a disabled module are absent. Displays effective year, public year, staff year, member/section counts. Public year activation is manual-only and available year-round; a non-blocking warning appears when the current public year is past its end date. When the Inscriptions module is active: the final step is refused server-side while any registration request is still pending/accepted (any target year); the staff-year step shows the same count as a non-blocking warning — see §19.2. |
 | Membres | admin | Member search (name/email/phone) for the effective scout year, with detailed view showing all personal data from Desk (contact info, addresses, functions, age), plus effective age calculation with scout year offset. Excel export of all search results or of a checked selection, in the canonical member-export format — reusable as-is as a mail-merge audience (§24). |
-| Bannière (module) | admin | Manage homepage banner messages (role-gated visibility, ordered list) |
+| Bannière (module) | admin | Homepage banner messages: rich text, minimum viewer role, active/inactive, delete. One of them is drawn at random on every homepage load — the list's own order is for the administrator's convenience and decides nothing on screen (§36) |
 | SOS Staff d'U (module) | admin | On-call duty roster (month grid), default forwarding number, live redirect status, scheduled redirection list |
-| Rétrospectives — Config (module) | admin | Per-board moderation/AI settings restricted to chef d'unité |
+| Rétrospectives — Config (module) | admin | The rules common to every board: minimum role to create one and to close one, the defaults a new board starts from (word length, vote budget, refresh interval) and the automatic AI moderation mode. Each board then keeps its own settings — see §37 |
 | Inscriptions (module) | admin | See §17 — request management: capacities/year code (age brackets are read-only, federation-fixed, shared with the Statistiques module), year selector, capacity-verification table, request list (filter/search), "non rapprochées"/"non clôturées" encarts with bulk refuse/withdraw, and a per-request fiche (status transitions, section prévue, tarif, internal notes, acceptance/refusal emails, manual Desk linking) |
 | Passage (module registration) | admin | Split arriving families and promoted animés between sections ahead of next scout year — see §18.2. Chef d'unité only (not a per-section chief), since spreading arrivals across sections needs the whole unit at once |
 | Encadrement (module leadership) | admin | Three lists of people to contact, read out of the Desk import — training paths, age-related legal deadlines, steward registrations. See §25 |
+| Locations (module rental) | admin | Which assets exist and who runs each one — creating an asset, its general description, its managers, archiving it, and the accounting account its money is expected on. Everything that is a property of one asset is set in that asset's own managed space instead. See §22 |
+| Cotisations (module fees) | admin | Checking what the federation bills against the unit's own roster: the season's snapshot, tariff accuracy per household, and the report of an imported invoice. See §31 |
 
 ### 4.5 Configuration
 
@@ -141,10 +173,11 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Finances (module) | Accounts, categories, categorization rules, danger zone. An account's section is what ties it to a treasurer (§28), so leaving it empty makes the account the unit's own. |
 | Galerie (module) | Storage location (local/S3), default location for new albums. Each local location also shows the space still free on the disk that holds it — with the volume's size and the share in use, and a warning when what is left is smaller than the largest upload the gallery currently accepts. The page states that this is the whole volume, shared with the rest of the site, and not a quota reserved for the gallery; an S3 location shows nothing, its capacity being the provider's. |
 | Calendrier (module) | Default view, supplementary calendars, ICS feed links. Each calendar carries **two** independent settings, one per question: « Vu par » (qui voit le calendrier) and « Modifié par » (qui y écrit). « Modifié par : ses animateurs » keeps a section calendar in the hands of that section's staff; « Modifié par : les chefs d'unité » leaves it visible to everyone who may see it while only the chefs d'unité change its events — an arrangement the single visibility setting could not express. Narrowing the audience to the chefs d'unité raises the write setting with it. |
+| Courrier entrant (module) | The unit's own mailboxes, read-only, that other modules attach replies from: several at once, a mailbox may feed several modules and a module read several mailboxes. Passwords encrypted, never redisplayed, never in an error message. See §23 |
 | Camps (module) | Default country for a new place; how many past stays a place sheet shows. The dedicated camps mailboxes (empty by default, with the warning that any mailbox listed there must be excluded from the other modules that read mail); automatic creation of a stay from a message; unsorted-mail retention in months. Automatic geocoding of a place's address through OpenStreetMap; AI summaries of what a place's stays and reviews add up to. |
 | Envoi de mails (module) | Sender/attachment settings |
 | SOS Staff d'U (module) | Telephony provider credentials (OVH: application key/secret, consumer key, line selection), excluded sections |
-| Intelligence artificielle (module) | AI provider credentials and model selection, consumed optionally by other modules (RGPD text generation, retro moderation, finance receipt extraction, news summaries) |
+| Intelligence artificielle (module) | The AI provider and its API key — one provider active at a time, key stored encrypted and never redisplayed. Saving tests the connection and discovers the provider's models; the three capability tiers are assigned automatically, with no model to pick by hand. Consumed optionally by other modules (RGPD text, retro moderation and summaries, finance receipt extraction and categorization, news keywords/summaries, group moderation, camps summaries) — see §39 |
 
 ### 4.6 Pages outside menus
 
@@ -222,7 +255,11 @@ Key-value, typed, with label, mandatory description, optional regex. Grouped by 
 
 ## 11. SectionPicker
 
-Reusable component. Sections (not branches), branch subtitle. Horizontal scroll mobile, wraps desktop. Default: highest-role member's section.
+Reusable component. Sections (not branches), branch subtitle. Rendered as a
+**select bar** (`partials/select_bar.html.twig`): one full-width row showing
+the current section, opening a panel with the full list. Never a horizontal
+scroll row and never wrapped chips — a section list is open-ended and its
+labels are long. Default: highest-role member's section.
 
 ## 12. Progressive Web App (PWA)
 
@@ -248,23 +285,34 @@ The site is installable as a Progressive Web App on supported browsers/devices.
 Centralized notification dispatch and delivery across channels.
 
 ### 13.1 Channels
+
+Three, and a type may offer any combination of them:
+
 - **In-app**: notification centre (bell icon in header, unread count badge). The bell's own panel previews the **five most recent unread** notifications under the count, and says how many more are pending; the full list is one click away.
 - **Push**: browser/mobile push notifications (Web Push API, opt-in via subscription)
+- **Email**: the same notification sent to the account's own sign-in address. The channel for somebody who never installed the site and never allowed push. Every type declares it `off` or `default_off`, so it is never a surprise: a recipient opts in, per type. Sent in the background like push, and never twice — each notification carries the moment its email copy left (`notifications.email_sent_at`), claimed before the message is handed to the transport.
+
+A type declares each channel as on, off, `default_on` or `default_off`: the first two are **locked** (the recipient's preference page shows the switch greyed out and cannot change it — a security alert about your own account is never switchable off), the last two are defaults the recipient may override.
 
 ### 13.2 Notification types
-Modules can dispatch typed notifications (e.g., calendar event reminder, news article published, finance receipt processed). Each type has:
-- Default channel preferences (in-app, push, or both)
+Modules can dispatch typed notifications (e.g. a calendar event reminder, a new gallery album, a message in one of my groups, a rental request left unanswered). Each type has:
+- Default channel preferences, per channel (in-app, push, email), each either locked or a default the recipient may override
 - User-configurable per-type channel overrides
 - Role-based visibility (minimum role required to receive)
 
 ### 13.3 Preferences
-- Per-type channel selection (in-app only, push only, both, none). Reached from the top of the notification centre, above the list.
+- Per-type channel selection — one switch per channel (in-app, push, email) on each type's row. Reached from the top of the notification centre, above the list. The list of types shown depends on the reader's role and on which modules are active.
 - Quiet hours for push notifications: filling in a start and an end holds push notifications back between those two hours and delivers them when the range ends (a range crossing midnight works); in-app notifications are never held. Leaving both empty follows the site-wide range.
-- Push subscription management (subscribe/unsubscribe)
+- Push subscription management (subscribe/unsubscribe) — granted per device, from « Mon compte » on that device
+- **Discretion**: a per-account switch that strips the title and body from the push payload, so a locked screen shows a generic « Nouvelle notification ». The full text stays readable in the notification centre. One choice, applying to all of the account's devices.
 
 ### 13.4 Delivery
 - In-app: stored in database, displayed in notification centre, badge count in header
-- Push: sent via Web Push API (VAPID), respects quiet hours, falls back to in-app if subscription missing
+- Push: sent via Web Push API (VAPID), respects quiet hours and discretion, and is simply skipped when the account has no subscription — the in-app and email copies are unaffected
+- Email: rendered from a core template and sent through the ordinary mail service, to the account's own address — never a member's contact address. Handed to the scheduler (`core/send_notification_emails`), never sent inside the request that triggered the notification
+- Quiet hours hold back **push only**. An email is not what makes a device buzz at 3 a.m. in the way a push is, and delaying one by up to nine hours would make a time-sensitive notification useless without making anybody's night quieter
+- Discretion applies to push **and** email: with it on, the email carries the generic title, no body, and a link. It is a statement about screens other people can read, and a mail notification lands on the same lock screen a push does
+- A send that the transport refuses is journaled and never retried: a retry cannot tell "never left" from "left, then the connection dropped", and the notification is in the recipient's centre either way
 - All notifications logged in journal
 
 ## 14. Member email management
@@ -531,6 +579,10 @@ Posts (up to 5000 characters, up to four photos or videos, an optional poll, and
 
 **A group has one pinned message at a time.** Pinning a second takes the pin off the first — the moderator is told which message that is, and chooses how long the new one stays up (a day, a week, a month, or until a moderator takes it down) before it happens. A pin that reaches its deadline lapses on its own, and the message becomes an ordinary one again.
 
+**Writing somebody's name calls them.** An "@" followed by a person's name in a post or a reply notifies them, and the site resolves it **from the stored text, server-side, every time** — the composer's autocomplete is a typing aid and nothing more. What an "@" may name is the group's own current membership and never anything wider, so a message can neither notify nor confirm the existence of somebody the writer could not otherwise see; it names the **person**, by the name their account carries ("@Marie Dupont", not a totem), so mentioning a parent of three does not mean knowing which of the three to type, and one message may name at most ten people — past that the writer meant "everybody" and should have said so.
+
+Two dialogs answer "who": **the reaction tally** opens on who reacted and with which emoji, to any member of the group; **« vu par N »** opens on who has opened the group since the post was published, and only its own author may ask. "Seen" is exactly that — the group was opened after the message went up — never a per-message read receipt, which would cost a row per member per message to say something less true than it looks.
+
 **A group tied to the current scout year carries it in its name** — "Louveteaux (2025-2026)" — wherever it is written: the list, the group's own page, its members and gallery pages, the breadcrumb. A past-year group does not, being already marked as an archive, and a group tied to no year has nothing to add.
 
 Photos and videos live in a gallery album belonging to the group, never listed in the unit's own gallery and readable only by the group's members. "Galerie du groupe" shows them all on one page.
@@ -554,7 +606,7 @@ Results show how many people (or members) answered, never who answered what.
 
 ### 20.4 Notifications
 
-Five types, all optional per member except one: a new post in one of my groups, a reply to my post, a reaction to my post or reply (debounced, so a burst of reactions is one notification), an invitation to a group (sent only when the person inviting asks for it), and — for moderators only — a report needing attention, whose in-app channel cannot be switched off. No email is ever sent for any of them.
+Six types, all optional per member except one: a new post in one of my groups, a reply to my post, a reaction to my post or reply (debounced, so a burst of reactions is one notification), **being named by an "@" in a message or a reply** — the one to keep when the notification for every new post has been switched off — an invitation to a group (sent only when the person inviting asks for it), and — for moderators only — a report needing attention, whose in-app channel cannot be switched off. No email is ever sent for any of them.
 
 ### 20.4bis Managing a group
 
@@ -609,13 +661,25 @@ The page warns, **before** any action, that the archive can contain information 
 
 Each collector runs in isolation. A collector that fails, or that cannot run on a given host, is recorded in `collection-status.json` with a reason and never prevents the archive from being produced — on constrained shared hosting several will report "unavailable" permanently, and that is an expected result.
 
-### 21.3 Support dashboard — what the receiver does with the reports
+### 21.3 Support dashboard — what the receiver does with the reports (module support_dashboard)
 
-One ScoutMagic installation acts as the receiver. Its intake endpoint authenticates each sender with a bearer secret, registering an unknown installation on first contact and verifying every later report against the stored hash — the secret itself is never stored in clear anywhere. Unknown fields from a newer sender are kept verbatim and never cause a rejection.
+This is the other end of §21.1, and the whole of the `support_dashboard` module. **It exists on exactly one installation**: the module declares `"visible_when": ["statistics_receiver"]` and is filtered out of module discovery on every installation that is not the configured statistics destination — routes, menu entry, registry row and scheduled tasks all follow from that single filter. Whether an installation is the receiver is decided from its own configured `base_url`, never from the `Host` header of a request, and an unparseable `base_url` matches nothing: "unknown" must never read as "yes".
 
-The dashboard shows one row per installation, defaulting to the active ones. **No view state is remembered between visits** — no filter, search, sort, page or period — so the page never opens on somebody else's stale filter, and it sets no cookie. **An absent value is shown as "Non renseigné", never as `0` or "Non"**: reports come from installations of differing versions, so "this sender could not measure it" is a permanent, first-class state.
+**The intake.** `POST /api/statistics` is public because its caller is a machine with no session — one of only two deliberate CSRF exceptions in the codebase. It refuses anything that is not HTTPS, caps the raw body before parsing it, rate-limits per source address (storing the address's blind index, never the address), and only then reads the bearer secret and validates the document's structure. Authentication is **trust on first use**: an unknown installation id registers itself, its presented secret is stored hashed, and every later report is verified against that hash. The secret is never stored in clear anywhere — not in a column, not in the journal, not in a response. A stranger can therefore register a fake installation, which is noise a superadmin deletes; nobody can ever take over a real one.
 
-Installations go stale after a configurable number of days (still visible, behind a filter) and are deleted in full after a configurable number of months, or sooner by hand. A separate monthly history counts, per calendar month, how many distinct installations reported at least once. Once a month is finalised its aggregate is **immutable, holds no individual identifier at all, and is kept indefinitely** — a later deletion never rewrites it.
+**A newer sender is never a rejection.** An unrecognised field is kept verbatim in the stored raw JSON, warned about in the journal (bounded — a stranger's field names are not mirrored wholesale into the event log) and ignored for processing. A missing field is stored as `NULL`, never `0` and never `false`, and every denormalised column is rewritten on each report including with `NULL`, so a sender that stops being able to measure something stops reporting it rather than freezing its last known value. A value a column cannot hold — a negative counter, an impossible date, an `instance_url` that is not `http`/`https` — is resolved to that same `NULL` rather than turned into an error on a route whose only contract is a status code. The response is a bare 204: an unknown installation and a wrong secret are indistinguishable from outside. A rejection is journaled with the source address and a fixed reason category, never free text.
+
+**One state per installation, and no daily history.** Each accepted report overwrites the previous one.
+
+**The dashboard** (`superadmin`, under Configuration) shows one row per retained installation. **No view state is remembered between visits** — filter, search, sort, page and history period live in the query string and nowhere else, so the page never opens on somebody else's stale filter and it sets no cookie; with no query string it always opens the same way, on the active installations, most recently received first. **An absent value is shown as "Non renseigné", never as `0`, "Non" or "Désactivé"** — it is left out of a total rather than added as zero, and it sorts last in both directions, since burying an unknown at the bottom of a descending sort would be the same lie as showing it as a zero. Reports come from installations of differing versions, so "this sender could not measure it" is a permanent, first-class state.
+
+Filtering, sorting, paging and every aggregate are computed over the whole retained set at once, so the table and its own counters can never disagree. **Exactly five indicator cards and exactly two charts** (version/build distribution, auto-update mode distribution), recomputed on the filtered set: the restraint is part of the specification, and every other breakdown the payload would allow — by module, by installation method, by PHP version, by database engine, by OS — is deliberately out of scope. A dev build is its own slice, `1.0.33 (dev)` beside `1.0.33`, because answering a support question as though a branch build were the release answers it wrongly. The instance URL is always printed and linked only when it really is an `http`/`https` link. Clicking a row opens a dialog rendered server-side carrying every metric plus the exact raw JSON of the last accepted report, including fields this receiver does not understand — nothing on the page assembles markup out of a stranger's values in the browser.
+
+**The XLSX export is of the filtered set, not of the page**, reproducible from the same query string, with one column per defined metric rather than per visible column. It deliberately carries no raw JSON payload, no contact address (a report contains none, and a column named for one would imply otherwise) and no "days since last report" (stale the moment the file is saved, when the timestamp and the status are both already there).
+
+**Active, stale, deleted — three states, two settings.** An installation is active while its last accepted report is newer than `support_active_threshold_days` (14 by default); past that it is stale, which is a display state only — the row stays, behind the status filter, because "we have not heard from them in three weeks" is a support fact worth seeing. `support_retention_months` (6 by default) decides when the record goes **in its entirety** — id, URL, last payload, reception metadata and credential hash — by the daily purge task or by a superadmin acting sooner behind a confirmation. Both settings refuse a zero, negative or blank value and fall back to their default: a threshold of zero would mark the whole fleet stale, and a retention of zero would empty the table on the next purge. One consequence is accepted rather than engineered around: an installation silent past the retention window that starts reporting again is a **new registration**, because its id is no longer known.
+
+**The monthly history answers one question and nothing else**: how many distinct installations reported at least once in a given calendar month. Several reports from one installation in one month are one contribution. A month is finalised the day after it ends — every month that has ended, so a receiver left idle for a quarter catches up on its next run with no special path — and the working rows naming who contributed are **deleted at finalisation**, which is what makes "a finalised aggregate holds no individual identifier" true of the data on disk and not merely of the queries that read it. A finalised aggregate is **immutable and kept indefinitely**: neither retention, nor a manual deletion, nor an installation disappearing rewrites one, and there is deliberately no recompute anywhere. Its chart takes only its own period (6, 12, 24 months or everything, 12 by default) and is independent of every filter above it — a history that moved when somebody typed in the search box would be answering a different question than the one its axis claims.
 
 ## 22. Rentals module — letting the unit's own assets (module rental)
 
@@ -628,6 +692,8 @@ The **public space** (`/locations`) is for people outside the unit: an index, on
 **A manager is not a chief.** Asset management is granted per asset to named members, chief or not, and the Staff d'U sees every asset by virtue of their function. That grant is checked server-side on every surface — a hidden button, an absent menu entry and a breadcrumb are never protection.
 
 **There is one authority, and the split between the two spaces is about what is being administered, not about who is trusted.** « Espace chefs d'U > Locations » answers "which assets exist and who runs each one": creating an asset, its general description, its managers, archiving it. Everything that is a property of one asset — its booking rules, its tariff, its deposit, its balance, its security deposit — is set in that asset's own managed space, by the people who run it; the Staff d'U reaches it there like any other manager. The one exception is the accounting **account** an asset's money is expected on, which stays with the Staff d'U: the account list carries the unit's IBANs, and a manager may be a parent or a former leader.
+
+**None of the managed space is available offline.** Every screen in it is a screen where somebody writes — a price, a reading, a decision — and a write made against a stale offline copy is worse than a page that plainly says it needs the network. The public space is not cached either: it is about availability, which is exactly the thing that must not be stale.
 
 **Designating a manager is a search, not a checklist**: a search-as-you-type box over the unit's members, showing a name, a section and a function — never an email address. Only members of a configurable minimum age (16 by default) are offered: a manager reaches renters' identities, the money and the contracts. The age is the real date of birth, and a member whose birth date is not encoded in Desk stays selectable rather than disappearing without explanation. A member the last Desk import dropped keeps their grant, shown as suspended: it can be removed deliberately, but never by a save that did not display it, and re-saving never silently reactivates it.
 
@@ -657,6 +723,12 @@ A request holds the dates for a configurable period so two visitors cannot both 
 
 The renter's acknowledgement email carries a link to their own tracking page. **That link is the authorisation**: they have no account, and a lost email is answered by issuing a new one. The token is stored **encrypted, not hashed** — a hash can only ever answer « is this the token? », and every email a manager's decision sends has to answer a different question, « what is this booking's link? ». The cost is stated where it is paid (`modules/rental/schema.sql`): the column survives a database copy taken without the application key, and no longer one taken with it — which is where every other identity column of that table already stood. Their page shows the state of their request, what they owe and the practical information — never an internal comment, never a manager's note, never another booking.
 
+**What the visitor agreed to is provable afterwards.** Each tick-box on the request form is recorded with the version *and* a hash of the exact text that was on screen, so re-wording the conditions later never changes what a past renter accepted.
+
+**A booking moves through one lifecycle, and every step is on the booking.** Change requests and proposals are the same object seen from two ends — the renter asks for other dates, or the unit offers them — and either side's answer applies or closes it, never silently. Cancellation is available from every live state, confirmed included, and **computes no refund**: what is owed after a cancellation is a conversation, not an arithmetic rule the module could get right.
+
+**The milestone checklist is derived, never stored.** "Deposit paid", "contract sent", "inventory taken" are computed from the booking's own state every time they are shown, so they cannot drift from it and no scheduled task has to keep them in step. Every change a person makes to a booking is kept as the booking's own history, with the value before and after.
+
 ### 22.6 Documents
 
 A contract and an invoice are generated from a per-asset template, in three frozen levels: the asset's template, the booking's own copy of it (taken at first generation, so editing the template afterwards changes no existing booking), and the PDF. **Regenerating never overwrites**: v2 appears beside v1, because v1 may already be signed.
@@ -680,6 +752,8 @@ The final settlement never modifies the agreed price — it produces new lines b
 Occupancy can be published onto the unit's own calendar. Nothing is copied: it is computed on every generation, so turning publication off removes it with no cleanup and no orphans. An ordinary reader — member, parent, visitor — sees `Local Saint-Georges — loué` and nothing more; only a manager of that asset or the Staff d'U sees the organisation, the head count and the contact. **That distinction is applied before anything is serialised**, never by a template hiding a field it was given.
 
 A cancelled booking is published as cancelled rather than removed, so a subscriber's calendar drops it instead of keeping it forever.
+
+**A manual block over an already-booked period is accepted.** It neither fails nor overwrites the booking: a caretaker away during a letting is a real thing to record, and the two simply coexist. The public calendar shows the day as taken either way, which is all it ever says.
 
 ### 22.9 Correspondence
 
@@ -1272,3 +1346,272 @@ en haut de page.
 
 L'export tableur reprend les deux onglets sur deux feuilles, **dans l'ordre
 exact des colonnes de l'écran**.
+
+
+## 32. Actualités — articles, formulaires et réponses (module news)
+
+The unit's own publishing channel: articles on a public page, a column of the latest ones on the homepage, and — on any article that wants one — a registration form with capacities, a price and a payment reference. It is the module a fête d'unité, a camp registration or a call for volunteers goes through.
+
+### 32.1 An article
+
+Title, a **mandatory one-sentence summary**, a **mandatory image**, and a rich-text body. The summary is not decoration: it is the single line the list shows, the body of the printed poster, and the description a social network picks up when the link is shared — which is why the list never shows a stripped-down beginning of the article instead.
+
+**Visibility is one of four**, and it decides where the article exists at all: `Public`, `Animateurs`, `Chefs d'unité`, or **`Lien direct`** — present in no list whatsoever, reachable only by its own address or by the QR code on its poster. An article belongs to its author: only they and the Staff d'U may edit it.
+
+**The poster is part of the feature.** Each article generates a ready-to-print A4 PDF carrying its image, its title, its summary and a QR code pointing at the article through a short URL. **Generating it is gated on the article's own visibility**, exactly like reading the article: the PDF carries the title, the summary and the link, so a chief who may not open an article reserved to the chefs d'unité may not pull those three out of its poster either.
+
+**Search-engine indexing is opt-in per article**, with keywords and an optional stop date past which the page asks not to be indexed any more — evaluated **at each rendering**, so an expired announcement drops out on its own with no scheduled task to run. `Lien direct` forces indexing off, **on the server** and again at rendering time, not by hiding a checkbox: an article deliberately kept out of every list has no business being in a search engine. When the AI connector module is active (§39), a button proposes keywords and a summary; without it, the buttons simply do not appear.
+
+### 32.2 The form
+
+One form per article, at most. Its fields are built one by one — short and long text, number, date, telephone, email, dropdown, radio, checkbox, switch, a tick-box of conditions, and a plain text block for explanations — each optional or required. A **number** field may additionally carry:
+
+- a **maximum capacity**, which makes the form display how many places are left and close that option once it is full;
+- a **unit price**, which is what makes the form a paying one.
+
+The form's own settings are: who may answer (anybody, or identified visitors only), how many answers one person may give (unlimited, one per account, one per member), the opening and closing dates plus a manual force-close, who may read the responses (intendant, chief or chef d'unité), the receiving bank account when the finance module is active, and a daily digest to the author.
+
+**A public form cannot limit answers per person**, and the site enforces it rather than trusting the setting: an anonymous submission is tied to no account and no member, so there is nothing to count against. For the same reason, a field whose options are "the members linked to this account" is unavailable there.
+
+A form open to anybody is protected by the site's own human check (`Core\Security\HumanCheck`); an identified visitor never sees it.
+
+### 32.3 Answering, and paying
+
+The contact email address is always asked and pre-filled for an identified visitor; a form may also ask which of the account's own members is concerned. Remaining places are shown live and a full option disappears while the rest of the form stays usable. On a paying form the total is computed as the fields are filled in.
+
+**Payment is by bank transfer, always, and never by card on the site.** When the finance module is active and an account is selected, submitting generates a **structured communication**, opens the matching receivable in the finance module, and the confirmation page and email both carry the amount, the account, that communication and a payment QR code. Reconciliation then happens through the imported bank statements: a response shows `Payé`, `Partiel` or `Non payé`, and until the statement is imported a payment that really was made still reads as not received — which is an import to do, not a family to chase. A `Partiel` is most often one transfer covering several children.
+
+**Correcting a response never recalculates what is owed.** The amount stays the one from the first answer, and adjusting it is a human act in the Finances module. A silent recalculation would rewrite a debt somebody has already been told about, and possibly already paid.
+
+### 32.4 Correcting a response
+
+A respondent may reopen their own response — answers and contact address — as long as **they were identified when they answered** and the form is **still open**. An answer sent without an account cannot be reopened by anybody claiming to be its author: there is no way to check. A **chef d'unité** may correct any response, including after the form has closed, to fix a manifest error — never to decide in somebody's place.
+
+A capacity may have filled in the meantime: the save is then refused, naming the option that blocks it, and the previous response is kept intact.
+
+### 32.5 The responses
+
+One line per response, one column per question, opened at the role the form's own setting names. On a paying form two more columns appear — **Attendu** (the receivable opened at registration) and **Reçu** (what actually landed on the account) — and the state summarises the two.
+
+**The Excel export is a mail-merge audience as it stands** (§24.4): it downloads the whole set, payment states included, with headers the mail-merge importer recognizes — no editing between the two screens. « Écrire aux répondants » does the same thing without the round trip through a file: it prepares a mail-merge draft addressed to everybody who answered, each form field available as a variable, and leaves the composer open — nothing is sent. It uses the address each person answered with, counts two answers from one address as one recipient, requires the `chief` role (the responses page itself opens at `intendant`), and is absent when the mass-mail module is disabled.
+
+**The daily digest** mails the article's author how many new responses arrived since the last one, and sends nothing at all on a day with none.
+
+### 32.6 Out of scope
+
+No card payment. No automatic re-pricing of a corrected response. No self-service correction of an anonymous answer. No article-level comment thread — a discussion belongs in a group (§20).
+
+
+## 33. Galerie — albums photo et vidéo (module gallery)
+
+Photo and video albums for the unit and its sections, readable by identified members only. There is no public gallery: these are pictures of children.
+
+### 33.1 Two kinds of album
+
+A **local** album holds files this site stores and serves. An **external** album is a link to somebody else's album; the site scrapes its title, description and image once, keeps its own EXIF-stripped copy of that image, and the card simply opens the other site. The remote image is never hotlinked — that would leak the reader's address to a third party and force the site's content-security policy open.
+
+An album belongs to a **scout year** and either to one **section** or to the whole unit, and that is what decides who sees it: a member sees the unit's albums plus those of the sections they belong to, **for the current and the previous scout year**. A chief manages the albums of the sections they staff and the unit-wide ones; a chef d'unité manages every album — and the check is server-side on every operation, not a hidden button.
+
+### 33.2 Uploading and preparing
+
+Photos (JPEG, PNG, WebP) and, when the site allows videos at all, videos (MP4, MOV, WebM). Maximum size per photo and per video, maximum number of media per album, maximum video duration and whether the original video file is kept are all settings; video upload is switched off automatically when FFmpeg is absent from the server. A large file is uploaded in chunks.
+
+**Renditions are built in the background**, never in the request: a thumbnail, a medium and a large version for a photo, a poster frame and a 720p/1080p pair for a video. Until it is ready a medium shows as being prepared, and it is excluded from downloads and from the album's archive rather than handed out half-made. Every derived photo is a JPEG and every derived video an MP4, whatever was uploaded.
+
+The first medium uploaded becomes the album's cover; any other can be chosen instead, and media are reordered by drag-and-drop.
+
+### 33.3 Saving what you are looking at
+
+Opening a medium fills the screen. **One control** saves it, at the best quality the site keeps of it — not the preview on screen. **Each file is named after the photo's own name plus its media id**, so two photos called `IMG_1234` by two different phones become two files rather than one overwriting the other, and the whole-album ZIP names its entries exactly the same way — a family that saved three photos from the lightbox and then the album recognises the ones they already have.
+
+An album too large for a single archive (512 MB) refuses the ZIP and says to save the media one by one, rather than failing halfway through a download.
+
+### 33.4 Where the files live
+
+Storage locations are configured site-wide (Configuration > Galerie): a local disk or an S3-compatible bucket, and **several may coexist** — adding a new destination for future albums never breaks reading old ones. An album is pinned to the location it was created in and new albums go to the one marked default; animateurs never choose. An album can be **migrated** to another location as a background task: it is unavailable while the copy runs, and a failed migration leaves it working exactly as before, since the source is only released at the very last step.
+
+Each local location displays the free space on the disk that holds it, with the warning that this is the whole volume shared with the rest of the site — backups and updates included — and not a reserve for the gallery. An S3 location displays nothing: its capacity is the provider's business. A location's health is checked on demand and cached, never re-tested on every page view; when an S3 test fails and the AI connector is active, the error can be turned into a plain-language explanation.
+
+### 33.5 Albums this module hosts for somebody else
+
+Another module may own an album that gallery merely stores — a discussion group's photos (§20). Such an album is **excluded from every one of gallery's own listings, pickers and public interfaces**; it is reachable only through its owning module, which is also what decides who may see it. The link-preview cache this module maintains is shared the same way: it caches a URL's metadata, never the image, so that one group's private preview can never be served to somebody with no membership in it.
+
+### 33.6 Notification, and what is out of scope
+
+**Creating an album** notifies every identified member (in-app and push on by default, email off), never its own creator — there is deliberately no per-section targeting, the same simplification the calendar module makes for its events. The notification carries the album's title and opens the gallery, so a member the album is not scoped to lands on a list without it rather than on a page they may not read. Adding media to an existing album notifies nobody.
+
+No public album. No per-album storage choice for animateurs. No image editing beyond the automatic resizing and transcoding. No face recognition, no tagging of people, ever.
+
+
+## 34. Trombinoscope (module trombinoscope)
+
+Section by section, the faces of the people who run them: each animateur with their photo (or their initials), their name, their function and their badges. The card at the head of a section, framed and marked « Responsable », is that section's reference person.
+
+**Only the encadrement appears** — animateurs and chefs d'unité active this year in each section. Never animés, never parents. **No contact details are shown**: writing to a section is done through the section's email address, on the public Sections page and on the member's own page. The page is reserved to identified visitors: the faces of the unit's leaders are not exposed to anonymous ones.
+
+**Nobody is added or removed by hand.** The wall is rebuilt from the Desk import: somebody missing or wrongly present is a function to correct at the federation, not a row to edit here. The photos are the ones on the members' own pages, which each animateur changes for themselves.
+
+**Which function marks a section's responsable is configured once**, per function, on Configuration > Config Desk — a flag on the function, not a designation per section per year.
+
+**That flag feeds three other places**, through a core hook rather than any direct dependency: the responsable's name on the public Sections page, the same on a member's own page, and the default on-call target of the SOS module (§38). When the module is disabled, each of those simply shows or resolves nothing.
+
+A section can be preselected (`?section={id}`) — which is what the "Trombinoscope de la section" button on a member's page uses. The page is available offline to identified visitors.
+
+
+## 35. Statistiques des membres (module member_stats)
+
+A photograph of the unit's animés for the scout year in view: four counters (animés, boys, girls, other), then one block per branch — Baladins, Louveteaux, Éclaireurs, Pionniers — with **one bar per year within the branch**, its birth year facing it, and the gender breakdown of that year one tap away. All the bars share one scale, so a thin branch is visible at a glance, and **a hollow birth year is the point of the page**: it announces a section that will empty out in two or three years, in time to do something about it.
+
+**Only animés are counted.** A member whose principal function is an encadrement one is not, whatever their age. A member with no known birth date, or whose age falls outside the four branches, is counted **nowhere** — so the total can be slightly below the federation's own headcount, which is stated rather than hidden.
+
+**Age is computed at the start of the scout year**, never against today, so no member changes branch in the middle of a year, and it takes into account the individual year offset a chief may have set for a child kept back or moved up (§4.2).
+
+The page follows the year the rest of the site is showing — including the staff year during the preparation of the rentrée — and its figures move after each Desk import.
+
+**The four branches and their age ranges are a federation fact, defined once in the core** and shared with the Inscriptions module's capacity brackets (§17): the two screens can never disagree about what a Louveteau is.
+
+The module is **read-only and stores nothing of its own** — no table, no snapshot, no cache — and shows no individual detail of any kind.
+
+
+## 36. Bannière d'accueil (module banner)
+
+The announcement boxes at the top of the homepage: registrations open, fête d'unité, a call for volunteers.
+
+**One banner is drawn at random on every homepage load**, among those that are active and visible to that visitor — so two visitors, or two refreshes, may see different messages, which is exactly what lets several announcements run at once. When none matches, the homepage shows **nothing at all**, not an empty box. Nothing is cached: a banner deactivated now stops appearing on the next load.
+
+Each banner carries a **minimum audience**: `Public` (everybody, anonymous visitors included), `Identifiés`, or `Animateurs`. That is what makes an internal announcement — "pensez à vos fiches médicales" — possible without exposing it to passers-by. There is deliberately no admin-level banner: a message nobody but the chefs d'unité could see has no audience on a homepage.
+
+The text is rich text stored through the site's own editable-content mechanism, with the same sanitization as every other rich text on the site. **An empty banner shows nothing, even when active.**
+
+A banner is activated or deactivated rather than rewritten — a seasonal announcement comes back the following year untouched — and deleting one is permanent. **The order of the list decides nothing on screen**: it exists so that the administrator can keep their own list tidy.
+
+The page is in the Espace chefs d'U, at `admin`.
+
+
+## 37. Rétrospectives (module retro)
+
+After an activity, a board where everybody drops a few words and votes, **anonymously**: three columns — ce qui a bien marché, à améliorer, autres suggestions. Participants arrive by a link or a QR code and **no account is needed**.
+
+### 37.1 Anonymity is the feature, not a setting
+
+No table in this module carries anything that could link a word to a person — no member, no account, no session, no address, no cookie value. Deduplication of votes is a one-way fingerprint of (voter, board, comment) which can answer "has this person already voted on this one?" and nothing else; budget mode adds a second one, scoped to the board, which links a voter's own votes **within one board** and yields an unrelated value on any other. The short-lived rate-limiting rows are fingerprinted the same way and purged on a schedule.
+
+The consequence is stated to participants rather than hidden: **a word cannot be edited or withdrawn by its author**, because nothing knows it is theirs. Re-read before adding.
+
+### 37.2 A board's own choices
+
+Made at creation, from site-wide defaults an administrator sets:
+
+- **How the link is meant to be found**: « Espace membres » or « Lien seul », shown on the board's own card. It records the chief's intent — the link is what gives access either way, and nothing on the participation page depends on the flag. The one place a board is genuinely surfaced today is the calendar event it is linked to, and that is governed by the audience setting below, not by this flag.
+- **Voting**: unlimited, or a budget of points per person; and whether the counters are visible throughout or only revealed at closing.
+- **Anti-duplicate**: per device or per login. Writing a word never requires logging in either way. Per device relies on a functional cookie; when cookies are refused the site falls back on the browsing session rather than blocking participation — and the help page says out loud that changing phone mid-way can hand somebody fresh points, because the exercise is only worth the sincerity of its answers.
+- **Length of a word**: 120 to 200 characters, 140 by default.
+- **Closing**: automatic after two hours, a day, three days or a week, or by hand.
+- Optionally, **a link to a calendar event**, with its own audience for showing the board's link in that event.
+
+The participation link and its QR code are created with the board. **Regenerating the link invalidates the old one immediately for everybody**, those who already scanned it included; the words and votes already collected are kept.
+
+### 37.3 Living, and closing
+
+The board fills in live — it polls for new words and votes at a configurable interval, so a projected board updates itself. Closing stops words and votes for good while leaving everything readable; when the AI connector is active a summary is written **once, at closing, and cached** so it survives the connector being disabled later, and the results can be emailed to a chosen address (the creating chief's own, by default). A closed board can be reopened, then archived.
+
+Creating a board and closing one are **two separate role thresholds** (intendant and chief by default, both configurable): closing ends contributions definitively.
+
+**A board can also create itself**: an event of the Calendrier module flagged for it opens its board at the event's own start time, and does nothing if a board is already linked or the module is disabled in the meantime (§27).
+
+### 37.4 Moderation, and its limits
+
+When the AI connector is active, a word can be checked before publication in one of three modes: **disabled**, **warning** (the author is told and offered a rewording, but stays free to publish as written) or **enforced** (the rewording is required). Without a connector, the choice is greyed out and nothing is checked. A participant whose word is too long can also ask for a shorter version — a preview only, never saved, and bounded so "shorten this novel" is not a way to run up the bill.
+
+**Hiding a word is a chef d'unité's decision and a last resort**: it is reversible, and it never reveals an author, because there is none to reveal. Together with the automatic moderation, that is the entirety of the safety net — which is why the warning mode is the sensible minimum on a board open to young participants.
+
+
+## 38. SOS Staff d'U (module sos_staff)
+
+The unit's emergency number always rings somewhere. This module decides where, day by day, and programmes the operator's call forwarding itself.
+
+### 38.1 The duty grid
+
+A month grid crossing the days with the Staff d'U members. A cell rotates between three states — blank, **de garde**, **indisponible** — and saves immediately. Nothing is stored for the blank state: no row means available.
+
+The left-hand columns show each day's **section activities**, so that duty is not handed to somebody already away on camp with their section. Which sections appear there is configurable; the Staff d'U section is never among them, being the one that takes the duty.
+
+### 38.2 The default number
+
+Days with nobody on duty forward to a **default number**, and that default is always **a Staff d'U member**, never a free-typed number — a handover must always be attributable to somebody reachable. Only members whose mobile is known are offered, and the number itself is resolved live at each read, so it follows the latest Desk import instead of going stale. Left unset, it resolves on its own to the Staff d'U section's responsable (through the Trombinoscope module, §34) or else to the first member of the roster. The save button stays inert until the value really changes: this field decides where emergencies ring.
+
+### 38.3 Transitions
+
+Saving the grid computes the day-to-day changes and schedules **one background transition per actual change**, at the changeover hour the administrator chose — and a change whose moment has already passed today is applied straight away rather than waiting for tomorrow. A transition is a sequence, not a single call: check the current state, set the forwarding, verify it afterwards, notify, journal. A technical failure is journaled **and** emailed to a superadmin, rather than left as a silent no-op on an emergency line. The person taking over and the one handing over are emailed too, when that setting is on.
+
+The page shows the **real** state of the forwarding, read live from the operator — not what the site believes it set — and the list of the transitions still to come. A forwarding that no longer matches the grid usually means the background tasks are not running: without a real cron at the host, they run late.
+
+Duty data older than a year — the assignments and the transitions scheduled for them — is purged whenever the grid is saved; there is no separate nightly task for it, and nothing to run by hand.
+
+### 38.4 The operator
+
+The telephony provider is pluggable; OVH is the one implemented. Its credentials are entered once, in three guided steps — the application key and secret, then an authorization to validate at the operator, then the choice of the line among the account's. They are **stored encrypted and never redisplayed**, and the authorization granted covers programming call forwarding and nothing else. A "test the connection" action checks the whole chain; an expired authorization at the operator is the usual cause of a forwarding that stopped following the grid, and it is replayed without touching the rest.
+
+### 38.5 On the calendar
+
+Consecutive duty days are merged into single read-only events on the animateurs' calendar (§27), regenerated on every save of the grid. With the Calendrier module disabled, this does nothing at all.
+
+
+## 39. Connecteur IA (module llm_connector)
+
+One module owns every provider-specific detail — endpoints, request shapes, model names, error handling — so that no other module ever contains any. It gives the site an assistant for narrow tasks: reading an invoice or a receipt, suggesting an accounting category, summarising a retrospective, proposing keywords for an article, checking a message for personal attacks, explaining a storage error. **The AI proposes; it never decides**: every suggestion waits for a human, and without this module those features simply stay quiet — nothing breaks.
+
+### 39.1 What a consuming module sees
+
+Three capability **tiers** — economical, capable, document-reading — and nothing else. No model name, no provider name, ever, on the consuming side. A module asks whether the connector is available (a question that never throws: a provider whose stored key can no longer be decrypted, after a backup was restored onto another installation, counts as unavailable, not as an error), asks whether **its own tier** is available, and sends its request. Everything else — which provider, which model, retries, error wrapping — is this module's business.
+
+### 39.2 Configuring it
+
+One provider is active at a time; the page lists those supported with, for each, **where its servers are and its privacy links** — some host in the European Union, some do not — because the texts sent leave the unit's server. The API key is pasted once, **stored encrypted and never redisplayed** (leaving the field empty on a later edit keeps the current one), and it is the "enregistrer et activer" button alone that activates: changing the selection in the list only refreshes the display.
+
+Saving **tests the connection and discovers the provider's models**, then assigns the three tiers **automatically** — by asking the provider's cheapest model to sort its own catalogue, and falling back on rule-based detection when that answer is missing or unusable. There is no manual model choice anywhere, and a scheduled task refreshes the catalogue afterwards. Switching provider goes through the same button, and the previous one stops being called immediately.
+
+### 39.3 What it never does
+
+**Never logs a prompt or a response.** Only metadata — which tier, which model, success or failure — reaches the journal. It is also where the site's outbound AI calls are bounded: every request carries a maximum answer length rather than relying on a provider's own default, which can silently truncate a long answer with no way to detect it.
+
+The site displays **no usage counter and no budget**: the provider bills the unit directly, on its own tariff. Two settings elsewhere can generate noticeably more calls than the rest — the finance module's AI categorization rule and automatic moderation in groups — and the help page says so.
+
+**A provider is a sous-traitant in the RGPD sense.** Enabling this module is a data-processing decision, and the site's RGPD page has to reflect it — its AI-generated mode knows how to take the chosen provider into account (§4.5), and the same holds for a module that only *optionally* reaches a provider through this one.
+
+
+## 40. Outils de test — le bac à sable e-mail (module test_tools)
+
+A toolbox that exists **only** on the project's reference installation and on developers' machines: the module declares `"visible_when": ["reference_installation", "local_installation"]` and is filtered out of module discovery everywhere else, so no deploying unit's installation ever loads it. Every route is `superadmin`, under Configuration. **That condition is what makes everything below admissible** — read it as a condition, not as a claim.
+
+Its first tool is the **mail sandbox**.
+
+### 40.1 Armed, nothing leaves the server
+
+When capture is armed, every outgoing message is assembled by the real mailing library — recipient validation, MIME assembly, attachments, headers, **DKIM signature included** — and then stored here instead of being handed to SMTP. What is inspected is therefore the actual message the site would have sent, not a reconstruction.
+
+**Capture is all or nothing.** No "capture and also send", no allowlist of addresses that really go out, no per-recipient exception: an operator who has to work out which half of the mail left the server cannot answer "what did this feature actually send?". For the same reason nothing records **which** feature sent a message — the subject and the timestamp are the identification, deliberately.
+
+A message the library fails to assemble is **captured too, with its error, and the failure still reaches the caller**: a test tool that silently swallows a broken mail is worse than useless.
+
+Three conditions must hold for capture to be wired at all — a reference or local installation, the module enabled, and the switch armed — and the switch is toggled from the sandbox page and nowhere else. It never appears among the ordinary settings: a switch that changes the sending behaviour of the whole site does not belong in a list of text fields. **Every toggle is journaled, in both directions.**
+
+### 40.2 The page
+
+A state block carries the switch, its state in plain French and — **only when armed** — the warning that magic links now land on this page, so the operator should sign in with a password or a passkey rather than lock themselves out of the switch.
+
+Below it, the captured messages: subject, recipient, date, size, attachment count, DKIM badge, newest first, paginated, with the whole view state in the query string and no cookie. **Two searches that cost different things**: the subject is stored in clear and searched plainly; the recipient is encrypted and therefore matched **only on an exact address** — a partial address finds nothing rather than quietly scanning everything; and an opt-in third search decrypts and reads the bodies, **bounded** (200 messages) because there is no index to lean on, which the page states rather than silently stopping.
+
+A message opens in five tabs — HTML preview, plain text, headers, raw MIME source, attachments — plus an `.eml` download. **The HTML preview always renders in a sandboxed frame** with neither scripts nor same-origin access, never inline in the page. Attachments and the `.eml` download through the site's ordinary file access, so nothing here introduces a file-access exception.
+
+### 40.3 Storage and retention
+
+The raw message, each body half and each attachment are stored **encrypted at rest** as `superadmin` files; nothing is ever written to disk in clear. Attachment names, types and sizes are read off the message at capture time, so the sandbox never has to parse MIME to offer a download.
+
+**Retention is bounded by count, not by age** — 500 messages by default, the excess deleted daily, oldest first — because the bound that matters is the one that keeps the decrypted body search affordable: a sandbox left armed overnight collects thousands of messages that "older than thirty days" would not remove. A non-positive setting falls back to the default rather than meaning "keep everything". Rows and their encrypted files are always deleted together.
+
+**"Empty the sandbox" is a danger-zone action**: the operator types the confirmation word and **the server compares it** — a check the caller can skip is not a control — and emptying is journaled, like the switch.
+
+### 40.4 RGPD
+
+**Deliberately unchanged.** The module cannot load on a deploying unit's installation, so it processes no data any unit is controller for. The absence of an RGPD entry for it is the correct outcome, not an oversight.

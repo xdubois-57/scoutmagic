@@ -1,0 +1,27 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+
+ The email copy of a notification (ARCHITECTURE.md §8.24). With
+ discretion on it carries no detail at all — same substitution the push
+ payload makes — and the link is the only way to the content.
+#}
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 16px;font-size:20px;">{{ title }}</h2>
+    {% if discretion %}
+        <p>Vous avez une nouvelle notification sur {{ site_name }}. Son contenu n'est pas repris ici : vous avez activé la discrétion dans vos préférences de notification.</p>
+    {% elseif body is not empty %}
+        <p>{{ body|nl2br }}</p>
+    {% endif %}
+    {% if url %}
+        <p style="text-align:center;margin:24px 0;">
+            <a href="{{ url }}"
+               style="display:inline-block;padding:12px 32px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+                Ouvrir sur {{ site_name }}
+            </a>
+        </p>
+        <p style="font-size:12px;color:#999;word-break:break-all;">{{ url }}</p>
+    {% endif %}
+    <p style="font-size:13px;color:#666;">Vous recevez cet email parce que vous avez activé le canal « Mail » pour ce type de notification. <a href="{{ preferences_url }}">Modifier mes préférences</a>.</p>
+{% endblock %}

@@ -48,13 +48,11 @@
             {% set _tabs = _tabs|merge([{ id: key, label: label ~ ' (' ~ view_counts[key] ~ ')', selected: key == view }]) %}
         {% endfor %}
         <div class="mb-3">
-            {% include 'partials/chip_picker.html.twig' with {
+            {% include 'partials/nav_rail.html.twig' with {
                 picker_id: 'fees-accuracy-tabs',
                 items: _tabs,
-                mode: 'single',
                 base_url: '/admin/fees/tarifs?vue=',
-                sheet_title: 'Choisir un onglet',
-                empty_text: 'Aucun onglet.',
+                aria_label: 'Vues du rapport de justesse',
             } %}
         </div>
 

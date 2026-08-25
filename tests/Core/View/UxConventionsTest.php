@@ -186,11 +186,15 @@ final class UxConventionsTest extends TestCase
      * module. These patches exist because the coarse block misses `.btn`
      * (non-sm); they all go away when that is fixed.
      *
+     * This list is a ratchet: it only ever shrinks. The five the old
+     * selection component carried went with the file itself — its
+     * replacements, select_bar and nav_rail, carry none, taking their
+     * height from `.tap-target` in that same coarse block instead.
+     *
      * @var array<string, int> template path => inline 44px patch count
      */
     private const INLINE_TOUCH_PATCH_ALLOWLIST = [
         'core/View/templates/base.html.twig' => 1,
-        'core/View/templates/partials/chip_picker.html.twig' => 5,
         'core/View/templates/partials/nav.html.twig' => 3,
         'core/View/templates/partials/notification_dropdown.html.twig' => 1,
     ];

@@ -22,8 +22,37 @@ The row this replaced wrapped to three lines at Configuration's nineteen entries
 ### 1.3 Configuration mode
 Banner when active. Text: click → rich text editor. Images: click → upload page (drag-drop, file picker, camera).
 
-### 1.4 SectionPicker
-Reusable. Sections with branch subtitle. Horizontal scroll mobile, wraps desktop. Unconfigured sections show badge. Pre-selects highest-role member's section.
+### 1.4 Selection components
+
+Two components, for two genuinely different needs. They share no markup and
+no JS, and the choice between them is not a preference:
+
+- **Select bar** (`partials/select_bar.html.twig`) — picking a piece of
+  **data**: a section, a calendar, an account, a rentable asset, badges. The
+  list is open-ended, comes from the database, and its labels are long. One
+  full-width row (field name, current value, chevron) opening a disclosure
+  panel anchored under the bar. The panel is a native `<details>`, never an
+  offcanvas: that is what keeps every item operable with JS off, which the
+  offline pages depend on. `mode: 'multi'` adds toggling and a
+  `select-bar:change` event; the component never persists anything.
+- **Nav rail** (`partials/nav_rail.html.twig`) — moving between the fixed
+  sub-pages or views of **one page**: finance pages, rental management pages,
+  groups tabs, a status filter declared in code. The set is small, fixed and
+  short-labelled. One horizontally-scrollable row of Bootstrap
+  `nav-underline` tabs, never wrapped and never folded, selected tab
+  auto-centred.
+
+**The rule when a new call site appears**: *fixed set, declared in code,
+short labels → nav rail. Open-ended set, coming from the database → select
+bar.* A call site that seems to need a use-case-specific parameter on either
+component is using the wrong one.
+
+Neither hides anything: no `+N` overflow, no client-side fold, no
+post-render DOM measurement. Both render every item server-side.
+
+**SectionPicker** (`partials/section_picker.html.twig`) is a thin mapping
+layer over the select bar: sections with branch subtitle, unconfigured
+sections show a badge, pre-selects the highest-role member's section.
 
 ### 1.5 Login page
 Three-tab segmented control: "Lien magique" (default), "Mot de passe", "Clé numérique".
@@ -306,6 +335,20 @@ helpers; a page-level primary action that happens to call an AI
   grey small text, and read by nobody before the numbers.
 - Every `<table>` sits in a `.table-responsive` wrapper (or a documented
   overflow container).
+- A page's **sub-navigation** — the fixed set of views or sub-pages it is
+  made of — is `partials/page_picker.html.twig`, which renders a nav rail
+  (§1.4): Bootstrap `nav nav-underline` + `flex-nowrap` + `overflow-auto`.
+  This is a deliberate, approved **partial reversal of UX-convergence
+  decision #4** ("nav-pills → chips"), not an oversight to correct.
+  Decision #4 was right that pills were wrong for sub-navigation and right
+  to converge the six copies of that boilerplate onto one partial; it was
+  wrong about the destination. A chip reads as a filter you toggle on and
+  off, and the chip picker's wrapping-plus-`+N`-sheet behaviour hid whole
+  pages behind an overflow control — on `/finance` the page row and the
+  account row together could reach four lines of chips before the first
+  line of content. Underlined tabs are the shape the web already uses for
+  "which view of this page am I on", and a rail folds nothing away.
+  Chips remain wrong for sub-navigation; so were pills.
 
 ### 7.7 Empty states
 
@@ -386,6 +429,33 @@ implementations visually reordered and the server none the wiser. Every
 sortable list also offers up/down buttons — dragging is not available to
 a finger or a keyboard (§7.2).
 
+### 7.10.1 Selection: the two components
+
+The site has exactly two selection components, and §1.4 states the rule for
+choosing between them. Neither hides anything — no `+N`, no client-side
+fold, no post-render measurement — and both render every item server-side.
+
+- `partials/select_bar.html.twig` — one full-width row opening a native
+  `<details>` panel. The panel is `<details>` rather than an offcanvas
+  precisely so it works with JavaScript off, which the offline pages need.
+  `mode: 'multi'` dispatches `select-bar:change` (`detail: { selectedIds }`)
+  and **never persists anything itself**; `window.SelectBar.setSelected()`
+  reverts an optimistic toggle without re-dispatching.
+- `partials/nav_rail.html.twig` — one scrollable row of Bootstrap
+  `nav-underline` tabs (§7.6's sub-navigation entry).
+
+Both take their touch height from `.tap-target` in `app.css`'s
+`pointer: coarse` block (§7.2), never from an inline `min-height`. Colours
+are Bootstrap semantic utilities only (§7.8) — the panel and the rail both
+follow dark mode.
+
+Three thin mapping layers are the reference implementations, and their
+include signatures are the point: `section_picker`, `calendar_picker`
+(both → select bar) and `page_picker` (→ nav rail). A layer's call sites
+never change when the component underneath does. If you find yourself
+editing a call site to accommodate a component change, the signature has
+drifted and that is the bug.
+
 ### 7.11 Contextual help
 
 One help button per page, always visible, at the right of the breadcrumb
@@ -398,7 +468,14 @@ the page so it works offline; otherwise it links to `/aide`, which the
 mobile offcanvas footer also links, next to connexion/déconnexion.
 Topics are Markdown files in `docs/help/` (core) or `modules/<id>/help/`
 (modules) — see ARCHITECTURE.md §8.64; a new end-user-facing page must be
-covered by a topic, existing or new (AGENTS.md checklists).
+covered by a topic, existing or new (AGENTS.md checklists), which
+`tests/Core/Help/HelpMenuCoverageTest` enforces over every page the
+application renders.
+
+Five categories, and a topic belongs in one of them unless there is a
+reason it cannot: **Premiers pas**, **Espace membres**, **Espace
+animateurs**, **Espace chefs d'U**, **Configuration**. They follow the
+§7.1 lexicon and the menu labels; `/aide` presents them in that order.
 
 **Charte rédactionnelle** — enforced mechanically where possible by
 `tests/Core/Help/HelpInvariantsTest.php`, by review otherwise:
@@ -420,6 +497,14 @@ covered by a topic, existing or new (AGENTS.md checklists).
   qui est irréversible ou contre-intuitif.
 - Pas de lien externe, sauf vers le site de la fédération
   (lesscouts.be).
+- Pas de lien vers une autre page du site non plus : le rendu ne
+  reconnaît que les URL absolues `http(s)://`, et un `[texte](/aide/x)`
+  s'afficherait tel quel. Un sujet renvoie vers un autre sujet par
+  `related`, et nomme une page par son libellé (« la page Maintenance »),
+  jamais par sa route.
+- Le rendu ne connaît ni tableau, ni bloc de code, ni liste imbriquée :
+  titres `##`, paragraphes, listes à puces, listes numérotées, gras,
+  italique, `code` en ligne, un encadré `> `, et une image `/assets/`.
 
 ### 7.12 Rich text
 

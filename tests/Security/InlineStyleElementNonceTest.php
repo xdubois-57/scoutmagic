@@ -24,7 +24,7 @@ use PHPUnit\Framework\TestCase;
  * A `style="…"` ATTRIBUTE is a different directive (`style-src-attr`,
  * which still allows inline) and is deliberately not checked here —
  * there are some 260 of them, and retiring those is the template rework
- * SECURITY.md § 33 tracks.
+ * SECURITY.md § 34 tracks.
  */
 class InlineStyleElementNonceTest extends TestCase
 {

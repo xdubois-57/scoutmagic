@@ -40,6 +40,7 @@ votre accès.
 
 ## Retrouver cette page
 
-La page « Aide » est accessible depuis chaque page grâce au bouton
-d'aide, et depuis le menu : ouvrez le menu principal, l'entrée « Aide »
-se trouve en bas, à côté du bouton de connexion.
+Le bouton d'aide y mène depuis n'importe quelle page. Sur téléphone et
+dans l'application installée, le menu y mène aussi : ouvrez le menu
+principal, l'entrée « Aide » se trouve tout en bas, à côté du bouton de
+connexion.
