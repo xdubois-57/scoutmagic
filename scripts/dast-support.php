@@ -24,6 +24,7 @@ declare(strict_types=1);
  *   zap-plan-start <zap-base-url> <api-key> <container-plan-path>
  *   zap-plan-await-delay <zap-base-url> <api-key> <plan-id> <timeout-seconds>
  *   zap-plan-wait <zap-base-url> <api-key> <plan-id> <timeout-seconds>
+ *   scan-coverage <zap-base-url> <api-key>
  *   assert-sitemap <zap-base-url> <api-key> <site-url> <expectations-file>
  *   gate-alerts <zap-base-url> <api-key> <site-url> <threshold>
  */
@@ -360,6 +361,79 @@ function dast_await_delay_job(string $baseUrl, string $apiKey, string $planId, i
 }
 
 /**
+ * Print which active scan rules actually ran, and which never did.
+ *
+ * An active scan can be bounded — by `maxScanDurationInMins`, by a
+ * `stop` call, by a plan timeout — and a bounded scan that says nothing
+ * about what it skipped reads exactly like a complete one that found
+ * nothing. The first full `audit` run took four and a half hours to
+ * finish nineteen of fifty-two rules; a report of "no findings" from
+ * that is true and deeply misleading at the same time.
+ *
+ * So the run prints its own coverage. Nothing here changes the verdict:
+ * the alert gate decides that. This decides whether the verdict is worth
+ * anything.
+ */
+function dast_scan_coverage(string $baseUrl, string $apiKey): void
+{
+    $scans = dast_zap_api_soft($baseUrl, $apiKey, 'ascan/view/scans');
+    if ($scans === null || count((array) ($scans['scans'] ?? [])) === 0) {
+        echo "DAST: no active scan ran (passive profile).\n";
+        return;
+    }
+
+    $scan = ((array) $scans['scans'])[0];
+    $scanId = (string) ($scan['id'] ?? '0');
+    $requests = (string) ($scan['reqCount'] ?? '?');
+
+    $progress = dast_zap_api_soft($baseUrl, $apiKey, 'ascan/view/scanProgress', ['scanId' => $scanId]);
+    if ($progress === null) {
+        echo "DAST: the active scan's per-rule progress could not be read.\n";
+        return;
+    }
+
+    $complete = [];
+    $partial = [];
+    $pending = [];
+    foreach ((array) ($progress['scanProgress'] ?? []) as $entry) {
+        if (!is_array($entry) || !isset($entry['HostProcess'])) {
+            continue;
+        }
+        foreach ((array) $entry['HostProcess'] as $plugin) {
+            if (!is_array($plugin) || !isset($plugin['Plugin'])) {
+                continue;
+            }
+            $rule = (array) $plugin['Plugin'];
+            $label = ($rule[0] ?? '?') . ' (' . ($rule[1] ?? '?') . ')';
+            $state = (string) ($rule[3] ?? '');
+            if ($state === 'Complete') {
+                $complete[] = $label;
+            } elseif ($state === 'Pending') {
+                $pending[] = $label;
+            } else {
+                $partial[] = $label . ' — stopped at ' . $state;
+            }
+        }
+    }
+
+    $total = count($complete) + count($partial) + count($pending);
+    echo "\nDAST: active scan coverage — {$requests} requests, "
+        . count($complete) . " of {$total} rules completed.\n";
+
+    if (count($partial) > 0 || count($pending) > 0) {
+        echo "  THIS SCAN WAS BOUNDED. The rules below never finished, so this run says\n";
+        echo "  nothing about what they would have found:\n";
+        foreach ($partial as $label) {
+            echo "    - {$label}\n";
+        }
+        foreach ($pending as $label) {
+            echo "    - {$label} — never started\n";
+        }
+    }
+    echo "\n";
+}
+
+/**
  * Assert the scan actually saw the application.
  *
  * This is the check the whole harness turns on. Chromium bypasses an
@@ -566,6 +640,13 @@ switch ($command) {
             dast_fail('usage: dast-support.php assert-sitemap <zap-url> <api-key> <site-url> <expectations-file>');
         }
         dast_assert_sitemap($argv[2], $argv[3], $argv[4], $argv[5]);
+        break;
+
+    case 'scan-coverage':
+        if (($argv[2] ?? '') === '' || ($argv[3] ?? '') === '') {
+            dast_fail('usage: dast-support.php scan-coverage <zap-url> <api-key>');
+        }
+        dast_scan_coverage($argv[2], $argv[3]);
         break;
 
     case 'gate-alerts':

@@ -194,7 +194,19 @@ DAST_THRESHOLD="${DAST_THRESHOLD:-Medium}"
 DAST_SERVER_TIMEOUT="${DAST_SERVER_TIMEOUT:-60}"
 DAST_ZAP_TIMEOUT="${DAST_ZAP_TIMEOUT:-180}"
 DAST_PLAN_TIMEOUT="${DAST_PLAN_TIMEOUT:-28800}"
-DAST_WORKERS="${DAST_WORKERS:-1}"
+# One worker for the passive profile, which only has to serve the
+# browser suite; more for the active ones, which are throughput-bound.
+# Measured: the first full `audit` run managed about 5 requests a second
+# against a single worker — roughly 12 hours for the whole rule set,
+# because `php -S` serves exactly one request per worker at a time and
+# each costs ~200 ms here. The cost of raising it is the known
+# gallery-media drag flake (see above); an active profile is not a gate,
+# and scripts/dast.sh scans the traffic it did get either way.
+if [[ "${PROFILE}" == "passive" ]]; then
+    DAST_WORKERS="${DAST_WORKERS:-1}"
+else
+    DAST_WORKERS="${DAST_WORKERS:-4}"
+fi
 DAST_TIMEOUT_FACTOR="${DAST_TIMEOUT_FACTOR:-4}"
 # The active scanner's own ceiling, in minutes, and separately the whole
 # plan's. 0 means unlimited for the scanner; the roadmap gives `audit` no
@@ -657,6 +669,11 @@ cp "${ZAP_WORK_DIR}"/reports/* "${DAST_REPORT_DIR}/" 2>/dev/null || {
 echo "DAST: reports written to ${DAST_REPORT_DIR}/"
 
 php "${DAST_SUPPORT}" assert-sitemap "${ZAP_PROXY}" "${ZAP_API_KEY}" "${ZAP_TARGET}" "${SITEMAP_EXPECTATIONS}"
+
+# What the active scan actually got through, before the verdict rather
+# than after it: a bounded scan reporting "no findings" reads exactly
+# like a complete one, and only this tells them apart.
+php "${DAST_SUPPORT}" scan-coverage "${ZAP_PROXY}" "${ZAP_API_KEY}" || true
 
 set +e
 php "${DAST_SUPPORT}" gate-alerts "${ZAP_PROXY}" "${ZAP_API_KEY}" "${ZAP_TARGET}" "${DAST_THRESHOLD}"

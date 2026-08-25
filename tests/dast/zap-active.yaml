@@ -194,9 +194,14 @@ jobs:
         - id: 40017
           name: Cross Site Scripting (Persistent) - Spider
           threshold: Medium
-        - id: 40026
-          name: Cross Site Scripting (DOM Based)
-          threshold: Medium
+        # 40026 (DOM-based XSS) is deliberately NOT in `deep`, and the
+        # reason is a measurement rather than a preference: in the first
+        # full `audit` run it took 1 h 50 of a 4 h 23 scan on its own —
+        # 42% of the whole run for one rule — because it drives its own
+        # headless browser per candidate, which is also what took ZAP's
+        # container to 11 GB of the machine's 15.7. `deep` is meant to be
+        # runnable at release time; it stays in `audit`, where an
+        # afternoon is the budget.
         - id: 6
           name: Path Traversal
           threshold: Medium
@@ -256,9 +261,11 @@ jobs:
       # registers `_csrf_token` in ZAP's anti-CSRF token list, which is
       # what this flag consults.
       handleAntiCSRFTokens: true
-      # A single-worker `php -S` serialises every request, so more
-      # threads only pile up timeouts.
-      threadPerHost: 2
+      # Matched to DAST_WORKERS: the backend serves one request per
+      # worker at a time, so threads beyond that only pile up timeouts.
+      # Measured on the first audit run: 1 worker and 2 threads gave
+      # about 5 requests a second, which is 12 h+ for the full rule set.
+      threadPerHost: 4
       maxScanDurationInMins: ${DAST_MAX_SCAN_MINS}
       # Query strings and bodies, JSON included — this application posts
       # JSON from its own scripts (auth.js, groups.js, the auto-saving
