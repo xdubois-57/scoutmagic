@@ -73,21 +73,37 @@ set -euo pipefail
 # file. Read it before adding a route that resets, restores, reconfigures
 # or sends.
 #
-# KNOWN FLAKE, AND WHAT IT BLOCKS
+# THE FLAKE THAT WAS BLOCKING THIS, AND WHAT IS LEFT OF IT
 # ---------------------------------------------------------------------
-# tests/e2e/specs/gallery-media.spec.js's drag-reorder step fails
-# intermittently under this harness — roughly one run in three — with
-# `page.waitForResponse` timing out on /media/reorder: the synthetic HTML5
-# drag does not always register. It is NOT the application and NOT the
-# CSP: the same scenario passes every time under `npm run e2e`, and
-# everything the drag touches is `classList` and CSSOM property
-# assignment, neither of which the proxy or the policy can affect. What
-# the harness changes is latency and layout timing around the drop.
+# tests/e2e/specs/gallery-media.spec.js used to fail roughly one run in
+# three under this harness. This block used to blame "the synthetic
+# HTML5 drag not always registering". That was wrong, and the real
+# cause is worth writing down because it is a shape that recurs.
 #
-# It has to be resolved before this profile can block a release
-# (roadmap IT-06/IT-07): a gate that fails a third of the time on
-# something that is not a finding teaches everyone to re-run it, which
-# is how a real finding gets re-run away too.
+# Nothing was flaky about the drag. Three facts, each harmless alone:
+# Gallery\Service\MediaService makes the FIRST upload the album cover;
+# album_form.html.twig renders « Définir comme couverture » only on the
+# tiles that are NOT the cover; and sortable.js decides before-or-after
+# with a STRICT `(clientX - rect.left) > rect.width / 2`, whose boundary
+# is exactly the centre — which is where Playwright's dragTo() aims by
+# default. The drop landed on that boundary, so sub-pixel rounding chose
+# which side the tile went, and the NEXT step assumed the leading tile
+# was not the cover. Nothing asserted that. When it was, a click waited
+# out its 40 s on a button the page was right not to render, twelve
+# lines below the step that actually decided the outcome.
+#
+# The spec now drops at 90% of the target's width, asserts the exact
+# resulting order rather than "something changed", and picks the tile to
+# act on by the presence of its button. 18 consecutive runs green.
+#
+# ONE SYMPTOM IS UNACCOUNTED FOR, deliberately left recorded here rather
+# than declared fixed: this block used to describe the failure as
+# `page.waitForResponse` timing out on /media/reorder. That cannot be
+# the mechanism above — sortable.js's dragend calls onReorder() whenever
+# a drag STARTED, whether or not the DOM moved, so a missing POST means
+# no dragstart at all. Either that symptom was mis-transcribed, or there
+# is a second, rarer failure. It has not reappeared since. If it does,
+# it is a different bug and this paragraph is the head start.
 #
 # Configuration (all optional; every value has a working default):
 #   DAST_DB_HOST / DAST_DB_PORT / DAST_DB_USER / DAST_DB_PASSWORD
