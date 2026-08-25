@@ -190,6 +190,22 @@ class DeparturesControllerTest extends TestCase
         $this->assertStringContainsString('Léa', $response->getBody());
     }
 
+    /**
+     * The scout year this page writes on is stated in the header itself,
+     * not only inside the long subtitle sentence.
+     */
+    public function testThePageHeaderNamesTheScoutYearBeingMarked(): void
+    {
+        AuthSession::login(1, 'chief@example.com', 'chief');
+
+        $body = $this->controller->index(new Request('GET', '/departs', [], [], [], []), [])->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '#<h1[^>]*>Départs</h1>\s*<span class="badge text-bg-secondary">2026-2027</span>#',
+            $body
+        );
+    }
+
     public function testChiefSeesOnlyOwnSection(): void
     {
         AuthSession::login(1, 'chief@example.com', 'chief');

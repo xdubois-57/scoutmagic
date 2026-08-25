@@ -20,7 +20,17 @@
       action_label: 'Nouvel article',   -- optional, with action_url
       action_url: '/news/new',          -- optional
       action_icon: 'bi-plus-lg',        -- optional, defaults to bi-plus-lg
+      badge: '2025-2026',               -- optional, see below
   } only %}
+
+  `badge` states WHICH data the page is showing — almost always the scout
+  year a page's figures are computed on, which a reader has to know before
+  the first number means anything. It is a sibling of the heading, never
+  part of it, so the <h1> still reads exactly like the page's <title>
+  (§7.6) and « Statistiques » does not become « Statistiques 2025-2026 »
+  in the tab, the breadcrumb and the menu. A subtitle sentence is not a
+  substitute: on the three pages that pushed for this, the year was there
+  and unreadable, buried mid-paragraph in grey small text.
 
   The action is the page's PRIMARY action — btn-primary, at most one per
   screen (design.md §7.4); creation actions always live here, never as a
@@ -30,7 +40,10 @@
 #}
 <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mb-4 page-header">
     <div>
-        <h1 class="h3 mb-0">{{ title }}</h1>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <h1 class="h3 mb-0">{{ title }}</h1>
+            {% if badge|default('') %}<span class="badge text-bg-secondary">{{ badge }}</span>{% endif %}
+        </div>
         {% if subtitle|default('') %}
             <p class="text-body-secondary small mb-0 mt-1">{{ subtitle }}</p>
         {% endif %}

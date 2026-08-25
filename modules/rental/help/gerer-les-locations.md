@@ -16,8 +16,13 @@ confondus.
 ## Traiter une demande
 
 Chaque réservation a sa fiche : le parcours du dossier (jalons
-calculés d'après les faits — rien à cocher), l'état, le prix, les
-paiements, les documents et l'historique. Les boutons d'état font
+calculés d'après les faits — rien à cocher : envoyer le contrat coche
+« Contrat envoyé », terminer un état des lieux coche le sien, et une
+ligne grisée « sans objet » signale ce qui n'a pas lieu d'être ici,
+comme une caution non demandée), l'état, le prix, les paiements, les
+documents et l'historique. Les boutons de la page agissent sans
+recharger : la fiche se met à jour d'elle-même, jalons compris, et un
+message confirme chaque action. Les boutons d'état font
 avancer le dossier — confirmer, refuser, demander des informations,
 proposer autre chose — et ceux qui écrivent au locataire vous laissent
 ajouter un mot. Poser une **option** bloque les dates jusqu'à une

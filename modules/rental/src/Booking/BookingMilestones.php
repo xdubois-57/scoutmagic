@@ -46,10 +46,16 @@ final class BookingMilestones
 
     /**
      * @param array<string, bool> $extras
+     * @param array<string, string> $details the grey suffix an extra line may
+     *   carry — a send date, a settlement version (Booking\MilestoneEvidence)
      * @return list<BookingMilestone>
      */
-    public static function for(RentalBooking $booking, \DateTimeImmutable $now, array $extras = []): array
-    {
+    public static function for(
+        RentalBooking $booking,
+        \DateTimeImmutable $now,
+        array $extras = [],
+        array $details = []
+    ): array {
         $milestones = [
             new BookingMilestone(
                 'request_received',
@@ -71,9 +77,9 @@ final class BookingMilestones
             $booking->holdUntil?->format('d/m/Y à H\hi')
         );
 
-        $milestones[] = self::extra($extras, self::CONTRACT_SENT, 'Contrat envoyé');
-        $milestones[] = self::extra($extras, self::CONTRACT_ACCEPTED, 'Conditions et contrat acceptés');
-        $milestones[] = self::extra($extras, self::DEPOSIT_RECEIVED, 'Acompte reçu');
+        $milestones[] = self::extra($extras, self::CONTRACT_SENT, 'Contrat envoyé', $details);
+        $milestones[] = self::extra($extras, self::CONTRACT_ACCEPTED, 'Conditions et contrat acceptés', $details);
+        $milestones[] = self::extra($extras, self::DEPOSIT_RECEIVED, 'Acompte reçu', $details);
 
         $milestones[] = new BookingMilestone(
             'confirmed',
@@ -85,13 +91,13 @@ final class BookingMilestones
             !in_array($booking->status, [BookingStatus::REFUSED, BookingStatus::CANCELLED, BookingStatus::EXPIRED], true)
         );
 
-        $milestones[] = self::extra($extras, self::BALANCE_RECEIVED, 'Solde reçu');
-        $milestones[] = self::extra($extras, self::SECURITY_DEPOSIT_RECEIVED, 'Caution reçue');
-        $milestones[] = self::extra($extras, self::ARRIVAL_INVENTORY, "État des lieux d'entrée");
-        $milestones[] = self::extra($extras, self::METER_READINGS, 'Relevés de compteurs');
-        $milestones[] = self::extra($extras, self::DEPARTURE_INVENTORY, 'État des lieux de sortie');
-        $milestones[] = self::extra($extras, self::FINAL_SETTLEMENT, 'Décompte final réglé');
-        $milestones[] = self::extra($extras, self::SECURITY_DEPOSIT_RETURNED, 'Caution restituée');
+        $milestones[] = self::extra($extras, self::BALANCE_RECEIVED, 'Solde reçu', $details);
+        $milestones[] = self::extra($extras, self::SECURITY_DEPOSIT_RECEIVED, 'Caution reçue', $details);
+        $milestones[] = self::extra($extras, self::ARRIVAL_INVENTORY, "État des lieux d'entrée", $details);
+        $milestones[] = self::extra($extras, self::METER_READINGS, 'Relevés de compteurs', $details);
+        $milestones[] = self::extra($extras, self::DEPARTURE_INVENTORY, 'État des lieux de sortie', $details);
+        $milestones[] = self::extra($extras, self::FINAL_SETTLEMENT, 'Décompte final réglé', $details);
+        $milestones[] = self::extra($extras, self::SECURITY_DEPOSIT_RETURNED, 'Caution restituée', $details);
 
         $milestones[] = new BookingMilestone(
             'closed',
@@ -107,14 +113,16 @@ final class BookingMilestones
 
     /**
      * @param array<string, bool> $extras
+     * @param array<string, string> $details
      */
-    private static function extra(array $extras, string $key, string $label): BookingMilestone
+    private static function extra(array $extras, string $key, string $label, array $details = []): BookingMilestone
     {
         return new BookingMilestone(
             $key,
             $label,
             $extras[$key] ?? false,
-            array_key_exists($key, $extras)
+            array_key_exists($key, $extras),
+            $details[$key] ?? null
         );
     }
 }

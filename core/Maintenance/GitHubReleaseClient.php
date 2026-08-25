@@ -13,7 +13,7 @@ use Core\Http\StreamResponseHeaders;
 /**
  * Thin, unauthenticated GitHub REST client used by
  * Core\Maintenance\GitHubWebhookService (composerLockChanged(), when a
- * "release published" webhook event arrives) — only the two read-only
+ * "release published" webhook event arrives) — only the read-only
  * endpoints it needs. No composer dependency: same file_get_contents() +
  * stream_context_create() approach as Modules\LlmConnector\Provider\
  * AnthropicProvider, the only other outbound-HTTP precedent in this
@@ -42,6 +42,50 @@ final class GitHubReleaseClient implements GitHubReleaseClientInterface
         return $this->fetchRelease('releases/tags/' . rawurlencode($tag));
     }
 
+    /**
+     * Only the most recent page (100) of releases: this repository tags
+     * one release per shipped version, so a site more than 100 releases
+     * behind is not a case worth paginating for — and the selection
+     * UpdateTargetSelector makes from this list only ever looks at
+     * releases NEWER than the installed one anyway.
+     *
+     * @return array<int, ReleaseInfo>
+     */
+    public function listReleases(): array
+    {
+        [$status, $body] = $this->httpGet(
+            "https://api.github.com/repos/{$this->owner}/{$this->repo}/releases?per_page=100"
+        );
+
+        if ($status === 404) {
+            return [];
+        }
+        if ($status < 200 || $status >= 300) {
+            throw new UpdateException("L'API GitHub a répondu avec le statut {$status} (releases).");
+        }
+
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            throw new UpdateException('Réponse GitHub invalide (releases).');
+        }
+
+        $releases = [];
+        foreach ($decoded as $entry) {
+            if (!is_array($entry) || empty($entry['tag_name'])) {
+                continue;
+            }
+            // getLatestRelease()'s endpoint excludes these on GitHub's
+            // side; the list endpoint does not, and a prerelease must
+            // never be proposed as an update.
+            if (!empty($entry['draft']) || !empty($entry['prerelease'])) {
+                continue;
+            }
+            $releases[] = self::toReleaseInfo($entry);
+        }
+
+        return $releases;
+    }
+
     private function fetchRelease(string $path): ?ReleaseInfo
     {
         [$status, $body] = $this->httpGet(
@@ -60,6 +104,14 @@ final class GitHubReleaseClient implements GitHubReleaseClientInterface
             throw new UpdateException('Réponse GitHub invalide (' . $path . ').');
         }
 
+        return self::toReleaseInfo($decoded);
+    }
+
+    /**
+     * @param array<string, mixed> $decoded a single release object from the API
+     */
+    private static function toReleaseInfo(array $decoded): ReleaseInfo
+    {
         $assets = is_array($decoded['assets'] ?? null) ? $decoded['assets'] : [];
         $downloadUrl = self::selectZipAssetUrl($assets)
             ?? (!empty($decoded['zipball_url']) ? (string) $decoded['zipball_url'] : null);

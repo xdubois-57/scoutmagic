@@ -81,6 +81,20 @@
 
     <hr class="my-4">
 
+    {# The ICS caveat belongs to EVERY calendar on this page, not only to
+       the supplementary ones it used to sit above: a section calendar has
+       no individual link of its own, but its events travel in the
+       « Unité complète » feed and in each member's personal feed, whose
+       tokens are just as shareable. Stated once, before the first list. #}
+    <div class="alert alert-warning small mb-3">
+        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+        La visibilité ne restreint que l'affichage sur les pages du site&nbsp;— elle ne restreint jamais l'accès aux
+        liens d'abonnement ICS. Cela vaut pour tous les calendriers ci-dessous&nbsp;: le lien d'un calendrier
+        supplémentaire, le lien «&nbsp;Unité complète&nbsp;» et le lien personnel d'un membre contiennent aussi les
+        évènements des calendriers de section. Toute personne connaissant un de ces liens en voit le contenu&nbsp;;
+        utilisez «&nbsp;Régénérer&nbsp;» pour rendre inutilisable un lien déjà partagé.
+    </div>
+
     {# 5.2 Section calendars #}
     <h2 class="h5 mb-3">Calendriers de section</h2>
     <p class="text-body-secondary small mb-3">
@@ -91,23 +105,19 @@
         <strong>qui peut y modifier les évènements</strong>. Un calendrier de section n'est de toute façon modifiable
         que par les animateurs de cette section&nbsp;; le second réglage permet de le réserver aux chefs d'unité.
         Un calendrier ne peut pas être modifiable par un rôle qui ne le voit pas.
+        Chaque changement est enregistré immédiatement&nbsp;: il n'y a pas de bouton «&nbsp;Enregistrer&nbsp;».
     </p>
     <div class="d-flex flex-column gap-2 mb-4">
         {% for item in section_calendars %}
-            <div class="border rounded-3 p-3 d-flex align-items-center gap-3">
-                <span class="d-inline-block rounded-circle" style="width:0.7rem;height:0.7rem;background-color:{{ item.color ?? '#6c757d' }};"></span>
-                <span class="fw-semibold flex-grow-1">{{ item.section_name }}</span>
-                <select class="form-select form-select-sm visibility-select" style="max-width:200px;" data-calendar-id="{{ item.calendar.id }}" aria-label="Visibilité du calendrier {{ item.section_name }}">
-                    <option value="public" {{ item.calendar.visibility == 'public' ? 'selected' : '' }}>Vu par tous</option>
-                    <option value="chief" {{ item.calendar.visibility == 'chief' ? 'selected' : '' }}>Vu par les animateurs</option>
-                    <option value="admin" {{ item.calendar.visibility == 'admin' ? 'selected' : '' }}>Vu par les chefs d'unité</option>
-                </select>
-                <select class="form-select form-select-sm edit-role-select" style="max-width:230px;" data-calendar-id="{{ item.calendar.id }}" aria-label="Modification du calendrier {{ item.section_name }}">
-                    <option value="chief" {{ item.calendar.editRoleMin == 'chief' ? 'selected' : '' }}>Modifié par ses animateurs</option>
-                    <option value="admin" {{ item.calendar.editRoleMin == 'admin' ? 'selected' : '' }}>Modifié par les chefs d'unité</option>
-                </select>
-                <span class="badge text-bg-secondary text-nowrap">Non supprimable</span>
-            </div>
+            {% embed '@calendar/partials/_calendar_row.html.twig' with {
+                calendar_id: item.calendar.id,
+                name: item.section_name,
+                color: item.color ?? '#6c757d',
+                badges: ['Non supprimable'],
+                visibility: item.calendar.visibility,
+                edit_role_min: item.calendar.editRoleMin,
+                edit_chief_label: 'Ses animateurs',
+            } only %}{% endembed %}
         {% else %}
             {% include 'partials/empty_state.html.twig' with {
                 message: 'Aucune section active pour le moment.',
@@ -120,59 +130,49 @@
 
     {# 5.3 Supplementary calendars #}
     <h2 class="h5 mb-3">Calendriers supplémentaires</h2>
-    <div class="alert alert-warning small mb-3">
-        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-        La visibilité ne restreint que l'affichage sur la page publique lorsque l'utilisateur est identifié —
-        elle ne restreint pas l'accès au lien ICS. Le calendrier reste accessible à toute personne connaissant
-        le lien. Utilisez le bouton « Régénérer » pour restreindre l'accès à un lien déjà partagé.
-    </div>
 
     <div class="d-flex flex-column gap-2 mb-3" id="supplementary-calendar-list">
         {% for calendar in supplementary_calendars %}
-            <div class="border rounded-3 p-3" data-calendar-id="{{ calendar.id }}">
-                <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
-                    <span class="fw-semibold">{{ calendar.name }}</span>
-                    {% if calendar.isDefault %}
-                        <span class="badge text-bg-secondary">Par défaut</span>
-                    {% endif %}
-                    <select class="form-select form-select-sm visibility-select ms-auto" style="max-width:200px;" data-calendar-id="{{ calendar.id }}" aria-label="Visibilité du calendrier {{ calendar.name }}">
-                        <option value="public" {{ calendar.visibility == 'public' ? 'selected' : '' }}>Vu par tous</option>
-                        <option value="chief" {{ calendar.visibility == 'chief' ? 'selected' : '' }}>Vu par les animateurs</option>
-                        <option value="admin" {{ calendar.visibility == 'admin' ? 'selected' : '' }}>Vu par les chefs d'unité</option>
-                    </select>
-                    <select class="form-select form-select-sm edit-role-select" style="max-width:230px;" data-calendar-id="{{ calendar.id }}" aria-label="Modification du calendrier {{ calendar.name }}">
-                        <option value="chief" {{ calendar.editRoleMin == 'chief' ? 'selected' : '' }}>Modifié par les animateurs</option>
-                        <option value="admin" {{ calendar.editRoleMin == 'admin' ? 'selected' : '' }}>Modifié par les chefs d'unité</option>
-                    </select>
-                </div>
-                <div class="input-group input-group-sm mb-2" style="max-width:520px;">
-                    <input type="text" class="form-control ics-link-input" readonly
-                           aria-label="Lien ICS du calendrier {{ calendar.name }}"
-                           value="{{ param('base_url')|trim('/') }}/calendar/feed/{{ calendar.icsToken }}.ics">
-                    <button type="button" class="btn btn-outline-secondary copy-link-btn">
-                        <i class="bi bi-clipboard" aria-hidden="true"></i> Copier
-                    </button>
-                </div>
-                <div class="d-flex gap-2">
-                    <button type="button" class="btn btn-sm btn-outline-danger regenerate-btn" data-calendar-id="{{ calendar.id }}">
-                        Régénérer
-                    </button>
-                    {% if not calendar.isDefault %}
-                        {% set hasEvents = calendar.id in calendar_ids_with_events %}
-                        {% if hasEvents %}
-                            <span class="d-inline-block" title="Ce calendrier contient des évènements — il ne peut pas être supprimé.">
-                                <button type="button" class="btn btn-sm btn-outline-danger" disabled style="pointer-events:none;">
+            {% embed '@calendar/partials/_calendar_row.html.twig' with {
+                calendar_id: calendar.id,
+                name: calendar.name,
+                badges: calendar.isDefault ? ['Par défaut'] : [],
+                visibility: calendar.visibility,
+                edit_role_min: calendar.editRoleMin,
+                edit_chief_label: 'Les animateurs',
+                calendar: calendar,
+                calendar_ids_with_events: calendar_ids_with_events,
+            } only %}
+                {% block extra %}
+                    <div class="input-group input-group-sm mt-3 mb-2" style="max-width:520px;">
+                        <input type="text" class="form-control ics-link-input" readonly
+                               aria-label="Lien ICS du calendrier {{ calendar.name }}"
+                               value="{{ param('base_url')|trim('/') }}/calendar/feed/{{ calendar.icsToken }}.ics">
+                        <button type="button" class="btn btn-outline-secondary copy-link-btn">
+                            <i class="bi bi-clipboard" aria-hidden="true"></i> Copier
+                        </button>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-danger regenerate-btn" data-calendar-id="{{ calendar.id }}">
+                            Régénérer
+                        </button>
+                        {% if not calendar.isDefault %}
+                            {% set hasEvents = calendar.id in calendar_ids_with_events %}
+                            {% if hasEvents %}
+                                <span class="d-inline-block" title="Ce calendrier contient des évènements — il ne peut pas être supprimé.">
+                                    <button type="button" class="btn btn-sm btn-outline-danger" disabled style="pointer-events:none;">
+                                        <i class="bi bi-trash" aria-hidden="true"></i> Supprimer
+                                    </button>
+                                </span>
+                            {% else %}
+                                <button type="button" class="btn btn-sm btn-outline-danger delete-calendar-btn" data-calendar-id="{{ calendar.id }}">
                                     <i class="bi bi-trash" aria-hidden="true"></i> Supprimer
                                 </button>
-                            </span>
-                        {% else %}
-                            <button type="button" class="btn btn-sm btn-outline-danger delete-calendar-btn" data-calendar-id="{{ calendar.id }}">
-                                <i class="bi bi-trash" aria-hidden="true"></i> Supprimer
-                            </button>
+                            {% endif %}
                         {% endif %}
-                    {% endif %}
-                </div>
-            </div>
+                    </div>
+                {% endblock %}
+            {% endembed %}
         {% endfor %}
 
         {# "Unité complète" is not a real, separate calendar row (no
@@ -202,16 +202,34 @@
         </div>
     </div>
 
-    <div class="border rounded-3 p-3 d-flex align-items-center gap-2 mb-4" id="add-calendar-form">
-        <input type="text" class="form-control form-control-sm" id="new-calendar-name" placeholder="Anniversaires" style="max-width:220px;" aria-label="Nom du calendrier">
-        <select class="form-select form-select-sm" id="new-calendar-visibility" style="max-width:220px;" aria-label="Visibilité du calendrier">
-            <option value="public">Public</option>
-            <option value="chief">Animateur</option>
-            <option value="admin">Chef d'Unité</option>
-        </select>
-        <button type="button" class="btn btn-sm btn-primary" id="add-calendar-btn">
-            <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter
-        </button>
+    {# Same stacking rule as a calendar row above: three controls capped at
+       220px on one non-wrapping flex line left a phone with three unusable
+       slivers. #}
+    <div class="border rounded-3 p-3 mb-4" id="add-calendar-form">
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-sm-5">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'new-calendar-name', label: 'Nom du calendrier',
+                    placeholder: 'Anniversaires', size: 'sm', wrapper_class: '',
+                } only %}
+            </div>
+            <div class="col-12 col-sm-4">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'new-calendar-visibility', label: 'Vu par', type: 'select',
+                    size: 'sm', wrapper_class: '',
+                    options: [
+                        { value: 'public', label: 'Tous' },
+                        { value: 'chief', label: 'Les animateurs' },
+                        { value: 'admin', label: "Les chefs d'unité" },
+                    ],
+                } only %}
+            </div>
+            <div class="col-12 col-sm-3">
+                <button type="button" class="btn btn-sm btn-primary w-100" id="add-calendar-btn">
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter
+                </button>
+            </div>
+        </div>
     </div>
 {% endblock %}
 

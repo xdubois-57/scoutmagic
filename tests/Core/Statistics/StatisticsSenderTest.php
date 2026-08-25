@@ -315,6 +315,19 @@ class StatisticsSenderTest extends TestCase
         $this->assertSame([], $transport->calls);
     }
 
+    /**
+     * A row a crashed install left behind ("installing", never closed) is
+     * debris, not maintenance: it used to block every report forever,
+     * daily task and Support-page test button alike.
+     */
+    public function testAnAbandonedInProgressUpdateDoesNotBlockReporting(): void
+    {
+        $this->pdo->prepare('INSERT INTO update_history (version_from, version_to, status, started_at) VALUES (?, ?, ?, ?)')
+            ->execute(['1.0.32', '1.0.33', 'installing', (new \DateTimeImmutable('-2 days'))->format('Y-m-d H:i:s')]);
+
+        $this->assertTrue($this->sender(new RecordingTransport())->send()->isSent());
+    }
+
     public function testACompletedUpdateDoesNotBlockReporting(): void
     {
         $this->pdo->prepare('INSERT INTO update_history (version_from, version_to, status) VALUES (?, ?, ?)')
@@ -336,6 +349,35 @@ class StatisticsSenderTest extends TestCase
     {
         $this->pdo->prepare('INSERT INTO scheduled_actions (module_id, task_key, run_at, status) VALUES (?, ?, ?, ?)')
             ->execute(['core', $taskKey, '2026-08-20 03:00:00', 'pending']);
+        $transport = new RecordingTransport();
+
+        $result = $this->sender($transport)->send();
+
+        $this->assertTrue($result->isSkipped());
+        $this->assertSame('maintenance_in_progress', $result->reason);
+        $this->assertSame([], $transport->calls);
+    }
+
+    /**
+     * An automatic update waiting for its weekly slot is pending for up to
+     * a week. Counting that as "maintenance in progress" silenced
+     * reporting for the whole week on every installation with automatic
+     * updates enabled — only a task already claimed or already due is
+     * actually running.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('maintenanceTaskProvider')]
+    public function testAMaintenanceTaskScheduledForLaterDoesNotBlockReporting(string $taskKey): void
+    {
+        $this->pdo->prepare('INSERT INTO scheduled_actions (module_id, task_key, run_at, status) VALUES (?, ?, ?, ?)')
+            ->execute(['core', $taskKey, (new \DateTimeImmutable('+3 days'))->format('Y-m-d H:i:s'), 'pending']);
+
+        $this->assertTrue($this->sender(new RecordingTransport())->send()->isSent());
+    }
+
+    public function testAMaintenanceTaskAlreadyRunningSkips(): void
+    {
+        $this->pdo->prepare('INSERT INTO scheduled_actions (module_id, task_key, run_at, status) VALUES (?, ?, ?, ?)')
+            ->execute(['core', 'install_update', (new \DateTimeImmutable('+3 days'))->format('Y-m-d H:i:s'), 'processing']);
         $transport = new RecordingTransport();
 
         $result = $this->sender($transport)->send();
@@ -751,6 +793,25 @@ class StatisticsSenderTest extends TestCase
         $this->assertTrue($result->isSkipped());
         $this->assertSame('non_public_host', $result->reason);
         $this->assertSame([], $transport->calls);
+    }
+
+    /**
+     * The two halves of "I want to check reporting works from the
+     * installation that is itself the receiver": `self_destination` is
+     * already lifted for a manual send, and a scheduled-but-not-yet-due
+     * install no longer counts as maintenance — together, the button now
+     * actually sends instead of always answering « Une opération de
+     * maintenance est en cours ».
+     */
+    public function testATestSendReachesTheReceiverWithAnUpdateMerelyScheduled(): void
+    {
+        $this->set('base_url', 'https://www.scoutmagic.be');
+        $this->pdo->prepare('INSERT INTO scheduled_actions (module_id, task_key, run_at, status) VALUES (?, ?, ?, ?)')
+            ->execute(['core', 'install_update', (new \DateTimeImmutable('+3 days'))->format('Y-m-d H:i:s'), 'pending']);
+        $transport = new RecordingTransport();
+
+        $this->assertTrue($this->sender($transport)->sendTest()->isSent());
+        $this->assertCount(1, $transport->calls);
     }
 
     public function testATestSendStillRefusesDuringMaintenance(): void

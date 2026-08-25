@@ -60,7 +60,10 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
     // an anonymous visitor and by the member's personal feed.
     // ---------------------------------------------------------------
     await page.goto('/config/calendar', { waitUntil: 'load' });
-    const visibilitySelect = page.getByLabel('Visibilité du calendrier Meute E2E');
+    // The select's visible label is the two words a phone has room for
+    // (« Vu par »); its accessible name adds the calendar so a page full
+    // of them stays navigable — see partials/form_field's `aria_label`.
+    const visibilitySelect = page.getByLabel('Vu par — Meute E2E');
     const visibilitySave = page.waitForResponse((response) => response.url().includes('/config/calendar/visibility'));
     await visibilitySelect.selectOption('public');
     expect((await visibilitySave).ok()).toBe(true);
@@ -205,7 +208,7 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
     // so the calendar surface later scenarios meet is untouched.
     await page.goto('/config/calendar', { waitUntil: 'load' });
     const visibilityRestore = page.waitForResponse((response) => response.url().includes('/config/calendar/visibility'));
-    await page.getByLabel('Visibilité du calendrier Meute E2E').selectOption('chief');
+    await page.getByLabel('Vu par — Meute E2E').selectOption('chief');
     expect((await visibilityRestore).ok()).toBe(true);
 
     // ---------------------------------------------------------------
@@ -215,7 +218,7 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
     // above opens at all. Driven there and straight back, so the
     // calendar the later scenarios meet keeps its provisioned value.
     // ---------------------------------------------------------------
-    const editRoleSelect = page.getByLabel('Modification du calendrier Meute E2E');
+    const editRoleSelect = page.getByLabel('Modifié par — Meute E2E');
     const editRoleSave = page.waitForResponse((response) => response.url().includes('/config/calendar/edit-role'));
     await editRoleSelect.selectOption('admin');
     expect((await editRoleSave).ok()).toBe(true);
