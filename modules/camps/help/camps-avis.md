@@ -35,6 +35,17 @@ C'est ce qu'il faut faire pour un avis écrit sur le mauvais séjour : le
 réécrire par-dessus laisserait une opinion que personne ne défend, et un
 lieu affiche la note du dernier séjour qui en porte une.
 
+## Donner la note
+
+La note se donne en cliquant sur une étoile : la troisième pour 3/5, et
+un nouveau clic ailleurs la corrige. Au clavier, les flèches parcourent
+les cinq étoiles.
+
+Un avis peut n'être qu'un commentaire — « Pas de note », à côté des
+étoiles, est là pour ça, et c'est aussi ce qui retire une note donnée par
+erreur. Ce qu'un futur staff lira le plus, ce sont les phrases, pas le
+chiffre.
+
 ## Les séjours annulés
 
 Ils peuvent recevoir un avis, et c'est voulu : un propriétaire qui annule

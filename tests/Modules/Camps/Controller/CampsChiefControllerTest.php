@@ -22,6 +22,7 @@ use Modules\Camps\Repository\ContactRepository;
 use Modules\Camps\Repository\DocumentRepository;
 use Modules\Camps\Repository\LinkRepository;
 use Modules\Camps\Repository\PlaceRepository;
+use Modules\Camps\Repository\Review;
 use Modules\Camps\Repository\ReviewRepository;
 use Modules\Camps\Service\CampAlbumService;
 use Modules\Camps\Service\CampService;
@@ -364,6 +365,102 @@ class CampsChiefControllerTest extends TestCase
         $html = (string) preg_replace('/\s+/', ' ', $this->stayPage($campId));
 
         $this->assertMatchesRegularExpression('/value="gestionnaire" selected/', $html);
+    }
+
+    /**
+     * The note is given by clicking a star, not by opening a dropdown.
+     *
+     * A rating out of five is SHOWN as stars everywhere else in this
+     * module; the one screen where it is given used to be the only one
+     * speaking another language — and it cost two taps on a phone for
+     * what is one.
+     */
+    public function testTheRatingIsGivenInStarsRatherThanADropdown(): void
+    {
+        $campId = $this->aStay();
+
+        $html = (string) preg_replace('/\s+/', ' ', $this->stayPage($campId));
+
+        // One radio per point of the scale, each reachable by its own label.
+        for ($i = Review::MIN_RATING; $i <= Review::MAX_RATING; $i++) {
+            $this->assertMatchesRegularExpression(
+                '/<input type="radio" name="rating" id="review-rating-' . $i . '" value="' . $i . '"/',
+                $html,
+                'star ' . $i
+            );
+            $this->assertStringContainsString('for="review-rating-' . $i . '"', $html);
+        }
+        // The number is in the accessible name: five identical shapes are
+        // not a rating to a screen reader.
+        $this->assertStringContainsString(
+            '<span class="visually-hidden">3 étoiles sur 5</span>',
+            html_entity_decode($html)
+        );
+        $this->assertStringContainsString('<span class="visually-hidden">1 étoile sur 5</span>', html_entity_decode($html));
+        // And nothing is left of the select it replaced.
+        $this->assertDoesNotMatchRegularExpression('/<select[^>]*name="rating"/', $html);
+    }
+
+    /**
+     * A comment with no number is a complete review, so « Pas de note »
+     * stays reachable — and it is the state a stay with no review is in.
+     */
+    public function testTheRatingStartsWithoutOneAndCanBeGivenBackUp(): void
+    {
+        $campId = $this->aStay();
+
+        $html = (string) preg_replace('/\s+/', ' ', $this->stayPage($campId));
+
+        $this->assertMatchesRegularExpression(
+            '/<input type="radio" class="btn-check" name="rating" id="review-rating-none" value="" autocomplete="off" checked>/',
+            $html
+        );
+        $this->assertStringContainsString('Pas de note', html_entity_decode($html));
+        $this->assertDoesNotMatchRegularExpression('/id="review-rating-[1-5]" value="[1-5]" autocomplete="off" checked/', $html);
+    }
+
+    public function testTheStoredRatingIsTheStarThatComesBackChecked(): void
+    {
+        $campId = $this->aStay();
+        (new ReviewRepository($this->pdo))->save($campId, 4, null, null);
+
+        $html = (string) preg_replace('/\s+/', ' ', $this->stayPage($campId));
+
+        $this->assertMatchesRegularExpression(
+            '/id="review-rating-4" value="4" autocomplete="off" checked/',
+            $html
+        );
+        // Exactly one star is checked, and « pas de note » is not.
+        $this->assertSame(1, preg_match_all('/id="review-rating-[1-5]"[^>]*checked/', $html));
+        $this->assertDoesNotMatchRegularExpression('/id="review-rating-none"[^>]*checked/', $html);
+    }
+
+    /**
+     * A cancelled stay is rated by nobody — nobody camped there — so the
+     * stars are not offered at all (Service\ReviewService says the same
+     * thing on the way in, which is the answer that counts).
+     */
+    public function testACancelledStayIsOfferedNoStars(): void
+    {
+        $placeId = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
+        $campId = $this->camps->create(
+            $placeId,
+            \Modules\Camps\Repository\Camp::STAY_GRAND_CAMP,
+            '2019-07-12',
+            '2019-07-19',
+            null,
+            \Modules\Camps\Repository\Camp::STATUS_CANCELLED,
+            null,
+            null,
+            null,
+            null,
+            []
+        );
+
+        $html = $this->stayPage($campId);
+
+        $this->assertStringNotContainsString('id="review-rating-1"', $html);
+        $this->assertStringContainsString('review-comment', $html);
     }
 
     public function testAReviewCanBeTakenBackOff(): void

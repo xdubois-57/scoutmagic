@@ -405,7 +405,7 @@ class CampsChiefController extends AbstractController
             'review' => $this->reviews->findByCamp($camp->id),
             'review_open' => $this->reviewService->isOpen($camp, $today),
             'review_allows_rating' => $this->reviewService->allowsRating($camp),
-            'rating_options' => $this->ratingOptions($this->reviews->findByCamp($camp->id)),
+            'rating_max' => Review::MAX_RATING,
             'links' => $this->links->findByCamp($camp->id),
             'messages' => $this->campMessages($camp->id),
             'document_count' => $this->documents->countByCamp($camp->id),
@@ -1046,27 +1046,6 @@ class CampsChiefController extends AbstractController
         }
 
         return $trail;
-    }
-
-    /**
-     * The rating picker, with "pas de note" first — a chief who wants to
-     * write only a comment must not have to give a number to do it.
-     *
-     * @return array<int, array{value: string, label: string, selected: bool}>
-     */
-    private function ratingOptions(?Review $review): array
-    {
-        $current = $review?->rating;
-        $options = [['value' => '', 'label' => 'Pas de note', 'selected' => $current === null]];
-        for ($i = Review::MIN_RATING; $i <= Review::MAX_RATING; $i++) {
-            $options[] = [
-                'value' => (string) $i,
-                'label' => $i . ' / ' . Review::MAX_RATING,
-                'selected' => $current === $i,
-            ];
-        }
-
-        return $options;
     }
 
     private function today(): \DateTimeImmutable

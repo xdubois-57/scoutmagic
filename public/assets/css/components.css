@@ -888,3 +888,95 @@
 .min-w-0 {
     min-width: 0;
 }
+
+/* ── Star rating input (Modules\Camps\views\_rating_input.html.twig) ──
+   Five radio buttons drawn as stars. No JavaScript anywhere in here:
+   what fills a star is the state of a radio, which the browser already
+   maintains, and a rating widget that stops working when a script fails
+   to load would be a worse dropdown than the dropdown it replaced.
+
+   The radios stay in the page — moved out of sight, never `display: none`
+   — because a hidden-by-display radio leaves the tab order and the radio
+   group with it: no arrow keys, no focus ring, nothing for a screen
+   reader to land on. Each one keeps its accessible name from the
+   visually-hidden text inside its own label. */
+.rating-input {
+    display: inline-flex;
+    align-items: center;
+}
+/* The star is what the radio is positioned against, so focusing one by
+   keyboard scrolls the page to the star and not to wherever an
+   unpositioned absolute box happened to land — inside a dialog, that is
+   somewhere else entirely. */
+.rating-input-star {
+    position: relative;
+    display: inline-flex;
+}
+.rating-input input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+/* Icon-only tappable targets in a row, sized here rather than left to
+   app.css's pointer:coarse block for the same reason .groups-reaction-btn
+   above is: the drawn star IS the control, and a 20px star that only
+   grows on a touch device is a control a mouse user aims at too. */
+.rating-input label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    margin: 0;
+    cursor: pointer;
+    font-size: 1.35rem;
+    line-height: 1;
+    color: var(--bs-secondary-color);
+    border-radius: var(--bs-border-radius);
+}
+.rating-input input:focus-visible + label {
+    outline: 2px solid var(--bs-primary);
+    outline-offset: -2px;
+}
+/* Both icons are always in the markup and exactly one of them is shown —
+   the outline and the fill are different glyphs, and swapping a class
+   would need the script this component does without. */
+.rating-input .bi-star-fill {
+    display: none;
+    /* The same yellow as the stars this note is READ as afterwards
+       (_stars.html.twig's .text-warning), so the row a chief clicks and
+       the row the next staff sees are one thing. */
+    color: var(--bs-warning);
+}
+/* A star is filled when it is the one chosen, or when a star further
+   along the row is: a note of 3 fills the first three, which is what
+   makes the row read as a number rather than as five switches. */
+.rating-input-star:has(input:checked) .bi-star,
+.rating-input-star:has(~ .rating-input-star input:checked) .bi-star {
+    display: none;
+}
+.rating-input-star:has(input:checked) .bi-star-fill,
+.rating-input-star:has(~ .rating-input-star input:checked) .bi-star-fill {
+    display: inline-block;
+}
+
+/* Hover preview, on pointers that have a hover: the row shows the note
+   that a click would give, and the stored one steps aside while it does —
+   two ratings lit at once would be a lie about which one is recorded. */
+@media (hover: hover) {
+    .rating-input:hover .rating-input-star .bi-star {
+        display: inline-block;
+    }
+    .rating-input:hover .rating-input-star .bi-star-fill {
+        display: none;
+    }
+    .rating-input:hover .rating-input-star:hover .bi-star,
+    .rating-input:hover .rating-input-star:has(~ .rating-input-star:hover) .bi-star {
+        display: none;
+    }
+    .rating-input:hover .rating-input-star:hover .bi-star-fill,
+    .rating-input:hover .rating-input-star:has(~ .rating-input-star:hover) .bi-star-fill {
+        display: inline-block;
+    }
+}
