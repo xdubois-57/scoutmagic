@@ -755,7 +755,7 @@ One file per topic, named `{id}.md`, front matter between `---` lines
 id: reserver-un-local
 title: Demander la location d'un local
 summary: Choisir des dates libres et envoyer une demande.
-category: Notre unité
+category: Premiers pas
 role_min: public
 paths: /locations/*
 related: suivre-ma-demande
@@ -768,7 +768,17 @@ Corps en Markdown…
   — a collision is a load error, and `tests/Core/Help/HelpInvariantsTest`
   pins the whole corpus.
 - `role_min`: below it the topic exists nowhere (panel, index, search,
-  direct URL — 404). Same role vocabulary as routes.
+  direct URL — 404). Same role vocabulary as routes. Declare the floor of
+  the page the topic documents, not the audience you had in mind: a topic
+  above its page's floor leaves the people who can open that page without
+  help. `tests/Core/Help/HelpMenuCoverageTest` fails on that for a menu
+  page; below one, it is on you.
+- `category`: one of the five the corpus uses — `Premiers pas`,
+  `Espace membres`, `Espace animateurs`, `Espace chefs d'U`,
+  `Configuration` (`Core\Help\HelpService::CATEGORY_ORDER`, which is also
+  the order `/aide` shows them in). An unknown category still renders,
+  alphabetically after those five; introducing one is a product decision,
+  not a shortcut around picking the right existing one.
 - `paths`: pages the topic covers, in three forms — exact
   (`/locations`), direct child (`/locations/*`, the path plus exactly one
   segment; `offline`'s exact/child semantics), and a segment pattern
@@ -783,6 +793,14 @@ Corps en Markdown…
   Write to the editorial charter in design.md §7.11 — vouvoiement, the
   §7.1 lexicon, ~400 words, at most one `> ` warning callout, no external
   link but the federation's.
+- What the renderer understands, and nothing else: `##` headings,
+  paragraphs, bullet lists, numbered lists, an indented continuation line
+  that joins the item above it, `**gras**`, `*italique*`, `` `code` ``,
+  one `> ` callout, and an image under `/assets/`. No tables, no code
+  fences, no nested lists — and **no relative links**: only an absolute
+  `http(s)://` URL becomes an `<a>`, so `[voir](/aide/x)` renders as its
+  own source text. Point at another topic with `related`, and name a page
+  by its label rather than its route.
 - A new end-user-facing page should ship with a topic covering it, in the
   same change (AGENTS.md § Module creation checklist).
 

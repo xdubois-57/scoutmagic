@@ -9,6 +9,9 @@ use Core\Config\SettingService;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Mail\MailException;
+use Core\Mail\MailService;
+use Core\Notification\NotificationMailer;
 use Core\Notification\NotificationPreferenceRepository;
 use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
@@ -541,5 +544,244 @@ class NotificationServiceTest extends TestCase
         $this->service->unsubscribeAll($userId);
 
         $this->assertSame([], $this->subscriptionRepository->findByUserAccountId($userId));
+    }
+
+    // --- the email channel (ARCHITECTURE.md §8.24) ---
+
+    /**
+     * A NotificationMailer over a mocked transport, plus the list of
+     * sends it saw. The Twig environment is the real one: an email whose
+     * template does not compile is a failure worth catching here.
+     *
+     * The recorder is an ArrayObject rather than a by-reference array:
+     * destructuring the return value copies a referenced element, which
+     * would hand every test an empty snapshot.
+     *
+     * @param ?\Throwable $throwOnSend when set, every send() raises it
+     * @return array{0: NotificationMailer, 1: \ArrayObject<int, array<string, string>>}
+     */
+    private function recordingMailer(?\Throwable $throwOnSend = null): array
+    {
+        /** @var \ArrayObject<int, array<string, string>> $sent */
+        $sent = new \ArrayObject();
+        $mailService = $this->createMock(MailService::class);
+        $expectation = $mailService->method('send');
+        if ($throwOnSend !== null) {
+            $expectation->willThrowException($throwOnSend);
+        } else {
+            $expectation->willReturnCallback(
+                function (string $to, string $subject, string $bodyHtml, string $bodyText) use ($sent): void {
+                    $sent[] = ['to' => $to, 'subject' => $subject, 'html' => $bodyHtml, 'text' => $bodyText];
+                }
+            );
+        }
+
+        $mailer = new NotificationMailer(
+            $mailService,
+            \Core\View\TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates'),
+            'Unité Test',
+            'https://example.test'
+        );
+
+        return [$mailer, $sent];
+    }
+
+    private function enableEmailChannel(int $userAccountId, string $typeId): void
+    {
+        $this->preferenceRepository->setChannel($userAccountId, $typeId, 'email', true);
+    }
+
+    public function testDispatchSchedulesNoEmailTaskWhenTheChannelIsAtItsDefaultOff(): void
+    {
+        $userId = $this->createUserAccount();
+
+        $this->service->dispatch(self::TEST_TYPE, [
+            ['userAccountId' => $userId, 'memberId' => null],
+        ], ['title' => 'Titre', 'body' => 'Corps']);
+
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'send_notification_emails', 10));
+    }
+
+    public function testDispatchSchedulesTheEmailTaskOnlyForRecipientsWhoTurnedTheChannelOn(): void
+    {
+        $wantsEmail = $this->createUserAccount();
+        $doesNot = $this->createUserAccount();
+        $this->enableEmailChannel($wantsEmail, self::TEST_TYPE);
+
+        $this->service->dispatch(self::TEST_TYPE, [
+            ['userAccountId' => $wantsEmail, 'memberId' => null],
+            ['userAccountId' => $doesNot, 'memberId' => null],
+        ], ['title' => 'Titre', 'body' => 'Corps']);
+
+        $scheduled = $this->schedulerRepository->findByModuleAndTaskKey('core', 'send_notification_emails', 10);
+        $this->assertCount(1, $scheduled);
+        $payload = json_decode((string) $scheduled[0]['payload'], true);
+        $expected = $this->notificationRepository->findByUserAccountId($wantsEmail)[0]->id;
+        $this->assertSame([$expected], $payload['notification_ids']);
+    }
+
+    /**
+     * The actor gets the row, never the outbound copies — the same rule
+     * push already followed, now that a second channel exists to break it.
+     */
+    public function testDispatchNeverEmailsTheActorForTheirOwnAction(): void
+    {
+        $actor = $this->createUserAccount();
+        $this->enableEmailChannel($actor, self::TEST_TYPE);
+
+        $this->service->dispatch(self::TEST_TYPE, [
+            ['userAccountId' => $actor, 'memberId' => null],
+        ], ['title' => 'Titre', 'body' => 'Corps'], $actor);
+
+        $this->assertCount(1, $this->notificationRepository->findByUserAccountId($actor));
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'send_notification_emails', 10));
+    }
+
+    /**
+     * Quiet hours hold push back and nothing else: the email task is
+     * scheduled with no delay even in the middle of the window
+     * (specifications.md §13.3).
+     */
+    public function testQuietHoursDelayPushButNeverEmail(): void
+    {
+        $userId = $this->createUserAccount();
+        $this->enableEmailChannel($userId, self::TEST_TYPE);
+        // A window covering the whole day, so "now" is always inside it.
+        $this->settingService->register('notifications_quiet_hours_start', '00:00', 'text', 'L', 'D');
+        $this->settingService->register('notifications_quiet_hours_end', '23:59', 'text', 'L', 'D');
+
+        $this->service->dispatch(self::TEST_TYPE, [
+            ['userAccountId' => $userId, 'memberId' => null],
+        ], ['title' => 'Titre', 'body' => 'Corps']);
+
+        $push = $this->schedulerRepository->findByModuleAndTaskKey('core', 'send_notifications', 10);
+        $email = $this->schedulerRepository->findByModuleAndTaskKey('core', 'send_notification_emails', 10);
+        $this->assertCount(1, $push);
+        $this->assertCount(1, $email);
+        $this->assertGreaterThan(
+            strtotime((string) $email[0]['run_at']),
+            strtotime((string) $push[0]['run_at']),
+            'Push must be held until the window ends; email must go now.'
+        );
+    }
+
+    public function testSendEmailsRendersTheNotificationToTheAccountsOwnAddress(): void
+    {
+        $userId = $this->createUserAccount();
+        $notificationId = $this->notificationRepository->create($userId, null, self::TEST_TYPE, 'Nouvel album', 'Trois photos ajoutées', '/gallery/42');
+        [$mailer, $sent] = $this->recordingMailer();
+
+        $attempted = $this->service->sendEmailsForNotifications([$notificationId], static fn(): bool => true, $mailer);
+
+        $this->assertSame([$notificationId], $attempted);
+        $this->assertCount(1, $sent);
+        $this->assertSame($this->userAccountRepository->findById($userId)->email, $sent[0]['to']);
+        $this->assertSame('Nouvel album', $sent[0]['subject']);
+        $this->assertStringContainsString('Trois photos ajoutées', $sent[0]['text']);
+        // A same-origin path becomes a real address an email client can open.
+        $this->assertStringContainsString('https://example.test/gallery/42', $sent[0]['text']);
+    }
+
+    /**
+     * The whole point of email_sent_at: a handler rescheduled mid-batch,
+     * or simply run twice on the same ids, must never mail anybody twice.
+     */
+    public function testSendEmailsNeverSendsTheSameNotificationTwice(): void
+    {
+        $userId = $this->createUserAccount();
+        $notificationId = $this->notificationRepository->create($userId, null, self::TEST_TYPE, 'Titre', 'Corps', null);
+        [$mailer, $sent] = $this->recordingMailer();
+
+        $this->service->sendEmailsForNotifications([$notificationId], static fn(): bool => true, $mailer);
+        $this->service->sendEmailsForNotifications([$notificationId], static fn(): bool => true, $mailer);
+
+        $this->assertCount(1, $sent);
+        $this->assertNotNull($this->notificationRepository->findById($notificationId)->emailSentAt);
+    }
+
+    /**
+     * The time budget is what keeps a section-wide mailing off one
+     * request: whatever it cut short comes back as "not attempted", which
+     * is what the handler reschedules.
+     */
+    public function testSendEmailsStopsAtTheTimeBudgetAndLeavesTheRestUnclaimed(): void
+    {
+        $userId = $this->createUserAccount();
+        $first = $this->notificationRepository->create($userId, null, self::TEST_TYPE, 'Un', 'Corps', null);
+        $second = $this->notificationRepository->create($userId, null, self::TEST_TYPE, 'Deux', 'Corps', null);
+        [$mailer, $sent] = $this->recordingMailer();
+
+        $calls = 0;
+        $attempted = $this->service->sendEmailsForNotifications(
+            [$first, $second],
+            static function () use (&$calls): bool { return $calls++ < 1; },
+            $mailer
+        );
+
+        $this->assertSame([$first], $attempted);
+        $this->assertCount(1, $sent);
+        $this->assertNull($this->notificationRepository->findById($second)->emailSentAt);
+    }
+
+    /**
+     * Discretion is a statement about screens other people can read, and
+     * a mail notification lands on the same lock screen a push does — so
+     * it strips the email exactly as it strips the push payload.
+     */
+    public function testDiscretionStripsTheSubjectAndBodyOfTheEmail(): void
+    {
+        $userId = $this->createUserAccount();
+        $this->pdo->prepare('UPDATE user_accounts SET notification_discretion = 1 WHERE id = ?')->execute([$userId]);
+        $notificationId = $this->notificationRepository->create($userId, null, self::TEST_TYPE, 'Résultat médical de Kaa', 'Détail sensible', null);
+        [$mailer, $sent] = $this->recordingMailer();
+
+        $this->service->sendEmailsForNotifications([$notificationId], static fn(): bool => true, $mailer);
+
+        $this->assertCount(1, $sent);
+        $this->assertSame('Nouvelle notification', $sent[0]['subject']);
+        $this->assertStringNotContainsString('Kaa', $sent[0]['html']);
+        $this->assertStringNotContainsString('Détail sensible', $sent[0]['html']);
+        $this->assertStringNotContainsString('Détail sensible', $sent[0]['text']);
+    }
+
+    /**
+     * A transport failure is journaled and NOT retried: a retry cannot
+     * tell "never left" from "left, then the connection dropped", and the
+     * notification is in the recipient's centre either way.
+     */
+    public function testAFailedSendIsJournaledAndNotRetried(): void
+    {
+        $userId = $this->createUserAccount();
+        $notificationId = $this->notificationRepository->create($userId, null, self::TEST_TYPE, 'Titre', 'Corps', null);
+        [$mailer] = $this->recordingMailer(new MailException('SMTP connect() failed'));
+
+        $this->service->sendEmailsForNotifications([$notificationId], static fn(): bool => true, $mailer);
+
+        $this->assertNotNull(
+            $this->notificationRepository->findById($notificationId)->emailSentAt,
+            'The claim stays: a failed send is never re-attempted.'
+        );
+
+        $entries = $this->pdo->query("SELECT event_type FROM event_log WHERE event_type = 'notification_email_failed'")->fetchAll();
+        $this->assertCount(1, $entries);
+    }
+
+    /**
+     * An account with no readable address must not leave the row stamped
+     * as if an email had gone out — the claim is released so a later run,
+     * once the address is fixed, still sends it.
+     */
+    public function testAnUnsendableRecipientReleasesItsClaim(): void
+    {
+        $userId = $this->createUserAccount();
+        $notificationId = $this->notificationRepository->create($userId, null, self::TEST_TYPE, 'Titre', 'Corps', null);
+        $this->pdo->prepare('DELETE FROM user_accounts WHERE id = ?')->execute([$userId]);
+        [$mailer, $sent] = $this->recordingMailer();
+
+        $this->service->sendEmailsForNotifications([$notificationId], static fn(): bool => true, $mailer);
+
+        $this->assertCount(0, $sent);
+        $record = $this->notificationRepository->findById($notificationId);
+        $this->assertTrue($record === null || $record->emailSentAt === null);
     }
 }

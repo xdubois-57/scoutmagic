@@ -20,13 +20,14 @@ Thank you for considering contributing to this project.
 
 1. Create a feature branch from `main`.
 2. Write your code and tests. If your change touches `public/assets/js/` behavior that is deterministic and reasonably decoupled from the DOM it ships with, add/update a Vitest spec in `tests/js/` — see AGENTS.md § Tests for when this does (and doesn't) apply.
-3. Ensure all PHP tests pass: `vendor/bin/phpunit`
-4. Ensure static analysis passes: `vendor/bin/phpstan analyse` (covers `core/`, `modules/`, and `public/index.php`/`public/cron.php` — the composition roots where controllers are wired up are in scope specifically because a wiring bug there only ever surfaces at runtime, never in an IDE or a unit test)
-5. If you touched `public/assets/js/`, ensure JavaScript static analysis passes: `npm ci` then `npm run typecheck` — the JavaScript equivalent of PHPStan above (see README.md § Analyse statique JavaScript).
-6. If you touched `public/assets/js/` or `tests/js/`, ensure the JavaScript tests pass: `npm ci` then `npm test` (or `npm run test:coverage` — see README.md § Développement).
-7. If you touched the application's boot path, routing, or the shared layout (`public/index.php`, `core/Http/`, `core/View/templates/base.html.twig`, `schema/core.sql`, …), run the end-to-end test: `npm run e2e:install` once, then `npm run e2e` — see README.md § Tests de bout en bout. It is the only check that proves the application still starts; CI runs it as a blocking check and `scripts/release.sh` as a release gate either way. If you changed the scout-year transition workflow described on `/admin/scout-year`, update `tests/e2e/specs/scout-year-transition.spec.js` in the same change — that page is the test's specification.
-8. Open a PR against `main` and fill in the PR template checklist.
-9. CI additionally runs [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) analysis on the PR, alongside PHPStan/PHPUnit/the JavaScript static analysis/Vitest/the end-to-end browser test/`composer audit`/CodeQL — see README.md § Intégration continue. Its Quality Gate must pass before merge.
+3. If your change adds or reworks a page an end user sees, ship its help topic in the same change — a `{id}.md` under the module's `help/` directory, or `docs/help/` for a core page. Write it to the editorial charter in `design.md` §7.11 (vouvoiement, the §7.1 lexicon, ~400 words, at most one `> ` callout) and declare the page in the topic's `paths`; `tests/Core/Help/` fails otherwise. See `docs/module-development.md` § Help topics.
+4. Ensure all PHP tests pass: `vendor/bin/phpunit`
+5. Ensure static analysis passes: `vendor/bin/phpstan analyse` (covers `core/`, `modules/`, and `public/index.php`/`public/cron.php` — the composition roots where controllers are wired up are in scope specifically because a wiring bug there only ever surfaces at runtime, never in an IDE or a unit test)
+6. If you touched `public/assets/js/`, ensure JavaScript static analysis passes: `npm ci` then `npm run typecheck` — the JavaScript equivalent of PHPStan above (see README.md § Analyse statique JavaScript).
+7. If you touched `public/assets/js/` or `tests/js/`, ensure the JavaScript tests pass: `npm ci` then `npm test` (or `npm run test:coverage` — see README.md § Développement).
+8. If you touched the application's boot path, routing, or the shared layout (`public/index.php`, `core/Http/`, `core/View/templates/base.html.twig`, `schema/core.sql`, …), run the end-to-end test: `npm run e2e:install` once, then `npm run e2e` — see README.md § Tests de bout en bout. It is the only check that proves the application still starts; CI runs it as a blocking check and `scripts/release.sh` as a release gate either way. If you changed the scout-year transition workflow described on `/admin/scout-year`, update `tests/e2e/specs/scout-year-transition.spec.js` in the same change — that page is the test's specification.
+9. Open a PR against `main` and fill in the PR template checklist.
+10. CI additionally runs [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) analysis on the PR, alongside PHPStan/PHPUnit/the JavaScript static analysis/Vitest/the end-to-end browser test/`composer audit`/CodeQL — see README.md § Intégration continue. Its Quality Gate must pass before merge.
 
 ## License and attribution
 
