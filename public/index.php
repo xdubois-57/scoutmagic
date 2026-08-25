@@ -2607,10 +2607,22 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         $financeTransactionRepo, $financeRuleEngine, $financeAiCategorizationService, $settingService, $schedulerService
     );
 
+    // Who paid what, written down (ARCHITECTURE.md §8.81). Declared here,
+    // above the import service, because a bank import's whole point is to
+    // let these rows be written in the same request; the public
+    // cross-module API further down reads through the very same instance,
+    // so no two parts of the application can disagree about a status.
+    $financeExpectedReceivableRepo = new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryptionService);
+    $financeAllocationRepo = new \Modules\Finance\Repository\ReceivableAllocationRepository($pdo);
+    $financeAllocationService = new \Modules\Finance\Service\ReceivableAllocationService(
+        $financeExpectedReceivableRepo, $financeAllocationRepo, $financeTransactionRepo,
+        $financeAccountRepo, $financeAccountVisibility
+    );
+
     $financeImportService = new \Modules\Finance\Service\ImportService(
         $pdo, $encryptionService, $financeParserFactory, $financeTransactionRepo, $financeCheckpointRepo,
         $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine, $financeBalanceService, $financeReceiptMatchingService,
-        $financeBulkCategorizationService
+        $financeBulkCategorizationService, $financeAllocationService
     );
     $financeEncryptedFileStorage = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
     $financeReceiptService = new \Modules\Finance\Service\ReceiptService(
@@ -2709,9 +2721,8 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
 
     // Public API implementations (ARCHITECTURE.md §7.5) — instantiated
     // here so other modules (news) can consume them as nullable deps.
-    $financeExpectedReceivableRepo = new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryptionService);
     $financeStructuredCommunicationForOthers = new \Modules\Finance\Service\StructuredCommunicationService($financeExpectedReceivableRepo);
-    $financeExpectedReceivableForOthers = new \Modules\Finance\Service\ExpectedReceivableService($financeExpectedReceivableRepo, $financeTransactionRepo);
+    $financeExpectedReceivableForOthers = new \Modules\Finance\Service\ExpectedReceivableService($financeExpectedReceivableRepo, $financeAllocationService);
     $financeSepaQrCodeForOthers = new \Modules\Finance\Service\SepaQrCodeService();
     $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService($financeAccountRepo);
 

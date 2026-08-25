@@ -11,36 +11,42 @@ namespace Modules\Finance\Service;
 use Modules\Finance\Api\ExpectedReceivableInterface;
 use Modules\Finance\Repository\ExpectedReceivable;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
-use Modules\Finance\Repository\TransactionRepository;
 
 /**
- * Status is never stored — always computed live by matching imported bank
- * transactions (on the receivable's own account) whose free text spells
- * out the receivable's structured communication. A single receivable can
- * be settled across several transactions (module spec: "un paiement peut
- * être effectué en plusieurs versements"), so the matched amounts are
- * summed rather than expecting a single exact match.
+ * The cross-module face of "money we expect to receive"
+ * (Api\ExpectedReceivableInterface): register one, change its amount,
+ * ask where it stands, drop the ones a deleted source owned.
  *
- * "Spells out" is exact: the communications a line carries are extracted
- * and compared by equality — see sumMatchingCredits() for why a substring
- * search was not good enough.
+ * **Status is the sum of a receivable's allocations, plus its abandon.**
+ * It used to be refabricated on every display instead, by summing the
+ * whole amount of every credit whose text carried the communication —
+ * nothing written down, so nothing correctable: a transfer covering three
+ * siblings could not be split, a credit nobody's communication matched
+ * could not be attached by hand, and a treasurer who knew better had no
+ * way to say so. Service\ReceivableAllocationService owns the writing and
+ * the arithmetic; this class is the door consuming modules already use.
+ *
+ * Allocations are written at bank import, and again here whenever a
+ * receivable appears or its amount moves — a rental deposit is routinely
+ * paid before the receivable that expects it exists, and its status has
+ * to be right the first time it is asked for, not at the next import.
  */
 class ExpectedReceivableService implements ExpectedReceivableInterface
 {
     public function __construct(
         private ExpectedReceivableRepository $repository,
-        private TransactionRepository $transactionRepository
+        private ReceivableAllocationService $allocations
     ) {
     }
 
     /**
-     * @throws FinanceException when $communication carries no digit — the
-     *         status computation matches on its digits alone, so such a
-     *         receivable could never be settled by any transaction, and
-     *         (before sumMatchingCredits() guarded it) an empty needle made
-     *         every credit on the account look like a payment for it. This
-     *         is a public cross-module API (ARCHITECTURE.md §7.5), so the
-     *         caller is not assumed to have gone through
+     * @throws FinanceException when $communication carries no digit — a
+     *         payment is matched on the twelve digits of a structured
+     *         communication, so such a receivable could never be settled
+     *         by anything, and an empty needle once made every credit on
+     *         the account look like a payment for it. This is a public
+     *         cross-module API (ARCHITECTURE.md §7.5), so the caller is
+     *         not assumed to have gone through
      *         Service\StructuredCommunicationService::generate().
      */
     public function createReceivable(
@@ -49,13 +55,25 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         int $accountId,
         int $amountCents,
         string $communication,
-        ?string $label
+        ?string $label,
+        ?int $memberId = null
     ): int {
         if ($this->digitsOnly($communication) === '') {
             throw new FinanceException('La communication doit contenir au moins un chiffre.');
         }
 
-        return $this->repository->create($sourceModule, $sourceReferenceId, $accountId, $amountCents, $communication, $label);
+        $id = $this->repository->create($sourceModule, $sourceReferenceId, $accountId, $amountCents, $communication, $label, $memberId);
+
+        // The payment can predate the receivable — a rental's security
+        // deposit routinely arrives before the booking is confirmed — and
+        // the status has to be right the first time somebody asks, not at
+        // the next bank import.
+        $receivable = $this->repository->findById($id);
+        if ($receivable !== null) {
+            $this->allocations->reconcileReceivable($receivable);
+        }
+
+        return $id;
     }
 
     /**
@@ -77,10 +95,13 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
             throw new FinanceException("Cette créance n'existe pas.");
         }
 
-        // Computed live from the matched transfers, like every other status
-        // here: what has come in is a fact about the bank statement, never
-        // a stored number that could be stale at exactly this moment.
-        $received = $this->computeAmountReceivedCents($receivable);
+        // What ARRIVED for this receivable, not what it was able to
+        // absorb. Those two parted company the day allocations started
+        // being capped at the amount due: a receivable of 467,50 € that
+        // has seen 500 € come in has allocated 467,50 €, and comparing
+        // against that would wave through a lowering to 480 € as if
+        // nothing had been paid past it.
+        $received = $this->allocations->refreshAndSettle([$receivable])[$receivable->id]->amountDesignatedCents;
 
         if (!$allowBelowReceived && $amountCents < $received) {
             throw new FinanceException(sprintf(
@@ -92,10 +113,20 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         }
 
         $this->repository->updateAmount($receivableId, $amountCents);
+
+        // Raising the amount frees room a credit could not be allocated
+        // into; lowering it takes room away. Either way the automatic
+        // allocations have to be revised, and the surplus a lowering
+        // creates has to become visible as a trop-perçu rather than stay
+        // buried in a receivable reading "paid" for more than it is worth.
+        $updated = $this->repository->findById($receivableId);
+        if ($updated !== null) {
+            $this->allocations->reconcileReceivable($updated);
+        }
     }
 
     /**
-     * @return array{amount_due: int, amount_received: int, status: 'paid'|'partial'|'unpaid'}
+     * @return array{amount_due: int, amount_received: int, status: 'paid'|'partial'|'unpaid'|'waived'}
      */
     public function getReceivableStatus(int $receivableId): array
     {
@@ -104,13 +135,7 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
             return ['amount_due' => 0, 'amount_received' => 0, 'status' => 'unpaid'];
         }
 
-        $amountReceived = $this->computeAmountReceivedCents($receivable);
-
-        return [
-            'amount_due' => $receivable->amountDueCents,
-            'amount_received' => $amountReceived,
-            'status' => $this->statusFor($receivable->amountDueCents, $amountReceived),
-        ];
+        return $this->allocations->refreshAndSettle([$receivable])[$receivable->id]->toApiArray();
     }
 
     public function deleteReceivablesForSource(string $sourceModule, int $sourceReferenceId): void
@@ -118,121 +143,27 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         $this->repository->deleteBySource($sourceModule, $sourceReferenceId);
     }
 
-    private function computeAmountReceivedCents(ExpectedReceivable $receivable): int
-    {
-        return $this->sumMatchingCredits(
-            $receivable,
-            $this->transactionRepository->findByAccountId($receivable->accountId)
-        );
-    }
-
     /**
      * Statuses for many receivables at once, keyed by receivable id — the
      * reconciliation page (Service\ReceivablesOverviewService) needs one
-     * per row, and calling getReceivableStatus() in a loop re-read AND
-     * re-decrypted every movement on the account once per receivable.
-     * Movements are loaded once per distinct account instead.
+     * per row, and asking one at a time re-read AND re-decrypted every
+     * movement on the account once per receivable.
      *
      * @param ExpectedReceivable[] $receivables
-     * @return array<int, array{amount_due: int, amount_received: int, status: 'paid'|'partial'|'unpaid'}>
+     * @return array<int, array{amount_due: int, amount_received: int, status: 'paid'|'partial'|'unpaid'|'waived'}>
      */
     public function getReceivableStatuses(array $receivables): array
     {
-        $transactionsByAccountId = [];
-        foreach ($receivables as $receivable) {
-            if (!isset($transactionsByAccountId[$receivable->accountId])) {
-                $transactionsByAccountId[$receivable->accountId] =
-                    $this->transactionRepository->findByAccountId($receivable->accountId);
-            }
-        }
-
         $statuses = [];
-        foreach ($receivables as $receivable) {
-            $amountReceived = $this->sumMatchingCredits(
-                $receivable,
-                $transactionsByAccountId[$receivable->accountId] ?? []
-            );
-            $statuses[$receivable->id] = [
-                'amount_due' => $receivable->amountDueCents,
-                'amount_received' => $amountReceived,
-                'status' => $this->statusFor($receivable->amountDueCents, $amountReceived),
-            ];
+        foreach ($this->allocations->refreshAndSettle($receivables) as $receivableId => $settlement) {
+            $statuses[$receivableId] = $settlement->toApiArray();
         }
 
         return $statuses;
     }
 
-    /**
-     * Credits on the account whose free text carries the receivable's
-     * communication, summed (a receivable can be settled across several
-     * transfers).
-     *
-     * **The comparison is an equality, never an inclusion.** Each field is
-     * scanned for the communications it actually spells out
-     * (Service\StructuredCommunicationService::extract(), which is where
-     * the shapes a bank prints are decided) and the receivable's own
-     * twelve digits must be one of them. What that replaced was
-     * str_contains(digitsOnly($field), digitsOnly($communication)): a
-     * substring search over a field flattened to nothing but digits, which
-     * both invented sequences that were in the text nowhere — "12/03/2026
-     * 45678 9012" collapses to "12032026456789012" — and accepted a
-     * communication found inside a longer account number. While the status
-     * was recomputed on every display, a fortuitous match only made a page
-     * lie; the moment an allocation is written from it, it marks somebody
-     * else's receivable paid and the mistake outlives the page.
-     *
-     * Two properties are kept from before. Fields are matched one at a
-     * time, never concatenated, so a communication cannot be assembled
-     * across a field boundary. And a communication that carries no digit
-     * matches nothing: it reduces to the empty string, which used to be
-     * found in every credit on the account — createReceivable() refuses
-     * one now, and this is the second line of defence for rows written
-     * before it did. A communication that is not exactly twelve digits is
-     * in the same position: nothing extract() returns can equal it, so it
-     * stays unpaid rather than matching something approximately.
-     *
-     * @param \Modules\Finance\Repository\Transaction[] $transactions
-     */
-    private function sumMatchingCredits(ExpectedReceivable $receivable, array $transactions): int
-    {
-        $needle = $this->digitsOnly($receivable->communication);
-        if ($needle === '') {
-            return 0;
-        }
-
-        $total = 0;
-        foreach ($transactions as $transaction) {
-            if ($transaction->amount <= 0) {
-                continue; // only credits (money coming in) can settle a receivable
-            }
-
-            foreach ([$transaction->label, $transaction->comment, $transaction->extraDetails] as $field) {
-                if ($field !== null && in_array($needle, StructuredCommunicationService::extract($field), true)) {
-                    $total += (int) round($transaction->amount * 100);
-                    break;
-                }
-            }
-        }
-
-        return $total;
-    }
-
     private function digitsOnly(string $value): string
     {
         return preg_replace('/\D+/', '', $value) ?? '';
-    }
-
-    /**
-     * @return 'paid'|'partial'|'unpaid'
-     */
-    private function statusFor(int $amountDueCents, int $amountReceivedCents): string
-    {
-        if ($amountReceivedCents <= 0) {
-            return 'unpaid';
-        }
-        if ($amountReceivedCents >= $amountDueCents) {
-            return 'paid';
-        }
-        return 'partial';
     }
 }

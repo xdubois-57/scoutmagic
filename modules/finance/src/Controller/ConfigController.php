@@ -36,6 +36,7 @@ class ConfigController extends AbstractController
     {
         $this->financeService->ensureDefaultAccountsForSections();
         $this->ensurePurgeScheduled();
+        $this->ensureReconciliationScheduled();
 
         $accounts = $this->financeService->getAllAccountsForConfig();
 
@@ -61,5 +62,22 @@ class ConfigController extends AbstractController
         }
 
         $this->schedulerService->schedule('finance', 'purge_old_movements', new \DateTimeImmutable('+1 month'), [], 'monthly');
+    }
+
+    /**
+     * Ensures the nightly receivable-reconciliation task is scheduled —
+     * the safety net under Service\ReceivableAllocationService, which
+     * matters most on an installation whose movements and receivables
+     * both predate the allocation model and have nothing written between
+     * them. Same idempotent check-then-schedule shape as above.
+     */
+    private function ensureReconciliationScheduled(): void
+    {
+        $existing = $this->schedulerService->find('finance', 'reconcile_receivables', 'nightly');
+        if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()) {
+            return;
+        }
+
+        $this->schedulerService->schedule('finance', 'reconcile_receivables', new \DateTimeImmutable('tomorrow 04:00'), [], 'nightly');
     }
 }

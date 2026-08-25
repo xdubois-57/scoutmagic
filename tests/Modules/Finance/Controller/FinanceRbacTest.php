@@ -166,7 +166,8 @@ class FinanceRbacTest extends TestCase
         $importService = new ImportService(
             $this->pdo, $encryption, $parserFactory, $this->transactionRepository, $this->checkpointRepository,
             $statementImportRepository, $this->fiscalYearRepository, $this->categoryRuleEngine, $this->balanceService,
-            $receiptMatchingService, $this->bulkCategorizationService
+            $receiptMatchingService, $this->bulkCategorizationService,
+            FinanceTestHelper::allocationService($this->pdo, $encryption)
         );
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_rbac_test_' . uniqid());
         $this->receiptService = new ReceiptService($this->attachmentRepository, $accountRepository, $this->transactionAttachmentRepository, $fileStorage, $this->transactionRepository);
@@ -202,7 +203,7 @@ class FinanceRbacTest extends TestCase
         $this->parserFactory = $parserFactory;
 
         $this->expectedReceivableRepository = new ExpectedReceivableRepository($this->pdo, $encryption);
-        $this->expectedReceivableService = new ExpectedReceivableService($this->expectedReceivableRepository, $this->transactionRepository);
+        $this->expectedReceivableService = FinanceTestHelper::receivableService($this->pdo, $encryption, $this->expectedReceivableRepository);
         $this->receivablesOverviewService = new ReceivablesOverviewService(
             $this->expectedReceivableRepository, $this->expectedReceivableService, $accountRepository, $this->accountVisibility
         );

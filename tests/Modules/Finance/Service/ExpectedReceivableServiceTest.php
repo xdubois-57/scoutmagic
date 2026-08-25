@@ -32,7 +32,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
-        $this->service = new ExpectedReceivableService(new ExpectedReceivableRepository($this->pdo, $encryption), $this->transactionRepository);
+        $this->service = FinanceTestHelper::receivableService($this->pdo, $encryption);
 
         $stmt = $this->pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Compte', 'bank')");
         $stmt->execute();

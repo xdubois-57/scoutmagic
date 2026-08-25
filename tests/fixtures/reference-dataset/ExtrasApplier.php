@@ -49,9 +49,14 @@ use Modules\Calendar\Repository\CalendarUnitFeedTokenRepository;
 use Modules\Calendar\Service\CalendarEventService;
 use Modules\Calendar\Service\CalendarNotificationService;
 use Modules\Calendar\Service\CalendarService;
+use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
+use Modules\Finance\Repository\ReceivableAllocationRepository;
 use Modules\Finance\Repository\TransactionRepository;
+use Modules\Finance\Service\AccountVisibility;
 use Modules\Finance\Service\ExpectedReceivableService;
+use Modules\Finance\Service\ReceivableAllocationService;
+use Modules\Finance\Service\TreasurerScope;
 
 /**
  * Applies the extras through the application's own services.
@@ -405,9 +410,18 @@ final class ExtrasApplier
      */
     private function applyExpectedReceivables(int $unitAccountId): int
     {
+        $receivableRepository = new ExpectedReceivableRepository($this->pdo, $this->encryption);
         $service = new ExpectedReceivableService(
-            new ExpectedReceivableRepository($this->pdo, $this->encryption),
-            new TransactionRepository($this->pdo, $this->encryption),
+            $receivableRepository,
+            new ReceivableAllocationService(
+                $receivableRepository,
+                new ReceivableAllocationRepository($this->pdo),
+                new TransactionRepository($this->pdo, $this->encryption),
+                new AccountRepository($this->pdo, $this->encryption),
+                // A builder acts for the installation, not for a person:
+                // the treasurer partition has nobody to narrow against.
+                new AccountVisibility(TreasurerScope::systemCaller()),
+            ),
         );
 
         $applied = 0;

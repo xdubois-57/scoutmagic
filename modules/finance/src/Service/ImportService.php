@@ -42,7 +42,8 @@ class ImportService
         private CategoryRuleEngine $categoryRuleEngine,
         private BalanceService $balanceService,
         private ReceiptMatchingService $receiptMatchingService,
-        private BulkCategorizationService $bulkCategorizationService
+        private BulkCategorizationService $bulkCategorizationService,
+        private ReceivableAllocationService $allocationService
     ) {
     }
 
@@ -157,6 +158,16 @@ class ImportService
 
             $statementImport = $this->statementImportRepository->findById($statementImportId);
             \assert($statementImport !== null);
+
+            // The freshly-imported credits are matched against the
+            // receivables waiting for them, and the allocations written
+            // down. Deliberately after the commit and outside it: a
+            // failure here must not roll back a statement that imported
+            // correctly, and the nightly Task\ReconcileReceivablesHandler
+            // picks up whatever a failure left undone. Idempotent, so a
+            // re-imported statement — whose lines were all skipped one
+            // level down — writes nothing.
+            $this->allocationService->reconcileAccount($account->id);
 
             // Newly-imported movements may complete a match for a
             // receipt that was uploaded before this statement existed —

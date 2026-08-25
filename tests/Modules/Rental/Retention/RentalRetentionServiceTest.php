@@ -98,10 +98,7 @@ class RentalRetentionServiceTest extends TestCase
             new RentalPaymentRepository($this->pdo, $this->encryption),
             RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
             new JournalService(new JournalRepository($this->pdo)),
-            new ExpectedReceivableService(
-                $receivableRepository,
-                new TransactionRepository($this->pdo, $this->encryption)
-            ),
+            FinanceTestHelper::receivableService($this->pdo, $this->encryption, $receivableRepository),
             new StructuredCommunicationService($receivableRepository)
         );
 

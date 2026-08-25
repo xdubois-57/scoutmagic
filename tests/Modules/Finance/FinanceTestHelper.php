@@ -147,9 +147,102 @@ class FinanceTestHelper
             amount_due_cents INTEGER NOT NULL,
             communication TEXT NOT NULL,
             label_encrypted BLOB NULL,
+            member_id INTEGER NULL,
+            waived_at TEXT NULL,
+            waived_by INTEGER NULL,
+            refund_requested_at TEXT NULL,
+            refund_requested_by INTEGER NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (account_id) REFERENCES finance_accounts(id)
         )');
+
+        $pdo->exec('CREATE TABLE finance_receivable_allocations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            transaction_id INTEGER NOT NULL,
+            receivable_id INTEGER NOT NULL,
+            amount_cents INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            created_by INTEGER NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (transaction_id, receivable_id),
+            FOREIGN KEY (transaction_id) REFERENCES finance_transactions(id),
+            FOREIGN KEY (receivable_id) REFERENCES finance_expected_receivables(id)
+        )');
+
+        $pdo->exec('CREATE TABLE finance_campaigns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            label TEXT NOT NULL,
+            scout_year_id INTEGER NOT NULL,
+            account_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT \'open\',
+            source_file_id INTEGER NULL,
+            source_filename TEXT NOT NULL DEFAULT \'\',
+            merge_columns TEXT NULL,
+            notified_at TEXT NULL,
+            notified_by INTEGER NULL,
+            closed_at TEXT NULL,
+            created_by INTEGER NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+            FOREIGN KEY (account_id) REFERENCES finance_accounts(id)
+        )');
+
+        $pdo->exec('CREATE TABLE finance_campaign_rows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id INTEGER NOT NULL,
+            member_id INTEGER NOT NULL,
+            amount_cents INTEGER NOT NULL,
+            source_line INTEGER NOT NULL DEFAULT 0,
+            merge_data BLOB NULL,
+            note BLOB NULL,
+            note_author_id INTEGER NULL,
+            note_updated_at TEXT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (campaign_id) REFERENCES finance_campaigns(id),
+            FOREIGN KEY (member_id) REFERENCES members(id)
+        )');
+    }
+
+    /**
+     * The allocation service, wired the way the composition root wires
+     * it, with the treasurer partition disabled — a test fixture assigns
+     * no « Trésorier » badge, so the rule is off and the module behaves
+     * exactly as it did before the partition existed.
+     *
+     * Here rather than repeated in eight test files because every
+     * receivable status in the application now reads through it: a test
+     * that built its own subtly different one would be asserting against
+     * something the application never runs.
+     */
+    public static function allocationService(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption,
+        ?\Modules\Finance\Repository\ExpectedReceivableRepository $receivableRepository = null
+    ): \Modules\Finance\Service\ReceivableAllocationService {
+        return new \Modules\Finance\Service\ReceivableAllocationService(
+            $receivableRepository ?? new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryption),
+            new \Modules\Finance\Repository\ReceivableAllocationRepository($pdo),
+            new \Modules\Finance\Repository\TransactionRepository($pdo, $encryption),
+            new \Modules\Finance\Repository\AccountRepository($pdo, $encryption),
+            new \Modules\Finance\Service\AccountVisibility(\Modules\Finance\Service\TreasurerScope::systemCaller())
+        );
+    }
+
+    /**
+     * Modules\Finance\Service\ExpectedReceivableService, wired onto the
+     * allocation service above.
+     */
+    public static function receivableService(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption,
+        ?\Modules\Finance\Repository\ExpectedReceivableRepository $receivableRepository = null
+    ): \Modules\Finance\Service\ExpectedReceivableService {
+        $receivableRepository ??= new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryption);
+
+        return new \Modules\Finance\Service\ExpectedReceivableService(
+            $receivableRepository,
+            self::allocationService($pdo, $encryption, $receivableRepository)
+        );
     }
 
     /**

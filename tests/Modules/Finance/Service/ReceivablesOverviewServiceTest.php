@@ -34,7 +34,7 @@ class ReceivablesOverviewServiceTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $repository = new ExpectedReceivableRepository($this->pdo, $encryption);
         $transactionRepository = new TransactionRepository($this->pdo, $encryption);
-        $this->receivableService = new ExpectedReceivableService($repository, $transactionRepository);
+        $this->receivableService = FinanceTestHelper::receivableService($this->pdo, $encryption, $repository);
         $this->service = new ReceivablesOverviewService(
             $repository,
             $this->receivableService,

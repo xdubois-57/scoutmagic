@@ -101,7 +101,8 @@ class ImportControllerTest extends TestCase
         $importService = new ImportService(
             $this->pdo, $encryption, $parserFactory, $transactionRepository,
             $this->checkpointRepository, $statementImportRepository, $fiscalYearRepository, $ruleEngine, $balanceService,
-            $receiptMatchingService, $bulkCategorizationService
+            $receiptMatchingService, $bulkCategorizationService,
+            FinanceTestHelper::allocationService($this->pdo, $encryption)
         );
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';

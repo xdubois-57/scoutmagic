@@ -92,7 +92,8 @@ class ImportServiceTest extends TestCase
         $this->service = new ImportService(
             $this->pdo, $encryption, $this->parserFactory, $this->transactionRepository,
             $this->checkpointRepository, $statementImportRepository, $this->fiscalYearRepository, $ruleEngine, $balanceService,
-            $receiptMatchingService, $this->bulkCategorizationService
+            $receiptMatchingService, $this->bulkCategorizationService,
+            FinanceTestHelper::allocationService($this->pdo, $encryption)
         );
 
         $accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'intendant');
