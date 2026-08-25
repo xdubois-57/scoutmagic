@@ -1,0 +1,121 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Nouvelle campagne — Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Nouvelle campagne',
+        subtitle: "Le fichier doit provenir d'un export du site : sa colonne d'identifiant rattache chaque montant au bon membre.",
+    } only %}
+
+    {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
+
+    {% if error|default('') %}
+        <div class="alert alert-danger" role="alert">
+            <p class="fw-semibold mb-1">{{ error }}</p>
+            {% if rejected_lines|default([]) is not empty %}
+                <p class="mb-2">
+                    Le fichier doit conserver la colonne d'identifiant produite par l'export du site — sans elle,
+                    rien ne rattache un montant à un membre.
+                </p>
+
+                <div class="table-responsive d-none d-md-block">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th scope="col">Ligne</th>
+                                <th scope="col">Contenu</th>
+                                <th scope="col">Problème</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for line in rejected_lines %}
+                                <tr>
+                                    <td class="text-body-secondary">{{ line.line }}</td>
+                                    <td>{{ line.content }}</td>
+                                    <td>{{ line.problem }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <ul class="list-unstyled mb-0 d-md-none">
+                    {% for line in rejected_lines %}
+                        <li class="border-top pt-2 mt-2">
+                            <span class="text-body-secondary small d-block">Ligne {{ line.line }}</span>
+                            <span class="d-block">{{ line.content }}</span>
+                            <span class="d-block small">{{ line.problem }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    {% if accounts is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun compte financier ne vous est accessible : une campagne a besoin du compte qui recevra les paiements.',
+            icon: 'bi-bank',
+        } only %}
+    {% else %}
+        <div class="border rounded-3 p-3 mb-4">
+            <h2 class="h5">Comment préparer le fichier</h2>
+            <ol class="mb-3">
+                <li>Exportez la liste des membres concernés depuis la page « Membres par section ».</li>
+                <li>Ajoutez une colonne <strong>Montant</strong> et complétez-la, ligne par ligne.</li>
+                <li>Rechargez le fichier ici, sans supprimer les autres colonnes.</li>
+            </ol>
+            <div class="alert alert-warning mb-0" role="alert">
+                Ne reconstruisez pas la liste à la main. La colonne « ID interne » produite par l'export rattache
+                chaque montant au bon membre — sans elle, le chargement est refusé. Les autres colonnes sont libres
+                et deviennent les variables de fusion des rappels.
+            </div>
+            <p class="mt-3 mb-0">
+                <a class="btn btn-outline-secondary btn-sm tap-target" href="/chefs/membres">
+                    <i class="bi bi-people" aria-hidden="true"></i> Exporter la liste des membres
+                </a>
+            </p>
+        </div>
+
+        <form method="post" action="/finance/campaigns" enctype="multipart/form-data" class="border rounded-3 p-3">
+            {{ csrf_field()|raw }}
+
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'campaign-label', field_name: 'label',
+                        label: 'Nom de la campagne', required: true, maxlength: 150,
+                        placeholder: 'Cotisations 2025-2026', wrapper_class: '',
+                    } only %}
+                </div>
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'campaign-account', field_name: 'account_id',
+                        label: 'Compte destinataire', type: 'select', required: true, wrapper_class: '',
+                        help: "C'est le compte sur lequel les virements des familles sont attendus.",
+                        options: accounts|map(account => { value: account.id, label: account.name }),
+                    } only %}
+                </div>
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'campaign-year', field_name: 'scout_year_id',
+                        label: 'Année scoute', type: 'select', required: true, wrapper_class: '',
+                        options: scout_years|map(year => {
+                            value: year.id, label: year.label, selected: year.id == current_scout_year_id,
+                        }),
+                    } only %}
+                </div>
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="campaign-file">Fichier Excel<span class="text-danger" aria-hidden="true"> *</span></label>
+                    <input type="file" class="form-control" id="campaign-file" name="spreadsheet"
+                           accept=".xlsx" required aria-describedby="campaign-file-help">
+                    <div class="form-text" id="campaign-file-help">Format .xlsx, tel que l'export du site le produit.</div>
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary w-100 w-sm-auto">Créer la campagne</button>
+                </div>
+            </div>
+        </form>
+    {% endif %}
+{% endblock %}

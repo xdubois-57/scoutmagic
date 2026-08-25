@@ -1,0 +1,65 @@
+{% extends "base.html.twig" %}
+
+{#
+  The QR of one receivable, meant to be held out to a parent met after the
+  meeting so they can scan it.
+
+  Two things are deliberate. The member's own name stays in view the whole
+  time: a treasurer going through three parents in a row can very easily
+  show the neighbour's receivable, and a name is the only thing that stops
+  that. And the amount is **what is still due**, never the original one —
+  asking 45 € again on a receivable of 45 € with 20 € already in would
+  manufacture a 20 € surplus, which is exactly the problem the
+  reconciliation screen exists to clear up.
+
+  The IBAN, the amount and the communication are repeated in text under
+  the code, because a QR that will not scan must never leave somebody
+  without a way to pay.
+#}
+
+{% block title %}QR de paiement — Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: member_name ?? 'Créance',
+        subtitle: 'Faites scanner ce code avec l\'application bancaire du parent.',
+    } only %}
+
+    <div class="page-narrow">
+        {% if remaining_cents <= 0 %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Cette créance ne demande plus rien : il n'y a pas de QR à montrer.",
+                icon: 'bi-check2-circle',
+            } only %}
+        {% else %}
+            <p class="display-5 fw-bold mb-1">{{ remaining_cents|money_cents }}</p>
+            {% if settlement.amountAllocatedCents > 0 %}
+                <p class="text-body-secondary">
+                    reste à payer — {{ settlement.amountAllocatedCents|money_cents }} déjà reçus sur
+                    {{ settlement.amountDueCents|money_cents }}
+                </p>
+            {% endif %}
+
+            {% if qr_data_uri %}
+                <img src="{{ qr_data_uri }}" alt="QR code de paiement SEPA" class="img-fluid border rounded-3 my-3"
+                     width="320" height="320">
+            {% else %}
+                <div class="alert alert-warning my-3" role="alert">
+                    Le QR n'a pas pu être produit : vérifiez que le compte destinataire a bien un IBAN configuré.
+                    Les informations ci-dessous suffisent pour faire le virement.
+                </div>
+            {% endif %}
+
+            <dl class="row border-top pt-3">
+                <dt class="col-5 col-sm-4 fw-normal text-body-secondary">Bénéficiaire</dt>
+                <dd class="col-7 col-sm-8">{{ account.holderName ?? account.name }}</dd>
+                <dt class="col-5 col-sm-4 fw-normal text-body-secondary">IBAN</dt>
+                <dd class="col-7 col-sm-8 font-monospace text-break">{{ iban_display ?? '—' }}</dd>
+                <dt class="col-5 col-sm-4 fw-normal text-body-secondary">Communication</dt>
+                <dd class="col-7 col-sm-8 font-monospace text-break">{{ receivable.communication }}</dd>
+                <dt class="col-5 col-sm-4 fw-normal text-body-secondary">Montant</dt>
+                <dd class="col-7 col-sm-8">{{ remaining_cents|money_cents }}</dd>
+            </dl>
+        {% endif %}
+    </div>
+{% endblock %}

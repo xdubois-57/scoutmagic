@@ -2737,6 +2737,47 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Finance\Controller\ReceivablesController($twig, $financeReceivablesOverviewService)
     );
 
+    // Payment campaigns (ARCHITECTURE.md §8.82). The import resolves a
+    // spreadsheet line to a person through the identifier the site's own
+    // member export produces, and through nothing else — hence the plain
+    // members lookup rather than any name-matching helper.
+    $financeCampaignRepo = new \Modules\Finance\Repository\CampaignRepository($pdo);
+    $financeCampaignRowRepo = new \Modules\Finance\Repository\CampaignRowRepository($pdo, $encryptionService);
+    $financeCampaignService = new \Modules\Finance\Service\CampaignService(
+        $pdo,
+        $financeCampaignRepo,
+        $financeCampaignRowRepo,
+        new \Modules\Finance\Service\CampaignImportService(new \Modules\Finance\Repository\MemberLookupRepository($pdo)),
+        $financeExpectedReceivableForOthers,
+        $financeStructuredCommunicationForOthers,
+        $financeAccountRepo,
+        $financeAccountVisibility,
+        $financeEncryptedFileStorage,
+        $journalService
+    );
+    $financeCampaignOverviewService = new \Modules\Finance\Service\CampaignOverviewService(
+        $financeCampaignRepo,
+        $financeCampaignRowRepo,
+        $financeExpectedReceivableRepo,
+        $financeAllocationService,
+        $financeAccountRepo,
+        $financeAccountVisibility,
+        $memberService,
+        $userAccountRepo
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\CampaignController::class,
+        new \Modules\Finance\Controller\CampaignController(
+            $twig,
+            $financeCampaignService,
+            $financeCampaignOverviewService,
+            new \Modules\Finance\Service\CampaignExportService(),
+            $financeService,
+            $financeAllocationService,
+            $scoutYearService
+        )
+    );
+
     // "Outils" (ARCHITECTURE.md §8.73). The QR generator is handed the
     // module's own SepaQrCodeService — the same instance every other
     // consumer gets — and the page degrades to a message rather than a

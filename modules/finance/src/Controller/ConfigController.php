@@ -13,6 +13,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Scheduler\SchedulerService;
 use Modules\Finance\Service\FinanceService;
+use Modules\Finance\Task\PurgeCampaignFilesHandler;
 
 /**
  * GET /config/finance — landing page: summary counts linking to the four
@@ -37,6 +38,7 @@ class ConfigController extends AbstractController
         $this->financeService->ensureDefaultAccountsForSections();
         $this->ensurePurgeScheduled();
         $this->ensureReconciliationScheduled();
+        $this->ensureCampaignFilePurgeScheduled();
 
         $accounts = $this->financeService->getAllAccountsForConfig();
 
@@ -79,5 +81,28 @@ class ConfigController extends AbstractController
         }
 
         $this->schedulerService->schedule('finance', 'reconcile_receivables', new \DateTimeImmutable('tomorrow 04:00'), [], 'nightly');
+    }
+
+    /**
+     * Ensures the daily campaign-file retention purge is scheduled. It
+     * enforces an RGPD promise, so it must run even on an installation
+     * where nobody creates campaigns any more — a retention hung off the
+     * next campaign would keep its promise only while the unit keeps
+     * making them.
+     */
+    private function ensureCampaignFilePurgeScheduled(): void
+    {
+        $existing = $this->schedulerService->find('finance', PurgeCampaignFilesHandler::TASK_KEY, PurgeCampaignFilesHandler::REFERENCE);
+        if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()) {
+            return;
+        }
+
+        $this->schedulerService->scheduleAfter(
+            'finance',
+            PurgeCampaignFilesHandler::TASK_KEY,
+            PurgeCampaignFilesHandler::INTERVAL_SECONDS,
+            [],
+            PurgeCampaignFilesHandler::REFERENCE
+        );
     }
 }

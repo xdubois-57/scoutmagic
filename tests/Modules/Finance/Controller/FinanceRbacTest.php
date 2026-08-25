@@ -229,6 +229,8 @@ class FinanceRbacTest extends TestCase
             'import form' => ['/finance/import', 'ImportController', 'form', 'intendant', 'identified'],
             'receipts' => ['/finance/receipts', 'ReceiptController', 'list', 'intendant', 'identified'],
             'receivables' => ['/finance/receivables', 'ReceivablesController', 'index', 'intendant', 'identified'],
+            'campaigns' => ['/finance/campaigns', 'CampaignController', 'index', 'intendant', 'identified'],
+            'campaign form' => ['/finance/campaigns/new', 'CampaignController', 'form', 'intendant', 'identified'],
             'tools' => ['/finance/tools', 'ToolsController', 'index', 'intendant', 'identified'],
             'config index' => ['/config/finance', 'ConfigController', 'index', 'superadmin', 'admin'],
             'config accounts' => ['/config/finance/accounts', 'ConfigAccountController', 'index', 'superadmin', 'admin'],
@@ -313,12 +315,67 @@ class FinanceRbacTest extends TestCase
                 $this->financeService, $this->bulkCategorizationService
             ),
             'ReceivablesController' => new ReceivablesController($this->twig, $this->receivablesOverviewService),
+            'CampaignController' => $this->campaignController(),
             'ToolsController' => new \Modules\Finance\Controller\ToolsController(
                 $this->twig, $this->financeService, $this->expectedReceivableRepository, $this->journalService,
                 new \Modules\Finance\Service\SepaQrCodeService()
             ),
             default => throw new \RuntimeException("Unknown controller {$name}"),
         };
+    }
+
+    private function campaignController(): \Modules\Finance\Controller\CampaignController
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $campaignRepository = new \Modules\Finance\Repository\CampaignRepository($this->pdo);
+        $campaignRowRepository = new \Modules\Finance\Repository\CampaignRowRepository($this->pdo, $encryption);
+        $scoutYearService = new \Core\Config\ScoutYearService($this->pdo);
+        $accountVisibility = new \Modules\Finance\Service\AccountVisibility(
+            \Modules\Finance\Service\TreasurerScope::systemCaller()
+        );
+
+        return new \Modules\Finance\Controller\CampaignController(
+            $this->twig,
+            new \Modules\Finance\Service\CampaignService(
+                $this->pdo,
+                $campaignRepository,
+                $campaignRowRepository,
+                new \Modules\Finance\Service\CampaignImportService(
+                    new \Modules\Finance\Repository\MemberLookupRepository($this->pdo)
+                ),
+                $this->expectedReceivableService,
+                new \Modules\Finance\Service\StructuredCommunicationService($this->expectedReceivableRepository),
+                $this->accountRepository,
+                $accountVisibility,
+                new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir()),
+                $this->journalService
+            ),
+            new \Modules\Finance\Service\CampaignOverviewService(
+                $campaignRepository,
+                $campaignRowRepository,
+                $this->expectedReceivableRepository,
+                FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
+                $this->accountRepository,
+                $accountVisibility,
+                $this->memberServiceForCampaigns(),
+                new \Core\Security\UserAccountRepository($this->pdo, $encryption)
+            ),
+            new \Modules\Finance\Service\CampaignExportService(),
+            $this->financeService,
+            FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
+            $scoutYearService
+        );
+    }
+
+    private function memberServiceForCampaigns(): \Core\Member\MemberService
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return new \Core\Member\MemberService(
+            new \Core\Import\MemberYearRepository($this->pdo),
+            $encryption,
+            Connection::withPdo($this->pdo)
+        );
     }
 
     // ------------------------------------------------------------------

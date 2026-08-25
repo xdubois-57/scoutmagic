@@ -28,6 +28,82 @@
       "breadcrumb": { "label": "Paiements attendus", "parents": ["Espace animateurs"] }
     },
     {
+      "path": "/finance/campaigns",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\CampaignController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "",
+      "breadcrumb": { "label": "Campagnes", "parents": ["Espace animateurs"] }
+    },
+    {
+      "path": "/finance/campaigns/new",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\CampaignController",
+      "action": "form",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "",
+      "breadcrumb": { "label": "Nouvelle campagne", "parents": ["Espace animateurs"] }
+    },
+    {
+      "path": "/finance/campaigns",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\CampaignController",
+      "action": "create",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "",
+      "breadcrumb": { "label": "Nouvelle campagne", "parents": ["Espace animateurs"] }
+    },
+    {
+      "path": "/finance/campaigns/{id}",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\CampaignController",
+      "action": "show",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "",
+      "breadcrumb": { "label": "Campagne", "parents": ["Espace animateurs"] }
+    },
+    {
+      "path": "/finance/campaigns/{id}/export",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\CampaignController",
+      "action": "export",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/campaigns/{id}/status",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\CampaignController",
+      "action": "updateStatus",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/campaigns/{id}/rows/{rowId}/note",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\CampaignController",
+      "action": "saveNote",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/campaigns/{id}/receivables/{receivableId}/waive",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\CampaignController",
+      "action": "waive",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
       "path": "/finance/tools",
       "method": "GET",
       "controller": "Modules\\Finance\\Controller\\ToolsController",
@@ -319,10 +395,17 @@
     {
       "key": "reconcile_receivables",
       "handler": "Modules\\Finance\\Task\\ReconcileReceivablesHandler"
+    },
+    {
+      "key": "purge_campaign_files",
+      "handler": "Modules\\Finance\\Task\\PurgeCampaignFilesHandler"
     }
   ],
   "storage": {
     "receipts": {
+      "role_min": "intendant"
+    },
+    "campaigns": {
       "role_min": "intendant"
     }
   }

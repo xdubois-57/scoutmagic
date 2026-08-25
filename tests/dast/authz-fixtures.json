@@ -113,6 +113,11 @@
       "id": "1",
       "variant": "thumbnail"
     },
+    "/finance/campaigns/{id}": {
+      "id": "1",
+      "rowId": "1",
+      "receivableId": "1"
+    },
     "/finance/movements/{id}": {
       "id": "1"
     },

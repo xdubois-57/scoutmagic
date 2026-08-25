@@ -393,6 +393,86 @@ class ReceivableAllocationService
     }
 
     /**
+     * Moves a receivable's surplus onto another receivable of the same
+     * household, in one gesture.
+     *
+     * This is often the right answer rather than a refund: a parent who
+     * rounds 38,25 € up to 45 € means to pay, not to be sent 6,75 € back.
+     *
+     * The money never teleports. The surplus is, physically, the
+     * unallocated remainder of the credits that named the first
+     * receivable, so those credits are the ones allocated to the second —
+     * oldest first, and never past what either side has left. Both
+     * receivables must sit on the same account, which
+     * Service\ReceivableAllocationService::allocate() enforces for each
+     * step.
+     *
+     * @throws FinanceException
+     */
+    public function transferOverpayment(
+        int $fromReceivableId,
+        int $toReceivableId,
+        int $amountCents,
+        Role $viewerRole,
+        ?int $actorUserAccountId
+    ): void {
+        $from = $this->requireReceivable($fromReceivableId, $viewerRole);
+        $to = $this->requireReceivable($toReceivableId, $viewerRole);
+
+        if ($from->id === $to->id) {
+            throw new FinanceException('Choisissez une autre créance que celle qui porte le trop-perçu.');
+        }
+        if ($amountCents <= 0) {
+            throw new FinanceException('Le montant à imputer doit être positif.');
+        }
+
+        $surplus = $this->settlementFor($from)->amountOverpaidCents;
+        if ($amountCents > $surplus) {
+            throw new FinanceException(sprintf('Le trop-perçu de cette créance est de %s €.', self::euros($surplus)));
+        }
+
+        $target = $this->settlementFor($to)->amountRemainingCents();
+        if ($amountCents > $target) {
+            throw new FinanceException(sprintf("Cette créance n'attend plus que %s €.", self::euros($target)));
+        }
+
+        $digits = self::digitsOnly($from->communication);
+        $left = $amountCents;
+
+        foreach ($this->transactionRepository->findByAccountId($from->accountId) as $transaction) {
+            if ($left <= 0) {
+                break;
+            }
+            if ($transaction->amount <= 0 || !in_array($digits, $this->communicationsOf($transaction), true)) {
+                continue;
+            }
+
+            $available = $this->unallocatedCentsOf($transaction);
+            if ($available <= 0) {
+                continue;
+            }
+
+            $existing = $this->allocationRepository->findPair($transaction->id, $to->id);
+            $share = min($available, $left);
+            $this->allocate(
+                $transaction->id,
+                $to->id,
+                ($existing !== null ? max(0, $existing->amountCents) : 0) + $share,
+                $viewerRole,
+                $actorUserAccountId
+            );
+            $left -= $share;
+        }
+
+        if ($left > 0) {
+            // Nothing was left lying on a movement that names this
+            // receivable — the surplus the screen showed came from
+            // somewhere this gesture cannot reach.
+            throw new FinanceException("Le trop-perçu n'a pas pu être imputé en entier : rapprochez le mouvement à la main.");
+        }
+    }
+
+    /**
      * Abandons a receivable: a dispense, a goodwill gesture, an invoicing
      * mistake. It stops being expected and **nothing enters the account**
      * — which is the whole reason this is not expressed as a payment.
