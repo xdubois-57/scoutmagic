@@ -47,8 +47,8 @@ final class DeskDateParser
             // '!' zeroes the time fields; the round-trip check rejects
             // PHP's overflow tolerance, which would otherwise turn an
             // impossible 31/02 into 3 March rather than into "unknown".
-            $parsed = \DateTimeImmutable::createFromFormat('!' . $format, $raw);
-            if ($parsed !== false && $parsed->format($format) === $raw) {
+            $parsed = DateInput::parse('!' . $format, $raw);
+            if ($parsed !== null) {
                 return $parsed;
             }
         }

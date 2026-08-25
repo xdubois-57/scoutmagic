@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Parser;
 
+use Core\Service\DateInput;
 use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\IbanNormalizer;
 
@@ -82,8 +83,11 @@ final class BnpParser implements BankStatementParserInterface
             }
 
             $dateStr = trim($row[self::COL_EXECUTION_DATE] ?? '');
-            $date = \DateTimeImmutable::createFromFormat('!d/m/Y', $dateStr);
-            if ($date === false) {
+            // exact: false — the shape of the bank's own CSV is BNP's
+            // decision, not this project's, so a day it writes without a
+            // leading zero is still that day.
+            $date = DateInput::parse('!d/m/Y', $dateStr, exact: false);
+            if ($date === null) {
                 throw new FinanceException("Date invalide dans le relevé BNP : \"{$dateStr}\".");
             }
 
@@ -124,8 +128,8 @@ final class BnpParser implements BankStatementParserInterface
 
         $valueDateRaw = trim($row[self::COL_VALUE_DATE] ?? '');
         if ($valueDateRaw !== '') {
-            $valueDate = \DateTimeImmutable::createFromFormat('!d/m/Y', $valueDateRaw);
-            if ($valueDate !== false && $valueDate->format('Y-m-d') !== $executionDateStr) {
+            $valueDate = DateInput::parse('!d/m/Y', $valueDateRaw, exact: false);
+            if ($valueDate !== null && $valueDate->format('Y-m-d') !== $executionDateStr) {
                 $parts[] = 'Date valeur : ' . $valueDateRaw;
             }
         }

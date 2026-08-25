@@ -11,6 +11,7 @@ namespace Modules\Rental\Service;
 use Core\Config\SettingService;
 use Core\File\FileRepository;
 use Core\Journal\JournalService;
+use Core\Service\DateInput;
 use Modules\Rental\Compliance\ComplianceItem;
 use Modules\Rental\Repository\RentalComplianceRepository;
 
@@ -247,14 +248,7 @@ class RentalComplianceService
      */
     private static function normaliseDate(?string $date): ?string
     {
-        $date = trim((string) $date);
-        if ($date === '') {
-            return null;
-        }
-
-        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $date);
-
-        return $parsed !== false ? $parsed->format('Y-m-d') : null;
+        return DateInput::isoStringOrNull($date);
     }
 
     private static function optionalText(?string $value): ?string

@@ -337,6 +337,7 @@ An automatic rollback (and the manual "Restaurer" action) extracts a backup ZIP 
 
 - **No stack trace or credential ever reaches the browser.** `display_errors` is forced off in production; an uncaught throwable or fatal produces a self-contained, hardcoded French 500 page that touches neither Twig nor the database (either of which may be the very thing that failed). The exception detail is written to the error log, never to the response — it is shown in the page only when the app is explicitly in debug mode, and HTML-escaped even then.
 - **The 500 page still carries the full security-header set** (§9) — an error response is not an excuse to drop `Content-Security-Policy` or `X-Frame-Options`.
+- **Not every uncaught throwable belongs here.** A write the database refused because of the values the request carried is a client error, not a crash, and is answered as one before it ever reaches this handler — see §35.
 
 ## 23. Spreadsheet export safety
 
@@ -436,6 +437,44 @@ Two new capability tokens and one new class of untrusted file arrive with the re
 **Nothing is ever written to a remote mailbox.** `IncomingMailboxClientInterface` declares only `connect`, `disconnect`, `listFolders`, `folderState` and `fetchSince`; there is no `markSeen`, `move`, `delete` or `createFolder` to call. Bodies are fetched with `FT_PEEK` and folders opened with `EXAMINE`, and a source-level test asserts the IMAP implementation contains none of the calls that would write. Mailbox credentials are encrypted at rest, live on their own object the repository loads only at connection time (so they are structurally absent from listings and rendered stack traces), and are never redisplayed — a blank password field on save keeps the stored one. **An invalid TLS certificate fails the connection**, and there is no configuration path to an unencrypted session or to skipping the check. Failures are recorded as sentences written for an operator, never a library's own exception text, which routinely carries the account name and the server's verbatim rejection of a credential.
 
 **A consumer module never gets arbitrary mailbox access.** Every method of `Modules\InboundMail\Api\InboundMailInterface` is scoped to one consumer id and one business reference; there is no `findAll()`, no `findByMailbox()` and no `search()`, and that absence is the enforcement. A manager who may open a booking does not thereby gain a window onto the unit's correspondence.
+
+## 35. Input the database refuses is not a crash
+
+An active dynamic scan (`scripts/dast.sh --profile=deep`) produced **542 uncaught exceptions across 13 statements in 7 modules**. Not one was an injection — every write here is a prepared statement, so a value can never change what a query *does*. Every one was a value the schema refused: an id whose row was gone, a number wider than `INT UNSIGNED`, a path-traversal payload sitting in a `DATE` column, a NUL byte in a date field. PDO raised, nobody caught, and the visitor got the 500 page written for "the application has crashed" — alarming, and untrue.
+
+The scanner also reported six of these as **High: SQL Injection**, which they are not: `(int) "2'"` is `2`, so the quote never reaches SQL and the 500 came from the FK behind it. A finding that is wrong about the cause can still be right that something is broken, and this one was.
+
+Three layers, in the order they matter.
+
+### `Core\Service\DateInput` — one date parser, and it never throws
+
+PHP offers two ways to read a submitted date, and each has a trap; almost every site here had one of them.
+
+`createFromFormat($f, $v)` returns `false` for `"../../.."`, so ~20 sites wrote `$d !== false && $d->format($f) === $v` and reasonably believed that was total. It is not: a `$v` containing a **NUL byte** raises a `ValueError`. Sending `2026-01-01%00` costs an attacker nothing and turns every one of those sites into a 500.
+
+`new DateTimeImmutable($v)` fails the other way. It throws on `"../../.."` — so it looks stricter — but returns **the current moment** for `""`, `"now"`, `"yesterday"` and `"a\0b"`. An unvalidated field then becomes today's date, is written as if the visitor typed it, and nothing anywhere reports it.
+
+`DateInput` answers one question — is this string the date it claims to be — and returns `null` when it is not. It refuses control characters before parsing, round-trips the result so `2026-02-31` is refused rather than rolled forward to 3 March, and `fromStorage()` refuses MySQL's zero date, which PHP reads as the 30th of November, year -1. `Tests\Security\DateParsingConvergenceTest` fails on any `createFromFormat` anywhere outside that one file — the same convergence argument, and the same shape of test, as `HttpsDetectionConvergenceTest` in §9. It deliberately does **not** cover `new DateTimeImmutable($v)`: some forty sites read a timestamp column that way, `fromStorage()` is the safe replacement, and converting them is a migration of its own rather than something this section claims is done.
+
+### `Core\Service\IntegerInput` — a floor is half a bound
+
+The idiom was `max(0, (int) $request->getBody('capacity'))`: a floor, never a ceiling. The missing half is the reachable one. Every count, capacity and delay in this schema is `INT UNSIGNED`, so `4294967296` is a value the form accepts, the cast preserves and MySQL refuses. The scan reached that on `capacity`, `min_nights`, `vote_budget` and `member_id` by typing a long number.
+
+`IntegerInput` refuses out of range rather than clamping — storing 4 294 967 295 because somebody typed more records a number they never chose — and refuses to salvage, because `(int) '12 places'` being `12` reads as helpful right up to the day a mistyped field is stored as a number that was never in it. The bounds it names are the storage layer's; nothing in it knows that a scout hall sleeps fewer than four billion people, and a field with a real-world ceiling should state its own.
+
+Where an allow-list was already at hand it is used instead, because it is stricter: the on-call grid now checks each cell's member against the roster the page is displaying, and each cell's date against the month being saved. That closes the out-of-range value, the foreign key **and** a row dated outside the month, which `saveMonth()` would have written once and never cleared.
+
+### `Core\Database\ConstraintViolation` — the floor underneath validation
+
+One class of these cannot be fixed at a boundary at all. Between checking that a member exists and the INSERT that references them, another administrator can delete them. Checking first narrows the race; it never closes it.
+
+So `Core\Http\FrontController` catches around the one place every controller action is invoked, and answers **409** for a conflict (a referenced row that is gone, a duplicate on a unique key) or **400** for a malformed value (too wide, too long, not a date), with a French sentence and the site's normal error page.
+
+**Classified by driver code, never by SQLSTATE, and that is the whole design.** SQLSTATE 23000 covers a foreign key a visitor got wrong *and* a NOT NULL column this codebase forgot to populate. The first is a client error; the second is a bug here, and a bug that stops shouting is a bug that stops being fixed. Only `errorInfo[1]` separates them. Seven driver codes are listed as caller fault (1451, 1452, 1062, 1264, 1292, 1366, 1406); everything else — a missing table, a syntax error, a deadlock, a server that went away, a code with no driver code at all — is rethrown and reaches `ErrorHandler` as a 500, unchanged. `Tests\Core\Http\FrontControllerConstraintViolationTest` pins both halves, because a net that catches too much is worse than the problem.
+
+The driver's own text never reaches the page: MySQL names the table, the column and the constraint, in English. The sentence is written in `ConstraintViolation::message()`, for the reason §9 and `Core\Exception\UserFacingException` both give. The event is written with `error_log` rather than the journal on purpose — the journal is a table, and the one thing just established about this request is that a write to that database did not go through.
+
+**This is a floor, not a replacement for validation.** A request refused with a French sentence next to the offending field beats a generic error page every time. Reaching this handler at all means a boundary check was missing.
 
 ## 33. Deferred hardening (known, tracked)
 

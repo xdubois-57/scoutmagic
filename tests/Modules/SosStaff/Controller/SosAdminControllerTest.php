@@ -400,6 +400,133 @@ class SosAdminControllerTest extends TestCase
         $this->assertSame([], $this->onCallRepository->findForDate('2026-07-05'));
     }
 
+    /**
+     * `member_id` is a foreign key, so an id that is merely well formed
+     * still reaches MySQL as an integrity violation and — before
+     * SECURITY.md § 35 — an uncaught PDOException and a 500. The roster
+     * this page is displaying is already in hand, and checking against
+     * it is both stricter and cheaper than checking the id is a number.
+     */
+    public function testSaveOnCallIgnoresAMemberWhoIsNotOnTheRoster(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+
+        $token = $this->csrfToken();
+        $response = $this->controller->saveOnCall(
+            $this->jsonRequest([
+                'year' => 2026,
+                'month' => 7,
+                'cells' => [
+                    ['member_id' => 999999, 'date' => '2026-07-05', 'state' => OnCallAssignment::STATE_ONCALL],
+                ],
+                '_csrf_token' => $token,
+            ]),
+            []
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success'], 'the save itself succeeds; the unknown cell is simply not in it');
+        $this->assertSame([], $this->onCallRepository->findForDate('2026-07-05'));
+    }
+
+    /**
+     * A number wider than `member_id`'s INT UNSIGNED column, which is
+     * what a long digit string in the grid produced.
+     */
+    public function testSaveOnCallIgnoresAMemberIdNoColumnCouldHold(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+
+        $token = $this->csrfToken();
+        $this->controller->saveOnCall(
+            $this->jsonRequest([
+                'year' => 2026,
+                'month' => 7,
+                'cells' => [
+                    ['member_id' => '99999999999999999999', 'date' => '2026-07-05', 'state' => OnCallAssignment::STATE_ONCALL],
+                ],
+                '_csrf_token' => $token,
+            ]),
+            []
+        );
+
+        $this->assertSame([], $this->onCallRepository->findForDate('2026-07-05'));
+    }
+
+    /**
+     * `assignment_date` is a DATE column and took whatever the grid sent.
+     * A scan put a path-traversal payload in it; MySQL refused it as an
+     * uncaught exception.
+     */
+    public function testSaveOnCallIgnoresACellWhoseDateIsNotADate(): void
+    {
+        $memberId = $this->createStaffduMember('Akela', '+32470000001');
+
+        $token = $this->csrfToken();
+        $this->controller->saveOnCall(
+            $this->jsonRequest([
+                'year' => 2026,
+                'month' => 7,
+                'cells' => [
+                    ['member_id' => $memberId, 'date' => '../../../../etc/passwd', 'state' => OnCallAssignment::STATE_ONCALL],
+                    // A NUL *inside* the value, which is what made
+                    // createFromFormat raise rather than return false. A
+                    // trailing one is a different case: trim() removes it,
+                    // and what is left is a date (Core\Service\DateInput).
+                    ['member_id' => $memberId, 'date' => "2026-07\0-05", 'state' => OnCallAssignment::STATE_ONCALL],
+                ],
+                '_csrf_token' => $token,
+            ]),
+            []
+        );
+
+        $this->assertSame([], $this->onCallRepository->findForDate('2026-07-05'));
+    }
+
+    /**
+     * saveMonth() replaces the whole month in one transaction: it DELETEs
+     * the range, then inserts these rows. A row dated outside that range
+     * would be written once and never cleared by any later save.
+     */
+    public function testSaveOnCallIgnoresACellOutsideTheMonthBeingSaved(): void
+    {
+        $memberId = $this->createStaffduMember('Akela', '+32470000001');
+
+        $token = $this->csrfToken();
+        $this->controller->saveOnCall(
+            $this->jsonRequest([
+                'year' => 2026,
+                'month' => 7,
+                'cells' => [
+                    ['member_id' => $memberId, 'date' => '2026-08-05', 'state' => OnCallAssignment::STATE_ONCALL],
+                    ['member_id' => $memberId, 'date' => '2026-07-05', 'state' => OnCallAssignment::STATE_ONCALL],
+                ],
+                '_csrf_token' => $token,
+            ]),
+            []
+        );
+
+        $this->assertCount(1, $this->onCallRepository->findForDate('2026-07-05'));
+        $this->assertSame([], $this->onCallRepository->findForDate('2026-08-05'));
+    }
+
+    /**
+     * OnCallService::saveMonth() composes the month with sprintf and used
+     * to hand the result to `new DateTimeImmutable()`, which throws on
+     * what a year of 99999999999 formats into.
+     */
+    public function testSaveOnCallRejectsAYearNoCalendarHas(): void
+    {
+        $token = $this->csrfToken();
+        $response = $this->controller->saveOnCall(
+            $this->jsonRequest(['year' => 99999999999, 'month' => 7, 'cells' => [], '_csrf_token' => $token]),
+            []
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
     public function testPlannedTransitionsSortedFutureFirstWithNextHighlighted(): void
     {
         $memberId = $this->createStaffduMember('Akela', '+32470000001');

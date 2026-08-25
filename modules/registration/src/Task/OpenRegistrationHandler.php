@@ -13,6 +13,7 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Service\DateInput;
 
 /**
  * Polls the `registration_scheduled_open_at` setting hourly and flips
@@ -131,10 +132,10 @@ class OpenRegistrationHandler implements TaskHandlerInterface
 
         foreach ([$currentYear, $currentYear - 1] as $year) {
             $candidate = sprintf('%04d-%s', $year, $monthDay);
-            $due = \DateTimeImmutable::createFromFormat('!Y-m-d', $candidate);
-            // The round-trip check rejects a date PHP would silently roll
-            // over (02-29 on a non-leap year becomes 03-01).
-            if ($due === false || $due->format('Y-m-d') !== $candidate) {
+            // DateInput round-trips, which rejects a date PHP would
+            // silently roll over (02-29 on a non-leap year becomes 03-01).
+            $due = DateInput::parse('!Y-m-d', $candidate);
+            if ($due === null) {
                 continue;
             }
 

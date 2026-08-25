@@ -11,6 +11,7 @@ namespace Core\ScoutYear;
 use Core\Config\SettingService;
 use Core\Photo\SectionPhotoRepository;
 use Core\Security\UserAccountRepository;
+use Core\Service\DateInput;
 use Modules\Calendar\Api\ScoutYearEventCountProvider;
 use Modules\Registration\Api\ScoutYearPreparationProvider;
 
@@ -601,8 +602,8 @@ class ScoutYearTransitionService
             7 => 'juillet', 8 => 'août', 9 => 'septembre', 10 => 'octobre', 11 => 'novembre', 12 => 'décembre',
         ];
 
-        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $date);
-        if ($parsed === false) {
+        $parsed = DateInput::iso($date);
+        if ($parsed === null) {
             return $date;
         }
 

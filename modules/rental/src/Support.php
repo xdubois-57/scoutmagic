@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Rental;
 
+use Core\Service\DateInput;
+
 /**
  * The three one-liners this module kept rewriting: a price for a reader, a
  * form field that may be blank, and "is that string really a date".
@@ -60,8 +62,6 @@ final class Support
      */
     public static function isDate(string $value): bool
     {
-        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $value);
-
-        return $parsed !== false && $parsed->format('Y-m-d') === $value;
+        return DateInput::isIso($value);
     }
 }

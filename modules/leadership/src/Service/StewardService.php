@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Leadership\Service;
 
+use Core\Service\DateInput;
 use Modules\Leadership\LeadershipRules;
 use Modules\Leadership\Repository\LeadershipRepository;
 use Modules\Leadership\Value\PersonLine;
@@ -315,8 +316,6 @@ class StewardService
             return null;
         }
 
-        $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $m[1]);
-
-        return $parsed === false ? null : $parsed;
+        return DateInput::parse('!Y-m-d', $m[1]);
     }
 }

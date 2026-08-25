@@ -13,6 +13,7 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
+use Core\Service\DateInput;
 use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
 use Modules\Rental\Pricing\PricingRequest;
@@ -265,8 +266,8 @@ class RentalPublicController extends AbstractController
             return [(int) $current->format('Y'), (int) $current->format('n')];
         }
 
-        $candidate = \DateTimeImmutable::createFromFormat('Y-m-d', $matches[1] . '-' . $matches[2] . '-01');
-        if ($candidate === false) {
+        $candidate = DateInput::iso($matches[1] . '-' . $matches[2] . '-01');
+        if ($candidate === null) {
             return [(int) $current->format('Y'), (int) $current->format('n')];
         }
 
@@ -392,14 +393,7 @@ class RentalPublicController extends AbstractController
 
     private static function dateOrNull(string $value): ?string
     {
-        $value = trim($value);
-        if ($value === '') {
-            return null;
-        }
-
-        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $value);
-
-        return $parsed !== false && $parsed->format('Y-m-d') === $value ? $value : null;
+        return DateInput::isoStringOrNull($value);
     }
 
     /**

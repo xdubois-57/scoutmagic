@@ -19,6 +19,8 @@ use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Core\Service\DateInput;
+use Core\Service\IntegerInput;
 use Modules\Calendar\Service\CalendarService;
 use Modules\SosStaff\Provider\ProviderException;
 use Modules\SosStaff\Repository\OnCallAssignment;
@@ -221,9 +223,17 @@ class SosAdminController extends AbstractController
         $year = (int) ($data['year'] ?? 0);
         $month = (int) ($data['month'] ?? 0);
         $cells = is_array($data['cells'] ?? null) ? $data['cells'] : [];
-        if ($year < 1 || $month < 1 || $month > 12) {
+
+        // The month is checked by composing it and asking whether that is
+        // a date, rather than by asserting a range nobody agreed on. A
+        // year of 99999999999 formats into something DateInput refuses,
+        // where OnCallService::saveMonth() used to hand it straight to
+        // `new DateTimeImmutable()` and take an uncaught exception.
+        $firstOfMonth = DateInput::iso(sprintf('%04d-%02d-01', $year, $month));
+        if ($year < 1 || $month < 1 || $month > 12 || $firstOfMonth === null) {
             return $this->json(['success' => false, 'error' => 'Mois invalide.'], 400);
         }
+        $lastOfMonth = $firstOfMonth->modify('last day of this month')->format('Y-m-d');
 
         $role = Role::fromString(AuthSession::getRole());
         $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
@@ -231,6 +241,22 @@ class SosAdminController extends AbstractController
         $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
         $orderedStaffMemberIds = array_column($staffOptions, 'member_id');
 
+        // Every field of a cell is checked against something this request
+        // already knows, not merely cast:
+        //
+        //  - the member against the roster that is being displayed. That
+        //    is a stricter check than "is a number", and it is the one
+        //    that matters: `member_id` is a foreign key, so an id that is
+        //    merely well-formed still reaches MySQL as an integrity
+        //    violation and an uncaught PDOException (SECURITY.md § 35).
+        //  - the date against the month being saved. saveMonth() replaces
+        //    the whole month in one transaction — it DELETEs the range,
+        //    then inserts these rows — so a row dated outside that range
+        //    is written once and never cleared by any later save.
+        //
+        // A cell failing either is dropped, matching how this loop
+        // already treats an unknown state: the grid posts the month it
+        // rendered, and anything else was not in it.
         $validCells = [];
         foreach ($cells as $cell) {
             if (!is_array($cell) || !isset($cell['member_id'], $cell['date'], $cell['state'])) {
@@ -239,7 +265,18 @@ class SosAdminController extends AbstractController
             if (!in_array((string) $cell['state'], [OnCallAssignment::STATE_ONCALL, OnCallAssignment::STATE_UNAVAILABLE], true)) {
                 continue;
             }
-            $validCells[] = ['member_id' => (int) $cell['member_id'], 'date' => (string) $cell['date'], 'state' => (string) $cell['state']];
+
+            $memberId = IntegerInput::unsigned($cell['member_id']);
+            if ($memberId === null || !in_array($memberId, array_map('intval', $orderedStaffMemberIds), true)) {
+                continue;
+            }
+
+            $date = DateInput::isoStringOrNull(is_string($cell['date']) ? $cell['date'] : null);
+            if ($date === null || $date < $firstOfMonth->format('Y-m-d') || $date > $lastOfMonth) {
+                continue;
+            }
+
+            $validCells[] = ['member_id' => $memberId, 'date' => $date, 'state' => (string) $cell['state']];
         }
 
         $result = $this->onCallService->saveMonth($year, $month, $validCells, $orderedStaffMemberIds, $effectiveYear->id);
