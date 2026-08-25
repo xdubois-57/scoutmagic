@@ -86,8 +86,19 @@ class StayFromMailService
      */
     private const MAX_PROMPT_CHARS = 4000;
 
-    /** A place name, not a paragraph about one. */
-    private const MAX_TOKENS = 60;
+    /**
+     * A place name is a handful of tokens; this budget is not, because it
+     * pays for the model's reasoning too.
+     *
+     * It was 60 — the size of the ANSWER — which on a hybrid reasoning
+     * model (an installation running glm-5.2 as its cheap model) is spent
+     * thinking before a single character of JSON is written. The reading
+     * then comes back empty, the message stays unsorted, and nothing
+     * anywhere says why: this path degrades silently by design, so it had
+     * been failing quietly on every message. See
+     * Service\PlaceSummaryService::MAX_TOKENS for the same lesson.
+     */
+    private const MAX_TOKENS = 600;
 
     public function __construct(
         private CampRepository $camps,

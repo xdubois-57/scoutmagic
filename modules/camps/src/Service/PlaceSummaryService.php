@@ -34,8 +34,23 @@ use Modules\LlmConnector\Api\LlmTier;
  */
 class PlaceSummaryService
 {
-    /** Long enough to be worth reading, short enough that nobody skips it. */
-    private const MAX_TOKENS = 400;
+    /**
+     * The budget for the whole completion, thinking included — which is
+     * why it is far larger than the three sentences it has to pay for.
+     *
+     * It was 400, sized for the answer alone, and that is exactly how
+     * this feature broke on an installation whose `cheap` model was a
+     * hybrid reasoning model (glm-5.2): the cap covers the model's
+     * reasoning tokens too, so the whole 400 went on thinking, the answer
+     * came back EMPTY with finish_reason "length", and the place sheet
+     * reported it as "il n'y a pas assez à raconter" — about a stay
+     * carrying four stars and a comment.
+     *
+     * A model that finishes stops billing, so a generous cap costs
+     * nothing on a model that does not think, and is the difference
+     * between working and not on one that does.
+     */
+    private const MAX_TOKENS = 1500;
 
     /**
      * The only tier this service ever asks for — three sentences off a
@@ -114,6 +129,16 @@ class PlaceSummaryService
         }
 
         $summary = trim($response->content);
+
+        // Cut off mid-thought: three sentences that stop in the middle of
+        // the second are not a summary, and storing them would replace a
+        // good one from yesterday with a fragment. Said separately from
+        // "nothing came back" because the two are fixed differently —
+        // this one by MAX_TOKENS above, and a chief reading the message
+        // should know which one they are looking at.
+        if ($response->truncated) {
+            return SummaryOutcome::AnswerCutOff;
+        }
         if ($summary === '') {
             return SummaryOutcome::EmptyAnswer;
         }

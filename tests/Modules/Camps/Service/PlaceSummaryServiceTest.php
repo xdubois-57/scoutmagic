@@ -214,6 +214,72 @@ class PlaceSummaryServiceTest extends TestCase
         $this->assertFalse(SummaryOutcome::NothingToSummarise->wasWritten());
     }
 
+    /**
+     * The reported bug, second half. The `cheap` model on the reporting
+     * installation is a hybrid reasoning model, and MAX_TOKENS was sized
+     * for the ANSWER: the model spent all of it thinking, returned
+     * nothing with finish_reason "length", and the page said "il n'y a
+     * pas assez à raconter" about a stay carrying a rating AND a comment.
+     *
+     * Truncation is now its own answer, and it never overwrites a good
+     * summary with a fragment.
+     */
+    public function testAnAnswerCutOffAtTheTokenCapIsSaidSoAndStoresNothing(): void
+    {
+        $camp = $this->stay('2024-07-19', 210000);
+        $this->reviews->save($camp, 4, 'Terrain plat, eau au robinet.', null);
+        $this->places->saveSummary($this->placeId, 'Un résumé écrit hier.');
+
+        $this->assertSame(
+            SummaryOutcome::AnswerCutOff,
+            $this->service($this->llmCutOff())->refresh($this->place())
+        );
+        $this->assertSame('Un résumé écrit hier.', $this->place()->aiSummary);
+    }
+
+    public function testEvenAHalfWrittenAnswerIsRefused(): void
+    {
+        $camp = $this->stay('2024-07-19', 210000);
+        $this->reviews->save($camp, 4, 'Terrain plat.', null);
+        $this->places->saveSummary($this->placeId, 'Un résumé écrit hier.');
+
+        // Three sentences that stop in the middle of the second are not a
+        // summary — and the one from yesterday was.
+        $this->assertSame(
+            SummaryOutcome::AnswerCutOff,
+            $this->service($this->llmCutOff('Terrain plat, accueil constant. Le prix a'))->refresh($this->place())
+        );
+        $this->assertSame('Un résumé écrit hier.', $this->place()->aiSummary);
+    }
+
+    /**
+     * The budget has to cover the model's reasoning, not just its three
+     * sentences — that is the whole lesson of the bug above, and a cap
+     * sized for the answer alone is what brought it about.
+     */
+    public function testTheTokenBudgetLeavesRoomForAModelThatThinks(): void
+    {
+        $camp = $this->stay('2024-07-19', 210000);
+        $this->reviews->save($camp, 4, 'Terrain plat.', null);
+
+        $asked = null;
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
+        $llm->method('complete')->willReturnCallback(
+            function (\Modules\LlmConnector\Api\LlmRequest $request) use (&$asked): LlmResponse {
+                $asked = $request;
+
+                return new LlmResponse('Terrain apprécié.', null, 100, 40);
+            }
+        );
+
+        $this->service($llm)->refresh($this->place());
+
+        $this->assertNotNull($asked);
+        $this->assertGreaterThanOrEqual(1000, (int) $asked->maxTokens);
+    }
+
     // ── Staleness ───────────────────────────────────────────────────
 
     public function testAReviewMakesThePlacesSummaryStale(): void
@@ -274,6 +340,21 @@ class PlaceSummaryServiceTest extends TestCase
         $llm->method('isAvailable')->willReturn(true);
         $llm->method('isTierAvailable')->willReturn(true);
         $llm->method('complete')->willReturn(new LlmResponse($content, null, 100, 40));
+
+        return $llm;
+    }
+
+    /**
+     * A reasoning model that spent the whole token cap thinking: the
+     * request succeeded, the journal says "LLM request completed", and
+     * the answer is empty with finish_reason "length".
+     */
+    private function llmCutOff(string $content = ''): LlmConnectorInterface
+    {
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
+        $llm->method('complete')->willReturn(new LlmResponse($content, null, 120, 400, true));
 
         return $llm;
     }

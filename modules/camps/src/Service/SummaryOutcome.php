@@ -45,16 +45,24 @@ enum SummaryOutcome
     /** The provider answered, and its answer was empty. */
     case EmptyAnswer;
 
+    /**
+     * The provider stopped at the token cap before finishing — on a
+     * reasoning model, usually before writing anything at all, having
+     * spent the whole budget thinking.
+     */
+    case AnswerCutOff;
+
     public function wasWritten(): bool
     {
         return $this === self::Written;
     }
 
     /**
-     * The sentence a chief reads. Each one says what happened AND what to
-     * do about it, because the three failures are fixed by three
-     * different people: the one writing reviews, the administrator, and
-     * nobody at all (try again later).
+     * The sentence a chief reads. Each one says what happened AND who can
+     * do something about it: the person writing reviews, the
+     * administrator who configures the model, or nobody at all (try
+     * again). Four of the five explicitly say the reviews are not the
+     * problem, because the sentence they replace said they were.
      */
     public function message(): string
     {
@@ -71,8 +79,12 @@ enum SummaryOutcome
                 . '(Configuration > Intelligence artificielle) — vos avis n\'y sont pour rien.',
             self::ModelRefused => 'Le résumé n\'a pas pu être écrit : le fournisseur IA a refusé la demande. '
                 . 'Le détail est dans le journal, et vos avis n\'y sont pour rien.',
-            self::EmptyAnswer => 'Le fournisseur IA n\'a rien renvoyé. Réessayez dans un moment — '
-                . 'le résumé précédent, s\'il y en avait un, est intact.',
+            self::EmptyAnswer => 'Le fournisseur IA a répondu sans rien écrire — le résumé précédent, '
+                . 's\'il y en avait un, est intact. Réessayez ; si cela se répète, c\'est le modèle '
+                . 'configuré qui est en cause, pas ce lieu.',
+            self::AnswerCutOff => 'Le modèle IA s\'est arrêté avant d\'avoir fini d\'écrire : sa réponse '
+                . 'est inutilisable, et le résumé précédent, s\'il y en avait un, est intact. Si cela se '
+                . 'répète, c\'est le modèle configuré qui est en cause, pas ce lieu.',
         };
     }
 }

@@ -14,6 +14,7 @@ use Modules\LlmConnector\Repository\ProviderRepository;
 use Modules\LlmConnector\Service\LlmConnectorService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Modules\LlmConnector\StubHttpServer;
 
 /**
  * @group database
@@ -27,6 +28,7 @@ class LlmConnectorServiceTest extends TestCase
     private ProviderModelRepository $modelRepo;
     private JournalService $journalService;
     private LlmConnectorService $service;
+    private ?StubHttpServer $server = null;
 
     protected function setUp(): void
     {
@@ -47,6 +49,12 @@ class LlmConnectorServiceTest extends TestCase
             $this->modelRepo,
             $this->journalService
         );
+    }
+
+    protected function tearDown(): void
+    {
+        $this->server?->stop();
+        $this->server = null;
     }
 
     public function testIsAvailableReturnsFalseWhenNoProvider(): void
@@ -128,6 +136,58 @@ class LlmConnectorServiceTest extends TestCase
         $this->expectExceptionCode(LlmException::API_ERROR);
 
         $this->service->complete($request);
+    }
+
+    /**
+     * A reasoning model handed a token cap sized for the ANSWER spends it
+     * all thinking and returns nothing, with finish_reason "length" — an
+     * HTTP 200 that produced no text. The journal said "LLM request
+     * completed", which was true and useless: the one installation this
+     * happened on had no way to tell that from "the model had nothing to
+     * say", and the feature on the other end reported the wrong cause for
+     * days.
+     *
+     * The entry now carries the two numbers that separate them. Neither is
+     * content: this journal never holds prompt or response text.
+     */
+    public function testACompletedButTruncatedRequestSaysSoInTheJournal(): void
+    {
+        $this->server = StubHttpServer::start([
+            ['body' => (string) json_encode([
+                'choices' => [[
+                    'message' => ['content' => '', 'reasoning_content' => 'Voyons ce terrain…'],
+                    'finish_reason' => 'length',
+                ]],
+                'usage' => ['prompt_tokens' => 120, 'completion_tokens' => 400],
+            ])],
+        ]);
+
+        $providerId = $this->providerRepo->create('Scaleway', 'scaleway', $this->server->baseUrl(), 'key', true);
+        $this->modelRepo->upsert($providerId, 'glm-5.2', 'GLM 5.2');
+        $models = $this->modelRepo->findByProvider($providerId);
+        $this->modelRepo->assignTier($models[0]['id'], LlmTier::CHEAP);
+
+        $this->journalService->expects($this->once())
+            ->method('log')
+            ->with(
+                'llm_connector',
+                'llm_request_completed',
+                'info',
+                'LLM request completed',
+                $this->callback(static fn(array $context): bool => $context['truncated'] === true
+                    && $context['content_length'] === 0
+                    && $context['output_tokens'] === 400
+                    && $context['max_tokens'] === 400),
+                null
+            );
+
+        $response = $this->service->complete(new LlmRequest(LlmTier::CHEAP, 'Lieu : Mozet', maxTokens: 400));
+
+        // And the caller can tell the two apart without reading the journal.
+        $this->assertTrue($response->truncated);
+        $this->assertSame('', $response->content);
+        // The model's reasoning is never handed back as if it were the answer.
+        $this->assertStringNotContainsString('Voyons ce terrain', $response->content);
     }
 
     public function testIsAvailableIgnoresInactiveProviders(): void
