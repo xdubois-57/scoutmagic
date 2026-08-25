@@ -53,10 +53,21 @@ set -euo pipefail
 #                               findings, unreviewed Security Hotspots, the
 #                               Quality Gate). Emergency use only — prints
 #                               a warning. See check_sonar_gate.
+#   --skip-dast-gate           Bypass the dynamic security scan (the
+#                               authorization matrix, then OWASP ZAP's
+#                               passive rules over the browser suite).
+#                               Separate from --skip-e2e-gate for the same
+#                               reason that one is separate from
+#                               --skip-tests-gate: this is the only gate
+#                               needing Docker, and a releaser without it
+#                               must not have to drop the browser tests
+#                               too. Emergency use only — prints a
+#                               warning. See check_dast_gate.
 
 BUMP="patch"
 NOTES_FILE=""
 SKIP_SECURITY_GATE=0
+SKIP_DAST_GATE=0
 SKIP_TESTS_GATE=0
 SKIP_E2E_GATE=0
 SKIP_DEPENDENCY_CHECK=0
@@ -79,9 +90,10 @@ while [[ $# -gt 0 ]]; do
         --skip-dependency-check) SKIP_DEPENDENCY_CHECK=1; shift ;;
         --skip-deployment-check) SKIP_DEPLOYMENT_CHECK=1; shift ;;
         --skip-sonar-gate) SKIP_SONAR_GATE=1; shift ;;
+        --skip-dast-gate) SKIP_DAST_GATE=1; shift ;;
         *)
             echo "ERROR: unknown argument: $1" >&2
-            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-security-gate] [--skip-tests-gate] [--skip-e2e-gate] [--skip-dependency-check] [--skip-deployment-check] [--skip-sonar-gate]" >&2
+            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-security-gate] [--skip-tests-gate] [--skip-e2e-gate] [--skip-dependency-check] [--skip-deployment-check] [--skip-sonar-gate] [--skip-dast-gate]" >&2
             exit 1
             ;;
     esac
@@ -383,6 +395,54 @@ check_e2e_gate() {
     echo "E2E gate OK: the application boots and renders in a real browser."
 }
 
+# The dynamic security gate: what the running application answers, as
+# opposed to what the source says it should (SECURITY.md §§ 9, 35, 36).
+#
+# Two profiles, cheapest first, and the order is the point — the matrix
+# takes about a minute and is deterministic, so an over-permissive route
+# blocks the release before anyone has waited a quarter of an hour for
+# the scanner.
+#
+#   --profile=standard  every route replayed as every role, checked
+#                       against its declared role_min. No scanner, no
+#                       browser.
+#   --profile=passive   the Playwright suite replayed through OWASP ZAP,
+#                       failing at Medium and above.
+#
+# The ACTIVE profiles (deep, audit) are deliberately not here. They take
+# the better part of an hour and they attack the instance; a release gate
+# has to be something a releaser will actually wait for, and the passive
+# rules plus the matrix are what can be honestly required on every
+# release. `deep` stays a deliberate run.
+#
+# Fail-closed on missing prerequisites, same reasoning as the tests and
+# e2e gates: pulling a 1.2 GB image or installing a browser on the
+# releaser's behalf would mask an unprepared release environment rather
+# than surfacing it.
+check_dast_gate() {
+    command -v docker &> /dev/null || { echo "ERROR: Docker is required for the dynamic security gate (OWASP ZAP runs as a container — see scripts/dast.sh) — install it, or re-run with --skip-dast-gate (emergency use only)." >&2; exit 1; }
+    docker info &> /dev/null || { echo "ERROR: the Docker daemon is not reachable, and the dynamic security gate needs it — start Docker, or re-run with --skip-dast-gate (emergency use only)." >&2; exit 1; }
+    [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see README.md § Développement), or re-run with --skip-dast-gate (emergency use only)." >&2; exit 1; }
+
+    echo "Running the authorization matrix (scripts/dast.sh --profile=standard)..."
+    # Same reasoning as check_e2e_gate: this function runs under `set +e`,
+    # so an unchecked failure would fall through to the "vérifié" line
+    # and report a gate that never passed.
+    ./scripts/dast.sh --profile=standard || {
+        echo "ERROR: a route answered a role its role_min does not admit — release blocked by the dynamic security gate." >&2
+        exit 1
+    }
+
+    echo "Running the passive dynamic scan (scripts/dast.sh --profile=passive)..."
+    ./scripts/dast.sh --profile=passive || {
+        echo "ERROR: the passive scan failed — either a finding at or above Medium, or a browser suite that did not complete (a scan is only as complete as the traffic it was given). Release blocked by the dynamic security gate." >&2
+        exit 1
+    }
+
+    echo "vérifié — matrice d'autorisation : aucune route accessible à un rôle qui n'y a pas droit ; analyse dynamique passive (OWASP ZAP sur la suite navigateur) : aucun signalement de niveau Medium ou supérieur." > "${GATE_REPORT_FILE}"
+    echo "DAST gate OK: no over-permissive route, and no passive finding at or above Medium."
+}
+
 # Checks one vendored front-end library's committed file against its
 # latest upstream GitHub release. There's no npm/package manager for any
 # of these (AGENTS.md's frontend rules — CSS/JS build tools are banned),
@@ -615,6 +675,25 @@ else
     fi
 fi
 
+if [[ "${SKIP_DAST_GATE}" -eq 1 ]]; then
+    echo "WARNING: --skip-dast-gate used — the authorization matrix and the passive dynamic scan were NOT run for this release, so nothing verified what the running application actually answers. Emergency use only: run './scripts/dast.sh --profile=standard' and './scripts/dast.sh --profile=passive' immediately after publishing and fix any finding." >&2
+    DAST_GATE_REPORT_LINE="ignoré (\`--skip-dast-gate\`) — matrice d'autorisation et analyse dynamique passive non exécutées, à vérifier manuellement."
+else
+    # Last in the MySQL chain. Tests, End-to-end and this one all run real
+    # schema migrations against the same local server and are all
+    # CPU-heavy; overlapping them causes spurious migration timeouts (see
+    # the comment on launch_gate). launch_gate takes one dependency, so
+    # the chain is tests → e2e → dast, collapsing to whichever link is
+    # still present when the ones before it are skipped.
+    if [[ "${SKIP_E2E_GATE}" -eq 0 ]]; then
+        launch_gate dast "Dynamic scan" check_dast_gate e2e
+    elif [[ "${SKIP_TESTS_GATE}" -eq 0 ]]; then
+        launch_gate dast "Dynamic scan" check_dast_gate tests
+    else
+        launch_gate dast "Dynamic scan" check_dast_gate
+    fi
+fi
+
 if [[ "${SKIP_DEPENDENCY_CHECK}" -eq 1 ]]; then
     echo "WARNING: --skip-dependency-check used — outdated Composer/vendored front-end dependencies were NOT checked for this release. Emergency use only: update them immediately after publishing." >&2
     DEPENDENCY_GATE_REPORT_LINE="ignoré (\`--skip-dependency-check\`) — à vérifier manuellement."
@@ -687,6 +766,7 @@ DEPLOYMENT_GATE_REPORT_LINE="${DEPLOYMENT_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DI
 SECURITY_GATE_REPORT_LINE="${SECURITY_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/security.report" 2>/dev/null)}"
 TESTS_GATE_REPORT_LINE="${TESTS_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/tests.report" 2>/dev/null)}"
 E2E_GATE_REPORT_LINE="${E2E_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/e2e.report" 2>/dev/null)}"
+DAST_GATE_REPORT_LINE="${DAST_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/dast.report" 2>/dev/null)}"
 DEPENDENCY_GATE_REPORT_LINE="${DEPENDENCY_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/dependency.report" 2>/dev/null)}"
 SONAR_GATE_REPORT_LINE="${SONAR_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/sonar.report" 2>/dev/null)}"
 
@@ -694,6 +774,7 @@ GATE_REPORT="- **Déploiement** : ${DEPLOYMENT_GATE_REPORT_LINE}
 - **Sécurité** : ${SECURITY_GATE_REPORT_LINE}
 - **Tests** : ${TESTS_GATE_REPORT_LINE}
 - **Tests de bout en bout** : ${E2E_GATE_REPORT_LINE}
+- **Analyse dynamique** : ${DAST_GATE_REPORT_LINE}
 - **Dépendances** : ${DEPENDENCY_GATE_REPORT_LINE}
 - **SonarQube Cloud** : ${SONAR_GATE_REPORT_LINE}
 "

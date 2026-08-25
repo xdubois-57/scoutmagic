@@ -478,7 +478,21 @@ The other three (`/groups/*`, on a `2'` payload) were the uncaught-exception cla
 
 That finding had not appeared in the previous run because `finance-receipts.spec.js` had not been replayed that time. It is the clearest illustration of the rule the DAST gate needs: **a spec that fails is not a green area, it is an area nobody looked at.**
 
-**What is not done, and why.** There are ~180 further `(int) $params['id']` reads on path parameters. A rule in the router — "a placeholder named `id` matches digits only" — would fix them all in one line, and it is wrong: `/aide/{id}` takes a help topic's slug, and it is not alone. Enforcing it per route (`{id:int}`) is the shape that would work, and it is a change to every route declaration rather than to one file. Until then, a path id is still cast rather than validated; what protects those routes is that a repository lookup returns null for a row that does not exist, and the controller renders its 404.
+### The same rule, one layer out: the router
+
+The other ~230 casts are on **path** parameters — `(int) $params['id']` — and they have the same edge: `/gallery/2-1/edit` used to edit album 2. Nobody named album 2; PHP picked it, and the page then looked entirely normal.
+
+`Core\Http\Router` now matches a placeholder **named** like a row identifier — `{id}`, `{postId}`, `{comment_id}` — against digits and nothing else. That is enforced in the router rather than at 230 call sites because there it cannot be forgotten, and because the right answer for a malformed identifier is exactly what the router already does with a path it does not recognise: **404**. No controller changes, no error path to write, and a route that would have found nothing anyway now says so before any code runs.
+
+**The rule is the name, deliberately, so that there is no opt-out flag anyone can forget.** A parameter that is not a row identifier is not named like one: `/aide/{topic}` carries a help topic's slug and says so — it was `/aide/{id}`, and renaming it was the whole cost of making the rule unconditional. An earlier reading of this said a router rule "would be wrong" for that reason; the rule is right, the *name* was.
+
+Checked against the real route table rather than a sample: `Tests\Core\Http\RouterIdentifierParametersTest` walks every route the application registers and fails on an id-named placeholder a non-numeric value can still reach — 209 routes, and it also checks the other direction, so the rule cannot be "tightened" into matching digits everywhere and silently 404 every slug on the site.
+
+### A display filter must never take a page down
+
+`|date_fr`, `|datetime_fr`, `|french_date` and `|relative_date` used to read their argument with `new DateTimeImmutable((string) $date)`. One unreadable timestamp anywhere on a page therefore produced a **500 for the whole render** rather than a blank field — and an empty string rendered as *today*, which is how a missing value gets believed. All four now read through `DateInput::fromStorage()` and answer what they already answered for null: nothing at all.
+
+**What is not done.** ~190 further `new DateTimeImmutable($value)` reads remain, most of them on `DATETIME` columns that MySQL will not let hold a malformed value — which is what makes them low-risk, not a reason to call them checked. `fromStorage()` is the safe replacement wherever a value's origin is less certain than that.
 
 ### `Core\Database\ConstraintViolation` — the floor underneath validation
 

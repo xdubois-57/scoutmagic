@@ -27,8 +27,8 @@
     "/admin/members/{id}": {
       "id": "1"
     },
-    "/aide/{id}": {
-      "id": "1"
+    "/aide/{topic}": {
+      "topic": "premiers-pas"
     },
     "/api/audit/{entity_type}": {
       "entity_id": "1",

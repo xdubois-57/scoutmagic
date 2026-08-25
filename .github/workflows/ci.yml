@@ -225,6 +225,161 @@ jobs:
             tests/e2e/test-results
           retention-days: 7
 
+  authorization-matrix:
+    name: Authorization matrix
+    runs-on: ubuntu-latest
+    # 528 routes replayed as 6 roles, comparing each answer to the
+    # role_min the route declares (SECURITY.md § 36). No scanner and no
+    # browser, so it is fast enough to be a blocking check on every push
+    # — which is the point: an over-permissive route should fail the
+    # commit that introduced it, not a scan somebody remembers to run.
+    timeout-minutes: 10
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          # scripts/dast.sh creates and drops its own database.
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          # pcntl runs the TLS terminator, openssl generates the run's
+          # certificate: the matrix signs in over real HTTPS because the
+          # session cookie's Secure flag depends on it.
+          extensions: mbstring, pdo, pdo_mysql, openssl, pcntl, imagick
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run the authorization matrix
+        env:
+          DAST_DB_HOST: 127.0.0.1
+          DAST_DB_PORT: 3306
+          DAST_DB_USER: root
+          DAST_DB_PASSWORD: test_password
+        run: ./scripts/dast.sh --profile=standard
+
+      - name: Upload the matrix report
+        # Always: the report lists the refusals that are STRICTER than
+        # role_min as well as the failures, and that list is worth
+        # reading on a green run too.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authorization-matrix
+          path: dast-report/authz-matrix.json
+          retention-days: 7
+
+  dast-passive:
+    name: Dynamic scan (passive)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # For the SARIF upload below. Scoped to this job rather than
+      # granted file-wide: no other job here writes security events.
+      security-events: write
+    # The Playwright suite replayed through OWASP ZAP, with the passive
+    # rules reading the traffic (SECURITY.md § 9, scripts/dast.sh). The
+    # bound covers a cold 1.2 GB image pull plus the full browser suite.
+    timeout-minutes: 40
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_mysql, openssl, pcntl, imagick
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install the Chromium runtime
+        run: npm run e2e:install
+
+      - name: Pull the OWASP ZAP image
+        # scripts/dast.sh deliberately refuses to download 1.2 GB on a
+        # caller's behalf, so the pull is explicit here — the one place
+        # where downloading it is the expected thing to happen.
+        run: docker pull ghcr.io/zaproxy/zaproxy:stable
+
+      - name: Run the passive scan
+        env:
+          DAST_DB_HOST: 127.0.0.1
+          DAST_DB_PORT: 3306
+          DAST_DB_USER: root
+          DAST_DB_PASSWORD: test_password
+        run: ./scripts/dast.sh --profile=passive
+
+      - name: Publish the findings to code scanning
+        # Always, and this matters: the run FAILS when the gate finds
+        # something at or above Medium, and that is exactly when the
+        # findings are worth having in the security tab. Uploading only
+        # on success would publish nothing on the runs that found
+        # something.
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: dast-report/dast-passive.sarif.json
+          category: owasp-zap-passive
+
+      - name: Upload the HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-passive-report
+          path: dast-report/
+          retention-days: 7
+
+      - name: Upload Playwright diagnostics
+        # The scan is only as complete as the traffic it was given, so a
+        # failed browser suite fails the run (scripts/dast.sh) — and its
+        # traces are then the first thing to look at.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-dast-report
+          path: |
+            tests/e2e/playwright-report
+            tests/e2e/test-results
+          retention-days: 7
+
   security:
     runs-on: ubuntu-latest
 

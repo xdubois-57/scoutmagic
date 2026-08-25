@@ -136,16 +136,48 @@ class RouterTest extends TestCase
     }
 
     /**
-     * Documents Router::resolve()'s actual matching semantics (first
-     * pattern match wins, no literal-vs-wildcard specificity preference) —
-     * the mechanism behind the real incident this test's sibling in
-     * Tests\Core\Module\ModuleManifestTest guards against at the module.json
-     * level. A wildcard segment matches a literal path segment just as
-     * happily as it matches a "real" id, so an earlier all-wildcard-tail
-     * route silently absorbs every request meant for a later, more
-     * specific route sharing the same segment count.
+     * Router::resolve() still takes the FIRST pattern that matches, with
+     * no literal-vs-wildcard preference — so an earlier all-wildcard-tail
+     * route can still absorb a request meant for a later, more specific
+     * one. That is the mechanism behind the real incident this test's
+     * sibling in Tests\Core\Module\ModuleManifestTest rejects at the
+     * module.json level.
+     *
+     * It survives only for placeholders that are NOT named like row
+     * identifiers — see the next test for why, and
+     * Core\Http\Router::placeholderPattern for the rule.
      */
-    public function testAnEarlierWildcardRouteShadowsALaterLiteralRoute(): void
+    public function testAnEarlierWildcardRouteStillShadowsALaterLiteralOne(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/x/{slug}/{token}', 'App\\Controller\\ByTokenController', 'show', 'public');
+        $router->addRoute('GET', '/x/demande/{slug}', 'App\\Controller\\LinkedController', 'show', 'public');
+
+        $resolved = $router->resolve(new Request('GET', '/x/demande/42', [], [], [], []));
+
+        $this->assertInstanceOf(ResolvedRoute::class, $resolved);
+        // The wrong controller wins, with "demande" bound to {slug}
+        // instead of ever reaching LinkedController — exactly what a real
+        // visitor hit as a plain 404 with no clue why.
+        $this->assertSame('App\\Controller\\ByTokenController', $resolved->controllerClass);
+        $this->assertSame(['slug' => 'demande', 'token' => '42'], $resolved->params);
+    }
+
+    /**
+     * ...and does NOT survive when the wildcard is named like an
+     * identifier, which is the shape the real incident had:
+     * `/inscriptions/suivi/{id}/{token}` swallowing
+     * `/inscriptions/suivi/demande/{id}`.
+     *
+     * An identifier-named placeholder matches digits only, so "demande"
+     * is not a candidate `{id}` at all and the literal route it was meant
+     * for wins on its own. That is a side effect of a rule introduced for
+     * a different reason — an id must be digits so `(int) '2-1'` cannot
+     * silently pick row 2 (SECURITY.md § 35) — and it is worth a test of
+     * its own, because it is the kind of property that gets removed by
+     * accident when somebody loosens the pattern for an unrelated need.
+     */
+    public function testAnIdentifierWildcardCannotShadowALiteralSegment(): void
     {
         $router = new Router();
         $router->addRoute('GET', '/x/{id}/{token}', 'App\\Controller\\ByTokenController', 'show', 'public');
@@ -154,11 +186,13 @@ class RouterTest extends TestCase
         $resolved = $router->resolve(new Request('GET', '/x/demande/42', [], [], [], []));
 
         $this->assertInstanceOf(ResolvedRoute::class, $resolved);
-        // The wrong controller wins, with "demande" bound to {id} instead
-        // of ever reaching LinkedController — exactly what a real visitor
-        // hit as a plain 404 with no clue why.
-        $this->assertSame('App\\Controller\\ByTokenController', $resolved->controllerClass);
-        $this->assertSame(['id' => 'demande', 'token' => '42'], $resolved->params);
+        $this->assertSame('App\\Controller\\LinkedController', $resolved->controllerClass);
+        $this->assertSame(['id' => '42'], $resolved->params);
+
+        // And the wildcard route still works for what it was for.
+        $byToken = $router->resolve(new Request('GET', '/x/7/abc', [], [], [], []));
+        $this->assertInstanceOf(ResolvedRoute::class, $byToken);
+        $this->assertSame('App\\Controller\\ByTokenController', $byToken->controllerClass);
     }
 
     /**

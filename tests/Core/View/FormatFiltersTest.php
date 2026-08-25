@@ -56,6 +56,55 @@ final class FormatFiltersTest extends TestCase
         $this->assertSame('', $this->render('value|datetime_fr', ['value' => null]));
     }
 
+    /**
+     * A display filter must never take a page down.
+     *
+     * `new DateTimeImmutable($v)` throws on a malformed string, so ONE
+     * unreadable timestamp anywhere on a page used to 500 the whole
+     * render rather than blank out the field it belongs to. Every date
+     * filter now reads through Core\Service\DateInput::fromStorage()
+     * and answers what it already answered for null: nothing.
+     *
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('valuesThatAreNotDates')]
+    public function testADateFilterRendersNothingRatherThanTakingThePageDown(string $value): void
+    {
+        foreach (['date_fr', 'datetime_fr', 'french_date', 'relative_date'] as $filter) {
+            $this->assertSame(
+                '',
+                $this->render('value|' . $filter, ['value' => $value]),
+                "|{$filter} on " . var_export($value, true)
+            );
+        }
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function valuesThatAreNotDates(): array
+    {
+        return [
+            'a word' => ['pas une date'],
+            'a traversal payload' => ['../../../../etc/passwd'],
+            'an impossible date' => ['2026-99-99'],
+            // MySQL's way of writing "no value". PHP reads it as the 30th
+            // of November, year -1, and a template would print that.
+            "MySQL's zero date" => ['0000-00-00 00:00:00'],
+            'a relative expression, which is not a stored moment' => ['tomorrow'],
+        ];
+    }
+
+    /**
+     * The other half: a real stored timestamp still renders, so the
+     * guard above cannot be "fixed" by blanking everything.
+     */
+    public function testARealStoredTimestampStillRenders(): void
+    {
+        $this->assertSame('05/07/2026', $this->render('v|date_fr', ['v' => '2026-07-05 10:00:00']));
+        $this->assertSame('05/07/2026 à 10:00', $this->render('v|datetime_fr', ['v' => '2026-07-05 10:00:00']));
+        $this->assertSame('5 juillet 2026', $this->render('v|french_date', ['v' => '2026-07-05']));
+    }
+
     public function testMoneyRendersBelgianFrenchAmounts(): void
     {
         $this->assertSame('1 234,56 €', $this->render('1234.56|money'));
