@@ -200,7 +200,9 @@ if (Request::isPostTooLarge()) {
     // Emit the same security header set as every routed response — an error
     // page is not an excuse to drop CSP/X-Frame-Options/nosniff (audit
     // hardening). This page has no inline script; its inline style attribute
-    // is covered by the CSP's style-src 'unsafe-inline'.
+    // is covered by the CSP's style-src-attr 'unsafe-inline' (an
+    // attribute, not a <style> element — the two are separate directives
+    // now, see Core\Http\Response::buildStyleSrc()).
     foreach ((new \Core\Http\Response(''))->getSecurityHeaders() as $hName => $hValue) {
         header("{$hName}: {$hValue}");
     }
@@ -430,9 +432,12 @@ if ($migrationIsPending) {
     // anyone) resumes exactly where this one left off instead of
     // restarting.
     // Emit the full security header set even for this pre-routing page (audit
-    // hardening). It carries an inline <script>, so build a nonce-based CSP
-    // and tag the script with it — the previous version shipped no CSP at all,
-    // which is the only reason that inline script ran.
+    // hardening). It carries an inline <script> AND an inline <style>, so
+    // build a nonce-based CSP and tag both with it — script-src has never
+    // allowed 'unsafe-inline' here, and style-src-elem stopped allowing it
+    // too (Core\Http\Response::buildStyleSrc()). This page may not load an
+    // external stylesheet, by design: it renders while the file tree is
+    // being replaced.
     $migrationNonce = base64_encode(random_bytes(16));
     foreach ((new \Core\Http\Response(''))->setCspNonce($migrationNonce)->getSecurityHeaders() as $hName => $hValue) {
         header("{$hName}: {$hValue}");
@@ -445,7 +450,7 @@ if ($migrationIsPending) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mise à jour en cours…</title>
-<style>
+<style nonce="__CSP_NONCE__">
   :root { color-scheme: light dark; }
   body { font-family: system-ui, -apple-system, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1.5rem; text-align: center; }
   h1 { font-size: 1.25rem; }

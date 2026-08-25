@@ -114,6 +114,53 @@ class Response
         return $this->bodyFilePath;
     }
 
+    /**
+     * The style half of the policy, split across three directives.
+     *
+     * CSP treats two very different things as "inline style": a `<style>`
+     * ELEMENT (or a `<link rel=stylesheet>`), and a `style="…"`
+     * ATTRIBUTE. `style-src` governs both at once, which is why this
+     * codebase carried `style-src 'self' 'unsafe-inline'` — roughly 260
+     * `style="…"` attributes across ~90 templates set computed geometry
+     * (progress-bar widths, section colours) that nothing else can
+     * express, and one blanket directive had to permit them.
+     *
+     * CSP Level 3 splits the two, and they are not equally dangerous. An
+     * injected `<style>` ELEMENT restyles the WHOLE page — overlays over
+     * arbitrary controls, and attribute-selector rules whose
+     * `background: url(…)` leaks what they matched. An injected
+     * ATTRIBUTE reaches one element the injection already controls. So:
+     *
+     *   style-src-elem 'self' 'nonce-…'   elements: no inline at all
+     *   style-src-attr 'unsafe-inline'    attributes: still permitted
+     *   style-src      'self' 'unsafe-inline'   fallback, see below
+     *
+     * **The fallback is load-bearing, not belt-and-braces.** A browser
+     * that does not know `style-src-attr` ignores it and falls back to
+     * `style-src`; without `'unsafe-inline'` there, every inline style
+     * attribute on the site would be blocked and the layout would break.
+     * `style-src-attr`/`-elem` arrived in Chrome 75, Firefox 108 and
+     * Safari 15.4 — and `style-src-elem` only in Safari 26.2 — so the
+     * fallback is what an older iPad actually reads. The policy is
+     * therefore strictly stronger where the split directives are
+     * understood and exactly as strong as before where they are not; it
+     * is never weaker anywhere.
+     *
+     * What this does NOT do is retire the attribute risk itself. That
+     * needs the ~260 attributes gone, which is a template rework
+     * SECURITY.md § 33 prices and tracks. This is the half that was free.
+     */
+    private function buildStyleSrc(): string
+    {
+        $elemSources = $this->cspNonce !== ''
+            ? "'self' 'nonce-{$this->cspNonce}'"
+            : "'self'";
+
+        return "style-src 'self' 'unsafe-inline'"
+            . "; style-src-elem {$elemSources}"
+            . "; style-src-attr 'unsafe-inline'";
+    }
+
     private function buildCsp(): string
     {
         $scriptSrc = $this->cspNonce !== ''
@@ -122,7 +169,7 @@ class Response
 
         $imgSrc = implode(' ', array_merge(["'self'", 'data:', 'blob:'], $this->extraImgSrc));
 
-        return "default-src 'self'; {$scriptSrc}; style-src 'self' 'unsafe-inline'; img-src {$imgSrc}; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+        return "default-src 'self'; {$scriptSrc}; {$this->buildStyleSrc()}; img-src {$imgSrc}; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
     }
 
     /**

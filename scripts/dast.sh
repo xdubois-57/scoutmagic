@@ -58,6 +58,22 @@ set -euo pipefail
 #   passive   Passive rules only, observing the Playwright traffic.
 #             Runs in CI on every push.
 #
+# KNOWN FLAKE, AND WHAT IT BLOCKS
+# ---------------------------------------------------------------------
+# tests/e2e/specs/gallery-media.spec.js's drag-reorder step fails
+# intermittently under this harness — roughly one run in three — with
+# `page.waitForResponse` timing out on /media/reorder: the synthetic HTML5
+# drag does not always register. It is NOT the application and NOT the
+# CSP: the same scenario passes every time under `npm run e2e`, and
+# everything the drag touches is `classList` and CSSOM property
+# assignment, neither of which the proxy or the policy can affect. What
+# the harness changes is latency and layout timing around the drop.
+#
+# It has to be resolved before this profile can block a release
+# (roadmap IT-06/IT-07): a gate that fails a third of the time on
+# something that is not a finding teaches everyone to re-run it, which
+# is how a real finding gets re-run away too.
+#
 # Configuration (all optional; every value has a working default):
 #   DAST_DB_HOST / DAST_DB_PORT / DAST_DB_USER / DAST_DB_PASSWORD
 #       MySQL server to use. Default to TEST_DB_* like scripts/e2e.sh,
