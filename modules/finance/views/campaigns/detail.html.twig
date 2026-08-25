@@ -77,6 +77,18 @@
         </button>
     </form>
 
+    {% if row.receivable_id and (row.status == 'unpaid' or row.status == 'partial') %}
+        {# Full screen, because the gesture is handing a phone to a parent
+           met after the meeting. The QR asks for what is STILL DUE — see
+           Controller\ReconciliationController::qr(). #}
+        <p class="mb-3">
+            <a class="btn btn-sm btn-primary tap-target"
+               href="/finance/receivables/{{ row.receivable_id }}/qr?campaign_id={{ campaign.id }}">
+                <i class="bi bi-qr-code" aria-hidden="true"></i> Afficher le QR
+            </a>
+        </p>
+    {% endif %}
+
     {% if row.receivable_id and row.status != 'paid' %}
         <form method="post"
               action="/finance/campaigns/{{ campaign.id }}/receivables/{{ row.receivable_id }}/waive"

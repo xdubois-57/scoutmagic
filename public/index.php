@@ -2778,6 +2778,34 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         )
     );
 
+    // « Rapprochement » (ARCHITECTURE.md §8.83) — the four situations the
+    // automatic matching cannot settle on its own. The QR generator is
+    // the module's own, and the page degrades to the payment details in
+    // text rather than a fatal if it is ever absent.
+    $financeReconciliationService = new \Modules\Finance\Service\ReconciliationService(
+        $financeExpectedReceivableRepo,
+        $financeAllocationRepo,
+        $financeTransactionRepo,
+        $financeAccountRepo,
+        $financeAccountVisibility,
+        $financeAllocationService,
+        $memberService,
+        $householdService
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\ReconciliationController::class,
+        new \Modules\Finance\Controller\ReconciliationController(
+            $twig,
+            $financeReconciliationService,
+            $financeAllocationService,
+            $financeExpectedReceivableRepo,
+            $financeService,
+            $memberService,
+            $scoutYearService,
+            $financeSepaQrCodeForOthers
+        )
+    );
+
     // "Outils" (ARCHITECTURE.md §8.73). The QR generator is handed the
     // module's own SepaQrCodeService — the same instance every other
     // consumer gets — and the page degrades to a message rather than a

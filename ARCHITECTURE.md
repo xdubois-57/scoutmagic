@@ -2271,6 +2271,22 @@ The accepted consequence is that you never build the list by hand in Excel; you 
 
 **`finance_expected_receivables.member_id` is optional, and stays that way.** A campaign always sets it; `rental` never can, because it invoices outside renters who are not members at all. Making it mandatory would shut that case out. It points at `members.id` — the persistent identity, like `files.owner_member_id` — so the link survives the scout year that saw it born.
 
+### 8.83 « Rapprochement » (`Modules\Finance\Service\ReconciliationService`)
+
+Four situations the automatic matching cannot settle on its own, four different gestures, one screen. Every write goes through §8.81's allocation service, so the account partition and the never-across-two-accounts invariant are enforced once rather than per tab.
+
+**À répartir** — one transfer covering several receivables of the same household, and by far the most frequent case: the site asks for one transfer per receivable, and a share of families pays in one go regardless. The QR is the best guard against it (nobody scans three codes into one transfer), but the manual split stays indispensable. The site knows the household (`Core\Member\Household`, the normalised-address blind index), its receivables and their totals, so it proposes the split — filling each sibling up to what it still needs, never past what is left of the transfer — and a human confirms. When the leftover has nowhere to go, this is not a split at all: it is a trop-perçu, and it appears in that tab instead.
+
+**Non imputés** — a credit nothing recognised. The screen says *why*, because "no structured communication at all" and "a communication that names no receivable here" send a treasurer to two different places. Attach it to a receivable, or leave it: an unallocated remainder is not an error in itself.
+
+**Trop-perçus** — centred on the **receivable**, never on the transaction, because that is where the surplus exists: two instalments of 30 € for a receivable of 45 € show an excess on neither one alone. Three answers: declare it owed back (which changes a state and not a cent — the refund completes when a matching debit is allocated, §8.81), move it onto another receivable of the household — often the right one, since a parent who rounds up means to pay rather than to be sent 6,75 € back — or leave it, which is simply not submitting anything.
+
+**Mauvais compte** — two symmetric signals and **no gesture at all**, which is the point. The money has to physically arrive on the right account; imputing at a distance would mark a receivable settled while the account concerned received nothing, and that section's books would say something untrue. Two instructions are in the body text rather than a footnote: the regularising transfer must **carry the original structured communication** — without it the incoming credit attaches to nothing and both signals persist for ever, which is incidentally the correct behaviour since something is still wrong — and both legs are an **internal movement** to be categorised as such, or the unit counts the same income twice. Nothing is acknowledged by hand: the signals disappear when the transfer is made and both accounts are re-imported, and the text says so, because a treasurer who has just acted would otherwise read the surviving signal as a defect.
+
+**The exception to the account partition** (§8.69) lives in that last tab and is minimal by construction: each side learns that a movement exists elsewhere — date, amount, account name — and nothing more. SECURITY.md carries the same paragraph, so that closing it later reads as removing a documented decision rather than plugging a leak.
+
+**The QR of one receivable** is full screen, because the gesture is handing a phone to a parent met after the meeting. The member's own name stays in view the whole time: a treasurer going through three parents in a row can very easily show the neighbour's receivable, and the name is the only thing that stops that. **It encodes what is still due, never the original amount** — asking 45 € again on a receivable of 45 € with 20 € already in would manufacture a 20 € surplus, which is exactly what the rest of this screen exists to clear up. The IBAN, the amount and the communication are repeated in text under the code, so a code that will not scan never leaves somebody without a way to pay.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

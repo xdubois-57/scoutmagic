@@ -121,6 +121,18 @@
     "/finance/movements/{id}": {
       "id": "1"
     },
+    "/finance/receivables/{id}": {
+      "id": "1"
+    },
+    "/finance/reconciliation/attach/{transactionId}": {
+      "transactionId": "1"
+    },
+    "/finance/reconciliation/overpaid/{receivableId}": {
+      "receivableId": "1"
+    },
+    "/finance/reconciliation/split/{transactionId}": {
+      "transactionId": "1"
+    },
     "/finance/receipts/{id}": {
       "id": "1"
     },

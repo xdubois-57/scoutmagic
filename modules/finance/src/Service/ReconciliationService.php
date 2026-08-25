@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Service;
 
-use Core\Member\Household\HouseholdMember;
 use Core\Member\Household\HouseholdService;
 use Core\Member\MemberService;
 use Core\Security\Role;
@@ -504,7 +503,6 @@ class ReconciliationService
         $index = [];
         foreach ($this->households->householdsForYear($scoutYearId) as $blindIndex => $household) {
             foreach ($household->members as $member) {
-                \assert($member instanceof HouseholdMember);
                 $index[$member->memberId] ??= $blindIndex;
             }
         }

@@ -5,7 +5,7 @@ summary: Facturer un montant à chaque membre d'une liste, et suivre les paiemen
 category: Espace animateurs
 role_min: intendant
 paths: /finance/campaigns, /finance/campaigns/new, /finance/campaigns/*
-related: finances, importer-extraits, outils-finance
+related: rapprochement, finances, importer-extraits, outils-finance
 ---
 
 Une campagne facture un montant à chaque membre d'une liste — les

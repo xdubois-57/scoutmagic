@@ -99,15 +99,12 @@ class ReconciliationController extends AbstractController
             return $guard;
         }
 
-        /** @var array<int|string, mixed> $submitted */
         $submitted = $request->getBody('amount', []);
         $amounts = [];
-        if (is_array($submitted)) {
-            foreach ($submitted as $receivableId => $amount) {
-                $cents = self::parseAmountCents((string) $amount);
-                if ($cents !== null && $cents > 0) {
-                    $amounts[(int) $receivableId] = $cents;
-                }
+        foreach (is_array($submitted) ? $submitted : [] as $receivableId => $amount) {
+            $cents = self::parseAmountCents(is_scalar($amount) ? (string) $amount : '');
+            if ($cents !== null && $cents > 0) {
+                $amounts[(int) $receivableId] = $cents;
             }
         }
 

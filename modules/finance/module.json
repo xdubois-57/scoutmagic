@@ -104,6 +104,53 @@
       "label": ""
     },
     {
+      "path": "/finance/reconciliation",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ReconciliationController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "",
+      "breadcrumb": { "label": "Rapprochement", "parents": ["Espace animateurs"] }
+    },
+    {
+      "path": "/finance/reconciliation/split/{transactionId}",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ReconciliationController",
+      "action": "applySplit",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/reconciliation/attach/{transactionId}",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ReconciliationController",
+      "action": "attach",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/reconciliation/overpaid/{receivableId}",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ReconciliationController",
+      "action": "resolveOverpayment",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/receivables/{id}/qr",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ReconciliationController",
+      "action": "qr",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "",
+      "breadcrumb": { "label": "QR de paiement", "parents": ["Espace animateurs"] }
+    },
+    {
       "path": "/finance/tools",
       "method": "GET",
       "controller": "Modules\\Finance\\Controller\\ToolsController",

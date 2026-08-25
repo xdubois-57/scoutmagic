@@ -231,6 +231,7 @@ class FinanceRbacTest extends TestCase
             'receivables' => ['/finance/receivables', 'ReceivablesController', 'index', 'intendant', 'identified'],
             'campaigns' => ['/finance/campaigns', 'CampaignController', 'index', 'intendant', 'identified'],
             'campaign form' => ['/finance/campaigns/new', 'CampaignController', 'form', 'intendant', 'identified'],
+            'reconciliation' => ['/finance/reconciliation', 'ReconciliationController', 'index', 'intendant', 'identified'],
             'tools' => ['/finance/tools', 'ToolsController', 'index', 'intendant', 'identified'],
             'config index' => ['/config/finance', 'ConfigController', 'index', 'superadmin', 'admin'],
             'config accounts' => ['/config/finance/accounts', 'ConfigAccountController', 'index', 'superadmin', 'admin'],
@@ -316,6 +317,7 @@ class FinanceRbacTest extends TestCase
             ),
             'ReceivablesController' => new ReceivablesController($this->twig, $this->receivablesOverviewService),
             'CampaignController' => $this->campaignController(),
+            'ReconciliationController' => $this->reconciliationController(),
             'ToolsController' => new \Modules\Finance\Controller\ToolsController(
                 $this->twig, $this->financeService, $this->expectedReceivableRepository, $this->journalService,
                 new \Modules\Finance\Service\SepaQrCodeService()
@@ -364,6 +366,38 @@ class FinanceRbacTest extends TestCase
             $this->financeService,
             FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
             $scoutYearService
+        );
+    }
+
+    private function reconciliationController(): \Modules\Finance\Controller\ReconciliationController
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $accountVisibility = new \Modules\Finance\Service\AccountVisibility(
+            \Modules\Finance\Service\TreasurerScope::systemCaller()
+        );
+        $allocations = FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository);
+
+        return new \Modules\Finance\Controller\ReconciliationController(
+            $this->twig,
+            new \Modules\Finance\Service\ReconciliationService(
+                $this->expectedReceivableRepository,
+                new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo),
+                $this->transactionRepository,
+                $this->accountRepository,
+                $accountVisibility,
+                $allocations,
+                $this->memberServiceForCampaigns(),
+                new \Core\Member\Household\HouseholdService(
+                    new \Core\Member\Household\HouseholdRepository($this->pdo, $encryption),
+                    $encryption
+                )
+            ),
+            $allocations,
+            $this->expectedReceivableRepository,
+            $this->financeService,
+            $this->memberServiceForCampaigns(),
+            new \Core\Config\ScoutYearService($this->pdo),
+            new \Modules\Finance\Service\SepaQrCodeService()
         );
     }
 
