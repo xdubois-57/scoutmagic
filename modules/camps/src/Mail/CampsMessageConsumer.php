@@ -10,6 +10,7 @@ namespace Modules\Camps\Mail;
 
 use Core\Config\SettingService;
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Service\DocumentService;
@@ -275,8 +276,13 @@ class CampsMessageConsumer implements MessageConsumerInterface
             $end = $camp->yearOnly . '-12-31';
         }
 
-        $from = (new \DateTimeImmutable($start))->modify('-' . self::WINDOW_DAYS_BEFORE . ' days');
-        $to = (new \DateTimeImmutable($end))->modify('+' . self::WINDOW_DAYS_AFTER . ' days');
+        $from = DateInput::fromStorage($start)?->modify('-' . self::WINDOW_DAYS_BEFORE . ' days');
+        $to = DateInput::fromStorage($end)?->modify('+' . self::WINDOW_DAYS_AFTER . ' days');
+        if ($from === null || $to === null) {
+            // Same answer as a stay with no day at all: a window we cannot
+            // compute does not get to claim a message.
+            return false;
+        }
 
         return $sentAt >= $from && $sentAt <= $to;
     }

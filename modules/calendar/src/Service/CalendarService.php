@@ -11,6 +11,7 @@ namespace Modules\Calendar\Service;
 use Core\Member\SectionService;
 use Core\Security\CapabilityToken;
 use Core\Security\Role;
+use Core\Service\DateInput;
 use Core\View\MonthGrid\GridEvent;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
 use Modules\Calendar\Api\EventSummary;
@@ -457,7 +458,7 @@ class CalendarService implements CalendarEventLookupInterface
             return [];
         }
 
-        $firstOfMonth = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $firstOfMonth = DateInput::firstOfMonth($year, $month);
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
         $isoWeekdayOfFirst = (int) $firstOfMonth->format('N');
         $gridStart = $firstOfMonth->modify('-' . ($isoWeekdayOfFirst - 1) . ' days');

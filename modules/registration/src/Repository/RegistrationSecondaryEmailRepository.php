@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Registration\Repository;
 
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 
 /**
  * Every timestamp comparison/write is computed in PHP and bound as a
@@ -140,11 +141,11 @@ class RegistrationSecondaryEmailRepository
             email: $this->encryption->decrypt($row['email_encrypted'], 'registration_secondary_emails.email'),
             status: (string) $row['status'],
             confirmationTokenHash: $row['confirmation_token_hash'] !== null ? (string) $row['confirmation_token_hash'] : null,
-            confirmationExpiresAt: $row['confirmation_expires_at'] !== null ? new \DateTimeImmutable((string) $row['confirmation_expires_at']) : null,
-            lastConfirmationSentAt: $row['last_confirmation_sent_at'] !== null ? new \DateTimeImmutable((string) $row['last_confirmation_sent_at']) : null,
-            confirmedAt: $row['confirmed_at'] !== null ? new \DateTimeImmutable((string) $row['confirmed_at']) : null,
-            deactivatedAt: $row['deactivated_at'] !== null ? new \DateTimeImmutable((string) $row['deactivated_at']) : null,
-            createdAt: new \DateTimeImmutable((string) $row['created_at'])
+            confirmationExpiresAt: DateInput::fromStorage($row['confirmation_expires_at'] === null ? null : (string) $row['confirmation_expires_at']),
+            lastConfirmationSentAt: DateInput::fromStorage($row['last_confirmation_sent_at'] === null ? null : (string) $row['last_confirmation_sent_at']),
+            confirmedAt: DateInput::fromStorage($row['confirmed_at'] === null ? null : (string) $row['confirmed_at']),
+            deactivatedAt: DateInput::fromStorage($row['deactivated_at'] === null ? null : (string) $row['deactivated_at']),
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
         );
     }
 }

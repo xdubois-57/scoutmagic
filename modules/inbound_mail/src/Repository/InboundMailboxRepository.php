@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\InboundMail\Repository;
 
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 use Modules\InboundMail\Mailbox\FolderCursor;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Mailbox\MailboxCredentials;
@@ -317,13 +318,9 @@ class InboundMailboxRepository
             folders: $folders,
             isEnabled: (bool) $row['is_enabled'],
             syncState: SyncState::from((string) $row['sync_state']),
-            lastSyncedAt: $row['last_synced_at'] !== null
-                ? new \DateTimeImmutable((string) $row['last_synced_at'])
-                : null,
+            lastSyncedAt: DateInput::fromStorage($row['last_synced_at'] === null ? null : (string) $row['last_synced_at']),
             lastError: $row['last_error'] !== null ? (string) $row['last_error'] : null,
-            lastErrorAt: $row['last_error_at'] !== null
-                ? new \DateTimeImmutable((string) $row['last_error_at'])
-                : null
+            lastErrorAt: DateInput::fromStorage($row['last_error_at'] === null ? null : (string) $row['last_error_at'])
         );
     }
 }

@@ -15,6 +15,7 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Core\Service\DateInput;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\CategoryRepository;
@@ -455,8 +456,10 @@ class MovementController extends AbstractController
             usort(
                 $matches,
                 fn(Transaction $a, Transaction $b) =>
-                    (new \DateTimeImmutable($a->transactionDate))->diff($nearDate)->days
-                    <=> (new \DateTimeImmutable($b->transactionDate))->diff($nearDate)->days
+                    DateInput::requireFromStorage($a->transactionDate, 'transactions.transaction_date')
+                        ->diff($nearDate)->days
+                    <=> DateInput::requireFromStorage($b->transactionDate, 'transactions.transaction_date')
+                        ->diff($nearDate)->days
             );
             $matches = array_slice($matches, 0, 10);
         } else {
@@ -484,16 +487,15 @@ class MovementController extends AbstractController
         ]);
     }
 
+    /**
+     * $value is a query-string parameter, so this is the untrusted end of
+     * the class: the old reading caught the malformed case but answered
+     * *the current moment* for `near_date=now`, silently sorting the
+     * suggestions around today instead of refusing.
+     */
     private function parseDateOrNull(?string $value): ?\DateTimeImmutable
     {
-        if ($value === null || $value === '') {
-            return null;
-        }
-        try {
-            return new \DateTimeImmutable($value);
-        } catch (\Exception) {
-            return null;
-        }
+        return DateInput::fromStorage($value);
     }
 
     /**
@@ -502,7 +504,10 @@ class MovementController extends AbstractController
     private function findSuggestedReceipt(Transaction $transaction, array $pendingReceipts): ?Attachment
     {
         $amount = abs($transaction->amount);
-        $transactionDate = new \DateTimeImmutable($transaction->transactionDate);
+        $transactionDate = DateInput::requireFromStorage(
+            $transaction->transactionDate,
+            'transactions.transaction_date'
+        );
 
         foreach ($pendingReceipts as $receipt) {
             if ($receipt->suggestedAmount === null || $receipt->suggestedDate === null) {
@@ -514,7 +519,13 @@ class MovementController extends AbstractController
                 continue;
             }
 
-            $receiptDate = new \DateTimeImmutable($receipt->suggestedDate);
+            // Read from an uploaded receipt rather than typed, so an
+            // unreadable one simply is not a candidate.
+            $receiptDate = DateInput::fromStorage($receipt->suggestedDate);
+            if ($receiptDate === null) {
+                continue;
+            }
+
             $daysDiff = (int) $transactionDate->diff($receiptDate)->format('%a');
             if ($daysDiff > self::SUGGESTION_DATE_TOLERANCE_DAYS) {
                 continue;

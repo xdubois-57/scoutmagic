@@ -122,6 +122,11 @@ class AutoBackupHandler implements TaskHandlerInterface
         // 'none' (or an unrecognized value) still gets re-checked daily, so
         // switching the setting back to an active frequency later takes
         // effect within a day rather than needing a manual nudge.
+        // A relative expression, and one of a fixed set: the lookup with a
+        // literal fallback means $interval is always one of this class's
+        // own constants, whatever $frequency holds. So this is deliberately
+        // NOT DateInput::fromStorage(), which refuses relative expressions
+        // on purpose (SECURITY.md § 35).
         $interval = self::INTERVALS[$frequency] ?? '+1 day';
         $schedulerService->schedule('core', 'auto_backup', new \DateTimeImmutable($interval), [], self::REFERENCE);
     }

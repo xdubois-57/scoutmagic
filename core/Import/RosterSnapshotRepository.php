@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Service\DateInput;
+
 /**
  * Reads and writes the roster snapshots (`schema/core.sql`).
  *
@@ -204,7 +206,7 @@ class RosterSnapshotRepository
         return new RosterSnapshot(
             (int) $row['id'],
             (int) $row['scout_year_id'],
-            new \DateTimeImmutable((string) $row['taken_at']),
+            DateInput::requireFromStorage((string) $row['taken_at'], 'taken_at'),
             (int) $row['member_count']
         );
     }

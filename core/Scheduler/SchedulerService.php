@@ -60,6 +60,17 @@ class SchedulerService
             return false;
         }
 
+        // Deliberately NOT DateInput::fromStorage(): a relative expression
+        // is exactly what this parameter is for, and fromStorage() refuses
+        // those on purpose (SECURITY.md § 35). $when comes from a task
+        // handler in this repository, never from a request. The one edge
+        // worth closing by hand is the empty string — `new
+        // DateTimeImmutable('')` is *now*, so a caller that passed a blank
+        // would silently run the task immediately instead of failing.
+        if (is_string($when) && trim($when) === '') {
+            throw new \InvalidArgumentException('rearm() needs a moment, not an empty string.');
+        }
+
         $runAt = $when instanceof \DateTimeInterface ? $when : new \DateTimeImmutable($when);
         $this->schedule($moduleId, $taskKey, $runAt, $payload, $reference);
 

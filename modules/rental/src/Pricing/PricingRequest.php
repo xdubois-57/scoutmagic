@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Pricing;
 
+use Core\Service\DateInput;
+
 /**
  * What is being priced: a date range and how much of the asset is wanted.
  *
@@ -38,12 +40,12 @@ final class PricingRequest
 
     public function arrival(): \DateTimeImmutable
     {
-        return new \DateTimeImmutable($this->arrivalDate);
+        return DateInput::requireFromStorage($this->arrivalDate, 'a pricing request arrival date');
     }
 
     public function departure(): \DateTimeImmutable
     {
-        return new \DateTimeImmutable($this->departureDate);
+        return DateInput::requireFromStorage($this->departureDate, 'a pricing request departure date');
     }
 
     /**
@@ -58,8 +60,8 @@ final class PricingRequest
      */
     public function nights(): int
     {
-        $arrival = new \DateTimeImmutable($this->arrival()->format('Y-m-d') . ' 00:00:00');
-        $departure = new \DateTimeImmutable($this->departure()->format('Y-m-d') . ' 00:00:00');
+        $arrival = $this->arrival()->setTime(0, 0);
+        $departure = $this->departure()->setTime(0, 0);
 
         return max(0, (int) $arrival->diff($departure)->format('%r%a'));
     }

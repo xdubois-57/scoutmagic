@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\View\MonthGrid;
 
+use Core\Service\DateInput;
+
 /**
  * Builds a month grid where every day cell carries exactly one
  * Core\View\MonthGrid\DayState — 7 columns (Monday first), one row per week,
@@ -38,7 +40,7 @@ class DayStateGridBuilder
      */
     public function build(int $year, int $month, array $states, DayState $default, ?\DateTimeImmutable $today = null): array
     {
-        $firstOfMonth = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $firstOfMonth = DateInput::firstOfMonth($year, $month);
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
 
         $isoWeekdayOfFirst = (int) $firstOfMonth->format('N'); // 1 (Mon) .. 7 (Sun)

@@ -435,6 +435,15 @@ class MimeMessageParser
         return trim($value, "<> \t");
     }
 
+    /**
+     * An RFC 2822 `Date:` header — "Mon, 12 Jul 2027 09:30:00 +0200",
+     * not a stored ISO timestamp. Deliberately NOT
+     * DateInput::fromStorage(), which requires the value to OPEN with a
+     * calendar date and would refuse every well-formed mail header there
+     * is (SECURITY.md § 35). The two edges that reading has are both
+     * already closed here: the blank is guarded above, and a malformed
+     * value falls through instead of throwing.
+     */
     private static function parseDate(string $value): \DateTimeImmutable
     {
         $value = trim($value);

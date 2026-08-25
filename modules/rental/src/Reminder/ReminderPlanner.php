@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Reminder;
 
+use Core\Service\DateInput;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Compliance\ComplianceItem;
@@ -65,8 +66,8 @@ class ReminderPlanner
         \DateTimeImmutable $today
     ): array {
         $due = [];
-        $arrival = new \DateTimeImmutable($booking->arrivalDate);
-        $departure = new \DateTimeImmutable($booking->departureDate);
+        $arrival = DateInput::requireFromStorage($booking->arrivalDate, 'rental_bookings.arrival_date');
+        $departure = DateInput::requireFromStorage($booking->departureDate, 'rental_bookings.departure_date');
         $midnight = $today->setTime(0, 0);
 
         // ── While the request is still being handled ──────────────────
@@ -199,7 +200,7 @@ class ReminderPlanner
         // A security deposit still held some time after the stay. The
         // renter is owed their money back, and nobody but the unit knows
         // it is sitting there.
-        $departure = new \DateTimeImmutable($booking->departureDate);
+        $departure = DateInput::requireFromStorage($booking->departureDate, 'rental_bookings.departure_date');
         if ($securityReceived > 0
             && ($security['returned_at'] ?? null) === null
             && $midnight >= $departure->modify('+' . self::DEPOSIT_RETURN_AFTER_DAYS . ' days')
@@ -270,15 +271,18 @@ class ReminderPlanner
             return null;
         }
 
-        try {
-            return (new \DateTimeImmutable($value))->setTime(0, 0);
-        } catch (\Exception) {
-            return null;
-        }
+        return DateInput::fromStorage($value)?->setTime(0, 0);
     }
 
+    /**
+     * $date is a compliance entry's expires_on, and it reaches here only
+     * after ComplianceItem has read it as a date — so an unreadable one
+     * would be a bug upstream. The reminder still says something rather
+     * than nothing: the raw value beats a blank in a message whose whole
+     * point is a deadline.
+     */
     private static function displayDate(string $date): string
     {
-        return (new \DateTimeImmutable($date))->format('d/m/Y');
+        return DateInput::fromStorage($date)?->format('d/m/Y') ?? $date;
     }
 }

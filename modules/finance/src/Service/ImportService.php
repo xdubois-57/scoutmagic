@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Finance\Service;
 
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 use Modules\Finance\Parser\BankStatementParserFactory;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\BalanceCheckpoint;
@@ -126,7 +127,10 @@ class ImportService
                         // Compared as-of the new checkpoint's own date, using
                         // only what was known before it — the ledger's own
                         // opinion of the balance on that day.
-                        $calculatedBalance = $this->balanceService->getBalanceAt($account, new \DateTimeImmutable($checkpointDate));
+                        $calculatedBalance = $this->balanceService->getBalanceAt(
+                            $account,
+                            DateInput::requireFromStorage($checkpointDate, 'import checkpoint date')
+                        );
                         if ($calculatedBalance !== null && abs($calculatedBalance - $balance) > 0.01) {
                             $balanceDiscrepancy = round($balance - $calculatedBalance, 2);
                         }

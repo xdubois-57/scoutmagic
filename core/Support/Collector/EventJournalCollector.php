@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Support\Collector;
 
+use Core\Service\DateInput;
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
 use Core\Support\SupportSpreadsheet;
@@ -94,13 +95,9 @@ class EventJournalCollector implements SupportCollectorInterface
             return '';
         }
 
-        try {
-            return (new \DateTimeImmutable($storedValue))->format('Y-m-d H:i:sP');
-        } catch (\Throwable) {
-            // Unparseable is still worth carrying: the raw value is the
-            // only evidence of whatever wrote it.
-            return $storedValue;
-        }
+        // Unparseable is still worth carrying: the raw value is the only
+        // evidence of whatever wrote it.
+        return DateInput::fromStorage($storedValue)?->format('Y-m-d H:i:sP') ?? $storedValue;
     }
 
     /**

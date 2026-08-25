@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\SupportDashboard\Service;
 
 use Core\Journal\JournalService;
+use Core\Service\DateInput;
 use Core\Security\EncryptionService;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 use Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository;
@@ -436,16 +437,24 @@ class StatisticsIntakeService
      * mode, so `"installed_at": "-5000-01-01"` — which `DateTimeImmutable`
      * parses perfectly happily — would otherwise reach the column and fault
      * the request.
+     *
+     * Read through DateInput because this is the most exposed reading in
+     * the project: the value is a field of a JSON body a remote
+     * installation posted, with no column type behind it at all. That
+     * narrows what is accepted to a value OPENING with an ISO calendar
+     * date, which is what StatisticsPayloadBuilder writes (an ATOM
+     * timestamp) and what the range check below already assumes. A payload
+     * writing "12/07/2027" used to be read as an American date and stored;
+     * it is now refused, which is the right answer at an intake endpoint.
      */
     private static function datetimeOrNull(mixed $value): ?string
     {
-        if (!is_string($value) || trim($value) === '') {
+        if (!is_string($value)) {
             return null;
         }
 
-        try {
-            $normalized = (new \DateTimeImmutable($value))->setTimezone(new \DateTimeZone('UTC'));
-        } catch (\Throwable) {
+        $normalized = DateInput::fromStorage($value)?->setTimezone(new \DateTimeZone('UTC'));
+        if ($normalized === null) {
             return null;
         }
 

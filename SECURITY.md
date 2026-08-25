@@ -596,7 +596,7 @@ PHP offers two ways to read a submitted date, and each has a trap; almost every 
 
 `new DateTimeImmutable($v)` fails the other way. It throws on `"../../.."` — so it looks stricter — but returns **the current moment** for `""`, `"now"`, `"yesterday"` and `"a\0b"`. An unvalidated field then becomes today's date, is written as if the visitor typed it, and nothing anywhere reports it.
 
-`DateInput` answers one question — is this string the date it claims to be — and returns `null` when it is not. It refuses control characters before parsing, round-trips the result so `2026-02-31` is refused rather than rolled forward to 3 March, and `fromStorage()` refuses MySQL's zero date, which PHP reads as the 30th of November, year -1. `Tests\Security\DateParsingConvergenceTest` fails on any `createFromFormat` anywhere outside that one file — the same convergence argument, and the same shape of test, as `HttpsDetectionConvergenceTest` in §9. It deliberately does **not** cover `new DateTimeImmutable($v)`: some forty sites read a timestamp column that way, `fromStorage()` is the safe replacement, and converting them is a migration of its own rather than something this section claims is done.
+`DateInput` answers one question — is this string the date it claims to be — and returns `null` when it is not. It refuses control characters before parsing, round-trips the result so `2026-02-31` is refused rather than rolled forward to 3 March, and `fromStorage()` refuses MySQL's zero date, which PHP reads as the 30th of November, year -1. `Tests\Security\DateParsingConvergenceTest` fails on any `createFromFormat` anywhere outside that one file — the same convergence argument, and the same shape of test, as `HttpsDetectionConvergenceTest` in §9. The companion ban on `new DateTimeImmutable($v)` is « Every stored date is read through one door » below.
 
 ### `Core\Service\IntegerInput` — a floor is half a bound
 
@@ -634,11 +634,38 @@ Checked against the real route table rather than a sample: `Tests\Core\Http\Rout
 
 `|date_fr`, `|datetime_fr`, `|french_date` and `|relative_date` used to read their argument with `new DateTimeImmutable((string) $date)`. One unreadable timestamp anywhere on a page therefore produced a **500 for the whole render** rather than a blank field — and an empty string rendered as *today*, which is how a missing value gets believed. All four now read through `DateInput::fromStorage()` and answer what they already answered for null: nothing at all.
 
-**The rest is frozen rather than converted.** 161 further `new DateTimeImmutable($value)` reads remain. Most read a `DATETIME` column, and MySQL will not let a malformed value into one — that is what makes them low-risk, and it is *not* what makes them checked: the zero date passes the column and PHP reads it as the 30th of November, year -1, and a nullable column read without a guard gives the empty string, which is *now*.
+### Every stored date is read through one door
 
-Converting all 161 at once would mean 161 decisions about what a null should do, in files nobody is otherwise touching — churn with a real chance of introducing the bug it is meant to prevent. So `Tests\Security\StoredDateReadingRatchetTest` freezes the list instead: **no new site may appear**, and an entry comes off as its file is touched for another reason. Checked in both directions, like §33's inline-style ratchet — a list that only shrinks stays true, one that is merely "not exceeded" drifts into fiction.
+**All 161 remaining `new DateTimeImmutable($value)` reads were converted.** They were frozen at first, on the argument that most of them read a `DATETIME` column and MySQL will not let a malformed value into one. That argument is half true, and the wrong half was load-bearing: the zero date passes the column and PHP reads it as the 30th of November, year -1; a nullable column read without a guard gives the empty string, which is ***now***; and a value from a **setting**, an **import** or a **JSON payload** has no column type behind it at all.
 
-The most exposed family is the one the column type does not protect at all: a value from a **setting**, an **import** or a **JSON payload** has no `DATETIME` behind it. When one of those files appears in a diff, that is the moment to convert it.
+Each site was read rather than pattern-matched, and answered one of three ways:
+
+- `DateInput::requireFromStorage($v, $what)` where the schema says the value is always there. A `NOT NULL DATETIME` that does not parse is corrupt storage, and the honest answer to corrupt storage is to stop. What it replaces did something worse than stopping.
+- `DateInput::fromStorage($v)` where the value is genuinely optional, or where the reading is presentation and a bad row must not take a page down with it. A camp's headline falls back to its year; a support-package sheet carries the raw value, which is the only evidence of whatever wrote it.
+- `DateInput::firstOfMonth($year, $month)` for the eleven copies of `new DateTimeImmutable(sprintf('%04d-%02d-01', …))` in month grids, availability calculators and on-call planners. Eleven places for the same unasked question — what if the month is 13? — now one, and the refusal names the values it was given.
+
+`Tests\Security\StoredDateReadingRatchetTest` is no longer a ratchet but a **ban with four named exceptions**, each carrying its reason in the test and the same reason at the call site:
+
+| Site | Why the constructor is right there |
+| --- | --- |
+| `Core\Service\DateInput` | The home. Every other reading goes through it, inside the try/catch that is the point of the class. |
+| `Core\Scheduler\SchedulerService::rearm()` | Takes a `strtotime` expression (`'tomorrow 05:00'`) from a task handler in this repository. The one edge worth closing — the empty string, which is *now* — is now refused explicitly. |
+| `Core\Maintenance\Task\AutoBackupHandler` | A relative expression from a class constant, with a literal fallback. |
+| `Modules\InboundMail\Mime\MimeMessageParser` | An RFC 2822 `Date:` header. `fromStorage()` requires the value to open with an ISO calendar date and would refuse every well-formed mail header there is. |
+
+One candidate exception did not survive that rule and was removed rather than written down: `Retro\Service\BoardService` looked up a relative expression in a private four-entry table read only by the one method using it, so the constructor's argument is now a **literal** in a `match` and the `isset()` guard three lines up became a `default => null`. An exception you can delete by writing the code differently was never an exception.
+
+`fromStorage()` refuses a relative expression **on purpose**: a stored moment that reads differently on every read is not a stored moment. Forcing those four through a reader built to refuse them would have made the code look uniform and do less. A fifth exception is a decision somebody has to defend in that file, which is the entire point.
+
+### Proving the conversion changed nothing
+
+A replacement that is safer and subtly different is a regression wearing a security badge. So the equivalence is pinned, not asserted: `Tests\Core\Service\DateInputEquivalenceTest` reads every value a `DATE`/`DATETIME` column can hold — a MySQL `DATETIME`, a bare `DATE`, midnight, a leap day, a fractional second, an explicit offset, an ISO `T`, surrounding whitespace — through both readings and requires `format('Y-m-d H:i:s.u P')` and `getTimestamp()` to be identical. The ten inputs where the two deliberately disagree are enumerated one by one, each with what the constructor used to answer, because an undocumented difference would be indistinguishable from a mistake.
+
+**It earned its keep immediately.** `firstOfMonth()` reads through `createFromFormat()`, which fills every field the format does not mention **from the current time** — so the first of the month came back at whatever o'clock it happened to be, where `new DateTimeImmutable('2026-08-01')` is midnight. Nothing formatted differently and no French date moved. `Modules\Rental\Availability\MonthWindow::previous()` compares `<=` against the first of the current month, and the public calendar quietly stopped disabling its own « mois précédent » arrow — the boundary §6.7 exists to enforce, defeated by microseconds.
+
+The fix is at the source and applies to the whole project: `DateInput::ISO_DATE` and `ISO_DATETIME_LOCAL` now carry the leading `!` that resets the unnamed fields, which is what every caller spelling its own format out already wrote (`'!d/m/Y'`, `'!Y-m-d'`). That also closed a latent bug nobody had reported: `RentalDocumentService::nightsBetween()` reads an arrival and a departure through `iso()` and subtracts them, so while each reading carried the clock of its own call, a pair straddling a second boundary came out **one night short on a contract** — silently, and roughly once every few thousand renders.
+
+`fromStorage()` and `requireFromStorage()` also take an optional `DateTimeZone`, passed through to the constructor unchanged and meaning exactly what it means there: the zone a *naive* value is read in, and nothing at all when the value carries its own offset. That is not a convenience — the ICS export reads an all-day date as UTC and a timed event on the site's own clock, and reading either in the wrong zone shifts an exported event by an hour or a day with nothing failing anywhere.
 
 ### `Core\Database\ConstraintViolation` — the floor underneath validation
 

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Calendar\Service;
 
 use Core\Scheduler\SchedulerService;
+use Core\Service\DateInput;
 use Modules\Calendar\Repository\CalendarEvent;
 use Modules\Retro\Api\RetroEventLinkLookupInterface;
 
@@ -50,9 +51,12 @@ class CalendarRetroAutoCreateService
             return;
         }
 
-        $startAt = $event->startTime !== null
-            ? new \DateTimeImmutable($event->startDate . ' ' . $event->startTime)
-            : new \DateTimeImmutable($event->startDate);
+        $startAt = DateInput::requireFromStorage(
+            $event->startTime !== null
+                ? $event->startDate . ' ' . $event->startTime
+                : $event->startDate,
+            'calendar_events.start_date'
+        );
 
         $now = new \DateTimeImmutable();
         $runAt = $startAt > $now ? $startAt : $now->modify('+5 minutes');

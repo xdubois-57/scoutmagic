@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\SosStaff\Service;
 
 use Core\Member\MemberService;
+use Core\Service\DateInput;
 use Modules\Calendar\Service\CalendarEventService;
 use Modules\Calendar\Service\CalendarException;
 use Modules\Calendar\Service\CalendarService;
@@ -128,7 +129,9 @@ class CalendarSyncService
         $prev = $sortedDates[0];
 
         foreach (array_slice($sortedDates, 1) as $date) {
-            $expectedNext = (new \DateTimeImmutable($prev))->modify('+1 day')->format('Y-m-d');
+            $expectedNext = DateInput::requireFromStorage($prev, 'an on-call day')
+                ->modify('+1 day')
+                ->format('Y-m-d');
             if ($date !== $expectedNext) {
                 $streaks[] = [$start, $prev];
                 $start = $date;

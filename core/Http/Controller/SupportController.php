@@ -16,6 +16,7 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Scheduler\SchedulerService;
+use Core\Service\DateInput;
 use Core\Statistics\DestinationMatcher;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Statistics\StatisticsSender;
@@ -296,15 +297,10 @@ class SupportController extends AbstractController
      */
     private static function isBefore(?string $earlier, ?string $later): bool
     {
-        if ($earlier === null || $later === null) {
-            return false;
-        }
+        $before = DateInput::fromStorage($earlier);
+        $after = DateInput::fromStorage($later);
 
-        try {
-            return (new \DateTimeImmutable($earlier)) < (new \DateTimeImmutable($later));
-        } catch (\Throwable) {
-            return false;
-        }
+        return $before !== null && $after !== null && $before < $after;
     }
 
     private static function nonEmpty(mixed $value): ?string

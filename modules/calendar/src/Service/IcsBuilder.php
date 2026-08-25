@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Calendar\Service;
 
 use Core\Config\AppClock;
+use Core\Service\DateInput;
 use Modules\Calendar\Api\VirtualEvent;
 use Modules\Calendar\Repository\CalendarEvent;
 
@@ -104,21 +105,21 @@ class IcsBuilder
             $endDate = $event->endDate ?? $event->startDate;
             // DTEND for an all-day event is exclusive per RFC 5545 — the
             // day after the last day the event actually occupies.
-            $exclusiveEnd = (new \DateTimeImmutable($endDate, new \DateTimeZone('UTC')))->modify('+1 day');
+            $exclusiveEnd = $this->read($endDate, new \DateTimeZone('UTC'))->modify('+1 day');
 
             $lines[] = $this->property(
                 'DTSTART',
-                (new \DateTimeImmutable($event->startDate, new \DateTimeZone('UTC')))->format('Ymd'),
+                $this->read($event->startDate, new \DateTimeZone('UTC'))->format('Ymd'),
                 ['VALUE' => 'DATE']
             );
             $lines[] = $this->property('DTEND', $exclusiveEnd->format('Ymd'), ['VALUE' => 'DATE']);
         } else {
-            $start = new \DateTimeImmutable($event->startDate . ' ' . $event->startTime, new \DateTimeZone(self::TIMEZONE_ID));
+            $start = $this->read($event->startDate . ' ' . $event->startTime, new \DateTimeZone(self::TIMEZONE_ID));
             $lines[] = $this->property('DTSTART', $start->format('Ymd\THis'), ['TZID' => self::TIMEZONE_ID]);
 
             if ($event->endTime !== null) {
                 $endDate = $event->endDate ?? $event->startDate;
-                $end = new \DateTimeImmutable($endDate . ' ' . $event->endTime, new \DateTimeZone(self::TIMEZONE_ID));
+                $end = $this->read($endDate . ' ' . $event->endTime, new \DateTimeZone(self::TIMEZONE_ID));
                 $lines[] = $this->property('DTEND', $end->format('Ymd\THis'), ['TZID' => self::TIMEZONE_ID]);
             }
         }
@@ -138,7 +139,7 @@ class IcsBuilder
         // than relabelled as UTC, which would put LAST-MODIFIED an hour or
         // two ahead of the change it describes.
         $lines[] = $this->property('LAST-MODIFIED', $this->formatUtc(
-            (new \DateTimeImmutable($event->updatedAt, AppClock::zone()))
+            $this->read($event->updatedAt, AppClock::zone())
                 ->setTimezone(new \DateTimeZone('UTC'))
         ));
 
@@ -167,22 +168,22 @@ class IcsBuilder
         if ($event->isAllDay()) {
             // DTEND for an all-day event is exclusive per RFC 5545 — the
             // day after the last day the event actually occupies.
-            $exclusiveEnd = (new \DateTimeImmutable($event->endDate, new \DateTimeZone('UTC')))->modify('+1 day');
+            $exclusiveEnd = $this->read($event->endDate, new \DateTimeZone('UTC'))->modify('+1 day');
 
             $lines[] = $this->property(
                 'DTSTART',
-                (new \DateTimeImmutable($event->startDate, new \DateTimeZone('UTC')))->format('Ymd'),
+                $this->read($event->startDate, new \DateTimeZone('UTC'))->format('Ymd'),
                 ['VALUE' => 'DATE']
             );
             $lines[] = $this->property('DTEND', $exclusiveEnd->format('Ymd'), ['VALUE' => 'DATE']);
         } else {
-            $start = new \DateTimeImmutable(
+            $start = $this->read(
                 $event->startDate . ' ' . $event->startTime,
                 new \DateTimeZone(self::TIMEZONE_ID)
             );
             $lines[] = $this->property('DTSTART', $start->format('Ymd\THis'), ['TZID' => self::TIMEZONE_ID]);
 
-            $end = new \DateTimeImmutable(
+            $end = $this->read(
                 $event->endDate . ' ' . ($event->endTime ?? $event->startTime),
                 new \DateTimeZone(self::TIMEZONE_ID)
             );
@@ -221,6 +222,26 @@ class IcsBuilder
     private function formatUtc(\DateTimeImmutable $dateTime): string
     {
         return $dateTime->format('Ymd\THis\Z');
+    }
+
+    /**
+     * A stored date, or a stored date and time concatenated, read in the
+     * zone the caller says it was written in.
+     *
+     * The zone is not decoration: an all-day date is read as UTC because
+     * an ICS `VALUE=DATE` is a floating calendar day, while a timed event
+     * is read on the site's own clock. Reading either in the wrong zone
+     * shifts the exported event by an hour or a day and nothing fails, so
+     * the argument is passed through to the constructor unchanged — which
+     * is exactly what DateInput::requireFromStorage() does with it.
+     *
+     * Loud rather than silent: an event row whose start_date does not
+     * parse cannot be exported, and a feed that quietly skips an event is
+     * worse than one that fails.
+     */
+    private function read(string $stored, \DateTimeZone $zone): \DateTimeImmutable
+    {
+        return DateInput::requireFromStorage($stored, 'calendar event date', $zone);
     }
 
     /**

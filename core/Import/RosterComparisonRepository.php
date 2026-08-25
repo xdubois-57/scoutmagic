@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Import;
 
 use Core\Member\UnitStaffSectionService;
+use Core\Service\DateInput;
 
 /**
  * The reads {@see RosterReplacementGuard} confronts a parsed CSV with,
@@ -215,6 +216,6 @@ class RosterComparisonRepository
         $stmt->execute([$scoutYearId]);
         $value = $stmt->fetchColumn();
 
-        return $value === false || $value === null ? null : new \DateTimeImmutable((string) $value);
+        return $value === false || $value === null ? null : DateInput::fromStorage((string) $value);
     }
 }

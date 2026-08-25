@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Groups\Support;
 
 use Core\Config\AppClock;
+use Core\Service\DateInput;
 
 /**
  * Every timestamp this module writes and compares goes through here, on the
@@ -57,6 +58,6 @@ final class Timestamps
      */
     public static function parse(string $stored): \DateTimeImmutable
     {
-        return new \DateTimeImmutable($stored, AppClock::zone());
+        return DateInput::requireFromStorage($stored, 'a groups module timestamp', AppClock::zone());
     }
 }

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Member\Export;
 
 use Core\Security\Role;
+use Core\Service\DateInput;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
@@ -108,9 +109,8 @@ final class MemberExportService
                 // 2015-03-20 the moment PHP stopped running on UTC. A
                 // DateTimeInterface is read by its calendar components, so
                 // the date written is the date given, on any clock.
-                try {
-                    $date = new \DateTimeImmutable((string) $value);
-                } catch (\Exception) {
+                $date = DateInput::fromStorage((string) $value);
+                if ($date === null) {
                     $sheet->setCellValueExplicit([$column, $row], (string) $value, DataType::TYPE_STRING);
                     return;
                 }

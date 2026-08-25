@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Repository;
 
+use Core\Service\DateInput;
 use Modules\Rental\Availability\Occupancy;
 use Modules\Rental\Availability\OccupancyProvider;
 
@@ -165,7 +166,7 @@ class RentalBlockRepository implements OccupancyProvider
             units: (int) $row['units'],
             reason: $row['reason'] !== null ? (string) $row['reason'] : null,
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
-            createdAt: new \DateTimeImmutable((string) $row['created_at'])
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
         );
     }
 }

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Service\DateInput;
+
 /**
  * One Desk import, as the history screen and the report page read it.
  *
@@ -42,7 +44,7 @@ final class ImportRecord
             (int) $row['member_count'],
             (int) $row['new_functions_count'],
             $row['file_id'] === null ? null : (int) $row['file_id'],
-            new \DateTimeImmutable((string) $row['imported_at'])
+            DateInput::requireFromStorage((string) $row['imported_at'], 'imported_at')
         );
     }
 }

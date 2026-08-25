@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Fees\Repository;
 
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 use Modules\Fees\Value\IgnoredHousehold;
 
 /**
@@ -49,7 +50,7 @@ class IgnoredHouseholdRepository
                 $blindIndex,
                 (string) $row['composition_hash'],
                 $this->encryption->decrypt((string) $row['reason_encrypted'], self::ENCRYPTION_CONTEXT),
-                new \DateTimeImmutable((string) $row['created_at'])
+                DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
             );
         }
 

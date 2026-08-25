@@ -10,6 +10,7 @@ namespace Modules\Rental\Repository;
 
 use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\RentalBooking;
@@ -781,9 +782,9 @@ class RentalBookingRepository
             purpose: $this->decryptOptional($row['purpose_encrypted'] ?? null, self::CTX_PURPOSE),
             renterComment: $this->decryptOptional($row['renter_comment_encrypted'] ?? null, self::CTX_COMMENT),
             status: BookingStatus::tryFrom((string) $row['status']) ?? BookingStatus::RECEIVED,
-            receivedAt: new \DateTimeImmutable((string) $row['received_at']),
-            finalAt: $row['final_at'] !== null ? new \DateTimeImmutable((string) $row['final_at']) : null,
-            holdUntil: $row['hold_until'] !== null ? new \DateTimeImmutable((string) $row['hold_until']) : null,
+            receivedAt: DateInput::requireFromStorage((string) $row['received_at'], 'received_at'),
+            finalAt: DateInput::fromStorage($row['final_at'] === null ? null : (string) $row['final_at']),
+            holdUntil: DateInput::fromStorage($row['hold_until'] === null ? null : (string) $row['hold_until']),
             holdOrigin: $row['hold_origin'] !== null ? HoldOrigin::tryFrom((string) $row['hold_origin']) : null,
             estimatedPrice: $decodedSnapshot,
             estimatedTotalCents: $row['estimated_total_cents'] !== null ? (int) $row['estimated_total_cents'] : null,
@@ -791,10 +792,10 @@ class RentalBookingRepository
             agreedTotalCents: isset($row['agreed_total_cents']) ? (int) $row['agreed_total_cents'] : null,
             conditionsVersion: $row['conditions_version'] !== null ? (string) $row['conditions_version'] : null,
             conditionsHash: $row['conditions_hash'] !== null ? (string) $row['conditions_hash'] : null,
-            conditionsAcceptedAt: $row['conditions_accepted_at'] !== null ? new \DateTimeImmutable((string) $row['conditions_accepted_at']) : null,
+            conditionsAcceptedAt: DateInput::fromStorage($row['conditions_accepted_at'] === null ? null : (string) $row['conditions_accepted_at']),
             privacyVersion: $row['privacy_version'] !== null ? (string) $row['privacy_version'] : null,
             privacyHash: $row['privacy_hash'] !== null ? (string) $row['privacy_hash'] : null,
-            privacyAcknowledgedAt: $row['privacy_acknowledged_at'] !== null ? new \DateTimeImmutable((string) $row['privacy_acknowledged_at']) : null
+            privacyAcknowledgedAt: DateInput::fromStorage($row['privacy_acknowledged_at'] === null ? null : (string) $row['privacy_acknowledged_at'])
         );
     }
 }

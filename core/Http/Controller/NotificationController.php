@@ -14,6 +14,7 @@ use Core\Notification\NotificationRecord;
 use Core\Notification\NotificationRepository;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Service\DateInput;
 use Twig\Environment;
 
 /**
@@ -125,7 +126,7 @@ class NotificationController extends AbstractController
                 $label = match ($day) {
                     $today => "Aujourd'hui",
                     $yesterday => 'Hier',
-                    default => (new \DateTimeImmutable($day))->format('j') . ' ' . $this->frenchMonth((int) (new \DateTimeImmutable($day))->format('n')) . ' ' . (new \DateTimeImmutable($day))->format('Y'),
+                    default => $this->frenchDay($day),
                 };
                 $groups[$day] = ['label' => $label, 'notifications' => []];
             }
@@ -133,6 +134,27 @@ class NotificationController extends AbstractController
         }
 
         return array_values($groups);
+    }
+
+    /**
+     * A stored day as "5 juillet 2026".
+     *
+     * $day is the date half of a `created_at`, so it is a date in every
+     * row this will ever see; if it somehow is not, the label falls back
+     * to the raw value rather than taking the notification list down
+     * with it. The old reading threw — three times over, since it built
+     * the same object once per part.
+     */
+    private function frenchDay(string $day): string
+    {
+        $date = DateInput::fromStorage($day);
+        if ($date === null) {
+            return $day;
+        }
+
+        return $date->format('j')
+            . ' ' . $this->frenchMonth((int) $date->format('n'))
+            . ' ' . $date->format('Y');
     }
 
     private function frenchMonth(int $month): string

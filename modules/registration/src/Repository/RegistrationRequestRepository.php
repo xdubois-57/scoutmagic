@@ -12,6 +12,7 @@ use Core\Member\AddressNormalizer;
 use Core\Member\NameDobKey;
 use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 
 /**
  * All identity data is encrypted at rest (SECURITY.md §5) — this is the
@@ -596,14 +597,14 @@ class RegistrationRequestRepository
             remarks: $row['remarks_encrypted'] !== null ? $this->encryption->decrypt($row['remarks_encrypted'], 'registration_requests.remarks') : null,
             desiredSectionId: $row['desired_section_id'] !== null ? (int) $row['desired_section_id'] : null,
             status: (string) $row['status'],
-            receivedAt: new \DateTimeImmutable((string) $row['received_at']),
+            receivedAt: DateInput::requireFromStorage((string) $row['received_at'], 'received_at'),
             intendedSectionId: $row['intended_section_id'] !== null ? (int) $row['intended_section_id'] : null,
             feeCategoryId: $row['fee_category_id'] !== null ? (int) $row['fee_category_id'] : null,
             internalNotes: $row['internal_notes_encrypted'] !== null ? $this->encryption->decrypt($row['internal_notes_encrypted'], 'registration_requests.internal_notes') : null,
             linkedMemberId: $row['linked_member_id'] !== null ? (int) $row['linked_member_id'] : null,
-            acceptedEmailSentAt: $row['accepted_email_sent_at'] !== null ? new \DateTimeImmutable((string) $row['accepted_email_sent_at']) : null,
-            refusedEmailSentAt: $row['refused_email_sent_at'] !== null ? new \DateTimeImmutable((string) $row['refused_email_sent_at']) : null,
-            finalAt: $row['final_at'] !== null ? new \DateTimeImmutable((string) $row['final_at']) : null
+            acceptedEmailSentAt: DateInput::fromStorage($row['accepted_email_sent_at'] === null ? null : (string) $row['accepted_email_sent_at']),
+            refusedEmailSentAt: DateInput::fromStorage($row['refused_email_sent_at'] === null ? null : (string) $row['refused_email_sent_at']),
+            finalAt: DateInput::fromStorage($row['final_at'] === null ? null : (string) $row['final_at'])
         );
     }
 }

@@ -12,6 +12,7 @@ use Core\Database\Connection;
 use Core\Import\MemberYearRepository;
 use Core\Security\EncryptionService;
 use Core\Security\Role;
+use Core\Service\DateInput;
 
 class MemberService
 {
@@ -502,9 +503,8 @@ class MemberService
             return true;
         }
 
-        try {
-            $born = new \DateTimeImmutable(trim($birthDate));
-        } catch (\Exception) {
+        $born = DateInput::fromStorage($birthDate);
+        if ($born === null) {
             return true;
         }
 

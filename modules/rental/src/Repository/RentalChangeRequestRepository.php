@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Repository;
 
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 use Modules\Rental\Booking\ChangeRequest;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
@@ -159,8 +160,8 @@ class RentalChangeRequestRepository
             message: $row['message_encrypted'] !== null && (string) $row['message_encrypted'] !== ''
                 ? $this->encryption->decrypt((string) $row['message_encrypted'], self::CTX_MESSAGE)
                 : null,
-            createdAt: new \DateTimeImmutable((string) $row['created_at']),
-            decidedAt: $row['decided_at'] !== null ? new \DateTimeImmutable((string) $row['decided_at']) : null,
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
+            decidedAt: DateInput::fromStorage($row['decided_at'] === null ? null : (string) $row['decided_at']),
             decidedByMemberId: $row['decided_by_member_id'] !== null ? (int) $row['decided_by_member_id'] : null
         );
     }

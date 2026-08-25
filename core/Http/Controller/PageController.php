@@ -20,6 +20,7 @@ use Core\Module\HomeGroupActivityProvider;
 use Core\Module\HomeNewsProvider;
 use Core\Module\SectionResponsableProvider;
 use Core\Security\AuthSession;
+use Core\Service\DateInput;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
 use Core\View\SectionRepository;
@@ -133,9 +134,8 @@ class PageController extends AbstractController
                 // clock like every other one (Core\Config\AppClock), so it
                 // is parsed under the default timezone, not forced to UTC.
                 $lastUpdatedRaw = $this->editableContentService->getLastUpdated('rgpd.text');
-                $lastUpdated = $lastUpdatedRaw !== null
-                    ? new \DateTimeImmutable($lastUpdatedRaw)
-                    : $this->rgpdContentService->getDefaultContentLastModified();
+                $lastUpdated = DateInput::fromStorage($lastUpdatedRaw)
+                    ?? $this->rgpdContentService->getDefaultContentLastModified();
             }
         }
 

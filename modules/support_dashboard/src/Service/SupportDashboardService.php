@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\SupportDashboard\Service;
 
 use Core\Config\SettingService;
+use Core\Service\DateInput;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 use Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository;
 
@@ -673,14 +674,6 @@ class SupportDashboardService
 
     private static function timestampOrNull(?string $value): ?int
     {
-        if ($value === null) {
-            return null;
-        }
-
-        try {
-            return (new \DateTimeImmutable($value))->getTimestamp();
-        } catch (\Throwable) {
-            return null;
-        }
+        return DateInput::fromStorage($value)?->getTimestamp();
     }
 }

@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Support\Collector;
 
+use Core\Service\DateInput;
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
 use Core\Support\SupportSpreadsheet;
@@ -126,12 +127,13 @@ class UpdateHistoryCollector implements SupportCollectorInterface
             return '';
         }
 
-        try {
-            $seconds = (new \DateTimeImmutable($completedAt))->getTimestamp()
-                - (new \DateTimeImmutable($startedAt))->getTimestamp();
-        } catch (\Throwable) {
+        $finished = DateInput::fromStorage($completedAt);
+        $began = DateInput::fromStorage($startedAt);
+        if ($finished === null || $began === null) {
             return '';
         }
+
+        $seconds = $finished->getTimestamp() - $began->getTimestamp();
 
         if ($seconds < 0) {
             return '';
@@ -153,11 +155,7 @@ class UpdateHistoryCollector implements SupportCollectorInterface
             return '';
         }
 
-        try {
-            return (new \DateTimeImmutable($storedValue))->format('Y-m-d H:i:sP');
-        } catch (\Throwable) {
-            return $storedValue;
-        }
+        return DateInput::fromStorage($storedValue)?->format('Y-m-d H:i:sP') ?? $storedValue;
     }
 
     private static function asString(mixed $value): string

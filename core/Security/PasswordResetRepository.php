@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Security;
 
+use Core\Service\DateInput;
+
 /**
  * password_reset_tokens — same conventions as Core\Security\
  * MagicLinkRepository, but every timestamp comparison is computed in PHP
@@ -86,9 +88,9 @@ class PasswordResetRepository
             id: (int) $row['id'],
             emailBlindIndex: (string) $row['email_blind_index'],
             tokenHash: (string) $row['token_hash'],
-            expiresAt: new \DateTimeImmutable((string) $row['expires_at']),
+            expiresAt: DateInput::requireFromStorage((string) $row['expires_at'], 'expires_at'),
             used: (bool) $row['used'],
-            createdAt: new \DateTimeImmutable((string) $row['created_at'])
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
         );
     }
 }

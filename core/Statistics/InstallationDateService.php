@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Statistics;
 
 use Core\Config\SettingService;
+use Core\Service\DateInput;
 
 /**
  * Owns the `installed_at` setting: when this ScoutMagic installation came
@@ -99,9 +100,8 @@ class InstallationDateService
             return null;
         }
 
-        try {
-            $date = new \DateTimeImmutable($value);
-        } catch (\Throwable) {
+        $date = DateInput::fromStorage($value);
+        if ($date === null) {
             return null;
         }
 

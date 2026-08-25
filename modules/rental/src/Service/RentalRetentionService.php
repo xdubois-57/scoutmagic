@@ -11,6 +11,7 @@ namespace Modules\Rental\Service;
 use Core\Config\SettingService;
 use Core\File\FileRepository;
 use Core\Journal\JournalService;
+use Core\Service\DateInput;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\RentalBooking;
@@ -154,7 +155,7 @@ class RentalRetentionService
     {
         $this->aggregateRepository->record(
             $booking->assetId,
-            (new \DateTimeImmutable($booking->arrivalDate))->format('Y-m'),
+            DateInput::requireFromStorage($booking->arrivalDate, 'rental_bookings.arrival_date')->format('Y-m'),
             $this->occupiedDays($booking),
             $booking->effectiveTotalCents() ?? 0,
             $this->scoutYearIdFor($booking->arrivalDate)
@@ -233,8 +234,8 @@ class RentalRetentionService
      */
     private function occupiedDays(RentalBooking $booking): int
     {
-        $arrival = new \DateTimeImmutable($booking->arrivalDate);
-        $departure = new \DateTimeImmutable($booking->departureDate);
+        $arrival = DateInput::requireFromStorage($booking->arrivalDate, 'rental_bookings.arrival_date');
+        $departure = DateInput::requireFromStorage($booking->departureDate, 'rental_bookings.departure_date');
 
         return max(1, (int) $arrival->diff($departure)->format('%a'));
     }

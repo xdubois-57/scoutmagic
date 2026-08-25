@@ -11,6 +11,7 @@ namespace Modules\Finance\Service;
 use Core\Config\SettingService;
 use Core\Member\SectionService;
 use Core\Security\Role;
+use Core\Service\DateInput;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\Category;
@@ -734,13 +735,13 @@ class FinanceService
             return [];
         }
 
-        $end = new \DateTimeImmutable($fiscalYear->endDate);
+        $end = DateInput::requireFromStorage($fiscalYear->endDate, 'finance_fiscal_years.end_date');
         $today = new \DateTimeImmutable('today');
         if ($end > $today) {
             $end = $today;
         }
 
-        $cursor = new \DateTimeImmutable($fiscalYear->startDate);
+        $cursor = DateInput::requireFromStorage($fiscalYear->startDate, 'finance_fiscal_years.start_date');
         if ($cursor > $end) {
             return [];
         }

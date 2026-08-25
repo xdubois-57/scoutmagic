@@ -18,6 +18,7 @@ use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
+use Core\Service\DateInput;
 use Core\View\EditableContentService;
 use Modules\Calendar\Service\IcsBuilder;
 use Modules\Rental\Booking\ChangeRequestKind;
@@ -207,8 +208,8 @@ class RentalRequestController extends AbstractController
         $errors = $this->availabilityService->validateRange(
             $asset,
             $pricing->billingUnit,
-            new \DateTimeImmutable($arrival),
-            new \DateTimeImmutable($departure),
+            DateInput::requireFromStorage($arrival, 'the submitted arrival date'),
+            DateInput::requireFromStorage($departure, 'the submitted departure date'),
             $units,
             $today,
             $persons > 0 ? $persons : null

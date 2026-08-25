@@ -14,6 +14,7 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Service\DateInput;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\AttachmentRepository;
@@ -111,7 +112,10 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
         try {
             // Computed before any deletion — the ledger's own opinion of
             // the balance at the fiscal year's end, seeding continuity.
-            $consolidatedBalance = $balanceService->getBalanceAt($account, new \DateTimeImmutable($fiscalYear->endDate));
+            $consolidatedBalance = $balanceService->getBalanceAt(
+                $account,
+                DateInput::requireFromStorage($fiscalYear->endDate, 'finance_fiscal_years.end_date')
+            );
 
             foreach ($transactionIds as $transactionId) {
                 foreach ($transactionAttachmentRepository->findAttachmentIdsForTransaction($transactionId) as $attachmentId) {

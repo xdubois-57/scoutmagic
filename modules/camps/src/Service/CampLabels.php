@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Service;
 
+use Core\Service\DateInput;
 use Modules\Camps\Repository\Camp;
 
 /**
@@ -92,12 +93,16 @@ class CampLabels
      */
     public static function dateRange(?string $startDate, ?string $endDate, ?int $yearOnly): string
     {
-        if ($startDate === null || $endDate === null) {
+        $start = DateInput::fromStorage($startDate);
+        $end = DateInput::fromStorage($endDate);
+        if ($start === null || $end === null) {
+            // Absent, and unreadable, get the same answer: the year if the
+            // camp has one, otherwise nothing. This is the headline on
+            // every camp screen — a bad stored date must not take the
+            // list down with it.
             return $yearOnly !== null ? (string) $yearOnly : '';
         }
 
-        $start = new \DateTimeImmutable($startDate);
-        $end = new \DateTimeImmutable($endDate);
         if ($start->format('Y-m-d') === $end->format('Y-m-d')) {
             return self::longDate($start);
         }

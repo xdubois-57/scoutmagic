@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Repository;
 
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 use Modules\Rental\Stay\Incident;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryState;
@@ -580,7 +581,7 @@ class RentalStayRepository
             meterId: (int) $row['meter_id'],
             phase: ReadingPhase::tryFrom((string) $row['phase']) ?? ReadingPhase::ARRIVAL,
             valueMilli: (int) $row['value_milli'],
-            readAt: new \DateTimeImmutable((string) $row['read_at']),
+            readAt: DateInput::requireFromStorage((string) $row['read_at'], 'read_at'),
             fileId: $row['file_id'] !== null ? (int) $row['file_id'] : null,
             comment: $row['comment'] !== null ? (string) $row['comment'] : null,
             recordedByMemberId: $row['recorded_by_member_id'] !== null ? (int) $row['recorded_by_member_id'] : null
@@ -601,11 +602,11 @@ class RentalStayRepository
                 : null,
             decision: IncidentDecision::tryFrom((string) $row['decision']) ?? IncidentDecision::PENDING,
             decidedAmountCents: $row['decided_amount_cents'] !== null ? (int) $row['decided_amount_cents'] : null,
-            decidedAt: $row['decided_at'] !== null ? new \DateTimeImmutable((string) $row['decided_at']) : null,
+            decidedAt: DateInput::fromStorage($row['decided_at'] === null ? null : (string) $row['decided_at']),
             decidedByMemberId: $row['decided_by_member_id'] !== null ? (int) $row['decided_by_member_id'] : null,
             fileId: $row['file_id'] !== null ? (int) $row['file_id'] : null,
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
-            createdAt: new \DateTimeImmutable((string) $row['created_at'])
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
         );
     }
 
@@ -635,12 +636,12 @@ class RentalStayRepository
                 ? (int) $row['security_deposit_return_cents']
                 : null,
             isValidated: (bool) $row['is_validated'],
-            validatedAt: $row['validated_at'] !== null ? new \DateTimeImmutable((string) $row['validated_at']) : null,
+            validatedAt: DateInput::fromStorage($row['validated_at'] === null ? null : (string) $row['validated_at']),
             validatedByMemberId: $row['validated_by_member_id'] !== null
                 ? (int) $row['validated_by_member_id']
                 : null,
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
-            createdAt: new \DateTimeImmutable((string) $row['created_at'])
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
         );
     }
 }

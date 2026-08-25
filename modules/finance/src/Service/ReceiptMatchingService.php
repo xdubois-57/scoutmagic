@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Finance\Service;
 
 use Core\Journal\JournalService;
+use Core\Service\DateInput;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\Transaction;
@@ -307,8 +308,9 @@ class ReceiptMatchingService
 
     private function daysBetween(string $referenceDate, string $otherDate): int
     {
-        $reference = new \DateTimeImmutable($referenceDate);
-        $other = new \DateTimeImmutable($otherDate);
+        $reference = DateInput::requireFromStorage($referenceDate, 'finance_attachments receipt date');
+        $other = DateInput::requireFromStorage($otherDate, 'finance_transactions.transaction_date');
+
         return (int) $reference->diff($other)->format('%r%a');
     }
 

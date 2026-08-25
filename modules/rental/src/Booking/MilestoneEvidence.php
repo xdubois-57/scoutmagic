@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Booking;
 
+use Core\Service\DateInput;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Payment\SecurityDepositStatus;
@@ -229,10 +230,6 @@ final class MilestoneEvidence
             return null;
         }
 
-        try {
-            return (new \DateTimeImmutable($value))->format('d/m/Y');
-        } catch (\Throwable) {
-            return null;
-        }
+        return DateInput::fromStorage($value)?->format('d/m/Y');
     }
 }

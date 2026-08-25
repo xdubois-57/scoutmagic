@@ -13,6 +13,7 @@ use Core\Mail\MailService;
 use Core\Maintenance\VersionFile;
 use Core\Member\UnitStaffSectionService;
 use Core\Module\ModuleManager;
+use Core\Service\DateInput;
 
 /**
  * Builds the exact document an installation reports to the statistics
@@ -330,8 +331,8 @@ class StatisticsPayloadBuilder
             return null;
         }
 
-        return (new \DateTimeImmutable($value))
-            ->setTimezone(new \DateTimeZone('UTC'))
+        return DateInput::fromStorage($value)
+            ?->setTimezone(new \DateTimeZone('UTC'))
             ->format(\DateTimeInterface::ATOM);
     }
 

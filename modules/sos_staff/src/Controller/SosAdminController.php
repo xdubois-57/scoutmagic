@@ -367,8 +367,9 @@ class SosAdminController extends AbstractController
         }
         $colors = $this->calendarService->colorsByCalendarId();
 
-        $monthStart = sprintf('%04d-%02d-01', $year, $month);
-        $monthEnd = (new \DateTimeImmutable($monthStart))->modify('last day of this month')->format('Y-m-d');
+        $firstOfMonth = DateInput::firstOfMonth($year, $month);
+        $monthStart = $firstOfMonth->format('Y-m-d');
+        $monthEnd = $firstOfMonth->modify('last day of this month')->format('Y-m-d');
 
         $columns = [];
         foreach ($sections as $section) {
@@ -379,8 +380,8 @@ class SosAdminController extends AbstractController
                 foreach ($this->calendarService->getEventsForMonth([$calendar->id], $year, $month) as $event) {
                     $start = max($event->startDate, $monthStart);
                     $end = min($event->endDate ?? $event->startDate, $monthEnd);
-                    $cursor = new \DateTimeImmutable($start);
-                    $endDate = new \DateTimeImmutable($end);
+                    $cursor = DateInput::requireFromStorage($start, 'calendar_events.start_date');
+                    $endDate = DateInput::requireFromStorage($end, 'calendar_events.end_date');
                     while ($cursor <= $endDate) {
                         $eventsByDay[$cursor->format('Y-m-d')][] = $event->title;
                         $cursor = $cursor->modify('+1 day');
@@ -426,7 +427,7 @@ class SosAdminController extends AbstractController
                 ? ($this->settingsService->labelForMember((int) $memberId, $scoutYearId) ?? 'Membre')
                 : 'Numéro par défaut';
 
-            $runAt = new \DateTimeImmutable((string) $row['run_at']);
+            $runAt = DateInput::requireFromStorage((string) $row['run_at'], 'run_at');
             $status = $runAt > $now ? 'à venir' : 'exécuté';
             if ($runAt <= $now) {
                 $latestPastIndex = $index;
@@ -510,7 +511,11 @@ class SosAdminController extends AbstractController
         if (is_string($requested) && preg_match('/^(\d{4})-(\d{2})$/', $requested, $m) === 1) {
             $year = (int) $m[1];
             $month = (int) $m[2];
-            if ($month >= 1 && $month <= 12) {
+            // The year is bounded as well as the month: `\d{4}` matches
+            // "0000", and a month grid is built from a real calendar month
+            // (DateInput::firstOfMonth()), which year zero is not. Falling
+            // back to today is what this already does for month 13.
+            if ($year >= 1000 && $month >= 1 && $month <= 12) {
                 return [$year, $month];
             }
         }

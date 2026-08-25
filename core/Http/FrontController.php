@@ -20,6 +20,7 @@ use Core\Offline\OfflineWhitelist;
 use Core\Security\AuthSession;
 use Core\Security\RbacGuard;
 use Core\Security\Role;
+use Core\Service\DateInput;
 use Core\View\ConfigurationMode;
 use Core\View\MarkdownRenderer;
 use Twig\Environment;
@@ -342,15 +343,14 @@ class FrontController
 
     private function elapsedLabel(string $startedAt): string
     {
-        try {
-            // Naive DATETIME, same convention as Core\Security\
-            // MagicLinkRepository etc. — compared directly against the
-            // current time in PHP's own default timezone, no explicit UTC
-            // conversion (MySQL's CURRENT_TIMESTAMP and PHP's `now` are
-            // assumed to agree, as they already are everywhere else this
-            // app diffs a DB timestamp).
-            $started = new \DateTimeImmutable($startedAt);
-        } catch (\Exception) {
+        // Naive DATETIME, same convention as Core\Security\
+        // MagicLinkRepository etc. — compared directly against the
+        // current time in PHP's own default timezone, no explicit UTC
+        // conversion (MySQL's CURRENT_TIMESTAMP and PHP's `now` are
+        // assumed to agree, as they already are everywhere else this
+        // app diffs a DB timestamp).
+        $started = DateInput::fromStorage($startedAt);
+        if ($started === null) {
             return '';
         }
 
