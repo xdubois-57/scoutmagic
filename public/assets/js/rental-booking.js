@@ -142,7 +142,10 @@
 
                 if (data === null) {
                     toast('L\'action n\'a pas abouti. Rechargez la page et réessayez.', 'error');
-                    return Promise.resolve();
+                    // Explicit rather than a bare `return`: the other path
+                    // returns refreshPanels()'s promise, and mixing the two
+                    // trips the JS typecheck's noImplicitReturns.
+                    return undefined;
                 }
                 toast(data.message || data.error || '', data.success ? (data.type || 'success') : 'error');
 
