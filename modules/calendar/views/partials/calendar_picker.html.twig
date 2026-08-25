@@ -12,26 +12,32 @@
       extra_query: '&month=' ~ month_param
   } %}
 
-  Thin mapping layer over the generic partials/chip_picker.html.twig
+  Thin mapping layer over the generic partials/select_bar.html.twig
   (mode: single) — see docs/module-development.md for that contract.
+  A calendar list is open-ended and comes from the database, which is the
+  select bar's case rather than the nav rail's.
+
+  public.html.twig is `role_min: public`, so this must never assume a
+  session — it does not, and neither does the select bar.
 #}
-{% set chip_items = [] %}
+{% set _items = [] %}
 {% for option in options %}
-    {% set chip_items = chip_items|merge([{
+    {% set _items = _items|merge([{
         id: option.id,
         label: option.label,
         color: option.color is defined ? option.color : null,
         selected: option.id == selected_id,
     }]) %}
 {% endfor %}
-<div class="calendar-picker">
-    {% include 'partials/chip_picker.html.twig' with {
+<div class="calendar-picker mb-3">
+    {% include 'partials/select_bar.html.twig' with {
         picker_id: 'calendar-picker',
-        items: chip_items,
+        label: 'Calendrier',
+        items: _items,
         mode: 'single',
         base_url: base_url,
         extra_query: extra_query|default(''),
-        sheet_title: 'Choisir un calendrier',
+        none_selected_text: 'Choisir un calendrier',
         empty_text: 'Aucun calendrier disponible.',
     } %}
 </div>

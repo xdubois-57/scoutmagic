@@ -394,7 +394,7 @@
     // global so tests/js/retro-board.test.js can reach the HTML-assembly
     // functions directly and exercise the real implementation, rather than
     // reimplementing their logic in a test-only copy — same precedent as
-    // window.ChipPicker, window.ScoutMagicNav and
+    // window.SelectBar, window.ScoutMagicNav and
     // news-form-builder.js's own ScoutMagicNewsFormBuilderInternals.
     //
     // Test-only: nothing in production reads this. voteMode/isUnitChief/

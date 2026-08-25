@@ -513,4 +513,95 @@ class InstallUpdateHandlerTest extends TestCase
             $this->assertStringNotContainsString('Permission denied', $e->getMessage());
         }
     }
+
+    /**
+     * @return string[]
+     */
+    private function replacedPhpFiles(): array
+    {
+        $property = new \ReflectionProperty(InstallUpdateHandler::class, 'replacedPhpFiles');
+        $property->setAccessible(true);
+
+        /** @var string[] $value */
+        $value = $property->getValue($this->handler);
+
+        return $value;
+    }
+
+    /**
+     * The list OPcache invalidation is driven from. Without it the handler
+     * would have to evict the whole shared cache — impolite on hosting
+     * where one pool serves several sites.
+     */
+    public function testInstallFilesRecordsEveryPhpFileItReplaced(): void
+    {
+        $source = $this->storagePath . '/src';
+        $dest = $this->storagePath . '/dest';
+        mkdir($source . '/core/Help', 0755, true);
+        mkdir($source . '/modules/rental/help', 0755, true);
+        mkdir($dest, 0755, true);
+        file_put_contents($source . '/core/Help/HelpFrontMatterParser.php', '<?php // new');
+        file_put_contents($source . '/modules/rental/help/gerer-les-locations.md', '---');
+        file_put_contents($source . '/composer.json', '{}');
+
+        $this->invokeInstallFiles($source, $dest);
+
+        // Exactly the compiled-code files, and nothing else: the Markdown
+        // topic and the JSON manifest are read from disk on every request
+        // and were never compiled, so there is nothing to invalidate.
+        $this->assertSame(
+            [$dest . '/core/Help/HelpFrontMatterParser.php'],
+            $this->replacedPhpFiles()
+        );
+    }
+
+    /**
+     * A resumed migration re-enters the handler without re-running the
+     * copy. If the list survived from the previous attempt, that second
+     * pass would invalidate paths it never touched.
+     */
+    public function testInstallFilesStartsItsListFreshOnEveryRun(): void
+    {
+        $source = $this->storagePath . '/src';
+        $dest = $this->storagePath . '/dest';
+        mkdir($source . '/core', 0755, true);
+        mkdir($dest, 0755, true);
+        file_put_contents($source . '/core/First.php', '<?php');
+
+        $this->invokeInstallFiles($source, $dest);
+        $this->assertCount(1, $this->replacedPhpFiles());
+
+        unlink($source . '/core/First.php');
+        file_put_contents($source . '/core/Second.php', '<?php');
+        $this->invokeInstallFiles($source, $dest);
+
+        $this->assertSame([$dest . '/core/Second.php'], $this->replacedPhpFiles());
+    }
+
+    /**
+     * The regression this closes: for up to `opcache.revalidate_freq`
+     * seconds after an update, PHP kept executing the previous version of
+     * every class against the templates and help topics the same update
+     * had just replaced — old Core\Help\HelpFrontMatterParser against a
+     * new topic returned 500 on every route for 54 seconds on the real
+     * site. The sweep must also survive a host with no OPcache at all,
+     * which is why nothing here is allowed to throw.
+     */
+    public function testStaleCompiledCodeIsDroppedAndTheListReleased(): void
+    {
+        $source = $this->storagePath . '/src';
+        $dest = $this->storagePath . '/dest';
+        mkdir($source . '/core', 0755, true);
+        mkdir($dest, 0755, true);
+        file_put_contents($source . '/core/Thing.php', '<?php');
+
+        $this->invokeInstallFiles($source, $dest);
+        $this->assertNotEmpty($this->replacedPhpFiles());
+
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'dropStaleCompiledCode');
+        $method->setAccessible(true);
+        $method->invoke($this->handler);
+
+        $this->assertSame([], $this->replacedPhpFiles(), 'the list is released once it has been acted on');
+    }
 }

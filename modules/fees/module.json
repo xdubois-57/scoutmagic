@@ -1,0 +1,118 @@
+{
+  "id": "fees",
+  "name": "Cotisations",
+  "description": "Vérifie les cotisations que la fédération facture : justesse des catégories tarifaires encodées dans Desk, et lecture des factures reçues. Le module n'écrit jamais dans Desk.",
+  "version": "1.2.0",
+  "routes": [
+    {
+      "path": "/admin/fees",
+      "method": "GET",
+      "controller": "Modules\\Fees\\Controller\\FeesController",
+      "action": "index",
+      "menu": "espace_admin",
+      "label": "Cotisations",
+      "menu_icon": "bi-cash-stack",
+      "menu_group": "suivi",
+      "role_min": "admin",
+      "breadcrumb": { "label": "Cotisations", "parents": ["Espace chefs d'U"] }
+    },
+    {
+      "path": "/admin/fees/tarifs",
+      "method": "GET",
+      "controller": "Modules\\Fees\\Controller\\FeeAccuracyController",
+      "action": "index",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin",
+      "breadcrumb": { "label": "Justesse des tarifs", "parents": ["Espace chefs d'U"] }
+    },
+    {
+      "path": "/admin/fees/tarifs/export",
+      "method": "GET",
+      "controller": "Modules\\Fees\\Controller\\FeeAccuracyController",
+      "action": "export",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin"
+    },
+    {
+      "path": "/admin/fees/tarifs/ignorer",
+      "method": "POST",
+      "controller": "Modules\\Fees\\Controller\\FeeAccuracyController",
+      "action": "ignore",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin"
+    },
+    {
+      "path": "/admin/fees/tarifs/reprendre",
+      "method": "POST",
+      "controller": "Modules\\Fees\\Controller\\FeeAccuracyController",
+      "action": "unignore",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin"
+    },
+    {
+      "path": "/admin/fees/factures",
+      "method": "GET",
+      "controller": "Modules\\Fees\\Controller\\InvoiceController",
+      "action": "index",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin",
+      "breadcrumb": { "label": "Factures de la fédération", "parents": ["Espace chefs d'U"] }
+    },
+    {
+      "path": "/admin/fees/factures/import",
+      "method": "GET",
+      "controller": "Modules\\Fees\\Controller\\InvoiceController",
+      "action": "form",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin",
+      "breadcrumb": { "label": "Importer une facture", "parents": ["Espace chefs d'U"] }
+    },
+    {
+      "path": "/admin/fees/factures/import",
+      "method": "POST",
+      "controller": "Modules\\Fees\\Controller\\InvoiceController",
+      "action": "upload",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin"
+    },
+    {
+      "path": "/admin/fees/factures/{id}",
+      "method": "GET",
+      "controller": "Modules\\Fees\\Controller\\InvoiceReportController",
+      "action": "show",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin",
+      "breadcrumb": { "label": "Vérification d'une facture", "parents": ["Espace chefs d'U"] }
+    },
+    {
+      "path": "/admin/fees/factures/{id}/export",
+      "method": "GET",
+      "controller": "Modules\\Fees\\Controller\\InvoiceReportController",
+      "action": "export",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin"
+    },
+    {
+      "path": "/admin/fees/tarifs/bareme",
+      "method": "POST",
+      "controller": "Modules\\Fees\\Controller\\FeeAccuracyController",
+      "action": "saveTariffs",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin"
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

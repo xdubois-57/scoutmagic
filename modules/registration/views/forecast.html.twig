@@ -3,8 +3,13 @@
 
 {% block content %}
     <div class="page-wide">
+        {# The badge is the year the projection is FOR (public year + 1),
+           not the year currently being previewed — the whole page is about
+           that one year, and reading it first is what makes every figure
+           below mean something. #}
         {% include 'partials/page_header.html.twig' with {
             title: 'Prévisions',
+            badge: target_year_label,
             subtitle: "Effectif projeté pour l'année " ~ target_year_label ~ " — toujours calculé sur l'année publique + 1, quelle
                 que soit l'année actuellement prévisualisée. Combine ce qui est déjà encodé dans Desk (certain), les
                 départs annoncés, les passages entre sections et les inscriptions acceptées (prévisionnel).",

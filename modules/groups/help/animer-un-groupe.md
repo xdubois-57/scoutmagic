@@ -4,8 +4,8 @@ title: Créer et animer un groupe
 summary: Ouvrir un groupe, inviter, modérer, épingler, clôturer.
 category: Espace animateurs
 role_min: chief
-paths: /groups, /groups/*, /groups/*/members, /groups/*/reports
-related: groupes, pages-d-un-groupe
+paths: /groups, /groups/*, /groups/*/members
+related: groupes, pages-d-un-groupe, signalements-groupe
 ---
 
 Les groupes de section se créent tout seuls, un par section et par

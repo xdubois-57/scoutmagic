@@ -44,6 +44,22 @@ class HelpService
     }
 
     /**
+     * Topics the registry had to drop this request, one sentence each.
+     *
+     * Not role-filtered here, unlike everything else in this class: there
+     * is no topic to have a role_min for — the file did not parse. The
+     * caller decides who is allowed to see it, and only Core\Http\
+     * Controller\HelpController does, for a superadmin, on /aide. A
+     * healthy installation returns an empty list on every request.
+     *
+     * @return string[]
+     */
+    public function loadErrors(): array
+    {
+        return $this->registry->loadErrors();
+    }
+
+    /**
      * The topics covering one page, for the help button and panel.
      * Order: exact matches before child matches, then alphabetical by id
      * — so on a page several topics cover, the most specific one leads.

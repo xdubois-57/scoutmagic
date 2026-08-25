@@ -164,6 +164,65 @@ class CalendarConfigControllerTest extends TestCase
         $this->assertStringContainsString('Non supprimable', $response->getBody());
     }
 
+    /**
+     * Both lists render the SAME row partial, so the pair of permission
+     * selects is identical for a section calendar and a supplementary one
+     * — labelled, and stacking on a phone instead of being squeezed onto
+     * one flex line. Asserted through the labelled ids the partial emits
+     * for each calendar id.
+     */
+    public function testIndexRendersTheSamePermissionControlsForBothKindsOfCalendar(): void
+    {
+        $this->createSection('BAL01', 'Renards');
+
+        $request = new Request('GET', '/config/calendar', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $sectionCalendar = $this->calendarService->getSectionCalendars()[0];
+        $supplementary = $this->calendarService->getSupplementaryCalendars()[0];
+
+        foreach ([$sectionCalendar->id, $supplementary->id] as $calendarId) {
+            $this->assertStringContainsString('id="calendar-visibility-' . $calendarId . '"', $body);
+            $this->assertStringContainsString('id="calendar-edit-role-' . $calendarId . '"', $body);
+        }
+        $this->assertStringContainsString('>Vu par<', $body);
+        $this->assertStringContainsString('>Modifié par<', $body);
+    }
+
+    /**
+     * The ICS caveat used to sit above the supplementary list only, as if
+     * a section calendar's events never left the site — they travel in the
+     * unit feed and in every member's personal feed. It is now stated once,
+     * before the first list.
+     */
+    public function testIndexStatesTheIcsCaveatBeforeBothCalendarLists(): void
+    {
+        $this->createSection('BAL01', 'Renards');
+
+        $request = new Request('GET', '/config/calendar', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $warningAt = strpos($body, "elle ne restreint jamais l'accès aux");
+        $sectionsAt = strpos($body, 'Calendriers de section');
+        $this->assertNotFalse($warningAt);
+        $this->assertNotFalse($sectionsAt);
+        $this->assertLessThan($sectionsAt, $warningAt);
+    }
+
+    /**
+     * The permission selects save on change (calendar-config.js), like
+     * every other single independent control on the site — the page says
+     * so rather than leaving an admin hunting for a « Enregistrer » button
+     * that does not exist.
+     */
+    public function testIndexSaysThePermissionSelectsSaveOnTheirOwn(): void
+    {
+        $request = new Request('GET', '/config/calendar', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringContainsString('il n\'y a pas de bouton', $body);
+    }
+
     public function testIndexDisablesDeleteButtonForCalendarWithEvents(): void
     {
         $calendar = $this->calendarService->addCalendar('Anniversaires', 'public');

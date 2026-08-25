@@ -387,6 +387,31 @@ describe('maintenance.js: "Vérifier maintenant" (update-check-now)', () => {
         expect(document.getElementById('update-check-now-notes').innerHTML).toBe('<p>Corrige <strong>trois</strong> bugs.</p>');
     });
 
+    it('flags an intermediate major step when the proposed version is not the newest one', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({
+            success: true, update_available: true, version: '2.0.0', latest_version: '3.1.0',
+        }));
+        await boot();
+        click();
+        await vi.waitFor(() => expect(document.getElementById('update-check-now-dialog').classList.contains('d-none')).toBe(false));
+        expect(document.getElementById('update-check-now-message').textContent).toBe(
+            'Nouvelle version disponible : 2.0.0 — étape intermédiaire vers la version 3.1.0,'
+            + " les versions majeures s'installent une par une.",
+        );
+    });
+
+    it('says nothing about an intermediate step when the proposed version IS the newest one', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({
+            success: true, update_available: true, version: '2.4.0', latest_version: '2.4.0',
+        }));
+        await boot();
+        click();
+        await vi.waitFor(() => expect(document.getElementById('update-check-now-dialog').classList.contains('d-none')).toBe(false));
+        expect(document.getElementById('update-check-now-message').textContent).toBe('Nouvelle version disponible : 2.4.0');
+    });
+
     it('falls back to empty notes when notes_html is absent, without throwing', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: true, update_available: true, version: '2.4.0' }));

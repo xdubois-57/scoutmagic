@@ -47,7 +47,7 @@ class StatisticsIntakeController extends AbstractController
             $request->getRawBody(),
             (string) $request->getServer('HTTP_AUTHORIZATION', ''),
             (string) $request->getServer('REMOTE_ADDR', ''),
-            self::isSecureTransport($request)
+            $request->isHttps()
         );
 
         if ($result->accepted) {
@@ -57,17 +57,5 @@ class StatisticsIntakeController extends AbstractController
         }
 
         return $this->json(['status' => 'rejected'], $result->statusCode);
-    }
-
-    /**
-     * Same HTTPS-detection convention as Core\Security\SessionManager and
-     * SetupController::resolveDefaultBaseUrl().
-     */
-    private static function isSecureTransport(Request $request): bool
-    {
-        $https = $request->getServer('HTTPS');
-
-        return (is_string($https) && $https !== '' && strtolower($https) !== 'off')
-            || (int) $request->getServer('SERVER_PORT', 0) === 443;
     }
 }

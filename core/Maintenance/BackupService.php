@@ -270,6 +270,16 @@ class BackupService implements BackupServiceInterface
         if (!$extracted) {
             throw new BackupException('L\'extraction de l\'archive a échoué (mot de passe incorrect ?).');
         }
+
+        // core/, modules/ and public/ have just been rewritten underneath a
+        // running PHP process, which caches compiled code for up to
+        // `opcache.revalidate_freq` seconds and would otherwise keep serving
+        // the version this restore was meant to replace. Unlike an update
+        // (Task\InstallUpdateHandler, which knows every file it copied),
+        // ZipArchive never says which entries it wrote — so the whole cache
+        // goes, which is the honest cost of not having the list.
+        clearstatcache(true);
+        OpcodeCache::reset();
     }
 
     /** Top-level trees a legitimate ScoutMagic backup archive may contain. */

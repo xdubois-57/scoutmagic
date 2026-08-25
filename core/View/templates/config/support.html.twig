@@ -64,7 +64,17 @@
     <div class="card-body">
         <h2 class="h5 mb-3">État des envois</h2>
 
-        {% if last_success_at %}
+        {# This installation is the one every other installation reports to,
+           so it has nothing to send itself. Said plainly here, because the
+           alternative — recording it as the latest failure, dated, for ever
+           — read as a fault to go and fix. #}
+        {% if is_statistics_receiver %}
+            <p class="small mb-1">
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                Ce site est la destination des statistiques : il ne s'envoie pas de rapport à lui-même.
+                Le bouton « Envoyer un rapport de test » ci-dessous reste disponible pour vérifier la chaîne.
+            </p>
+        {% elseif last_success_at %}
             <p class="small mb-1">
                 Dernier envoi réussi : <strong>{{ last_success_at|french_date }}</strong>
                 <span class="text-body-secondary">({{ last_success_at }})</span>

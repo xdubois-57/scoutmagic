@@ -7,7 +7,7 @@
 // script attaches its namespace defensively (`window.X = window.X || {}`)
 // so other scripts loaded on the same page can call into it without a
 // module system — see public/assets/js/nav.js and
-// public/assets/js/chip-picker.js for the definitions. Declared optional
+// public/assets/js/select-bar.js for the definitions. Declared optional
 // since a page may load one script without the other.
 // Ambient declaration for Chart.js, exposed as a global by the vendored
 // public/assets/vendor/chartjs/chart.umd.min.js <script> tag (no npm
@@ -171,11 +171,19 @@ interface Window {
         collect: (list: ParentNode) => string[];
         format: (addresses: string[]) => string;
     };
+    // public/assets/js/fees-copy.js — « Copier pour Desk » on Cotisations >
+    // Justesse des tarifs, present only on that page.
+    ScoutMagicFeesCopy?: {
+        blockFor: (texts: Record<string, string> | null, key: string) => string;
+    };
     ScoutMagicNav?: {
         showDesktopMenu?: (menuId: string) => void;
         syncSwitchAriaChecked?: (input: HTMLInputElement) => void;
     };
-    ChipPicker?: {
+    // public/assets/js/select-bar.js — the escape hatch a mode:multi
+    // caller uses to revert its own optimistic toggle after the server
+    // rejects it, without re-dispatching select-bar:change.
+    SelectBar?: {
         setSelected?: (pickerId: string, id: string, selected: boolean) => void;
     };
     // public/assets/js/chunked-upload.js (audit M2) — consumed by

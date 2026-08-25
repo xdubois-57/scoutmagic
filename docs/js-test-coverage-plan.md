@@ -1,8 +1,8 @@
 # JavaScript unit test coverage — gap analysis and implementation plan
 
-**Status:** steps 0, 1, 2 and P1.1 implemented, and most of the remainder overtaken by the
-UX convergence work — see §0 and §0.2 below. Only P1.3/P1.4 (`retro-board.js`) are still
-open as written.
+**Status:** closed. Every numbered item is implemented or overtaken — see §0 and §0.2.
+The last two open ones (P1.3/P1.4, `retro-board.js`) were closed alongside `help-panel.js`;
+what remains is not in this plan (§0.3).
 **Revision:** §3 and §7 rewritten after a challenge to the original "don't test DOM wiring"
 position. That position was wrong; §7 now carries the measurement that settles it.
 **Scope:** first-party browser JavaScript (`public/assets/js/*.js` + `public/sw.js`).
@@ -18,12 +18,16 @@ position. That position was wrong; §7 now carries the measurement that settles 
 | **P1.2** `sw.js` whitelist bug + `tests/js/sw.test.js` | **done** | Bug fixed; 33 tests; sw.js 0 % → 63.9 % stmts, 100 % branch |
 | **§7** `notification-badge.js`, `settings.js` wiring specs | **done** | 17 tests; 100 % and 97.7 % stmts |
 | **P1.1** `news-form-builder.js` sanitizer | **done** | 37 tests, mutation-checked; file 0 % → 27.5 % stmts |
-| **P1.3 + P1.4** `retro-board.js` + escaping consolidation | open | |
-| **P1.5** CSRF/endpoint contract sweep (§7.4) | open | |
-| **P2.x** | open | |
+| **P1.4** escaping consolidation | **done** | Overtaken: one `ScoutMagicApi.escapeHtml`, attribute-safe, used by every caller |
+| **P1.5** CSRF/endpoint contract sweep (§7.4) | **done** | Overtaken by the convergence work — every script posts through `ScoutMagicApi.postJson` |
+| **P1.3** `retro-board.js` | **done** | 42.6 % → 98.4 %; 52 tests, six mutations checked |
+| `help-panel.js` (not in the original plan) | **done** | 0 % → 94.8 %; 21 tests |
+| **P2.x** | overtaken | Each file named there is now covered by the convergence work's own specs |
 
-**Measured now:** 6 spec files, **97 tests**, JS **15.17 %** statements / **73.39 %** branch /
-34.21 % functions — from 2 files, 10 tests, 1.83 % / 46 % / 19.35 % at the start.
+**Measured at the time of writing:** 6 spec files, **97 tests**, JS **15.17 %** statements /
+**73.39 %** branch / 34.21 % functions — from 2 files, 10 tests, 1.83 % / 46 % / 19.35 % at
+the start. **Measured now: 88 spec files, 1 531 tests, 86.62 % statements / 87.15 % branch /
+87.87 % functions.**
 
 Statement coverage understates the change here. Branch coverage went 46 % → 73.39 % because
 the work targeted decision-dense code; and the denominator grew when `sw.js` entered the
@@ -53,6 +57,30 @@ The remaining coverage lever is no longer this plan: it is the **814 lines of Ja
 still living inside 26 Twig templates**, which no coverage tool can even see. Each one
 becomes testable the moment it is extracted, and
 `tests/Core/View/UxConventionsTest::NATIVE_DIALOG_ALLOWLIST` tracks the worst of them.
+
+### 0.3 What is actually left, and why it is not in this plan
+
+`retro-board.js` and `help-panel.js` were the last two files this plan could still point at.
+Both are now covered, and both were worth it for the same reason rather than for the
+percentage:
+
+- **`help-panel.js` was at 0 % and is the file that only runs in the multi-topic case.**
+  That case used to be rare. Widening `paths` across the corpus — so every page that renders
+  carries help, not only the ones a menu links — made ten-plus module pages land on the
+  panel's list view, several of them with three or four topics. The script also builds a URL
+  out of a DOM attribute, which is the `js/xss-through-dom` shape; its allowlist now has nine
+  hostile inputs behind it.
+- **`retro-board.js` was at 42.6 %**, and the covered part was the HTML assembly. The
+  uncovered part was the half that talks to the server: which URL each control posts to (a
+  hide button posting to `unhide` is a moderation bug, not a typo), the in-flight disable
+  that stops a double vote, and the AI moderation gate — where `moderation_mode: 'enforced'`
+  must never render a way past itself. Mutating each of those six decisions fails the suite.
+
+**The remaining lever is unchanged and is still not this plan's:** the JavaScript that lives
+inside Twig templates, which no coverage tool can see. `offline-prefetch.js` (0 %) is a
+deliberate exception — it is tested structurally from PHP by
+`tests\Core\View\OfflinePrefetchScriptTest`. `news-form-builder.js` (26 %) is the one
+genuine file-level gap left: its sanitizer is covered, its builder is not.
 
 ### 0.1 Practice worth carrying into the remaining steps: mutation-check security tests
 
@@ -120,7 +148,6 @@ see §4.2).
 | `auth.js` | 355 | 313 | – | 0 % | **no** |
 | `gallery-storage-location.js` | 205 | 189 | 72 | 0 % | yes |
 | `upload.js` | 207 | 183 | – | 0 % | yes |
-| `chip-picker.js` | 204 | 179 | 36 | 0 % | yes |
 | `offline-nav.js` | 177 | 162 | 49 | 0 % | yes |
 | `list-editor.js` | 159 | 149 | 62 | 0 % | yes |
 | `offline-prefetch.js` | 161 | 147 | 38 | 0 % | yes |
@@ -234,7 +261,7 @@ hard constraint in `AGENTS.md` § CSS / frontend. One caveat: for a helper neste
 an IIFE the assignment is not a no-op the way `password-complexity.js`'s is, it genuinely
 adds a global. Keep those namespaced under a single object per file (e.g.
 `globalThis.ScoutMagicNewsFormBuilderInternals`), guarded and documented as test-only, and
-follow the precedent set by `window.ChipPicker` and `window.ScoutMagicNav`, which already
+follow the precedent set by `window.SelectBar` and `window.ScoutMagicNav`, which already
 expose namespaced objects.
 
 ### 4.3 `auth.js` and `setup.js` throw on import
@@ -546,9 +573,12 @@ idiom already used by `cookie-consent.test.js`, `fetch` mocking, `classList`/`da
 These are genuine, not fixable with a stub, and are the honest boundary of this approach:
 
 - **Layout.** jsdom has no layout engine: `offsetTop`, `offsetWidth`, `getBoundingClientRect()`
-  all return `0`. This kills `chip-picker.js`'s `rowsFor()`/`truncate()` (every chip collapses
-  into one row, so the test would assert a jsdom artefact) and the geometry parts of
-  `gallery.js` and `list-editor.js`. Stubbing geometry means testing the stub.
+  all return `0`. This killed `chip-picker.js`'s `rowsFor()`/`truncate()` (every chip collapsed
+  into one row, so the test would have asserted a jsdom artefact) and still kills the geometry
+  parts of `gallery.js` and `list-editor.js`. Stubbing geometry means testing the stub.
+  `chip-picker.js` no longer exists: the components that replaced it, `select-bar.js` and
+  `nav-rail.js`, measure no geometry at all, which is what made them testable — see
+  `tests/js/select-bar.test.js` and `tests/js/nav-rail.test.js`.
 - **Canvas.** No rendering backend, so `upload.js`'s `downscaleToWebp()` and
   `news-form-builder.js`'s `processFeaturedImage()` are out. Their *decision* functions
   (`shouldConsiderDownscale`) are fine.
@@ -606,8 +636,9 @@ Narrowed considerably, and on the §3.2 test rather than on "it's glue":
 - `nav.js`, `breadcrumb.js`, `unit-logo.js`, `unit-logo-notify-ios.js`, `offline-page.js` —
   genuinely no contract outside themselves beyond a single `fetch` URL. Pick those up free
   via §7.4 rather than writing per-file specs.
-- `chip-picker.js`, and the geometry halves of `gallery.js` and `list-editor.js` — blocked by
-  §7.3, not by judgment.
+- The geometry halves of `gallery.js` and `list-editor.js` — blocked by §7.3, not by
+  judgment. (`chip-picker.js` was listed here too; it was deleted rather than tested, and
+  its replacements measure nothing and are covered.)
 - `push-notifications.js`, `setup.js` — dominated by permission and installer flows that mock
   out to near-tautology. `setup.js`'s `escapeHtml`/`escapeAttr` are covered by P1.4 instead.
 

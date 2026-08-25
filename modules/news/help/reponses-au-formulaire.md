@@ -5,7 +5,7 @@ summary: Lire les inscriptions reçues, suivre les paiements, exporter, écrire 
 category: Espace animateurs
 role_min: intendant
 paths: /news/*/form/responses
-related: publier-une-actualite, actualites, publipostage, recus
+related: publier-une-actualite, modifier-une-reponse, publipostage, recus
 ---
 
 Cette page rassemble toutes les réponses reçues au formulaire d'un
@@ -39,6 +39,10 @@ Finances, via la communication structurée générée à l'inscription :
 tant qu'un extrait n'a pas été importé, un paiement pourtant effectué
 s'affiche encore comme non reçu. Ce n'est pas une relance à envoyer,
 c'est un import à faire.
+
+Un **Partiel** signale le plus souvent un virement fait en une fois
+pour plusieurs enfants. Regardez le mouvement bancaire avant de
+relancer la famille.
 
 ## Exporter et écrire
 

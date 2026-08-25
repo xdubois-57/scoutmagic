@@ -51,6 +51,7 @@
       control_class_extra: 'w-auto',-- optional, extra classes ON the control
       label_visually_hidden: true, -- optional: the row itself names the field
       data: { id: 4, url: '/x' },  -- optional data-* ON THE CONTROL
+      label_suffix: ' — Meute',   -- optional, see below
   } only %}
 
   On `size`: the survey that preceded this partial's second pass found 34
@@ -81,6 +82,24 @@
   must still say WHICH row it belongs to (« Rôle pour ANIM01 », not
   « Rôle »).
 
+  On `label_suffix`: the same problem when the label IS visible and has to
+  stay short. A dozen calendars down a page each carrying a « Vu par »
+  select gives a screen-reader user a dozen identically-named controls;
+  the row names them on screen and nowhere else. The suffix is appended
+  INSIDE the label, visually hidden: « Vu par » stays on screen while the
+  accessible name becomes « Vu par — Meute ».
+
+  Appended to the label rather than set as an `aria-label`, which is what
+  this used to be. An aria-label REPLACES the accessible name, so it had
+  to be written to re-state the visible words and could silently drift
+  from them; a suffix cannot, because the visible text and the accessible
+  name are now the same element. That the one starts with the other is
+  what keeps voice control working (WCAG 2.5.3, Label in Name) — a
+  visitor asking for the control they can read gets an answer.
+
+  Reach for `label_visually_hidden` first; this is for the case where the
+  short label has to be on screen too.
+
   On `control_class_extra`: layout classes the caller owns — `w-auto` for
   a control inside a flex row, a hook class a script grips. Never a
   `form-control-sm`: that is `size`'s job, and putting it here would
@@ -107,6 +126,7 @@
 <div{% if _wrapper %} class="{{ _wrapper }}"{% endif %}>
     <label class="{{ label_visually_hidden|default(false) ? 'visually-hidden' : 'form-label' ~ (_small ? ' small' : '') }}" for="{{ field_id }}">
         {{- label -}}
+        {%- if label_suffix|default('') %}<span class="visually-hidden">{{ label_suffix }}</span>{% endif -%}
         {%- if _required %} <span class="text-danger" aria-hidden="true">*</span>{% endif -%}
     </label>
     {% if _type == 'textarea' %}

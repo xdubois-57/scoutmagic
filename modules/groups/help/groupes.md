@@ -4,8 +4,8 @@ title: Participer aux groupes de discussion
 summary: Lire, publier, réagir et répondre aux sondages dans vos groupes.
 category: Espace membres
 role_min: identified
-paths: /groups, /groups/*, /groups/archives
-related: pages-d-un-groupe, animer-un-groupe, notifications-preferences
+paths: /groups, /groups/*, /groups/archives, /groups/*/posts/*
+related: pages-d-un-groupe, signalements-groupe, animer-un-groupe, notifications-preferences
 ---
 
 Les groupes sont les espaces de discussion privés de l'unité : un

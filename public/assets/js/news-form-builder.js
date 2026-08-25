@@ -424,10 +424,29 @@
         return collectFieldsContentText().trim() !== '';
     }
 
+    /**
+     * Busy state of one AI button. These are icon-only since the labels
+     * stopped fitting a phone next to their field (partials/
+     * ai_button.html.twig), so "generating" is the wand swapped for a
+     * spinner and a data-busy flag — never a textContent swap, which would
+     * delete the icon itself and leave an empty square.
+     *
+     * @param {HTMLButtonElement|null} btn
+     * @param {boolean} busy
+     * @returns {void}
+     */
+    function setAiButtonBusy(btn, busy) {
+        if (!btn) return;
+        btn.dataset.busy = busy ? '1' : '';
+        btn.disabled = busy;
+        var icon = btn.querySelector('i');
+        if (icon) icon.className = busy ? 'spinner-border spinner-border-sm' : 'bi bi-magic';
+    }
+
     function updateAiButtonsState() {
         var enabled = hasTitleOrContent();
-        if (aiSummaryBtn && aiSummaryBtn.textContent !== 'Génération…') aiSummaryBtn.disabled = !enabled;
-        if (aiKeywordsBtn && aiKeywordsBtn.textContent !== 'Génération…') aiKeywordsBtn.disabled = !enabled;
+        if (aiSummaryBtn && aiSummaryBtn.dataset.busy !== '1') aiSummaryBtn.disabled = !enabled;
+        if (aiKeywordsBtn && aiKeywordsBtn.dataset.busy !== '1') aiKeywordsBtn.disabled = !enabled;
     }
 
     var titleInputEl = document.querySelector('input[name="title"]');
@@ -440,13 +459,12 @@
         aiSummaryBtn.addEventListener('click', function () {
             var title = /** @type {HTMLInputElement} */ (document.querySelector('input[name="title"]')).value;
             var bodyHtml = collectFieldsContentText();
-            aiSummaryBtn.disabled = true;
-            aiSummaryBtn.textContent = 'Génération…';
+            setAiButtonBusy(aiSummaryBtn, true);
 
             window.ScoutMagicApi.postJson('/news/seo/generate-summary', { title: title, body_html: bodyHtml })
                 .then(function (res) {
                     var data = res.data || {};
-                    aiSummaryBtn.textContent = "Générer avec l'IA";
+                    setAiButtonBusy(aiSummaryBtn, false);
                     updateAiButtonsState();
                     if (data.success) {
                         /** @type {HTMLInputElement} */ (document.getElementById('summary')).value = data.summary;
@@ -462,13 +480,12 @@
         aiKeywordsBtn.addEventListener('click', function () {
             var title = /** @type {HTMLInputElement} */ (document.querySelector('input[name="title"]')).value;
             var bodyHtml = collectFieldsContentText();
-            aiKeywordsBtn.disabled = true;
-            aiKeywordsBtn.textContent = 'Génération…';
+            setAiButtonBusy(aiKeywordsBtn, true);
 
             window.ScoutMagicApi.postJson('/news/seo/generate-keywords', { title: title, body_html: bodyHtml })
                 .then(function (res) {
                     var data = res.data || {};
-                    aiKeywordsBtn.textContent = "Générer avec l'IA";
+                    setAiButtonBusy(aiKeywordsBtn, false);
                     updateAiButtonsState();
                     if (data.success) {
                         /** @type {HTMLInputElement} */ (document.getElementById('seo_keywords')).value = data.keywords;
@@ -1257,7 +1274,7 @@
     // ONE namespaced global so tests/js/news-form-builder.test.js can reach
     // the HTML sanitizer directly and exercise the real implementation rather
     // than reimplementing its logic in a test-only copy — the same reason
-    // window.ChipPicker and window.ScoutMagicNav already exist.
+    // window.SelectBar and window.ScoutMagicNav already exist.
     //
     // Test-only: nothing in production reads this, and nothing should. The
     // sanitizer in particular must never be called from a page as a
@@ -1270,6 +1287,7 @@
         isSafeUrlScheme: isSafeUrlScheme,
         isPublicAccess: isPublicAccess,
         hasTitleOrContent: hasTitleOrContent,
+        setAiButtonBusy: setAiButtonBusy,
         HTML_SANITIZER_ALLOWED_TAGS: HTML_SANITIZER_ALLOWED_TAGS,
         HTML_SANITIZER_STRIP_WITH_CONTENT: HTML_SANITIZER_STRIP_WITH_CONTENT,
         URL_SCHEME_ALLOWLIST: URL_SCHEME_ALLOWLIST,

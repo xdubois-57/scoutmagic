@@ -1,7 +1,7 @@
 // Isolated JavaScript unit test — jsdom-simulated DOM only. No PHP server,
 // no MySQL, no real network: fetch is mocked, and so are the two site-wide
 // dialog toolboxes (window.ScoutMagicToast, window.ScoutMagicConfirm) and
-// window.ChipPicker, all of which base.html.twig / chip-picker.js provide in
+// window.SelectBar, all of which base.html.twig / select-bar.js provide in
 // production. Exercises the REAL implementation in
 // public/assets/js/staffs.js (imported below, never reimplemented here).
 // That file is an IIFE that reads the DOM at import time, so each test
@@ -11,7 +11,7 @@
 // The fixture mirrors what core/View/templates/chefs/staffs.html.twig
 // renders for a chief who can edit the section: the per-document
 // title/description fields, the add-document file input, and one
-// .badge-picker wrapping a chip-picker.
+// .badge-picker wrapping a select bar.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -41,9 +41,9 @@ const FILE_INPUT = '<input type="file" id="section-document-file-input">';
 
 const BADGE_PICKER = `
     <div class="badge-picker" data-member-year-id="77">
-        <div class="chip-picker" id="badge-picker-77">
-            <button class="chip-picker-item" data-id="5" data-selected="true">Nage</button>
-            <button class="chip-picker-item" data-id="7" data-selected="false">Feu</button>
+        <div class="select-bar" id="badge-picker-77" data-mode="multi">
+            <button class="select-bar-item" data-id="5" data-selected="true">Nage</button>
+            <button class="select-bar-item" data-id="7" data-selected="false">Feu</button>
         </div>
     </div>`;
 
@@ -90,7 +90,7 @@ describe('staffs.js', () => {
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
         window.ScoutMagicToast = { show: vi.fn() };
         window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
-        window.ChipPicker = { setSelected: vi.fn() };
+        window.SelectBar = { setSelected: vi.fn() };
         installIsland('staffs-data', undefined);
     });
 
@@ -109,7 +109,7 @@ describe('staffs.js', () => {
 
     function fireChipChange(selectedIds) {
         document.getElementById('badge-picker-77')
-            .dispatchEvent(new CustomEvent('chip-picker:change', { detail: { selectedIds } }));
+            .dispatchEvent(new CustomEvent('select-bar:change', { detail: { selectedIds } }));
     }
 
     describe('entry guard', () => {
@@ -320,27 +320,27 @@ describe('staffs.js', () => {
             fireChipChange(['7']);
             await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
             expect(lastRequest().body).toEqual({ member_year_id: 77, badge_id: 5, _csrf_token: 'tok-123' });
-            expect(window.ChipPicker.setSelected).not.toHaveBeenCalled();
+            expect(window.SelectBar.setSelected).not.toHaveBeenCalled();
         });
 
-        it('reverts the optimistic chip and toasts the server error on a business failure', async () => {
+        it('reverts the optimistic row and toasts the server error on a business failure', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Badge non attribuable.' }));
             await boot();
             fireChipChange(['5', '7']);
 
             await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).not.toHaveBeenCalled());
-            await vi.waitFor(() => expect(window.ChipPicker.setSelected)
+            await vi.waitFor(() => expect(window.SelectBar.setSelected)
                 .toHaveBeenCalledWith('badge-picker-77', '7', false));
             expect(window.ScoutMagicToast.show)
                 .toHaveBeenCalledWith('Badge non attribuable.', { variant: 'error' });
         });
 
-        it('reverts a removal the same way, putting the chip back', async () => {
+        it('reverts a removal the same way, putting the row back', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Badge non attribuable.' }));
             await boot();
             fireChipChange([]);
 
-            await vi.waitFor(() => expect(window.ChipPicker.setSelected)
+            await vi.waitFor(() => expect(window.SelectBar.setSelected)
                 .toHaveBeenCalledWith('badge-picker-77', '5', true));
         });
 
@@ -351,7 +351,7 @@ describe('staffs.js', () => {
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show)
                 .toHaveBeenCalledWith('Erreur.', { variant: 'error' }));
-            expect(window.ChipPicker.setSelected).toHaveBeenCalledWith('badge-picker-77', '7', false);
+            expect(window.SelectBar.setSelected).toHaveBeenCalledWith('badge-picker-77', '7', false);
         });
     });
 

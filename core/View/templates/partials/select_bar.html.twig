@@ -1,0 +1,196 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Select bar — one of the site's two selection components, for picking a
+  piece of DATA: a section, a calendar, an account, a rentable asset, a
+  set of badges. The list is data-driven, grows with the unit, and its
+  labels are long.
+
+  The other one is partials/nav_rail.html.twig, for moving between the
+  fixed sub-pages/views of one page. The rule, when a new call site
+  appears (docs/module-development.md carries it too):
+
+      fixed set, declared in code, short labels  → nav rail
+      open-ended set, coming from the database   → select bar
+
+  They share no markup and no JS. A select bar never renders chips; a
+  nav rail never opens a panel. Do not add a use-case-specific parameter
+  to either (no `is_section`, no `for_finance`) — a call site that seems
+  to need one is using the wrong component.
+
+  Shape: one full-width row (the <summary>) showing the field name, the
+  current value and a chevron; it opens a disclosure panel anchored
+  directly under the bar, holding the full list.
+
+  The panel is a native <details>/<summary>, never a Bootstrap offcanvas
+  or modal (same reason modules/groups/views/list.html.twig uses one): it
+  opens, closes and announces its own state with no JavaScript at all.
+  That is what preserves this component's JS-off guarantee — every item
+  is rendered server-side and operable without JS, which /calendar,
+  /trombinoscope and /notifications need because they are in
+  Core\Offline\OfflineWhitelist. An offcanvas would silently lose it: with
+  JS off the panel could never be opened at all.
+
+  Usage:
+  {% include 'partials/select_bar.html.twig' with {
+      picker_id: 'section-picker',
+      label: 'Section',
+      items: [
+          { id: 1, label: 'Louveteaux', sublabel: 'Meute', color: '#f5a623', badge: null, selected: true },
+          { id: 2, label: 'Éclaireurs', sublabel: 'Troupe', color: '#4a90d9', selected: false }
+      ],
+      mode: 'single',
+      base_url: '/chefs/staffs?section=',
+      extra_query: '',
+      empty_text: 'Aucune section disponible.'
+  } %}
+
+  Parameters:
+  - `picker_id`  — unique per instance on a page; it is the DOM id.
+  - `label`      — the field name shown as a small caption above the
+                   current value ("Section", "Calendrier", "Compte").
+  - `items`      — `id` and `label` required; `sublabel`, `color`,
+                   `badge`, `selected` optional. Same item contract as
+                   the chip picker this replaced.
+  - `mode`       — 'single' (default) or 'multi'.
+  - `base_url` / `extra_query` — 'single' only; the row's href is
+                   `{{ base_url }}{{ item.id }}{{ extra_query }}`.
+  - `empty_text` — shown instead of the control when `items` is empty.
+  - `none_selected_text` — the trigger's value when nothing is selected.
+  - `count_label` — plural noun for the 'multi' trigger's summary when
+                   more than one item is selected ("2 badges").
+
+  mode: 'single' — panel rows are plain
+  <a href="{{ base_url }}{{ item.id }}{{ extra_query }}">, exactly as the
+  chip picker's were: one selection path, and zero JS needed to select.
+  `aria-current="true"` marks the selected row. A screen reader, a JS-off
+  browser and a cached offline page all work.
+
+  mode: 'multi' — rows are <button aria-pressed>, toggled by
+  public/assets/js/select-bar.js, which dispatches a `select-bar:change`
+  CustomEvent (detail: { selectedIds }) on the container after every
+  toggle. The trigger summarises the selection rather than drawing every
+  pick. This partial and its JS never persist anything themselves — the
+  caller listens for the event and persists however it needs to. The
+  panel stays open across toggles, which is native <details> behaviour
+  and needs no code.
+
+  Zero items renders `empty_text` and no <details> — there is nothing to
+  choose from. A single item in mode 'single' renders as static text, no
+  chevron and no <details>, for the same reason: navigating to the only
+  option is a no-op, and nothing to choose from is not a control. Mode
+  'multi' keeps its control at one item, because "assigned or not" is
+  still a real choice there.
+
+  The <summary> is the only tap target, and it takes its height from
+  app.css's `pointer: coarse` block (via `.tap-target`), never from an
+  inline `min-height` — design.md §7.2.
+#}
+{% macro row_content(item, selected) %}
+    <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:1.1rem;">
+        <i class="bi bi-check-lg text-primary{{ selected ? '' : ' invisible' }}" aria-hidden="true"></i>
+    </span>
+    {% if item.color is defined and item.color %}
+        <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.6rem;height:0.6rem;background-color:{{ item.color }};"></span>
+    {% endif %}
+    <span class="flex-grow-1 text-start">
+        <span class="d-block select-bar-row-label">{{ item.label }}</span>
+        {% if item.sublabel is defined and item.sublabel %}
+            <span class="d-block text-body-secondary" style="font-size:0.75rem;">{{ item.sublabel }}</span>
+        {% endif %}
+    </span>
+    {% if item.badge is defined and item.badge %}
+        <span class="badge bg-warning-subtle text-warning-emphasis flex-shrink-0">{{ item.badge }}</span>
+    {% endif %}
+{% endmacro %}
+{% set _mode = mode|default('single') %}
+{% set _selected = [] %}
+{% for item in items %}
+    {% if item.selected is defined and item.selected %}
+        {% set _selected = _selected|merge([item]) %}
+    {% endif %}
+{% endfor %}
+{% set _none_text = none_selected_text|default('Choisir…') %}
+{% if _selected|length == 0 %}
+    {% set _value = _none_text %}
+{% elseif _selected|length == 1 %}
+    {% set _value = _selected[0].label %}
+{% else %}
+    {% set _value = _selected|length ~ ' ' ~ count_label|default('éléments') %}
+{% endif %}
+{# A colour dot on the trigger only when exactly one item is selected —
+   with several picks there is no single colour to show. #}
+{% set _dot = _selected|length == 1 and _selected[0].color is defined ? _selected[0].color : null %}
+<div class="select-bar" id="{{ picker_id }}" data-mode="{{ _mode }}">
+    {% if items|length == 0 %}
+        <p class="text-body-secondary fst-italic mb-0">{{ empty_text|default('Aucun élément.') }}</p>
+    {% elseif _mode != 'multi' and items|length == 1 %}
+        {# Nothing to choose from is not a control (see docblock). The
+           row's own detail — sublabel, badge, colour dot — still shows:
+           it describes the value, it is not part of choosing one, and
+           dropping it would cost a one-section unit its branch name and
+           its « Non configurée » badge. #}
+        <div class="select-bar-static d-flex align-items-center gap-2 px-3 py-2 border rounded bg-body-tertiary">
+            {% if items[0].color is defined and items[0].color %}
+                <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.6rem;height:0.6rem;background-color:{{ items[0].color }};"></span>
+            {% endif %}
+            <span class="flex-grow-1 text-start">
+                <span class="d-block text-body-secondary" style="font-size:0.75rem;">{{ label|default('') }}</span>
+                <span class="d-block select-bar-value">{{ items[0].label }}</span>
+                {% if items[0].sublabel is defined and items[0].sublabel %}
+                    <span class="d-block text-body-secondary" style="font-size:0.75rem;">{{ items[0].sublabel }}</span>
+                {% endif %}
+            </span>
+            {% if items[0].badge is defined and items[0].badge %}
+                <span class="badge bg-warning-subtle text-warning-emphasis flex-shrink-0">{{ items[0].badge }}</span>
+            {% endif %}
+        </div>
+    {% else %}
+        <details class="select-bar-details border rounded bg-body-tertiary">
+            <summary class="select-bar-trigger tap-target d-flex align-items-center gap-2 px-3 py-2">
+                {% if _dot %}
+                    <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.6rem;height:0.6rem;background-color:{{ _dot }};"></span>
+                {% endif %}
+                <span class="flex-grow-1 text-start">
+                    <span class="d-block text-body-secondary" style="font-size:0.75rem;">{{ label|default('') }}</span>
+                    {# The two summary texts travel as data attributes so
+                       select-bar.js can rebuild the trigger after a
+                       toggle without inventing user-facing French of its
+                       own — all wording stays server-side, in Twig. #}
+                    <span class="d-block select-bar-value"
+                          data-none-text="{{ _none_text }}"
+                          data-count-label="{{ count_label|default('éléments') }}">{{ _value }}</span>
+                </span>
+                <i class="bi bi-chevron-down select-bar-chevron text-body-secondary flex-shrink-0" aria-hidden="true"></i>
+            </summary>
+            <div class="select-bar-panel border-top">
+                <ul class="list-group list-group-flush">
+                    {% for item in items %}
+                        {% set selected = item.selected is defined and item.selected %}
+                        <li class="list-group-item p-0">
+                            {% if _mode == 'multi' %}
+                                <button type="button"
+                                        class="select-bar-item list-group-item-action d-flex align-items-center gap-2 px-3 py-2 w-100 text-start border-0 bg-transparent"
+                                        data-id="{{ item.id }}"
+                                        data-selected="{{ selected ? 'true' : 'false' }}"
+                                        aria-pressed="{{ selected ? 'true' : 'false' }}">
+                                    {{ _self.row_content(item, selected) }}
+                                </button>
+                            {% else %}
+                                <a href="{{ base_url }}{{ item.id }}{{ extra_query|default('') }}"
+                                   class="select-bar-item list-group-item-action d-flex align-items-center gap-2 px-3 py-2 text-decoration-none text-body"
+                                   data-id="{{ item.id }}"
+                                   data-selected="{{ selected ? 'true' : 'false' }}"
+                                   {{ selected ? 'aria-current="true"' : '' }}>
+                                    {{ _self.row_content(item, selected) }}
+                                </a>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </details>
+    {% endif %}
+</div>

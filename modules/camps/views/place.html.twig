@@ -95,13 +95,15 @@
 
         <h2 class="h6 text-uppercase text-body-secondary mt-4 mb-2">Camps passés · {{ past_total }}</h2>
         {% if past_total > 0 or status_filter %}
-            {% include 'partials/chip_picker.html.twig' with {
+            {# A filter rather than a page, but the set is fixed, declared
+               in CampsChiefController::statusChips() and short-labelled —
+               the nav rail's case per docs/module-development.md's rule.
+               The ?statut= URL contract is unchanged. #}
+            {% include 'partials/nav_rail.html.twig' with {
                 picker_id: 'camps-past-status',
                 items: status_chips,
-                mode: 'single',
                 base_url: '/chefs/camps/lieux/' ~ place.id ~ '?statut=',
-                sheet_title: 'Filtrer par statut',
-                empty_text: 'Aucun statut.',
+                aria_label: 'Filtrer les camps passés par statut',
             } %}
         {% endif %}
 

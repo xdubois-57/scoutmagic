@@ -97,9 +97,10 @@
                                         <span class="small text-danger d-none" data-draft-error role="alert"></span>
                                         <span class="small text-body-secondary ms-auto" data-draft-counter>0/{{ board.maxCommentLength }}</span>
                                     </div>
-                                    <button type="button" class="btn btn-sm btn-outline-primary d-none" data-shorten-btn>
-                                        <i class="bi bi-magic" aria-hidden="true"></i> Raccourcir avec l'IA
-                                    </button>
+                                    {% include 'partials/ai_button.html.twig' with {
+                                        label: "Raccourcir avec l'IA", variant: 'outline-primary', size: 'sm',
+                                        class_extra: 'd-none', data: { 'shorten-btn': '' },
+                                    } only %}
                                     <button type="submit" class="btn btn-sm btn-outline-primary">
                                         <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter
                                     </button>

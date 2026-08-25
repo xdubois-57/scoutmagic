@@ -285,6 +285,45 @@ describe('news-form-builder.js: visibility and AI-button predicates', () => {
     });
 });
 
+describe('news-form-builder.js: setAiButtonBusy() — the icon-only AI buttons', () => {
+    beforeEach(() => {
+        document.body.innerHTML = '<button id="ai" title="Générer avec l\'IA"><i class="bi bi-magic"></i></button>';
+    });
+
+    function btn() { return document.getElementById('ai'); }
+
+    it('swaps the wand for a spinner and disables the button while generating', () => {
+        nfb.setAiButtonBusy(btn(), true);
+
+        expect(btn().disabled).toBe(true);
+        expect(btn().dataset.busy).toBe('1');
+        expect(btn().querySelector('i').className).toBe('spinner-border spinner-border-sm');
+    });
+
+    it('puts the wand back and re-enables the button when generation ends', () => {
+        nfb.setAiButtonBusy(btn(), true);
+        nfb.setAiButtonBusy(btn(), false);
+
+        expect(btn().disabled).toBe(false);
+        expect(btn().dataset.busy).toBe('');
+        expect(btn().querySelector('i').className).toBe('bi bi-magic');
+    });
+
+    // The button carries no text at all now, so the old busy marker
+    // (textContent = 'Génération…') would have deleted the icon element
+    // itself and left an empty square that never came back.
+    it('never touches the button label, which is the icon', () => {
+        nfb.setAiButtonBusy(btn(), true);
+
+        expect(btn().querySelector('i')).not.toBeNull();
+        expect(btn().getAttribute('title')).toBe("Générer avec l'IA");
+    });
+
+    it('does nothing when the button is absent from the page', () => {
+        expect(() => nfb.setAiButtonBusy(null, true)).not.toThrow();
+    });
+});
+
 // A source-level lock rather than a behavioural one: `addFieldEditRow()`
 // writes its argument straight into `innerHTML`, and the editor's data now
 // reaches this file as parsed JSON from a `<script type="application/json">`

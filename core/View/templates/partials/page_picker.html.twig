@@ -3,15 +3,29 @@
  Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
 #}
 {#
-  A module's sub-page navigation — the pages[] → chip_picker mapping
-  layer, written once (design.md §7.6 companion).
+  A module's sub-page navigation — the pages[] → nav_rail mapping layer,
+  written once (design.md §7.6 companion).
 
   Six places used to copy this exact boilerplate (finance's _nav,
   rental's management _nav, the calendar picker, staffs, rental config…),
   a seventh re-drew the row with raw btn-primary pills, and two modules
   used Bootstrap nav-pills — a third visual style for the same concept.
-  One include, chip_picker underneath, so every module's sub-navigation
-  looks and behaves the same (mobile truncation, "+N" bottom sheet).
+  One include, one component underneath, so every module's sub-navigation
+  looks and behaves the same.
+
+  That component is now partials/nav_rail.html.twig — Bootstrap
+  `nav nav-underline` + `flex-nowrap` + `overflow-auto`. This is a
+  deliberate, approved PARTIAL REVERSAL of UX-convergence decision #4
+  ("nav-pills → chips"), not an oversight to correct: chips remain wrong
+  for sub-navigation — a chip reads as a filter you toggle, and the
+  wrapping-plus-"+N"-sheet behaviour hid pages behind an overflow chip —
+  but so were pills, which is what decision #4 was actually reacting to.
+  Underlined tabs are the shape the web already uses for "which view of
+  this page am I on". See design.md §7.6.
+
+  A fixed set of pages, declared in code, with short labels is exactly
+  the nav rail's case rather than the select bar's — see
+  docs/module-development.md for the rule.
 
   Usage:
   {% include 'partials/page_picker.html.twig' with {
@@ -23,7 +37,7 @@
       current_path: current_path,     -- the global; selection by equality
                                       -- or by prefix (see match_prefix)
       extra_query: '?account_id=3',   -- optional, appended to every link
-      sheet_title: 'Choisir une page',-- optional
+      aria_label: 'Pages Finances',   -- optional, names the <nav>
       match_prefix: true,             -- optional: a sub-route keeps its
                                       -- parent page selected
   } only %}
@@ -42,14 +56,12 @@
 {% for page in pages %}
     {% set _items = _items|merge([{ id: page.url, label: page.label, selected: page.url == _best }]) %}
 {% endfor %}
-<div class="page-picker mb-2">
-    {% include 'partials/chip_picker.html.twig' with {
+<div class="page-picker mb-3">
+    {% include 'partials/nav_rail.html.twig' with {
         picker_id: picker_id,
         items: _items,
-        mode: 'single',
         base_url: '',
         extra_query: extra_query|default(''),
-        sheet_title: sheet_title|default('Choisir une page'),
-        empty_text: 'Aucune page disponible.',
+        aria_label: aria_label|default('Navigation de la page'),
     } %}
 </div>

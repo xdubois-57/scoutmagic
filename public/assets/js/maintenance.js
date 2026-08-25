@@ -233,7 +233,17 @@
                     return;
                 }
 
-                messageEl.textContent = 'Nouvelle version disponible : ' + data.version;
+                var message = 'Nouvelle version disponible : ' + data.version;
+                // The server proposes the FIRST pending major rather than
+                // the newest release, so several majors are installed one
+                // at a time (each with its own safety backup and its own
+                // migrations). Say so, or the admin reads the older number
+                // as a stale check.
+                if (data.latest_version && data.latest_version !== data.version) {
+                    message += ' — étape intermédiaire vers la version ' + data.latest_version
+                        + ', les versions majeures s\'installent une par une.';
+                }
+                messageEl.textContent = message;
                 // notes_html is server-rendered from Markdown by
                 // Core\View\MarkdownRenderer (already HTML-escaped there),
                 // never built from data.notes client-side.

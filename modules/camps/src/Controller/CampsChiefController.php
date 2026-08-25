@@ -179,7 +179,7 @@ class CampsChiefController extends AbstractController
         }
 
         $values = $this->stayFromMail->readValues($message);
-        $placeId = $this->stayFromMail->matchExistingPlaceId($values['place_name']);
+        $placeId = $this->stayFromMail->matchPlaceIdFor($message, $values['place_name']);
 
         return array_merge($submitted, [
             // A place the module already knows is SELECTED rather than
@@ -1004,8 +1004,8 @@ class CampsChiefController extends AbstractController
     }
 
     /**
-     * The past-stays status filter, as partials/chip_picker.html.twig
-     * wants it — "Tous" first, then one chip per status.
+     * The past-stays status filter, as partials/nav_rail.html.twig
+     * wants it — "Tous" first, then one tab per status.
      *
      * @return array<int, array{id: string, label: string, selected: bool}>
      */

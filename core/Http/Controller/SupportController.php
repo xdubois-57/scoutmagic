@@ -16,6 +16,7 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Scheduler\SchedulerService;
+use Core\Statistics\DestinationMatcher;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Statistics\StatisticsSender;
 use Core\Statistics\StatisticsStateSettings;
@@ -97,6 +98,17 @@ class SupportController extends AbstractController
             // page says which of the two came last; the comparison belongs
             // here rather than as a string comparison in Twig.
             'last_failure_superseded' => self::isBefore($lastFailureAt, $lastSuccessAt),
+            // The receiver installation is the one place that never reports
+            // on a schedule — it would be reporting to itself. That used to
+            // show up as a dated failure under "État des envois" and stay
+            // there for ever, reading as a fault to chase. It is a fact
+            // about this installation, so it is said as one. Derived, not
+            // stored: it is exactly the guard Core\Statistics\
+            // StatisticsSender applies, asked at display time.
+            'is_statistics_receiver' => DestinationMatcher::isReceiver(
+                self::nonEmpty($this->settingService->get('base_url')),
+                self::nonEmpty($this->settingService->get('statistics_destination'))
+            ),
             // Built and shown whether or not reporting is enabled: someone
             // deciding whether to turn it ON has to be able to read what
             // would leave the site first.

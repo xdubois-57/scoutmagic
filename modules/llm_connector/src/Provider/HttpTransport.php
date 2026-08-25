@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\LlmConnector\Provider;
 
+use Core\Http\StreamResponseHeaders;
 use Modules\LlmConnector\Api\LlmException;
 
 /**
@@ -91,18 +92,20 @@ final class HttpTransport
     {
         $context = stream_context_create(['http' => $httpOptions]);
 
+        StreamResponseHeaders::clear();
         $body = @file_get_contents($url, false, $context);
 
         if ($body === false) {
             // No response at all: connection refused, DNS failure, or the
-            // timeout elapsed. Checked first, because $http_response_header
-            // below is only populated once a response actually arrived.
+            // timeout elapsed. Checked first, because the headers below are
+            // only populated once a response actually arrived.
             throw LlmException::timeout();
         }
 
-        // Populated by the HTTP wrapper in this scope. Reaching this line
-        // means a response was received, so it is set.
-        $status = $this->statusCode($http_response_header);
+        // Cleared immediately before the request above, so this can only
+        // describe that request — never a stale one from another provider
+        // call earlier in the same process.
+        $status = $this->statusCode(StreamResponseHeaders::last());
 
         if ($status === 429) {
             throw LlmException::rateLimited($this->shorten($body));

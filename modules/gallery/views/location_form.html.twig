@@ -180,9 +180,9 @@
                         <div id="s3-test-result" class="mt-2"></div>
                         {% if gallery_s3_ai_available %}
                             <div id="s3-explain-wrap" class="mt-2 d-none">
-                                <button type="button" class="btn btn-outline-secondary btn-sm" id="s3-explain-ai">
-                                    <i class="bi bi-stars" aria-hidden="true"></i> Expliquer avec l'IA
-                                </button>
+                                {% include 'partials/ai_button.html.twig' with {
+                                    id: 's3-explain-ai', label: "Expliquer l'erreur avec l'IA", size: 'sm',
+                                } only %}
                                 <div id="s3-explain-result" class="mt-2"></div>
                             </div>
                         {% endif %}

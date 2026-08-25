@@ -87,6 +87,21 @@ class ForecastControllerTest extends TestCase
         $this->assertStringContainsString('2027-2028', $response->getBody()); // target year label
     }
 
+    /**
+     * The year the projection is FOR belongs in the page header, beside
+     * the title — the figures below mean nothing until a reader knows it,
+     * and it used to be readable only mid-subtitle.
+     */
+    public function testThePageHeaderNamesTheProjectedYear(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/previsions', [], [], [], []), [])->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '#<h1[^>]*>Prévisions</h1>\s*<span class="badge text-bg-secondary">2027-2028</span>#',
+            $body
+        );
+    }
+
     public function testIndexDistinguishesCertainFromHypothesis(): void
     {
         $response = $this->controller->index(new Request('GET', '/previsions', [], [], [], []), []);

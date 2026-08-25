@@ -1,0 +1,180 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Two tabs, two questions. « Lignes reconstituées » answers HOW MANY;
+  « Écarts nominatifs » answers WHO. A screen that ran them together said
+  a section was one over and left a treasurer to work out which of thirty
+  children it was.
+
+  Conforming lines are collapsed and counted, never dropped: a report
+  whose first screenful is forty rows of "conforme" hides the two that are
+  not, and one that silently omitted them could not be reconciled against
+  the paper document.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Vérification de la facture {{ invoice.documentNumber }} — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Facture ' ~ invoice.documentNumber,
+            subtitle: "Ce que la fédération a compté, ce que le roster contenait le jour de l'émission, et où les deux divergent.",
+        } only %}
+
+        {% include '@fees/partials/_nav.html.twig' %}
+
+        <div class="d-flex flex-wrap gap-3 align-items-center mb-3">
+            <div class="small text-body-secondary">
+                {{ invoice.issueDate ? 'Émise le ' ~ invoice.issueDate|date_fr : 'Sans date d\'émission' }}
+                — total <strong>{{ invoice.totalCents|money_cents }}</strong>
+                {% if invoice.templateNumber %}
+                    — modèle <span class="font-monospace">{{ invoice.templateNumber }}</span>
+                {% endif %}
+            </div>
+            <div class="ms-auto d-flex gap-2">
+                {% if invoice.financeFileId %}
+                    <a href="/files/{{ invoice.financeFileId }}" class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener">
+                        <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Le PDF
+                    </a>
+                {% endif %}
+                <a href="/admin/fees/factures/{{ invoice.id }}/export" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Export tableur
+                </a>
+            </div>
+        </div>
+
+        {% if invoice.snapshotId is null %}
+            <div class="alert alert-secondary" role="alert">
+                <i class="bi bi-camera" aria-hidden="true"></i>
+                <strong>Aucune photographie du roster ne correspond à cette facture.</strong>
+                Le module a été activé après son émission, et le site ne sait pas ce que Desk
+                contenait ce jour-là. La facture est conservée, mais elle ne peut pas être
+                vérifiée ligne par ligne — et ne le sera jamais.
+            </div>
+        {% elseif snapshot_gap_days is not null and snapshot_gap_days != 0 %}
+            {# One day of drift is enough to produce differences that are not
+               differences, so the gap is shown rather than hidden. #}
+            <div class="alert alert-info" role="alert">
+                <i class="bi bi-clock-history" aria-hidden="true"></i>
+                La photographie comparée a été prise
+                <strong>{{ snapshot_gap_days|abs }} jour(s)
+                {{ snapshot_gap_days < 0 ? 'avant' : 'après' }}</strong>
+                l'émission de la facture. Tout ce qui a été encodé dans Desk entre les deux
+                apparaîtra ici comme un écart sans en être un.
+            </div>
+        {% endif %}
+
+        {% if unmatched_people > 0 %}
+            <div class="alert alert-warning" role="alert">
+                <i class="bi bi-person-exclamation" aria-hidden="true"></i>
+                <strong>{{ unmatched_people }} personne(s) facturée(s) que le site n'a pas reconnue(s).</strong>
+                Leur nom ne figure nulle part dans la base — ouvrez le PDF pour les identifier.
+                Elles comptent dans les quantités ci-dessous, mais n'apparaissent dans aucun
+                écart nominatif.
+            </div>
+        {% endif %}
+
+        {% set _tabs = [] %}
+        {% for key, label in views %}
+            {% set _tabs = _tabs|merge([{ id: key, label: label ~ ' (' ~ view_counts[key] ~ ')', selected: key == view }]) %}
+        {% endfor %}
+        <div class="mb-3">
+            {% include 'partials/nav_rail.html.twig' with {
+                picker_id: 'fees-report-tabs',
+                items: _tabs,
+                base_url: '/admin/fees/factures/' ~ invoice.id ~ '?vue=',
+                aria_label: 'Vues du rapport de facture',
+            } %}
+        </div>
+
+        {% if view == 'lignes' %}
+            <p class="small text-body-secondary">
+                La quantité attendue vient de la <strong>photographie du roster</strong> — ce que Desk
+                contenait — jamais d'un calcul de tarif. Une ligne que le site ne sait pas juger est
+                affichée sans verdict plutôt qu'avec un faux.
+            </p>
+
+            {% set _shown = lines|filter(l => not l.matches()) %}
+            {% if _shown is empty %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Toutes les lignes correspondent à la photographie du roster.',
+                    icon: 'bi-check2-circle',
+                } only %}
+            {% else %}
+                {% include '@fees/partials/_report_lines.html.twig' with { lines: _shown } only %}
+            {% endif %}
+
+            {% if conforming_count > 0 %}
+                <div class="mt-3">
+                    <button class="btn btn-sm btn-outline-secondary" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#fees-conforming-lines"
+                            aria-expanded="false" aria-controls="fees-conforming-lines">
+                        <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                        Afficher les {{ conforming_count }} ligne(s) conforme(s)
+                    </button>
+                    <div class="collapse mt-3" id="fees-conforming-lines">
+                        {% include '@fees/partials/_report_lines.html.twig' with { lines: lines|filter(l => l.matches()) } only %}
+                    </div>
+                </div>
+            {% endif %}
+
+        {% else %}
+            <p class="small text-body-secondary">
+                Chaque ligne nomme une personne et ce qu'il y a à faire. Un écart de section
+                <strong>ne coûte rien</strong> — le tarif est le même de part et d'autre — et n'est
+                donc jamais chiffré.
+            </p>
+
+            {% if discrepancies is empty %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: "Aucun écart nominatif entre cette facture et la photographie du roster.",
+                    icon: 'bi-check2-circle',
+                } only %}
+            {% else %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th scope="col">Type d'écart</th>
+                                <th scope="col">Membre</th>
+                                <th scope="col" class="d-none d-md-table-cell">Section facturée</th>
+                                <th scope="col" class="d-none d-md-table-cell">Section dans Desk</th>
+                                <th scope="col" class="d-none d-lg-table-cell">Catégorie facturée</th>
+                                <th scope="col" class="d-none d-lg-table-cell">Catégorie dans Desk</th>
+                                <th scope="col" class="text-end">Incidence</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in discrepancies %}
+                                <tr>
+                                    <td>{{ kind_labels[item.kind]|default(item.kind) }}</td>
+                                    <td>{{ item.nameParts|display_name_full }}</td>
+                                    <td class="d-none d-md-table-cell">{{ item.billedSectionLabel ?? '—' }}</td>
+                                    <td class="d-none d-md-table-cell">{{ item.rosterSectionLabel ?? '—' }}</td>
+                                    <td class="d-none d-lg-table-cell">{{ item.billedCategoryLabel ?? '—' }}</td>
+                                    <td class="d-none d-lg-table-cell">{{ item.rosterCategoryLabel ?? '—' }}</td>
+                                    <td class="text-end">
+                                        {% if item.costsNothingByNature() %}
+                                            <span class="text-body-secondary small">Sans incidence</span>
+                                        {% elseif item.costCents is not null %}
+                                            <span class="{{ item.costCents > 0 ? 'text-danger' : 'text-success' }}">
+                                                {{ item.costCents|money_cents }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-body-secondary small">Non chiffré</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="small text-body-secondary">
+                    Une incidence positive signifie que l'unité a été facturée plus que le roster
+                    ne le justifie ; négative, qu'elle le sera plus tard.
+                </p>
+            {% endif %}
+        {% endif %}
+    </div>
+{% endblock %}

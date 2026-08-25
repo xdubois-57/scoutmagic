@@ -9,8 +9,13 @@ use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
 /**
- * Thin mapping layer over partials/chip_picker.html.twig (mode: single) —
- * same precedent as Tests\Core\View\SectionPickerRenderingTest.
+ * Thin mapping layer over partials/select_bar.html.twig (mode: single) —
+ * same precedent as Tests\Core\View\SectionPickerRenderingTest. A
+ * calendar list is open-ended and comes from the database, which is the
+ * select bar's case rather than the nav rail's.
+ *
+ * public.html.twig is `role_min: public`, so nothing here may assume a
+ * session.
  */
 class CalendarPickerRenderingTest extends TestCase
 {
@@ -25,7 +30,7 @@ class CalendarPickerRenderingTest extends TestCase
         $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
     }
 
-    public function testRendersOneOptionPerCalendarWithSharedChipAndSheetLink(): void
+    public function testRendersOneRealLinkPerCalendar(): void
     {
         $html = $this->twig->render('@calendar/partials/calendar_picker.html.twig', [
             'options' => [
@@ -37,12 +42,15 @@ class CalendarPickerRenderingTest extends TestCase
         ]);
 
         $this->assertStringContainsString('calendar-picker', $html);
-        $this->assertSame(2, substr_count($html, 'href="/chefs/calendar?calendar=1"'));
+        // One row per calendar, each a real <a href> — /calendar is in
+        // Core\Offline\OfflineWhitelist, so selection must not need JS.
+        $this->assertSame(1, substr_count($html, 'href="/chefs/calendar?calendar=1"'));
+        $this->assertSame(1, substr_count($html, 'href="/chefs/calendar?calendar=0"'));
         $this->assertStringContainsString('Mes évènements', $html);
         $this->assertStringContainsString('Louveteaux', $html);
     }
 
-    public function testSelectedOptionGetsBtnPrimary(): void
+    public function testSelectedOptionIsMarkedCurrentAndNamedOnTheTrigger(): void
     {
         $html = $this->twig->render('@calendar/partials/calendar_picker.html.twig', [
             'options' => [
@@ -53,8 +61,26 @@ class CalendarPickerRenderingTest extends TestCase
             'base_url' => '/calendar?calendar=',
         ]);
 
-        $this->assertStringContainsString('btn-primary', $html);
-        $this->assertStringContainsString('btn-outline-secondary', $html);
+        $this->assertSame(1, substr_count($html, 'aria-current="true"'));
+        $this->assertMatchesRegularExpression(
+            '~href="/calendar\?calendar=0"[^>]*aria-current="true"~',
+            $html
+        );
+        $this->assertStringContainsString('>Mes évènements</span>', $html);
+    }
+
+    public function testTriggerIsLabelledCalendrier(): void
+    {
+        $html = $this->twig->render('@calendar/partials/calendar_picker.html.twig', [
+            'options' => [
+                ['id' => 0, 'label' => 'Mes évènements', 'color' => null],
+                ['id' => 1, 'label' => 'Louveteaux', 'color' => null],
+            ],
+            'selected_id' => 0,
+            'base_url' => '/calendar?calendar=',
+        ]);
+
+        $this->assertStringContainsString('>Calendrier<', $html);
     }
 
     public function testExtraQueryPreservesMonthNavigationOnEveryLink(): void
@@ -62,13 +88,16 @@ class CalendarPickerRenderingTest extends TestCase
         $html = $this->twig->render('@calendar/partials/calendar_picker.html.twig', [
             'options' => [
                 ['id' => 0, 'label' => 'Mes évènements', 'color' => null],
+                ['id' => 1, 'label' => 'Louveteaux', 'color' => null],
             ],
             'selected_id' => 0,
             'base_url' => '/calendar?calendar=',
             'extra_query' => '&month=2026-08',
         ]);
 
-        $this->assertSame(2, substr_count($html, 'href="/calendar?calendar=0&amp;month=2026-08"'));
+        // The month must survive switching calendar, on every row.
+        $this->assertSame(1, substr_count($html, 'href="/calendar?calendar=0&amp;month=2026-08"'));
+        $this->assertSame(1, substr_count($html, 'href="/calendar?calendar=1&amp;month=2026-08"'));
     }
 
     public function testColorDerivedFromSectionIsForwardedUnchanged(): void
@@ -79,6 +108,7 @@ class CalendarPickerRenderingTest extends TestCase
         // must only forward it, never derive its own color table.
         $html = $this->twig->render('@calendar/partials/calendar_picker.html.twig', [
             'options' => [
+                ['id' => 0, 'label' => 'Mes évènements', 'color' => null],
                 ['id' => 1, 'label' => 'Louveteaux', 'color' => '#f5a623'],
             ],
             'selected_id' => 1,

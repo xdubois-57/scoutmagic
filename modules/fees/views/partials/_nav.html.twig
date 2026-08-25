@@ -1,0 +1,18 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# The module's sub-navigation, through the site's one page picker
+   (design.md §7.6 / partials/page_picker.html.twig) — no second chip row,
+   no nav-pills. #}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'fees-page-picker',
+    pages: [
+        { url: '/admin/fees', label: 'Aperçu' },
+        { url: '/admin/fees/tarifs', label: 'Justesse des tarifs' },
+        { url: '/admin/fees/factures', label: 'Factures' },
+    ],
+    current_path: current_path,
+    match_prefix: true,
+    sheet_title: 'Choisir une page',
+} only %}

@@ -5,8 +5,12 @@
 {% endblock %}
 {% block content %}
     <div class="page-medium">
+        {# The badge names the scout year this page writes on — the same
+           year the subtitle explains the marking is scoped to, but where
+           it is read first instead of mid-paragraph. #}
         {% include 'partials/page_header.html.twig' with {
             title: 'Départs',
+            badge: scout_year_label,
             subtitle: "Marque les animés qui ne seront plus là l'année scoute prochaine. Ce marquage porte
                 uniquement sur l'année scoute " ~ scout_year_label ~ " : il se réinitialise de lui-même à chaque nouvelle
                 année (nouvel import Desk), il n'a donc jamais besoin d'être retiré manuellement d'une année sur l'autre.

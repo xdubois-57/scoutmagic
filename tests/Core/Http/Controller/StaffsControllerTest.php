@@ -380,12 +380,12 @@ class StaffsControllerTest extends TestCase
         $this->assertStringContainsString('Communication', $response->getBody());
     }
 
-    public function testIndexRendersBadgesAsAChipPickerPerMemberWithCorrectSelectionState(): void
+    public function testIndexRendersBadgesAsASelectBarPerMemberWithCorrectSelectionState(): void
     {
-        // The badge picker reuses partials/chip_picker.html.twig (mode
-        // multi) — same component/style as the section picker above the
-        // staff list, one instance per member so each keeps its own
-        // selection independent of the others.
+        // The badge picker reuses partials/select_bar.html.twig (mode
+        // multi) — same component as the section picker above the staff
+        // list, one instance per member so each keeps its own selection
+        // independent of the others.
         $branchId = $this->createBranch('BAL', 'Baladins', 1);
         $sectionId = $this->createSection('BAL01', $branchId, 'Ma section');
         $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');

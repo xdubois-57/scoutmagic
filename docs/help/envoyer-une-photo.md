@@ -2,7 +2,7 @@
 id: envoyer-une-photo
 title: Envoyer une photo au site
 summary: L'écran d'envoi partagé : choisir un fichier, prendre une photo, et ce que le site en fait.
-category: Premiers pas
+category: Espace membres
 role_min: identified
 paths: /upload
 related: mon-compte, page-membre
@@ -42,6 +42,14 @@ recadrage conserve.
 
 La photo remplace la précédente et s'affiche partout où elle sert. Vous
 revenez ensuite automatiquement à la page d'où vous étiez parti.
+
+## Si l'envoi échoue
+
+Deux refus possibles, et la page vous dit lequel : le fichier n'est pas
+une image que le site accepte — JPEG, PNG, GIF ou WebP, quelle que soit
+son extension — ou il dépasse 10 Mo. Sur une connexion mobile faible,
+un envoi peut aussi s'interrompre en route : réessayez en Wi-Fi avant
+de chercher plus loin.
 
 > Une photo envoyée ici est visible par tous ceux à qui la page qui
 > l'accueille est destinée. Avant d'envoyer la photo d'un enfant,

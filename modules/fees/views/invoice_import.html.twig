@@ -1,0 +1,187 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Three states, and two of them are failures — told apart on purpose,
+  because they need answers from different people:
+
+    Dépôt          — nothing has been read yet.
+    Total incohérent — the DOCUMENT is at fault; the failing row is named.
+    Roster périmé  — the document is fine and the SITE is behind Desk.
+                     One button: importer Desk. There is deliberately no
+                     screen offering to map an unknown section code by
+                     hand.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Importer une facture — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Importer une facture',
+            subtitle: "Le PDF de la fédération, lu et recalculé au centime. Rien n'est enregistré tant que les comptes ne tombent pas juste.",
+        } only %}
+
+        {% include '@fees/partials/_nav.html.twig' %}
+
+        {% if upload_error %}
+            <div class="alert alert-danger" role="alert">{{ upload_error }}</div>
+        {% endif %}
+
+        {% if outcome and outcome.status == 'already_imported' %}
+            <div class="alert alert-info" role="alert">
+                <h2 class="h6 alert-heading">
+                    <i class="bi bi-check2-circle" aria-hidden="true"></i>
+                    Cette facture est déjà là
+                </h2>
+                <p class="mb-0">
+                    Le document <span class="font-monospace">{{ outcome.documentNumber }}</span> a déjà été importé.
+                    Rien n'a été modifié — vous pouvez toujours réessayer un document sans risque de le compter deux fois.
+                    <a href="/admin/fees/factures">Voir la saison</a>.
+                </p>
+            </div>
+        {% endif %}
+
+        {% if outcome and outcome.status == 'refused' %}
+            <div class="alert alert-danger" role="alert">
+                <h2 class="h6 alert-heading">
+                    <i class="bi bi-exclamation-octagon" aria-hidden="true"></i>
+                    Total incohérent — rien n'a été enregistré
+                </h2>
+                <p>
+                    La lecture du document ne retombe pas sur son propre total. Ce n'est pas un refus de forme :
+                    tant que l'arithmétique ne ferme pas, aucune vérification faite sur ce document ne voudrait
+                    dire quoi que ce soit. Voici où la lecture décroche.
+                </p>
+                <ul class="mb-0">
+                    {% for problem in outcome.problems %}
+                        <li>
+                            {{ problem.message }}
+                            {% if problem.reference %}
+                                <span class="font-monospace small">
+                                    ({{ problem.reference }}{{ problem.sectionCode ? ' — ' ~ problem.sectionCode }})
+                                </span>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+
+        {% if outcome and outcome.status == 'stale_roster' %}
+            <div class="alert alert-warning" role="alert">
+                <h2 class="h6 alert-heading">
+                    <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
+                    Roster périmé — la facture est bonne, c'est le site qui est en retard
+                </h2>
+                <p>
+                    Le document
+                    {% if outcome.documentNumber %}
+                        <span class="font-monospace">{{ outcome.documentNumber }}</span>
+                    {% endif %}
+                    se lit parfaitement et tombe juste. Mais il facture
+                    {{ outcome.unknownSectionCodes|length }} section(s) que ce site ne connaît pas :
+                    <span class="font-monospace">{{ outcome.unknownSectionCodes|join(', ') }}</span>.
+                </p>
+                <p>
+                    Ce n'est pas une correspondance que quelqu'un aurait oublié d'encoder : c'est que Desk a
+                    changé et que le site n'a pas été réimporté depuis. Réimportez Desk, puis reprenez ce
+                    fichier — il sera accepté tel quel.
+                </p>
+                <a href="/admin/import" class="btn btn-warning btn-sm">
+                    <i class="bi bi-cloud-download" aria-hidden="true"></i> Importer Desk
+                </a>
+            </div>
+        {% endif %}
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-3">
+                    <i class="bi bi-clock-history" aria-hidden="true"></i>
+                    Avant de déposer le fichier
+                </h2>
+                <ul class="small mb-0">
+                    <li>
+                        {% if last_import_at %}
+                            Dernier import Desk pour {{ scout_year_label }} :
+                            <strong>{{ last_import_at|datetime_fr }}</strong>.
+                            Si la facture est postérieure à des changements encodés dans Desk depuis,
+                            réimportez Desk d'abord.
+                        {% else %}
+                            Aucun import Desk n'a encore été enregistré pour {{ scout_year_label }}.
+                        {% endif %}
+                    </li>
+                    <li>
+                        {% if latest_snapshot %}
+                            Dernière photographie du roster :
+                            <strong>{{ latest_snapshot.takenAt|datetime_fr }}</strong>,
+                            {{ latest_snapshot.memberCount }} membre(s). C'est à elle que la facture sera comparée
+                            si elle lui est postérieure.
+                        {% else %}
+                            Aucune photographie du roster n'existe encore : la facture sera enregistrée, mais
+                            elle ne pourra pas être vérifiée ligne par ligne.
+                        {% endif %}
+                    </li>
+                    {% if last_ignored_row_count is not null %}
+                        <li>
+                            Au dernier import accepté, {{ last_ignored_row_count }} ligne(s) du document n'ont pas
+                            été reconnues. Un saut soudain de ce nombre est la manière dont un changement de modèle
+                            s'annonce.
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+
+        <form method="post" action="/admin/fees/factures/import" enctype="multipart/form-data" class="card">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Le fichier</h2>
+                {{ csrf_field()|raw }}
+                <div class="mb-3">
+                    {% include 'partials/drop_zone.html.twig' with {
+                        id: 'invoice-drop-zone',
+                        input_id: 'invoice-file',
+                        input_name: 'invoice',
+                        input_label: 'Facture de la fédération (PDF)',
+                        accept: '.pdf,application/pdf',
+                        message: 'Déposez le PDF de la facture ici, ou cliquez pour le choisir',
+                        icon: 'bi-file-earmark-pdf',
+                        data: { 'drop-zone-for': 'invoice-file' },
+                    } only %}
+                    <div class="form-text" id="invoice-drop-zone-selection" role="status"></div>
+                    <div class="form-text">
+                        Le PDF envoyé par la fédération, tel quel. Un scan ne convient pas : le site lit le texte
+                        du document, il ne le reconnaît pas sur une image. 20 Mo maximum.
+                    </div>
+                </div>
+
+                {% if finance_account_options is not empty %}
+                    <div class="border-top pt-3">
+                        {# Optional dependency on `finance` (ARCHITECTURE.md §7.5): with the
+                           module disabled this whole block simply is not offered, the PDF is
+                           not kept, and the vérification works exactly the same. #}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'finance-account-id',
+                            field_name: 'finance_account_id',
+                            label: 'Conserver le PDF comme justificatif dans Finances',
+                            type: 'select',
+                            size: 'sm',
+                            help: "Le document est chiffré au repos et rattaché au compte choisi. Le rapprochement avec le mouvement bancaire reste manuel : le site ne le fait pas à votre place.",
+                            options: finance_account_options,
+                        } only %}
+                    </div>
+                {% endif %}
+
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-upload" aria-hidden="true"></i> Lire et vérifier
+                </button>
+            </div>
+        </form>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/drop-zone.js" defer></script>
+    {# Names the file that was picked: the zone's input is visually hidden. #}
+    <script src="/assets/js/upload-drop-zone.js" defer></script>
+{% endblock %}

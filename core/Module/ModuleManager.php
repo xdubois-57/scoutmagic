@@ -368,12 +368,41 @@ class ModuleManager
                 if ($migrationComplete) {
                     $this->registryRepo->upsert($module->manifest->id, true, $module->manifest->version, null);
                 }
+
+                // A module upgrade is also where a setting the new manifest
+                // no longer declares stops existing. Nothing did this
+                // before, so a removed setting stayed in `settings` forever
+                // and kept rendering as an editable — and now inert — row on
+                // Configuration > Réglages. Runs here rather than in
+                // loadModule() so it costs one DELETE per upgrade instead of
+                // one per module per request; only editable rows are ever
+                // touched (Core\Config\SettingRepository::
+                // deleteUndeclaredEditable()), which is what keeps every
+                // runtime-registered internal flag safe.
+                $this->pruneUndeclaredSettings($module->manifest);
             }
 
             $this->enabledModuleIds[] = $module->manifest->id;
             $this->loadModule($module->manifest, $modulePosition);
             $modulePosition++;
         }
+    }
+
+    private function pruneUndeclaredSettings(ModuleManifest $manifest): void
+    {
+        $declaredKeys = array_map(static fn(array $setting): string => (string) $setting['key'], $manifest->settings);
+        $deleted = $this->settingService->pruneUndeclared($manifest->id, $declaredKeys);
+        if ($deleted === 0) {
+            return;
+        }
+
+        $this->journalService->log(
+            'core',
+            'module_settings_pruned',
+            'info',
+            "Module « {$manifest->id} » : {$deleted} réglage(s) obsolète(s) supprimé(s)",
+            ['module_id' => $manifest->id, 'deleted' => $deleted]
+        );
     }
 
     /**

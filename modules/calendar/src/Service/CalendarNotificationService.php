@@ -45,7 +45,16 @@ class CalendarNotificationService
 
     private const ENABLED_KEY = 'notify_multiday_events_enabled';
     private const DAYS_BEFORE_KEY = 'notify_multiday_events_days_before';
-    private const REMINDER_HOUR_KEY = 'event_reminder_hour';
+    /**
+     * When the "your activity is tomorrow" reminder goes out, the evening
+     * before. A fixed hour, not a setting: the calendar page configures
+     * exactly one notification — the multi-day reminder — and a second
+     * configurable one that no page ever exposed only produced a stray
+     * editable row on Configuration > Réglages (see the module's own
+     * help topic, "Les rappels"). 18:00 is the value that setting shipped
+     * with, kept as-is so no installation's reminders move.
+     */
+    private const REMINDER_HOUR = '18:00';
 
     public function __construct(
         private SchedulerService $schedulerService,
@@ -207,7 +216,7 @@ class CalendarNotificationService
     /**
      * Schedules the "your activity is tomorrow" reminder (module.json's
      * "calendar.event_reminder" type) for the day before the event, at
-     * the configured hour — replacing any previously scheduled reminder
+     * REMINDER_HOUR — replacing any previously scheduled reminder
      * for this event, so re-saving an event never leaves a stale
      * duplicate behind (same idempotent-reference pattern as
      * syncReminderForEvent() above). A reminder already in the past (the
@@ -224,7 +233,7 @@ class CalendarNotificationService
 
         $now = new \DateTimeImmutable();
         $eventStart = new \DateTimeImmutable($event->startDate);
-        [$hour, $minute] = array_map('intval', explode(':', $this->getReminderHour()));
+        [$hour, $minute] = array_map('intval', explode(':', self::REMINDER_HOUR));
         $runAt = $eventStart->modify('-1 day')->setTime($hour, $minute);
 
         if ($runAt <= $now) {
@@ -246,13 +255,6 @@ class CalendarNotificationService
         if ($existing !== null && $existing['status'] === 'pending') {
             $this->schedulerService->cancel((int) $existing['id']);
         }
-    }
-
-    private function getReminderHour(): string
-    {
-        $value = $this->settingService->get(self::REMINDER_HOUR_KEY, 'calendar', '18:00');
-
-        return preg_match('/^\d{1,2}:\d{2}$/', $value) === 1 ? $value : '18:00';
     }
 
     private function reminderReferenceFor(int $eventId): string

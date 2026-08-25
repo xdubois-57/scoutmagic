@@ -1,0 +1,145 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Justesse des tarifs — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Justesse des tarifs',
+            subtitle: "La catégorie encodée dans Desk, confrontée au nombre de personnes au même foyer. Corrigez dans Desk : le site n'y écrit jamais.",
+        } only %}
+
+        {% include '@fees/partials/_nav.html.twig' %}
+
+        <p class="small text-body-secondary">
+            <i class="bi bi-clock-history" aria-hidden="true"></i>
+            {% if last_import_at %}
+                Fondé sur l'import Desk du {{ last_import_at|datetime_fr }} ({{ scout_year_label }}).
+                Tout changement encodé dans Desk depuis n'apparaît pas ici.
+            {% else %}
+                Aucun import Desk n'a encore été enregistré pour {{ scout_year_label }} : cette page est vide par construction.
+            {% endif %}
+        </p>
+
+        <div class="d-flex flex-wrap gap-3 align-items-center mb-3">
+            <div>
+                <span class="text-body-secondary small">{{ report.householdCount }} foyer(s) examiné(s)</span>
+                {% if report.withoutAddressCount > 0 %}
+                    <span class="text-body-secondary small">
+                        — {{ report.withoutAddressCount }} membre(s) sans adresse exploitable, donc non vérifié(s)
+                    </span>
+                {% endif %}
+            </div>
+            <a href="/admin/fees/tarifs/export" class="btn btn-sm btn-outline-secondary ms-auto">
+                <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Export tableur
+            </a>
+        </div>
+
+        {% include '@fees/partials/_scale.html.twig' with {
+            tariff_panel: tariff_panel,
+            fee_categories: fee_categories,
+            category_labels: category_labels,
+        } only %}
+
+        {% set _tabs = [] %}
+        {% for key, label in views %}
+            {% set _tabs = _tabs|merge([{ id: key, label: label ~ ' (' ~ view_counts[key] ~ ')', selected: key == view }]) %}
+        {% endfor %}
+        <div class="mb-3">
+            {% include 'partials/nav_rail.html.twig' with {
+                picker_id: 'fees-accuracy-tabs',
+                items: _tabs,
+                base_url: '/admin/fees/tarifs?vue=',
+                aria_label: 'Vues du rapport de justesse',
+            } %}
+        </div>
+
+        {% if view == 'corriger' %}
+            <p class="small text-body-secondary">
+                Ces foyers ne correspondent pas à ce que Desk contient aujourd'hui. C'est ce qui pèse sur la
+                prochaine facture.
+                {% if report.toCorrectDifferenceCents is not null %}
+                    Total : <strong>{{ (report.toCorrectDifferenceCents / 100)|money }}</strong>
+                    {{ report.toCorrectDifferenceCents > 0 ? 'à déclarer en plus' : 'déclaré en trop' }}.
+                {% elseif not has_any_amount %}
+                    Renseignez le barème ci-dessus pour chiffrer les écarts.
+                {% endif %}
+            </p>
+            {% for review in report.toCorrect %}
+                {% include '@fees/partials/_household_card.html.twig' with {
+                    review: review, mode: 'corriger', category_labels: category_labels,
+                } only %}
+            {% else %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun foyer en écart avec ce que Desk contient aujourd\'hui.',
+                    icon: 'bi-check2-circle',
+                } only %}
+            {% endfor %}
+
+        {% elseif view == 'prevoir' %}
+            <div class="alert alert-info" role="alert">
+                <i class="bi bi-hand-index" aria-hidden="true"></i>
+                <strong>N'y touchez pas maintenant.</strong> Ces foyers sont corrects aujourd'hui : Desk contient
+                encore l'ancienne composition, et c'est celle-là que la fédération facture. Ils basculeront quand le
+                départ ou l'arrivée sera acté dans Desk.
+            </div>
+            {% for review in report.upcoming %}
+                {% include '@fees/partials/_household_card.html.twig' with {
+                    review: review, mode: 'prevoir', category_labels: category_labels,
+                } only %}
+                {% if review.needsCorrection %}
+                    <p class="small text-body-secondary mb-3">
+                        Ce foyer est aussi dans « À corriger dans Desk ». Corriger maintenant puis à la bascule fait
+                        deux modifications ; attendre n'en fait qu'une, au prix d'une facture intermédiaire inexacte.
+                        À vous de trancher.
+                    </p>
+                {% endif %}
+            {% else %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun foyer ne changera de tarif à la suite d\'un mouvement déjà connu.',
+                    icon: 'bi-hourglass',
+                } only %}
+            {% endfor %}
+
+        {% elseif view == 'ignores' %}
+            <p class="small text-body-secondary">
+                Foyers mis de côté volontairement. Chacun réapparaîtra si sa composition change.
+            </p>
+            {% for review in report.ignored %}
+                {% include '@fees/partials/_household_card.html.twig' with {
+                    review: review, mode: 'ignores', category_labels: category_labels,
+                } only %}
+            {% else %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun foyer ignoré.',
+                    icon: 'bi-eye-slash',
+                } only %}
+            {% endfor %}
+
+        {% else %}
+            <p class="small text-body-secondary">
+                Ces membres n'ont aucune adresse exploitable dans Desk. Ils ne sont <strong>ni conformes ni en
+                écart</strong> : le site ne peut rien dire de leur foyer, et le résumé ci-dessus ne les compte pas
+                comme vérifiés.
+            </p>
+            {% if report.withoutAddressCount > 0 %}
+                <p>
+                    {{ report.withoutAddressCount }} membre(s) concerné(s). Complétez leur adresse dans Desk, puis
+                    réimportez.
+                </p>
+            {% else %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Tous les membres ont une adresse exploitable.',
+                    icon: 'bi-geo-alt',
+                } only %}
+            {% endif %}
+        {% endif %}
+    </div>
+
+    <script type="application/json" id="fees-clipboard-data">{{ clipboard_texts|json_encode|raw }}</script>
+{% endblock %}
+{% block scripts %}
+    <script src="/assets/js/fees-copy.js" defer></script>
+{% endblock %}

@@ -1,0 +1,113 @@
+--- # ScoutMagic — ZAP Automation Framework plan: the `passive` profile.
+#
+# Driven by scripts/dast.sh, never run by hand. The variables below
+# (${…}) are set by that script through the ZAP container's environment:
+# DAST_TARGET is the throwaway instance's base URL, DAST_REPORT_DIR and
+# DAST_RELEASE_GATE_FILE are paths inside the container.
+#
+# WHAT THIS PROFILE IS
+# ----------------------------------------------------------------------
+# Passive rules only. ZAP sends nothing of its own: the attack surface
+# comes entirely from replaying the Playwright suite through ZAP as a
+# proxy, which is what lets the scan reach flows a spider cannot — a
+# magic link, an email confirmation, a passkey registration — because the
+# browser suite already drives them through the run's maildrop.
+#
+# HOW THE PLAN AND THE TRAFFIC FIT TOGETHER
+# ----------------------------------------------------------------------
+# The plan is started BEFORE the browser runs and blocks on the `delay`
+# job until scripts/dast.sh creates the file that job watches. That
+# ordering is not cosmetic: alert filters and passive-scan configuration
+# have to be in place before the first response is scanned, or the alerts
+# they concern have already been raised by the time the filter exists.
+env:
+  contexts:
+    - name: scoutmagic
+      urls:
+        - ${DAST_TARGET}
+      includePaths:
+        - "\\Q${DAST_TARGET}\\E.*"
+  parameters:
+    failOnError: true
+    failOnWarning: false
+    progressToStdout: true
+
+jobs:
+  # --------------------------------------------------------------------
+  # Known false positives, silenced with a reason.
+  #
+  # SECURITY.md § 4 documents exactly three deliberate CSRF exceptions,
+  # each authenticated by something other than a session-bound token.
+  # Only the GitHub webhook is reachable from a browser run, and ZAP's
+  # "Absence of Anti-CSRF Tokens" rule cannot see an HMAC signature, so
+  # it reports the endpoint every time. The filter is scoped to that one
+  # URL: any other endpoint missing a token is a real finding and must
+  # still fail the run.
+  #
+  # Nothing else is filtered. In particular the "Cookie Without Secure
+  # Flag" (10011) and "Strict-Transport-Security Header Not Set" (10035)
+  # rules are deliberately left armed: the instance is served over real
+  # TLS and told about it through X-Forwarded-Proto, so if either of
+  # those fires it is a defect in Core\Http\RequestScheme's wiring, not a
+  # false positive.
+  - type: alertFilter
+    parameters:
+      deleteGlobalAlerts: true
+    alertFilters:
+      - ruleId: 10202
+        ruleName: Absence of Anti-CSRF Tokens
+        newRisk: 'False Positive'
+        context: scoutmagic
+        url: "\\Q${DAST_TARGET}\\E/api/webhook/github"
+        urlRegex: true
+
+  - type: passiveScan-config
+    parameters:
+      # Only what the browser suite actually visited: an out-of-scope
+      # third-party URL a page happens to reference is not this
+      # application's responsibility, and scanning it would put findings
+      # about somebody else's site into this report.
+      scanOnlyInScope: true
+      # Unlimited per rule. A cap makes a report look better without
+      # making the application safer, and the count is what tells you
+      # whether a finding is one page or every page.
+      maxAlertsPerRule: 0
+
+  # --------------------------------------------------------------------
+  # The browser runs here. scripts/dast.sh creates the watched file the
+  # moment Playwright exits, whatever its verdict — a failed browser run
+  # still produced traffic worth scanning, and the shell script decides
+  # the overall exit code.
+  #
+  # `time` is a ceiling, not a schedule: it exists so a wedged browser
+  # run cannot hold a release gate open for ever.
+  - type: delay
+    parameters:
+      time: '01:00:00'
+      fileName: ${DAST_RELEASE_GATE_FILE}
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 10
+
+  # --------------------------------------------------------------------
+  # Two reports, for two readers. The HTML one is for a human deciding
+  # what to fix; the SARIF one is for GitHub code scanning, which is how
+  # a finding reaches the Security tab instead of scrolling past in a CI
+  # log.
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: ${DAST_REPORT_DIR}
+      reportFile: dast-passive.html
+      reportTitle: ScoutMagic — analyse de sécurité dynamique (profil passive)
+      reportDescription: >
+        Rapport produit par scripts/dast.sh en rejouant la suite Playwright
+        au travers d'OWASP ZAP. Règles passives uniquement.
+
+  - type: report
+    parameters:
+      template: sarif-json
+      reportDir: ${DAST_REPORT_DIR}
+      reportFile: dast-passive.sarif
+      reportTitle: ScoutMagic DAST (passive)

@@ -186,19 +186,23 @@ class DashboardControllerTest extends TestCase
         $this->assertStringContainsString('btn-primary', $response->getBody());
     }
 
-    public function testPagePickerUsesChipPickerNotTheOldHorizontalScrollRow(): void
+    public function testPagePickerUsesTheNavRailNotTheOldHorizontalScrollRow(): void
     {
         // modules/finance/views/_nav.html.twig used to be a raw
-        // overflow-x-auto/flex-nowrap button row with no scroll
-        // affordance on mobile — migrated to partials/chip_picker.html.twig
-        // (mode: single), same component/style as the section and
-        // calendar pickers.
+        // overflow-x-auto button row with no scroll affordance on mobile.
+        // The finance pages are a fixed set declared in code with short
+        // labels, so they are a nav rail (through
+        // partials/page_picker.html.twig) — see docs/module-development.md.
         $response = $this->controller->index(new Request('GET', '/finance', [], [], [], []), []);
 
         $body = $response->getBody();
         $this->assertStringContainsString('id="finance-page-picker"', $body);
-        $this->assertStringContainsString('data-mode="single"', $body);
+        $this->assertStringContainsString('nav nav-underline', $body);
         $this->assertStringNotContainsString('overflow-x-auto', $body);
+        $this->assertMatchesRegularExpression(
+            '/href="\/finance"[^>]*aria-current="page"/s',
+            $body
+        );
     }
 
     public function testShowsCategorySummaryAndBilan(): void
