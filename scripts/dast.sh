@@ -98,15 +98,6 @@ set -euo pipefail
 # resulting order rather than "something changed", and picks the tile to
 # act on by the presence of its button. 18 consecutive runs green.
 #
-# ONE SYMPTOM IS UNACCOUNTED FOR, deliberately left recorded here rather
-# than declared fixed: this block used to describe the failure as
-# `page.waitForResponse` timing out on /media/reorder. That cannot be
-# the mechanism above — sortable.js's dragend calls onReorder() whenever
-# a drag STARTED, whether or not the DOM moved, so a missing POST means
-# no dragstart at all. Either that symptom was mis-transcribed, or there
-# is a second, rarer failure. It has not reappeared since. If it does,
-# it is a different bug and this paragraph is the head start.
-#
 # Configuration (all optional; every value has a working default):
 #   DAST_DB_HOST / DAST_DB_PORT / DAST_DB_USER / DAST_DB_PASSWORD
 #       MySQL server to use. Default to TEST_DB_* like scripts/e2e.sh,

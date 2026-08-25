@@ -634,7 +634,11 @@ Checked against the real route table rather than a sample: `Tests\Core\Http\Rout
 
 `|date_fr`, `|datetime_fr`, `|french_date` and `|relative_date` used to read their argument with `new DateTimeImmutable((string) $date)`. One unreadable timestamp anywhere on a page therefore produced a **500 for the whole render** rather than a blank field — and an empty string rendered as *today*, which is how a missing value gets believed. All four now read through `DateInput::fromStorage()` and answer what they already answered for null: nothing at all.
 
-**What is not done.** ~190 further `new DateTimeImmutable($value)` reads remain, most of them on `DATETIME` columns that MySQL will not let hold a malformed value — which is what makes them low-risk, not a reason to call them checked. `fromStorage()` is the safe replacement wherever a value's origin is less certain than that.
+**The rest is frozen rather than converted.** 161 further `new DateTimeImmutable($value)` reads remain. Most read a `DATETIME` column, and MySQL will not let a malformed value into one — that is what makes them low-risk, and it is *not* what makes them checked: the zero date passes the column and PHP reads it as the 30th of November, year -1, and a nullable column read without a guard gives the empty string, which is *now*.
+
+Converting all 161 at once would mean 161 decisions about what a null should do, in files nobody is otherwise touching — churn with a real chance of introducing the bug it is meant to prevent. So `Tests\Security\StoredDateReadingRatchetTest` freezes the list instead: **no new site may appear**, and an entry comes off as its file is touched for another reason. Checked in both directions, like §33's inline-style ratchet — a list that only shrinks stays true, one that is merely "not exceeded" drifts into fiction.
+
+The most exposed family is the one the column type does not protect at all: a value from a **setting**, an **import** or a **JSON payload** has no `DATETIME` behind it. When one of those files appears in a diff, that is the moment to convert it.
 
 ### `Core\Database\ConstraintViolation` — the floor underneath validation
 
