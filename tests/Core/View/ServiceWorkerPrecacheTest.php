@@ -162,6 +162,8 @@ class ServiceWorkerPrecacheTest extends TestCase
         foreach ([
             '/assets/js/breadcrumb.js',
             '/assets/js/chip-picker.js',
+            '/assets/js/select-bar.js',
+            '/assets/js/nav-rail.js',
             '/assets/js/notification-badge.js',
             '/assets/js/offline-cache.js',
             '/assets/js/offline-nav.js',

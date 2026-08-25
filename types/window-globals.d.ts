@@ -178,6 +178,12 @@ interface Window {
     ChipPicker?: {
         setSelected?: (pickerId: string, id: string, selected: boolean) => void;
     };
+    // public/assets/js/select-bar.js — the escape hatch a mode:multi
+    // caller uses to revert its own optimistic toggle after the server
+    // rejects it, without re-dispatching select-bar:change.
+    SelectBar?: {
+        setSelected?: (pickerId: string, id: string, selected: boolean) => void;
+    };
     // public/assets/js/chunked-upload.js (audit M2) — consumed by
     // public/assets/js/gallery.js and public/assets/js/maintenance.js.
     ScoutMagicChunkedUpload?: {

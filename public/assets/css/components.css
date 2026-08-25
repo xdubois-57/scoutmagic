@@ -80,6 +80,67 @@
     .section-picker { flex-wrap: wrap; overflow: visible; }
 }
 
+/* partials/select_bar.html.twig — the disclosure panel anchored under
+   the bar. Bootstrap has no disclosure component, so nothing here
+   duplicates one (AGENTS.md): this is the native <details> marker being
+   removed and the panel being given a scroll of its own, and that is
+   all. Touch sizing is NOT here — the <summary> carries .tap-target and
+   takes its height from app.css's `pointer: coarse` block (design.md
+   §7.2), which is the only place touch sizing lives. */
+.select-bar-details > summary {
+    cursor: pointer;
+    list-style: none;
+}
+.select-bar-details > summary::-webkit-details-marker {
+    display: none;
+}
+.select-bar-chevron {
+    transition: transform 0.15s ease-in-out;
+}
+.select-bar-details[open] .select-bar-chevron {
+    transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+    .select-bar-chevron { transition: none; }
+}
+/* The panel scrolls itself rather than the page: a unit with thirty
+   sections must not push the page content it sits above off-screen. */
+.select-bar-panel {
+    max-height: 60vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* partials/nav_rail.html.twig — one horizontally-scrollable row of
+   Bootstrap `nav-underline` tabs. The component itself is Bootstrap's;
+   these rules only hide the scrollbar and add the scroll affordance it
+   leaves behind. */
+.nav-rail .nav {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    /* Scrolling shadows: the two body-coloured gradients are painted with
+       `background-attachment: local` so they travel WITH the content and
+       cover the shadow beneath them at each end, while the two dark
+       gradients are `scroll` and stay pinned to the box. The result is a
+       fade that appears only when the rail actually overflows and
+       disappears once that end is reached — a plain always-on mask would
+       dim the last tab even on a two-tab rail that never scrolls.
+       --bs-body-bg is Bootstrap's own token, so this follows dark mode
+       (design.md §7.8) instead of hardcoding white. */
+    background-image:
+        linear-gradient(to right, var(--bs-body-bg), rgba(0, 0, 0, 0)),
+        linear-gradient(to left, var(--bs-body-bg), rgba(0, 0, 0, 0)),
+        linear-gradient(to right, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0)),
+        linear-gradient(to left, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0));
+    background-position: left center, right center, left center, right center;
+    background-repeat: no-repeat;
+    background-size: 1.25rem 100%, 1.25rem 100%, 0.6rem 100%, 0.6rem 100%;
+    background-attachment: local, local, scroll, scroll;
+}
+.nav-rail .nav::-webkit-scrollbar {
+    display: none;
+}
+
 /* Core\View\MonthGrid\MonthGridBuilder month view, rendered by
    partials/month_grid.html.twig — generic, reusable by any module (not
    calendar-specific). No Bootstrap component duplicated here — Bootstrap

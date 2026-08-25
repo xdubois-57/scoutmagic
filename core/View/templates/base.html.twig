@@ -191,6 +191,17 @@
        (role_min: public) uses a chip picker too, not just
        identified-only pages. #}
     <script src="/assets/js/chip-picker.js" defer></script>
+    {# partials/select_bar.html.twig's JS — mode:multi toggling plus
+       closing an open panel on an outside click/Escape. mode:single
+       needs none of it (its rows are plain <a href>). Loads
+       unconditionally for the same reason as chip-picker.js above: the
+       public calendar page (role_min: public) carries a select bar too,
+       not just identified-only pages. #}
+    <script src="/assets/js/select-bar.js" defer></script>
+    {# partials/nav_rail.html.twig's JS — scrolls the selected tab into
+       view, and nothing else. The rail is fully rendered and operable
+       without it. #}
+    <script src="/assets/js/nav-rail.js" defer></script>
     {% if config_mode is defined and config_mode %}
     {% include 'partials/rich_text_editor.html.twig' %}
     {% endif %}
