@@ -5,8 +5,6 @@
 {% block content %}
     {% include 'partials/page_header.html.twig' with {
         title: 'Reçus',
-        action_label: no_accounts ? '' : 'Ajouter un reçu',
-        action_url: no_accounts ? '' : '/finance/receipts/new?account_id=' ~ selected_account.id,
     } only %}
 
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
@@ -16,6 +14,22 @@
         plusieurs à la fois), associez-les aux mouvements correspondants, et suivez ceux qui attendent encore
         d'être traités.
     </p>
+
+    {% if not no_accounts %}
+        {# « Ajouter un reçu » is still the page's one primary action, but it
+           sits BELOW the sub-navigation rather than riding page_header's
+           action slot: the rail says which finance page you are on and
+           belongs directly under the title, and an action between the two
+           pushed the rail away from the <h1> it navigates. Same right-
+           aligned row as the « Nouveau compte » action on
+           @finance/config/accounts.html.twig. #}
+        <div class="d-flex justify-content-end mb-3">
+            <a href="/finance/receipts/new?account_id={{ selected_account.id }}"
+               class="btn btn-primary w-100 w-sm-auto">
+                <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter un reçu
+            </a>
+        </div>
+    {% endif %}
 
     {% if no_accounts %}
         {% include 'partials/empty_state.html.twig' with {

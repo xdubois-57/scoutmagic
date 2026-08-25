@@ -183,10 +183,10 @@ final class UxConventionsTest extends TestCase
      * module. These patches exist because the coarse block misses `.btn`
      * (non-sm); they all go away when that is fixed.
      *
-     * This list is a ratchet: it only ever shrinks. chip_picker's five
-     * went with the file itself — its replacements, select_bar and
-     * nav_rail, carry none, taking their height from `.tap-target` in
-     * that same coarse block instead.
+     * This list is a ratchet: it only ever shrinks. The five the old
+     * selection component carried went with the file itself — its
+     * replacements, select_bar and nav_rail, carry none, taking their
+     * height from `.tap-target` in that same coarse block instead.
      *
      * @var array<string, int> template path => inline 44px patch count
      */
