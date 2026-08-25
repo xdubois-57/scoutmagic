@@ -42,6 +42,7 @@ final class CoreTaskHandlers
             'check_stable_update' => \Core\Maintenance\Task\CheckStableUpdateHandler::class,
             'compress_section_document' => \Core\Member\Task\CompressSectionDocumentHandler::class,
             'send_notifications' => \Core\Notification\Task\SendNotificationsHandler::class,
+            'send_notification_emails' => \Core\Notification\Task\SendNotificationEmailsHandler::class,
             'purge_notifications' => \Core\Notification\Task\PurgeNotificationsHandler::class,
             'purge_human_check_rate_limits' => \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::class,
             \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY => \Core\Statistics\Task\SendStatisticsHandler::class,

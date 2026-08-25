@@ -41,6 +41,14 @@ use Minishlink\WebPush\WebPush;
  * the composition root is wrapped in try/catch: an invalid VAPID config
  * must never take the rest of the site down. With it null, push delivery
  * is silently skipped (in-app/email notifications are unaffected).
+ *
+ * The email channel takes its Core\Notification\NotificationMailer as an
+ * ARGUMENT to sendEmailsForNotifications() rather than a constructor
+ * dependency: the mailer needs Twig, which `public/cron.php` has no
+ * reason to build, and threading it through both composition roots is
+ * exactly how `create_backup` once ended up registered in one entry point
+ * and not the other (§8.17). The scheduled handler builds it, so web and
+ * cron cannot drift.
  */
 class NotificationService
 {
@@ -112,11 +120,21 @@ class NotificationService
      * 2. Always creates a `notifications` row (the in-app centre), even
      *    for a recipient whose push/email channel is off — "the row is
      *    created and appears in their centre" holds regardless of channel.
-     * 3. Never pushes to $actorUserAccountId — the row is still created,
-     *    only the push is skipped.
+     * 3. Never pushes OR emails $actorUserAccountId — the row is still
+     *    created, only the two outbound copies are skipped: nobody needs
+     *    telling about the thing they just did.
      * 4. Never sends push synchronously here — grouped by their (quiet-
      *    hours-adjusted) target time and handed to SchedulerService, one
      *    `core/send_notifications` task per distinct target time.
+     * 5. Never sends email synchronously here either, for the same reason
+     *    (a section mailing is hundreds of SMTP round trips): the
+     *    email-eligible ids go to one `core/send_notification_emails`
+     *    task, with no delay. Quiet hours deliberately do NOT apply to
+     *    email — they hold back what makes a device buzz *now*, and the
+     *    setting is specified as a push behaviour (specifications.md
+     *    §13.3); delaying a mail by up to nine hours would make a
+     *    time-sensitive one useless without making anybody's night
+     *    quieter.
      *
      * @param array<int, array{userAccountId: int, memberId: ?int}> $recipients
      * @param array{title: string, body: string, url?: ?string} $payload
@@ -138,6 +156,8 @@ class NotificationService
 
         /** @var array<string, array{runAt: \DateTimeImmutable, ids: int[]}> $pushBuckets */
         $pushBuckets = [];
+        /** @var int[] $emailIds */
+        $emailIds = [];
 
         foreach ($recipients as $recipient) {
             $userAccountId = (int) $recipient['userAccountId'];
@@ -158,25 +178,35 @@ class NotificationService
                 $actorUserAccountId
             );
 
-            // The actor never gets a push for their own action — the row
-            // above still exists, only the push is skipped.
+            // The actor never gets a push or an email for their own
+            // action — the row above still exists, only the outbound
+            // copies are skipped.
             if ($actorUserAccountId !== null && $userAccountId === $actorUserAccountId) {
                 continue;
             }
 
-            if (!$this->channelEnabled($userAccountId, $type, 'push')) {
-                continue;
+            // One lookup, both channels — see resolveChannel().
+            $preference = $this->preferenceRepository->find($userAccountId, $type->id);
+
+            if ($this->resolveChannel($type, 'push', $preference)) {
+                $runAt = $this->resolvePushRunAt($userAccountId);
+                $bucketKey = $runAt->format('YmdHi');
+                $pushBuckets[$bucketKey]['runAt'] ??= $runAt;
+                $pushBuckets[$bucketKey]['ids'][] = $notificationId;
             }
 
-            $runAt = $this->resolvePushRunAt($userAccountId);
-            $bucketKey = $runAt->format('YmdHi');
-            $pushBuckets[$bucketKey]['runAt'] ??= $runAt;
-            $pushBuckets[$bucketKey]['ids'][] = $notificationId;
+            if ($this->resolveChannel($type, 'email', $preference)) {
+                $emailIds[] = $notificationId;
+            }
         }
 
         foreach ($pushBuckets as $bucket) {
             $delaySeconds = max(0, $bucket['runAt']->getTimestamp() - time());
             $this->schedulerService->scheduleAfter('core', 'send_notifications', $delaySeconds, ['notification_ids' => $bucket['ids']]);
+        }
+
+        if ($emailIds !== []) {
+            $this->schedulerService->scheduleAfter('core', 'send_notification_emails', 0, ['notification_ids' => $emailIds]);
         }
     }
 
@@ -249,6 +279,78 @@ class NotificationService
     }
 
     /**
+     * Called by Core\Notification\Task\SendNotificationEmailsHandler for
+     * a batch of notification ids whose email channel was resolved
+     * eligible at dispatch() time. Same contract as
+     * sendPushForNotifications(): $shouldContinue is the handler's time
+     * budget, and the return value is the ids actually taken on, so the
+     * handler can reschedule the remainder.
+     *
+     * Unlike push, every send here is a network round trip of its own —
+     * there is no batching transport to flush — so the budget is polled
+     * per message rather than per queue.
+     *
+     * Each id is CLAIMED before it is rendered
+     * (NotificationRepository::claimForEmail()): a row already stamped is
+     * silently skipped, which is what makes a re-run, or two overlapping
+     * scheduler runs, incapable of mailing anybody twice. A transport
+     * failure is journaled and NOT retried, deliberately — a retry cannot
+     * tell "never left" from "left, then the connection dropped", and the
+     * notification is in the recipient's centre either way.
+     *
+     * @param int[] $notificationIds
+     * @param NotificationMailer $mailer built by the caller — see the
+     *        class docblock for why it is not a constructor dependency
+     * @return int[] ids taken on, in order
+     */
+    public function sendEmailsForNotifications(
+        array $notificationIds,
+        \Closure $shouldContinue,
+        NotificationMailer $mailer
+    ): array {
+        $attempted = [];
+
+        foreach ($notificationIds as $notificationId) {
+            if (!$shouldContinue()) {
+                break;
+            }
+            $attempted[] = $notificationId;
+
+            if (!$this->notificationRepository->claimForEmail($notificationId)) {
+                continue;
+            }
+
+            $record = $this->notificationRepository->findById($notificationId);
+            if ($record === null) {
+                continue;
+            }
+
+            $account = $this->findAccountSafely($record->userAccountId);
+            $to = trim((string) $account?->email);
+            if ($account === null || $to === '') {
+                $this->notificationRepository->releaseEmailClaim($notificationId);
+                continue;
+            }
+
+            if (!$mailer->send($record, $to, $account->notificationDiscretion)) {
+                // The address itself never reaches the journal
+                // (SECURITY.md §11) — the type and the row id are enough
+                // to find the send again.
+                $this->journalService->log(
+                    'core',
+                    'notification_email_failed',
+                    'info',
+                    "Échec de l'envoi d'une notification par email",
+                    ['notification_id' => $notificationId, 'type_id' => $record->typeId],
+                    null
+                );
+            }
+        }
+
+        return $attempted;
+    }
+
+    /**
      * Registers a device for push notifications. Idempotent: re-
      * subscribing the same endpoint (e.g. the browser rotated its keys)
      * replaces the previous row rather than duplicating it.
@@ -285,7 +387,24 @@ class NotificationService
             return $type->channels[$channel] === 'on';
         }
 
-        $preference = $this->preferenceRepository->find($userAccountId, $type->id);
+        return $this->resolveChannel($type, $channel, $this->preferenceRepository->find($userAccountId, $type->id));
+    }
+
+    /**
+     * channelEnabled() without the lookup — for a caller that already has
+     * the recipient's preference row in hand.
+     *
+     * dispatch() asks about two channels per recipient, and the public
+     * method fetches the same row for each: on a section-wide send that is
+     * one wasted query per member, every send. This is the one place that
+     * matters enough to hand the row in instead.
+     */
+    private function resolveChannel(NotificationType $type, string $channel, ?NotificationPreference $preference): bool
+    {
+        if ($type->isChannelLocked($channel)) {
+            return $type->channels[$channel] === 'on';
+        }
+
         $override = match ($channel) {
             'in_app' => $preference?->inApp,
             'push' => $preference?->push,

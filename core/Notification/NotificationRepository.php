@@ -142,6 +142,40 @@ class NotificationRepository
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
+    /**
+     * Claims a notification for its email copy: stamps `email_sent_at`
+     * only if it is still NULL, and answers whether THIS caller is the one
+     * that won the claim.
+     *
+     * One conditional UPDATE rather than a read-then-write, so two
+     * scheduler runs racing over the same batch cannot both conclude "not
+     * sent yet" and both send. The stamp goes on before the mail transport
+     * is called: a send that then fails is a notification the recipient
+     * misses by email, which is recoverable and visible in their centre —
+     * whereas stamping afterwards would send the same message twice every
+     * time the process died mid-flush, which is not.
+     */
+    public function claimForEmail(int $id): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE notifications SET email_sent_at = ? WHERE id = ? AND email_sent_at IS NULL'
+        );
+        $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
+
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
+     * Releases a claim taken by claimForEmail() — used when the send was
+     * never actually attempted (no address, no mail transport), so the
+     * row does not stay marked as if an email had gone out.
+     */
+    public function releaseEmailClaim(int $id): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE notifications SET email_sent_at = NULL WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
     public function markRead(int $id): void
     {
         $stmt = $this->pdo->prepare('UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL');
@@ -182,7 +216,8 @@ class NotificationRepository
             body: $this->encryption->decrypt($this->readBlob($row['body']), 'notifications.body'),
             url: $row['url'] !== null ? (string) $row['url'] : null,
             readAt: $row['read_at'] !== null ? (string) $row['read_at'] : null,
-            createdAt: (string) $row['created_at']
+            createdAt: (string) $row['created_at'],
+            emailSentAt: isset($row['email_sent_at']) ? (string) $row['email_sent_at'] : null
         );
     }
 

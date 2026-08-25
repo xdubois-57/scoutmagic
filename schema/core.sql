@@ -738,6 +738,17 @@ CREATE TABLE push_subscriptions (
 -- personal data, so it stays plain. No scout_year_id — a notification is
 -- a dated event, not an annual state, same reasoning as calendar_events/
 -- sos_oncall_assignments (AGENTS.md "Database" section).
+-- email_sent_at stamps the moment the email copy of this notification left,
+-- for the recipients whose `email` channel resolved on at dispatch time
+-- (Core\Notification\NotificationService). It is the idempotency guard, not
+-- a delivery receipt: the scheduled sender claims a row by stamping it
+-- BEFORE handing it to the mail transport, so a handler that is rescheduled
+-- mid-batch, or run twice, can never send the same notification to somebody
+-- a second time. NULL therefore means "no email copy was sent" for both
+-- reasons — the channel was off, or the send has not happened yet — which is
+-- all any caller needs to know. The push channel needs no equivalent: a
+-- duplicate push replaces its predecessor in the device's tray, a duplicate
+-- email does not.
 CREATE TABLE notifications (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user_account_id INT UNSIGNED NOT NULL,
@@ -748,6 +759,7 @@ CREATE TABLE notifications (
     url VARCHAR(500),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     read_at DATETIME,
+    email_sent_at DATETIME,
     INDEX idx_notif_user (user_account_id),
     INDEX idx_notif_user_unread (user_account_id, read_at),
     INDEX idx_notif_type (type_id),

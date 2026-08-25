@@ -24,6 +24,11 @@ Aucun mot de passe à retenir.
 3. Ouvrez l'e-mail reçu et cliquez sur le lien — même depuis un autre
    appareil. La fenêtre d'attente se connecte alors toute seule.
 
+L'écran qui s'ouvre en cliquant vous dit ce qui s'est passé :
+« Connexion confirmée » — retournez à la fenêtre d'attente, elle est
+connectée ; « Lien invalide » — le lien a expiré ou a déjà servi,
+redemandez-en un.
+
 Le lien est valable 15 minutes et ne sert qu'une fois. Rien reçu ?
 Vérifiez le dossier indésirable, puis « Renvoyer le lien ». Si votre
 adresse n'est pas encore connue de l'unité, contactez un membre du
@@ -39,7 +44,10 @@ elle ne dira pas si la vôtre est enregistrée.
 Disponible seulement si vous en avez défini un depuis « Mon compte ».
 Entrez votre adresse et votre mot de passe. En cas d'oubli, « Mot de
 passe oublié ? » vous envoie un lien de réinitialisation — la réponse à
-l'écran est volontairement la même que l'adresse soit connue ou non.
+l'écran est volontairement la même que l'adresse soit connue ou non. Ce
+lien-là vaut une heure, ne sert qu'une fois, et ouvre une page où
+choisir votre nouveau mot de passe : douze caractères au moins, avec
+majuscule, minuscule, chiffre et caractère spécial.
 Après plusieurs échecs, la page vous demande de patienter quelques
 minutes.
 

@@ -22,10 +22,10 @@ libère) ou à la journée pleine (le jour du retour reste occupé). Ce
 mode se choisit à la création car il gouverne à la fois le calendrier,
 le prix et les disponibilités.
 
-La case « Rendre ce bien visible publiquement » publie sa page sur
-/locations. Un bien sans tarif y répondra « Tarif sur demande » — la
-page vous le signale jusqu'à ce qu'un gestionnaire remplisse la
-tarification.
+La case « Rendre ce bien visible publiquement » publie sa page dans la
+liste des locations, du côté visiteur. Un bien sans tarif y répondra
+« Tarif sur demande » — la page vous le signale jusqu'à ce qu'un
+gestionnaire remplisse la tarification.
 
 ## Désigner les gestionnaires
 

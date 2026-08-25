@@ -37,7 +37,8 @@ namespace Core\View;
  * - 'heading_base_level' (int, default 6): the <hN> a single-# heading
  *   maps to; each extra # goes one level deeper, capped at <h6>. The
  *   default 6 is the historical "all headings are <h6>" flattening; help
- *   pages pass 2 (their <h1> is the topic title, outside the Markdown).
+ *   pages pass 1 (their <h1> is the topic title, outside the Markdown, so a
+ *   topic's own `##` sections render as the <h2> they read as).
  * - 'allow_asset_images' (bool, default false): renders ![alt](src) as an
  *   <img>, but ONLY for a src under /assets/ — never an external URL
  *   (the CSP would block it, and a remote image is a privacy leak) and
@@ -188,7 +189,7 @@ final class MarkdownRenderer
                 $orderedOpen = $closeOrderedList($orderedOpen);
                 // With the default base level 6 every depth flattens to
                 // <h6> — the historical behaviour, byte for byte. A lower
-                // base (help pages use 2) maps # to <h{base}> and each
+                // base (help pages use 1) maps # to <h{base}> and each
                 // extra # one level deeper, never past <h6>.
                 $level = min(6, $headingBaseLevel + strlen($m[1]) - 1);
                 $html .= '<h' . $level . ' class="fw-semibold mt-2 mb-1">' . self::inline($m[2], $allowAssetImages) . '</h' . $level . '>';
