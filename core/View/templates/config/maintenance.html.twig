@@ -227,6 +227,33 @@
                         {% endif %}
                     </p>
 
+                    {# La raison du rejet, en clair. Le webhook la renvoyait à
+                       GitHub puis l'oubliait ; elle est désormais conservée
+                       (GitHubWebhookService::recordPushOutcome()) pour que le
+                       diagnostic soit ici plutôt qu'à aller chercher dans le
+                       journal de livraisons GitHub. #}
+                    {% set _push_reasons = {
+                        'ok': null,
+                        'dev_mode_disabled': "les mises à jour automatiques sont désactivées, ou le niveau n'est pas « développement »",
+                        'repository_mismatch': "la poussée vient d'un autre dépôt que celui configuré ci-dessus",
+                        'invalid_payload': 'la poussée reçue était illisible',
+                        'update_in_progress': "une autre mise à jour était déjà en cours (état transitoire)",
+                    } %}
+                    {% if auto_update_last_push_at %}
+                        <p class="small mb-2" id="auto-update-last-push">
+                            Dernière poussée GitHub examinée : <strong>{{ auto_update_last_push_at|datetime_fr }}</strong>
+                            {% if auto_update_last_push_result == 'ok' %}
+                                — <span class="text-success">installation programmée</span>.
+                            {% else %}
+                                — <span class="text-danger">ignorée</span>
+                                {%- if _push_reasons[auto_update_last_push_result] is defined and _push_reasons[auto_update_last_push_result] %}
+                                    : {{ _push_reasons[auto_update_last_push_result] }}.
+                                {%- else %} (<code>{{ auto_update_last_push_result }}</code>).
+                                {%- endif %}
+                            {% endif %}
+                        </p>
+                    {% endif %}
+
                     {% if auto_update_silence_warning %}
                         <div class="alert alert-warning small" id="auto-update-silence-warning">
                             {% if auto_update_last_success %}
@@ -237,10 +264,18 @@
                                 Aucune mise à jour automatique n'a jamais été installée sur ce site, alors
                                 qu'il suit la branche de développement et devrait s'installer à chaque poussée.
                             {% endif %}
-                            Vérifiez que le webhook GitHub parvient bien au site : dans le dépôt,
-                            Settings → Webhooks → Recent Deliveries. Une livraison peut répondre
-                            « 200 » tout en étant ignorée (mauvaise branche, dépôt non correspondant,
-                            mises à jour désactivées) — la réponse indique alors la raison.
+
+                            {% if auto_update_last_push_result and auto_update_last_push_result != 'ok' %}
+                                La dernière poussée examinée a été ignorée — voir la ligne ci-dessus,
+                                qui en donne la raison.
+                            {% elseif auto_update_last_push_at %}
+                                La dernière poussée examinée avait pourtant été acceptée : l'installation
+                                a donc échoué après coup — voir l'historique des mises à jour plus bas.
+                            {% else %}
+                                Aucune poussée n'a jamais été reçue : vérifiez que le webhook GitHub
+                                parvient bien au site (dans le dépôt, Settings → Webhooks → Recent
+                                Deliveries). Une livraison peut répondre « 200 » tout en étant ignorée.
+                            {% endif %}
                         </div>
                     {% endif %}
                     <div class="small mb-3 {{ webhook_configured ? 'd-none' : '' }}" id="webhook-setup-instructions">

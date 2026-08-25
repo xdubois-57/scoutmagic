@@ -141,6 +141,8 @@ class MaintenanceController extends AbstractController
             'auto_update_last_success_version' => $autoUpdateHealth['last_version'],
             'auto_update_silent_days' => $autoUpdateHealth['silent_days'],
             'auto_update_silence_warning' => $autoUpdateHealth['warn'],
+            'auto_update_last_push_at' => (string) ($this->settingService->get('auto_update_last_push_at') ?: ''),
+            'auto_update_last_push_result' => (string) ($this->settingService->get('auto_update_last_push_result') ?: ''),
             'webhook_url' => rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/api/webhook/github',
             'dev_update_branch' => (string) ($this->settingService->get('dev_update_branch') ?: 'main'),
         ]);
