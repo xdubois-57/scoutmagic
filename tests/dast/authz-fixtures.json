@@ -21,7 +21,13 @@
     "less and less."
   ],
   "groups": {
+    "/admin/doublons/{id}": {
+      "id": "1"
+    },
     "/admin/fees/factures/{id}": {
+      "id": "1"
+    },
+    "/admin/import/{id}": {
       "id": "1"
     },
     "/admin/members/{id}": {
