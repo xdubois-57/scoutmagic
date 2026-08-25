@@ -514,5 +514,34 @@ final class SharedPartialsRenderingTest extends TestCase
         // never also « Tableau de bord » for happening to sit at /finance.
         $this->assertMatchesRegularExpression('/data-id="\/finance\/movements"\s+data-selected="true"/', $html);
         $this->assertDoesNotMatchRegularExpression('/data-id="\/finance"\s+data-selected="true"/', $html);
+        // Exactly one tab is current — the failure this guards against is
+        // two tabs lighting up at once, which reads as a rendering bug.
+        $this->assertSame(1, substr_count($html, 'aria-current="page"'));
+    }
+
+    public function testPagePickerIsANavRailAndNeverFoldsAPageAway(): void
+    {
+        $html = $this->render(
+            "{% include 'partials/page_picker.html.twig' with {
+                picker_id: 'finance-pages',
+                pages: [
+                    { url: '/finance', label: 'Tableau de bord' },
+                    { url: '/finance/movements', label: 'Mouvements' },
+                    { url: '/finance/receipts', label: 'Reçus' },
+                ],
+                current_path: '/finance',
+                extra_query: '?account_id=3',
+            } only %}"
+        );
+
+        $this->assertStringContainsString('nav nav-underline', $html);
+        $this->assertStringContainsString('flex-nowrap', $html);
+        // Every page is a real link, and extra_query rides along on each.
+        $this->assertStringContainsString('href="/finance?account_id=3"', $html);
+        $this->assertStringContainsString('href="/finance/movements?account_id=3"', $html);
+        $this->assertStringContainsString('href="/finance/receipts?account_id=3"', $html);
+        // Nothing is hidden behind an overflow control.
+        $this->assertStringNotContainsString('offcanvas', $html);
+        $this->assertStringNotContainsString('<details', $html);
     }
 }

@@ -335,6 +335,20 @@ helpers; a page-level primary action that happens to call an AI
   grey small text, and read by nobody before the numbers.
 - Every `<table>` sits in a `.table-responsive` wrapper (or a documented
   overflow container).
+- A page's **sub-navigation** — the fixed set of views or sub-pages it is
+  made of — is `partials/page_picker.html.twig`, which renders a nav rail
+  (§1.4): Bootstrap `nav nav-underline` + `flex-nowrap` + `overflow-auto`.
+  This is a deliberate, approved **partial reversal of UX-convergence
+  decision #4** ("nav-pills → chips"), not an oversight to correct.
+  Decision #4 was right that pills were wrong for sub-navigation and right
+  to converge the six copies of that boilerplate onto one partial; it was
+  wrong about the destination. A chip reads as a filter you toggle on and
+  off, and the chip picker's wrapping-plus-`+N`-sheet behaviour hid whole
+  pages behind an overflow control — on `/finance` the page row and the
+  account row together could reach four lines of chips before the first
+  line of content. Underlined tabs are the shape the web already uses for
+  "which view of this page am I on", and a rail folds nothing away.
+  Chips remain wrong for sub-navigation; so were pills.
 
 ### 7.7 Empty states
 
