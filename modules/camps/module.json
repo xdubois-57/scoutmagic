@@ -464,7 +464,7 @@
       "default_value": "1",
       "type": "boolean",
       "label": "Créer un camp depuis un message",
-      "description": "Dans une boîte dédiée uniquement : si un message contient des dates identifiables ET un nom de lieu exploitable, un séjour est créé automatiquement, visiblement marqué comme tel. Sans ce réglage, le message reste dans le courrier non classé avec une action « Créer un camp depuis ce message »."
+      "description": "Dans une boîte dédiée uniquement : si un message annonce des dates sans ambiguïté, un séjour est créé automatiquement, visiblement marqué comme tel. Le lieu est d'abord un terrain déjà connu ; un nouveau terrain n'est créé que si le module Connecteur Intelligence Artificielle est actif, son nom étant alors lu dans le corps du message — jamais dans le nom de l'expéditeur. Sans ce réglage, ou faute de lieu, le message reste dans le courrier non classé avec une action « Créer un camp depuis ce message »."
     },
     {
       "key": "camps_unsorted_retention_months",

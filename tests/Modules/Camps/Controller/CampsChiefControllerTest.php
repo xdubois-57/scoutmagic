@@ -451,10 +451,16 @@ class CampsChiefControllerTest extends TestCase
      * A controller wired the way public/index.php wires it when
      * inbound_mail is enabled, with one unsorted message to read.
      *
+     * The connector is the same optional dependency as in production: with
+     * one, the place name is read out of the message body; without one,
+     * the form is pre-filled with everything except a place name.
+     *
      * @param list<array{from: string, to: string, message: int}> $moves
      */
-    private function controllerWithUnsortedMessage(array &$moves): CampsChiefController
-    {
+    private function controllerWithUnsortedMessage(
+        array &$moves,
+        ?\Modules\LlmConnector\Api\LlmConnectorInterface $llm = null
+    ): CampsChiefController {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $audit = new AuditService(new AuditRepository($this->pdo, $encryption));
         $settings = new SettingService(new SettingRepository($this->pdo));
@@ -534,15 +540,31 @@ class CampsChiefControllerTest extends TestCase
                 $duplicates,
                 new \Modules\Camps\Mail\MessageReader(),
                 $settings,
-                $inbound
+                $inbound,
+                $llm
             )
         );
+    }
+
+    /** A connector answering one place name, read out of the body. */
+    private function llmNaming(string $placeName): \Modules\LlmConnector\Api\LlmConnectorInterface
+    {
+        $llm = $this->createStub(\Modules\LlmConnector\Api\LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('complete')->willReturn(new \Modules\LlmConnector\Api\LlmResponse(
+            (string) json_encode(['place_name' => $placeName]),
+            ['place_name' => $placeName],
+            100,
+            10
+        ));
+
+        return $llm;
     }
 
     public function testTheCreationFormIsPreFilledFromAnUnsortedMessage(): void
     {
         $moves = [];
-        $controller = $this->controllerWithUnsortedMessage($moves);
+        $controller = $this->controllerWithUnsortedMessage($moves, $this->llmNaming('Domaine de Mozet'));
 
         $html = $controller->create(
             new Request('GET', '/chefs/camps/nouveau', ['message' => '42'], [], [], []),
@@ -553,6 +575,23 @@ class CampsChiefControllerTest extends TestCase
         $this->assertStringContainsString('2028-07-12', $html);
         $this->assertStringContainsString('2028-07-19', $html);
         $this->assertStringContainsString('name="message_id" value="42"', $html);
+    }
+
+    public function testWithoutTheConnectorTheFormArrivesWithoutAPlaceName(): void
+    {
+        $moves = [];
+        $controller = $this->controllerWithUnsortedMessage($moves);
+
+        $html = (string) preg_replace('/\s+/', ' ', $controller->create(
+            new Request('GET', '/chefs/camps/nouveau', ['message' => '42'], [], [], []),
+            []
+        )->getBody());
+
+        // The dates are patterns and still arrive; the name is not, and
+        // the sender's display name is never proposed as one — a chief
+        // types it, which is the validation this path exists for.
+        $this->assertStringContainsString('2028-07-12', $html);
+        $this->assertStringContainsString('name="place_name" value=""', $html);
     }
 
     public function testAKnownPlaceIsSelectedRatherThanDescribedAgain(): void

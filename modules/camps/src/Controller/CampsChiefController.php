@@ -179,7 +179,7 @@ class CampsChiefController extends AbstractController
         }
 
         $values = $this->stayFromMail->readValues($message);
-        $placeId = $this->stayFromMail->matchExistingPlaceId($values['place_name']);
+        $placeId = $this->stayFromMail->matchPlaceIdFor($message, $values['place_name']);
 
         return array_merge($submitted, [
             // A place the module already knows is SELECTED rather than
