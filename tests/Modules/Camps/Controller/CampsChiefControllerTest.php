@@ -85,7 +85,10 @@ class CampsChiefControllerTest extends TestCase
             $this->places,
             $this->camps,
             new PlaceService($this->places, $audit),
-            new CampService($this->camps, $audit),
+            // With the PlaceRepository the composition root gives it: without
+            // it, nothing marks a place's summary stale and this suite would
+            // pass while the nightly summary silently never regenerated.
+            new CampService($this->camps, $audit, $this->places),
             new SectionDescriber($sections),
             $sections,
             new EditableContentService(new EditableContentRepository($this->pdo)),
@@ -323,6 +326,29 @@ class CampsChiefControllerTest extends TestCase
      * — the only dependency these two tests need and the composition root
      * wires the same way.
      */
+    /**
+     * The real summary service, with whichever connector the test wants —
+     * the notes and the sections included, exactly as the composition
+     * root builds it.
+     */
+    private function summaryService(LlmConnectorInterface $llm): PlaceSummaryService
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return new PlaceSummaryService(
+            $this->places,
+            $this->camps,
+            new ReviewRepository($this->pdo),
+            new EditableContentService(new EditableContentRepository($this->pdo)),
+            new SectionDescriber(new SectionService(
+                \Core\Database\Connection::withPdo($this->pdo),
+                $encryption,
+                new \Core\Badge\MemberBadgeRepository($this->pdo)
+            )),
+            $llm
+        );
+    }
+
     private function controllerWithSummaries(PlaceSummaryService $summaries): CampsChiefController
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
@@ -343,7 +369,10 @@ class CampsChiefControllerTest extends TestCase
             $this->places,
             $this->camps,
             new PlaceService($this->places, $audit),
-            new CampService($this->camps, $audit),
+            // With the PlaceRepository the composition root gives it: without
+            // it, nothing marks a place's summary stale and this suite would
+            // pass while the nightly summary silently never regenerated.
+            new CampService($this->camps, $audit, $this->places),
             new SectionDescriber($sections),
             $sections,
             new EditableContentService(new EditableContentRepository($this->pdo)),
@@ -537,12 +566,7 @@ class CampsChiefControllerTest extends TestCase
         $llm->method('isTierAvailable')->willReturn(false);
         $llm->method('complete')->willThrowException(LlmException::noModel(LlmTier::CHEAP));
 
-        $this->controllerWithSummaries(new PlaceSummaryService(
-            $this->places,
-            $this->camps,
-            new ReviewRepository($this->pdo),
-            $llm
-        ))->regenerateSummary(
+        $this->controllerWithSummaries($this->summaryService($llm))->regenerateSummary(
             new Request('POST', '/chefs/camps/lieux/' . $placeId . '/resume', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
             ['id' => (string) $placeId]
         );
@@ -570,12 +594,7 @@ class CampsChiefControllerTest extends TestCase
         $llm->method('isAvailable')->willReturn(true);
         $llm->method('isTierAvailable')->willReturn(false);
 
-        $html = $this->controllerWithSummaries(new PlaceSummaryService(
-            $this->places,
-            $this->camps,
-            new ReviewRepository($this->pdo),
-            $llm
-        ))->showPlace(
+        $html = $this->controllerWithSummaries($this->summaryService($llm))->showPlace(
             new Request('GET', '/chefs/camps/lieux/' . $placeId, [], [], [], []),
             ['id' => (string) $placeId]
         )->getBody();
@@ -594,12 +613,7 @@ class CampsChiefControllerTest extends TestCase
         $llm->method('isTierAvailable')->willReturn(true);
         $llm->method('complete')->willReturn(new LlmResponse('Terrain plat, accueil constant.', null, 90, 20));
 
-        $this->controllerWithSummaries(new PlaceSummaryService(
-            $this->places,
-            $this->camps,
-            new ReviewRepository($this->pdo),
-            $llm
-        ))->regenerateSummary(
+        $this->controllerWithSummaries($this->summaryService($llm))->regenerateSummary(
             new Request('POST', '/chefs/camps/lieux/' . $placeId . '/resume', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
             ['id' => (string) $placeId]
         );
@@ -608,6 +622,38 @@ class CampsChiefControllerTest extends TestCase
         $this->assertNotNull($flash);
         $this->assertSame('success', $flash['type']);
         $this->assertSame('Terrain plat, accueil constant.', $this->places->findById($placeId)?->aiSummary);
+    }
+
+    /**
+     * A note is half of what a place's summary is made of, so editing one
+     * has to invalidate that summary — otherwise the sentence a chief
+     * just wrote waits for the next unrelated change before the nightly
+     * task ever reads it.
+     *
+     * It works because the note is saved through the stay form, and
+     * Service\CampService::update() marks the place stale on every
+     * submit. That is load-bearing now, so it is pinned here.
+     */
+    public function testEditingAStaysNoteMakesItsPlacesSummaryStale(): void
+    {
+        $campId = $this->aStay();
+        $placeId = (int) $this->pdo->query('SELECT place_id FROM camp_camps WHERE id = ' . $campId)->fetchColumn();
+        $this->places->saveSummary($placeId, 'Un résumé écrit hier.');
+        $this->assertFalse($this->places->findById($placeId)?->aiSummaryIsStale);
+
+        $this->controller->updateCamp(
+            new Request('POST', '/chefs/camps/sejours/' . $campId, [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'stay_type' => 'grand_camp',
+                'status' => 'confirmed',
+                'start_date' => '2019-07-12',
+                'end_date' => '2019-07-19',
+                'note' => '<p>La cuisine était petite mais bien. Pas d\'endroit pour un tabou.</p>',
+            ], [], []),
+            ['id' => (string) $campId]
+        );
+
+        $this->assertTrue($this->places->findById($placeId)?->aiSummaryIsStale);
     }
 
     public function testAReviewCanBeTakenBackOff(): void
