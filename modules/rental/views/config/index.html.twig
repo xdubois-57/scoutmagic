@@ -42,12 +42,13 @@
                 }]) %}
             {% endfor %}
             <div class="mb-4">
-                {% include 'partials/chip_picker.html.twig' with {
+                {% include 'partials/select_bar.html.twig' with {
                     picker_id: 'rental-asset-picker',
+                    label: 'Bien',
                     items: asset_items,
                     mode: 'single',
                     base_url: '/admin/locations?asset_id=',
-                    sheet_title: 'Choisir un bien',
+                    none_selected_text: 'Choisir un bien',
                     empty_text: 'Aucun bien disponible.',
                 } %}
             </div>

@@ -80,11 +80,18 @@
                                 }]) %}
                             {% endfor %}
                             <div class="badge-picker" data-member-year-id="{{ member.memberYearId }}">
-                                {% include 'partials/chip_picker.html.twig' with {
+                                {# One bar per staff card. The trigger
+                                   summarises the selection (« Aucun badge »,
+                                   « Infirmier », « 2 badges ») instead of
+                                   drawing a chip cloud per member — the
+                                   cards are already dense. #}
+                                {% include 'partials/select_bar.html.twig' with {
                                     picker_id: 'badge-picker-' ~ member.memberYearId,
+                                    label: 'Badges',
                                     items: badge_items,
                                     mode: 'multi',
-                                    sheet_title: 'Choisir les badges',
+                                    none_selected_text: 'Aucun badge',
+                                    count_label: 'badges',
                                     empty_text: 'Aucun badge disponible.',
                                 } %}
                             </div>

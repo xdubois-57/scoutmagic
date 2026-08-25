@@ -222,7 +222,11 @@ Key-value, typed, with label, mandatory description, optional regex. Grouped by 
 
 ## 11. SectionPicker
 
-Reusable component. Sections (not branches), branch subtitle. Horizontal scroll mobile, wraps desktop. Default: highest-role member's section.
+Reusable component. Sections (not branches), branch subtitle. Rendered as a
+**select bar** (`partials/select_bar.html.twig`): one full-width row showing
+the current section, opening a panel with the full list. Never a horizontal
+scroll row and never wrapped chips — a section list is open-ended and its
+labels are long. Default: highest-role member's section.
 
 ## 12. Progressive Web App (PWA)
 

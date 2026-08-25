@@ -444,7 +444,7 @@
     // base64url encode/decode helpers directly and exercise their edge cases
     // (padding, empty buffers, URL-safe characters) exhaustively, rather than
     // only through a fully mocked WebAuthn round-trip — same precedent as
-    // window.ChipPicker, window.ScoutMagicNav and
+    // window.SelectBar, window.ScoutMagicNav and
     // news-form-builder.js's own ScoutMagicNewsFormBuilderInternals.
     //
     // Test-only: nothing in production reads this.
