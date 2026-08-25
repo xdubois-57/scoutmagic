@@ -38,7 +38,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.1.0', $this->manifest->version);
+        $this->assertSame('1.2.0', $this->manifest->version);
     }
 
     /**
@@ -86,28 +86,81 @@ class ModuleManifestTest extends TestCase
      * optional dependency is a nullable constructor argument, never a
      * `requires` entry (ARCHITECTURE.md §7.5).
      */
+    /**
+     * Finance is an OPTIONAL dependency (ARCHITECTURE.md §7.5) and must
+     * never appear here: with it disabled the "conserver le PDF" control
+     * simply is not offered, and the verification works exactly the same.
+     * A hard requirement would make a unit install accounting software to
+     * check its cotisations.
+     */
     public function testTheModuleRequiresNoOtherModule(): void
     {
         $this->assertSame([], $this->manifest->requires);
     }
 
     /**
+     * The invoice screens, including the POST — an upload route left off
+     * the manifest is a 404 nobody notices until a treasurer submits.
+     */
+    public function testTheInvoiceRoutesAreDeclaredIncludingTheUpload(): void
+    {
+        $declared = array_map(
+            static fn(array $route): string => $route['method'] . ' ' . $route['path'],
+            $this->manifest->routes
+        );
+
+        $this->assertContains('GET /admin/fees/factures', $declared);
+        $this->assertContains('GET /admin/fees/factures/import', $declared);
+        $this->assertContains('POST /admin/fees/factures/import', $declared);
+    }
+
+    /**
      * The snapshot pair is the whole reason this module shipped before it
      * had a screen worth opening: the composition of the roster at each
-     * import is the only past state of Desk the site will ever hold. The
-     * other two carry the barème and the households a chef d'unité set
-     * aside.
+     * import is the only past state of Desk the site will ever hold. Two
+     * more carry the barème and the households a chef d'unité set aside,
+     * and three the invoices themselves.
      */
     public function testTheSchemaDeclaresTheTablesTheModuleOwns(): void
     {
         $schema = file_get_contents(dirname(__DIR__, 3) . '/modules/fees/schema.sql');
         $this->assertNotFalse($schema);
 
-        $this->assertSame(4, preg_match_all('/^CREATE TABLE/mi', $schema));
-        $this->assertStringContainsString('fees_roster_snapshots', $schema);
-        $this->assertStringContainsString('fees_roster_snapshot_members', $schema);
-        $this->assertStringContainsString('fees_household_tariffs', $schema);
-        $this->assertStringContainsString('fees_ignored_households', $schema);
+        $this->assertSame(7, preg_match_all('/^CREATE TABLE/mi', $schema));
+        foreach ([
+            'fees_roster_snapshots',
+            'fees_roster_snapshot_members',
+            'fees_household_tariffs',
+            'fees_ignored_households',
+            'fees_invoices',
+            'fees_invoice_lines',
+            'fees_invoice_people',
+        ] as $table) {
+            $this->assertStringContainsString($table, $schema);
+        }
+    }
+
+    /**
+     * The invoice tables hold foreign keys and figures, never a name. An
+     * invoice's people are matched to members at import time and only the
+     * resulting id is kept; a person the site could not match is a row with
+     * a NULL one, so the count stays right without a name being stored.
+     * Whoever needs the name opens the PDF, which is what keeping it is
+     * for.
+     */
+    public function testTheInvoiceTablesStoreNoName(): void
+    {
+        $schema = file_get_contents(dirname(__DIR__, 3) . '/modules/fees/schema.sql');
+        $this->assertNotFalse($schema);
+        $ddl = (string) preg_replace('/^\s*--.*$/m', '', $schema);
+
+        $tables = self::tableDdl($ddl, 'fees_invoices')
+            . self::tableDdl($ddl, 'fees_invoice_lines')
+            . self::tableDdl($ddl, 'fees_invoice_people');
+
+        $this->assertStringNotContainsString('BLOB', $tables);
+        $this->assertStringNotContainsString('name', $tables);
+        $this->assertStringNotContainsString('birth', $tables);
     }
 
     /**

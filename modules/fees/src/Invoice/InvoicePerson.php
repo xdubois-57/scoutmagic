@@ -8,8 +8,6 @@ declare(strict_types=1);
 
 namespace Modules\Fees\Invoice;
 
-use Core\Service\TextNormalizerService;
-
 /**
  * One name listed under an invoice line.
  *
@@ -20,10 +18,8 @@ use Core\Service\TextNormalizerService;
  *
  * Case and accents are inconsistent inside the document itself
  * (`PISSOORT` on one line, `Pissoort` on another, `dubois basile` in
- * lower case), so the key folds through
- * `Core\Service\TextNormalizerService::fold()` — this codebase's one
- * comparison form (§8.0). A second folding written here would disagree
- * with the rest of the site on some host eventually.
+ * lower case), so the key folds — see {@see PersonMatchKey}, which the
+ * roster side builds the very same key with.
  */
 final class InvoicePerson
 {
@@ -38,8 +34,6 @@ final class InvoicePerson
 
     public function matchKey(): string
     {
-        return TextNormalizerService::fold($this->lastName)
-            . '|' . TextNormalizerService::fold($this->firstName)
-            . '|' . $this->birthDate;
+        return PersonMatchKey::for($this->lastName, $this->firstName, $this->birthDate);
     }
 }

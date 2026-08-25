@@ -58,5 +58,49 @@ class FeesTestHelper
             FOREIGN KEY (fee_category_id) REFERENCES fee_categories(id),
             FOREIGN KEY (section_id) REFERENCES sections(id)
         )');
+
+        $pdo->exec('CREATE TABLE fees_invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scout_year_id INTEGER NOT NULL,
+            document_number TEXT NOT NULL,
+            issue_date TEXT,
+            total_cents INTEGER NOT NULL,
+            iban TEXT,
+            structured_communication TEXT,
+            template_number TEXT,
+            ignored_row_count INTEGER NOT NULL DEFAULT 0,
+            snapshot_id INTEGER,
+            imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            imported_by INTEGER,
+            finance_file_id INTEGER,
+            UNIQUE(scout_year_id, document_number),
+            FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+            FOREIGN KEY (snapshot_id) REFERENCES fees_roster_snapshots(id),
+            FOREIGN KEY (imported_by) REFERENCES user_accounts(id)
+        )');
+
+        $pdo->exec('CREATE TABLE fees_invoice_lines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_id INTEGER NOT NULL,
+            reference TEXT NOT NULL,
+            descriptor TEXT NOT NULL,
+            section_code TEXT,
+            section_id INTEGER,
+            unit_price_cents INTEGER NOT NULL,
+            quantity INTEGER NOT NULL,
+            amount_cents INTEGER NOT NULL,
+            nature TEXT NOT NULL,
+            line_order INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (invoice_id) REFERENCES fees_invoices(id),
+            FOREIGN KEY (section_id) REFERENCES sections(id)
+        )');
+
+        $pdo->exec('CREATE TABLE fees_invoice_people (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_line_id INTEGER NOT NULL,
+            member_id INTEGER,
+            FOREIGN KEY (invoice_line_id) REFERENCES fees_invoice_lines(id),
+            FOREIGN KEY (member_id) REFERENCES members(id)
+        )');
     }
 }

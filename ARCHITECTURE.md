@@ -241,6 +241,8 @@ Because `MenuBuilder::build()` — and the per-request active-menu highlight —
 
 The reverse direction: a module that offers a capability other code may want to *use* (not extend) publishes a stable public interface under its own `Api` namespace (e.g. `Modules\LlmConnector\Api\LlmConnectorInterface`) rather than core defining the interface. Code that wants to use the capability declares a nullable constructor dependency on that interface and must degrade gracefully (feature simply unavailable) when it is `null`. The composition root (`public/index.php`) instantiates the module's concrete implementation and injects it only when the providing module is enabled in `ModuleManager::getEnabledModuleIds()`; the consumer never references the module's classes when it is disabled. Two examples in the codebase: `Core\View\RgpdContentService` (core consuming `llm_connector`, to generate RGPD text) and `Modules\Finance\Service\ReceiptExtractionService` (one module consuming another, to suggest a receipt's amount/date/merchant) — the pattern is identical either way, since a *module* consuming another module's API optionally is the same shape as core doing it.
 
+**When the capability is a privileged one, the provider builds the authorization**, from an actor the consumer *names* rather than from a decision the consumer *supplies*. `Modules\Finance\Api\ExpenseReceiptInterface` (fees keeping a federation invoice's PDF as a receipt, §8.77) takes a role and the members that login reaches and asks finance's own `AccountVisibility` itself, on both calls — the picker and the store. A consumer able to hand over "this account is allowed" could grant itself one, and a filtered picker is UI, never the boundary (SECURITY.md §3).
+
 **One wiring wrinkle worth knowing about**, visible in `Modules\Groups\Service\PostEventService` (groups optionally consuming `Modules\Calendar\Api\CalendarEventLookupInterface`, to let a post name the event it is about): `public/index.php` is a straight-line script, and the calendar's own lookup is only assembled in a *second* calendar block near the end of the file, after `retro` (calendar's `CalendarService` takes retro's link lookup, and retro's block runs after groups'). Groups' block therefore registers its controllers once without the event service, and that final calendar block re-registers exactly two of them — `GroupController` and `PostController` — with it, the same re-registration precedent `PageController` already follows for the homepage hooks (§7.4). Nothing else changes: with `calendar` disabled the second registration never happens, the first one stands, and every affected surface degrades to "no event" — a post keeps a `calendar_event_id` that resolves to nothing, and the composer does not offer the picker at all. `modules/groups/schema.sql` deliberately puts **no foreign key** on that column for exactly this reason.
 
 ### 7.6 A module extended by another module
@@ -272,6 +274,8 @@ them first, because the same rule written twice drifts and every one of
 these drifts silently.
 
 `Core\Service\TextNormalizerService::fold()` is the one case- and accent-insensitive comparison form: an explicit character map applied unconditionally, ext-intl's `Normalizer` afterwards when it happens to be there, and every run of non-alphanumerics collapsed to one space. Never `iconv('ASCII//TRANSLIT')`, whose output depends on the C library and the locale — the same "é" comes back as `e` on glibc and as `'e` on musl, so a duplicate detector agreed with itself on one host and not another. It backs the member search, the camps duplicate-place detector and the leadership Desk-label matcher; Finance's `CategoryRuleEngine::normalize()` stays separate, a private detail of a rule engine nothing else should couple to.
+
+`Core\Service\DeskDateParser` is the one reading of a date Desk exported. The same export carries `15/03/2012` and `2019-05-22`, sometimes with a time part behind it, so every consumer that needed one had grown its own `DateTime::createFromFormat` cascade — and a cascade that silently accepts `31/02` turns a typo into a member born in March. It parses the three shapes, rejects an overflow date rather than rolling it forward, and answers `null` when it cannot tell; `toIso()` is the form a comparison key uses. `Modules\Leadership\Service\ObligationsService` delegates to it, and `Modules\Fees\Repository\InvoiceMemberMatchRepository` was written against it rather than adding a third copy.
 
 `Core\Security\EncryptionService::normalizeEmailForIndex()` is the one form an address takes before it is stored, encrypted or blind-indexed: trimmed, `mb_strtolower`. A blind index is exact-match and nothing else — no `LIKE`, no case-insensitive collation, no second chance — so two call sites normalising "the same way" by hand is two call sites one edit away from indexing the same person twice, and the lookup that misses reports "not found" rather than failing.
 
@@ -2031,6 +2035,26 @@ Robustness here is not cleverer patterns. It is never leaning on position, and r
 
 **The golden fixture** (`tests/fixtures/pdf/federation_invoice_sample.pdf`) is replayed on every change, recomputed to the centime, and a copy tampered with by one cent is refused naming the line. It reproduces the *shape* of a real invoice with invented names — its generator sits beside it, says so at length, and carries a `--check` mode a test runs, so a change to the generator nobody re-ran cannot pass.
 
+### 8.77 Importing an invoice, and the season it belongs to (`Modules\Fees\Service\InvoiceImportService`)
+
+`InvoiceReader` (§8.76) says whether a document can be read. This decides whether it is **kept**, and the two are not the same question.
+
+**Nothing is stored until every check passes.** There is no partial import and no "imported with warnings": half an invoice in the database would be worse than none, because a verification computed off half a document is a false alarm with a number next to it. `InvoiceRepository::store()` writes header, lines and people in one transaction.
+
+**Two of the three outcomes are failures, told apart on purpose** (`Value\InvoiceImportOutcome`), because they need answers from different people:
+
+- **`REFUSED`** — the *document* is at fault. The arithmetic does not close, and the problems name the row. This is also where a document carrying no number lands: the number is the identity, and without one there is nothing to be idempotent on.
+- **`STALE_ROSTER`** — the *document is fine and the site is behind*. A section it bills does not exist here, which means Desk moved on and this installation has not re-imported. The answer is one button: import Desk. **There is deliberately no matching screen.** An unknown `desk_code` is not a piece of data somebody forgot to enter; offering to map it by hand would let a unit paper over a stale roster and would make every later verification quietly wrong.
+- **`ALREADY_IMPORTED`** — `document_number` is the identity, and importing the same PDF twice changes nothing. A treasurer unsure whether they already imported January must be able to just try.
+
+**The snapshot is chosen at import time and frozen on the row.** The most recent one taken *on or before* the issue date — that is the roster the federation billed. An invoice predating every snapshot still gets one (the latest) rather than being refused: the module was activated late, which the report states as a date gap instead of a refusal.
+
+**No name reaches this module's tables.** An invoice's people are matched against the year's `member_years` through `Repository\InvoiceMemberMatchRepository`, and only the resulting `members.id` is stored; a person the site could not match is a row with a NULL one, so the count stays right without an identity. That repository is the module's one decryption (SECURITY.md §5) and it decrypts the whole year rather than looking a name up: `member_years` carries a blind index for the e-mail and the address but none for name + birth date, and adding a column to a core table for one optional module's import would be the wrong trade. Two members sharing a key disqualify both — the same refusal to guess between two candidates as §8.36.
+
+**The running total sums each document's own TOTAL** (`InvoiceSeasonService`). The November deposit is deducted *inside* January's final invoice by a negative line, so adding the deposit to that final's gross would count the money twice.
+
+**The kept PDF is an optional dependency on `finance`** (§7.5), and the only place a name survives. The provider publishes `Modules\Finance\Api\ExpenseReceiptInterface`; `ExpenseReceiptService` implements it, adds no storage path of its own (`ReceiptService::upload()` is unchanged), and **builds the authorization itself** from the actor the caller names — a consumer able to supply the decision could grant itself one. What comes back is the **file** id, not the receipt row's: finance offers no page for a single receipt, so the id a consumer can actually turn into a link (`/files/{id}`, under the account's own rule, §8.70) is the useful one. With finance disabled the control is not rendered, the PDF is not kept, and the verification is identical. There is deliberately **no automatic reconciliation** with a bank movement: a wrong automatic match in a ledger is worse than a manual one.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
@@ -2103,7 +2127,7 @@ core/
   Support/       SupportPackageService, SupportCollectorInterface + its collectors,
                  SupportSpreadsheet, Task\GenerateSupportPackageHandler (§8.48)
   System/        ExecutableLocator, ShellExecutor
-  Service/       Cross-cutting helpers (e.g. TextNormalizerService)
+  Service/       Cross-cutting helpers (e.g. TextNormalizerService, DeskDateParser)
 
 modules/
   <module_name>/

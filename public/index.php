@@ -2022,6 +2022,13 @@ $calendarEventLookup = null;
 // that module's block below, same pattern as the two above.
 $formationPathProvider = null;
 
+// Optional dependency on the finance module (ARCHITECTURE.md §7.5) for
+// keeping a document as a receipt on one of the unit's accounts — set in
+// finance's own block below. The fees module's federation invoice is the
+// first consumer: with finance disabled the checkbox is simply not
+// offered, the PDF is not kept, and the verification works the same.
+$expenseReceiptProvider = null;
+
 // Baseline MemberPageService (core deps only) — re-registered further
 // down, once mass_mail/gallery/trombinoscope/calendar/leadership
 // availability is known, exactly like MemberController itself.
@@ -2535,6 +2542,15 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeReceiptService = new \Modules\Finance\Service\ReceiptService(
         $financeAttachmentRepo, $financeAccountRepo, $financeTransactionAttachmentRepo, $financeEncryptedFileStorage,
         $financeTransactionRepo, $settingService
+    );
+
+    // What another module reaches this one through (Api\ExpenseReceiptInterface,
+    // ARCHITECTURE.md §7.5). It adds no storage path of its own — the
+    // ReceiptService above does everything — and builds the authorization
+    // itself from the actor its caller names, rather than accepting a
+    // decision a consumer could have granted itself.
+    $expenseReceiptProvider = new \Modules\Finance\Service\ExpenseReceiptService(
+        $financeAccountRepo, $financeTreasurerScopeService, $financeReceiptService, $effectiveScoutYear->id
     );
 
     // A receipt's FILE follows its account's rule too (ARCHITECTURE.md
@@ -4398,6 +4414,39 @@ if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
             $feeCategoryRepo,
             $scoutYearResolver,
             $journalService
+        )
+    );
+
+    $feesInvoiceRepo = new \Modules\Fees\Repository\InvoiceRepository($pdo);
+    $feesSnapshotRepo = new \Modules\Fees\Repository\RosterSnapshotRepository($pdo);
+    $frontController->registerController(
+        \Modules\Fees\Controller\InvoiceController::class,
+        new \Modules\Fees\Controller\InvoiceController(
+            $twig,
+            new \Modules\Fees\Service\InvoiceImportService(
+                new \Modules\Fees\Invoice\InvoiceReader(
+                    new \Core\File\PdfTextExtractor(),
+                    new \Modules\Fees\Invoice\InvoiceParser()
+                ),
+                $feesInvoiceRepo,
+                new \Modules\Fees\Repository\InvoiceMemberMatchRepository($pdo, $encryptionService),
+                $feesSnapshotRepo,
+                $sectionService,
+                $journalService
+            ),
+            new \Modules\Fees\Service\InvoiceSeasonService($feesInvoiceRepo),
+            new \Modules\Fees\Service\InvoiceVerificationService(
+                $feesInvoiceRepo, $feesSnapshotRepo, $feesTariffService, $sectionService
+            ),
+            $feesInvoiceRepo,
+            $feesSnapshotRepo,
+            $feesImportRepo,
+            $scoutYearResolver,
+            $linkedMemberIds,
+            $journalService,
+            // Optional (ARCHITECTURE.md §7.5): null whenever finance is off,
+            // and the "conserver le PDF" control simply is not rendered.
+            $expenseReceiptProvider
         )
     );
 }

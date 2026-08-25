@@ -1,0 +1,108 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Factures de la fédération — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Factures de la fédération',
+            subtitle: "La saison dans l'ordre où elle s'est passée : l'acompte, les factures finales, la régularisation.",
+            action_label: 'Importer une facture',
+            action_url: '/admin/fees/factures/import',
+            action_icon: 'bi-upload',
+        } only %}
+
+        {% include '@fees/partials/_nav.html.twig' %}
+
+        {% if rows is empty %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Aucune facture importée pour " ~ scout_year_label ~ ".",
+                icon: 'bi-receipt',
+                action_url: '/admin/fees/factures/import',
+                action_label: 'Importer une facture',
+            } only %}
+        {% else %}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <caption class="small">
+                        {# The running total sums each document's OWN total. An
+                           acompte is deducted inside the final invoice by a
+                           negative line, so adding it to the final's gross would
+                           count it twice. #}
+                        Le cumul additionne le total de chaque document. Les acomptes sont déjà
+                        déduits à l'intérieur des factures finales : ils ne sont pas comptés deux fois.
+                    </caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Date</th>
+                            <th scope="col">Document</th>
+                            <th scope="col" class="text-end">Total</th>
+                            <th scope="col" class="text-end d-none d-md-table-cell">Cumul</th>
+                            <th scope="col">Vérification</th>
+                            <th scope="col" class="d-none d-lg-table-cell">Importée</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                            <tr>
+                                <td>{{ row.invoice.issueDate ? row.invoice.issueDate|date_fr : '—' }}</td>
+                                <td>
+                                    <span class="font-monospace">{{ row.invoice.documentNumber }}</span>
+                                    {% if row.invoice.financeFileId %}
+                                        <a href="/files/{{ row.invoice.financeFileId }}"
+                                           class="ms-1 text-body-secondary" title="Le PDF conservé dans Finances">
+                                            <i class="bi bi-paperclip" aria-hidden="true"></i>
+                                            <span class="visually-hidden">Voir le PDF conservé</span>
+                                        </a>
+                                    {% endif %}
+                                    {% if row.invoice.templateNumber %}
+                                        <span class="d-block small text-body-secondary">Modèle {{ row.invoice.templateNumber }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end {{ row.invoice.totalCents < 0 ? 'text-success' : '' }}">
+                                    {{ row.invoice.totalCents|money_cents }}
+                                </td>
+                                <td class="text-end d-none d-md-table-cell text-body-secondary">
+                                    {{ row.running_total_cents|money_cents }}
+                                </td>
+                                <td>
+                                    {% if row.invoice.snapshotId is null %}
+                                        <span class="badge text-bg-secondary">Aucune photographie</span>
+                                    {% elseif row.discrepancies > 0 %}
+                                        <span class="badge text-bg-warning">{{ row.discrepancies }} écart(s)</span>
+                                    {% else %}
+                                        <span class="badge text-bg-success">Conforme</span>
+                                    {% endif %}
+                                </td>
+                                <td class="d-none d-lg-table-cell small text-body-secondary">
+                                    {{ row.invoice.importedAt|datetime_fr }}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr class="fw-semibold border-top">
+                            <td colspan="2">Payé sur la saison</td>
+                            <td class="text-end">{{ net_total_cents|money_cents }}</td>
+                            <td class="d-none d-md-table-cell"></td>
+                            <td colspan="2"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        {% endif %}
+
+        <div class="small text-body-secondary border-top pt-3 mt-4">
+            <p class="mb-0">
+                <i class="bi bi-clock-history" aria-hidden="true"></i>
+                {% if last_import_at %}
+                    Dernier import Desk pour {{ scout_year_label }} : le {{ last_import_at|datetime_fr }}.
+                {% else %}
+                    Aucun import Desk n'a encore été enregistré pour {{ scout_year_label }}.
+                {% endif %}
+            </p>
+        </div>
+    </div>
+{% endblock %}

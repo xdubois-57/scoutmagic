@@ -1151,3 +1151,67 @@ jumeaux existent et figurent sur la même facture. Les sections se rapprochent
 sur le code Desk, jamais sur le nom affiché — un renommage depuis Config Desk
 ne doit rien casser. « Staff d'unité » est un libellé, pas un code, et
 correspond au Staff d'U du site.
+
+### 31.10 La séquence de la saison
+
+La fédération n'envoie pas une facture, elle en envoie plusieurs : un acompte
+en novembre, les factures finales de janvier et de février, une
+régularisation du dernier trimestre. L'écran **Factures** les présente dans
+l'ordre où elles sont arrivées, chacune avec son total, son statut de
+vérification, et le cumul de ce que l'unité a payé.
+
+**Le cumul additionne le total de chaque document, jamais ses montants
+bruts.** L'acompte est déduit à l'intérieur de la facture finale par une
+ligne négative : additionner l'acompte au brut de la finale compterait cet
+argent deux fois. Le total imprimé, lui, est déjà net.
+
+### 31.11 Importer une facture : trois issues, deux échecs
+
+Il n'y a pas d'écran de correspondance. C'est délibéré.
+
+**Dépôt.** Avant même que le fichier soit choisi, l'écran rappelle la date du
+dernier import Desk et celle de la dernière photographie du roster. Ce rappel
+est ce qui évite les deux autres états.
+
+**Total incohérent.** La lecture ne retombe pas sur le total du document.
+L'écran nomme la ligne où elle décroche et donne les deux chiffres. Rien
+n'est enregistré : une facture à moitié lue produirait une vérification à
+moitié fausse, ce qui est pire que pas de vérification. C'est le document qui
+est en cause, et la réponse appartient à la fédération.
+
+**Roster périmé.** Le document se lit parfaitement et tombe juste, mais il
+facture une section que le site ne connaît pas. Ce n'est pas une
+correspondance oubliée : c'est que Desk a changé et que le site n'a pas été
+réimporté. L'écran le dit dans ces termes et offre un seul bouton — importer
+Desk. **Aucun écran ne propose d'associer un code de section à la main** :
+cela permettrait de masquer un roster périmé, et toutes les vérifications
+suivantes seraient silencieusement fausses.
+
+**Importer deux fois le même document ne fait rien.** Le numéro du document
+est son identité. Un trésorier qui ne sait plus s'il a déjà importé janvier
+doit pouvoir simplement essayer.
+
+### 31.12 Ce qui est conservé, et ce qui ne l'est pas
+
+Le site enregistre l'en-tête de la facture, ses lignes tarifaires, et — pour
+chaque personne qu'une ligne nomme — **uniquement l'identifiant du membre
+reconnu**. Ni nom, ni prénom, ni date de naissance ne sont recopiés. Une
+personne que le site n'a pas su reconnaître devient une ligne anonyme : le
+compte reste juste, et le rapport peut dire « 3 personnes facturées que le
+site n'a pas reconnues » sans que cette table ait jamais porté un nom.
+
+Deux membres que le site ne peut pas distinguer — mêmes nom, prénom et date
+de naissance — ne sont rapprochés ni l'un ni l'autre. Un mauvais
+rapprochement est pire que pas de rapprochement.
+
+**Le PDF conservé.** Si le module Finances est actif, une case permet de
+rattacher le PDF à un compte de l'unité : il y devient un justificatif de
+dépense ordinaire, chiffré au repos, visible des mêmes personnes que ce
+compte. C'est le seul endroit où les noms figurant sur la facture sont
+conservés, et c'est précisément à cela qu'il sert. Le rapprochement avec le
+mouvement bancaire reste manuel : un rapprochement automatique erroné dans
+une comptabilité est pire qu'un rapprochement manuel.
+
+Si Finances est désactivé, la case n'apparaît pas, aucun PDF n'est conservé,
+et la vérification fonctionne à l'identique. Finances n'est jamais une
+dépendance dure de ce module.
