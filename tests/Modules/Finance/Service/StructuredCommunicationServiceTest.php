@@ -137,4 +137,78 @@ class StructuredCommunicationServiceTest extends TestCase
         $this->assertFalse(StructuredCommunicationService::isValid('1234567890123'), 'too long');
         $this->assertFalse(StructuredCommunicationService::isValid('Merci pour le camp'), 'a free-text communication');
     }
+
+    // ── extract() ───────────────────────────────────────────────────────
+
+    public function testItExtractsTheCanonicalFormFromABankLabel(): void
+    {
+        $this->assertSame(
+            ['123456789012'],
+            StructuredCommunicationService::extract('VIREMENT EUROPEEN +++123/4567/89012+++ DUPONT')
+        );
+    }
+
+    public function testItExtractsEveryShapeABankPrints(): void
+    {
+        foreach ([
+            '+++123/4567/89012+++',
+            '***123/4567/89012***',
+            '123/4567/89012',
+            '123 4567 89012',
+            '123.4567.89012',
+            '123456789012',
+        ] as $shape) {
+            $this->assertSame(['123456789012'], StructuredCommunicationService::extract('COMM ' . $shape . ' FIN'), $shape);
+        }
+    }
+
+    /**
+     * The defect IT-01 removes, seen at the source: flattening a line to
+     * its digits invents sequences that appear nowhere in it. Four
+     * unrelated numbers reduce to "123456789012", and a substring search
+     * called that a communication.
+     */
+    public function testItInventsNothingAcrossSeparators(): void
+    {
+        $this->assertSame([], StructuredCommunicationService::extract('Virement 12 dossier 3456 lot 7890 caisse 12'));
+    }
+
+    public function testACommunicationCannotStartOrEndInsideALongerRun(): void
+    {
+        // 123456789012 is in there — its key is wrong for the surrounding
+        // windows, and it is not what this fifteen-digit number says.
+        $this->assertNotContains('123456789012', StructuredCommunicationService::extract('COMPTE 712345678901234'));
+    }
+
+    /**
+     * The one concession to a glued communication: a window inside a
+     * longer run counts only when its own mod-97 check passes.
+     */
+    public function testAValidCommunicationGluedToOtherDigitsIsStillFound(): void
+    {
+        $digits = preg_replace('/\D/', '', StructuredCommunicationService::format('1234567890')) ?? '';
+
+        $this->assertContains($digits, StructuredCommunicationService::extract('REF2026' . $digits));
+    }
+
+    public function testEveryTwelveDigitSequenceIsACandidateWhateverItsPosition(): void
+    {
+        $found = StructuredCommunicationService::extract('REF 987654321098 ET +++123/4567/89012+++');
+
+        $this->assertSame(['987654321098', '123456789012'], $found);
+    }
+
+    public function testTheSameCommunicationTwiceIsReportedOnce(): void
+    {
+        $this->assertSame(
+            ['123456789012'],
+            StructuredCommunicationService::extract('+++123/4567/89012+++ rappel 123456789012')
+        );
+    }
+
+    public function testATextWithoutAnyCommunicationYieldsNothing(): void
+    {
+        $this->assertSame([], StructuredCommunicationService::extract('Achat de materiel — Delhaize'));
+        $this->assertSame([], StructuredCommunicationService::extract(''));
+    }
 }

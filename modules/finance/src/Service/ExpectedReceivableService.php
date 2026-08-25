@@ -15,11 +15,15 @@ use Modules\Finance\Repository\TransactionRepository;
 
 /**
  * Status is never stored — always computed live by matching imported bank
- * transactions (on the receivable's own account) whose free text contains
- * the receivable's structured communication. A single receivable can be
- * settled across several transactions (module spec: "un paiement peut
+ * transactions (on the receivable's own account) whose free text spells
+ * out the receivable's structured communication. A single receivable can
+ * be settled across several transactions (module spec: "un paiement peut
  * être effectué en plusieurs versements"), so the matched amounts are
  * summed rather than expecting a single exact match.
+ *
+ * "Spells out" is exact: the communications a line carries are extracted
+ * and compared by equality — see sumMatchingCredits() for why a substring
+ * search was not good enough.
  */
 class ExpectedReceivableService implements ExpectedReceivableInterface
 {
@@ -163,16 +167,29 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
      * communication, summed (a receivable can be settled across several
      * transfers).
      *
-     * Two things this deliberately does NOT do. It never matches on an
-     * empty needle: a communication with no digits at all reduces to '',
-     * and str_contains($haystack, '') is always true — which used to count
-     * *every* credit on the account as settling the receivable and report
-     * it "paid". createReceivable() now rejects such a communication, and
-     * this is the second line of defence for rows written before it did.
-     * And it matches each field separately rather than concatenating them:
-     * stripping the separators from "label + comment + extra" glued the
-     * digits of adjacent fields together, so a communication could be
-     * "found" straddling a boundary where it appears in neither field.
+     * **The comparison is an equality, never an inclusion.** Each field is
+     * scanned for the communications it actually spells out
+     * (Service\StructuredCommunicationService::extract(), which is where
+     * the shapes a bank prints are decided) and the receivable's own
+     * twelve digits must be one of them. What that replaced was
+     * str_contains(digitsOnly($field), digitsOnly($communication)): a
+     * substring search over a field flattened to nothing but digits, which
+     * both invented sequences that were in the text nowhere — "12/03/2026
+     * 45678 9012" collapses to "12032026456789012" — and accepted a
+     * communication found inside a longer account number. While the status
+     * was recomputed on every display, a fortuitous match only made a page
+     * lie; the moment an allocation is written from it, it marks somebody
+     * else's receivable paid and the mistake outlives the page.
+     *
+     * Two properties are kept from before. Fields are matched one at a
+     * time, never concatenated, so a communication cannot be assembled
+     * across a field boundary. And a communication that carries no digit
+     * matches nothing: it reduces to the empty string, which used to be
+     * found in every credit on the account — createReceivable() refuses
+     * one now, and this is the second line of defence for rows written
+     * before it did. A communication that is not exactly twelve digits is
+     * in the same position: nothing extract() returns can equal it, so it
+     * stays unpaid rather than matching something approximately.
      *
      * @param \Modules\Finance\Repository\Transaction[] $transactions
      */
@@ -190,7 +207,7 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
             }
 
             foreach ([$transaction->label, $transaction->comment, $transaction->extraDetails] as $field) {
-                if ($field !== null && str_contains($this->digitsOnly($field), $needle)) {
+                if ($field !== null && in_array($needle, StructuredCommunicationService::extract($field), true)) {
                     $total += (int) round($transaction->amount * 100);
                     break;
                 }
