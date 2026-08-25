@@ -11,6 +11,7 @@ namespace Core\Security;
 use Core\Cookie\CookieConsentException;
 use Core\Cookie\CookieConsentService;
 use Core\Cookie\CookieHelper;
+use Core\Http\RequestScheme;
 
 /**
  * Remembers which of the three login methods (magic link / password /
@@ -38,8 +39,7 @@ class LastLoginMethodCookie
         }
 
         try {
-            $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-                || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
+            $isHttps = RequestScheme::isHttps($_SERVER);
 
             // secure must match the actual connection — CookieHelper::set()
             // defaults to true, and a Secure cookie is silently dropped by

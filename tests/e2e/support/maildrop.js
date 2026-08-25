@@ -176,6 +176,19 @@ export function readMailbox() {
 }
 
 /**
+ * How much slower than a plain `npm run e2e` this run is expected to be.
+ * scripts/dast.sh sets it; everything else leaves it unset, where it is
+ * 1 and changes nothing.
+ *
+ * @returns {number}
+ */
+function timeoutFactor() {
+    const raw = Number(process.env.E2E_TIMEOUT_FACTOR);
+
+    return Number.isFinite(raw) && raw >= 1 ? raw : 1;
+}
+
+/**
  * Wait for a message matching `predicate` and return it.
  *
  * Polled rather than awaited on a signal, because there is none: the mail
@@ -190,7 +203,14 @@ export function readMailbox() {
  * @returns {Promise<{ to: string, subject: string, text: string, raw: string }>}
  */
 export async function waitForMail(predicate, options = {}) {
-    const timeout = options.timeout ?? 10_000;
+    // Scaled by E2E_TIMEOUT_FACTOR for the same reason every other
+    // timeout in this suite is: scripts/dast.sh runs the whole suite
+    // through a proxy and a TLS terminator, which multiplies the wall
+    // clock of the REQUEST that triggers the mail — this window covers
+    // that request, not just the sendmail child. Unset (every ordinary
+    // `npm run e2e`) the factor is 1 and the ceiling is the 10 s it has
+    // always been.
+    const timeout = (options.timeout ?? 10_000) * timeoutFactor();
     const description = options.description ?? 'a matching message';
     const deadline = Date.now() + timeout;
 
