@@ -15,7 +15,7 @@ use Modules\Fees\Invoice\ParsedInvoice;
 use Modules\Fees\Repository\HouseholdDetailRepository;
 use Modules\Fees\Repository\HouseholdTariffRepository;
 use Modules\Fees\Repository\InvoiceRepository;
-use Modules\Fees\Repository\RosterSnapshotRepository;
+use Core\Import\RosterSnapshotRepository;
 use Modules\Fees\Service\HouseholdTariffService;
 use Modules\Fees\Service\InvoiceVerificationService;
 use Modules\Fees\Value\NominativeDiscrepancy;

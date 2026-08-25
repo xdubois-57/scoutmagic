@@ -98,8 +98,8 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 ### Files on disk
 
 - Personal data files: encrypted at rest or strictly temporary.
-- Desk CSV: deleted immediately after import.
-- Finance receipts (`modules/finance`): encrypted at rest via `Core\File\EncryptedFileStorageService` (same master key as `EncryptionService`) — never written to disk in plaintext. Bank statement CSV files uploaded for import: deleted immediately after processing, success or failure, same pattern as the Desk CSV.
+- Desk CSV: **kept**, encrypted at rest via `Core\File\EncryptedFileStorageService`, for a retention expressed in scout years (default 2 — the current season and the previous one), then deleted with everything else that import produced. The plaintext the browser deposited is another matter and is unchanged: it lives in `storage/temp/` for the length of one request and is deleted in a `finally`, success or failure. §13 states the whole rule and why it was revoked.
+- Finance receipts (`modules/finance`): encrypted at rest via `Core\File\EncryptedFileStorageService` (same master key as `EncryptionService`) — never written to disk in plaintext. Bank statement CSV files uploaded for import: deleted immediately after processing, success or failure. (That rule used to be stated as "same pattern as the Desk CSV"; it no longer is one, and it stands on its own — a bank statement is re-downloadable from the bank at any time, so keeping a copy would buy nothing and cost a second store of banking data.)
 - Public content files: not encrypted.
 
 ### Secrets
@@ -206,10 +206,138 @@ No other proxy header is trusted — not `X-Forwarded-For`, not `Forwarded`, not
 
 ## 13. Desk import security
 
-- Import page: `role_min: chief`.
+- Import page: `role_min: admin` (`/admin/import`, `Core\Http\Controller\ImportController`).
 - CSV header validation before processing.
 - New functions never auto-assigned to elevated roles.
 - Journal stores only metadata — never raw CSV content.
+
+### The roster-replacement barrier
+
+A Desk export can be filtered on one section, and an export filtered by
+mistake is a valid CSV holding forty of a unit's two hundred and sixty
+people. Imported, it deactivates everyone else, empties the Staff
+d'Unité, and takes the `admin` role away from the person who launched it
+— who then no longer has Import, Configuration or Maintenance to repair
+it with. `Core\Security\RoleResolver` consults
+`user_accounts.is_super_admin` first, so a super-admin still gets in; a
+chef d'unité who is `admin` by Desk function alone does not.
+
+`Core\Import\RosterReplacementGuard` therefore confronts the parsed CSV
+with the roster **before the transaction opens** — the same posture as
+the header validation, and for the same reason: refuse before writing,
+never repair after.
+
+- **Four signals**, counted against the roster of the scout year being
+  imported and nothing else: a file naming one section against a roster
+  holding several (no threshold, and the signal this exists for); the
+  share of the year's active members the file drops (a commented
+  constant in the guard, deliberately not a setting — a threshold on a
+  configuration page is one somebody lowers the day it does its job);
+  the Staff d'Unité disappearing entirely; the importer losing their own
+  `admin` access.
+- **Refusal is the default, and passing outside it needs a typed
+  confirmation** — the French word `REMPLACER`, checked server-side by
+  `ImportController`, exactly like Maintenance's `REINITIALISER` /
+  `EFFACER` / `RESTAURER`. The browser only decides whether a button
+  looks clickable; the gate is the server. The screen states the counted
+  consequences by name rather than asking a generic question, because a
+  generic « êtes-vous sûr ? » is a thing people learn to click.
+- **One hard invariant no confirmation lifts**: an import that would take
+  away the site's last administrative access is refused with the word
+  correctly typed. It is scoped to the year access is actually resolved
+  against, and it only fires when there *was* an administrator to remove
+  — a fresh install's first import, which is what creates the Staff
+  d'Unité, must not be refused.
+- **A refusal is journaled at `security` level with counters only** —
+  how many members would go, how many sections the file names, how many
+  administrators would remain. Never a name, never a Desk identifier,
+  never a line of CSV.
+- **A refused file is not kept.** It is deleted like on any other
+  failure, which is why forcing the import means depositing it again.
+
+### The kept file
+
+The CSV an import consumed is kept, so a doubtful import can be
+investigated by replaying its report against the exact file that produced
+it. This revokes a rule that was written down in seven places, and it is
+revoked deliberately rather than eroded.
+
+It is also **the most concentrated personal-data artefact in the
+system**: names, dates of birth, addresses, telephone numbers, e-mail
+addresses, formation level and handicap for the whole unit, in clear, in
+one document. Denser than anything else on this disk. The requirements
+are set accordingly.
+
+1. **Encrypted at rest, no exception**, through
+   `Core\File\EncryptedFileStorageService` — never durably written to
+   disk in clear.
+2. **The plaintext window is minimal.** `ImportController` writes the
+   deposited file to `storage/temp/` with `move_uploaded_file()`; it is
+   encrypted as soon as the parse is done and the plaintext is deleted in
+   a `finally`, success or failure alike. The clear copy must never
+   survive a crash.
+3. **`role_min: 'admin'` on the `FileRecord`**, served exclusively by
+   `/files/{id}` under `FileAccessGuard`. No direct path, no dedicated
+   route, no exception. The rule is restated in code by
+   `Core\Import\DeskImportFileOwnershipChecker` (`owner_type =
+   'desk_import'`), so it cannot be lowered by an `UPDATE` on one column.
+4. **Every successful download is journaled** — `file_id` and the import
+   id only, never content. A deliberate extension: `FileController::
+   serve()` journals successful accesses only for owner-scoped files
+   (§8.3 of ARCHITECTURE.md). This file earns the same treatment, and the
+   reason is written where the code is.
+5. **No line of CSV in a journal entry, an error message or a trace**,
+   including when the parse fails.
+6. **The purge is a physical deletion**: the encrypted blob and its
+   `FileRecord` both go. No archive, no recycle bin.
+7. **The storage subdirectory is gitignored** — `storage/**` already
+   covers `storage/imports/` wholesale, which is exactly why that pattern
+   is written the way it is (§12: forgetting has happened here more than
+   once).
+
+### The retention, in writing
+
+- **Two scout years by default** — the current one and the previous —
+  configurable through the `import_retention_scout_years` setting. In
+  seasons and not in a number of imports: `fees` needs November's roster
+  snapshot for the deposit invoice and February's for the settlement, and
+  a count would silently drop November after half a dozen ordinary
+  re-imports. The treasurer would find out in June.
+- **The purge runs even if nobody imports any more**
+  (`Core\Import\Task\PurgeImportsHandler`, daily, self-rescheduling). A
+  retention hung off the moment of the next import would keep its GDPR
+  promise only while the unit keeps importing — and a unit that stops
+  importing is exactly the one whose kept CSVs should stop being kept.
+- **The purge is atomic**: the import row, the file and the roster
+  snapshot go together, or none of them goes. Half a dossier answers
+  nothing, which is what keeping the file was for.
+- **A right-to-erasure request meets a tension worth stating rather than
+  discovering.** A member's data is also inside the kept CSVs, and a CSV
+  cannot be surgically edited without losing the one property that
+  justifies keeping it — being the exact file that produced the report.
+  The acceptable answer is deleting the whole file concerned, not
+  rewriting it.
+
+## 13bis. Merging two member records
+
+`/admin/doublons` (`role_min: admin`) folds one `members` row into
+another when a returning member was re-created in Desk instead of having
+their old record reopened (ARCHITECTURE.md §8.80).
+
+- **Never automatic.** Two people can share a surname, a first name and a
+  date of birth. The site proposes; a human decides.
+- **Nothing is deleted.** Foreign keys are repointed and the abandoned
+  row is kept, marked `merged_into_member_id` — which is also what makes
+  the operation auditable afterwards.
+- **`files.owner_member_id` is repointed with the rest**, deliberately:
+  a member's private documents are gated on it (§6), so a merge that
+  forgot it would leave the returning member unable to open their own
+  papers while the abandoned identity still could.
+- **Journaled at `security` level with numeric identifiers and counts
+  only** — never a name, never a Desk identifier.
+- **Detection decrypts names and birth dates in bulk**, so it runs after
+  the import transaction has committed, never inside it, and its result
+  is stored rather than recomputed on every page view.
 
 ## 14. Dependency security
 

@@ -100,6 +100,17 @@ class ImportControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
             return '';
         }));
+        // The report names people the way every other admin screen does
+        // (design.md § Display name convention) — registered here as
+        // Core\View\TwigFactory does in production.
+        $twig->addFilter(new \Twig\TwigFilter('display_name_full', function ($member): string {
+            $full = trim(($member['first_name'] ?? '') . ' ' . ($member['last_name'] ?? ''));
+
+            return ($member['totem'] ?? null) ? $member['totem'] . ' (' . $full . ')' : $full;
+        }));
+
+        $storagePath = sys_get_temp_dir() . '/scoutmagic_test_' . bin2hex(random_bytes(8));
+        mkdir($storagePath, 0755, true);
 
         $scoutYearService = new ScoutYearService($this->pdo);
         $functionRepo = new FunctionRepository($this->pdo);
@@ -116,17 +127,49 @@ class ImportControllerTest extends TestCase
             $this->pdo, $this->encryption, $parser, $mappingResolver,
             $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo,
             new UnitStaffSectionService($this->pdo),
-            new \Core\Member\SectionMembershipService(new \Core\Member\SectionMembershipRepository($this->pdo), $scoutYearService)
+            new \Core\Member\SectionMembershipService(new \Core\Member\SectionMembershipRepository($this->pdo), $scoutYearService),
+            new \Core\Import\RosterReplacementGuard(
+                new \Core\Import\RosterComparisonRepository($this->pdo),
+                new ScoutYearResolver($scoutYearService, new SettingService(new SettingRepository($this->pdo)), $memberYearRepo)
+            ),
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo)),
+            new \Core\Import\RosterSnapshotRepository($this->pdo),
+            new \Core\File\EncryptedFileStorageService(
+                new \Core\File\FileRepository($this->pdo),
+                $this->encryption,
+                $storagePath
+            ),
+            new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo))
         );
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
-
-        $storagePath = sys_get_temp_dir() . '/scoutmagic_test_' . uniqid();
-        mkdir($storagePath, 0755, true);
+        $fileRepository = new \Core\File\FileRepository($this->pdo);
+        $rosterSnapshotRepo = new \Core\Import\RosterSnapshotRepository($this->pdo);
 
         $this->controller = new ImportController(
-            $twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath
+            $twig,
+            $importService,
+            $scoutYearResolver,
+            $importJournalRepo,
+            $functionRepo,
+            new \Core\Import\ImportRetentionService(
+                $this->pdo,
+                $importJournalRepo,
+                $rosterSnapshotRepo,
+                $fileRepository,
+                $scoutYearService,
+                $settingService,
+                new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo)),
+                $storagePath
+            ),
+            $rosterSnapshotRepo,
+            $fileRepository,
+            $userAccountRepo,
+            new \Core\Import\ImportReportPresenter(
+                new \Core\Import\ImportReportRepository($this->pdo, $this->encryption)
+            ),
+            $storagePath
         );
     }
 
@@ -156,6 +199,62 @@ class ImportControllerTest extends TestCase
         $this->assertStringContainsString('enctype="multipart/form-data"', $body);
         $this->assertStringContainsString('csv_file', $body);
         $this->assertStringContainsString('Importer', $body);
+    }
+
+    public function testTheHistoryRendersTheYearsImports(): void
+    {
+        $importId = $this->seedImport();
+
+        $response = $this->controller->history(new Request('GET', '/admin/import/historique', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Historique des imports', $body);
+        $this->assertStringContainsString('/admin/import/' . $importId . '/rapport', $body);
+        // The retention is stated on the page, not left to be discovered.
+        $this->assertStringContainsString('durée de conservation', $body);
+    }
+
+    public function testTheReportRendersTheFrozenDiff(): void
+    {
+        $importId = $this->seedImport();
+
+        $response = $this->controller->report(
+            new Request('GET', '/admin/import/' . $importId . '/rapport', [], [], [], []),
+            ['id' => (string) $importId]
+        );
+        $body = $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString("Rapport d'import", $body);
+        $this->assertStringContainsString('Aucun point de comparaison', $body);
+        $this->assertStringContainsString('Qualité des données', $body);
+        // Attention points live on their own page; a report never carries one.
+        $this->assertStringNotContainsString("Points d'attention", $body);
+    }
+
+    public function testTheReportOfAnUnknownImportIsNotFound(): void
+    {
+        $response = $this->controller->report(
+            new Request('GET', '/admin/import/9999/rapport', [], [], [], []),
+            ['id' => '9999']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * One import of the current year, with the deliberately unavailable
+     * diff a season's first import stores.
+     */
+    private function seedImport(): int
+    {
+        $currentYearId = (int) $this->pdo->query('SELECT id FROM scout_years LIMIT 1')->fetchColumn();
+        $repo = new ImportJournalRepository($this->pdo);
+        $importId = $repo->create($currentYearId, 1, 268, 262, 0);
+        $repo->storeDiff($importId, \Core\Import\ImportDiff::unavailable(\Core\Import\ImportDiff::UNAVAILABLE_FIRST_OF_SEASON));
+
+        return $importId;
     }
 
     public function testImportRejectsMissingCsrf(): void

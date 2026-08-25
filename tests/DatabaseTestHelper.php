@@ -27,7 +27,33 @@ class DatabaseTestHelper
         $pdo->exec('CREATE TABLE members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             desk_id TEXT NOT NULL UNIQUE,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            merged_into_member_id INTEGER,
+            merged_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (merged_into_member_id) REFERENCES members(id)
+        )');
+
+        $pdo->exec('CREATE TABLE member_desk_id_aliases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            desk_id TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER,
+            FOREIGN KEY (member_id) REFERENCES members(id)
+        )');
+
+        $pdo->exec('CREATE TABLE member_duplicate_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kept_member_id INTEGER NOT NULL,
+            duplicate_member_id INTEGER NOT NULL,
+            same_address INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT \'pending\',
+            detected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            decided_at TEXT,
+            decided_by INTEGER,
+            UNIQUE(kept_member_id, duplicate_member_id),
+            FOREIGN KEY (kept_member_id) REFERENCES members(id),
+            FOREIGN KEY (duplicate_member_id) REFERENCES members(id)
         )');
 
         $pdo->exec('CREATE TABLE user_accounts (
@@ -206,9 +232,44 @@ class DatabaseTestHelper
             line_count INTEGER NOT NULL,
             member_count INTEGER NOT NULL,
             new_functions_count INTEGER NOT NULL DEFAULT 0,
+            file_id INTEGER,
+            diff_json TEXT,
             imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
-            FOREIGN KEY (user_account_id) REFERENCES user_accounts(id)
+            FOREIGN KEY (user_account_id) REFERENCES user_accounts(id),
+            FOREIGN KEY (file_id) REFERENCES files(id)
+        )');
+
+        // Moved out of modules/fees/ with the roster snapshot itself: a
+        // frozen roster is a fact about members, produced by the core's
+        // own Desk import. The `fees_` prefix is where the tables were
+        // born, not who owns them — see schema/core.sql.
+        $pdo->exec('CREATE TABLE fees_roster_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scout_year_id INTEGER NOT NULL,
+            import_journal_id INTEGER,
+            taken_at TEXT NOT NULL,
+            member_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+            FOREIGN KEY (import_journal_id) REFERENCES import_journal(id)
+        )');
+
+        $pdo->exec('CREATE TABLE fees_roster_snapshot_members (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_id INTEGER NOT NULL,
+            member_id INTEGER NOT NULL,
+            fee_category_id INTEGER,
+            section_id INTEGER,
+            function_role TEXT,
+            function_id INTEGER,
+            formation_level TEXT,
+            leaving INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(snapshot_id, member_id),
+            FOREIGN KEY (snapshot_id) REFERENCES fees_roster_snapshots(id),
+            FOREIGN KEY (member_id) REFERENCES members(id),
+            FOREIGN KEY (fee_category_id) REFERENCES fee_categories(id),
+            FOREIGN KEY (section_id) REFERENCES sections(id)
         )');
 
         $pdo->exec('CREATE TABLE editable_contents (

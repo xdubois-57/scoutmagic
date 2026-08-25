@@ -1,0 +1,88 @@
+{% extends 'base.html.twig' %}
+{% block title %}Points d'attention — {{ site_name }}{% endblock %}
+
+{#
+   The attention-points page (Core\Http\Controller\AttentionController).
+
+   Two things this page says out loud, because both are load-bearing:
+
+   - **Nothing is acknowledged here.** A point disappears because it
+     stopped being true, never because somebody marked it done. Saying so
+     at the top is what stops a reader looking for the button that does
+     not exist — and what stops the next developer adding one.
+   - **A contributor that failed is named.** A page that quietly dropped
+     one would quietly stop warning about whatever it watched.
+#}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: "Points d'attention",
+        badge: scout_year.label,
+        subtitle: "L'état actuel de l'unité, recalculé à chaque consultation. Ces points ne sont pas liés à
+                   un import particulier : un import les révèle parfois, il ne les crée pas.",
+    } only %}
+
+    <div class="alert alert-secondary small d-flex gap-2" role="note">
+        <i class="bi bi-arrow-repeat flex-shrink-0" aria-hidden="true"></i>
+        <span>
+            <strong>Rien ne s'acquitte ici.</strong> Un point disparaît de cette page parce qu'il n'est
+            plus vrai, jamais parce que quelqu'un l'a marqué comme traité.
+        </span>
+    </div>
+
+    {% if report.isEmpty %}
+        {% include 'partials/empty_state.html.twig' with {
+            icon: 'bi-check-lg',
+            message: "Aucun point d'attention. Rien ne demande votre intervention aujourd'hui.",
+        } only %}
+    {% else %}
+        {% for point in report.points %}
+            {% set days = point.daysUntilDue(today) %}
+            <article class="card mb-2 {{ point.severity == 'urgent' ? 'border-danger' : '' }}">
+                <div class="card-body">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                        <span class="badge text-bg-secondary">{{ point.source }}</span>
+                        {% if days is not null %}
+                            <span class="badge text-bg-danger">
+                                <i class="bi bi-clock" aria-hidden="true"></i>
+                                {% if days < 0 %}
+                                    dépassé depuis {{ days * -1 }} jour{{ days < -1 ? 's' : '' }}
+                                {% elseif days == 0 %}
+                                    aujourd'hui
+                                {% else %}
+                                    dans {{ days }} jour{{ days > 1 ? 's' : '' }}
+                                {% endif %}
+                            </span>
+                        {% endif %}
+                    </div>
+                    <h2 class="h6 mb-1">{{ point.title }}</h2>
+                    <p class="mb-0 text-body-secondary">{{ point.why }}</p>
+                </div>
+                {% if point.actionLabel and point.actionUrl %}
+                    <div class="card-footer">
+                        <a href="{{ point.actionUrl }}" class="btn btn-link p-0">
+                            {{ point.actionLabel }}
+                            <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                        </a>
+                    </div>
+                {% endif %}
+            </article>
+        {% endfor %}
+    {% endif %}
+
+    {# La tolérance à la panne, rendue visible plutôt que masquée. #}
+    {% if report.degradedSources is not empty %}
+        <div class="alert alert-warning small d-flex gap-2 mt-3" role="alert">
+            <i class="bi bi-exclamation-triangle flex-shrink-0" aria-hidden="true"></i>
+            <span>
+                Le module <strong>{{ report.degradedSources|join(', ') }}</strong> n'a pas pu contribuer à
+                cette page. Les autres points restent affichés et à jour.
+            </span>
+        </div>
+    {% endif %}
+
+    <p class="text-center small text-body-secondary mt-4 mb-0">
+        Calculé le {{ report.computedAt|date('d/m/Y') }} à {{ report.computedAt|date('H:i') }}
+        — année scoute {{ scout_year.label }}
+    </p>
+{% endblock %}

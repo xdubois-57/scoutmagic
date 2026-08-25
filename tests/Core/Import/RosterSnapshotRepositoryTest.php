@@ -2,12 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Tests\Modules\Fees\Repository;
+namespace Tests\Core\Import;
 
-use Modules\Fees\Repository\RosterSnapshotRepository;
+use Core\Import\RosterSnapshotRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Tests\Modules\Fees\FeesTestHelper;
 
 /**
  * @group database
@@ -29,7 +28,6 @@ class RosterSnapshotRepositoryTest extends TestCase
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
-        FeesTestHelper::createTables($this->pdo);
         $this->repository = new RosterSnapshotRepository($this->pdo);
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");

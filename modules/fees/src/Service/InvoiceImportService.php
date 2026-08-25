@@ -15,9 +15,9 @@ use Modules\Fees\Invoice\InvoiceReader;
 use Modules\Fees\Invoice\ParsedInvoice;
 use Modules\Fees\Repository\InvoiceMemberMatchRepository;
 use Modules\Fees\Repository\InvoiceRepository;
-use Modules\Fees\Repository\RosterSnapshotRepository;
+use Core\Import\RosterSnapshotRepository;
 use Modules\Fees\Value\InvoiceImportOutcome;
-use Modules\Fees\Value\RosterSnapshot;
+use Core\Import\RosterSnapshot;
 
 /**
  * Reads a federation invoice and, only if everything holds, keeps it.

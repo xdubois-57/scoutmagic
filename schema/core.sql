@@ -15,8 +15,20 @@ CREATE TABLE scout_years (
 CREATE TABLE members (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     desk_id VARCHAR(50) NOT NULL,
+    -- Set when this row was merged INTO another identity: somebody was
+    -- re-created in Desk instead of having their old record reopened, and
+    -- a chef d'unité decided the two were the same person
+    -- (Core\Member\Duplicate\MemberMergeService). The row is kept, never
+    -- deleted — nothing in this codebase deletes a member — and everything
+    -- that hung off it now hangs off the id below. A merge is not
+    -- reversible, which is why the screen shows exactly what will move
+    -- before it happens.
+    merged_into_member_id INT UNSIGNED NULL,
+    merged_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE INDEX idx_desk_id (desk_id)
+    UNIQUE INDEX idx_desk_id (desk_id),
+    INDEX idx_merged_into (merged_into_member_id),
+    CONSTRAINT fk_members_merged_into FOREIGN KEY (merged_into_member_id) REFERENCES members(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE user_accounts (
@@ -362,6 +374,16 @@ CREATE TABLE section_documents (
     CONSTRAINT fk_sd_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- One row per Desk import, and the parent row of everything that import
+-- produced: the CSV it consumed, the roster snapshot it froze, and (from
+-- the diff onwards) the report it computed. One object, one lifecycle, one
+-- purge — a kept file whose snapshot has been purged, or the reverse, is
+-- half a dossier and answers nothing.
+-- One row per Desk import, and the parent row of everything that import
+-- produced: the CSV it consumed, the roster snapshot it froze, and the
+-- diff it computed. One object, one lifecycle, one purge — a kept file
+-- whose snapshot has been purged, or the reverse, is half a dossier and
+-- answers nothing.
 CREATE TABLE import_journal (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     scout_year_id INT UNSIGNED NOT NULL,
@@ -369,9 +391,200 @@ CREATE TABLE import_journal (
     line_count INT UNSIGNED NOT NULL,
     member_count INT UNSIGNED NOT NULL,
     new_functions_count INT UNSIGNED NOT NULL DEFAULT 0,
+    -- The Desk CSV this import consumed, kept so a doubtful import can be
+    -- investigated by replaying its report against the exact file that
+    -- produced it. Encrypted at rest through Core\File\
+    -- EncryptedFileStorageService, role_min 'admin', served only by
+    -- /files/{id} under FileAccessGuard, and every successful download
+    -- journaled (SECURITY.md §13). NULL for an import taken before the
+    -- file was kept, and for one whose retention window has passed.
+    file_id INT UNSIGNED NULL,
+    -- What this import changed, compared with the one before it in the
+    -- same scout year: Core\Import\ImportDiff, computed once at the end of
+    -- the import and never recomputed. A dated, frozen fact — "12 members
+    -- added, 7 gone on 3 September" will never become anything else —
+    -- which is exactly what lets the report page stay honest months
+    -- later. Foreign keys and codes only, never a name.
+    --
+    -- NULL only for an import that predates diffs. An import that HAD
+    -- nothing to compare against (the season's first, or a predecessor
+    -- the retention purge has taken) stores an explicitly unavailable
+    -- diff instead, so the report can say "no point of comparison"
+    -- rather than presenting 260 arrivals as a movement.
+    diff_json JSON NULL,
     imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_ij_year_imported (scout_year_id, imported_at),
     CONSTRAINT fk_ij_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
-    CONSTRAINT fk_ij_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
+    CONSTRAINT fk_ij_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL,
+    CONSTRAINT fk_ij_file FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- What the Desk roster CONTAINED at a given moment — one row per import.
+--
+-- Nothing else in the site keeps it. `member_years` is overwritten
+-- wholesale at every import (`MemberYearRepository::upsert()`,
+-- `deactivateAllForYear()`), so without a snapshot the only roster the
+-- site can ever describe is today's. An invoice from the federation
+-- reflects Desk on the day it was issued, and checking February's invoice
+-- against March's roster manufactures differences that were never real —
+-- the kind of false alarm that gets a verification tool abandoned.
+--
+-- **These two tables carry a `fees_` prefix and are not the `fees`
+-- module's.** That module was the first thing that needed them, so they
+-- were born in `modules/fees/schema.sql`; a core that needs an optional
+-- module in order to describe its own import is the inversion
+-- `ARCHITECTURE.md` §7.4 forbids, so they moved here and
+-- `Core\Import\DeskImportService` now takes the snapshot itself — present
+-- whatever the module configuration. Same history as
+-- `EncryptedFileStorageService`, born of finance receipts, and
+-- `list_editor`, born of the banners. The names kept their prefix
+-- deliberately: renaming them would strand `fees_invoices`' foreign key on
+-- any installation that already has one, and this schema's migration
+-- runner never drops a table or a constraint (see `SchemaComparator`).
+--
+-- **No personal data, deliberately.** Every column below is a foreign key
+-- or a code. Names and birth dates stay where they already are, in
+-- `member_years`, which persists for the whole scout year even for a
+-- member gone inactive — so a snapshot row joins back to a readable person
+-- through (member_id, the snapshot's scout_year_id) whenever a screen
+-- genuinely needs one. Nothing here is a BLOB, nothing here is encrypted.
+
+CREATE TABLE fees_roster_snapshots (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    scout_year_id INT UNSIGNED NOT NULL,
+    -- The import that froze this composition. The direction of the link
+    -- is deliberate: `import_journal` is the parent row, and a snapshot
+    -- goes when its import goes. NULL only for a snapshot taken before
+    -- imports became that parent row.
+    import_journal_id INT UNSIGNED NULL,
+    -- When the import that produced this snapshot ran. Compared against an
+    -- invoice's own date, and the gap between the two is shown rather than
+    -- hidden: one day of drift is enough to produce differences that are
+    -- not differences.
+    taken_at DATETIME NOT NULL,
+    -- Denormalised on purpose: the count is read on a list of snapshots,
+    -- one row per import, and counting the members of each would be one
+    -- query per line.
+    member_count INT UNSIGNED NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_frs_year_taken (scout_year_id, taken_at),
+    INDEX idx_frs_import (import_journal_id),
+    CONSTRAINT fk_frs_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE,
+    CONSTRAINT fk_frs_import FOREIGN KEY (import_journal_id) REFERENCES import_journal(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE fees_roster_snapshot_members (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    snapshot_id INT UNSIGNED NOT NULL,
+    -- The persistent identity, not member_years.id: the snapshot's own
+    -- scout_year_id already says which year, and members.id is what an
+    -- invoice line is eventually matched back to.
+    member_id INT UNSIGNED NOT NULL,
+    -- The fee category encoded in Desk at that moment — the thing an
+    -- invoice line is checked against. NULL when Desk had none.
+    fee_category_id INT UNSIGNED NULL,
+    -- The section of the member's main function (or, when Desk flagged
+    -- none, their first function). NULL for someone with no function at
+    -- all, and for the fee lines that legitimately carry no section.
+    section_id INT UNSIGNED NULL,
+    -- The site role that function resolves to (identified/intendant/
+    -- chief/admin…), which is what separates an animé from a staff member
+    -- on an invoice line. A code, never a label.
+    function_role VARCHAR(20) NULL,
+    -- That same function's own id. The role above answers "what access
+    -- does this person have"; this answers "what do they DO", and the two
+    -- move independently — a member can change function without changing
+    -- role. Added for the import diff (Core\Import\ImportDiffCalculator),
+    -- which reports both. NULL for a snapshot taken before it existed.
+    function_id INT UNSIGNED NULL,
+    -- Desk's own formation wording, verbatim, in clear exactly as it is on
+    -- member_years — this is what the "réduction animateur breveté" line of
+    -- an invoice is cross-checked against.
+    formation_level VARCHAR(100) NULL,
+    -- Recorded as it stood, NEVER used as a filter here. Desk still holds a
+    -- member marked leaving, and the federation still bills them; deciding
+    -- what to do with the flag belongs to whoever reads the snapshot. A
+    -- snapshot that filtered could not answer "what did Desk contain".
+    leaving BOOLEAN NOT NULL DEFAULT FALSE,
+    UNIQUE INDEX idx_frsm_snapshot_member (snapshot_id, member_id),
+    INDEX idx_frsm_snapshot_section (snapshot_id, section_id),
+    CONSTRAINT fk_frsm_snapshot FOREIGN KEY (snapshot_id) REFERENCES fees_roster_snapshots(id) ON DELETE CASCADE,
+    -- No ON DELETE on the four below, deliberately: nothing in this
+    -- codebase deletes a member, a section, a function or a fee category,
+    -- and a snapshot that quietly lost rows when something did would be a
+    -- history that lies. A refused DELETE is the better failure.
+    CONSTRAINT fk_frsm_member FOREIGN KEY (member_id) REFERENCES members(id),
+    CONSTRAINT fk_frsm_fee FOREIGN KEY (fee_category_id) REFERENCES fee_categories(id),
+    CONSTRAINT fk_frsm_section FOREIGN KEY (section_id) REFERENCES sections(id),
+    CONSTRAINT fk_frsm_function FOREIGN KEY (function_id) REFERENCES functions(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The Desk identifiers an identity has answered to, beyond its current
+-- one.
+--
+-- Indispensable rather than convenient: without it, the abandoned code
+-- reappearing in a later CSV would create a brand-new `members` row again
+-- and re-open the split a merge had just repaired — silently, and for the
+-- same reason as the first time. `MemberRepository::findByDeskId()`
+-- consults this table, so a row here is what makes the repair stick.
+CREATE TABLE member_desk_id_aliases (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    desk_id VARCHAR(50) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INT UNSIGNED,
+    -- Unique across the table AND distinct from every members.desk_id in
+    -- practice: an alias only ever comes from a row that has just been
+    -- merged away, and that row keeps its own desk_id.
+    UNIQUE INDEX idx_mdia_desk_id (desk_id),
+    INDEX idx_mdia_member (member_id),
+    CONSTRAINT fk_mdia_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mdia_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Pairs of `members` rows that look like the same person split in two.
+--
+-- The mistake is banal and its damage is silent: somebody leaves, comes
+-- back a year later, and is created as a NEW person in Desk instead of
+-- having their old record reopened. New desk_id, new `members` row — and
+-- photos, badges, private documents, section periods, totem and
+-- owner-scoped files all stay attached to the abandoned identity, so the
+-- returning member's page is empty and nothing says why.
+--
+-- Detected after an import commits (never inside it: the comparison
+-- decrypts names and birth dates in bulk, `Core\Member\Duplicate\
+-- DuplicateMemberDetector`), on the members that import CREATED, against
+-- the member_years of EARLIER scout years. Desk guarantees desk_id
+-- uniqueness, so the problem is strictly inter-year and there is nothing
+-- to look for within one season.
+--
+-- **A candidate is a proposal, never a decision.** Two people can share a
+-- name and a birth date, so a human decides — which is also why the row
+-- has a `distinct` outcome and not only a `merged` one: "these are two
+-- different people" is a decision too, and one the site must remember,
+-- or every import would re-propose the same pair for ever.
+--
+-- No personal data: two member ids, a flag, and what somebody decided.
+CREATE TABLE member_duplicate_candidates (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- The identity that existed first, and the one a merge keeps.
+    kept_member_id INT UNSIGNED NOT NULL,
+    -- The one the import just created.
+    duplicate_member_id INT UNSIGNED NOT NULL,
+    -- Secondary signal for telling a real duplicate from two namesakes:
+    -- the two identities share a normalised address blind index
+    -- (member_addresses, §8). Never decisive on its own — siblings share
+    -- an address too — and never the reason a pair is proposed.
+    same_address BOOLEAN NOT NULL DEFAULT FALSE,
+    status ENUM('pending', 'merged', 'distinct') NOT NULL DEFAULT 'pending',
+    detected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    decided_at DATETIME NULL,
+    decided_by INT UNSIGNED NULL,
+    UNIQUE INDEX idx_mdc_pair (kept_member_id, duplicate_member_id),
+    INDEX idx_mdc_status (status),
+    CONSTRAINT fk_mdc_kept FOREIGN KEY (kept_member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mdc_duplicate FOREIGN KEY (duplicate_member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mdc_decided_by FOREIGN KEY (decided_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE webauthn_credentials (

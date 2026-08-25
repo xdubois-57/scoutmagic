@@ -218,7 +218,34 @@ The RGPD page does not embed a cookie list inline — it links to the dedicated 
 ## 7. Desk CSV import
 
 ### 7.1 Pipeline
-Upload → validate headers → group by `desk_id` → resolve mappings → upsert → delete CSV → journal.
+Upload → valide les en-têtes → confronte le fichier au roster (barrière anti-export filtré) → groupe par `desk_id` → résout les correspondances → met à jour → **conserve le CSV chiffré** → journal.
+
+Le CSV consommé n'est plus supprimé : il est conservé chiffré, rattaché à
+la ligne d'import, pendant une durée exprimée en années scoutes (2 par
+défaut). Le fichier déposé en clair, lui, est effacé à la fin de la
+requête, succès ou échec. Voir `SECURITY.md` §13.
+
+### 7.1.1 Historique, rapport et conservation
+
+Chaque import laisse une ligne (`import_journal`) à laquelle se rattachent
+le fichier CSV chiffré qu'il a consommé et l'instantané du roster qu'il a
+figé. Deux écrans en découlent, tous deux en `role_min: admin` :
+
+- **`/admin/import/historique`** — les imports de l'année scoute
+  sélectionnée : date, auteur, compteurs, fichier téléchargeable via
+  `/files/{id}`, et la durée de conservation en clair.
+- **`/admin/import/{id}/rapport`** — ce que cet import a changé, figé au
+  moment où il a eu lieu. Ordre de lecture : impact d'accès (rôles
+  `admin` gagnés ou perdus, fonctions inconnues arrivées au rôle
+  minimum), impact structurel (sections devenues inactives, arrivées,
+  départs, changements de section et de fonction), qualité des données
+  (membres sans adresse exploitable, sans e-mail, sans fonction ni
+  section, lignes non retenues).
+
+Le rapport ne recalcule rien : il lit le diff stocké. Les **points
+d'attention** — l'état actuel de l'unité, recalculé à chaque affichage —
+sont un écran distinct, précisément pour que l'un puisse être daté et
+l'autre vivant.
 
 ### 7.2 Mapping tables
 

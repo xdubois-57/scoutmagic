@@ -1,0 +1,293 @@
+{% extends 'base.html.twig' %}
+{% block title %}Rapport d'import — {{ site_name }}{% endblock %}
+
+{#
+   One import's report (Core\Http\Controller\ImportController::report).
+
+   It reads the frozen diff and nothing else. No attention point appears
+   here: those are a current state of the unit, recalculated at every
+   display, and they have their own page. Mixing them would give this
+   page a dated top half and a live bottom half.
+
+   Reading order — heaviest consequences first, so a reader who stops
+   after ten seconds has read the part that mattered:
+     1. access impact (somebody just gained or lost the Configuration)
+     2. structural impact (a section that vanished from every picker)
+     3. data quality (what Desk left incomplete)
+#}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: "Rapport d'import",
+        badge: scout_year ? scout_year.label : null,
+        subtitle: 'Import du ' ~ import.importedAt|date('d/m/Y') ~ ' à ' ~ import.importedAt|date('H:i')
+            ~ (author ? ' par ' ~ author : '')
+            ~ ". Ce rapport est figé : il décrit ce qui s'est passé ce jour-là.",
+    } only %}
+
+    {% if report is null %}
+        <div class="alert alert-secondary d-flex gap-2" role="note">
+            <i class="bi bi-info-circle flex-shrink-0" aria-hidden="true"></i>
+            <span>Cet import est antérieur aux rapports : rien n'a été calculé au moment où il a eu lieu,
+            et le recalculer aujourd'hui décrirait le roster d'aujourd'hui, pas le sien.</span>
+        </div>
+    {% elseif not report.available %}
+        <div class="card mb-3">
+            <div class="card-body d-flex gap-2">
+                <i class="bi bi-info-circle text-body-secondary flex-shrink-0" aria-hidden="true"></i>
+                <div>
+                    <p class="fw-medium mb-1">Aucun point de comparaison</p>
+                    <p class="mb-0 text-body-secondary">
+                        {% if report.unavailable_reason == 'first_of_season' %}
+                            Premier import de l'année scoute{{ scout_year ? ' ' ~ scout_year.label : '' }} :
+                            les {{ import.memberCount }} membres ne sont pas des arrivées, ils sont le point
+                            de départ. Les mouvements apparaîtront au prochain import.
+                        {% else %}
+                            L'instantané de l'import précédent a été supprimé au terme de sa durée de
+                            conservation. Le rapport est donc indisponible — ce qui n'est pas la même chose
+                            qu'un import sans mouvement.
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <div class="alert alert-secondary small d-flex gap-2" role="note">
+            <i class="bi bi-info-circle flex-shrink-0" aria-hidden="true"></i>
+            <span>
+                {% if previous_import %}
+                    Comparé à l'import précédent du {{ previous_import.importedAt|date('d/m/Y') }}.
+                {% endif %}
+                Les points d'attention actuels de l'unité — ce qu'il reste à faire aujourd'hui — vivent
+                sur leur propre page et ne figurent pas ici.
+            </span>
+        </div>
+
+        <div class="row row-cols-2 row-cols-sm-4 g-2 g-sm-3 mb-3">
+            {% for stat in [
+                { value: '+' ~ report.counts.arrived, label: 'arrivées', accent: true },
+                { value: '−' ~ report.counts.departed, label: 'départs', accent: false },
+                { value: report.counts.moved, label: 'changements', accent: false },
+                { value: report.counts.access, label: "impact d'accès", accent: true },
+            ] %}
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body p-3">
+                            <p class="h5 mb-0{{ stat.accent ? ' text-primary' : '' }}">{{ stat.value }}</p>
+                            <p class="small text-body-secondary mb-0">{{ stat.label }}</p>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        {% if report.is_empty %}
+            <div class="alert alert-success d-flex gap-2" role="note">
+                <i class="bi bi-check-lg flex-shrink-0" aria-hidden="true"></i>
+                <span>Cet import n'a rien changé. C'est le résultat attendu quand on réimporte le même
+                export — ce n'est pas une erreur.</span>
+            </div>
+        {% endif %}
+
+        {# ---------- 1. Impact d'accès ---------- #}
+        <h2 class="h5 mt-4">Impact d'accès</h2>
+        {% if report.access.admin_gained is empty and report.access.admin_lost is empty and report.access.new_functions is empty %}
+            <p class="text-body-secondary small">Aucun changement d'accès à la Configuration.</p>
+        {% else %}
+            {% if report.access.admin_lost is not empty %}
+                <div class="card border-danger mb-2">
+                    <div class="card-header bg-danger-subtle text-danger-emphasis fw-semibold">
+                        <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+                        {{ report.access.admin_lost|length }} chef{{ report.access.admin_lost|length > 1 ? 's' : '' }} d'unité en moins
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        {% for person in report.access.admin_lost %}
+                            <li class="list-group-item">
+                                {{ person.identity ? person.identity|display_name_full : 'Membre #' ~ person.member_id }}
+                                <span class="text-body-secondary small">— perd l'accès à la Configuration</span>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            {% if report.access.admin_gained is not empty %}
+                <div class="card border-warning mb-2">
+                    <div class="card-header bg-warning-subtle text-warning-emphasis fw-semibold">
+                        <i class="bi bi-key" aria-hidden="true"></i>
+                        {{ report.access.admin_gained|length }} chef{{ report.access.admin_gained|length > 1 ? 's' : '' }} d'unité en plus
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        {% for person in report.access.admin_gained %}
+                            <li class="list-group-item">
+                                {{ person.identity ? person.identity|display_name_full : 'Membre #' ~ person.member_id }}
+                                <span class="text-body-secondary small">— obtient l'accès à la Configuration</span>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            {% if report.access.new_functions is not empty %}
+                <div class="card border-warning mb-2">
+                    <div class="card-header bg-warning-subtle text-warning-emphasis fw-semibold">
+                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                        {{ report.access.new_functions|length }} fonction{{ report.access.new_functions|length > 1 ? 's' : '' }} inconnue{{ report.access.new_functions|length > 1 ? 's' : '' }}, importée{{ report.access.new_functions|length > 1 ? 's' : '' }} au rôle minimum
+                    </div>
+                    <div class="card-body">
+                        <p>
+                            {% for fn in report.access.new_functions %}
+                                « {{ fn.label }} »{{ not loop.last ? ', ' : '' }}
+                            {% endfor %}
+                            {{ report.access.new_functions|length > 1 ? 'sont arrivées' : 'est arrivée' }}
+                            au rôle le plus bas par sécurité. Tant qu'{{ report.access.new_functions|length > 1 ? "elles ne sont" : "elle n'est" }}
+                            pas qualifiée{{ report.access.new_functions|length > 1 ? 's' : '' }} dans Config Desk, les personnes concernées
+                            ne voient rien de plus qu'un membre ordinaire.
+                        </p>
+                        {% set _pending = report.access.new_functions|filter(f => f.still_unconfirmed) %}
+                        {% if _pending is not empty %}
+                            <a href="/config/functions" class="btn btn-primary w-100 w-sm-auto">
+                                Qualifier dans Config Desk
+                            </a>
+                        {% else %}
+                            <p class="small text-success-emphasis mb-0">
+                                <i class="bi bi-check-lg" aria-hidden="true"></i>
+                                Toutes ont depuis été qualifiées.
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+        {% endif %}
+
+        {# ---------- 2. Impact structurel ---------- #}
+        <h2 class="h5 mt-4">Impact structurel</h2>
+        {% if report.structure.sections_gone_inactive is not empty %}
+            <div class="card border-warning mb-2">
+                <div class="card-header bg-warning-subtle text-warning-emphasis fw-semibold">
+                    {{ report.structure.sections_gone_inactive|length }} section{{ report.structure.sections_gone_inactive|length > 1 ? 's devenues inactives' : ' devenue inactive' }}
+                </div>
+                <ul class="list-group list-group-flush">
+                    {% for section in report.structure.sections_gone_inactive %}
+                        <li class="list-group-item">
+                            {{ section.label }}
+                            <span class="text-body-secondary small">— plus aucun membre, disparaît de tous les sélecteurs
+                            jusqu'au prochain import qui lui en donne</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+
+        {% for block in [
+            { key: 'sections_gone_active', title: 'section(s) réapparue(s)' },
+            { key: 'new_sections', title: 'nouvelle(s) section(s)' },
+            { key: 'new_branches', title: 'nouvelle(s) branche(s)' },
+            { key: 'new_fee_categories', title: 'nouvelle(s) catégorie(s) tarifaire(s)' },
+        ] %}
+            {% set _items = attribute(report.structure, block.key) %}
+            {% if _items is not empty %}
+                <div class="card mb-2">
+                    <div class="card-header fw-semibold">{{ _items|length }} {{ block.title }}</div>
+                    <ul class="list-group list-group-flush">
+                        {% for item in _items %}
+                            <li class="list-group-item">{{ item.label }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+        {% endfor %}
+
+        {% for block in [
+            { key: 'arrived', title: 'membre(s) arrivé(s)' },
+            { key: 'departed', title: 'membre(s) parti(s)' },
+        ] %}
+            {% set _people = attribute(report.structure, block.key) %}
+            {% if _people is not empty %}
+                <div class="card mb-2">
+                    <div class="card-header fw-semibold">
+                        <i class="bi bi-people" aria-hidden="true"></i>
+                        {{ _people|length }} {{ block.title }}
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        {% for person in _people %}
+                            <li class="list-group-item">
+                                {{ person.identity ? person.identity|display_name_full : 'Membre #' ~ person.member_id }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+        {% endfor %}
+
+        {% for block in [
+            { key: 'section_changes', title: 'changement(s) de section' },
+            { key: 'function_changes', title: 'changement(s) de fonction' },
+            { key: 'fee_category_changes', title: 'changement(s) de catégorie tarifaire' },
+        ] %}
+            {% set _changes = attribute(report.structure, block.key) %}
+            {% if _changes is not empty %}
+                <div class="card mb-2">
+                    <div class="card-header fw-semibold">{{ _changes|length }} {{ block.title }}</div>
+                    <ul class="list-group list-group-flush">
+                        {% for change in _changes %}
+                            <li class="list-group-item">
+                                {{ change.identity ? change.identity|display_name_full : 'Membre #' ~ change.member_id }}
+                                <span class="text-body-secondary">
+                                    — {{ change.from ?? 'aucune' }} → {{ change.to ?? 'aucune' }}
+                                </span>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+        {% endfor %}
+    {% endif %}
+
+    {# ---------- 3. Qualité des données ---------- #}
+    {% if report %}
+        <h2 class="h5 mt-4">Qualité des données</h2>
+        <div class="card">
+            <ul class="list-group list-group-flush">
+                {% for row in report.quality %}
+                    <li class="list-group-item d-flex gap-3">
+                        <span class="fw-semibold {{ row.value == 0 ? 'text-body-secondary' : '' }}"
+                              style="min-width:2.5rem;text-align:right;">{{ row.value }}</span>
+                        <span class="flex-grow-1">
+                            {{ row.label }}
+                            {% if row.why %}<span class="d-block small text-body-secondary">{{ row.why }}</span>{% endif %}
+                        </span>
+                        {% if row.value == 0 %}
+                            <i class="bi bi-check-lg text-success flex-shrink-0" aria-hidden="true"></i>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+            <div class="card-footer small text-body-secondary">
+                Ces compteurs décrivent l'état laissé par cet import. Ils ne se corrigent pas ici : les
+                données viennent de Desk.
+            </div>
+        </div>
+    {% endif %}
+
+    {# Le fichier d'origine, téléchargeable, et uniquement par /files/{id}. #}
+    <div class="card mt-3">
+        <div class="card-body d-flex flex-wrap align-items-center gap-2">
+            {% if file %}
+                <a href="{{ file_url(file.id) }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-download" aria-hidden="true"></i>
+                    {{ file.originalName }}
+                </a>
+                <span class="small text-body-secondary">
+                    <i class="bi bi-lock" aria-hidden="true"></i>
+                    chiffré · {{ (file.sizeBytes / 1024)|round }} Ko · téléchargement journalisé
+                </span>
+            {% else %}
+                <span class="small text-body-secondary">
+                    <i class="bi bi-lock" aria-hidden="true"></i>
+                    Le fichier de cet import n'est plus conservé.
+                </span>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

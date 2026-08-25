@@ -72,14 +72,14 @@ class FileOwnershipCheckerWiringTest extends TestCase
             'the guard must receive the shared $fileOwnershipCheckers array, so module-appended checkers reach it'
         );
 
-        // Core's own checker seeds that array where its dependencies exist.
-        $this->assertStringContainsString(
-            '$fileOwnershipCheckers = [$sectionDocumentOwnershipChecker];',
-            $this->indexPhp
-        );
+        // Core's own checkers seed that array where their dependencies
+        // exist — the section documents one, and the Desk import's kept
+        // CSV (Core\Import\DeskImportFileOwnershipChecker).
+        $seed = '$fileOwnershipCheckers = [$sectionDocumentOwnershipChecker, new \\Core\\Import\\DeskImportFileOwnershipChecker()];';
+        $this->assertStringContainsString($seed, $this->indexPhp);
         $this->assertLessThan(
             $this->offsetOf('new FileAccessGuard('),
-            $this->offsetOf('$fileOwnershipCheckers = [$sectionDocumentOwnershipChecker];'),
+            $this->offsetOf($seed),
             'the array must be seeded before the guard consumes it'
         );
     }
