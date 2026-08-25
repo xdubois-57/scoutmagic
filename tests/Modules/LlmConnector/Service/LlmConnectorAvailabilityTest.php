@@ -37,9 +37,14 @@ class LlmConnectorAvailabilityTest extends TestCase
 
     private function service(
         ProviderRepository $providerRepo,
-        ProviderModelRepository $modelRepo
+        ProviderModelRepository $modelRepo,
+        ?JournalService $journal = null
     ): LlmConnectorService {
-        return new LlmConnectorService($providerRepo, $modelRepo, $this->createStub(JournalService::class));
+        return new LlmConnectorService(
+            $providerRepo,
+            $modelRepo,
+            $journal ?? $this->createStub(JournalService::class)
+        );
     }
 
     /**
@@ -170,5 +175,95 @@ class LlmConnectorAvailabilityTest extends TestCase
         $this->expectExceptionCode(LlmException::NO_MODEL);
 
         $service->complete(new LlmRequest(tier: LlmTier::CAPABLE, prompt: 'Bonjour'));
+    }
+
+    /**
+     * A request refused for a missing model never reached a provider, and
+     * used to leave NOTHING in the journal — no completed entry, no failed
+     * one. An administrator asked why a feature had done nothing found an
+     * empty journal, which reads as "it was never even tried".
+     *
+     * That is exactly how a place summary failed silently on an install
+     * whose `cheap` tier had no model: the camps module offered the
+     * button, the click did nothing, and no page and no journal said why.
+     */
+    public function testAMissingModelIsJournaledRatherThanRefusedInSilence(): void
+    {
+        $journal = $this->createMock(JournalService::class);
+        $journal->expects($this->once())
+            ->method('log')
+            ->with(
+                'llm_connector',
+                'llm_request_failed',
+                'info',
+                'LLM request failed',
+                $this->callback(static fn(array $context): bool => $context['tier'] === 'capable'
+                    && $context['error_code'] === LlmException::NO_MODEL
+                    && $context['provider'] === 'Anthropic'),
+                null
+            );
+
+        $service = $this->service(
+            $this->providerRepoReturning($this->provider()),
+            $this->modelRepoWith(['cheap' => true]),
+            $journal
+        );
+
+        $this->expectException(LlmException::class);
+        $service->complete(new LlmRequest(tier: LlmTier::CAPABLE, prompt: 'Bonjour'));
+    }
+
+    public function testAMissingProviderIsJournaledToo(): void
+    {
+        $journal = $this->createMock(JournalService::class);
+        $journal->expects($this->once())
+            ->method('log')
+            ->with(
+                'llm_connector',
+                'llm_request_failed',
+                'info',
+                'LLM request failed',
+                $this->callback(static fn(array $context): bool => $context['error_code'] === LlmException::NO_PROVIDER),
+                null
+            );
+
+        $service = $this->service(
+            $this->providerRepoReturning(null),
+            $this->modelRepoWith(['cheap' => true]),
+            $journal
+        );
+
+        $this->expectException(LlmException::class);
+        $service->complete(new LlmRequest(tier: LlmTier::CHEAP, prompt: 'Bonjour'));
+    }
+
+    /**
+     * The journal never carries what was asked, only that it was asked —
+     * the same rule the completed entry follows.
+     */
+    public function testTheRefusalEntryCarriesNoPromptContent(): void
+    {
+        $journal = $this->createMock(JournalService::class);
+        $journal->expects($this->once())
+            ->method('log')
+            ->with(
+                $this->anything(),
+                $this->anything(),
+                $this->anything(),
+                $this->anything(),
+                $this->callback(static function (array $context): bool {
+                    return !str_contains(json_encode($context, JSON_THROW_ON_ERROR) ?: '', 'Le secret du camp');
+                }),
+                null
+            );
+
+        $service = $this->service(
+            $this->providerRepoReturning(null),
+            $this->modelRepoWith([]),
+            $journal
+        );
+
+        $this->expectException(LlmException::class);
+        $service->complete(new LlmRequest(tier: LlmTier::CHEAP, prompt: 'Le secret du camp'));
     }
 }

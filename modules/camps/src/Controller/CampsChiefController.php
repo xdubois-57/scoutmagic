@@ -45,6 +45,7 @@ use Modules\Camps\Service\PlaceService;
 use Modules\Camps\Service\PlaceSummaryService;
 use Modules\Camps\Service\ReviewService;
 use Modules\Camps\Service\SectionDescriber;
+use Modules\Camps\Service\SummaryOutcome;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Twig\Environment;
 
@@ -405,7 +406,7 @@ class CampsChiefController extends AbstractController
             'review' => $this->reviews->findByCamp($camp->id),
             'review_open' => $this->reviewService->isOpen($camp, $today),
             'review_allows_rating' => $this->reviewService->allowsRating($camp),
-            'rating_options' => $this->ratingOptions($this->reviews->findByCamp($camp->id)),
+            'rating_max' => Review::MAX_RATING,
             'links' => $this->links->findByCamp($camp->id),
             'messages' => $this->campMessages($camp->id),
             'document_count' => $this->documents->countByCamp($camp->id),
@@ -870,13 +871,12 @@ class CampsChiefController extends AbstractController
             return $guard;
         }
 
-        $written = $this->summaries !== null && $this->summaries->refresh($place);
-        FlashMessage::set(
-            $written ? 'success' : 'error',
-            $written
-                ? 'Résumé régénéré.'
-                : 'Le résumé n\'a pas pu être régénéré : il n\'y a pas assez à raconter, ou le connecteur IA n\'est pas disponible.'
-        );
+        // The outcome says which of the five things happened, and carries
+        // its own sentence: this message used to name all five at once,
+        // starting with "il n'y a pas assez à raconter" — which is the
+        // one cause a chief can act on, and almost never the real one.
+        $outcome = $this->summaries?->refresh($place) ?? SummaryOutcome::Unavailable;
+        FlashMessage::set($outcome->wasWritten() ? 'success' : 'error', $outcome->message());
 
         return $this->redirect('/chefs/camps/lieux/' . $place->id);
     }
@@ -1046,27 +1046,6 @@ class CampsChiefController extends AbstractController
         }
 
         return $trail;
-    }
-
-    /**
-     * The rating picker, with "pas de note" first — a chief who wants to
-     * write only a comment must not have to give a number to do it.
-     *
-     * @return array<int, array{value: string, label: string, selected: bool}>
-     */
-    private function ratingOptions(?Review $review): array
-    {
-        $current = $review?->rating;
-        $options = [['value' => '', 'label' => 'Pas de note', 'selected' => $current === null]];
-        for ($i = Review::MIN_RATING; $i <= Review::MAX_RATING; $i++) {
-            $options[] = [
-                'value' => (string) $i,
-                'label' => $i . ' / ' . Review::MAX_RATING,
-                'selected' => $current === $i,
-            ];
-        }
-
-        return $options;
     }
 
     private function today(): \DateTimeImmutable

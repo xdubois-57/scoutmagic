@@ -141,6 +141,7 @@ class DuplicatePlaceDetectorTest extends TestCase
         $this->places->create('Ferme du Moulin', null, null, 'Vielsalm', null, null);
         $llm = $this->createStub(LlmConnectorInterface::class);
         $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
         $llm->method('complete')->willReturn(
             new LlmResponse('{"matches":[0]}', ['matches' => [0]], 10, 5)
         );
@@ -168,6 +169,7 @@ class DuplicatePlaceDetectorTest extends TestCase
         $this->places->create('Ferme du Moulin', null, null, 'Vielsalm', null, null);
         $llm = $this->createMock(LlmConnectorInterface::class);
         $llm->method('isAvailable')->willReturn(false);
+        $llm->method('isTierAvailable')->willReturn(false);
         $llm->expects($this->never())->method('complete');
 
         $this->assertSame([], (new DuplicatePlaceDetector($this->places, $llm))
@@ -179,6 +181,7 @@ class DuplicatePlaceDetectorTest extends TestCase
         $this->places->create('Ferme du Moulin', null, null, 'Vielsalm', null, null);
         $llm = $this->createStub(LlmConnectorInterface::class);
         $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
         $llm->method('complete')->willThrowException(new LlmException('provider down'));
 
         // A duplicate hint that throws would stop a chief creating a
@@ -192,6 +195,7 @@ class DuplicatePlaceDetectorTest extends TestCase
         $this->places->create('Ferme du Moulin', null, null, 'Vielsalm', null, null);
         $llm = $this->createStub(LlmConnectorInterface::class);
         $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
         $llm->method('complete')->willReturn(
             new LlmResponse('{"matches":[99,"deux",null]}', ['matches' => [99, 'deux', null]], 10, 5)
         );

@@ -22,6 +22,7 @@ use Modules\Camps\Repository\ContactRepository;
 use Modules\Camps\Repository\DocumentRepository;
 use Modules\Camps\Repository\LinkRepository;
 use Modules\Camps\Repository\PlaceRepository;
+use Modules\Camps\Repository\Review;
 use Modules\Camps\Repository\ReviewRepository;
 use Modules\Camps\Service\CampAlbumService;
 use Modules\Camps\Service\CampService;
@@ -30,6 +31,13 @@ use Modules\Camps\Service\PlaceArchiveService;
 use Modules\Camps\Service\PlaceService;
 use Modules\Camps\Service\ReviewService;
 use Modules\Camps\Service\SectionDescriber;
+use Core\Http\FlashMessage;
+use Modules\Camps\Service\PlaceSummaryService;
+use Modules\Camps\Service\SummaryOutcome;
+use Modules\LlmConnector\Api\LlmConnectorInterface;
+use Modules\LlmConnector\Api\LlmException;
+use Modules\LlmConnector\Api\LlmResponse;
+use Modules\LlmConnector\Api\LlmTier;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
@@ -310,6 +318,51 @@ class CampsChiefControllerTest extends TestCase
         )->getBody();
     }
 
+    /**
+     * The same controller as setUp()'s, plus the optional summary service
+     * — the only dependency these two tests need and the composition root
+     * wires the same way.
+     */
+    private function controllerWithSummaries(PlaceSummaryService $summaries): CampsChiefController
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $audit = new AuditService(new AuditRepository($this->pdo, $encryption));
+        $reviews = new ReviewRepository($this->pdo);
+        $sections = new SectionService(
+            \Core\Database\Connection::withPdo($this->pdo),
+            $encryption,
+            new \Core\Badge\MemberBadgeRepository($this->pdo)
+        );
+
+        return new CampsChiefController(
+            TwigFactory::create(
+                dirname(__DIR__, 4) . '/core/View/templates',
+                false,
+                ['camps' => dirname(__DIR__, 4) . '/modules/camps/views']
+            ),
+            $this->places,
+            $this->camps,
+            new PlaceService($this->places, $audit),
+            new CampService($this->camps, $audit),
+            new SectionDescriber($sections),
+            $sections,
+            new EditableContentService(new EditableContentRepository($this->pdo)),
+            $audit,
+            new SettingService(new SettingRepository($this->pdo)),
+            new ContactRepository($this->pdo, $encryption),
+            new LinkRepository($this->pdo),
+            new DocumentRepository($this->pdo),
+            new CampAlbumService($audit, null),
+            $reviews,
+            new ReviewService($reviews, $audit, $this->places),
+            new DuplicatePlaceDetector($this->places, null),
+            new PlaceArchiveService($this->places, $this->camps, $audit),
+            null,
+            null,
+            $summaries
+        );
+    }
+
     private function aStay(): int
     {
         $placeId = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
@@ -364,6 +417,197 @@ class CampsChiefControllerTest extends TestCase
         $html = (string) preg_replace('/\s+/', ' ', $this->stayPage($campId));
 
         $this->assertMatchesRegularExpression('/value="gestionnaire" selected/', $html);
+    }
+
+    /**
+     * The note is given by clicking a star, not by opening a dropdown.
+     *
+     * A rating out of five is SHOWN as stars everywhere else in this
+     * module; the one screen where it is given used to be the only one
+     * speaking another language — and it cost two taps on a phone for
+     * what is one.
+     */
+    public function testTheRatingIsGivenInStarsRatherThanADropdown(): void
+    {
+        $campId = $this->aStay();
+
+        $html = (string) preg_replace('/\s+/', ' ', $this->stayPage($campId));
+
+        // One radio per point of the scale, each reachable by its own label.
+        for ($i = Review::MIN_RATING; $i <= Review::MAX_RATING; $i++) {
+            $this->assertMatchesRegularExpression(
+                '/<input type="radio" name="rating" id="review-rating-' . $i . '" value="' . $i . '"/',
+                $html,
+                'star ' . $i
+            );
+            $this->assertStringContainsString('for="review-rating-' . $i . '"', $html);
+        }
+        // The number is in the accessible name: five identical shapes are
+        // not a rating to a screen reader.
+        $this->assertStringContainsString(
+            '<span class="visually-hidden">3 étoiles sur 5</span>',
+            html_entity_decode($html)
+        );
+        $this->assertStringContainsString('<span class="visually-hidden">1 étoile sur 5</span>', html_entity_decode($html));
+        // And nothing is left of the select it replaced.
+        $this->assertDoesNotMatchRegularExpression('/<select[^>]*name="rating"/', $html);
+    }
+
+    /**
+     * A comment with no number is a complete review, so « Pas de note »
+     * stays reachable — and it is the state a stay with no review is in.
+     */
+    public function testTheRatingStartsWithoutOneAndCanBeGivenBackUp(): void
+    {
+        $campId = $this->aStay();
+
+        $html = (string) preg_replace('/\s+/', ' ', $this->stayPage($campId));
+
+        $this->assertMatchesRegularExpression(
+            '/<input type="radio" class="btn-check" name="rating" id="review-rating-none" value="" autocomplete="off" checked>/',
+            $html
+        );
+        $this->assertStringContainsString('Pas de note', html_entity_decode($html));
+        $this->assertDoesNotMatchRegularExpression('/id="review-rating-[1-5]" value="[1-5]" autocomplete="off" checked/', $html);
+    }
+
+    public function testTheStoredRatingIsTheStarThatComesBackChecked(): void
+    {
+        $campId = $this->aStay();
+        (new ReviewRepository($this->pdo))->save($campId, 4, null, null);
+
+        $html = (string) preg_replace('/\s+/', ' ', $this->stayPage($campId));
+
+        $this->assertMatchesRegularExpression(
+            '/id="review-rating-4" value="4" autocomplete="off" checked/',
+            $html
+        );
+        // Exactly one star is checked, and « pas de note » is not.
+        $this->assertSame(1, preg_match_all('/id="review-rating-[1-5]"[^>]*checked/', $html));
+        $this->assertDoesNotMatchRegularExpression('/id="review-rating-none"[^>]*checked/', $html);
+    }
+
+    /**
+     * A cancelled stay is rated by nobody — nobody camped there — so the
+     * stars are not offered at all (Service\ReviewService says the same
+     * thing on the way in, which is the answer that counts).
+     */
+    public function testACancelledStayIsOfferedNoStars(): void
+    {
+        $placeId = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
+        $campId = $this->camps->create(
+            $placeId,
+            \Modules\Camps\Repository\Camp::STAY_GRAND_CAMP,
+            '2019-07-12',
+            '2019-07-19',
+            null,
+            \Modules\Camps\Repository\Camp::STATUS_CANCELLED,
+            null,
+            null,
+            null,
+            null,
+            []
+        );
+
+        $html = $this->stayPage($campId);
+
+        $this->assertStringNotContainsString('id="review-rating-1"', $html);
+        $this->assertStringContainsString('review-comment', $html);
+    }
+
+    /**
+     * « Écrire le résumé maintenant » failing must say WHY.
+     *
+     * The reported bug: a chief who had given four stars and written a
+     * comment pressed the button and was told « il n'y a pas assez à
+     * raconter » — one sentence covering five different causes, led by the
+     * only one they could act on and the one it almost never was. Here the
+     * connector has a provider and a model, just not on the tier this
+     * feature asks for, and the answer must send them to the
+     * administrator rather than back to their keyboard.
+     */
+    public function testAFailedSummarySaysWhichFailureItWas(): void
+    {
+        $campId = $this->aStay();
+        $placeId = (int) $this->pdo->query('SELECT place_id FROM camp_camps WHERE id = ' . $campId)->fetchColumn();
+        (new ReviewRepository($this->pdo))->save($campId, 4, 'Terrain plat, eau au robinet.', null);
+
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(false);
+        $llm->method('complete')->willThrowException(LlmException::noModel(LlmTier::CHEAP));
+
+        $this->controllerWithSummaries(new PlaceSummaryService(
+            $this->places,
+            $this->camps,
+            new ReviewRepository($this->pdo),
+            $llm
+        ))->regenerateSummary(
+            new Request('POST', '/chefs/camps/lieux/' . $placeId . '/resume', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
+            ['id' => (string) $placeId]
+        );
+
+        $flash = FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame(SummaryOutcome::Unavailable->message(), $flash['message']);
+        // The material was never the problem, so the message must not say
+        // it was.
+        $this->assertStringNotContainsString('pas assez à raconter', $flash['message']);
+    }
+
+    /**
+     * And the button is not offered in the first place: a control whose
+     * only possible outcome is an error message is not a control.
+     */
+    public function testThePlaceSheetOffersNoSummaryButtonWhenTheTierIsMissing(): void
+    {
+        $campId = $this->aStay();
+        $placeId = (int) $this->pdo->query('SELECT place_id FROM camp_camps WHERE id = ' . $campId)->fetchColumn();
+
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        // Configured — just not for the tier a summary asks for.
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(false);
+
+        $html = $this->controllerWithSummaries(new PlaceSummaryService(
+            $this->places,
+            $this->camps,
+            new ReviewRepository($this->pdo),
+            $llm
+        ))->showPlace(
+            new Request('GET', '/chefs/camps/lieux/' . $placeId, [], [], [], []),
+            ['id' => (string) $placeId]
+        )->getBody();
+
+        $this->assertStringNotContainsString('Écrire le résumé maintenant', html_entity_decode($html));
+    }
+
+    public function testAWrittenSummarySaysSoAndIsStored(): void
+    {
+        $campId = $this->aStay();
+        $placeId = (int) $this->pdo->query('SELECT place_id FROM camp_camps WHERE id = ' . $campId)->fetchColumn();
+        (new ReviewRepository($this->pdo))->save($campId, 4, 'Terrain plat, eau au robinet.', null);
+
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
+        $llm->method('complete')->willReturn(new LlmResponse('Terrain plat, accueil constant.', null, 90, 20));
+
+        $this->controllerWithSummaries(new PlaceSummaryService(
+            $this->places,
+            $this->camps,
+            new ReviewRepository($this->pdo),
+            $llm
+        ))->regenerateSummary(
+            new Request('POST', '/chefs/camps/lieux/' . $placeId . '/resume', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
+            ['id' => (string) $placeId]
+        );
+
+        $flash = FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('success', $flash['type']);
+        $this->assertSame('Terrain plat, accueil constant.', $this->places->findById($placeId)?->aiSummary);
     }
 
     public function testAReviewCanBeTakenBackOff(): void

@@ -72,12 +72,17 @@ class LlmConnectorService implements LlmConnectorInterface
     {
         $provider = $this->activeProvider();
         if ($provider === null) {
-            throw LlmException::noProvider();
+            throw $this->journalRefusal(LlmException::noProvider(), $request->tier, null, null);
         }
 
         $model = $this->resolveModel($provider['id'], $request->tier);
         if ($model === null) {
-            throw LlmException::noModel($request->tier);
+            throw $this->journalRefusal(
+                LlmException::noModel($request->tier),
+                $request->tier,
+                (string) $provider['name'],
+                null
+            );
         }
 
         $driverInstance = $this->createDriver($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
@@ -171,6 +176,45 @@ class LlmConnectorService implements LlmConnectorInterface
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * A request refused before it ever reached a provider, in the journal.
+     *
+     * These two refusals — no active provider, no model on the requested
+     * tier — used to be the only failures this service left no trace of:
+     * a driver error journals `llm_request_failed`, but a configuration
+     * gap threw straight back to the caller. An administrator looking for
+     * why a feature did nothing found an empty journal and concluded the
+     * feature had never run, which was true and told them nothing.
+     *
+     * Same action key as a driver failure on purpose: "the request did not
+     * happen" is one thing to filter on, and `error_code` says which kind.
+     * `info`, like its sibling — a missing model is a setting nobody made
+     * yet, not an incident.
+     */
+    private function journalRefusal(
+        LlmException $exception,
+        LlmTier $tier,
+        ?string $providerName,
+        ?string $model
+    ): LlmException {
+        $this->journalService->log(
+            'llm_connector',
+            'llm_request_failed',
+            'info',
+            'LLM request failed',
+            [
+                'provider' => $providerName ?? '(aucun)',
+                'tier' => $tier->value,
+                'model' => $model ?? '(aucun)',
+                'error_code' => $exception->getCode(),
+                'error_detail' => $exception->getMessage(),
+            ],
+            null
+        );
+
+        return $exception;
     }
 
     /**

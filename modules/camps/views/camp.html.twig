@@ -431,7 +431,7 @@
                 camp: camp,
                 review: review,
                 review_allows_rating: review_allows_rating,
-                rating_options: rating_options,
+                rating_max: rating_max,
             } only %}
                 {% block body %}
                     <form method="post" action="/chefs/camps/sejours/{{ camp.camp.id }}/avis"
@@ -439,9 +439,9 @@
                         {{ csrf_field()|raw }}
 
                         {% if review_allows_rating %}
-                            {% include 'partials/form_field.html.twig' with {
-                                field_id: 'review-rating', field_name: 'rating', label: 'Note', type: 'select',
-                                size: 'sm', options: rating_options,
+                            {% include '@camps/_rating_input.html.twig' with {
+                                field_id: 'review-rating', field_name: 'rating', label: 'Note',
+                                value: review ? review.rating : null, max: rating_max,
                             } only %}
                         {% else %}
                             {# Server-side too (Service\ReviewService): a form is a
