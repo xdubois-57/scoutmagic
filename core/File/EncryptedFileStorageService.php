@@ -140,6 +140,21 @@ class EncryptedFileStorageService
     }
 
     /**
+     * Attaches the generic polymorphic ownership marker
+     * (`files.owner_type` / `owner_id`) to an already-stored file.
+     *
+     * A separate step because the owner sometimes only exists once the
+     * transaction that creates it has committed — the Desk import's kept
+     * CSV is written before its `import_journal` row (a blob written
+     * inside a transaction survives its rollback; a row does not), so the
+     * id it belongs to is not known at `store()` time.
+     */
+    public function assignOwner(int $fileId, string $ownerType, int $ownerId): void
+    {
+        $this->fileRepository->updateOwner($fileId, $ownerType, $ownerId);
+    }
+
+    /**
      * Removes both the encrypted file on disk and its FileRecord. Unlike
      * finance_attachments (which are only ever archived), this is a real
      * deletion — callers that need "never truly delete" semantics

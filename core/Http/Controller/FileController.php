@@ -13,6 +13,7 @@ use Core\File\FileAccessGuard;
 use Core\File\PdfRasterizer;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Import\DeskImportFileOwnershipChecker;
 use Core\Journal\JournalService;
 use Core\Photo\ImageVariantService;
 use Core\Security\AuthSession;
@@ -68,6 +69,25 @@ class FileController extends AbstractController
             $this->journalService?->log(
                 'core', 'owner_scoped_file_accessed', 'info', 'Document privé d\'un membre consulté',
                 ['file_id' => $id, 'owner_member_id' => $file->ownerMemberId],
+                AuthSession::getUserAccountId()
+            );
+        }
+
+        // A kept Desk CSV is the second, and only other, successful access
+        // this journals — a deliberate extension of the owner-scoped rule
+        // above (SECURITY.md §13). The reason is the file itself: names,
+        // dates of birth, addresses, telephone numbers, e-mail addresses,
+        // formation level and handicap for the whole unit, in clear, in
+        // one document. Nothing else on this disk is that concentrated, so
+        // who took a copy, and when, is worth knowing. The entry carries
+        // the file id and the import id — never a line of its content.
+        if ($file->ownerType === DeskImportFileOwnershipChecker::OWNER_TYPE) {
+            $this->journalService?->log(
+                'core',
+                'desk_import_file_downloaded',
+                'security',
+                'Fichier CSV d\'un import Desk téléchargé',
+                ['file_id' => $id, 'import_journal_id' => $file->ownerId],
                 AuthSession::getUserAccountId()
             );
         }

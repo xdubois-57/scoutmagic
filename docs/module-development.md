@@ -455,6 +455,42 @@ Two rules, both learned the hard way by core itself:
 - **Listeners run inside the import transaction**, so a listener that throws rolls the whole import back. Keep the work to bounded, idempotent queries; never a mail send or an HTTP call.
 - **Deactivate, never delete.** A member missing from one import (a data-entry slip, a late registration) must come back without an admin re-granting anything, while a member who genuinely left loses access immediately. Journal a **count**, never the member ids — "who has access to what" must not become readable as personal data in the journal.
 
+## Contributing an attention point (`Core\Attention\AttentionPointProvider`)
+
+The page **Espace chefs d'U > Points d'attention** shows what is currently not right about the unit — a badge nobody holds, a section no longer supervised in sufficient numbers, a household whose tariff has become wrong. Nothing on it is stored and nothing is ever acknowledged: a point disappears because it stopped being true, never because somebody clicked. If your module can answer a question of that shape, it contributes one.
+
+```php
+class MyAttentionProvider implements \Core\Attention\AttentionPointProvider
+{
+    public function sourceLabel(): string
+    {
+        return 'Cotisations'; // shown as the chip above each of your points
+    }
+
+    /** @return \Core\Attention\AttentionPoint[] */
+    public function collect(int $scoutYearId): array
+    {
+        return [new \Core\Attention\AttentionPoint(
+            title: '6 foyers portent une catégorie tarifaire devenue fausse',
+            why: 'Écart estimé de 87,75 € sur la prochaine facture de la fédération.',
+            actionLabel: 'Ouvrir la justesse des tarifs',
+            actionUrl: '/admin/fees/tarifs',
+            dueDate: null,                 // optional: renders "dans N jours" and sorts to the top
+        )];
+    }
+}
+```
+
+Wire it in the composition root's own block for your module, by appending to `$attentionProviders` — the same registry shape as `$fileOwnershipCheckers`; the service is built once every module block has run.
+
+Three rules, and the first is why this is not `DeskImportListener`:
+
+- **It is called when the page is displayed, not during the import, and its exceptions are caught.** `DeskImportListener` runs inside the import transaction and a listener that throws rolls the whole import back — right for reconciling derived state, catastrophic here. A module that is merely *wrong about* the unit must never be able to stop an import or break a page. A provider that throws is listed on the page as unable to contribute; every other provider still renders.
+- **Stay bounded.** The page is opened on demand and every provider runs on every display. Aggregate queries only — a provider that decrypts the whole roster each time will make the page unusable, slowly, as the unit grows.
+- **Most modules have nothing to contribute, and that is the normal case.** Do not implement this "for consistency": an empty implementation is dead code a reviewer cannot tell apart from "not done yet". `DeskImportListener` has existed for a long time and one module out of twenty implements it. The question to ask when creating a module is *"does this module have an attention point to report?"* — and the answer is usually no.
+
+Each point carries four things, and they are the four a reader needs: what is wrong, why it matters, what to do about it, and — when there is one — by when. Write `why` as the consequence, never a restatement of the title.
+
 ## Accessing core services
 
 Module controllers receive whatever services they need via constructor injection — there is no fixed list. The composition root (`public/index.php`) is where every controller is actually built and registered: inside the module's `if (in_array('my_module', $moduleManager->getEnabledModuleIds(), true)) { ... }` block, construct the module's repositories/services (passing `$pdo`/`$connection`, `$encryptionService`, `$mailService`, `$schedulerService`, `$sectionService`, or any other already-built core service the module needs), then `$frontController->registerController(MyModuleController::class, new MyModuleController($twig, ...))`. See any existing module block in `public/index.php` for the pattern.

@@ -184,11 +184,15 @@ exercices. L'import bancaire, lui, continue de fonctionner :
 
 À lire avant de toucher au builder ou aux tests d'import.
 
-- **`DeskImportService::import()` supprime le fichier CSV qu'on lui donne**
-  (`@unlink($filePath)`). Le builder et les tests copient toujours le fichier
-  versionné vers un temporaire avant l'appel — c'est déjà ce que fait
-  `tests/Core/Import/DeskImportServiceTest.php`. Pointer directement sur un
-  fichier de `desk/` le détruirait.
+- **`DeskImportService::import()` ne supprime plus le fichier CSV qu'on lui
+  donne** — cet avertissement est obsolète. Le service en conserve désormais
+  une copie chiffrée (`SECURITY.md` §13) et laisse l'original à celui qui l'a
+  écrit : `ImportController` efface le fichier déposé dans un `finally`. Le
+  builder et les tests peuvent donc pointer directement sur un fichier de
+  `desk/` sans le détruire. La contrepartie à connaître : chaque import
+  enregistre un `FileRecord` chiffré, ce qui suppose un chemin de stockage
+  utilisable — `DeskImportReplay` en accepte un et retombe sinon sur un
+  répertoire temporaire.
 - **`ScoutYearService::ensureYear()` insère toujours `is_current = 1`** et rien ne
   remet jamais la colonne à 0. Créer trois années laisse trois lignes à 1. Sans
   conséquence — la colonne n'est lue nulle part, la vérité vivant dans le réglage

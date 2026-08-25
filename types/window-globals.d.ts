@@ -176,6 +176,13 @@ interface Window {
     ScoutMagicFeesCopy?: {
         blockFor: (texts: Record<string, string> | null, key: string) => string;
     };
+    // public/assets/js/import-barrier.js — the danger zone of the Desk
+    // import barrier, present only when that barrier is on screen. The
+    // confirmation word is checked server-side; this only decides whether
+    // the submit button looks clickable.
+    ScoutMagicImportBarrier?: {
+        matchesConfirmation: (typed: string, word: string) => boolean;
+    };
     ScoutMagicNav?: {
         showDesktopMenu?: (menuId: string) => void;
         syncSwitchAriaChecked?: (input: HTMLInputElement) => void;

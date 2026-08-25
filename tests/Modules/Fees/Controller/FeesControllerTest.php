@@ -17,7 +17,7 @@ use Core\Security\AuthSession;
 use Core\View\TwigFactory;
 use Modules\Fees\Controller\FeesController;
 use Modules\Fees\Repository\FeesImportRepository;
-use Modules\Fees\Repository\RosterSnapshotRepository;
+use Core\Import\RosterSnapshotRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Fees\FeesTestHelper;

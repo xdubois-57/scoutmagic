@@ -5,7 +5,7 @@ summary: Mettre à jour les membres du site depuis l'export CSV de la fédérati
 category: Espace chefs d'U
 role_min: admin
 paths: /admin/import
-related: annee-scoute, config-desk, membres-admin
+related: annee-scoute, config-desk, membres-admin, import-historique
 ---
 
 Le site ne s'alimente pas à la main : les membres, sections et
@@ -22,8 +22,26 @@ la fédération. Importer ce fichier met le site à jour d'un coup.
 
 Le fichier doit être l'export complet de Desk : si des colonnes
 manquent, l'import s'arrête en les nommant, sans rien modifier. Un
-import réussi affiche le nombre de membres traités, et le fichier est
-effacé du serveur aussitôt.
+import réussi affiche le nombre de membres traités.
+
+## Si le site refuse le fichier
+
+L'erreur la plus courante est d'exporter une seule section au lieu de
+tous les membres. Le site s'en aperçoit avant d'écrire quoi que ce soit
+et vous montre ce que cet import ferait : combien de membres seraient
+désactivés, quelles sections disparaîtraient des sélecteurs, et si vous
+perdriez votre propre accès. Rien n'est modifié tant que vous n'avez
+rien confirmé.
+
+Dans la plupart des cas, refaire l'export depuis Desk sans filtre de
+section suffit. Si le fichier est bien celui que vous vouliez, une zone
+« Forcer l'import malgré tout » vous demande de le redéposer et de taper
+**REMPLACER**. Le fichier refusé n'est pas conservé, d'où le nouveau
+dépôt.
+
+> Un import qui retirerait le dernier chef d'unité est refusé même avec
+> le mot de confirmation : plus personne ne pourrait alors ouvrir la
+> Configuration pour réparer.
 
 ## Ce que l'import fait
 

@@ -14,10 +14,10 @@ use Modules\Fees\HouseholdCategoryLabel;
 use Modules\Fees\Invoice\InvoiceLine;
 use Modules\Fees\Repository\HouseholdDetailRepository;
 use Modules\Fees\Repository\InvoiceRepository;
-use Modules\Fees\Repository\RosterSnapshotRepository;
+use Core\Import\RosterSnapshotRepository;
 use Modules\Fees\Value\NominativeDiscrepancy;
 use Modules\Fees\Value\ReconstitutedLine;
-use Modules\Fees\Value\RosterSnapshotMember;
+use Core\Import\RosterSnapshotMember;
 use Modules\Fees\Value\StoredInvoice;
 use Modules\Fees\Value\StoredInvoiceLine;
 
