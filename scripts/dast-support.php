@@ -531,6 +531,12 @@ switch ($command) {
             dast_fail('usage: dast-support.php gate-alerts <zap-url> <api-key> <site-url> <threshold>');
         }
         dast_gate_alerts($argv[2], $argv[3], $argv[4], $argv[5] ?? 'Medium');
+        // dast_gate_alerts() exits either way, so this break is unreachable
+        // today — it is here because the case below is `default:`, and the
+        // day that function grows an early return, falling through would
+        // report "unknown subcommand 'gate-alerts'" after the gate had
+        // already run. Every other case ends the same way.
+        break;
 
     default:
         dast_fail("unknown subcommand '{$command}' — see this file's header for the list.");
