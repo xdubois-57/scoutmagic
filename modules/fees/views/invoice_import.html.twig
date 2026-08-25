@@ -136,7 +136,7 @@
         <form method="post" action="/admin/fees/factures/import" enctype="multipart/form-data" class="card">
             <div class="card-body">
                 <h2 class="h6 mb-3">Le fichier</h2>
-                {{ csrf_field() }}
+                {{ csrf_field()|raw }}
                 <div class="mb-3">
                     {% include 'partials/drop_zone.html.twig' with {
                         id: 'invoice-drop-zone',

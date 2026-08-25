@@ -4,7 +4,7 @@ title: Lire le rapport de vérification d'une facture
 summary: Ce que la fédération a compté, ce que Desk contenait le jour de l'émission, et nominativement où les deux divergent.
 category: Espace chefs d'U
 role_min: admin
-paths: /admin/fees/factures/{id}
+paths: /admin/fees/factures/*
 related: factures-federation, justesse-des-tarifs, cotisations
 ---
 
