@@ -13,10 +13,12 @@ use Modules\Camps\Repository\ContactRepository;
 use Modules\Camps\Repository\PlaceRepository;
 use Modules\Camps\Repository\ReviewRepository;
 use Modules\Camps\Service\PlaceSummaryService;
+use Modules\Camps\Service\SummaryOutcome;
 use Modules\Camps\Service\ReviewService;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmResponse;
+use Modules\LlmConnector\Api\LlmTier;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
@@ -95,7 +97,7 @@ class PlaceSummaryServiceTest extends TestCase
         $this->reviews->save($camp, 5, 'Excellent.', null);
         $llm = $this->availableLlm('Lieu apprécié, prix stable, accès étroit pour les camions.');
 
-        $this->assertTrue($this->service($llm)->refresh($this->place()));
+        $this->assertSame(SummaryOutcome::Written, $this->service($llm)->refresh($this->place()));
 
         $place = $this->place();
         $this->assertSame('Lieu apprécié, prix stable, accès étroit pour les camions.', $place->aiSummary);
@@ -108,7 +110,7 @@ class PlaceSummaryServiceTest extends TestCase
         $camp = $this->stay('2024-07-19', 210000);
         $this->reviews->save($camp, 5, 'Excellent.', null);
 
-        $this->assertFalse($this->service()->refresh($this->place()));
+        $this->assertSame(SummaryOutcome::Unavailable, $this->service()->refresh($this->place()));
         $this->assertNull($this->place()->aiSummary);
     }
 
@@ -120,9 +122,10 @@ class PlaceSummaryServiceTest extends TestCase
 
         $llm = $this->createStub(LlmConnectorInterface::class);
         $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
         $llm->method('complete')->willThrowException(new LlmException('provider down'));
 
-        $this->assertFalse($this->service($llm)->refresh($this->place()));
+        $this->assertSame(SummaryOutcome::ModelRefused, $this->service($llm)->refresh($this->place()));
         // Yesterday's three sentences beat today's blank.
         $this->assertSame('Un résumé écrit hier.', $this->place()->aiSummary);
     }
@@ -133,7 +136,7 @@ class PlaceSummaryServiceTest extends TestCase
         $this->reviews->save($camp, 5, 'Excellent.', null);
         $this->places->saveSummary($this->placeId, 'Un résumé écrit hier.');
 
-        $this->assertFalse($this->service($this->availableLlm('   '))->refresh($this->place()));
+        $this->assertSame(SummaryOutcome::EmptyAnswer, $this->service($this->availableLlm('   '))->refresh($this->place()));
         $this->assertSame('Un résumé écrit hier.', $this->place()->aiSummary);
     }
 
@@ -142,8 +145,73 @@ class PlaceSummaryServiceTest extends TestCase
         $this->places->saveSummary($this->placeId, 'Un vieux résumé.');
         $this->stay('2024-07-19', null, null);
 
-        $this->assertFalse($this->service($this->availableLlm('…'))->refresh($this->place()));
+        $this->assertSame(SummaryOutcome::NothingToSummarise, $this->service($this->availableLlm('…'))->refresh($this->place()));
         $this->assertNull($this->place()->aiSummary);
+    }
+
+    /**
+     * The bug this test exists for: a connector with a provider and a
+     * model — but none on the tier this service asks for — answered
+     * `isAvailable()` yes, so the place sheet offered « Écrire le résumé
+     * maintenant », and the click came back with "il n'y a pas assez à
+     * raconter" on a place that had a rating AND a comment. Nothing
+     * reached the journal either, because Service\LlmConnectorService
+     * refuses a missing model before it ever calls a provider.
+     *
+     * The material was never the problem, and the answer must not blame
+     * it.
+     */
+    public function testAConnectorWithNoModelForThisTierIsNotOfferedAtAll(): void
+    {
+        $camp = $this->stay('2024-07-19', 210000);
+        $this->reviews->save($camp, 4, 'Terrain plat, eau au robinet.', null);
+
+        $service = $this->service($this->llmWithNoCheapModel());
+
+        $this->assertFalse($service->isAvailable());
+        $this->assertSame(SummaryOutcome::Unavailable, $service->refresh($this->place()));
+        $this->assertNull($this->place()->aiSummary);
+    }
+
+    public function testAPlaceWithARatingAndACommentHasSomethingToSummarise(): void
+    {
+        $camp = $this->stay('2024-07-19', null);
+        $this->reviews->save($camp, 4, 'Terrain plat, eau au robinet.', null);
+
+        // Neither of these is "pas assez à raconter", and each one alone
+        // is enough.
+        $this->assertNotNull($this->service()->material($this->place()));
+        $this->assertSame(
+            SummaryOutcome::Written,
+            $this->service($this->availableLlm('Terrain apprécié.'))->refresh($this->place())
+        );
+    }
+
+    public function testARatingAloneIsAlreadySomethingToSummarise(): void
+    {
+        $camp = $this->stay('2024-07-19', null);
+        $this->reviews->save($camp, 4, null, null);
+
+        $this->assertNotNull($this->service()->material($this->place()));
+    }
+
+    /**
+     * Every outcome a chief can land on says what actually happened —
+     * the whole point of the enum. "Not written" used to be one boolean
+     * for five different situations, and the sentence the page showed
+     * named the one cause that was almost never it.
+     */
+    public function testEveryOutcomeCarriesItsOwnSentence(): void
+    {
+        $seen = [];
+        foreach (SummaryOutcome::cases() as $outcome) {
+            $this->assertNotSame('', $outcome->message(), $outcome->name);
+            $seen[$outcome->message()] = true;
+        }
+
+        $this->assertCount(count(SummaryOutcome::cases()), $seen);
+        $this->assertTrue(SummaryOutcome::Written->wasWritten());
+        $this->assertFalse(SummaryOutcome::NothingToSummarise->wasWritten());
     }
 
     // ── Staleness ───────────────────────────────────────────────────
@@ -204,7 +272,23 @@ class PlaceSummaryServiceTest extends TestCase
     {
         $llm = $this->createStub(LlmConnectorInterface::class);
         $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
         $llm->method('complete')->willReturn(new LlmResponse($content, null, 100, 40));
+
+        return $llm;
+    }
+
+    /**
+     * A connector that IS configured — a provider, a model — but not for
+     * the tier this service asks for. `complete()` refuses before it ever
+     * reaches a provider, which is why nothing lands in the journal.
+     */
+    private function llmWithNoCheapModel(): LlmConnectorInterface
+    {
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(false);
+        $llm->method('complete')->willThrowException(LlmException::noModel(LlmTier::CHEAP));
 
         return $llm;
     }

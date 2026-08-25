@@ -159,7 +159,10 @@ class DuplicatePlaceDetector
      */
     private function askAi(array $fields, array $candidates): array
     {
-        if ($this->llm === null || !$this->llm->isAvailable()) {
+        // The tier this method actually asks for, not "is anything
+        // configured": an install with a model on `capable` and none on
+        // `cheap` passes isAvailable() and gets refused inside complete().
+        if ($this->llm === null || !$this->llm->isTierAvailable(LlmTier::CHEAP)) {
             return [];
         }
 

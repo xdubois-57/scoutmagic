@@ -37,6 +37,17 @@ class PlaceSummaryService
     /** Long enough to be worth reading, short enough that nobody skips it. */
     private const MAX_TOKENS = 400;
 
+    /**
+     * The only tier this service ever asks for — three sentences off a
+     * dozen lines of material is not work for an expensive model.
+     *
+     * Named once, because `isAvailable()` and `refresh()` must ask the
+     * connector about the SAME tier: asking "is anything configured"
+     * while calling for `cheap` is what let the place sheet offer a
+     * button whose click could only ever fail.
+     */
+    private const TIER = LlmTier::CHEAP;
+
     public function __construct(
         private PlaceRepository $places,
         private CampRepository $camps,
@@ -45,19 +56,31 @@ class PlaceSummaryService
     ) {
     }
 
+    /**
+     * Whether a summary can be written at all — the check that decides
+     * whether the place sheet offers the button.
+     *
+     * `isTierAvailable()`, never `isAvailable()`: the latter answers "is
+     * anything configured at all", so an installation with a model on
+     * `capable` and none on `cheap` passed it, offered « Écrire le résumé
+     * maintenant », and had `complete()` refuse the tier before it
+     * reached a provider — no summary, nothing in the journal, and a
+     * message blaming the chief's material.
+     */
     public function isAvailable(): bool
     {
-        return $this->llm !== null && $this->llm->isAvailable();
+        return $this->llm !== null && $this->llm->isTierAvailable(self::TIER);
     }
 
     /**
-     * Regenerates one place's summary. Returns false when nothing was
-     * written — no connector, nothing to summarise, or the model failed.
+     * Regenerates one place's summary, and says what happened: five
+     * different situations end in no summary, and the person reading the
+     * answer can only act on the right one (see Service\SummaryOutcome).
      */
-    public function refresh(Place $place): bool
+    public function refresh(Place $place): SummaryOutcome
     {
         if (!$this->isAvailable()) {
-            return false;
+            return SummaryOutcome::Unavailable;
         }
 
         $material = $this->material($place);
@@ -66,12 +89,12 @@ class PlaceSummaryService
             // sum up, and a summary saying so is worse than none.
             $this->places->clearSummary($place->id);
 
-            return false;
+            return SummaryOutcome::NothingToSummarise;
         }
 
         try {
             $response = $this->llm->complete(new LlmRequest(
-                tier: LlmTier::CHEAP,
+                tier: self::TIER,
                 prompt: $material,
                 systemPrompt: 'Tu résumes, pour un staff scout qui cherche un terrain de camp, '
                     . 'ce que les séjours précédents sur ce terrain racontent. Trois phrases au maximum, '
@@ -84,18 +107,20 @@ class PlaceSummaryService
             ));
         } catch (LlmException) {
             // A failed summary must never cost the place its old one:
-            // yesterday's three sentences beat today's blank.
-            return false;
+            // yesterday's three sentences beat today's blank. The reason
+            // is not re-told here — Service\LlmConnectorService journals
+            // every refusal, with the provider's own words.
+            return SummaryOutcome::ModelRefused;
         }
 
         $summary = trim($response->content);
         if ($summary === '') {
-            return false;
+            return SummaryOutcome::EmptyAnswer;
         }
 
         $this->places->saveSummary($place->id, $summary);
 
-        return true;
+        return SummaryOutcome::Written;
     }
 
     /**

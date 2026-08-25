@@ -45,6 +45,7 @@ use Modules\Camps\Service\PlaceService;
 use Modules\Camps\Service\PlaceSummaryService;
 use Modules\Camps\Service\ReviewService;
 use Modules\Camps\Service\SectionDescriber;
+use Modules\Camps\Service\SummaryOutcome;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Twig\Environment;
 
@@ -870,13 +871,12 @@ class CampsChiefController extends AbstractController
             return $guard;
         }
 
-        $written = $this->summaries !== null && $this->summaries->refresh($place);
-        FlashMessage::set(
-            $written ? 'success' : 'error',
-            $written
-                ? 'Résumé régénéré.'
-                : 'Le résumé n\'a pas pu être régénéré : il n\'y a pas assez à raconter, ou le connecteur IA n\'est pas disponible.'
-        );
+        // The outcome says which of the five things happened, and carries
+        // its own sentence: this message used to name all five at once,
+        // starting with "il n'y a pas assez à raconter" — which is the
+        // one cause a chief can act on, and almost never the real one.
+        $outcome = $this->summaries?->refresh($place) ?? SummaryOutcome::Unavailable;
+        FlashMessage::set($outcome->wasWritten() ? 'success' : 'error', $outcome->message());
 
         return $this->redirect('/chefs/camps/lieux/' . $place->id);
     }

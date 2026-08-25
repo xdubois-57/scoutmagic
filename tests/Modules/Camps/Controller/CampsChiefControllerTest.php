@@ -31,6 +31,13 @@ use Modules\Camps\Service\PlaceArchiveService;
 use Modules\Camps\Service\PlaceService;
 use Modules\Camps\Service\ReviewService;
 use Modules\Camps\Service\SectionDescriber;
+use Core\Http\FlashMessage;
+use Modules\Camps\Service\PlaceSummaryService;
+use Modules\Camps\Service\SummaryOutcome;
+use Modules\LlmConnector\Api\LlmConnectorInterface;
+use Modules\LlmConnector\Api\LlmException;
+use Modules\LlmConnector\Api\LlmResponse;
+use Modules\LlmConnector\Api\LlmTier;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
@@ -311,6 +318,51 @@ class CampsChiefControllerTest extends TestCase
         )->getBody();
     }
 
+    /**
+     * The same controller as setUp()'s, plus the optional summary service
+     * — the only dependency these two tests need and the composition root
+     * wires the same way.
+     */
+    private function controllerWithSummaries(PlaceSummaryService $summaries): CampsChiefController
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $audit = new AuditService(new AuditRepository($this->pdo, $encryption));
+        $reviews = new ReviewRepository($this->pdo);
+        $sections = new SectionService(
+            \Core\Database\Connection::withPdo($this->pdo),
+            $encryption,
+            new \Core\Badge\MemberBadgeRepository($this->pdo)
+        );
+
+        return new CampsChiefController(
+            TwigFactory::create(
+                dirname(__DIR__, 4) . '/core/View/templates',
+                false,
+                ['camps' => dirname(__DIR__, 4) . '/modules/camps/views']
+            ),
+            $this->places,
+            $this->camps,
+            new PlaceService($this->places, $audit),
+            new CampService($this->camps, $audit),
+            new SectionDescriber($sections),
+            $sections,
+            new EditableContentService(new EditableContentRepository($this->pdo)),
+            $audit,
+            new SettingService(new SettingRepository($this->pdo)),
+            new ContactRepository($this->pdo, $encryption),
+            new LinkRepository($this->pdo),
+            new DocumentRepository($this->pdo),
+            new CampAlbumService($audit, null),
+            $reviews,
+            new ReviewService($reviews, $audit, $this->places),
+            new DuplicatePlaceDetector($this->places, null),
+            new PlaceArchiveService($this->places, $this->camps, $audit),
+            null,
+            null,
+            $summaries
+        );
+    }
+
     private function aStay(): int
     {
         $placeId = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
@@ -461,6 +513,101 @@ class CampsChiefControllerTest extends TestCase
 
         $this->assertStringNotContainsString('id="review-rating-1"', $html);
         $this->assertStringContainsString('review-comment', $html);
+    }
+
+    /**
+     * « Écrire le résumé maintenant » failing must say WHY.
+     *
+     * The reported bug: a chief who had given four stars and written a
+     * comment pressed the button and was told « il n'y a pas assez à
+     * raconter » — one sentence covering five different causes, led by the
+     * only one they could act on and the one it almost never was. Here the
+     * connector has a provider and a model, just not on the tier this
+     * feature asks for, and the answer must send them to the
+     * administrator rather than back to their keyboard.
+     */
+    public function testAFailedSummarySaysWhichFailureItWas(): void
+    {
+        $campId = $this->aStay();
+        $placeId = (int) $this->pdo->query('SELECT place_id FROM camp_camps WHERE id = ' . $campId)->fetchColumn();
+        (new ReviewRepository($this->pdo))->save($campId, 4, 'Terrain plat, eau au robinet.', null);
+
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(false);
+        $llm->method('complete')->willThrowException(LlmException::noModel(LlmTier::CHEAP));
+
+        $this->controllerWithSummaries(new PlaceSummaryService(
+            $this->places,
+            $this->camps,
+            new ReviewRepository($this->pdo),
+            $llm
+        ))->regenerateSummary(
+            new Request('POST', '/chefs/camps/lieux/' . $placeId . '/resume', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
+            ['id' => (string) $placeId]
+        );
+
+        $flash = FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame(SummaryOutcome::Unavailable->message(), $flash['message']);
+        // The material was never the problem, so the message must not say
+        // it was.
+        $this->assertStringNotContainsString('pas assez à raconter', $flash['message']);
+    }
+
+    /**
+     * And the button is not offered in the first place: a control whose
+     * only possible outcome is an error message is not a control.
+     */
+    public function testThePlaceSheetOffersNoSummaryButtonWhenTheTierIsMissing(): void
+    {
+        $campId = $this->aStay();
+        $placeId = (int) $this->pdo->query('SELECT place_id FROM camp_camps WHERE id = ' . $campId)->fetchColumn();
+
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        // Configured — just not for the tier a summary asks for.
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(false);
+
+        $html = $this->controllerWithSummaries(new PlaceSummaryService(
+            $this->places,
+            $this->camps,
+            new ReviewRepository($this->pdo),
+            $llm
+        ))->showPlace(
+            new Request('GET', '/chefs/camps/lieux/' . $placeId, [], [], [], []),
+            ['id' => (string) $placeId]
+        )->getBody();
+
+        $this->assertStringNotContainsString('Écrire le résumé maintenant', html_entity_decode($html));
+    }
+
+    public function testAWrittenSummarySaysSoAndIsStored(): void
+    {
+        $campId = $this->aStay();
+        $placeId = (int) $this->pdo->query('SELECT place_id FROM camp_camps WHERE id = ' . $campId)->fetchColumn();
+        (new ReviewRepository($this->pdo))->save($campId, 4, 'Terrain plat, eau au robinet.', null);
+
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
+        $llm->method('complete')->willReturn(new LlmResponse('Terrain plat, accueil constant.', null, 90, 20));
+
+        $this->controllerWithSummaries(new PlaceSummaryService(
+            $this->places,
+            $this->camps,
+            new ReviewRepository($this->pdo),
+            $llm
+        ))->regenerateSummary(
+            new Request('POST', '/chefs/camps/lieux/' . $placeId . '/resume', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
+            ['id' => (string) $placeId]
+        );
+
+        $flash = FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('success', $flash['type']);
+        $this->assertSame('Terrain plat, accueil constant.', $this->places->findById($placeId)?->aiSummary);
     }
 
     public function testAReviewCanBeTakenBackOff(): void

@@ -125,7 +125,10 @@ class StayFromMailService
      */
     public function canNamePlaces(): bool
     {
-        return $this->llm !== null && $this->llm->isAvailable();
+        // The tier the reading itself uses — isAvailable() answers a
+        // wider question and would say yes to a connector that cannot
+        // serve this one.
+        return $this->llm !== null && $this->llm->isTierAvailable(LlmTier::CHEAP);
     }
 
     /**
