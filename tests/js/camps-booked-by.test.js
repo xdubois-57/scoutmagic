@@ -6,7 +6,7 @@
 //
 // The file is an IIFE that reads the DOM at import time, so each test builds
 // its DOM first and then imports the module via vi.resetModules() + await
-// import() (the tests/js/chip-picker.test.js pattern).
+// import() (the tests/js/select-bar.test.js pattern).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const MEMBERS = [

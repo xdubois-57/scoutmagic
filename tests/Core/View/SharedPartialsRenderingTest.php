@@ -497,7 +497,7 @@ final class SharedPartialsRenderingTest extends TestCase
         $this->assertStringNotContainsString('name=', $html);
     }
 
-    public function testPagePickerFeedsChipPickerAndMatchesPrefixes(): void
+    public function testPagePickerFeedsTheNavRailAndMatchesPrefixes(): void
     {
         $html = $this->render(
             "{% include 'partials/page_picker.html.twig' with {

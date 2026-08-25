@@ -148,7 +148,6 @@ see §4.2).
 | `auth.js` | 355 | 313 | – | 0 % | **no** |
 | `gallery-storage-location.js` | 205 | 189 | 72 | 0 % | yes |
 | `upload.js` | 207 | 183 | – | 0 % | yes |
-| `chip-picker.js` | 204 | 179 | 36 | 0 % | yes |
 | `offline-nav.js` | 177 | 162 | 49 | 0 % | yes |
 | `list-editor.js` | 159 | 149 | 62 | 0 % | yes |
 | `offline-prefetch.js` | 161 | 147 | 38 | 0 % | yes |
@@ -262,7 +261,7 @@ hard constraint in `AGENTS.md` § CSS / frontend. One caveat: for a helper neste
 an IIFE the assignment is not a no-op the way `password-complexity.js`'s is, it genuinely
 adds a global. Keep those namespaced under a single object per file (e.g.
 `globalThis.ScoutMagicNewsFormBuilderInternals`), guarded and documented as test-only, and
-follow the precedent set by `window.ChipPicker` and `window.ScoutMagicNav`, which already
+follow the precedent set by `window.SelectBar` and `window.ScoutMagicNav`, which already
 expose namespaced objects.
 
 ### 4.3 `auth.js` and `setup.js` throw on import
@@ -574,9 +573,12 @@ idiom already used by `cookie-consent.test.js`, `fetch` mocking, `classList`/`da
 These are genuine, not fixable with a stub, and are the honest boundary of this approach:
 
 - **Layout.** jsdom has no layout engine: `offsetTop`, `offsetWidth`, `getBoundingClientRect()`
-  all return `0`. This kills `chip-picker.js`'s `rowsFor()`/`truncate()` (every chip collapses
-  into one row, so the test would assert a jsdom artefact) and the geometry parts of
-  `gallery.js` and `list-editor.js`. Stubbing geometry means testing the stub.
+  all return `0`. This killed `chip-picker.js`'s `rowsFor()`/`truncate()` (every chip collapsed
+  into one row, so the test would have asserted a jsdom artefact) and still kills the geometry
+  parts of `gallery.js` and `list-editor.js`. Stubbing geometry means testing the stub.
+  `chip-picker.js` no longer exists: the components that replaced it, `select-bar.js` and
+  `nav-rail.js`, measure no geometry at all, which is what made them testable — see
+  `tests/js/select-bar.test.js` and `tests/js/nav-rail.test.js`.
 - **Canvas.** No rendering backend, so `upload.js`'s `downscaleToWebp()` and
   `news-form-builder.js`'s `processFeaturedImage()` are out. Their *decision* functions
   (`shouldConsiderDownscale`) are fine.
@@ -634,8 +636,9 @@ Narrowed considerably, and on the §3.2 test rather than on "it's glue":
 - `nav.js`, `breadcrumb.js`, `unit-logo.js`, `unit-logo-notify-ios.js`, `offline-page.js` —
   genuinely no contract outside themselves beyond a single `fetch` URL. Pick those up free
   via §7.4 rather than writing per-file specs.
-- `chip-picker.js`, and the geometry halves of `gallery.js` and `list-editor.js` — blocked by
-  §7.3, not by judgment.
+- The geometry halves of `gallery.js` and `list-editor.js` — blocked by §7.3, not by
+  judgment. (`chip-picker.js` was listed here too; it was deleted rather than tested, and
+  its replacements measure nothing and are covered.)
 - `push-notifications.js`, `setup.js` — dominated by permission and installer flows that mock
   out to near-tautology. `setup.js`'s `escapeHtml`/`escapeAttr` are covered by P1.4 instead.
 

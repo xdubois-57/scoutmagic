@@ -161,7 +161,6 @@ class ServiceWorkerPrecacheTest extends TestCase
         $this->assertStringContainsString("'/assets/css/components.css'", $block);
         foreach ([
             '/assets/js/breadcrumb.js',
-            '/assets/js/chip-picker.js',
             '/assets/js/select-bar.js',
             '/assets/js/nav-rail.js',
             '/assets/js/notification-badge.js',

@@ -5,7 +5,7 @@
 //
 // nav-rail.js is an IIFE that reads the DOM and runs at import time, so
 // each test builds its DOM first and then imports the module via
-// vi.resetModules() + await import() (the tests/js/chip-picker.test.js
+// vi.resetModules() + await import() (the tests/js/staffs.test.js
 // pattern).
 //
 // jsdom implements neither scrollIntoView nor matchMedia, so both are

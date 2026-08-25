@@ -7,7 +7,7 @@
 // script attaches its namespace defensively (`window.X = window.X || {}`)
 // so other scripts loaded on the same page can call into it without a
 // module system — see public/assets/js/nav.js and
-// public/assets/js/chip-picker.js for the definitions. Declared optional
+// public/assets/js/select-bar.js for the definitions. Declared optional
 // since a page may load one script without the other.
 // Ambient declaration for Chart.js, exposed as a global by the vendored
 // public/assets/vendor/chartjs/chart.umd.min.js <script> tag (no npm
@@ -179,9 +179,6 @@ interface Window {
     ScoutMagicNav?: {
         showDesktopMenu?: (menuId: string) => void;
         syncSwitchAriaChecked?: (input: HTMLInputElement) => void;
-    };
-    ChipPicker?: {
-        setSelected?: (pickerId: string, id: string, selected: boolean) => void;
     };
     // public/assets/js/select-bar.js — the escape hatch a mode:multi
     // caller uses to revert its own optimistic toggle after the server

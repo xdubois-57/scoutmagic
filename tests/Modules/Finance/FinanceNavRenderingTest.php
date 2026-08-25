@@ -95,7 +95,7 @@ class FinanceNavRenderingTest extends TestCase
         $this->assertStringNotContainsString('finance-account-picker', $html);
     }
 
-    public function testAccountPickerIsAChipPickerAndHighlightsTheSelectedAccount(): void
+    public function testAccountPickerIsASelectBarAndHighlightsTheSelectedAccount(): void
     {
         $html = $this->render([
             'accounts' => [

@@ -429,6 +429,33 @@ implementations visually reordered and the server none the wiser. Every
 sortable list also offers up/down buttons — dragging is not available to
 a finger or a keyboard (§7.2).
 
+### 7.10.1 Selection: the two components
+
+The site has exactly two selection components, and §1.4 states the rule for
+choosing between them. Neither hides anything — no `+N`, no client-side
+fold, no post-render measurement — and both render every item server-side.
+
+- `partials/select_bar.html.twig` — one full-width row opening a native
+  `<details>` panel. The panel is `<details>` rather than an offcanvas
+  precisely so it works with JavaScript off, which the offline pages need.
+  `mode: 'multi'` dispatches `select-bar:change` (`detail: { selectedIds }`)
+  and **never persists anything itself**; `window.SelectBar.setSelected()`
+  reverts an optimistic toggle without re-dispatching.
+- `partials/nav_rail.html.twig` — one scrollable row of Bootstrap
+  `nav-underline` tabs (§7.6's sub-navigation entry).
+
+Both take their touch height from `.tap-target` in `app.css`'s
+`pointer: coarse` block (§7.2), never from an inline `min-height`. Colours
+are Bootstrap semantic utilities only (§7.8) — the panel and the rail both
+follow dark mode.
+
+Three thin mapping layers are the reference implementations, and their
+include signatures are the point: `section_picker`, `calendar_picker`
+(both → select bar) and `page_picker` (→ nav rail). A layer's call sites
+never change when the component underneath does. If you find yourself
+editing a call site to accommodate a component change, the signature has
+drifted and that is the bug.
+
 ### 7.11 Contextual help
 
 One help button per page, always visible, at the right of the breadcrumb

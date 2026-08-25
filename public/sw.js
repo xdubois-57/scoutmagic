@@ -138,7 +138,6 @@ const APP_SHELL_BASE_URLS = [
     '/assets/js/editable.js',
     '/assets/js/cookie-consent.js',
     '/assets/js/breadcrumb.js',
-    '/assets/js/chip-picker.js',
     '/assets/js/select-bar.js',
     '/assets/js/nav-rail.js',
     '/assets/js/audit-timeline.js',

@@ -5,7 +5,7 @@
 //
 // select-bar.js is an IIFE that reads the DOM and calls init() at import
 // time, so each test builds its DOM first and then imports the module via
-// vi.resetModules() + await import() (the tests/js/chip-picker.test.js
+// vi.resetModules() + await import() (the tests/js/staffs.test.js
 // pattern).
 //
 // The markup below mirrors what select_bar.html.twig actually renders —
