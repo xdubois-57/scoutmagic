@@ -199,8 +199,12 @@ docker pull ghcr.io/zaproxy/zaproxy:stable   # une fois : l'image ZAP (~1,2 Go)
 |---|---|---|
 | `passive` | Règles passives uniquement, sur le trafic de la suite Playwright | **disponible** |
 | `standard` | `passive` + matrice d'autorisation sur les cinq rôles | à venir |
-| `deep` | `standard` + sous-ensemble ciblé de règles actives | à venir |
-| `audit` | Analyse active complète, sans budget de temps, jamais un gate | à venir |
+| `deep` | `passive` + un sous-ensemble **énuméré** de règles actives (injection, XSS, traversée de chemin) | **disponible** |
+| `audit` | Analyse active **complète**, sans budget de temps, jamais un gate | **disponible** |
+
+**Les profils actifs attaquent réellement le site.** Ils rejouent chaque requête enregistrée des centaines de fois avec des charges utiles, en portant les cookies de session du navigateur — donc en tant que super-administrateur connecté. Ce qui les empêche de vider la base au milieu de leur propre analyse est la liste d'exclusions de `tests/dast/zap-active.yaml` : réinitialisation, restauration, installation de mise à jour, bascule de module, import Desk, déconnexion, changement de mot de passe, réécriture des réglages ou des rôles, et tout ce qui part vers un tiers réel (envois de courrier, appels IA, OVH, webhook GitHub). C'est la partie la plus importante de ce fichier ; à lire avant d'ajouter une route qui réinitialise, restaure, reconfigure ou envoie.
+
+**Ce qui rend l'analyse active possible du tout, ici :** chaque formulaire porte `_csrf_token` (`Core\Security\CsrfGuard`), et une requête POST sans jeton valable est refusée avant qu'un seul paramètre ne soit lu. Le jeton étant lié à la *session* et non à la requête, celui qu'a enregistré le navigateur reste valable pendant toute l'analyse ; `scripts/dast.sh` déclare en plus `_csrf_token` dans la liste des jetons anti-CSRF de ZAP. Sans cela le scanner enverrait des milliers de charges utiles, recevrait un 403 identique pour chacune, et ne rapporterait rien — un résultat propre qui signifie exactement l'inverse.
 
 **Ce que le script fait, dans l'ordre** : il vérifie ses prérequis (php, npm, `node_modules`, Docker, l'image ZAP, les extensions PHP `openssl` et `pcntl`) et **échoue en indiquant la commande exacte à exécuter — il n'installe jamais rien** ; il génère un certificat auto-signé valable pour cette seule exécution ; il provisionne l'instance jetable par `scripts/e2e-support.php provision`, **exactement le même provisionnement que `npm run e2e`** (jamais une seconde copie) ; il démarre `php -S` puis `scripts/dast-tls-proxy.php` devant lui pour terminer TLS ; il démarre ZAP et lance le plan `tests/dast/zap-passive.yaml` ; il rejoue Playwright au travers de ZAP ; il produit un rapport HTML et un rapport SARIF ; il vérifie que la carte du site est bien remplie ; il rend un code de sortie non nul dès qu'une alerte de niveau **Medium ou supérieur** subsiste.
 

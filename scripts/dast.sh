@@ -57,6 +57,21 @@ set -euo pipefail
 # PROFILES
 #   passive   Passive rules only, observing the Playwright traffic.
 #             Runs in CI on every push.
+#   deep      passive + an enumerated subset of ACTIVE rules (injection,
+#             cross-site scripting, path traversal). Attacks the site.
+#   audit     passive + every active rule ZAP ships, no time budget.
+#             Manual, on demand, never a gate.
+#   standard  Not implemented: it needs the authorization matrix, which
+#             is blocked on the Access Control Testing add-on (see the
+#             session report on roadmap IT-04).
+#
+# An active profile REPLAYS every recorded request hundreds of times with
+# attack payloads, carrying the session cookies the browser was using —
+# so it acts as a signed-in super-admin. What stops it from truncating
+# the database halfway through its own scan is the exclusion list in
+# tests/dast/zap-active.yaml, which is the most important part of that
+# file. Read it before adding a route that resets, restores, reconfigures
+# or sends.
 #
 # KNOWN FLAKE, AND WHAT IT BLOCKS
 # ---------------------------------------------------------------------
@@ -134,19 +149,34 @@ for argument in "$@"; do
     esac
 done
 
+# `deep` and `audit` share one plan and one context — they differ only in
+# which scan policy the activeScan job picks. Keeping the destructive
+# exclusions in a single file is the point: two copies of that list is
+# two chances for one of them to miss the route that truncates the
+# database.
+DAST_ACTIVE_POLICY=""
 case "${PROFILE}" in
-    passive) ;;
-    standard|deep|audit)
-        echo "ERROR: the '${PROFILE}' profile is not implemented yet." >&2
+    passive)
+        PLAN_FILE="${REPO_ROOT}/tests/dast/zap-passive.yaml"
+        ;;
+    deep)
+        PLAN_FILE="${REPO_ROOT}/tests/dast/zap-active.yaml"
+        DAST_ACTIVE_POLICY="scoutmagic-deep"
+        ;;
+    audit)
+        PLAN_FILE="${REPO_ROOT}/tests/dast/zap-active.yaml"
+        DAST_ACTIVE_POLICY="scoutmagic-audit"
+        ;;
+    standard)
+        echo "ERROR: the 'standard' profile is not implemented yet — it needs the" >&2
+        echo "       authorization matrix (roadmap IT-04), which is blocked." >&2
         exit 1
         ;;
     *)
-        echo "ERROR: unknown profile '${PROFILE}' (expected: passive)." >&2
+        echo "ERROR: unknown profile '${PROFILE}' (expected: passive, deep or audit)." >&2
         exit 1
         ;;
 esac
-
-PLAN_FILE="${REPO_ROOT}/tests/dast/zap-${PROFILE}.yaml"
 SITEMAP_EXPECTATIONS="${REPO_ROOT}/tests/dast/expected-authenticated-paths.txt"
 
 # See scripts/e2e.sh's own comment: `find` on a missing directory exits
@@ -163,9 +193,15 @@ DAST_REPORT_DIR="${DAST_REPORT_DIR:-${REPO_ROOT}/dast-report}"
 DAST_THRESHOLD="${DAST_THRESHOLD:-Medium}"
 DAST_SERVER_TIMEOUT="${DAST_SERVER_TIMEOUT:-60}"
 DAST_ZAP_TIMEOUT="${DAST_ZAP_TIMEOUT:-180}"
-DAST_PLAN_TIMEOUT="${DAST_PLAN_TIMEOUT:-3600}"
+DAST_PLAN_TIMEOUT="${DAST_PLAN_TIMEOUT:-28800}"
 DAST_WORKERS="${DAST_WORKERS:-1}"
 DAST_TIMEOUT_FACTOR="${DAST_TIMEOUT_FACTOR:-4}"
+# The active scanner's own ceiling, in minutes, and separately the whole
+# plan's. 0 means unlimited for the scanner; the roadmap gives `audit` no
+# time budget on purpose. Both are raised for the active profiles because
+# the browser phase alone takes about twelve minutes before the scan even
+# starts.
+DAST_MAX_SCAN_MINS="${DAST_MAX_SCAN_MINS:-0}"
 
 SUPPORT="${REPO_ROOT}/scripts/e2e-support.php"
 DAST_SUPPORT="${REPO_ROOT}/scripts/dast-support.php"
@@ -404,6 +440,16 @@ export E2E_INSTANCE_DIR="${INSTANCE_DIR}/instance"
 ZAP_WORK_DIR="${INSTANCE_DIR}/zap"
 mkdir -p "${ZAP_WORK_DIR}/reports"
 cp "${PLAN_FILE}" "${ZAP_WORK_DIR}/plan.yaml"
+# One placeholder the Automation Framework cannot expand for us: it
+# resolves an activeScan job's `policy` against the policies it knows
+# while VERIFYING the plan, which happens before environment-variable
+# expansion, so a ${VAR} there arrives verbatim and the whole plan
+# aborts. Substituted into the copy, never into the file under version
+# control. Harmless for the passive plan, which has no such placeholder.
+if [[ -n "${DAST_ACTIVE_POLICY}" ]]; then
+    sed -i.bak "s/__DAST_ACTIVE_POLICY__/${DAST_ACTIVE_POLICY}/g" "${ZAP_WORK_DIR}/plan.yaml"
+    rm -f "${ZAP_WORK_DIR}/plan.yaml.bak"
+fi
 # The container runs as the `zap` user, not as whoever started this
 # script. Only the reports directory needs to be writable by that other
 # uid; the plan is read, and the directory itself only traversed. The
@@ -525,12 +571,17 @@ docker run --detach --rm \
     --env "DAST_TARGET=${ZAP_TARGET}" \
     --env "DAST_REPORT_DIR=/dast/reports" \
     --env "DAST_RELEASE_GATE_FILE=/dast/browser-finished" \
+    --env "DAST_PROFILE=${PROFILE}" \
+    --env "DAST_ACTIVE_POLICY=${DAST_ACTIVE_POLICY}" \
+    --env "DAST_MAX_SCAN_MINS=${DAST_MAX_SCAN_MINS}" \
     "${DAST_ZAP_IMAGE}" \
     zap.sh -daemon -silent \
         -host "${ZAP_LISTEN_HOST}" -port "${ZAP_PORT}" \
         -config api.key="${ZAP_API_KEY}" \
         -config api.addrs.addr.name=.* \
         -config api.addrs.addr.regex=true \
+        -config anticsrf.tokens.token\(99\).name=_csrf_token \
+        -config anticsrf.tokens.token\(99\).enabled=true \
     > /dev/null || {
         echo "ERROR: could not start the ZAP container." >&2
         exit 1

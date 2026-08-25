@@ -91,7 +91,41 @@ function dast_http_get(string $url, int $timeoutSeconds = 30): ?array
 }
 
 /**
- * Call a ZAP API endpoint and decode its JSON answer.
+ * Call a ZAP API endpoint and decode its JSON answer, or return null.
+ *
+ * Separate from dast_zap_api() because one caller — polling a plan's
+ * progress — must survive a transient failure that the others should
+ * die on. `automation/action/runPlan` hands back a planId before the
+ * plan object is registered, so a `planProgress` call landing in that
+ * window answers `internal_error`. It is a real answer, it is not a
+ * real problem, and it grew wide enough to hit reliably once the plan
+ * got bigger: the active-scan plan defines twenty-odd rules, and the
+ * first poll arrived while ZAP was still parsing them.
+ *
+ * @param array<string, string> $parameters
+ * @return array<string, mixed>|null null on any failure, without exiting
+ */
+function dast_zap_api_soft(string $baseUrl, string $apiKey, string $path, array $parameters = []): ?array
+{
+    $query = http_build_query(['apikey' => $apiKey] + $parameters);
+    $url = rtrim($baseUrl, '/') . '/JSON/' . trim($path, '/') . '/?' . $query;
+
+    $response = dast_http_get($url, 120);
+    if ($response === null) {
+        return null;
+    }
+
+    $decoded = json_decode($response['body'], true);
+    if (!is_array($decoded) || isset($decoded['code'])) {
+        return null;
+    }
+
+    return $decoded;
+}
+
+/**
+ * Call a ZAP API endpoint and decode its JSON answer, failing the run if
+ * it does not answer or refuses.
  *
  * @param array<string, string> $parameters
  * @return array<string, mixed>
@@ -248,7 +282,11 @@ function dast_wait_plan(string $baseUrl, string $apiKey, string $planId, int $ti
     $reported = [];
 
     while (microtime(true) < $deadline) {
-        $progress = dast_zap_api($baseUrl, $apiKey, 'automation/view/planProgress', ['planId' => $planId]);
+        $progress = dast_zap_api_soft($baseUrl, $apiKey, 'automation/view/planProgress', ['planId' => $planId]);
+        if ($progress === null) {
+            usleep(500_000);
+            continue;
+        }
 
         foreach (['info', 'warn', 'error'] as $level) {
             foreach ((array) ($progress[$level] ?? []) as $line) {
@@ -292,7 +330,11 @@ function dast_await_delay_job(string $baseUrl, string $apiKey, string $planId, i
     $reported = [];
 
     while (microtime(true) < $deadline) {
-        $progress = dast_zap_api($baseUrl, $apiKey, 'automation/view/planProgress', ['planId' => $planId]);
+        $progress = dast_zap_api_soft($baseUrl, $apiKey, 'automation/view/planProgress', ['planId' => $planId]);
+        if ($progress === null) {
+            usleep(250_000);
+            continue;
+        }
 
         foreach ((array) ($progress['error'] ?? []) as $line) {
             dast_fail("the ZAP automation plan errored before the browser ran: {$line}");

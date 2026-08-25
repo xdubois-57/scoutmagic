@@ -1,0 +1,291 @@
+--- # ScoutMagic — ZAP Automation Framework plan: the `deep` and `audit` profiles.
+#
+# Driven by scripts/dast.sh, never run by hand. One file serves both
+# profiles: they differ only in which scan policy the activeScan job
+# picks, which the script substitutes for __DAST_ACTIVE_POLICY__ (see
+# the activeScan job for why that one is not an env var). The other
+# variables (${DAST_TARGET}, ${DAST_REPORT_DIR}, ${DAST_PROFILE},
+# ${DAST_RELEASE_GATE_FILE}, ${DAST_MAX_SCAN_MINS}) come from the
+# container's environment the same way.
+#
+# WHAT AN ACTIVE SCAN DOES, AND WHY THE EXCLUSIONS BELOW ARE THE MOST
+# IMPORTANT PART OF THIS FILE
+# ----------------------------------------------------------------------
+# The passive profile only watches. This one REPLAYS every request the
+# browser suite made, hundreds of times each, with attack payloads in
+# every parameter — and it replays them carrying the session cookies the
+# browser was using, so it acts as a signed-in super-admin.
+#
+# That means the scanner will, unless told otherwise, POST to
+# /config/maintenance/reset/full and truncate every table halfway
+# through its own scan. The report that comes out of that is not a
+# report about this application; it is a report about an empty database,
+# and it will not look like a failure — it will look like a site with
+# very little on it.
+#
+# So the exclusions are not tidiness. Each entry below is a route that
+# would either destroy the instance, end the session the scan is riding
+# on, reconfigure the site out from under the scan, or send something to
+# a real third party. They are grouped by which of those four it is.
+env:
+  contexts:
+    - name: scoutmagic
+      urls:
+        - ${DAST_TARGET}
+      includePaths:
+        - "\\Q${DAST_TARGET}\\E.*"
+      excludePaths:
+        # --- 1. Would destroy or replace the instance ------------------
+        # Maintenance covers reset (settings and full), restore, the
+        # chunked restore upload, the update installer and the backup
+        # jobs. ARCHITECTURE.md §8.15–§8.18. FullResetHandler is the one
+        # that truncates every table.
+        - "\\Q${DAST_TARGET}\\E/config/maintenance/.*"
+        # The first-run installer, which owns /setup/backup-and-empty-db.
+        - "\\Q${DAST_TARGET}\\E/setup.*"
+        # Toggling a module off mid-scan unwires it from the front
+        # controller: every route it owns becomes a 404 and the rest of
+        # the scan measures its absence.
+        - "\\Q${DAST_TARGET}\\E/config/modules/.*"
+        # A Desk import rewrites members, sections and functions — the
+        # fixture the whole run is scanning.
+        - "\\Q${DAST_TARGET}\\E/admin/import.*"
+
+        # --- 2. Would end the session the scan is riding on ------------
+        # Without a session the scanner silently continues as an
+        # anonymous visitor: every authenticated page answers 302 to
+        # /login, and the scan reports on the login page ~400 times.
+        - "\\Q${DAST_TARGET}\\E/logout.*"
+        # Setting a password bumps user_accounts.sessions_valid_from,
+        # which SessionRevalidator uses to drop every older session —
+        # including this scanner's (SECURITY.md §2).
+        - "\\Q${DAST_TARGET}\\E/account/password.*"
+        - "\\Q${DAST_TARGET}\\E/account/passkey.*"
+        - "\\Q${DAST_TARGET}\\E/password-reset.*"
+
+        # --- 3. Would reconfigure the site out from under the scan -----
+        # Settings hold base_url: rewrite it and every absolute URL the
+        # application builds points somewhere the scanner is not.
+        - "\\Q${DAST_TARGET}\\E/config/settings/.*"
+        # Config Desk binds a Desk function to a site role. Changing one
+        # changes what each account may reach — while the scan is busy
+        # measuring exactly that.
+        - "\\Q${DAST_TARGET}\\E/config/functions/.*"
+        # The scout year is the axis every member fixture is resolved
+        # against (RoleResolver, MemberService); flipping it mid-scan
+        # resolves the five provisioned accounts to `identified`.
+        - "\\Q${DAST_TARGET}\\E/admin/scout-year/.*"
+        # Configuration mode rewrites page content in place.
+        - "\\Q${DAST_TARGET}\\E/config-mode/.*"
+
+        # --- 4. Would reach a real third party -------------------------
+        # Mass mail: status drives the send, and test-send/resend post
+        # to the mail transport directly.
+        - "\\Q${DAST_TARGET}\\E/mass-mail/.*/status"
+        - "\\Q${DAST_TARGET}\\E/mass-mail/.*/test-send"
+        - "\\Q${DAST_TARGET}\\E/mass-mail/recipients/.*"
+        - "\\Q${DAST_TARGET}\\E/config/inscriptions/demandes/.*/send-.*"
+        - "\\Q${DAST_TARGET}\\E/members/.*/emails/.*/resend"
+        - "\\Q${DAST_TARGET}\\E/config/notifications/test.*"
+        - "\\Q${DAST_TARGET}\\E/config/support/statistics/test.*"
+        # AI generation endpoints call whatever llm_connector points at.
+        - "\\Q${DAST_TARGET}\\E/news/seo/generate-.*"
+        - "\\Q${DAST_TARGET}\\E/config/rgpd/generate.*"
+        - "\\Q${DAST_TARGET}\\E/config/rgpd/reset.*"
+        # OVH consumer-key generation is an outbound call to OVH.
+        - "\\Q${DAST_TARGET}\\E/config/sos/ovh/.*"
+        # The GitHub webhook is authenticated by an HMAC signature the
+        # scanner cannot forge, so every payload it sends is refused
+        # before anything reads it — and a valid one would start an
+        # update. Nothing to learn, something to break.
+        - "\\Q${DAST_TARGET}\\E/api/webhook/github.*"
+        # Generating a new webhook secret rewrites secrets.enc.
+        - "\\Q${DAST_TARGET}\\E/api/maintenance/.*"
+  parameters:
+    failOnError: true
+    failOnWarning: false
+    progressToStdout: true
+
+jobs:
+  # --------------------------------------------------------------------
+  # Same single alert filter as the passive profile, and the same reason:
+  # SECURITY.md § 4's documented anti-CSRF exception, authenticated by an
+  # HMAC signature ZAP cannot see. Applied before any traffic is scanned.
+  - type: alertFilter
+    parameters:
+      deleteGlobalAlerts: true
+    alertFilters:
+      - ruleId: 10202
+        ruleName: Absence of Anti-CSRF Tokens
+        newRisk: 'False Positive'
+        context: scoutmagic
+        url: "\\Q${DAST_TARGET}\\E/api/webhook/github"
+        urlRegex: true
+
+  - type: passiveScan-config
+    parameters:
+      scanOnlyInScope: true
+      maxAlertsPerRule: 0
+
+  # --------------------------------------------------------------------
+  # `deep`: an enumerated subset, not "everything with the slow ones
+  # switched off". Injection, cross-site scripting and path traversal —
+  # the three classes where this application builds a string that reaches
+  # an interpreter (SQL, the shell, the filesystem, the browser).
+  #
+  # Insecure direct object reference is deliberately ABSENT and that is
+  # worth saying out loud rather than leaving as a gap: ZAP has no active
+  # rule for it. Deciding that /files/{id} served the wrong owner's file
+  # needs to know who each id belongs to, which is the authorization
+  # matrix the `standard` profile owes and does not yet have.
+  - type: activeScan-policy
+    parameters:
+      name: scoutmagic-deep
+    policyDefinition:
+      defaultStrength: Medium
+      # Everything off, then the enumerated rules back on — so a rule
+      # ZAP adds in a future release joins `audit` and never silently
+      # joins `deep`.
+      defaultThreshold: 'Off'
+      rules:
+        - id: 40018
+          name: SQL Injection
+          threshold: Medium
+        - id: 40019
+          name: SQL Injection - MySQL
+          threshold: Medium
+        - id: 40020
+          name: SQL Injection - Hypersonic
+          threshold: Medium
+        - id: 40021
+          name: SQL Injection - Oracle
+          threshold: Medium
+        - id: 40022
+          name: SQL Injection - PostgreSQL
+          threshold: Medium
+        # Two rules are deliberately absent rather than listed and
+        # ignored: 40024 (SQLite) and 90018 (advanced boolean/error
+        # based) live in add-ons the ZAP image does not ship, and ZAP
+        # answers "Unrecognised active scan rule ID" for each — a policy
+        # that lists them would read as covering them. Neither is a loss
+        # here: this application runs on MySQL, and 40018-40022 already
+        # cover boolean and error-based injection for it.
+        - id: 90019
+          name: Server Side Code Injection
+          threshold: Medium
+        - id: 90020
+          name: Remote OS Command Injection
+          threshold: Medium
+        - id: 90021
+          name: XPath Injection
+          threshold: Medium
+        - id: 90023
+          name: XML External Entity Attack
+          threshold: Medium
+        - id: 40012
+          name: Cross Site Scripting (Reflected)
+          threshold: Medium
+        - id: 40014
+          name: Cross Site Scripting (Persistent)
+          threshold: Medium
+        - id: 40016
+          name: Cross Site Scripting (Persistent) - Prime
+          threshold: Medium
+        - id: 40017
+          name: Cross Site Scripting (Persistent) - Spider
+          threshold: Medium
+        - id: 40026
+          name: Cross Site Scripting (DOM Based)
+          threshold: Medium
+        - id: 6
+          name: Path Traversal
+          threshold: Medium
+        - id: 7
+          name: Remote File Inclusion
+          threshold: Medium
+        - id: 40003
+          name: CRLF Injection
+          threshold: Medium
+        - id: 40008
+          name: Parameter Tampering
+          threshold: Medium
+
+  # `audit`: every rule ZAP ships, at default strength. Not a gate, and
+  # never wired to one — it is the run somebody starts deliberately and
+  # reads afterwards.
+  - type: activeScan-policy
+    parameters:
+      name: scoutmagic-audit
+    policyDefinition:
+      defaultStrength: Medium
+      defaultThreshold: Medium
+
+  # --------------------------------------------------------------------
+  # The browser runs here, exactly as in the passive profile: the site
+  # map an active scan attacks is the one the Playwright suite built.
+  - type: delay
+    parameters:
+      time: '01:00:00'
+      fileName: ${DAST_RELEASE_GATE_FILE}
+
+  # Let the passive scanner drain first, so its findings are not mixed
+  # into the active scan's own traffic.
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 10
+
+  - type: activeScan
+    parameters:
+      context: scoutmagic
+      # A placeholder scripts/dast.sh substitutes into its copy of this
+      # file, NOT an environment variable like every other ${…} here.
+      # The Automation Framework resolves `policy` against the policies
+      # it knows at plan-verification time, before it expands
+      # environment variables — so a ${VAR} there reaches the scanner
+      # verbatim and the plan aborts with "Unrecognised active scan
+      # policy name". Same idiom as __CSP_NONCE__ in public/index.php.
+      policy: __DAST_ACTIVE_POLICY__
+      # Anti-CSRF handling is what makes any of this reach past the
+      # first check. Every form here carries `_csrf_token`
+      # (Core\Security\CsrfGuard, rendered by csrf_field()), the token is
+      # session-bound and single-valued, and a POST without a fresh one
+      # is refused before a single parameter is read. Without this the
+      # scanner would send thousands of payloads, receive an identical
+      # 403 for every one, and report nothing at all — a clean result
+      # that means the opposite of clean. scripts/dast.sh additionally
+      # registers `_csrf_token` in ZAP's anti-CSRF token list, which is
+      # what this flag consults.
+      handleAntiCSRFTokens: true
+      # A single-worker `php -S` serialises every request, so more
+      # threads only pile up timeouts.
+      threadPerHost: 2
+      maxScanDurationInMins: ${DAST_MAX_SCAN_MINS}
+      # Query strings and bodies, JSON included — this application posts
+      # JSON from its own scripts (auth.js, groups.js, the auto-saving
+      # config pages), so a scanner that only fuzzed form encoding would
+      # miss most of what it writes.
+      scanHeadersAllRequests: false
+
+  # Whatever the active scan provoked still has to go through the passive
+  # rules before anything is written down.
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 10
+
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: ${DAST_REPORT_DIR}
+      reportFile: dast-${DAST_PROFILE}.html
+      reportTitle: ScoutMagic — analyse de sécurité dynamique (profil ${DAST_PROFILE})
+      reportDescription: >
+        Rapport produit par scripts/dast.sh en rejouant la suite Playwright
+        au travers d'OWASP ZAP, puis en soumettant la carte du site obtenue
+        aux règles actives du profil.
+
+  - type: report
+    parameters:
+      template: sarif-json
+      reportDir: ${DAST_REPORT_DIR}
+      reportFile: dast-${DAST_PROFILE}.sarif
+      reportTitle: ScoutMagic DAST (${DAST_PROFILE})
