@@ -277,7 +277,10 @@ class PlaceSummaryServiceTest extends TestCase
         $this->service($llm)->refresh($this->place());
 
         $this->assertNotNull($asked);
-        $this->assertGreaterThanOrEqual(1000, (int) $asked->maxTokens);
+        // The measured case: a 176-token prompt whose model produced 400
+        // tokens of reasoning and no answer, against a 400 cap. Anything
+        // in that neighbourhood is a cap sized for the answer again.
+        $this->assertGreaterThanOrEqual(2000, (int) $asked->maxTokens);
     }
 
     // ── Staleness ───────────────────────────────────────────────────
