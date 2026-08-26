@@ -51,7 +51,7 @@ class ModuleManifest
      * @param array<int, array{name: string, category: string, purpose: string, duration: string}> $cookies
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
      * @param array<string, array{role_min: string}> $storage
-     * @param array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}}> $notifications
+     * @param array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}, default_on_role_min: ?string}> $notifications
      * @param array<int, array{path: string, label: string, match: string, role_min: string}> $offline
      * @param array<int, string> $requires
      * @param array<int, string> $visibleWhen
@@ -645,7 +645,7 @@ class ModuleManifest
 
     /**
      * @param array<string, mixed>|mixed $notification
-     * @return array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}}
+     * @return array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}, default_on_role_min: ?string}
      */
     private static function validateNotification(string $moduleId, mixed $notification, int $index): array
     {
@@ -681,6 +681,23 @@ class ModuleManifest
             $channels[$channel] = $value;
         }
 
+        // Optional: the role at or above which this type's "default_on"
+        // channels actually start on (Core\Notification\NotificationType::
+        // defaultsOnForRole()) — a type offered to a wide role_min but
+        // only switched on for a narrower one. Absent means "on for
+        // everybody the type is offered to", which is every existing type.
+        $defaultOnRoleMin = $notification['default_on_role_min'] ?? null;
+        if ($defaultOnRoleMin !== null) {
+            if (!is_string($defaultOnRoleMin) || !in_array($defaultOnRoleMin, self::VALID_ROLES, true)) {
+                throw new ModuleException("Module '{$moduleId}' notifications[{$index}] invalid default_on_role_min");
+            }
+            if (!self::roleAtLeast($defaultOnRoleMin, $notification['role_min'])) {
+                throw new ModuleException(
+                    "Module '{$moduleId}' notifications[{$index}] default_on_role_min '{$defaultOnRoleMin}' must be at or above role_min '{$notification['role_min']}'"
+                );
+            }
+        }
+
         return [
             'id' => $notification['id'],
             'label' => $notification['label'],
@@ -688,7 +705,20 @@ class ModuleManifest
             'group' => $notification['group'],
             'role_min' => $notification['role_min'],
             'channels' => $channels,
+            'default_on_role_min' => $defaultOnRoleMin,
         ];
+    }
+
+    /**
+     * Whether $role is at least $minimum in the role hierarchy — reading
+     * this class's own ROLE_LEVELS rather than reaching for
+     * Core\Security\Role, because a manifest is validated before
+     * anything is instantiated: one bad string must produce a
+     * ModuleException, never a ValueError out of an enum.
+     */
+    private static function roleAtLeast(string $role, string $minimum): bool
+    {
+        return (self::ROLE_LEVELS[$role] ?? -1) >= (self::ROLE_LEVELS[$minimum] ?? -1);
     }
 
     /**

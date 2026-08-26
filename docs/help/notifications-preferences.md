@@ -31,6 +31,12 @@ sur le site — vous devez toujours en être averti.
 La liste des types dépend de votre rôle et des fonctions activées sur
 votre site : un animateur voit des types qu'un parent ne voit pas.
 
+Certains types vous sont proposés sans être allumés au départ : ils
+concernent d'abord quelqu'un d'autre, mais vous pouvez les suivre si
+vous le souhaitez. Les mises à jour automatiques du site en sont
+l'exemple — actives d'office pour un super administrateur, éteintes et
+disponibles pour un administrateur du site.
+
 ## La colonne « Push »
 
 Elle reste grisée tant que cet appareil n'a pas été autorisé : ouvrez

@@ -1036,4 +1036,96 @@ class ModuleManifestTest extends TestCase
             'visible_when' => ['local_installation', 'local_installation'],
         ]);
     }
+
+    /**
+     * `default_on_role_min` is the module-manifest half of Core\
+     * Notification\NotificationType::defaultsOnForRole() — optional, and
+     * absent on every type that shipped before it, which must keep
+     * validating exactly as it did.
+     */
+    public function testNotificationDefaultOnRoleMinIsOptionalAndDefaultsToNull(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'notifications' => [[
+                'id' => 'test.thing',
+                'label' => 'L',
+                'description' => 'D',
+                'group' => 'G',
+                'role_min' => 'chief',
+                'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+            ]],
+        ]);
+
+        $this->assertNull($manifest->notifications[0]['default_on_role_min']);
+    }
+
+    public function testNotificationAcceptsADefaultOnRoleMinAboveItsRoleMin(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'notifications' => [[
+                'id' => 'test.thing',
+                'label' => 'L',
+                'description' => 'D',
+                'group' => 'G',
+                'role_min' => 'chief',
+                'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+                'default_on_role_min' => 'admin',
+            ]],
+        ]);
+
+        $this->assertSame('admin', $manifest->notifications[0]['default_on_role_min']);
+    }
+
+    public function testValidationRejectsAnUnknownDefaultOnRoleMin(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('invalid default_on_role_min');
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'notifications' => [[
+                'id' => 'test.thing',
+                'label' => 'L',
+                'description' => 'D',
+                'group' => 'G',
+                'role_min' => 'chief',
+                'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+                'default_on_role_min' => 'wizard',
+            ]],
+        ]);
+    }
+
+    /**
+     * Below role_min it would describe nobody: the type is never offered
+     * to that role in the first place, so a default for it is a typo, not
+     * a decision.
+     */
+    public function testValidationRejectsADefaultOnRoleMinBelowRoleMin(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('must be at or above role_min');
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'notifications' => [[
+                'id' => 'test.thing',
+                'label' => 'L',
+                'description' => 'D',
+                'group' => 'G',
+                'role_min' => 'admin',
+                'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+                'default_on_role_min' => 'chief',
+            ]],
+        ]);
+    }
 }

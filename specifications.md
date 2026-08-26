@@ -326,6 +326,7 @@ Modules can dispatch typed notifications (e.g. a calendar event reminder, a new 
 - Default channel preferences, per channel (in-app, push, email), each either locked or a default the recipient may override
 - User-configurable per-type channel overrides
 - Role-based visibility (minimum role required to receive)
+- Optionally, a **second, higher role from which its defaults are actually on**. The type is still offered to everybody from its minimum role up, with the same switches — they simply start off below that second role. It is for a notification one audience wants unprompted and another should be able to ask for: the site installing an update on its own is something whoever runs the site is told about without asking, and something an administrator may switch on.
 
 ### 13.3 Preferences
 - Per-type channel selection — one switch per channel (in-app, push, email) on each type's row. Reached from the top of the notification centre, above the list. The list of types shown depends on the reader's role and on which modules are active.
@@ -341,6 +342,7 @@ Modules can dispatch typed notifications (e.g. a calendar event reminder, a new 
 - Discretion applies to push **and** email: with it on, the email carries the generic title, no body, and a link. It is a statement about screens other people can read, and a mail notification lands on the same lock screen a push does
 - A send that the transport refuses is journaled and never retried: a retry cannot tell "never left" from "left, then the connection dropped", and the notification is in the recipient's centre either way
 - All notifications logged in journal
+- An **automatic update** — a new version or a development build the site installed on its own, with nobody there to ask for it — announces itself like any other type: it succeeded, or it failed and what was restored. On by default for superadmins, offered and off by default for administrators. A manual installation still answers the person who started it, and only them: one installation is never announced twice.
 
 ## 14. Member email management
 

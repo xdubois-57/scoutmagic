@@ -56,7 +56,7 @@ class NotificationService
     private const DISCRETION_TITLE = 'Nouvelle notification';
     private const PUSH_BATCH_SIZE = 20;
 
-    /** @var array<string, array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}}>> */
+    /** @var array<string, array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}, default_on_role_min?: ?string}>> */
     private array $moduleTypes = [];
 
     /** @var array<string, NotificationType>|null */
@@ -82,7 +82,7 @@ class NotificationService
      * Invalidates the type cache so a later getAllDeclaredTypes()/
      * findType() call picks them up.
      *
-     * @param array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}}> $notifications
+     * @param array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}, default_on_role_min?: ?string}> $notifications
      */
     public function registerModuleTypes(string $moduleId, array $notifications): void
     {
@@ -163,9 +163,21 @@ class NotificationService
             $userAccountId = (int) $recipient['userAccountId'];
             $memberId = isset($recipient['memberId']) && $recipient['memberId'] !== null ? (int) $recipient['memberId'] : null;
 
-            if (!$this->isRoleAllowed($userAccountId, $type->roleMin, $currentScoutYearId)) {
+            // One role resolution per recipient, used twice: the role_min
+            // re-check below and, further down, whether a type declaring
+            // default_on_role_min counts this recipient as one of the
+            // audiences its "default_on" channels are on for.
+            $role = $this->resolveRole($userAccountId, $currentScoutYearId);
+            if (!$this->isRoleAllowed($role, $type->roleMin)) {
                 continue;
             }
+
+            // Unknown role — the documented degradation for a service
+            // built without RoleResolver/ScoutYearService. It already
+            // means "skip the role_min check" rather than "reject
+            // everybody", so per-role defaults follow the same reading and
+            // apply as declared.
+            $defaultsOn = $role === null || $type->defaultsOnForRole($role);
 
             $notificationId = $this->notificationRepository->create($userAccountId, $memberId, $typeId, $title, $body, $url);
 
@@ -188,14 +200,14 @@ class NotificationService
             // One lookup, both channels — see resolveChannel().
             $preference = $this->preferenceRepository->find($userAccountId, $type->id);
 
-            if ($this->resolveChannel($type, 'push', $preference)) {
+            if ($this->resolveChannel($type, 'push', $preference, $defaultsOn)) {
                 $runAt = $this->resolvePushRunAt($userAccountId);
                 $bucketKey = $runAt->format('YmdHi');
                 $pushBuckets[$bucketKey]['runAt'] ??= $runAt;
                 $pushBuckets[$bucketKey]['ids'][] = $notificationId;
             }
 
-            if ($this->resolveChannel($type, 'email', $preference)) {
+            if ($this->resolveChannel($type, 'email', $preference, $defaultsOn)) {
                 $emailIds[] = $notificationId;
             }
         }
@@ -381,13 +393,20 @@ class NotificationService
      * preference override else the type's own declared default. A locked
      * channel ("on"/"off") ignores any preference row entirely.
      */
-    public function channelEnabled(int $userAccountId, NotificationType $type, string $channel): bool
+    public function channelEnabled(int $userAccountId, NotificationType $type, string $channel, ?Role $role = null): bool
     {
         if ($type->isChannelLocked($channel)) {
             return $type->channels[$channel] === 'on';
         }
 
-        return $this->resolveChannel($type, $channel, $this->preferenceRepository->find($userAccountId, $type->id));
+        $role ??= $this->resolveRole($userAccountId, $this->scoutYearService?->getCurrentYear()['id'] ?? null);
+
+        return $this->resolveChannel(
+            $type,
+            $channel,
+            $this->preferenceRepository->find($userAccountId, $type->id),
+            $role === null || $type->defaultsOnForRole($role)
+        );
     }
 
     /**
@@ -399,8 +418,12 @@ class NotificationService
      * one wasted query per member, every send. This is the one place that
      * matters enough to hand the row in instead.
      */
-    private function resolveChannel(NotificationType $type, string $channel, ?NotificationPreference $preference): bool
-    {
+    private function resolveChannel(
+        NotificationType $type,
+        string $channel,
+        ?NotificationPreference $preference,
+        bool $defaultsOn = true
+    ): bool {
         if ($type->isChannelLocked($channel)) {
             return $type->channels[$channel] === 'on';
         }
@@ -412,7 +435,7 @@ class NotificationService
             default => null,
         };
 
-        return $override ?? $type->defaultEnabled($channel);
+        return $override ?? $type->defaultEnabled($channel, $defaultsOn);
     }
 
     /**
@@ -516,20 +539,84 @@ class NotificationService
         }
     }
 
-    private function isRoleAllowed(int $userAccountId, string $roleMin, ?int $currentScoutYearId): bool
+    /**
+     * The account's current role, or null when this service was built
+     * without RoleResolver/ScoutYearService (the documented narrow-test
+     * degradation — see the class docblock) or when the account itself is
+     * gone. Callers read null as "no role information", never as "no
+     * role": isRoleAllowed() below is what turns it into a decision.
+     */
+    private function resolveRole(int $userAccountId, ?int $currentScoutYearId): ?Role
     {
         if ($this->roleResolver === null || $currentScoutYearId === null) {
-            return true;
+            return null;
         }
 
         $account = $this->findAccountSafely($userAccountId);
         if ($account === null) {
-            return false;
+            return null;
         }
 
-        $role = Role::fromString($this->roleResolver->resolve($account->email, $currentScoutYearId));
+        return Role::fromString($this->roleResolver->resolve($account->email, $currentScoutYearId));
+    }
+
+    /**
+     * $role null means either "this service can't resolve roles at all"
+     * (degrade to allowed, as before) or "the account no longer exists"
+     * — the second was, and stays, a rejection, so the two are told apart
+     * by the caller having asked for a role at all rather than by the
+     * null itself. Kept as one method so both dispatch() and
+     * recipientsForType() apply exactly the same rule.
+     */
+    private function isRoleAllowed(?Role $role, string $roleMin): bool
+    {
+        if ($role === null) {
+            return $this->roleResolver === null || $this->scoutYearService === null;
+        }
 
         return $role->hasAccess(Role::fromString($roleMin));
+    }
+
+    /**
+     * Everyone a type-wide announcement should reach: every account the
+     * type's role_min allows, whose in-app channel resolves enabled for
+     * their own role and preferences. For a broadcast with no natural
+     * recipient list — nobody asked for an automatic update, so nobody is
+     * "the requester" — this IS the list.
+     *
+     * Why in_app decides: dispatch() always writes the notifications row,
+     * deliberately (a recipient with push off still gets it in their
+     * centre), so a broadcast that handed it every account would put a row
+     * in the centre of a member who had switched the type off. Resolving
+     * the in-app channel here, before dispatch(), is what makes that
+     * switch mean something for a type nobody individually opted into.
+     *
+     * @return array<int, array{userAccountId: int, memberId: null}>
+     */
+    public function recipientsForType(string $typeId): array
+    {
+        $type = $this->findType($typeId);
+        if ($type === null) {
+            return [];
+        }
+
+        $currentScoutYearId = $this->scoutYearService?->getCurrentYear()['id'] ?? null;
+
+        $recipients = [];
+        foreach ($this->userAccountRepository->findAllIds() as $userAccountId) {
+            $role = $this->resolveRole($userAccountId, $currentScoutYearId);
+            if (!$this->isRoleAllowed($role, $type->roleMin)) {
+                continue;
+            }
+
+            if (!$this->channelEnabled($userAccountId, $type, 'in_app', $role)) {
+                continue;
+            }
+
+            $recipients[] = ['userAccountId' => $userAccountId, 'memberId' => null];
+        }
+
+        return $recipients;
     }
 
     /**
@@ -631,7 +718,8 @@ class NotificationService
                     description: $declaration['description'],
                     group: $declaration['group'],
                     roleMin: $declaration['role_min'],
-                    channels: $declaration['channels']
+                    channels: $declaration['channels'],
+                    defaultOnRoleMin: $declaration['default_on_role_min'] ?? null
                 );
             }
         }

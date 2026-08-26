@@ -36,6 +36,7 @@ $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 \Core\Http\ErrorHandler::register(false);
 \Core\System\ComposerAutoloadSync::apply($composerAutoloader, __DIR__ . '/../composer.json');
 
+use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
@@ -45,6 +46,7 @@ use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
 use Core\Http\Router;
+use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
@@ -62,7 +64,9 @@ use Core\Scheduler\SchedulerRunner;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
+use Core\Member\MemberEmailRepository;
 use Core\Security\Role;
+use Core\Security\RoleResolver;
 use Core\Security\SecretManager;
 use Core\Security\UserAccountRepository;
 use Core\View\MenuBuilder;
@@ -114,6 +118,16 @@ $journalService = new JournalService($journalRepo);
 $schedulerRepo = new SchedulerRepository($pdo);
 $runner = new SchedulerRunner($schedulerRepo, $journalService);
 $userAccountRepo = new UserAccountRepository($pdo, $encryptionService);
+// Role resolution, wired exactly as public/index.php wires it — see the
+// NotificationService construction below for why this entry point can no
+// longer do without it.
+$scoutYearService = new ScoutYearService($pdo);
+$roleResolver = new RoleResolver(
+    new MemberYearRepository($pdo),
+    $encryptionService,
+    $pdo,
+    new MemberEmailRepository($pdo, $encryptionService)
+);
 $dkimManager = new DkimManager(__DIR__ . '/../storage/keys');
 // short_name, mail_from_address, mail_from_name and dkim_selector all live
 // in the settings table (migrated out of secrets.enc by public/index.php's
@@ -165,13 +179,20 @@ if (VapidKeyPairFactory::isValid(
         $settingService,
         $journalService,
         new SchedulerService($schedulerRepo),
-        $userAccountRepo
-        // No RoleResolver/ScoutYearService here — a cron-triggered
-        // dispatch() (e.g. CreateBackupHandler's auto_backup path, which
-        // has no human requester and so never actually calls dispatch()
-        // with a real recipient anyway) simply skips the role_min re-check
-        // rather than reject every recipient, same documented degradation
-        // as NotificationService's own class docblock.
+        $userAccountRepo,
+        // RoleResolver/ScoutYearService, same as public/index.php (§8.17:
+        // the two entry points must not drift). This used to be left out
+        // deliberately, on the reading that a cron-triggered dispatch()
+        // never had a real recipient list — which stopped being true the
+        // moment a background task started ANNOUNCING something to an
+        // audience defined by role rather than answering the person who
+        // asked for it. Without these, dispatch() skips the role_min
+        // re-check entirely: an automatic update installed by the real
+        // crontab would notify every account on the site, member and
+        // parent included, instead of the superadmins the type is
+        // declared for.
+        $roleResolver,
+        $scoutYearService
     );
 }
 

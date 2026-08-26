@@ -59,9 +59,9 @@ class NotificationPreferenceController extends AbstractController
             $groups[$type->group][] = [
                 'type' => $type,
                 'channels' => [
-                    'in_app' => $this->channelViewModel($type, 'in_app', $preference?->inApp),
-                    'push' => $this->channelViewModel($type, 'push', $preference?->push),
-                    'email' => $this->channelViewModel($type, 'email', $preference?->email),
+                    'in_app' => $this->channelViewModel($type, 'in_app', $preference?->inApp, $viewerRole),
+                    'push' => $this->channelViewModel($type, 'push', $preference?->push, $viewerRole),
+                    'email' => $this->channelViewModel($type, 'email', $preference?->email, $viewerRole),
                 ],
             ];
         }
@@ -162,14 +162,23 @@ class NotificationPreferenceController extends AbstractController
     }
 
     /**
+     * $viewerRole is what a type declaring `default_on_role_min` reads to
+     * decide whether its "default_on" channels start on for THIS reader
+     * (NotificationType::defaultsOnForRole()) — without it the page would
+     * show an admin a switch drawn on while the send pipeline treats it as
+     * off, which is the one thing a preferences page must never do.
+     *
      * @return array{locked: bool, value: bool}
      */
-    private function channelViewModel(NotificationType $type, string $channel, ?bool $override): array
+    private function channelViewModel(NotificationType $type, string $channel, ?bool $override, Role $viewerRole): array
     {
         if ($type->isChannelLocked($channel)) {
             return ['locked' => true, 'value' => $type->channels[$channel] === 'on'];
         }
 
-        return ['locked' => false, 'value' => $override ?? $type->defaultEnabled($channel)];
+        return [
+            'locked' => false,
+            'value' => $override ?? $type->defaultEnabled($channel, $type->defaultsOnForRole($viewerRole)),
+        ];
     }
 }
