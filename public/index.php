@@ -2677,12 +2677,27 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeReceiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService($schedulerService, $llmConnectorForRgpd);
     $financeFirstReceiptResolver = new \Modules\Finance\Service\FirstReceiptResolver($financeTransactionAttachmentRepo, $financeAttachmentRepo);
 
+    // Built here rather than next to its own controller a few hundred
+    // lines down: the dashboard's "À rapprocher" tile reads the same
+    // counts, and a second way of counting them would be a second answer
+    // waiting to disagree with the screen it links to.
+    $financeReconciliationService = new \Modules\Finance\Service\ReconciliationService(
+        $financeExpectedReceivableRepo,
+        $financeAllocationRepo,
+        $financeTransactionRepo,
+        $financeAccountRepo,
+        $financeAccountVisibility,
+        $financeAllocationService,
+        $memberService,
+        $householdService
+    );
+
     $frontController->registerController(
         \Modules\Finance\Controller\DashboardController::class,
         new \Modules\Finance\Controller\DashboardController(
             $twig, $financeService, $financeBalanceService, $financeTransactionRepo, $financeReceiptService,
             $financeCategoryRepo, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeStatementImportRepo,
-            $financeFirstReceiptResolver
+            $financeFirstReceiptResolver, $financeReconciliationService, $scoutYearService
         )
     );
     $frontController->registerController(
@@ -2874,16 +2889,6 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     // automatic matching cannot settle on its own. The QR generator is
     // the module's own, and the page degrades to the payment details in
     // text rather than a fatal if it is ever absent.
-    $financeReconciliationService = new \Modules\Finance\Service\ReconciliationService(
-        $financeExpectedReceivableRepo,
-        $financeAllocationRepo,
-        $financeTransactionRepo,
-        $financeAccountRepo,
-        $financeAccountVisibility,
-        $financeAllocationService,
-        $memberService,
-        $householdService
-    );
     $frontController->registerController(
         \Modules\Finance\Controller\ReconciliationController::class,
         new \Modules\Finance\Controller\ReconciliationController(

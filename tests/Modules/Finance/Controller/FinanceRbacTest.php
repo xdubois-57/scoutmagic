@@ -291,7 +291,7 @@ class FinanceRbacTest extends TestCase
             'DashboardController' => new DashboardController(
                 $this->twig, $this->financeService, $this->balanceService, $this->transactionRepository, $this->receiptService,
                 $this->categoryRepository, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->statementImportRepository,
-                $this->firstReceiptResolver
+                $this->firstReceiptResolver, $this->reconciliationServiceForDashboard(), new \Core\Config\ScoutYearService($this->pdo)
             ),
             'MovementController' => new MovementController(
                 $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
@@ -390,6 +390,29 @@ class FinanceRbacTest extends TestCase
             $this->financeService,
             FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
             $scoutYearService
+        );
+    }
+
+    /**
+     * The dashboard's "À rapprocher" tile reads the reconciliation
+     * screen's own counts, so it needs the same service.
+     */
+    private function reconciliationServiceForDashboard(): \Modules\Finance\Service\ReconciliationService
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return new \Modules\Finance\Service\ReconciliationService(
+            $this->expectedReceivableRepository,
+            new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo),
+            $this->transactionRepository,
+            $this->accountRepository,
+            new \Modules\Finance\Service\AccountVisibility(\Modules\Finance\Service\TreasurerScope::systemCaller()),
+            FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
+            $this->memberServiceForCampaigns(),
+            new \Core\Member\Household\HouseholdService(
+                new \Core\Member\Household\HouseholdRepository($this->pdo, $encryption),
+                $encryption
+            )
         );
     }
 

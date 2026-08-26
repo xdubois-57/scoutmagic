@@ -5,13 +5,19 @@ summary: Le tableau de bord, les mouvements, les paiements attendus et qui voit 
 category: Espace animateurs
 role_min: intendant
 paths: /finance, /finance/movements, /finance/receivables
-related: importer-extraits, recus, config-finance, badges, outils-finance
+related: rapprochement, importer-extraits, recus, config-finance, badges, outils-finance
 ---
 
 Le module Finances suit les comptes de l'unité à partir des extraits
 bancaires importés. Le tableau de bord résume la situation : solde
 actuel, solde le plus bas des derniers mois, dernier extrait importé,
 graphiques d'évolution et bilan par catégorie pour l'exercice choisi.
+
+Une seule de ces vignettes appelle un geste plutôt qu'une lecture :
+« À rapprocher » compte les paiements que le site n'a pas su rattacher
+tout seul. Elle indique aussi de quoi ce nombre est fait, parce qu'un
+reste non imputé n'est pas forcément une erreur à corriger — voir
+« Rapprocher un paiement qui tombe de travers ».
 
 ## Qui voit quels comptes
 

@@ -71,6 +71,26 @@ class ReconciliationService
     }
 
     /**
+     * How many situations on this account are waiting for a treasurer's
+     * hand — the four tabs of the reconciliation screen, added up.
+     *
+     * Deliberately a call to build() rather than four cheaper COUNT
+     * queries: a tile saying "3 à traiter" over a screen showing four
+     * rows is worse than no tile, and two ways of counting the same
+     * thing are two answers waiting to disagree. Everything build()
+     * reads is per-account and already read by the reconciliation pass
+     * it triggers, so this costs one pass, not a second data model.
+     *
+     * @return array<string, int> the same `counts` shape build() returns,
+     *         so a caller can both total it and name what is in it
+     * @throws FinanceException when the account is unknown or out of reach
+     */
+    public function pendingCounts(int $accountId, int $scoutYearId, Role $viewerRole): array
+    {
+        return $this->build($accountId, $scoutYearId, $viewerRole)['counts'];
+    }
+
+    /**
      * Everything the reconciliation screen shows for one account.
      *
      * @return array{
