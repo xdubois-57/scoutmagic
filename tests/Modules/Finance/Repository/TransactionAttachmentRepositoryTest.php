@@ -122,6 +122,22 @@ class TransactionAttachmentRepositoryTest extends TestCase
         $this->assertSame([], $this->repository->countByTransactionIds([]));
     }
 
+    public function testFindAttachmentIdsForTransactionsMatchesTheSingleLookups(): void
+    {
+        $withTwo = $this->createTransaction();
+        $withNone = $this->createTransaction();
+        $a = $this->createAttachment();
+        $b = $this->createAttachment();
+        $this->repository->associate($withTwo, $a);
+        $this->repository->associate($withTwo, $b);
+
+        $batch = $this->repository->findAttachmentIdsForTransactions([$withTwo, $withNone]);
+
+        $this->assertSame($this->repository->findAttachmentIdsForTransaction($withTwo), $batch[$withTwo]);
+        $this->assertArrayNotHasKey($withNone, $batch, 'a movement with no receipt has no entry');
+        $this->assertSame([], $this->repository->findAttachmentIdsForTransactions([]));
+    }
+
     /**
      * "First" is the lowest attachment id — the join table tracks no
      * association order, so this is the documented approximation.

@@ -141,6 +141,103 @@ class TransactionRepository
     }
 
     /**
+     * One page of findFiltered()'s no-search results, paginated in SQL —
+     * the movements list decrypts only the rows it shows instead of the
+     * account's whole history. Same WHERE and ORDER BY as findFiltered();
+     * only the free-text search (which must decrypt to match — see
+     * findFiltered()) still pays the full read, mirroring how
+     * AttachmentRepository::findFilteredForAccount() already splits its
+     * two branches.
+     *
+     * @return Transaction[]
+     */
+    public function findFilteredPage(
+        int $accountId,
+        ?int $fiscalYearId,
+        ?int $categoryId,
+        bool $uncategorizedOnly,
+        int $limit,
+        int $offset
+    ): array {
+        [$where, $params] = $this->filteredWhere($accountId, $fiscalYearId, $categoryId, $uncategorizedOnly);
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM finance_transactions WHERE {$where} ORDER BY transaction_date DESC, id DESC LIMIT ? OFFSET ?"
+        );
+        foreach ($params as $index => $value) {
+            $stmt->bindValue($index + 1, $value, \PDO::PARAM_INT);
+        }
+        $stmt->bindValue(count($params) + 1, $limit, \PDO::PARAM_INT);
+        $stmt->bindValue(count($params) + 2, $offset, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * The row count behind findFilteredPage() — a COUNT(*), never a
+     * materialize-then-count.
+     */
+    public function countFiltered(int $accountId, ?int $fiscalYearId, ?int $categoryId, bool $uncategorizedOnly): int
+    {
+        [$where, $params] = $this->filteredWhere($accountId, $fiscalYearId, $categoryId, $uncategorizedOnly);
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM finance_transactions WHERE {$where}");
+        $stmt->execute($params);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * @return array{0: string, 1: array<int, int>}
+     */
+    private function filteredWhere(int $accountId, ?int $fiscalYearId, ?int $categoryId, bool $uncategorizedOnly): array
+    {
+        $where = 'account_id = ?';
+        $params = [$accountId];
+        if ($fiscalYearId !== null) {
+            $where .= ' AND fiscal_year_id = ?';
+            $params[] = $fiscalYearId;
+        }
+        if ($uncategorizedOnly) {
+            $where .= ' AND category_id IS NULL';
+        } elseif ($categoryId !== null) {
+            $where .= ' AND category_id = ?';
+            $params[] = $categoryId;
+        }
+
+        return [$where, $params];
+    }
+
+    /**
+     * The dashboard's default "needs a treasurer's hand" list, decided in
+     * SQL: uncategorized, or an expense with no receipt attached (income
+     * never needs a receipt). Both predicates are plain columns, so
+     * nothing has to be hydrated/decrypted beyond the rows returned —
+     * the PHP-side version of this filter loaded and decrypted the whole
+     * fiscal year to keep at most $limit rows. Same ordering as
+     * findFiltered(), which it replaces on the unfiltered dashboard.
+     *
+     * @return Transaction[]
+     */
+    public function findActionNeeded(int $accountId, int $fiscalYearId, int $limit): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT t.* FROM finance_transactions t
+             WHERE t.account_id = ? AND t.fiscal_year_id = ?
+               AND (t.category_id IS NULL
+                    OR (t.amount < 0 AND NOT EXISTS (
+                        SELECT 1 FROM finance_transaction_attachments fta WHERE fta.transaction_id = t.id)))
+             ORDER BY t.transaction_date DESC, t.id DESC
+             LIMIT ?'
+        );
+        $stmt->bindValue(1, $accountId, \PDO::PARAM_INT);
+        $stmt->bindValue(2, $fiscalYearId, \PDO::PARAM_INT);
+        $stmt->bindValue(3, $limit, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Per-category income/expense/total for an account's fiscal year —
      * backs Service\FinanceService::getCategorySummary(). Pure SQL
      * aggregation: category_id and amount are both plain columns, so
