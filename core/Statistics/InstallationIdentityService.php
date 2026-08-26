@@ -75,14 +75,21 @@ class InstallationIdentityService
         $candidate = bin2hex(random_bytes(self::INSTALLATION_ID_BYTES));
         $claimed = $this->settingService->claimIfEmpty(self::INSTALLATION_ID_SETTING, $candidate);
 
-        if (!$claimed && $this->hasStoredValue()) {
-            $this->settingService->setInternal(self::INSTALLATION_ID_SETTING, $candidate);
-            $claimed = true;
-        }
-
+        // Re-read BEFORE any self-heal: claimIfEmpty() dropped the settings
+        // cache, so this sees whatever is really stored — our own candidate
+        // when the claim won, or the concurrent winner's identifier when it
+        // lost. Healing first (as this method used to) overwrote a valid
+        // winner with our candidate, splitting the installation's identity.
         $persisted = $this->readInstallationId();
         if ($persisted !== null) {
             return $persisted;
+        }
+
+        // Still nothing valid: a stored value exists but is malformed
+        // (readInstallationId()'s regex refused it) — replace it.
+        if (!$claimed && $this->hasStoredValue()) {
+            $this->settingService->setInternal(self::INSTALLATION_ID_SETTING, $candidate);
+            $claimed = true;
         }
 
         if (!$claimed) {
