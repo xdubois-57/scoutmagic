@@ -388,6 +388,12 @@ $processed = $runner->processOverdue();
 $retentionDays = (int) ($settingService->get('journal_retention_days') ?: '730');
 $deleted = $journalService->cleanup($retentionDays);
 
+// Same rhythm, same reason: bots probing /login and PDF previews both
+// leave artifacts nothing else ever deletes (see
+// LoginThrottler::purgeStale() / PdfThumbnailCache::purgeStale()).
+(new \Core\Security\LoginThrottler($connection))->purgeStale();
+\Core\File\PdfThumbnailCache::purgeStale(dirname(__DIR__) . '/storage');
+
 if ($processed > 0 || $deleted > 0) {
     echo "Processed {$processed} task(s), deleted {$deleted} old journal entry/entries.\n";
 }

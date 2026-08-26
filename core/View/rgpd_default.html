@@ -359,6 +359,7 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <h3>3.3. Journaux et traces techniques</h3>
 <ul>
 <li><strong>Journal d'audit (actions sensibles)</strong> : Conservé pendant une durée configurable, par défaut 2 ans, puis suppression automatique. Contient l'adresse IP, l'identifiant du compte (pas l'email), la date et l'action.</li>
+<li><strong>Tentatives de connexion échouées</strong> : Conservées 7 jours puis supprimées automatiquement. Ne contiennent jamais l'adresse email ni l'adresse IP en clair — uniquement leurs index de recherche chiffrés, utilisés pour la protection contre les attaques par force brute.</li>
 <li><strong>Logs serveur (erreurs, accès)</strong> : Conservés 30 jours maximum pour le débogage et la sécurité, puis supprimés automatiquement.</li>
 </ul>
 

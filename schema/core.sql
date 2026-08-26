@@ -616,7 +616,10 @@ CREATE TABLE login_attempts (
     ip_blind_index CHAR(64),
     attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_email_time (email_blind_index, attempted_at),
-    INDEX idx_ip_time (ip_blind_index, attempted_at)
+    INDEX idx_ip_time (ip_blind_index, attempted_at),
+    -- LoginThrottler::purgeStale() deletes by age alone; without this the
+    -- minute-ly purge would scan the whole table.
+    INDEX idx_attempted_at (attempted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE settings (

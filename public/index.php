@@ -5028,6 +5028,12 @@ if (($now - $lastRun) > 60) {
         \Core\Debug\RequestTimeline::mark('journal_cleanup_begin');
         $journalService->cleanup($retentionDays);
         \Core\Debug\RequestTimeline::mark('journal_cleanup_done');
+        // Same rhythm as the journal cleanup, same reason: bots probing
+        // /login and PDF previews both leave artifacts nothing else ever
+        // deletes (see LoginThrottler::purgeStale() / PdfThumbnailCache).
+        $loginThrottler->purgeStale();
+        \Core\File\PdfThumbnailCache::purgeStale($storagePath);
+        \Core\Debug\RequestTimeline::mark('stale_artifact_purge_done');
     } catch (\Throwable $e) {
         // Silently ignore scheduler errors in poor man's cron
     }

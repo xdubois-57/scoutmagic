@@ -102,6 +102,30 @@ class LoginThrottler
     }
 
     /**
+     * How long a failed attempt is kept. Every read in this class looks
+     * at a 1-hour sliding window; a week keeps recent forensic context
+     * (who was spraying us yesterday) while stopping the table growing
+     * forever — before this purge existed, failures against addresses
+     * that never log in (bots probing /login) accumulated indefinitely,
+     * since clearFailures() only fires on a SUCCESSFUL login.
+     */
+    public const RETENTION_DAYS = 7;
+
+    /**
+     * Delete attempts older than RETENTION_DAYS — called from the two
+     * scheduler tails (public/cron.php and index.php's poor-man's cron),
+     * next to the journal's own cleanup. Backed by idx_attempted_at.
+     */
+    public function purgeStale(): int
+    {
+        $cutoff = (new \DateTimeImmutable('-' . self::RETENTION_DAYS . ' days'))->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare('DELETE FROM login_attempts WHERE attempted_at < ?');
+        $stmt->execute([$cutoff]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * Clear failures for an email (called after successful login).
      *
      * Deliberately does NOT clear the IP axis: one attacker succeeding on
