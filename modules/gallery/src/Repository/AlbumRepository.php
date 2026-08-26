@@ -38,6 +38,30 @@ class AlbumRepository
     }
 
     /**
+     * findAll() narrowed to a set of scout years, in SQL — the chief
+     * list and the management page both default to the recent years, and
+     * an installation's whole album history has no business being read
+     * to show them (idx_gallery_albums_scout_year backs the filter).
+     *
+     * @param int[] $scoutYearIds
+     * @return Album[]
+     */
+    public function findByScoutYearIds(array $scoutYearIds): array
+    {
+        if ($scoutYearIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($scoutYearIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM gallery_albums WHERE owner_type IS NULL AND scout_year_id IN ({$placeholders}) ORDER BY album_date DESC, id DESC"
+        );
+        $stmt->execute(array_values($scoutYearIds));
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Every delegated album (owner_type IS NOT NULL) — the complement of
      * findAll() above.
      *

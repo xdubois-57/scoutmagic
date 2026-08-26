@@ -294,6 +294,13 @@ class FrontController
 
         $etag = '"' . md5($response->getBody()) . '"';
         $ifNoneMatch = $request->getServer('HTTP_IF_NONE_MATCH');
+        // mod_deflate (DeflateAlterETag AddSuffix, the default) rewrites
+        // the ETag it compressed to `…-gzip"`, and the browser replays
+        // exactly that — HTML is deflated, so a strict comparison would
+        // never revalidate.
+        if (is_string($ifNoneMatch)) {
+            $ifNoneMatch = str_replace('-gzip"', '"', $ifNoneMatch);
+        }
         if (is_string($ifNoneMatch) && $ifNoneMatch === $etag) {
             return (new Response('', 304))->setHeader('ETag', $etag);
         }

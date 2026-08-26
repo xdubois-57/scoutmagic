@@ -25,6 +25,9 @@ class HumanCheckFieldsRenderingTest extends TestCase
         $coreTemplates = dirname(__DIR__, 3) . '/core/View/templates';
         $loader = new FilesystemLoader($coreTemplates);
         $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
     }
 
     public function testRendersATrapFieldReachableByARobotButNotByKeyboardOrScreenReader(): void

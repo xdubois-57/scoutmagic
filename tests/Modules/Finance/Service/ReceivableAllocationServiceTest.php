@@ -68,6 +68,33 @@ class ReceivableAllocationServiceTest extends TestCase
     }
 
     /**
+     * On a reconciled account, the stored-allocations-only read reports
+     * the same allocated/remaining/refunded/status as the full read — it
+     * is what the home payment band relies on. Only amountDesignated may
+     * differ (it needs the credit scan), which its docblock says.
+     */
+    public function testStoredSettlementsMatchTheFullReadOnceReconciled(): void
+    {
+        $paid = $this->receivable(4500, '+++123/4567/89012+++');
+        $open = $this->receivable(3000, '+++123/4567/89013+++');
+        $this->credit('Virement +++123/4567/89012+++', 45.00);
+        $this->service->reconcileAccount($this->accountId);
+
+        $receivables = $this->receivables->findByIds([$paid, $open]);
+        $full = $this->service->settlementsFor($receivables);
+        $stored = $this->service->storedSettlementsFor($receivables);
+
+        foreach ([$paid, $open] as $id) {
+            $this->assertSame($full[$id]->amountAllocatedCents, $stored[$id]->amountAllocatedCents);
+            $this->assertSame($full[$id]->amountRemainingCents(), $stored[$id]->amountRemainingCents());
+            $this->assertSame($full[$id]->amountRefundedCents, $stored[$id]->amountRefundedCents);
+            $this->assertSame($full[$id]->status, $stored[$id]->status);
+        }
+        $this->assertSame(0, $stored[$open]->amountAllocatedCents);
+        $this->assertSame(3000, $stored[$open]->amountRemainingCents());
+    }
+
+    /**
      * The single rule behind "paid too much", "paid in instalments that
      * overshoot" and "paid twice a month apart": a receivable never
      * absorbs more than it is worth. The surplus stays unallocated

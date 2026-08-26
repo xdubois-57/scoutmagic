@@ -18,6 +18,9 @@ class ConfigModeControllerTest extends TestCase
     protected function setUp(): void
     {
         $twig = new Environment(new ArrayLoader([]), ['cache' => false, 'autoescape' => 'html']);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         $this->controller = new ConfigModeController($twig);
     }
 

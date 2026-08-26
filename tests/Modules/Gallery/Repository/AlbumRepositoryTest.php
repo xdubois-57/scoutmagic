@@ -245,4 +245,24 @@ class AlbumRepositoryTest extends TestCase
         $this->assertContains($ordinaryId, $ids);
         $this->assertCount(1, $ids);
     }
+
+    /**
+     * The manage/chief lists filter by scout year in SQL — an
+     * installation's whole album history is never read to show two
+     * seasons of it. Delegated albums stay excluded, like findAll().
+     */
+    public function testFindByScoutYearIdsFiltersInSqlAndExcludesDelegated(): void
+    {
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2020-2021', '2020-09-01', '2021-08-31')");
+        $oldYearId = (int) $this->pdo->lastInsertId();
+
+        $recent = $this->repository->create(Album::TYPE_LOCAL, 'Récent', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId);
+        $this->repository->create(Album::TYPE_LOCAL, 'Ancien', null, '2020-10-01', null, $oldYearId, null, null, $this->authorId);
+
+        $found = $this->repository->findByScoutYearIds([$this->scoutYearId]);
+
+        $this->assertSame([$recent], array_map(fn(Album $a) => $a->id, $found));
+        $this->assertSame([], $this->repository->findByScoutYearIds([]));
+    }
+
 }

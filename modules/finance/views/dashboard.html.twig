@@ -349,9 +349,9 @@
                 netNegative: net_category_breakdown.negative
             }|json_encode(json_flags)|raw }}
             </script>
-            <script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
+            <script src="{{ asset('/assets/vendor/chartjs/chart.umd.min.js') }}"></script>
         {% endif %}
-        <script src="/assets/js/pdf-thumbnail.js" defer></script>
-        <script src="/assets/js/finance-dashboard.js" defer></script>
+        <script src="{{ asset('/assets/js/pdf-thumbnail.js') }}" defer></script>
+        <script src="{{ asset('/assets/js/finance-dashboard.js') }}" defer></script>
     {% endif %}
 {% endblock %}

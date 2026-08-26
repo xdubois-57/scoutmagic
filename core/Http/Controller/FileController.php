@@ -99,6 +99,31 @@ class FileController extends AbstractController
             ? 'public, max-age=86400'
             : 'private, no-cache';
 
+        // A file id's content is immutable (a re-upload always mints a new
+        // id — see variant() below), so the id and size are a complete
+        // validator: a matching If-None-Match saves re-reading, decrypting
+        // and re-sending the whole file. Without this, the 'private,
+        // no-cache' answer above forced a FULL re-download of every
+        // non-public document on every revisit — no-cache means
+        // revalidate, and there was nothing to revalidate against.
+        // Deliberately AFTER the guard and the access journals: a
+        // revalidation confirms the client holds the content, so it is an
+        // access like any other.
+        $etag = '"f' . $file->id . '-' . $file->sizeBytes . '"';
+        $ifNoneMatch = $request->getServer('HTTP_IF_NONE_MATCH');
+        // mod_deflate (DeflateAlterETag AddSuffix, the default) rewrites
+        // the ETag it compressed to `…-gzip"`, and the browser replays
+        // exactly that — a strict comparison would then never match for
+        // any content type the .htaccess deflates (SVG among them).
+        if (is_string($ifNoneMatch)) {
+            $ifNoneMatch = str_replace('-gzip"', '"', $ifNoneMatch);
+        }
+        if (is_string($ifNoneMatch) && $ifNoneMatch === $etag) {
+            return (new Response('', 304))
+                ->setHeader('ETag', $etag)
+                ->setHeader('Cache-Control', $cacheControl);
+        }
+
         if ($file->encrypted) {
             // An AES-256-GCM blob authenticates the whole file against a single
             // tag, so it cannot be streamed — the plaintext must exist whole in
@@ -121,6 +146,7 @@ class FileController extends AbstractController
                 ->setHeader('Content-Type', $file->mimeType)
                 ->setHeader('Content-Disposition', $disposition)
                 ->setHeader('Cache-Control', $cacheControl)
+                ->setHeader('ETag', $etag)
                 ->setHeader('Content-Length', (string) strlen($content));
         }
 
@@ -136,6 +162,7 @@ class FileController extends AbstractController
             ->setHeader('Content-Type', $file->mimeType)
             ->setHeader('Content-Disposition', $disposition)
             ->setHeader('Cache-Control', $cacheControl)
+            ->setHeader('ETag', $etag)
             ->setHeader('Content-Length', (string) filesize($filePath));
     }
 

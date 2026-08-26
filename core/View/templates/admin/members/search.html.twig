@@ -74,6 +74,6 @@
    public/assets/js/member-search.js, which guards each of those four
    sections on its own anchor in the DOM. #}
 {% if results is not empty or detail %}
-<script src="/assets/js/member-search.js" defer></script>
+<script src="{{ asset('/assets/js/member-search.js') }}" defer></script>
 {% endif %}
 {% endblock %}

@@ -214,10 +214,11 @@ class FileControllerTest extends TestCase
         $response = $this->controller->serve(new Request('GET', "/files/{$id}", [], [], [], []), ['id' => (string) $id]);
 
         $this->assertSame(200, $response->getStatusCode());
-        // Streamed from disk: the in-memory body is empty and the response
-        // points at the file (audit M10).
-        $this->assertSame('', $response->getBody());
+        // Streamed from disk: the response points at the file rather than
+        // holding its bytes in memory (audit M10) — getBody() still
+        // answers with the file's content for callers that ask.
         $this->assertSame($this->storagePath . '/pic.jpg', $response->getBodyFilePath());
+        $this->assertSame('the-file-bytes', $response->getBody());
         $this->assertSame('14', $response->getHeaders()['Content-Length']);
     }
 

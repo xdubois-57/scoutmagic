@@ -44,6 +44,9 @@ class RedirectServiceTest extends TestCase
         $loader = new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates');
         $loader->addPath(dirname(__DIR__, 4) . '/modules/sos_staff/views', 'sos_staff');
         $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
     }
 
     private function service(): RedirectService

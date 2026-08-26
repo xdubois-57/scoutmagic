@@ -13,6 +13,16 @@
         {% include 'partials/page_header.html.twig' with { title: 'Gérer la galerie' } only %}
     {% endif %}
 
+    <p class="text-body-secondary small">
+        {% if show_all_years %}
+            Toutes les années scoutes sont affichées.
+            <a href="/gallery/manage">Revenir aux années récentes</a>
+        {% else %}
+            Seuls les albums des deux dernières années scoutes sont affichés.
+            <a href="/gallery/manage?all=1">Voir toutes les années</a>
+        {% endif %}
+    </p>
+
     {% if albums is empty %}
         {# The creation action already lives in the page header above (one
            btn-primary per screen, design.md §7.4). #}

@@ -266,6 +266,42 @@ class S3StorageBackend implements StorageBackendInterface
         return (string) $request->getUri();
     }
 
+    /**
+     * How wide stableUrl()'s deterministic window is. A URL minted at the
+     * very end of a window still lives one full window (expiry = window
+     * start + 2×this), so nothing rendered is ever near-dead on arrival.
+     */
+    private const STABLE_URL_WINDOW_SECONDS = 3600;
+
+    public function stableUrl(string $key): string
+    {
+        if ($this->publicUrl !== null && $this->publicUrl !== '') {
+            return $this->url($key);
+        }
+
+        // A presigned URL embeds its signing time (X-Amz-Date), so two
+        // mints a second apart are two different URLs — which made every
+        // page view a fresh cache key and re-downloaded every thumbnail,
+        // forever. Anchoring the signing time to the current window
+        // boundary makes the URL identical across renders within the
+        // window: the browser's cache holds for the hour, and the next
+        // window costs one revalidation per image. The SDK accepts the
+        // anchor via presign's start_time option.
+        $windowStart = intdiv(time(), self::STABLE_URL_WINDOW_SECONDS) * self::STABLE_URL_WINDOW_SECONDS;
+
+        $command = $this->client->getCommand('GetObject', [
+            'Bucket' => $this->bucket,
+            'Key' => $key,
+        ]);
+        $request = $this->client->createPresignedRequest(
+            $command,
+            $windowStart + 2 * self::STABLE_URL_WINDOW_SECONDS,
+            ['start_time' => $windowStart]
+        );
+
+        return (string) $request->getUri();
+    }
+
     public function exists(string $key): bool
     {
         return $this->client->doesObjectExist($this->bucket, $key);

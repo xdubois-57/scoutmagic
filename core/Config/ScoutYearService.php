@@ -124,6 +124,33 @@ class ScoutYearService
     }
 
     /**
+     * The current scout year's id plus, when one exists on record, the id
+     * of the year immediately before it in start_date order — the "recent
+     * years" window the gallery filters by. Lives here because three
+     * gallery classes grew the same loop independently before it was
+     * extracted.
+     *
+     * @return int[] current year first, previous year second when present
+     */
+    public function currentAndPreviousYearIds(): array
+    {
+        $current = $this->getCurrentYear();
+        $years = $this->getAll();
+
+        $ids = [$current['id']];
+        foreach ($years as $index => $year) {
+            if ($year['id'] === $current['id']) {
+                if ($index > 0) {
+                    $ids[] = $years[$index - 1]['id'];
+                }
+                break;
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
      * Ensure a scout year exists for a given label (e.g. "2025-2026").
      * Creates it if not found. Returns the year ID.
      */

@@ -268,13 +268,7 @@ class SectionService
             return [];
         }
 
-        $profiles = [];
-        foreach ($memberYearIds as $myId) {
-            $profile = $this->hydrateMemberProfile($myId);
-            if ($profile !== null) {
-                $profiles[] = $profile;
-            }
-        }
+        $profiles = array_values($this->hydrateMemberProfiles($memberYearIds));
 
         // Sort by display name
         usort($profiles, fn(MemberProfile $a, MemberProfile $b) =>
@@ -308,13 +302,7 @@ class SectionService
             return [];
         }
 
-        $profiles = [];
-        foreach ($memberYearIds as $myId) {
-            $profile = $this->hydrateMemberProfile($myId);
-            if ($profile !== null) {
-                $profiles[] = $profile;
-            }
-        }
+        $profiles = array_values($this->hydrateMemberProfiles($memberYearIds));
 
         usort($profiles, fn(MemberProfile $a, MemberProfile $b) =>
             strcasecmp($a->getDisplayName(), $b->getDisplayName()));
@@ -397,33 +385,59 @@ class SectionService
      * Hydrate a MemberProfile from a member_year ID. Public so other core
      * services/modules that already have a filtered list of member_year ids
      * (e.g. the trombinoscope module) can reuse this decryption/hydration
-     * logic instead of duplicating it.
+     * logic instead of duplicating it. A single-id wrapper around the batch
+     * below, so there is exactly one definition of what a hydrated profile
+     * contains.
      */
     public function hydrateMemberProfile(int $memberYearId): ?MemberProfile
     {
-        $pdo = $this->connection->getPdo();
+        return $this->hydrateMemberProfiles([$memberYearId])[$memberYearId] ?? null;
+    }
 
-        $stmt = $pdo->prepare('SELECT my.*, m.desk_id FROM member_years my JOIN members m ON my.member_id = m.id WHERE my.id = ?');
-        $stmt->execute([$memberYearId]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        if ($row === false) {
-            return null;
+    /**
+     * Batch counterpart of hydrateMemberProfile(): the same four lookups
+     * (member rows, functions, scout-year labels, badges), each issued
+     * once for the whole set instead of once per member. A roster page
+     * hydrating 60 people used to cost ~240 queries; this costs 4.
+     *
+     * @param int[] $memberYearIds
+     * @return array<int, MemberProfile> keyed by member_year id — an id
+     *         that resolves to no row is simply absent, exactly as the
+     *         single variant returns null for it.
+     */
+    public function hydrateMemberProfiles(array $memberYearIds): array
+    {
+        $memberYearIds = array_values(array_unique(array_map('intval', $memberYearIds)));
+        if ($memberYearIds === []) {
+            return [];
         }
 
-        // Load functions with branch/section info
+        $pdo = $this->connection->getPdo();
+        $placeholders = implode(', ', array_fill(0, count($memberYearIds), '?'));
+
         $stmt = $pdo->prepare(
-            'SELECT mf.*, f.label as function_label, f.role as function_role,
+            "SELECT my.*, m.desk_id FROM member_years my JOIN members m ON my.member_id = m.id WHERE my.id IN ({$placeholders})"
+        );
+        $stmt->execute($memberYearIds);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        if ($rows === []) {
+            return [];
+        }
+
+        // Functions with branch/section info, grouped by member_year.
+        $stmt = $pdo->prepare(
+            "SELECT mf.*, f.label as function_label, f.role as function_role,
                     ab.label as branch_name, s.name as section_name, s.desk_code as section_code
              FROM member_functions mf
              JOIN functions f ON mf.function_id = f.id
              LEFT JOIN age_branches ab ON mf.age_branch_id = ab.id
              LEFT JOIN sections s ON mf.section_id = s.id
-             WHERE mf.member_year_id = ?'
+             WHERE mf.member_year_id IN ({$placeholders})"
         );
-        $stmt->execute([$memberYearId]);
-        $functions = [];
+        $stmt->execute($memberYearIds);
+        $functionsByMemberYear = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $fnRow) {
-            $functions[] = new MemberFunctionInfo(
+            $functionsByMemberYear[(int) $fnRow['member_year_id']][] = new MemberFunctionInfo(
                 functionLabel: $fnRow['function_label'],
                 functionRole: $fnRow['function_role'],
                 branchName: $fnRow['branch_name'],
@@ -435,33 +449,46 @@ class SectionService
             );
         }
 
-        // Get scout year label
-        $stmt = $pdo->prepare('SELECT label FROM scout_years WHERE id = ?');
-        $stmt->execute([$row['scout_year_id']]);
-        $scoutYearLabel = (string) $stmt->fetchColumn();
+        // Scout year labels for every year the set spans.
+        $yearIds = array_values(array_unique(array_map(fn(array $row) => (int) $row['scout_year_id'], $rows)));
+        $yearPlaceholders = implode(', ', array_fill(0, count($yearIds), '?'));
+        $stmt = $pdo->prepare("SELECT id, label FROM scout_years WHERE id IN ({$yearPlaceholders})");
+        $stmt->execute($yearIds);
+        $labelsByYear = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $yearRow) {
+            $labelsByYear[(int) $yearRow['id']] = (string) $yearRow['label'];
+        }
 
-        return new MemberProfile(
-            memberYearId: (int) $row['id'],
-            memberId: (int) $row['member_id'],
-            deskId: $row['desk_id'],
-            firstName: $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
-            lastName: $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
-            totem: $row['totem_encrypted'] ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem') : null,
-            quali: $row['quali_encrypted'] ? $this->encryption->decrypt($row['quali_encrypted'], 'member_years.quali') : null,
-            gender: $row['gender_encrypted'] ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender') : null,
-            birthDate: $row['birth_date_encrypted'] ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null,
-            phone: $row['phone_encrypted'] ? $this->encryption->decrypt($row['phone_encrypted'], 'member_years.phone') : null,
-            mobile: $row['mobile_encrypted'] ? $this->encryption->decrypt($row['mobile_encrypted'], 'member_years.mobile') : null,
-            email: $row['email_encrypted'] ? $this->encryption->decrypt($row['email_encrypted'], 'member_years.email') : null,
-            patrol: $row['patrol_encrypted'] ? $this->encryption->decrypt($row['patrol_encrypted'], 'member_years.patrol') : null,
-            formationLevel: $row['formation_level'],
-            federationMailConsent: (bool) $row['federation_mail_consent'],
-            unitMailConsent: (bool) $row['unit_mail_consent'],
-            addresses: [],
-            functions: $functions,
-            scoutYearLabel: $scoutYearLabel,
-            scoutYearOffset: (int) $row['scout_year_offset'],
-            badges: $this->memberBadgeRepository->getActiveBadgesForMemberYear((int) $row['id'])
-        );
+        $badgesByMemberYear = $this->memberBadgeRepository->getActiveBadgesForMemberYears($memberYearIds);
+
+        $profiles = [];
+        foreach ($rows as $row) {
+            $memberYearId = (int) $row['id'];
+            $profiles[$memberYearId] = new MemberProfile(
+                memberYearId: $memberYearId,
+                memberId: (int) $row['member_id'],
+                deskId: $row['desk_id'],
+                firstName: $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
+                lastName: $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
+                totem: $row['totem_encrypted'] ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem') : null,
+                quali: $row['quali_encrypted'] ? $this->encryption->decrypt($row['quali_encrypted'], 'member_years.quali') : null,
+                gender: $row['gender_encrypted'] ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender') : null,
+                birthDate: $row['birth_date_encrypted'] ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null,
+                phone: $row['phone_encrypted'] ? $this->encryption->decrypt($row['phone_encrypted'], 'member_years.phone') : null,
+                mobile: $row['mobile_encrypted'] ? $this->encryption->decrypt($row['mobile_encrypted'], 'member_years.mobile') : null,
+                email: $row['email_encrypted'] ? $this->encryption->decrypt($row['email_encrypted'], 'member_years.email') : null,
+                patrol: $row['patrol_encrypted'] ? $this->encryption->decrypt($row['patrol_encrypted'], 'member_years.patrol') : null,
+                formationLevel: $row['formation_level'],
+                federationMailConsent: (bool) $row['federation_mail_consent'],
+                unitMailConsent: (bool) $row['unit_mail_consent'],
+                addresses: [],
+                functions: $functionsByMemberYear[$memberYearId] ?? [],
+                scoutYearLabel: $labelsByYear[(int) $row['scout_year_id']] ?? '',
+                scoutYearOffset: (int) $row['scout_year_offset'],
+                badges: $badgesByMemberYear[$memberYearId] ?? []
+            );
+        }
+
+        return $profiles;
     }
 }

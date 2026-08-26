@@ -50,6 +50,33 @@ class TransactionAttachmentRepository
     }
 
     /**
+     * Batch counterpart of findAttachmentIdsForTransaction() — one query
+     * for a whole list of movements (same precedent as
+     * countByTransactionIds()); movements with no attachment are absent.
+     *
+     * @param int[] $transactionIds
+     * @return array<int, int[]> transaction id => attachment ids
+     */
+    public function findAttachmentIdsForTransactions(array $transactionIds): array
+    {
+        if ($transactionIds === []) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($transactionIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT transaction_id, attachment_id FROM finance_transaction_attachments
+             WHERE transaction_id IN ({$placeholders})"
+        );
+        $stmt->execute(array_values($transactionIds));
+
+        $ids = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $ids[(int) $row['transaction_id']][] = (int) $row['attachment_id'];
+        }
+        return $ids;
+    }
+
+    /**
      * @return int[]
      */
     public function findTransactionIdsForAttachment(int $attachmentId): array

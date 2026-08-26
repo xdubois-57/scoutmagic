@@ -122,7 +122,8 @@ class MovementsListRenderingTest extends TestCase
         // desktop <tr> AND from a mobile <div> card, and covers Enter and
         // Space. What this page still has to prove is that it loads the
         // script that carries them.
-        $this->assertStringContainsString('<script src="/assets/js/finance-movements.js" defer></script>', $html);
+        // Through the asset() cache-busting helper, so the src carries ?v=….
+        $this->assertMatchesRegularExpression('~<script src="/assets/js/finance-movements\.js\?v=[^"]+" defer></script>~', $html);
         // And that both views still carry the class the delegation resolves.
         $this->assertMatchesRegularExpression('~<tr[^>]*class="[^"]*\bmovement-row\b~', $html);
         $this->assertMatchesRegularExpression('~<div[^>]*class="[^"]*\bmovement-row\b~', $html);

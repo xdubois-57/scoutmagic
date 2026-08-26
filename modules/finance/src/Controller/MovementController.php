@@ -84,19 +84,37 @@ class MovementController extends AbstractController
 
         $search = trim((string) $request->getQuery('q', ''));
 
-        $allMatches = $this->transactionRepository->findFiltered(
-            [$account->id],
-            $fiscalYearId,
-            $categoryId,
-            $search !== '' ? $search : null,
-            $uncategorizedOnly
-        );
-
         $page = max(1, (int) $request->getQuery('page', 1));
-        $totalCount = count($allMatches);
-        $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
-        $page = min($page, $totalPages);
-        $movements = array_slice($allMatches, ($page - 1) * self::PER_PAGE, self::PER_PAGE);
+
+        if ($search === '') {
+            // The common case paginates in SQL: only the rows shown are
+            // ever hydrated/decrypted. Free-text search below keeps the
+            // full read — the searched fields are encrypted, so matching
+            // cannot happen in SQL (same split as the receipts list,
+            // AttachmentRepository::findFilteredForAccount()).
+            $totalCount = $this->transactionRepository->countFiltered(
+                $account->id, $fiscalYearId, $categoryId, $uncategorizedOnly
+            );
+            $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
+            $page = min($page, $totalPages);
+            $movements = $this->transactionRepository->findFilteredPage(
+                $account->id, $fiscalYearId, $categoryId, $uncategorizedOnly,
+                self::PER_PAGE, ($page - 1) * self::PER_PAGE
+            );
+        } else {
+            $allMatches = $this->transactionRepository->findFiltered(
+                [$account->id],
+                $fiscalYearId,
+                $categoryId,
+                $search,
+                $uncategorizedOnly
+            );
+
+            $totalCount = count($allMatches);
+            $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
+            $page = min($page, $totalPages);
+            $movements = array_slice($allMatches, ($page - 1) * self::PER_PAGE, self::PER_PAGE);
+        }
 
         $categoriesById = [];
         foreach ($this->categoryRepository->findAllOrdered() as $category) {
@@ -188,17 +206,14 @@ class MovementController extends AbstractController
         $movementIds = array_map(fn(Transaction $transaction) => $transaction->id, $movements);
         $firstReceiptsByMovementId = $this->firstReceiptResolver->resolve($movementIds);
 
-        $xlsx = $this->buildMovementsXlsx($movements, $categoriesById, $firstReceiptsByMovementId, $account->name);
+        $spreadsheet = $this->buildMovementsXlsx($movements, $categoriesById, $firstReceiptsByMovementId, $account->name);
 
         $this->journalService->log(
             'finance', 'movements_exported', 'info', 'Export des mouvements en XLSX',
             ['account_id' => $account->id, 'count' => count($movements)], (int) AuthSession::getUserAccountId()
         );
 
-        return (new Response($xlsx))
-            ->setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            ->setHeader('Content-Disposition', 'attachment; filename="mouvements.xlsx"')
-            ->setHeader('Content-Length', (string) strlen($xlsx));
+        return \Core\Http\SpreadsheetResponse::download($spreadsheet, 'mouvements.xlsx');
     }
 
     /**
@@ -206,7 +221,7 @@ class MovementController extends AbstractController
      * @param array<int, \Modules\Finance\Repository\Category> $categoriesById
      * @param array<int, Attachment> $firstReceiptsByMovementId
      */
-    private function buildMovementsXlsx(array $movements, array $categoriesById, array $firstReceiptsByMovementId, string $accountName): string
+    private function buildMovementsXlsx(array $movements, array $categoriesById, array $firstReceiptsByMovementId, string $accountName): \PhpOffice\PhpSpreadsheet\Spreadsheet
     {
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
@@ -235,11 +250,7 @@ class MovementController extends AbstractController
             $rowNum++;
         }
 
-        $writer = new Xlsx($spreadsheet);
-        ob_start();
-        $writer->save('php://output');
-
-        return (string) ob_get_clean();
+        return $spreadsheet;
     }
 
     /**

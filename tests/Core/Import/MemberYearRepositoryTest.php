@@ -122,6 +122,27 @@ class MemberYearRepositoryTest extends TestCase
     /**
      * @return array<string, mixed>
      */
+    /**
+     * The batched counterpart of findByMemberAndYear() must keep its
+     * semantics: at most one id per member, and NO is_active filter — the
+     * mass-mail tracking page still names a member deactivated since.
+     */
+    public function testFindIdsByMembersAndYearResolvesActiveAndInactiveAlike(): void
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('d101'), ('d102')");
+        $stmt = $this->pdo->query("SELECT id FROM members ORDER BY id");
+        [$memberA, $memberB] = array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+
+        $yearIdA = $this->repo->upsert($memberA, $this->scoutYearId, $this->encryptedPayload());
+        $yearIdB = $this->repo->upsert($memberB, $this->scoutYearId, $this->encryptedPayload());
+        $this->pdo->exec("UPDATE member_years SET is_active = 0 WHERE id = {$yearIdB}");
+
+        $resolved = $this->repo->findIdsByMembersAndYear([$memberA, $memberB, 424242], $this->scoutYearId);
+
+        $this->assertSame([$memberA => $yearIdA, $memberB => $yearIdB], $resolved);
+        $this->assertSame([], $this->repo->findIdsByMembersAndYear([], $this->scoutYearId));
+    }
+
     private function encryptedPayload(): array
     {
         return [

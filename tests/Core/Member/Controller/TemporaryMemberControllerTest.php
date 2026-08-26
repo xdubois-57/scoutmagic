@@ -91,6 +91,9 @@ class TemporaryMemberControllerTest extends TestCase
     private function buildTwig(string $templateDir): Environment
     {
         $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         // The shared French format filters (core/View/TwigFactory.php) used by
         // the templates under test - same rendering as the shipped ones.
         $twig->addFilter(new \Twig\TwigFilter('date_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y')));

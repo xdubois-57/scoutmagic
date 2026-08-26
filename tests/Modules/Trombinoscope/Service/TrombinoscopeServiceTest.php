@@ -46,9 +46,9 @@ class TrombinoscopeServiceTest extends TestCase
         ]);
 
         $sectionService = $this->createMock(SectionService::class);
-        $sectionService->method('hydrateMemberProfile')->willReturnMap([
-            [10, $this->makeProfile(10, 1, 'Alice')],
-            [20, $this->makeProfile(20, 2, 'Bob')],
+        $sectionService->method('hydrateMemberProfiles')->with([10, 20])->willReturn([
+            10 => $this->makeProfile(10, 1, 'Alice'),
+            20 => $this->makeProfile(20, 2, 'Bob'),
         ]);
 
         $service = new TrombinoscopeService($repository, $sectionService);
@@ -67,7 +67,7 @@ class TrombinoscopeServiceTest extends TestCase
         ]);
 
         $sectionService = $this->createMock(SectionService::class);
-        $sectionService->method('hydrateMemberProfile')->willReturn($this->makeProfile(10, 1, 'Alice'));
+        $sectionService->method('hydrateMemberProfiles')->willReturn([10 => $this->makeProfile(10, 1, 'Alice')]);
 
         $service = new TrombinoscopeService($repository, $sectionService);
         $result = $service->getSectionStaff(1, 1);
@@ -85,9 +85,9 @@ class TrombinoscopeServiceTest extends TestCase
         ]);
 
         $sectionService = $this->createMock(SectionService::class);
-        $sectionService->method('hydrateMemberProfile')->willReturnMap([
-            [10, $this->makeProfile(10, 1, 'Zoe')],
-            [20, $this->makeProfile(20, 2, 'Amir')],
+        $sectionService->method('hydrateMemberProfiles')->willReturn([
+            10 => $this->makeProfile(10, 1, 'Zoe'),
+            20 => $this->makeProfile(20, 2, 'Amir'),
         ]);
 
         $service = new TrombinoscopeService($repository, $sectionService);
@@ -105,7 +105,7 @@ class TrombinoscopeServiceTest extends TestCase
         ]);
 
         $sectionService = $this->createMock(SectionService::class);
-        $sectionService->method('hydrateMemberProfile')->willReturn(null);
+        $sectionService->method('hydrateMemberProfiles')->willReturn([]);
 
         $service = new TrombinoscopeService($repository, $sectionService);
         $result = $service->getSectionStaff(1, 1);
@@ -122,7 +122,7 @@ class TrombinoscopeServiceTest extends TestCase
         ]);
 
         $sectionService = $this->createMock(SectionService::class);
-        $sectionService->method('hydrateMemberProfile')->willReturn($this->makeProfile(10, 1, 'Alice'));
+        $sectionService->method('hydrateMemberProfiles')->willReturn([10 => $this->makeProfile(10, 1, 'Alice')]);
 
         $service = new TrombinoscopeService($repository, $sectionService);
 
@@ -138,7 +138,7 @@ class TrombinoscopeServiceTest extends TestCase
         ]);
 
         $sectionService = $this->createMock(SectionService::class);
-        $sectionService->method('hydrateMemberProfile')->willReturn($this->makeProfile(10, 1, 'Alice'));
+        $sectionService->method('hydrateMemberProfiles')->willReturn([10 => $this->makeProfile(10, 1, 'Alice')]);
 
         $service = new TrombinoscopeService($repository, $sectionService);
 

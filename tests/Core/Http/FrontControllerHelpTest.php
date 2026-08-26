@@ -47,6 +47,9 @@ class FrontControllerHelpTest extends TestCase
             'cache' => false,
             'autoescape' => 'html',
         ]);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
 
         $configFile = sys_get_temp_dir() . '/test_app_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");

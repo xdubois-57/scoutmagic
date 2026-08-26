@@ -158,5 +158,5 @@
    inline block so tests/js/finance-accounts.test.js can exercise the
    production code directly). Every value it needs rides the row buttons'
    data-* attributes, so there is nothing to interpolate here. #}
-<script src="/assets/js/finance-accounts.js" defer></script>
+<script src="{{ asset('/assets/js/finance-accounts.js') }}" defer></script>
 {% endblock %}

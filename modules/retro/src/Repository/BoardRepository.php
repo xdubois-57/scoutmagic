@@ -114,6 +114,44 @@ class BoardRepository
     }
 
     /**
+     * Every board that is NOT archived, newest first — the naturally
+     * bounded half of the chief list (boards auto-close and get archived;
+     * with auto-create per calendar event the ARCHIVED half grows
+     * forever, which is why it is read separately, capped).
+     *
+     * @return Board[]
+     */
+    public function findUnarchivedOrderedByCreated(): array
+    {
+        $stmt = $this->pdo->prepare("SELECT * FROM retro_boards WHERE status <> 'archived' ORDER BY created_at DESC, id DESC");
+        $stmt->execute();
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * The most recent archived boards — the chief list shows at most
+     * $limit of a set that grows by one per auto-created retro forever.
+     *
+     * @return Board[]
+     */
+    public function findRecentArchived(int $limit): array
+    {
+        $stmt = $this->pdo->prepare("SELECT * FROM retro_boards WHERE status = 'archived' ORDER BY created_at DESC, id DESC LIMIT ?");
+        $stmt->bindValue(1, $limit, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    public function countArchived(): int
+    {
+        $stmt = $this->pdo->query("SELECT COUNT(*) FROM retro_boards WHERE status = 'archived'");
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * Every currently-open board — used by Task\AutoCloseHandler's
      * reschedule bootstrap and generally useful for any "what's live right
      * now" listing.

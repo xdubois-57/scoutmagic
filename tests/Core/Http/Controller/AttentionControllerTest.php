@@ -38,6 +38,9 @@ class AttentionControllerTest extends TestCase
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $this->twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_email', 'a@test.com');

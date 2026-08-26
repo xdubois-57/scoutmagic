@@ -3,7 +3,7 @@
 {% block title %}Signalements — {{ group_label|default(group.name) }} — {{ site_name }}{% endblock %}
 
 {% block stylesheets %}
-<link rel="stylesheet" href="/assets/css/components.css">
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -49,6 +49,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/gallery.js" defer nonce="{{ csp_nonce }}"></script>
-<script src="/assets/js/groups.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/gallery.js') }}" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/groups.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

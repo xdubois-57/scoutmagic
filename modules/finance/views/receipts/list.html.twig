@@ -102,7 +102,7 @@
    needs — the selected account — travels via data-account-id on
    #receipts-grid above. #}
 {% if not no_accounts %}
-<script src="/assets/js/pdf-thumbnail.js" defer nonce="{{ csp_nonce }}"></script>
-<script src="/assets/js/finance-receipts.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/pdf-thumbnail.js') }}" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/finance-receipts.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endif %}
 {% endblock %}

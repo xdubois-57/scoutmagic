@@ -718,6 +718,7 @@ RewriteRule ^ index.php [L]
 <IfModule mod_deflate.c>
     AddOutputFilterByType DEFLATE text/html text/plain text/css text/calendar text/javascript application/javascript application/json application/manifest+json image/svg+xml
 </IfModule>
+
 HTACCESS;
 }
 

@@ -103,5 +103,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/mass-mail-tracking.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/mass-mail-tracking.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

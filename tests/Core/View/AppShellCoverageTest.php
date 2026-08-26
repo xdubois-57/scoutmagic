@@ -50,7 +50,10 @@ final class AppShellCoverageTest extends TestCase
         $base = (string) file_get_contents($root . '/core/View/templates/base.html.twig');
         $sw = (string) file_get_contents($root . '/public/sw.js');
 
-        preg_match_all('~<script[^>]+src="(/assets/js/[^"]+)"~', $base, $m);
+        // Scripts are referenced through the asset() cache-busting helper;
+        // sw.js's precache list keeps bare paths and matches with
+        // ignoreSearch, so the comparison strips the wrapper.
+        preg_match_all("~<script[^>]+src=\"\{\{ asset\('(/assets/js/[^']+)'\) \}\}\"~", $base, $m);
         $loaded = array_values(array_unique($m[1]));
         self::assertNotEmpty($loaded, 'base.html.twig should load some scripts — did the markup change?');
 

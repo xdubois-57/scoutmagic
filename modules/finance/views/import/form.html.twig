@@ -62,5 +62,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/finance-import-form.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/finance-import-form.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

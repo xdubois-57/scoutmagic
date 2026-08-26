@@ -64,5 +64,12 @@
                 </div>
             {% endfor %}
         </div>
+
+        {% include 'partials/pagination.html.twig' with {
+            page: page,
+            total_pages: total_pages,
+            base_url: (manage ? '/news/manage' : '/news') ~ '?page=',
+            label: 'Pagination des actualités',
+        } only %}
     {% endif %}
 {% endblock %}

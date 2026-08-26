@@ -230,6 +230,54 @@ class S3StorageBackendTest extends TestCase
         $this->assertStringStartsWith('https://s3.fr-par.scw.cloud/scoutmagic/', $url);
     }
 
+    /**
+     * url() embeds its signing time, so two mints are two URLs — which
+     * made every album view a fresh cache key for every thumbnail.
+     * stableUrl() anchors the signing time to the current window
+     * boundary: identical across calls, so the browser cache holds.
+     */
+    public function testStableUrlIsIdenticalAcrossMintsAndDiffersFromFreshMints(): void
+    {
+        $backend = new S3StorageBackend(
+            'https://s3.fr-par.scw.cloud',
+            'fr-par',
+            'scoutmagic',
+            'access',
+            'secret'
+        );
+
+        // Determinism only holds within one window — step past the edge
+        // when the clock is about to cross it, so the test cannot flake
+        // once an hour.
+        if (time() % 3600 >= 3598) {
+            sleep(3);
+        }
+
+        $first = $backend->stableUrl('albums/1/photo.jpg');
+        sleep(1);
+        $second = $backend->stableUrl('albums/1/photo.jpg');
+
+        $this->assertSame($first, $second);
+        $this->assertStringContainsString('X-Amz-Signature=', $first);
+    }
+
+    public function testStableUrlUsesThePublicUrlWhenOneIsConfigured(): void
+    {
+        $backend = new S3StorageBackend(
+            'https://s3.fr-par.scw.cloud',
+            'fr-par',
+            'scoutmagic',
+            'access',
+            'secret',
+            'https://cdn.example.test/photos'
+        );
+
+        $this->assertSame(
+            'https://cdn.example.test/photos/albums/1/photo.jpg',
+            $backend->stableUrl('albums/1/photo.jpg')
+        );
+    }
+
     public function testUrlKeepsARegionLevelEndpointUnchanged(): void
     {
         $backend = new S3StorageBackend(

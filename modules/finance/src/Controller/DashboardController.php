@@ -200,17 +200,10 @@ class DashboardController extends AbstractController
      */
     private function findActionNeededMovements(int $accountId, int $fiscalYearId): array
     {
-        $movements = $this->transactionRepository->findFiltered([$accountId], $fiscalYearId, null, null, false);
-
-        $attachmentCounts = $this->transactionAttachmentRepository->countByTransactionIds(
-            array_map(fn(Transaction $movement) => $movement->id, $movements)
-        );
-
-        return array_values(array_filter(
-            $movements,
-            fn(Transaction $movement) => $movement->categoryId === null
-                || ($movement->amount < 0 && ($attachmentCounts[$movement->id] ?? 0) === 0)
-        ));
+        // Decided in SQL (both predicates are plain columns), so only the
+        // rows shown are ever hydrated/decrypted — the PHP-side filter
+        // loaded the whole fiscal year to keep at most ten.
+        return $this->transactionRepository->findActionNeeded($accountId, $fiscalYearId, self::RECENT_MOVEMENTS_LIMIT);
     }
 
     /**
@@ -263,14 +256,11 @@ class DashboardController extends AbstractController
             return [];
         }
 
-        $attachmentIdsByMovementId = [];
+        $attachmentIdsByMovementId = $this->transactionAttachmentRepository->findAttachmentIdsForTransactions(
+            array_map(fn(Transaction $movement) => $movement->id, $movements)
+        );
         $allAttachmentIds = [];
-        foreach ($movements as $movement) {
-            $ids = $this->transactionAttachmentRepository->findAttachmentIdsForTransaction($movement->id);
-            if ($ids === []) {
-                continue;
-            }
-            $attachmentIdsByMovementId[$movement->id] = $ids;
+        foreach ($attachmentIdsByMovementId as $ids) {
             foreach ($ids as $id) {
                 $allAttachmentIds[$id] = true;
             }

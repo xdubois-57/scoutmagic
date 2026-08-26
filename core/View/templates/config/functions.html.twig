@@ -189,7 +189,7 @@
                         {% if branch.logo_file_id %}
                             <img src="{{ file_url(branch.logo_file_id, 'md') }}" alt="{{ branch.label }}" class="rounded" style="width:48px;height:48px;object-fit:contain;">
                         {% elseif branch.default_logo %}
-                            <img src="/assets/img/branches/{{ branch.default_logo }}" alt="{{ branch.label }}" class="rounded" style="width:48px;height:48px;object-fit:contain;">
+                            <img src="{{ asset('/assets/img/branches/' ~ branch.default_logo) }}" alt="{{ branch.label }}" class="rounded" style="width:48px;height:48px;object-fit:contain;">
                         {% else %}
                             <div class="d-flex align-items-center justify-content-center bg-body-tertiary rounded" style="width:48px;height:48px;">
                                 <i class="bi bi-image text-body-secondary" aria-hidden="true"></i>
@@ -216,5 +216,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/config-functions.js" defer></script>
+<script src="{{ asset('/assets/js/config-functions.js') }}" defer></script>
 {% endblock %}

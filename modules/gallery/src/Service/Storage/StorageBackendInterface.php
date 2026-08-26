@@ -94,5 +94,16 @@ interface StorageBackendInterface
      */
     public function url(string $key, string $ttl = '+1 hour'): string;
 
+    /**
+     * A URL that stays IDENTICAL across renders within a time window, so
+     * the browser can actually cache what it points at — what album pages
+     * embed for every thumbnail (Service\MediaService::resolveUrl()).
+     * url()'s presigned form embeds its signing time and therefore
+     * changes on every call, which made each page view re-download every
+     * image. Never for a delegated album's short-lived grants — those
+     * stay on url() with an explicit ttl, minted fresh on purpose.
+     */
+    public function stableUrl(string $key): string;
+
     public function exists(string $key): bool;
 }

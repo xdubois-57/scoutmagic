@@ -656,9 +656,31 @@ class MassMailService
     {
         $email = $this->requireEmail($id);
         $counts = $this->recipientRepository->countGroupedByStatus($id);
+        $rows = $this->recipientRepository->findByEmailId($id);
+
+        // Resolve every member recipient in a fixed number of queries
+        // instead of five per recipient (a 600-recipient campaign used to
+        // cost ~3000). Grouped by each recipient's OWN resolved year, not
+        // the email's set as a whole — a member pulled in via the
+        // "previous year" list only has a valid profile for that year, not
+        // necessarily the current one.
+        $memberIdsByYear = [];
+        foreach ($rows as $recipient) {
+            if ($recipient->memberId !== null && $recipient->scoutYearId !== null) {
+                $memberIdsByYear[$recipient->scoutYearId][] = $recipient->memberId;
+            }
+        }
+
+        $memberYearIdByPair = [];
+        foreach ($memberIdsByYear as $scoutYearId => $memberIds) {
+            foreach ($this->memberService->findMemberYearIdsByMembersAndYear($memberIds, $scoutYearId) as $memberId => $memberYearId) {
+                $memberYearIdByPair[$scoutYearId . ':' . $memberId] = $memberYearId;
+            }
+        }
+        $profiles = $this->sectionService->hydrateMemberProfiles(array_values($memberYearIdByPair));
 
         $recipients = [];
-        foreach ($this->recipientRepository->findByEmailId($id) as $recipient) {
+        foreach ($rows as $recipient) {
             // An external mail-merge recipient (no member) is shown by
             // their address — the only identity they have here.
             if ($recipient->memberId === null || $recipient->scoutYearId === null) {
@@ -670,11 +692,8 @@ class MassMailService
                 continue;
             }
 
-            // Each recipient's own resolved year, not the email's set as a
-            // whole — a member pulled in via the "previous year" list only
-            // has a valid profile for that year, not necessarily the
-            // current one.
-            $profile = $this->memberService->findProfileByMemberAndYear($recipient->memberId, $recipient->scoutYearId);
+            $memberYearId = $memberYearIdByPair[$recipient->scoutYearId . ':' . $recipient->memberId] ?? null;
+            $profile = $memberYearId !== null ? ($profiles[$memberYearId] ?? null) : null;
             $recipients[] = [
                 'recipient' => $recipient,
                 'display_name' => $profile !== null ? $profile->getDisplayName() : 'Membre inconnu',

@@ -46,16 +46,16 @@
         document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
     })();
     </script>
-    <link rel="stylesheet" href="/assets/vendor/bootstrap/css/bootstrap.min.css">
-    <link rel="stylesheet" href="/assets/vendor/bootstrap-icons/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="/assets/css/app.css">
+    <link rel="stylesheet" href="{{ asset('/assets/vendor/bootstrap/css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('/assets/vendor/bootstrap-icons/bootstrap-icons.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('/assets/css/app.css') }}">
     {# editable.css styles both .editable-content (rich text — config mode
        only) and .editable-image (member_photo()'s $editable flag lets a
        member replace their own photo outside configuration mode too, see
        the editable.js include below) — must load unconditionally, or
        .editable-image never gets its position:relative and the overlay
        button positions itself against the wrong ancestor. #}
-    <link rel="stylesheet" href="/assets/css/editable.css">
+    <link rel="stylesheet" href="{{ asset('/assets/css/editable.css') }}">
     {% block stylesheets %}{% endblock %}
 </head>
 <body>
@@ -165,38 +165,38 @@
     </footer>
     {% endblock %}
 
-    <script src="/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ asset('/assets/vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
     {# The two site-wide toolboxes, loaded before every page script so
        both classic scripts and ES modules can rely on the globals:
        window.ScoutMagicApi (csrf token, the {ok,status,data} fetch
        envelope, debounce/poll/escapeHtml) and window.ScoutMagicToast
        (the non-blocking replacement for alert()). See each file's
        header for what divergence it exists to end. #}
-    <script src="/assets/js/api.js"></script>
-    <script src="/assets/js/toast.js"></script>
-    <script src="/assets/js/confirm.js"></script>
-    <script src="/assets/js/rich-text-link.js"></script>
+    <script src="{{ asset('/assets/js/api.js') }}"></script>
+    <script src="{{ asset('/assets/js/toast.js') }}"></script>
+    <script src="{{ asset('/assets/js/confirm.js') }}"></script>
+    <script src="{{ asset('/assets/js/rich-text-link.js') }}"></script>
     {# Everything the inline head block above does not: the
        [data-theme-toggle] cycle buttons (partials/theme_toggle.html.twig),
        consent-gated persistence, live prefers-color-scheme follow-up. #}
-    <script src="/assets/js/theme.js"></script>
-    <script src="/assets/js/nav.js"></script>
+    <script src="{{ asset('/assets/js/theme.js') }}"></script>
+    <script src="{{ asset('/assets/js/nav.js') }}"></script>
     {# partials/breadcrumb_bar.html.twig's parent buttons — opens the
        matching menu section rather than navigating. Loads unconditionally
        like nav.js above: the breadcrumb bar itself is CSS-hidden except in
        installed-PWA mode, but costs nothing to include either way. #}
-    <script src="/assets/js/breadcrumb.js"></script>
+    <script src="{{ asset('/assets/js/breadcrumb.js') }}"></script>
     {# partials/select_bar.html.twig's JS — mode:multi toggling plus
        closing an open panel on an outside click/Escape. mode:single
        needs none of it (its rows are plain <a href>). Loads
        unconditionally because the public calendar page
        (role_min: public) carries a select bar too, not just
        identified-only pages. #}
-    <script src="/assets/js/select-bar.js" defer></script>
+    <script src="{{ asset('/assets/js/select-bar.js') }}" defer></script>
     {# partials/nav_rail.html.twig's JS — scrolls the selected tab into
        view, and nothing else. The rail is fully rendered and operable
        without it. #}
-    <script src="/assets/js/nav-rail.js" defer></script>
+    <script src="{{ asset('/assets/js/nav-rail.js') }}" defer></script>
     {% if config_mode is defined and config_mode %}
     {% include 'partials/rich_text_editor.html.twig' %}
     {% endif %}
@@ -207,15 +207,15 @@
        $editable flag lets a member replace their own photo), so this script
        must load unconditionally; editable.js itself gates its modal-
        dependent code on the modal's presence. #}
-    <script src="/assets/js/editable.js" defer></script>
+    <script src="{{ asset('/assets/js/editable.js') }}" defer></script>
     {# "Afficher plus" on partials/audit_timeline.html.twig. Inert on a
        page holding no timeline, and the first page of history is always
        server-rendered — so this never gates whether the history is
        readable, only whether it can be read past page one. #}
-    <script src="/assets/js/audit-timeline.js" defer></script>
-    <script src="/assets/js/cookie-consent.js" defer></script>
+    <script src="{{ asset('/assets/js/audit-timeline.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/cookie-consent.js') }}" defer></script>
     {% if is_authenticated %}
-    <script src="/assets/js/notification-badge.js" defer></script>
+    <script src="{{ asset('/assets/js/notification-badge.js') }}" defer></script>
     {% endif %}
     {# Installable PWA (Lot 1) — appVersion (Core\Maintenance\VersionFile)
        is the entire update mechanism: the query string changes on every
@@ -256,9 +256,9 @@
         accountScope: offline_account_scope|default('guest'),
         version: app_version|default('0.0.0')
     }|json_encode|raw }}</script>
-    <script src="/assets/js/offline-cache.js" defer></script>
-    <script src="/assets/js/offline-nav.js" defer></script>
-    <script src="/assets/js/offline-prefetch.js" defer></script>
+    <script src="{{ asset('/assets/js/offline-cache.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/offline-nav.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/offline-prefetch.js') }}" defer></script>
     {# Generic "unavailable offline" dialog (Lot 4, offline-nav.js) — one
        modal for the whole site, no per-page wiring: a click on a
        non-whitelisted link, any form submission, or any non-GET fetch()
@@ -290,7 +290,7 @@
        button is a plain /aide link and this markup isn't emitted at all. #}
     {% if route_help|default([]) is not empty %}
         {% include 'partials/help_panel.html.twig' %}
-        <script src="/assets/js/help-panel.js" defer></script>
+        <script src="{{ asset('/assets/js/help-panel.js') }}" defer></script>
     {% endif %}
     {% block scripts %}{% endblock %}
 

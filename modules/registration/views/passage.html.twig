@@ -147,5 +147,5 @@
    core/Http/Response.php and the same note in
    core/View/templates/members/show.html.twig. #}
 {% block scripts %}
-<script src="/assets/js/registration-passage.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/registration-passage.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

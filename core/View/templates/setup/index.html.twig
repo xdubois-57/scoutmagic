@@ -422,10 +422,10 @@
 {% block scripts %}
 {# The admin password's live rules and its confirmation check — see
    partials/password_field.html.twig. Nothing on this page wires them. #}
-<script type="module" src="/assets/js/password-field.js"></script>
-<script src="/assets/js/setup.js"></script>
+<script type="module" src="{{ asset('/assets/js/password-field.js') }}"></script>
+<script src="{{ asset('/assets/js/setup.js') }}"></script>
 {% if is_initialized and unit_logo_is_custom %}
-<script src="/assets/js/unit-logo.js" defer></script>
-<script src="/assets/js/unit-logo-notify-ios.js" defer></script>
+<script src="{{ asset('/assets/js/unit-logo.js') }}" defer></script>
+<script src="{{ asset('/assets/js/unit-logo-notify-ios.js') }}" defer></script>
 {% endif %}
 {% endblock %}

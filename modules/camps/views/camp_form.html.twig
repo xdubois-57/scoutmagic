@@ -183,9 +183,9 @@
 
         {# The rich text field's own requirement: a module script tag, because
            assets/js/rich-text-form-field.js uses `export`. #}
-        <script type="module" src="/assets/js/rich-text-form-field.js"></script>
+        <script type="module" src="{{ asset('/assets/js/rich-text-form-field.js') }}"></script>
     </div>
 {% endblock %}
 {% block scripts %}
-    <script src="/assets/js/camps-booked-by.js"></script>
+    <script src="{{ asset('/assets/js/camps-booked-by.js') }}"></script>
 {% endblock %}

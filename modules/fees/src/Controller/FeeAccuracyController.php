@@ -246,13 +246,10 @@ class FeeAccuracyController extends AbstractController
             AuthSession::getUserAccountId()
         );
 
-        return (new Response($xlsx))
-            ->setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            ->setHeader('Content-Disposition', 'attachment; filename="justesse-des-tarifs.xlsx"')
-            ->setHeader('Content-Length', (string) strlen($xlsx));
+        return \Core\Http\SpreadsheetResponse::download($xlsx, 'justesse-des-tarifs.xlsx');
     }
 
-    private function buildXlsx(FeeAccuracyReport $report): string
+    private function buildXlsx(FeeAccuracyReport $report): \PhpOffice\PhpSpreadsheet\Spreadsheet
     {
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
@@ -289,11 +286,7 @@ class FeeAccuracyController extends AbstractController
             }
         }
 
-        $writer = new Xlsx($spreadsheet);
-        ob_start();
-        $writer->save('php://output');
-
-        return (string) ob_get_clean();
+        return $spreadsheet;
     }
 
     private static function verdict(HouseholdReview $review, HouseholdReviewMember $member): string

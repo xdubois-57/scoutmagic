@@ -215,6 +215,36 @@ class SectionServiceTest extends TestCase
         $this->assertCount(1, $ids);
     }
 
+    /**
+     * The batch hydration answers exactly like N calls to the single
+     * variant — same fields, functions and year label — for 4 queries
+     * total instead of 4 per member. Unknown ids are simply absent,
+     * as the single variant returns null for them.
+     */
+    public function testHydrateMemberProfilesMatchesTheSingleVariant(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+        $sectionId = $this->createSection('BAL01', $balId);
+        $idA = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $idB = $this->createMemberInSection($sectionId, 'Petit Loup', 'identified');
+
+        $batch = $this->service->hydrateMemberProfiles([$idA, $idB, 424242]);
+
+        $this->assertSame([$idA, $idB], array_keys($batch));
+        foreach ([$idA, $idB] as $id) {
+            $single = $this->service->hydrateMemberProfile($id);
+            $this->assertNotNull($single);
+            $this->assertEquals($single, $batch[$id]);
+        }
+    }
+
+    public function testHydrateMemberProfilesWithNoIdsIsEmpty(): void
+    {
+        $this->assertSame([], $this->service->hydrateMemberProfiles([]));
+    }
+
     public function testGetSectionAnimesIsScopedToOneSection(): void
     {
         $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');

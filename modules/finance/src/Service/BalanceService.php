@@ -10,6 +10,7 @@ namespace Modules\Finance\Service;
 
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\BalanceCheckpointRepository;
+use Modules\Finance\Repository\Transaction;
 use Modules\Finance\Repository\TransactionRepository;
 
 /**
@@ -25,10 +26,63 @@ use Modules\Finance\Repository\TransactionRepository;
  */
 class BalanceService
 {
+    /**
+     * Movements are memoized per account for this instance's lifetime
+     * (see $movementsSinceCache below) — a holder that WRITES to
+     * finance_transactions between reads must call forgetAccount() after
+     * the write, or the next read answers from before it.
+     */
     public function __construct(
         private BalanceCheckpointRepository $checkpointRepository,
         private TransactionRepository $transactionRepository
     ) {
+    }
+
+    /**
+     * The widest movement window already read per account, for the
+     * lifetime of this instance. The dashboard asks three balance
+     * questions per view (today's balance, the 18-month low, the
+     * evolution chart) and each used to re-read the same rows; the first
+     * wide read now serves the narrower ones. Movements never change
+     * inside a request that only reads balances, so the memo cannot go
+     * stale where it is used.
+     *
+     * @var array<int, array{from: string, movements: Transaction[]}>
+     */
+    private array $movementsSinceCache = [];
+
+    /**
+     * Drops the memoized movements for one account — for the rare holder
+     * that deletes/creates movements between balance reads
+     * (Task\PurgeOldMovementsHandler purging several fiscal years of one
+     * account in a run).
+     */
+    public function forgetAccount(int $accountId): void
+    {
+        unset($this->movementsSinceCache[$accountId]);
+    }
+
+    /**
+     * findByAccountAfterDate() through the per-account memo: a window the
+     * cache already covers is answered by filtering (order preserved — the
+     * repository sorts ascending); a wider one replaces the cache.
+     *
+     * @return Transaction[]
+     */
+    private function movementsAfter(int $accountId, string $afterDate): array
+    {
+        $cached = $this->movementsSinceCache[$accountId] ?? null;
+        if ($cached !== null && $cached['from'] <= $afterDate) {
+            return array_values(array_filter(
+                $cached['movements'],
+                static fn(Transaction $transaction): bool => $transaction->transactionDate > $afterDate
+            ));
+        }
+
+        $movements = $this->transactionRepository->findByAccountAfterDate($accountId, $afterDate);
+        $this->movementsSinceCache[$accountId] = ['from' => $afterDate, 'movements' => $movements];
+
+        return $movements;
     }
 
     /**
@@ -44,7 +98,7 @@ class BalanceService
         }
 
         $balance = $checkpoint->balance;
-        foreach ($this->transactionRepository->findByAccountAfterDate($account->id, $checkpoint->checkpointDate) as $transaction) {
+        foreach ($this->movementsAfter($account->id, $checkpoint->checkpointDate) as $transaction) {
             if ($transaction->transactionDate > $dateStr) {
                 continue;
             }
@@ -105,7 +159,7 @@ class BalanceService
         $earliest = $checkpoints[0]->checkpointDate;
         $runningTotal = 0.0;
         $cumulativeUpTo = [];
-        $movements = $this->transactionRepository->findByAccountAfterDate($account->id, $earliest);
+        $movements = $this->movementsAfter($account->id, $earliest);
         $index = 0;
         $count = count($movements);
         foreach ($milestones as $milestone) {
@@ -167,7 +221,7 @@ class BalanceService
         }
 
         $lowest = $balance;
-        foreach ($this->transactionRepository->findByAccountAfterDate($account->id, $anchorDate) as $transaction) {
+        foreach ($this->movementsAfter($account->id, $anchorDate) as $transaction) {
             $balance += $transaction->amount;
             $lowest = min($lowest, $balance);
         }

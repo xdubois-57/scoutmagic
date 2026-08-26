@@ -72,6 +72,18 @@ class AlbumService
     }
 
     /**
+     * The manage/chief list scoped to a set of scout years, filtered in
+     * SQL instead of loading every album ever created.
+     *
+     * @param int[] $scoutYearIds
+     * @return Album[]
+     */
+    public function findForManageByScoutYears(array $scoutYearIds): array
+    {
+        return $this->albumRepository->findByScoutYearIds($scoutYearIds);
+    }
+
+    /**
      * Every album another module owns — for the storage administration
      * page, and nothing else. See Repository\AlbumRepository::findDelegated().
      *

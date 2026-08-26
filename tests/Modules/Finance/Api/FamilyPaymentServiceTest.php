@@ -204,6 +204,33 @@ class FamilyPaymentServiceTest extends TestCase
         $this->assertNull($this->signedInAs('roskam@test.be')->getHomePaymentSummaryForCurrentUser());
     }
 
+    /**
+     * The home band reads the STORED allocations and never runs its own
+     * reconcile pass — that is the deliberate trade behind
+     * openReceivablesFor(refresh: false): the most-visited page must not
+     * scan an account's whole history per family, and every real
+     * transaction write (Service\ImportService) reconciles at arrival, so
+     * the stored state is what production always has. Proven by paying
+     * WITHOUT the reconcile the import would have run: a fresh read would
+     * see the payment, the stored read must not.
+     */
+    public function testTheHomeBandReadsStoredAllocationsWithoutReconciling(): void
+    {
+        $this->campaignWith([['Timeo', 3825]]);
+        $receivable = $this->receivables->findByMemberIds([$this->memberIds['Timeo']])[0];
+        $this->transactions->create(
+            $this->accountId, $this->scoutYearId, 'REF-RAW', '2026-02-18',
+            'Virement ' . $receivable->communication, 38.25, null, null, 'import', null
+        );
+
+        $summary = $this->signedInAs('roskam@test.be')->getHomePaymentSummaryForCurrentUser();
+
+        $this->assertNotNull($summary, 'no allocation row exists yet, so the stored state still says owed');
+        // No allocation was written by the read itself.
+        $count = (int) $this->pdo->query('SELECT COUNT(*) FROM finance_receivable_allocations')->fetchColumn();
+        $this->assertSame(0, $count, 'the home read must never write allocations');
+    }
+
     public function testAnAnonymousVisitorGetsNoBandAtAll(): void
     {
         $this->campaignWith([['Timeo', 3825]]);
@@ -331,6 +358,13 @@ class FamilyPaymentServiceTest extends TestCase
             'import',
             null
         );
+        // What every real transaction write does right after (Service\
+        // ImportService — the only production path that creates movements
+        // — reconciles the account before returning): allocations are
+        // written at arrival, which is what lets the home band read the
+        // stored state without its own reconcile pass.
+        FinanceTestHelper::allocationService($this->pdo, $this->encryption, $this->receivables)
+            ->reconcileAccount($this->accountId);
     }
 
     private function createMember(string $firstName, string $email): int

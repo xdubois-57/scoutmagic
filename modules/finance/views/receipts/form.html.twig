@@ -78,7 +78,7 @@
    from the DOM (#receipt-file vs #drop-zone), where a Twig condition inside
    the script used to; there is no server-side value to hand over. #}
 {% if replace_id or accounts is not empty %}
-<script src="/assets/js/drop-zone.js" defer></script>
-<script src="/assets/js/finance-receipt-form.js" defer></script>
+<script src="{{ asset('/assets/js/drop-zone.js') }}" defer></script>
+<script src="{{ asset('/assets/js/finance-receipt-form.js') }}" defer></script>
 {% endif %}
 {% endblock %}

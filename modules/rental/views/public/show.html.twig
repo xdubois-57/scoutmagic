@@ -13,7 +13,7 @@
   grid builder, which was producing the right cells all along.
 #}
 {% block stylesheets %}
-<link rel="stylesheet" href="/assets/css/components.css">
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
 {% endblock %}
 {#
   One public asset: its editable presentation blocks, its availability
@@ -121,5 +121,5 @@
        classic script the browser rejects the whole file with a
        SyntaxError and it silently never runs — which is exactly what had
        been happening. Modules are deferred by definition. #}
-    <script type="module" src="/assets/js/rental-calendar.js"></script>
+    <script type="module" src="{{ asset('/assets/js/rental-calendar.js') }}"></script>
 {% endblock %}

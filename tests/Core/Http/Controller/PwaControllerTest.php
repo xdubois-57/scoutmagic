@@ -48,6 +48,9 @@ class PwaControllerTest extends TestCase
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         $twig->addGlobal('site_name', 'Unité des Bois Joyeux');
 
         $this->controller = new PwaController($twig, $this->settingService, $iconService);
@@ -132,6 +135,9 @@ class PwaControllerTest extends TestCase
         $iconService = new UnitLogoService(new UnitLogoProcessor(), $settingService, $this->storagePath, $this->defaultIconPath);
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         $controller = new PwaController($twig, $settingService, $iconService);
 
         $request = new Request('GET', '/manifest.webmanifest', [], [], [], []);

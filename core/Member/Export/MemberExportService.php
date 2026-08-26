@@ -32,9 +32,30 @@ final class MemberExportService
     private const MULTI_VALUE_SEPARATOR = '; ';
 
     /**
+     * The serialized workbook — kept for callers/tests that want the
+     * bytes; the download routes stream buildSpreadsheet() through
+     * Core\Http\SpreadsheetResponse instead, which avoids ever holding
+     * a 2000-member export as a PHP string.
+     *
      * @param MemberExportRow[] $rows
      */
     public function build(array $rows, Role $viewerRole, string $sheetTitle = 'Membres'): string
+    {
+        $spreadsheet = $this->buildSpreadsheet($rows, $viewerRole, $sheetTitle);
+
+        $writer = new Xlsx($spreadsheet);
+        ob_start();
+        $writer->save('php://output');
+        $output = (string) ob_get_clean();
+        $spreadsheet->disconnectWorksheets();
+
+        return $output;
+    }
+
+    /**
+     * @param MemberExportRow[] $rows
+     */
+    public function buildSpreadsheet(array $rows, Role $viewerRole, string $sheetTitle = 'Membres'): Spreadsheet
     {
         $fields = MemberExportColumns::forRole($viewerRole);
 
@@ -68,10 +89,7 @@ final class MemberExportService
             $sheet->getColumnDimension($columnLetter)->setWidth($width);
         }
 
-        $writer = new Xlsx($spreadsheet);
-        ob_start();
-        $writer->save('php://output');
-        return (string) ob_get_clean();
+        return $spreadsheet;
     }
 
     private function writeCell(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, int $column, int $row, MemberExportField $field, MemberExportRow $data): void

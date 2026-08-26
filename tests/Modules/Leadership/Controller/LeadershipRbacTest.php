@@ -564,6 +564,9 @@ class LeadershipRbacTest extends TestCase
         $loader->addPath(dirname(__DIR__, 4) . '/modules/leadership/views', 'leadership');
 
         $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
 
         // The shared French format filters (core/View/TwigFactory.php) the
         // templates under test use — same rendering as the shipped ones.

@@ -82,7 +82,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/sortable.js" defer></script>
-<script src="/assets/js/list-editor.js" defer></script>
-<script src="/assets/js/config-modules.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/sortable.js') }}" defer></script>
+<script src="{{ asset('/assets/js/list-editor.js') }}" defer></script>
+<script src="{{ asset('/assets/js/config-modules.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

@@ -141,5 +141,5 @@
     <script type="application/json" id="fees-clipboard-data">{{ clipboard_texts|json_encode|raw }}</script>
 {% endblock %}
 {% block scripts %}
-    <script src="/assets/js/fees-copy.js" defer></script>
+    <script src="{{ asset('/assets/js/fees-copy.js') }}" defer></script>
 {% endblock %}

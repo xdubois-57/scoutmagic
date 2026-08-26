@@ -48,6 +48,48 @@ class ArticleRepository
     }
 
     /**
+     * One page of findByVisibilities(), paginated in SQL — the public
+     * /news list grows by every article ever published, and rendering it
+     * whole also cost one form lookup per card.
+     *
+     * @param string[] $visibilities
+     * @return Article[]
+     */
+    public function findByVisibilitiesPage(array $visibilities, int $limit, int $offset): array
+    {
+        if ($visibilities === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($visibilities), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM news_articles WHERE visibility IN ({$placeholders}) ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        );
+        foreach (array_values($visibilities) as $index => $visibility) {
+            $stmt->bindValue($index + 1, $visibility);
+        }
+        $stmt->bindValue(count($visibilities) + 1, $limit, \PDO::PARAM_INT);
+        $stmt->bindValue(count($visibilities) + 2, $offset, \PDO::PARAM_INT);
+        $stmt->execute();
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * @param string[] $visibilities
+     */
+    public function countByVisibilities(array $visibilities): int
+    {
+        if ($visibilities === []) {
+            return 0;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($visibilities), '?'));
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM news_articles WHERE visibility IN ({$placeholders})");
+        $stmt->execute($visibilities);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * The $limit most recent public articles — Core\Module\HomeNewsProvider
      * (homepage news column).
      *
