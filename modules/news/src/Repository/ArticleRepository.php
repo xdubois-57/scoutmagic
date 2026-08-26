@@ -90,16 +90,30 @@ class ArticleRepository
     }
 
     /**
-     * The $limit most recent public articles — Core\Module\HomeNewsProvider
-     * (homepage news column).
+     * The $limit most recent articles in $visibilities —
+     * Core\Module\HomeNewsProvider (homepage news column). The caller
+     * decides the set from the reader's role
+     * (Service\ArticleService::listableVisibilities()); this used to be
+     * hardcoded to `public` alone, which left an `identified` article
+     * reachable by URL and advertised nowhere.
      *
+     * @param string[] $visibilities
      * @return Article[]
      */
-    public function findLatestPublic(int $limit): array
+    public function findLatestByVisibilities(array $visibilities, int $limit): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM news_articles WHERE visibility = ? ORDER BY created_at DESC LIMIT ?');
-        $stmt->bindValue(1, Article::VISIBILITY_PUBLIC);
-        $stmt->bindValue(2, $limit, \PDO::PARAM_INT);
+        if ($visibilities === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($visibilities), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM news_articles WHERE visibility IN ({$placeholders}) ORDER BY created_at DESC LIMIT ?"
+        );
+        foreach (array_values($visibilities) as $index => $visibility) {
+            $stmt->bindValue($index + 1, $visibility);
+        }
+        $stmt->bindValue(count($visibilities) + 1, $limit, \PDO::PARAM_INT);
         $stmt->execute();
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }

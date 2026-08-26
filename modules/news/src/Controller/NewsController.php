@@ -95,7 +95,13 @@ class NewsController extends AbstractController
         // an out-of-range ?page= must land on the last real page, never on
         // an empty result that renders as "no news".
         $page = max(1, (int) $request->getQuery('page', 1));
+        // The list is role-aware: an anonymous visitor sees `public`
+        // articles, a signed-in one also sees `identified` ones. The
+        // route stays role_min: public — this narrows the CONTENT, and
+        // /news/{id} re-checks the article itself (SECURITY.md §3).
+        $role = Role::fromString(AuthSession::getRole());
         ['articles' => $articles, 'total' => $total] = $this->articleService->findPublicListPage(
+            $role,
             self::LIST_PER_PAGE,
             0
         );
@@ -103,6 +109,7 @@ class NewsController extends AbstractController
         $page = min($page, $totalPages);
         if ($page > 1) {
             ['articles' => $articles] = $this->articleService->findPublicListPage(
+                $role,
                 self::LIST_PER_PAGE,
                 ($page - 1) * self::LIST_PER_PAGE
             );
@@ -500,6 +507,12 @@ class NewsController extends AbstractController
             // The share target is always the short URL (works whether the
             // visitor shared the short or the full link — a crawler
             // re-fetching og:url gets redirected the same way either way).
+            // ...and only for an article a caller with no session could
+            // read anyway (Service\ArticleService::isSociallyShareable()).
+            // A members-only article's preview would otherwise render its
+            // title, summary and cover image in any chat it is pasted
+            // into, leaving the body protected and the gist of it not.
+            'social_preview' => $this->articleService->isSociallyShareable($article),
             'og_url' => $article->shortUrlCode !== null ? $baseUrl . '/s/' . $article->shortUrlCode : $baseUrl . '/news/' . $article->id,
             'og_image_url' => $article->imageFileId !== null ? $baseUrl . '/files/' . $article->imageFileId : null,
             'human_check' => $this->humanCheckChallenge(),
@@ -643,7 +656,11 @@ class NewsController extends AbstractController
             return null;
         }
 
+        // The file's role_min mirrors the article's own visibility
+        // (schema.sql) — the cover image of a members-only article is
+        // members-only too, or the picture leaks what the page does not.
         $roleMin = match ($visibility) {
+            Article::VISIBILITY_IDENTIFIED => 'identified',
             Article::VISIBILITY_CHIEF => 'chief',
             Article::VISIBILITY_ADMIN => 'admin',
             default => 'public',

@@ -423,6 +423,64 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringContainsString('name="twitter:card" content="summary_large_image"', $body);
     }
 
+    /**
+     * The visibility check is a server-side boundary, not a listing
+     * filter (SECURITY.md §3): hiding the article from /news does not
+     * protect it, refusing /news/{id} does.
+     */
+    public function testShowReturns403ForIdentifiedArticleWhenAnonymous(): void
+    {
+        $id = $this->articleRepository->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
+
+        $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testShowRendersIdentifiedArticleForASignedInMember(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'parent@test.com', 'identified');
+        $id = $this->articleRepository->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
+
+        $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Membres', $response->getBody());
+    }
+
+    public function testPublicListHidesIdentifiedArticleFromAnAnonymousVisitorAndShowsItToAMember(): void
+    {
+        $this->articleRepository->create('Reserve aux membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
+
+        $anonymous = $this->newsController->index(new Request('GET', '/news', [], [], [], []), []);
+        $this->assertStringNotContainsString('Reserve aux membres', $anonymous->getBody());
+
+        AuthSession::login($this->chiefAccountId, 'parent@test.com', 'identified');
+        $member = $this->newsController->index(new Request('GET', '/news', [], [], [], []), []);
+        $this->assertStringContainsString('Reserve aux membres', $member->getBody());
+    }
+
+    /**
+     * The decision recorded in schema.sql and in the module spec: the
+     * body of a members-only article is protected by the 403 above, and
+     * its PREVIEW has to be protected too — otherwise a link pasted into
+     * a public group renders the title, the summary and the cover image
+     * for everyone.
+     */
+    public function testIdentifiedArticleExposesNoOpenGraphMetadataEvenToAReaderWhoMaySeeIt(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'parent@test.com', 'identified');
+        $id = $this->articleRepository->create('Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
+        $this->articleRepository->update($id, 'Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, 'Un secret de famille.', 55);
+        $this->settingService->register('base_url', 'https://example.test', 'text', 'label', 'desc');
+
+        $body = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id])->getBody();
+
+        $this->assertStringNotContainsString('property="og:', $body);
+        $this->assertStringNotContainsString('name="twitter:', $body);
+        $this->assertStringContainsString('name="robots" content="noindex"', $body);
+    }
+
     public function testShowReturns403ForChiefArticleWhenPublic(): void
     {
         $id = $this->articleRepository->create('Réservé', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId);

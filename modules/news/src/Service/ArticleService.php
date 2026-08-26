@@ -44,38 +44,65 @@ class ArticleService implements HomeNewsProvider
     }
 
     /**
-     * Public list: only `public`-visibility articles — `direct_link`
-     * articles never appear in any list (module spec), `chief`/`admin`
-     * ones have their own manager view.
+     * The visibilities a reader at $role may be shown in a LIST — the
+     * public list and the homepage column alike, which is why both go
+     * through this one method rather than each spelling out their own
+     * set and drifting apart.
      *
-     * @return Article[]
+     * `public` for an anonymous visitor, `public` + `identified` once
+     * signed in. Never `chief`/`admin` (they have the manager view) and
+     * never `direct_link`, which means "listed nowhere" no matter who is
+     * asking — it is not a rung of the ladder.
+     *
+     * @return string[]
      */
-    public function findPublicList(): array
+    public function listableVisibilities(Role $role): array
     {
-        return $this->articleRepository->findByVisibilities([Article::VISIBILITY_PUBLIC]);
+        $visibilities = [Article::VISIBILITY_PUBLIC];
+        if ($role->hasAccess(Role::IDENTIFIED)) {
+            $visibilities[] = Article::VISIBILITY_IDENTIFIED;
+        }
+
+        return $visibilities;
     }
 
     /**
-     * One page of the public list plus its total — /news paginates in
-     * SQL so a decade of articles costs the same as its first month.
+     * The /news list, as $role may see it.
+     *
+     * @return Article[]
+     */
+    public function findPublicList(Role $role): array
+    {
+        return $this->articleRepository->findByVisibilities($this->listableVisibilities($role));
+    }
+
+    /**
+     * One page of the list plus its total — /news paginates in SQL so a
+     * decade of articles costs the same as its first month.
      *
      * @return array{articles: Article[], total: int}
      */
-    public function findPublicListPage(int $limit, int $offset): array
+    public function findPublicListPage(Role $role, int $limit, int $offset): array
     {
+        $visibilities = $this->listableVisibilities($role);
+
         return [
-            'articles' => $this->articleRepository->findByVisibilitiesPage([Article::VISIBILITY_PUBLIC], $limit, $offset),
-            'total' => $this->articleRepository->countByVisibilities([Article::VISIBILITY_PUBLIC]),
+            'articles' => $this->articleRepository->findByVisibilitiesPage($visibilities, $limit, $offset),
+            'total' => $this->articleRepository->countByVisibilities($visibilities),
         ];
     }
 
     /**
-     * Core\Module\HomeNewsProvider — homepage news column.
+     * Core\Module\HomeNewsProvider — homepage news column, same
+     * role-awareness as the list above: an `identified` article the
+     * reader may open has to be reachable from somewhere.
      *
      * @return array<int, array{id: int, title: string, summary: ?string, image_url: ?string, created_at: string}>
      */
-    public function getLatestPublicArticles(int $limit): array
+    public function getLatestVisibleArticles(int $limit, string $role): array
     {
+        $visibilities = $this->listableVisibilities(Role::fromString($role));
+
         return array_map(fn(Article $article) => [
             'id' => $article->id,
             'title' => $article->title,
@@ -84,19 +111,19 @@ class ArticleService implements HomeNewsProvider
             // this in a 56px box, and originals can weigh several MB.
             'image_url' => $article->imageFileId !== null ? '/files/' . $article->imageFileId . '/thumb' : null,
             'created_at' => $article->createdAt,
-        ], $this->articleRepository->findLatestPublic($limit));
+        ], $this->articleRepository->findLatestByVisibilities($visibilities, $limit));
     }
 
     /**
      * Chief/admin management list: every article the given role can see
-     * (public + chief, plus admin if the role is admin+), plus any
-     * direct_link article the current account itself authored.
+     * (public + identified + chief, plus admin if the role is admin+),
+     * plus any direct_link article the current account itself authored.
      *
      * @return Article[]
      */
     public function findManagerList(Role $role, int $currentAccountId): array
     {
-        $visibilities = [Article::VISIBILITY_PUBLIC, Article::VISIBILITY_CHIEF];
+        $visibilities = [Article::VISIBILITY_PUBLIC, Article::VISIBILITY_IDENTIFIED, Article::VISIBILITY_CHIEF];
         if ($role->hasAccess(Role::ADMIN)) {
             $visibilities[] = Article::VISIBILITY_ADMIN;
         }
@@ -112,11 +139,31 @@ class ArticleService implements HomeNewsProvider
     public function canView(Article $article, Role $role): bool
     {
         return match ($article->visibility) {
+            // direct_link is "unlisted", never a rung of the ladder:
+            // holding the address IS the permission.
             Article::VISIBILITY_PUBLIC, Article::VISIBILITY_DIRECT_LINK => true,
+            Article::VISIBILITY_IDENTIFIED => $role->hasAccess(Role::IDENTIFIED),
             Article::VISIBILITY_CHIEF => $role->hasAccess(Role::CHIEF),
             Article::VISIBILITY_ADMIN => $role->hasAccess(Role::ADMIN),
             default => false,
         };
+    }
+
+    /**
+     * Whether this article's title, summary and cover image may be
+     * exposed as og:/twitter: metadata.
+     *
+     * The body of a restricted article is protected by canView() above,
+     * but a preview is not a body: a link pasted into a public group
+     * would otherwise render title, summary and picture for anyone. So
+     * the metadata is emitted only for an article a caller with no
+     * session may read anyway — which is exactly PUBLICLY_READABLE_
+     * VISIBILITIES. Decided server-side, before rendering, never by
+     * hiding markup the response already carries.
+     */
+    public function isSociallyShareable(Article $article): bool
+    {
+        return in_array($article->visibility, Article::PUBLICLY_READABLE_VISIBILITIES, true);
     }
 
     public function canEdit(Article $article, Role $role, int $currentAccountId): bool
@@ -221,14 +268,20 @@ class ArticleService implements HomeNewsProvider
     }
 
     /**
-     * direct_link visibility forces is_indexed = false, enforced here
-     * (service layer) not just hidden in the UI (module spec §16).
+     * direct_link AND identified visibility both force is_indexed =
+     * false, enforced here (service layer) not just hidden in the UI
+     * (module spec §16).
+     *
+     * They fail the same test for two different reasons: a direct_link
+     * article is deliberately in no list, and an `identified` one hands
+     * a crawler — which never signs in — a title, a summary and a cover
+     * image whose whole point was to stay inside the unit.
      *
      * @return array{0: bool, 1: ?string, 2: ?string}
      */
     private function enforceSeoRules(string $visibility, bool $isIndexed, ?string $seoKeywords, ?string $seoStopDate): array
     {
-        if ($visibility === Article::VISIBILITY_DIRECT_LINK) {
+        if (in_array($visibility, [Article::VISIBILITY_DIRECT_LINK, Article::VISIBILITY_IDENTIFIED], true)) {
             return [false, null, null];
         }
 

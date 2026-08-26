@@ -386,13 +386,23 @@
     var visibilityGroup = document.getElementById('news-visibility-group');
     if (visibilityGroup) {
         var directLinkHelp = document.getElementById('news-direct-link-help');
+        var identifiedHelp = document.getElementById('news-identified-help');
         var seoSection = document.getElementById('news-seo-section');
 
         function updateVisibilityUi() {
             var selected = /** @type {HTMLInputElement} */ (visibilityGroup.querySelector('input:checked'));
-            var isDirectLink = selected && selected.value === 'direct_link';
+            var value = selected ? selected.value : 'public';
+            var isDirectLink = value === 'direct_link';
+            var isIdentified = value === 'identified';
             if (directLinkHelp) directLinkHelp.classList.toggle('d-none', !isDirectLink);
-            if (seoSection) seoSection.classList.toggle('d-none', isDirectLink);
+            if (identifiedHelp) identifiedHelp.classList.toggle('d-none', !isIdentified);
+            // Both refuse indexing server-side (Service\ArticleService::
+            // enforceSeoRules) — direct_link because it is in no list,
+            // identified because a crawler never signs in and would
+            // publish the preview of a members-only article. Hiding the
+            // panel just stops the author filling in a section the
+            // server is going to discard.
+            if (seoSection) seoSection.classList.toggle('d-none', isDirectLink || isIdentified);
             updateAccessUi();
         }
 
