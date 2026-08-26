@@ -32,6 +32,23 @@ class SchedulerRepository
     }
 
     /**
+     * Every pending row's (module_id, task_key, reference) triple, for
+     * SchedulerService's opt-in rearm cache — the pending set is small
+     * (one row per recurring task plus whatever one-shots are queued).
+     *
+     * @return array<int, array{module_id: string, task_key: string, reference: string|null}>
+     */
+    public function findPendingKeys(): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT module_id, task_key, reference FROM scheduled_actions WHERE status = ?'
+        );
+        $stmt->execute(['pending']);
+        /** @var array<int, array{module_id: string, task_key: string, reference: string|null}> */
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public function findById(int $id): ?array

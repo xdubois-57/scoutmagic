@@ -208,6 +208,28 @@ class PersonalFeedServiceTest extends TestCase
         $this->assertSame('Prévoir le matériel.', $events[0]->description);
     }
 
+    /**
+     * A PersonalFeedService built from fresh components, the way a new
+     * HTTP request builds one — for tests that change rights between two
+     * fetches and assert the second fetch sees the change.
+     */
+    private function freshService(): PersonalFeedService
+    {
+        $connection = Connection::withPdo($this->pdo);
+        $memberYearRepo = new MemberYearRepository($this->pdo);
+        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+
+        return new PersonalFeedService(
+            $this->tokenRepository,
+            $this->calendarService,
+            $this->eventRepository,
+            new RoleResolver($memberYearRepo, $this->encryption, $this->pdo),
+            new MemberService($memberYearRepo, $this->encryption, $connection),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            $sectionService
+        );
+    }
+
     private function serviceWithLookup(\Modules\Retro\Api\RetroEventLinkLookupInterface $lookup): PersonalFeedService
     {
         $connection = Connection::withPdo($this->pdo);
@@ -496,7 +518,13 @@ class PersonalFeedServiceTest extends TestCase
 
         $this->pdo->exec('UPDATE member_years SET is_active = 0');
 
-        $this->service->getVirtualEventsForToken($token, $this->scoutYearId, $registry);
+        // A fresh service, because each real fetch is its own HTTP request
+        // with its own composition root: MemberService memoizes linked
+        // members for the lifetime of one request, and the guarantee this
+        // test pins — a revoked chef loses the chef view — holds at the
+        // next fetch, never mid-request (nothing revokes a member inside
+        // the request that is also serving their feed).
+        $this->freshService()->getVirtualEventsForToken($token, $this->scoutYearId, $registry);
         $afterRevocation = $provider->lastViewer;
         $this->assertNotNull($afterRevocation);
         $this->assertSame([], $afterRevocation->calendarIds);

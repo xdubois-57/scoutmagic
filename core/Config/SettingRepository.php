@@ -45,7 +45,7 @@ class SettingRepository
         return $row ?: null;
     }
 
-    public function upsert(
+    public function insert(
         ?string $moduleId,
         string $key,
         string $value,
@@ -57,26 +57,6 @@ class SettingRepository
         bool $editable,
         int $sortOrder
     ): void {
-        $existing = $this->findByModuleAndKey($moduleId, $key);
-        if ($existing !== null) {
-            // Self-heal default_value on every boot even for a row that
-            // already exists — the register() call site is the single
-            // source of truth for what a setting's declared default is, and
-            // Core\Maintenance\Task\ResetSettingsHandler trusts this column
-            // blindly. Without this, every setting registered before this
-            // column existed (or whose declared default later changed)
-            // would silently reset to NULL/empty instead of its real
-            // default the first time "Paramètres par défaut" runs.
-            if ($moduleId === null) {
-                $stmt = $this->pdo->prepare('UPDATE settings SET default_value = ? WHERE module_id IS NULL AND setting_key = ?');
-                $stmt->execute([$value, $key]);
-            } else {
-                $stmt = $this->pdo->prepare('UPDATE settings SET default_value = ? WHERE module_id = ? AND setting_key = ?');
-                $stmt->execute([$value, $moduleId, $key]);
-            }
-            return;
-        }
-
         $stmt = $this->pdo->prepare(
             'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, description, validation_regex, select_options, editable, sort_order)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -94,6 +74,27 @@ class SettingRepository
             $editable ? 1 : 0,
             $sortOrder,
         ]);
+    }
+
+    /**
+     * Self-heal default_value on an existing row — the register() call
+     * site is the single source of truth for what a setting's declared
+     * default is, and Core\Maintenance\Task\ResetSettingsHandler trusts
+     * this column blindly. Without this, every setting registered before
+     * this column existed (or whose declared default later changed) would
+     * silently reset to NULL/empty instead of its real default the first
+     * time "Paramètres par défaut" runs. SettingService::register() only
+     * calls this when the stored default actually differs.
+     */
+    public function updateDefaultValue(?string $moduleId, string $key, string $defaultValue): void
+    {
+        if ($moduleId === null) {
+            $stmt = $this->pdo->prepare('UPDATE settings SET default_value = ? WHERE module_id IS NULL AND setting_key = ?');
+            $stmt->execute([$defaultValue, $key]);
+        } else {
+            $stmt = $this->pdo->prepare('UPDATE settings SET default_value = ? WHERE module_id = ? AND setting_key = ?');
+            $stmt->execute([$defaultValue, $moduleId, $key]);
+        }
     }
 
     /**

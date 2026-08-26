@@ -302,18 +302,7 @@ class SectionService
      */
     public function getSectionAnimes(int $sectionId, int $scoutYearId): array
     {
-        $pdo = $this->connection->getPdo();
-
-        $stmt = $pdo->prepare(
-            'SELECT DISTINCT mf.member_year_id
-             FROM member_functions mf
-             JOIN member_years my ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE mf.section_id = ? AND my.scout_year_id = ? AND my.is_active = 1
-               AND f.role NOT IN (\'chief\', \'admin\', \'intendant\')'
-        );
-        $stmt->execute([$sectionId, $scoutYearId]);
-        $memberYearIds = array_map(fn(array $row) => (int) $row['member_year_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        $memberYearIds = $this->getSectionAnimeMemberYearIds($sectionId, $scoutYearId);
 
         if (count($memberYearIds) === 0) {
             return [];
@@ -331,6 +320,34 @@ class SectionService
             strcasecmp($a->getDisplayName(), $b->getDisplayName()));
 
         return $profiles;
+    }
+
+    /**
+     * The member_year ids behind getSectionAnimes() — THE definition of
+     * "animé of this section" (see getSectionAnimes()'s own doc comment
+     * for the role-filter history), selectable without paying the full
+     * profile hydration. For callers that only need membership — the
+     * Départs write path re-checks "is this member_year one of my animés"
+     * on every field save, and hydrating every animé of every staffed
+     * section to answer it cost hundreds of queries per keystroke.
+     *
+     * @return int[]
+     */
+    public function getSectionAnimeMemberYearIds(int $sectionId, int $scoutYearId): array
+    {
+        $pdo = $this->connection->getPdo();
+
+        $stmt = $pdo->prepare(
+            'SELECT DISTINCT mf.member_year_id
+             FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE mf.section_id = ? AND my.scout_year_id = ? AND my.is_active = 1
+               AND f.role NOT IN (\'chief\', \'admin\', \'intendant\')'
+        );
+        $stmt->execute([$sectionId, $scoutYearId]);
+
+        return array_map(fn(array $row) => (int) $row['member_year_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /**

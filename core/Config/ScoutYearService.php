@@ -10,6 +10,20 @@ namespace Core\Config;
 
 class ScoutYearService
 {
+    /**
+     * Per-instance memo of rows already read. Safe because the four
+     * fields callers get (id, label, start_date, end_date) are fixed at
+     * INSERT and never updated anywhere — only is_current changes, and it
+     * is not part of what this service returns. The composition root and
+     * several controllers resolve the same year repeatedly per request.
+     *
+     * @var array<int, array{id: int, label: string, start_date: string, end_date: string}|null>
+     */
+    private array $byId = [];
+
+    /** @var array{id: int, label: string, start_date: string, end_date: string}|null */
+    private ?array $currentYear = null;
+
     public function __construct(private \PDO $pdo)
     {
     }
@@ -23,18 +37,17 @@ class ScoutYearService
     public function getCurrentYear(): array
     {
         $label = self::labelForDate(new \DateTimeImmutable());
+        if ($this->currentYear !== null && $this->currentYear['label'] === $label) {
+            return $this->currentYear;
+        }
+
         $id = $this->ensureYear($label);
+        $year = $this->findById($id);
+        if ($year === null) {
+            throw new \RuntimeException('ensureYear() returned an id that does not resolve.');
+        }
 
-        $stmt = $this->pdo->prepare('SELECT * FROM scout_years WHERE id = ?');
-        $stmt->execute([$id]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-
-        return [
-            'id' => (int) $row['id'],
-            'label' => (string) $row['label'],
-            'start_date' => (string) $row['start_date'],
-            'end_date' => (string) $row['end_date'],
-        ];
+        return $this->currentYear = $year;
     }
 
     /**
@@ -44,15 +57,19 @@ class ScoutYearService
      */
     public function findById(int $id): ?array
     {
+        if (array_key_exists($id, $this->byId)) {
+            return $this->byId[$id];
+        }
+
         $stmt = $this->pdo->prepare('SELECT * FROM scout_years WHERE id = ?');
         $stmt->execute([$id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
         if ($row === false) {
-            return null;
+            return $this->byId[$id] = null;
         }
 
-        return [
+        return $this->byId[$id] = [
             'id' => (int) $row['id'],
             'label' => (string) $row['label'],
             'start_date' => (string) $row['start_date'],

@@ -157,7 +157,11 @@ class TwigFactory
             }
 
             if ($hasImage) {
-                return '<img src="/files/' . (int) $fileId . '/md" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">';
+                // Deliberately NOT loading="lazy": this renders the home
+                // page's hero — usually the largest paint on the page —
+                // and lazy-loading the LCP image delays it for no saving
+                // (there is one editable image per page, not dozens).
+                return '<img src="/files/' . (int) $fileId . '/md" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" decoding="async">';
             }
 
             return '';
@@ -186,7 +190,10 @@ class TwigFactory
             $fileId = ($service !== null && $scoutYearId > 0) ? $service->resolveFileId($memberId, $scoutYearId) : null;
 
             if ($fileId !== null) {
-                $img = '<img src="/files/' . $fileId . '/thumb" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">';
+                // loading="lazy": the trombinoscope and rosters render one
+                // of these per member, each /files/… request a full
+                // application boot — only the visible ones should fire.
+                $img = '<img src="/files/' . $fileId . '/thumb" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" loading="lazy" decoding="async">';
             } else {
                 $initials = mb_strtoupper(mb_substr(trim($alt), 0, 2));
                 $img = '<div class="' . htmlspecialchars($cssClass, ENT_QUOTES) . ' member-photo-placeholder" title="' . htmlspecialchars($alt, ENT_QUOTES) . '">'
@@ -296,7 +303,9 @@ class TwigFactory
             }
 
             if ($fileId !== null) {
-                return '<img src="/files/' . $fileId . '/md" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">';
+                // loading="lazy" is safe against layout shift here: the
+                // aspect-ratio style reserves the box before the bytes land.
+                return '<img src="/files/' . $fileId . '/md" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '" loading="lazy" decoding="async">';
             }
 
             return '';

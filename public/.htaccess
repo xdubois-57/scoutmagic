@@ -53,3 +53,25 @@ RewriteRule ^ index.php [QSA,L]
         Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
     </FilesMatch>
 </IfModule>
+
+# ---------------------------------------------------------------------
+# Compression, for the static files Apache serves itself AND the HTML
+# the application renders (AddOutputFilterByType matches the response's
+# content type, whatever produced it). Nothing in this tree was
+# compressed at all before this block — 348 KB of render-blocking CSS
+# shrinks to ~55 KB gzipped.
+#
+# Scoped by content type on purpose: text formats and SVG only, never
+# the already-compressed image/font/archive types, and never the
+# /files/… streams the application serves with Content-Length/Range
+# semantics — their types (image/webp, application/pdf, video/*) are
+# deliberately absent from this list.
+#
+# The type list is pinned to bootstrap_htaccess_content()'s copy by
+# Tests\Bootstrap\HtaccessCompressionTest so the two cannot drift.
+# mod_deflate is not universal on shared hosting, so this degrades
+# silently when it is absent, like the rest of this file.
+# ---------------------------------------------------------------------
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/css text/calendar text/javascript application/javascript application/json application/manifest+json image/svg+xml
+</IfModule>

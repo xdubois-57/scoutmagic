@@ -110,6 +110,31 @@ class LoginThrottlerTest extends TestCase
         $this->assertSame(0, $lockout);
     }
 
+    /**
+     * clearFailures() only fires on a SUCCESSFUL login, so failures
+     * against addresses that never log in (bots probing /login) used to
+     * accumulate forever. purgeStale() is the scheduler-tail cleanup that
+     * bounds the table; nothing this class reads looks past one hour, so
+     * a week-old row can never influence a lockout decision.
+     */
+    public function testPurgeStaleDeletesOldAttemptsAndKeepsRecentOnes(): void
+    {
+        $old = (new \DateTimeImmutable('-8 days'))->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare('INSERT INTO login_attempts (email_blind_index, attempted_at) VALUES (?, ?)');
+        $stmt->execute(['stale_bot_index', $old]);
+        $this->insertFailure('recent_index');
+
+        $this->assertSame(1, $this->throttler->purgeStale());
+
+        $count = fn(string $index): int => (int) (function () use ($index) {
+            $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM login_attempts WHERE email_blind_index = ?');
+            $stmt->execute([$index]);
+            return $stmt->fetchColumn();
+        })();
+        $this->assertSame(0, $count('stale_bot_index'));
+        $this->assertSame(1, $count('recent_index'));
+    }
+
     private function insertFailure(string $blindIndex): void
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');

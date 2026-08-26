@@ -867,7 +867,11 @@ if (\Core\Debug\RequestTimeline::isActive() && \Core\Security\AuthSession::isAut
 
 // Create Scheduler service
 $schedulerRepo = new SchedulerRepository($pdo);
-$schedulerService = new SchedulerService($schedulerRepo);
+// cachePendingRearms: the composition root makes ~20 rearm() probes per
+// request; the cache answers them from one query. Task handlers build
+// their own fresh SchedulerService and must never receive this instance
+// (see SchedulerService::__construct()).
+$schedulerService = new SchedulerService($schedulerRepo, cachePendingRearms: true);
 $schedulerRunner = new SchedulerRunner($schedulerRepo, $journalService);
 
 // Register param() Twig function — reads from settings database
@@ -3036,9 +3040,36 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $newsArticleService, $newsFormService, $newsResponseService, $newsSeoKeywordService,
             $posterPdfService, $scoutYearService, $settingService, $schedulerService, $userAccountRepo,
             $memberService, $sectionService, $uploadHandler, $fileRepository, $storagePath, $journalService,
-            $financeAccountForOthers, $humanCheckService
+            $financeAccountForOthers, $humanCheckService, $imageVariantService
         )
     );
+
+    // One-shot backfill of thumb/md derivatives for article images uploaded
+    // before the news module generated variants at upload — the templates
+    // render /files/{id}/thumb|md and FileController::variant() never falls
+    // back to the original, so pre-existing images would 404 without it.
+    // The non-editable flag (finance's own `…_seeded` runtime-flag pattern)
+    // keeps this to a settings-cache read on every later request; the
+    // handler flips it once the pass has completed.
+    if ($settingService->get(\Modules\News\Task\GenerateImageVariantsHandler::DONE_FLAG, 'news') !== '1') {
+        $settingService->register(
+            \Modules\News\Task\GenerateImageVariantsHandler::DONE_FLAG,
+            '0',
+            'boolean',
+            'Variantes d\'images générées',
+            'Indicateur interne : le rattrapage des miniatures d\'images des actualités a été effectué.',
+            'news',
+            null,
+            null,
+            false
+        );
+        $schedulerService->rearm(
+            'news',
+            \Modules\News\Task\GenerateImageVariantsHandler::TASK_KEY,
+            \Modules\News\Task\GenerateImageVariantsHandler::REFERENCE,
+            new DateTimeImmutable()
+        );
+    }
     $frontController->registerController(
         \Modules\News\Controller\FormController::class,
         new \Modules\News\Controller\FormController(
@@ -4997,6 +5028,12 @@ if (($now - $lastRun) > 60) {
         \Core\Debug\RequestTimeline::mark('journal_cleanup_begin');
         $journalService->cleanup($retentionDays);
         \Core\Debug\RequestTimeline::mark('journal_cleanup_done');
+        // Same rhythm as the journal cleanup, same reason: bots probing
+        // /login and PDF previews both leave artifacts nothing else ever
+        // deletes (see LoginThrottler::purgeStale() / PdfThumbnailCache).
+        $loginThrottler->purgeStale();
+        \Core\File\PdfThumbnailCache::purgeStale($storagePath);
+        \Core\Debug\RequestTimeline::mark('stale_artifact_purge_done');
     } catch (\Throwable $e) {
         // Silently ignore scheduler errors in poor man's cron
     }

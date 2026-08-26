@@ -125,6 +125,49 @@ class SettingServiceTest extends TestCase
         $this->assertSame('original', $this->service->get('existing'));
     }
 
+    /**
+     * The boot path calls register() ~130 times per request; a row that
+     * already exists with an unchanged default must cost zero SQL. Proven
+     * by deleting the row behind the service's back: a no-op register()
+     * leaves it deleted, any INSERT or UPDATE would have recreated it or
+     * thrown.
+     */
+    public function testRegisterIsANoOpWhenTheRowExistsWithTheSameDefault(): void
+    {
+        $this->service->register('warm', 'default_val', 'text', 'Label', 'Desc');
+        // Prime the cache the way the boot path does before module loading.
+        $this->service->get('warm');
+
+        $this->pdo->exec("DELETE FROM settings WHERE setting_key = 'warm'");
+
+        $this->service->register('warm', 'default_val', 'text', 'Label', 'Desc');
+
+        $stmt = $this->pdo->query("SELECT COUNT(*) FROM settings WHERE setting_key = 'warm'");
+        $this->assertSame(0, (int) $stmt->fetchColumn());
+    }
+
+    public function testRegisterHealsADefaultValueLeftNullByAnOlderRow(): void
+    {
+        $this->service->register('legacy', 'declared', 'text', 'Label', 'Desc');
+        $this->pdo->exec("UPDATE settings SET default_value = NULL WHERE setting_key = 'legacy'");
+        $this->service->clearCache();
+
+        $this->service->register('legacy', 'declared', 'text', 'Label', 'Desc');
+
+        $stmt = $this->pdo->query("SELECT default_value FROM settings WHERE setting_key = 'legacy'");
+        $this->assertSame('declared', $stmt->fetchColumn());
+    }
+
+    public function testRegisteredSettingIsReadableWithoutClearingTheCache(): void
+    {
+        // Module settings register after the boot has already primed the
+        // cache; they must resolve in the same request without a reload.
+        $this->service->get('anything');
+        $this->service->register('late_key', 'late_val', 'text', 'L', 'D', 'calendar');
+
+        $this->assertSame('late_val', $this->service->get('late_key', 'calendar'));
+    }
+
     public function testResetAllToDefaultsRestoresEveryChangedValue(): void
     {
         $this->service->register('key_a', 'default_a', 'text', 'L', 'D');

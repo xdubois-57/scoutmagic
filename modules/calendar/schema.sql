@@ -71,6 +71,10 @@ CREATE TABLE IF NOT EXISTS calendar_events (
     -- CalendarEventRepository::update() instead.
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- (calendar_id, start_date): every month-grid view, ICS feed and
+    -- "upcoming events" widget filters by calendar and date range —
+    -- start_date was in no index at all before this.
+    INDEX idx_ce_calendar_start (calendar_id, start_date),
     CONSTRAINT fk_event_calendar FOREIGN KEY (calendar_id) REFERENCES calendar_calendars(id) ON DELETE CASCADE,
     CONSTRAINT fk_event_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

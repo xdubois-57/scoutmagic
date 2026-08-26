@@ -40,9 +40,26 @@ class AccountPhotoService
     ) {
     }
 
+    /**
+     * Resolutions for the lifetime of this instance, misses included —
+     * the nav alone asks for the connected account's avatar three times
+     * per page.
+     *
+     * @var array<int, int|null>
+     */
+    private array $resolved = [];
+
     public function resolveFileId(int $userAccountId): ?int
     {
-        return $userAccountId > 0 ? $this->repository->findFileId($userAccountId) : null;
+        if ($userAccountId <= 0) {
+            return null;
+        }
+
+        if (!array_key_exists($userAccountId, $this->resolved)) {
+            $this->resolved[$userAccountId] = $this->repository->findFileId($userAccountId);
+        }
+
+        return $this->resolved[$userAccountId];
     }
 
     /**
@@ -52,17 +69,24 @@ class AccountPhotoService
      */
     public function resolveFileIds(array $userAccountIds): array
     {
-        return $this->repository->findFileIdsByAccountIds($userAccountIds);
+        $found = $this->repository->findFileIdsByAccountIds($userAccountIds);
+        foreach ($userAccountIds as $id) {
+            $this->resolved[(int) $id] = $found[(int) $id] ?? null;
+        }
+
+        return $found;
     }
 
     public function setPhoto(int $userAccountId, int $fileId): void
     {
         $this->forget($this->repository->upsert($userAccountId, $fileId));
+        unset($this->resolved[$userAccountId]);
     }
 
     public function removePhoto(int $userAccountId): void
     {
         $this->forget($this->repository->delete($userAccountId));
+        unset($this->resolved[$userAccountId]);
     }
 
     /**

@@ -253,4 +253,51 @@ class SchedulerServiceTest extends TestCase
         );
         $this->assertNotNull($this->service->find('camps', 'geocode_places', 'ref'));
     }
+
+    // ── the composition root's opt-in rearm cache ───────────────────────
+
+    /**
+     * With cachePendingRearms the guard answers from a snapshot loaded
+     * once: after the first rearm(), a duplicate probe issues no SQL at
+     * all — proven by deleting the row behind the service's back, which a
+     * fresh find() would notice and a memory answer must not.
+     */
+    public function testCachedRearmAnswersDuplicateProbesFromMemory(): void
+    {
+        $cached = new SchedulerService($this->repo, cachePendingRearms: true);
+
+        $this->assertTrue($cached->rearm('camps', 'purge_unsorted_mail', 'daily', 'tomorrow 04:00'));
+        $this->pdo->exec('DELETE FROM scheduled_actions');
+
+        $this->assertFalse($cached->rearm('camps', 'purge_unsorted_mail', 'daily', 'tomorrow 04:00'));
+    }
+
+    public function testCachedRearmSeesRowsThatExistedBeforeTheSnapshot(): void
+    {
+        $this->service->rearm('camps', 'purge_unsorted_mail', 'daily', 'tomorrow 04:00');
+
+        $cached = new SchedulerService($this->repo, cachePendingRearms: true);
+        $this->assertFalse($cached->rearm('camps', 'purge_unsorted_mail', 'daily', 'tomorrow 04:00'));
+        $this->assertTrue($cached->rearm('camps', 'purge_unsorted_mail', 'other', 'tomorrow 04:00'));
+    }
+
+    public function testCachedRearmSeesADirectScheduleThroughTheSameInstance(): void
+    {
+        $cached = new SchedulerService($this->repo, cachePendingRearms: true);
+        // Prime the snapshot, then schedule without going through rearm().
+        $cached->rearm('camps', 'review_reminder', 'daily', 'tomorrow 06:00');
+        $cached->schedule('camps', 'geocode_places', new \DateTimeImmutable('tomorrow 04:00'), [], 'ref');
+
+        $this->assertFalse($cached->rearm('camps', 'geocode_places', 'ref', 'tomorrow 04:00'));
+    }
+
+    public function testCachedRearmForgetsTheSnapshotAfterACancel(): void
+    {
+        $cached = new SchedulerService($this->repo, cachePendingRearms: true);
+        $cached->rearm('camps', 'purge_unsorted_mail', 'daily', 'tomorrow 04:00');
+
+        $cached->cancelPending('camps', 'purge_unsorted_mail', 'daily');
+
+        $this->assertTrue($cached->rearm('camps', 'purge_unsorted_mail', 'daily', 'tomorrow 04:00'));
+    }
 }

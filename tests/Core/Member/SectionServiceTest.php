@@ -189,6 +189,32 @@ class SectionServiceTest extends TestCase
         $this->assertSame(['Petit Loup'], $names);
     }
 
+    /**
+     * The id set behind getSectionAnimes() — same definition of "animé"
+     * (role filter included), without the profile hydration. The Départs
+     * write path re-checks membership through it on every field save.
+     */
+    public function testGetSectionAnimeMemberYearIdsMatchesTheHydratedList(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+
+        $sectionId = $this->createSection('BAL01', $balId);
+        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $this->createMemberInSection($sectionId, 'Intendant Ivan', 'intendant');
+        $this->createMemberInSection($sectionId, 'Petit Loup', 'identified');
+
+        $ids = $this->service->getSectionAnimeMemberYearIds($sectionId, $this->scoutYearId);
+        $hydrated = array_map(
+            fn($p) => $p->memberYearId,
+            $this->service->getSectionAnimes($sectionId, $this->scoutYearId)
+        );
+
+        $this->assertSame($hydrated, array_values($ids));
+        $this->assertCount(1, $ids);
+    }
+
     public function testGetSectionAnimesIsScopedToOneSection(): void
     {
         $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');

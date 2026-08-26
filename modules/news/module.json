@@ -197,6 +197,10 @@
     {
       "key": "send_response_digest",
       "handler": "Modules\\News\\Task\\SendResponseDigestHandler"
+    },
+    {
+      "key": "generate_image_variants",
+      "handler": "Modules\\News\\Task\\GenerateImageVariantsHandler"
     }
   ],
   "storage": {

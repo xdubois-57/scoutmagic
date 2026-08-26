@@ -42,12 +42,38 @@ class MemberService
     }
 
     /**
+     * getLinkedMembers() results for the lifetime of this instance. The
+     * composition root resolves the same visitor's linked members several
+     * times per request (session boot, nav rendering, controllers), each
+     * resolution costing blind-index lookups plus a full profile
+     * hydration per member. Linked members change only through imports
+     * and the temporary-member override, and every override change
+     * redirects before anything re-reads — so a per-request memo is safe.
+     *
+     * @var array<string, MemberProfile[]>
+     */
+    private array $linkedMembersCache = [];
+
+    /**
      * Get all members linked to an email for a given scout year.
      * Returns decrypted MemberProfile objects.
      *
      * @return MemberProfile[]
      */
     public function getLinkedMembers(string $email, int $scoutYearId): array
+    {
+        $cacheKey = strtolower(trim($email)) . "\0" . $scoutYearId;
+        if (array_key_exists($cacheKey, $this->linkedMembersCache)) {
+            return $this->linkedMembersCache[$cacheKey];
+        }
+
+        return $this->linkedMembersCache[$cacheKey] = $this->loadLinkedMembers($email, $scoutYearId);
+    }
+
+    /**
+     * @return MemberProfile[]
+     */
+    private function loadLinkedMembers(string $email, int $scoutYearId): array
     {
         $normalizedEmail = strtolower(trim($email));
         $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');

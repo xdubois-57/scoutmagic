@@ -36,6 +36,42 @@ class EditableContentServiceTest extends TestCase
         $this->assertSame('default value', $result);
     }
 
+    /**
+     * A page with a dozen editable() blocks used to cost a query each —
+     * repeated reads of one key are answered from memory. Proven by
+     * changing the row behind the service's back: a fresh read would
+     * notice, the memo must not.
+     */
+    public function testRepeatedGetsAreAnsweredFromMemory(): void
+    {
+        $this->service->set('memo.key', 'first', 'text', 1);
+        $this->assertSame('first', $this->service->get('memo.key'));
+
+        $this->pdo->exec("UPDATE editable_contents SET content_value = 'changed'");
+
+        $this->assertSame('first', $this->service->get('memo.key'));
+    }
+
+    public function testSetRefreshesWhatGetReturnsInTheSameRequest(): void
+    {
+        $this->service->set('memo.key', 'first', 'text', 1);
+        $this->assertSame('first', $this->service->get('memo.key'));
+
+        $this->service->set('memo.key', 'second', 'text', 1);
+
+        $this->assertSame('second', $this->service->get('memo.key'));
+    }
+
+    public function testDeleteRefreshesWhatGetReturnsInTheSameRequest(): void
+    {
+        $this->service->set('memo.key', 'value', 'text', 1);
+        $this->assertSame('value', $this->service->get('memo.key'));
+
+        $this->service->delete('memo.key');
+
+        $this->assertNull($this->service->get('memo.key'));
+    }
+
     public function testSetThenGetRoundTripsForRichText(): void
     {
         $this->service->set('test.key', '<p>Hello world</p>', 'rich_text', 1);

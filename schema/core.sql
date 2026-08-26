@@ -256,7 +256,11 @@ CREATE TABLE member_years (
     leaving_comment_encrypted BLOB,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_member_year (member_id, scout_year_id),
-    INDEX idx_scout_year (scout_year_id),
+    -- (scout_year_id, is_active): the roster filter used across core and
+    -- six modules. The scout_year_id prefix also serves fk_my_year, which
+    -- the plain idx_scout_year used to do; SchemaComparator never drops
+    -- an index, so installs that predate this composite simply keep both.
+    INDEX idx_my_year_active (scout_year_id, is_active),
     INDEX idx_email_blind (email_blind_index),
     CONSTRAINT fk_my_member FOREIGN KEY (member_id) REFERENCES members(id),
     CONSTRAINT fk_my_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
@@ -612,7 +616,10 @@ CREATE TABLE login_attempts (
     ip_blind_index CHAR(64),
     attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_email_time (email_blind_index, attempted_at),
-    INDEX idx_ip_time (ip_blind_index, attempted_at)
+    INDEX idx_ip_time (ip_blind_index, attempted_at),
+    -- LoginThrottler::purgeStale() deletes by age alone; without this the
+    -- minute-ly purge would scan the whole table.
+    INDEX idx_attempted_at (attempted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE settings (

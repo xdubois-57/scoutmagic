@@ -72,7 +72,12 @@ class NewsController extends AbstractController
         private string $storagePath,
         private JournalService $journalService,
         private ?FinanceAccountInterface $financeAccount = null,
-        private ?HumanCheckService $humanCheck = null
+        private ?HumanCheckService $humanCheck = null,
+        // Optional and trailing (same shape as MemberService's own optional
+        // dependencies): without it, uploads are stored full-size only and
+        // the templates' variant URLs simply 404 into a hidden image — the
+        // composition root always wires it.
+        private ?\Core\Photo\ImageVariantService $imageVariantService = null
     ) {
     }
 
@@ -615,9 +620,23 @@ class NewsController extends AbstractController
         };
 
         try {
-            return $this->uploadHandler->handle(
+            $fileId = $this->uploadHandler->handle(
                 $uploadedFile, 'news/images', self::IMAGE_ALLOWED_MIMES, self::IMAGE_MAX_SIZE_BYTES, $roleMin, 'news', $accountId
             );
+
+            // Same generate-at-upload pipeline as the core photo contexts
+            // (Core\Http\Controller\UploadController): the list/home cards
+            // render the 192px thumb and the detail page the 1024px md
+            // rendition instead of the full multi-megabyte original.
+            // generate() never throws — a derivative that couldn't be
+            // produced must not fail the upload.
+            if ($this->imageVariantService !== null) {
+                foreach (\Core\Photo\ImageVariantService::VARIANTS as $variant) {
+                    $this->imageVariantService->generate($fileId, $variant);
+                }
+            }
+
+            return $fileId;
         } catch (UploadException $e) {
             // Same reasoning as Gallery\Service\MediaService::store(): the
             // upload handler's own sentence is worth keeping, but only

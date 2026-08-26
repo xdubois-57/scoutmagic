@@ -151,14 +151,18 @@ class DeparturesController extends AbstractController
      * the server-side re-check the module spec requires on every write,
      * built entirely out of the same vetted lookups index() already uses
      * (never a parallel/hand-rolled cloisonnement check).
+     *
+     * Membership only, so it goes through getSectionAnimeMemberYearIds()
+     * — the id set behind the getSectionAnimes() index() renders — rather
+     * than hydrating every animé of every staffed section to compare one
+     * integer: this runs on every per-field auto-save.
      */
     private function accountStaffsMemberYear(string $email, string $accountRole, int $scoutYearId, int $memberYearId): bool
     {
         foreach ($this->sectionStaffAuthorizationService->getStaffedSections($email, $accountRole, $scoutYearId) as $section) {
-            foreach ($this->sectionService->getSectionAnimes((int) $section['id'], $scoutYearId) as $profile) {
-                if ($profile->memberYearId === $memberYearId) {
-                    return true;
-                }
+            $animeIds = $this->sectionService->getSectionAnimeMemberYearIds((int) $section['id'], $scoutYearId);
+            if (in_array($memberYearId, $animeIds, true)) {
+                return true;
             }
         }
 
