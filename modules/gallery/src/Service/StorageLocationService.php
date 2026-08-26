@@ -127,14 +127,34 @@ class StorageLocationService
     public function resolveLocationForAlbum(Album $album): ?StorageLocation
     {
         if ($album->storageLocationId !== null) {
-            return $this->storageLocationRepository->findById($album->storageLocationId);
+            return $this->findByIdCached($album->storageLocationId);
         }
 
         $this->ensureLegacyLocationBackfilled();
         $refreshed = $this->albumRepository->findById($album->id);
         return $refreshed?->storageLocationId !== null
-            ? $this->storageLocationRepository->findById($refreshed->storageLocationId)
+            ? $this->findByIdCached($refreshed->storageLocationId)
             : null;
+    }
+
+    /**
+     * Locations already read, for the lifetime of this instance — an
+     * album view resolves the same location once per media per size
+     * (Service\MediaService::resolveUrl()), which was one query each for
+     * a row that cannot change mid-request (the configuration page saves
+     * and redirects).
+     *
+     * @var array<int, StorageLocation|null>
+     */
+    private array $locationsById = [];
+
+    private function findByIdCached(int $locationId): ?StorageLocation
+    {
+        if (!array_key_exists($locationId, $this->locationsById)) {
+            $this->locationsById[$locationId] = $this->storageLocationRepository->findById($locationId);
+        }
+
+        return $this->locationsById[$locationId];
     }
 
     /**

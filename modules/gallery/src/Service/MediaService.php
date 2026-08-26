@@ -314,7 +314,9 @@ class MediaService
         }
 
         if ($location->isS3()) {
-            return $this->storageBackendFactory->create($location)->url($path);
+            // stableUrl, not url(): a page's thumbnails must keep the same
+            // URL across renders or the browser can never cache them.
+            return $this->storageBackendFactory->create($location)->stableUrl($path);
         }
 
         return '/gallery/media/' . $media->id . '/' . $size;

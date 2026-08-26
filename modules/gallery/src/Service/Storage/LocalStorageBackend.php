@@ -131,6 +131,12 @@ class LocalStorageBackend implements StorageBackendInterface
         return '/gallery/media/' . rawurlencode($key);
     }
 
+    public function stableUrl(string $key): string
+    {
+        // Already stable: the app route carries no timestamp.
+        return $this->url($key);
+    }
+
     public function exists(string $key): bool
     {
         return is_file($this->fullPath($key));

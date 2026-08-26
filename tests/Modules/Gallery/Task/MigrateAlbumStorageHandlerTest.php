@@ -317,6 +317,10 @@ class MigrateAlbumStorageHandlerTest extends TestCase
                 {
                     return $this->real->url($key, $ttl);
                 }
+                public function stableUrl(string $key): string
+                {
+                    return $this->real->stableUrl($key);
+                }
                 public function exists(string $key): bool
                 {
                     return $this->real->exists($key);
@@ -389,6 +393,10 @@ class MigrateAlbumStorageHandlerTest extends TestCase
                 public function url(string $key, string $ttl = '+1 hour'): string
                 {
                     return $this->real->url($key, $ttl);
+                }
+                public function stableUrl(string $key): string
+                {
+                    return $this->real->stableUrl($key);
                 }
                 public function exists(string $key): bool
                 {
