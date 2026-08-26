@@ -181,6 +181,14 @@ Where it lives *is* the decision. On this page, at `role_min: admin`, so **only 
 
 **It is never visible to the member or their parents** — not on their page, not in an export meant for them, not as a mail-merge field. The admin export of `/admin/members` never gains this column either, although all its readers are chefs d'unité: an exported file leaves the site's protections, travels by e-mail, lands in a shared folder and outlives whoever produced it.
 
+**Les paiements.** Ce que la personne doit encore, et — repliés, jamais mêlés — ceux qui sont clos. Les deux viennent du module Cotisations/Finance ; sans lui, le bloc n'existe pas. Ce qui appelle une action est en haut, seul : y mêler l'historique noierait les une ou deux lignes qui demandent quelque chose.
+
+Pas de QR ni d'IBAN ici, contrairement à la page du membre : un chef d'unité regarde **où en est** un paiement, il ne le fait pas à la place de la famille. Une ligne close porte son issue — payé, abandonné, ou **trop-perçu remboursé**, dit précisément parce que « remboursé » laisserait croire que tout est reparti. La liste close est plafonnée aux plus récentes, et **le dit** : une liste tronquée en silence se lit comme une liste complète. L'historique complet reste dans le module Finance, qui est fait pour ça.
+
+**La demande d'inscription d'origine**, quand il y en a une : une ligne, un lien vers la demande, et où elle a abouti. Jamais une copie de son contenu — la demande garde sa page, et en recopier trois champs créerait un second endroit à tenir en phase avec Desk. Les deux pages sont `admin`, donc quiconque voit le lien peut l'ouvrir.
+
+**N'avoir ni créance ni demande d'origine est le cas courant**, pas une anomalie : rien ne s'affiche, plutôt qu'un bloc vide annonçant « aucune donnée ».
+
 **Two things are never on this page.** A member's **private documents**: `files.owner_member_id` carries an explicit guarantee (ARCHITECTURE.md §8.3) of no chief and no admin bypass, tax certificates will live there, and listing them here would revoke that guarantee in silence. And a **writable** secondary-address control, for the reason above.
 
 **Searching, and who it proposes.** The repository never filtered on `is_active` and the result has always carried the flag — what was missing was a way to narrow. The filter is **actifs** by default (what is wanted nine times out of ten), with *inactifs* and *tous* one tap away, and it travels with the query so a submit keeps it. The row is unchanged otherwise: the export checkbox, the initials pill, the totem after the first name, the section and function, and the status badge whose exact words stay « inscrit » / « non inscrit », never « actif ». **The two exports coexist** — the whole search, and the checked selection — and are never merged; both follow the filter the screen is showing.

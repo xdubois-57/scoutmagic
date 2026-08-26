@@ -1813,6 +1813,24 @@ The three site actions became three cards — the old « Données du site » hea
 
 `public/assets/js/member-search.js` now serves two screens instead of one, each section guarded on its own anchor — the export-selection conveniences find no anchor on the member's page, and the offset/departure controls find none on the search.
 
+### 8.62quater The money and the origin blocks (`Core\Module\MemberPaymentProvider`, `Core\Module\MemberRegistrationOriginProvider`)
+
+Two blocks of `/admin/members/{id}` that core declares and modules fill, both injected nullable into `AdminMemberPageService` (§7.4): a disabled module means the block is not built at all.
+
+**A second method on `MemberPaymentProvider`, not a parameter on the first.** `getOpenPayments()` is consumed by the member's own page and by the homepage band, and both want open receivables and nothing else; widening its signature would have rippled a change through callers that asked for nothing. So `getSettledPayments()` is the deliberate exception to "one hook, one method": two genuinely different questions. Only the admin page calls it — a parent has no need to re-read their 2023 transfers on their child's page.
+
+**Settled rows read through `settlementsFor()`**, not `refreshAndSettle()` and not `storedSettlementsFor()`, and the choice is not cosmetic. `refreshAndSettle()` *writes*: a page that reports history has no business re-allocating on every view. `storedSettlementsFor()` reads too little — it deliberately skips the credit scan, so `amountDesignatedCents` never exceeds what was absorbed. A receivable of 45 € paid 50 € would come back as exactly paid, and `STATUS_OVERPAYMENT_REFUNDED` could never be reached at all, which is the one outcome this block exists to surface. `settlementsFor()` is the full picture with no write; `FamilyPaymentServiceTest` pins both halves.
+
+**Core owns the outcome vocabulary**, not the module: `MemberSettledPaymentView::STATUS_PAID|STATUS_WAIVED|STATUS_OVERPAYMENT_REFUNDED`, because core's template has to pick a badge for each. The finance module maps its receivable states onto them, and a refunded surplus wins over "paid" — on its status alone such a row reads as simply paid, and « payé · 50,00 € » when 5,00 € went back out tells a chef d'unité the wrong thing about the money. The third outcome is worded « trop-perçu remboursé » rather than « remboursé »: the model records a returned *surplus*, never a wholly reversed payment, and the shorter word would claim the latter.
+
+**The cap lives on the interface** (`SETTLED_LIMIT`), so the page can say how many it is showing without guessing and a second implementation cannot answer at a different scale. `AdminMemberPageService` hands the template a `settled_payments_capped` flag: a truncated list read as a complete one is the failure mode here, so it is said on screen rather than left to be inferred.
+
+**`MemberRegistrationOriginProvider` is a pointer, never a copy.** It returns a label, a path and where the request ended up — nothing the parent typed. The request keeps its own page, built by the module that owns it; recopying three of its fields here would create a second place to keep in step with Desk, and `MemberRegistrationOriginServiceTest` asserts that no personal field travels with the link. The path comes from the module, so core never learns that `/config/inscriptions/demandes/{id}` is where a request lives. `registration_requests.linked_member_id` is unique, so there is never a list to choose from — and having no request at all is the ordinary answer for everyone imported from Desk before the module existed.
+
+It is a new interface rather than a method bolted onto one of the registration module's five existing `Api\` publications, none of which asks this question: adding "and also, where did this member come from" to a household counter or a scout-year veto would be exactly the tell-me-everything coupling §7.4 exists to prevent. The implementation sits in the module's `Service\`, not its `Api\`: `Api\` is where a module *publishes* an interface of its own (§7.5), and this one is core's.
+
+**`MemberSearchController` is registered late in the composition root**, after every module block, for the same reason `MemberController` already was: two of its blocks come from optional modules and neither is in scope earlier.
+
 ### 8.62ter Staff notes about a member (`Core\Member\MemberNoteService`)
 
 The « Notes internes » block of `/admin/members/{id}`. `registration_requests.internal_notes_encrypted` covers a *request* and stops the day it is accepted; nothing covered the person afterwards, which is the gap this fills.

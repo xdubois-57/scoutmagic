@@ -32,6 +32,9 @@ class AdminMemberPageServiceTest extends TestCase
     private AdminMemberPageService $service;
     private MemberService $memberService;
     private MemberEmailRepository $emailRepository;
+    private MemberBadgeRepository $badgeRepository;
+    private SectionService $sectionService;
+    private ScoutYearService $scoutYearService;
     private int $currentYearId;
     private int $pastYearId;
     private int $memberId;
@@ -60,6 +63,12 @@ class AdminMemberPageServiceTest extends TestCase
         $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('TRES', 'Trésorier', 'chief', 1)");
         $secondFunctionId = (int) $this->pdo->lastInsertId();
 
+        // A decoy person, so members.id and member_years.id cannot be
+        // equal by accident. Half of what this page gets right is asking
+        // module hooks about the PERSON rather than about one year's row,
+        // and a fixture where both ids are 1 cannot tell the two apart.
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D0')");
+
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D1')");
         $this->memberId = (int) $this->pdo->lastInsertId();
 
@@ -86,13 +95,31 @@ class AdminMemberPageServiceTest extends TestCase
         $badgeRepository = new MemberBadgeRepository($this->pdo);
         $this->emailRepository = new MemberEmailRepository($this->pdo, $this->enc);
 
-        $this->service = new AdminMemberPageService(
-            $badgeRepository,
+        $this->badgeRepository = $badgeRepository;
+        $this->sectionService = new SectionService($connection, $this->enc, $badgeRepository);
+        $this->scoutYearService = $scoutYearService;
+
+        $this->service = $this->serviceWith(null, null);
+    }
+
+    /**
+     * The same service, with whichever module providers the case needs.
+     * Both are nullable and both default to absent, which is what a site
+     * with finance and registration disabled runs.
+     */
+    private function serviceWith(
+        ?\Core\Module\MemberPaymentProvider $payments,
+        ?\Core\Module\MemberRegistrationOriginProvider $origin
+    ): AdminMemberPageService {
+        return new AdminMemberPageService(
+            $this->badgeRepository,
             new MemberPhotoService(new MemberPhotoRepository($this->pdo)),
             new SectionMembershipRepository($this->pdo),
-            new SectionService($connection, $this->enc, $badgeRepository),
-            $scoutYearService,
-            $this->emailRepository
+            $this->sectionService,
+            $this->scoutYearService,
+            $this->emailRepository,
+            $payments,
+            $origin
         );
     }
 
@@ -229,5 +256,142 @@ class AdminMemberPageServiceTest extends TestCase
             'INSERT INTO member_section_periods (member_id, section_id, scout_year_id, start_date, end_date) VALUES (?, ?, ?, ?, ?)'
         );
         $stmt->execute([$this->memberId, $sectionId, $scoutYearId, $start, $end]);
+    }
+
+    // ── the blocks optional modules contribute ─────────────────────────
+
+    /**
+     * The nullable-dependency rule (ARCHITECTURE.md §8.22): finance and
+     * registration disabled must mean no block, never an error and never
+     * an empty card.
+     */
+    public function testWithNoModulesAtAllThePageStillBuildsAndOffersNothing(): void
+    {
+        $data = $this->build();
+
+        $this->assertSame([], $data['open_payments']);
+        $this->assertSame([], $data['settled_payments']);
+        $this->assertFalse($data['settled_payments_capped']);
+        $this->assertNull($data['registration_origin']);
+    }
+
+    /**
+     * Both hooks take the PERSISTENT member id: a debt does not expire
+     * when the scout year turns, and a request produced a person rather
+     * than one year's row.
+     */
+    public function testBothHooksAreAskedAboutThePersonNotTheAnnualRow(): void
+    {
+        $payments = new class implements \Core\Module\MemberPaymentProvider {
+            public ?int $openAskedFor = null;
+            public ?int $settledAskedFor = null;
+
+            public function getOpenPayments(int $memberId): array
+            {
+                $this->openAskedFor = $memberId;
+
+                return [];
+            }
+
+            public function getSettledPayments(int $memberId): array
+            {
+                $this->settledAskedFor = $memberId;
+
+                return [];
+            }
+        };
+        $origin = new class implements \Core\Module\MemberRegistrationOriginProvider {
+            public ?int $askedFor = null;
+
+            public function getRegistrationOrigin(int $memberId): ?\Core\Module\MemberRegistrationOriginView
+            {
+                $this->askedFor = $memberId;
+
+                return null;
+            }
+        };
+
+        $this->serviceWith($payments, $origin)->buildPageData(
+            $this->memberService->getMemberProfile($this->memberYearId),
+            $this->currentYearId
+        );
+
+        $this->assertSame($this->memberId, $payments->openAskedFor);
+        $this->assertSame($this->memberId, $payments->settledAskedFor);
+        $this->assertSame($this->memberId, $origin->askedFor);
+        $this->assertNotSame($this->memberYearId, $this->memberId, 'the fixture must distinguish the two ids');
+    }
+
+    public function testWhatTheModulesAnswerReachesThePageUntouched(): void
+    {
+        $open = new \Core\Module\MemberPaymentView('Cotisation 2025-2026', 2500, 4500, 2000, '+++123+++', 'Unité', 'BE71', null);
+        $settled = new \Core\Module\MemberSettledPaymentView(
+            'Cotisation 2024-2025',
+            4500,
+            4500,
+            \Core\Module\MemberSettledPaymentView::STATUS_PAID,
+            new \DateTimeImmutable('2025-03-04')
+        );
+
+        $data = $this->serviceWith($this->paymentsAnswering([$open], [$settled]), null)->buildPageData(
+            $this->memberService->getMemberProfile($this->memberYearId),
+            $this->currentYearId
+        );
+
+        $this->assertSame([$open], $data['open_payments']);
+        $this->assertSame([$settled], $data['settled_payments']);
+        $this->assertFalse($data['settled_payments_capped']);
+    }
+
+    /**
+     * A truncated list read as a complete one is the failure mode here,
+     * so the page is told rather than left to infer it.
+     */
+    public function testAFullSettledListIsFlaggedAsCapped(): void
+    {
+        $settled = [];
+        for ($i = 0; $i < \Core\Module\MemberPaymentProvider::SETTLED_LIMIT; $i++) {
+            $settled[] = new \Core\Module\MemberSettledPaymentView(
+                'Demande ' . $i,
+                1000,
+                1000,
+                \Core\Module\MemberSettledPaymentView::STATUS_PAID,
+                null
+            );
+        }
+
+        $data = $this->serviceWith($this->paymentsAnswering([], $settled), null)->buildPageData(
+            $this->memberService->getMemberProfile($this->memberYearId),
+            $this->currentYearId
+        );
+
+        $this->assertTrue($data['settled_payments_capped']);
+    }
+
+    /**
+     * @param list<\Core\Module\MemberPaymentView> $open
+     * @param list<\Core\Module\MemberSettledPaymentView> $settled
+     */
+    private function paymentsAnswering(array $open, array $settled): \Core\Module\MemberPaymentProvider
+    {
+        return new class ($open, $settled) implements \Core\Module\MemberPaymentProvider {
+            /**
+             * @param list<\Core\Module\MemberPaymentView> $open
+             * @param list<\Core\Module\MemberSettledPaymentView> $settled
+             */
+            public function __construct(private array $open, private array $settled)
+            {
+            }
+
+            public function getOpenPayments(int $memberId): array
+            {
+                return $this->open;
+            }
+
+            public function getSettledPayments(int $memberId): array
+            {
+                return $this->settled;
+            }
+        };
     }
 }

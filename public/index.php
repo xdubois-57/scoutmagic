@@ -2127,6 +2127,12 @@ $newsArticleService = null;
 $homePaymentDueProvider = null;
 $memberPaymentProvider = null;
 
+// The admin member page's "demande d'inscription d'origine" line
+// (ARCHITECTURE.md §7.4), set in registration's block below and null when
+// that module is disabled — the line then simply does not render, which
+// is also what a member who never came through a request gets.
+$memberRegistrationOriginProvider = null;
+
 // Optional dependency on the calendar module (ARCHITECTURE.md §7.5) for
 // the member page's "next upcoming event" (§3) — set below only when
 // 'calendar' is enabled, same pattern as $sectionResponsableProvider
@@ -2281,19 +2287,6 @@ $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
-$frontController->registerController(MemberSearchController::class, new MemberSearchController(
-    $twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService,
-    $memberExportRowBuilder, $memberExportService, $journalService,
-    new \Core\Member\AdminMemberPageService(
-        $memberBadgeRepository, $memberPhotoService, $sectionMembershipRepository,
-        $sectionService, $scoutYearService, $memberEmailRepository
-    ),
-    $memberYearRepo,
-    new \Core\Member\MemberNoteService(
-        new \Core\Member\MemberNoteRepository($pdo, $encryptionService, $userAccountRepo),
-        $journalService
-    )
-));
 $frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
 $frontController->registerController(SupportController::class, new SupportController(
@@ -3983,6 +3976,11 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $registrationMenuHookService = new \Modules\Registration\Service\RegistrationMenuHookService($registrationTrackingService, $settingService);
 
+    // Which registration request a member came from, for the admin member
+    // page's origin line (ARCHITECTURE.md §7.4). A pointer only — the
+    // request keeps its own page, and nothing of its content is copied.
+    $memberRegistrationOriginProvider = new \Modules\Registration\Service\MemberRegistrationOriginService($registrationRequestRepo);
+
     // Iteration 5's staff-side services — status transitions, acceptance/
     // refusal emails, and the one migration path shared by automatic
     // reconciliation and manual linking. The Api\
@@ -4857,6 +4855,28 @@ if (
         new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService, $departureService)
     );
 }
+
+// The admin member page, registered here rather than with the other core
+// controllers above for the same reason MemberController is: two of its
+// blocks come from optional modules — finance's open and closed payments
+// (via $memberPaymentProvider) and registration's origin link (via
+// $memberRegistrationOriginProvider) — and both are only in scope once
+// those modules' blocks have run. Each stays null when its module is
+// disabled, and the corresponding block is then not built at all.
+$frontController->registerController(MemberSearchController::class, new MemberSearchController(
+    $twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService,
+    $memberExportRowBuilder, $memberExportService, $journalService,
+    new \Core\Member\AdminMemberPageService(
+        $memberBadgeRepository, $memberPhotoService, $sectionMembershipRepository,
+        $sectionService, $scoutYearService, $memberEmailRepository,
+        $memberPaymentProvider, $memberRegistrationOriginProvider
+    ),
+    $memberYearRepo,
+    new \Core\Member\MemberNoteService(
+        new \Core\Member\MemberNoteRepository($pdo, $encryptionService, $userAccountRepo),
+        $journalService
+    )
+));
 
 // File access (/files/{id}) — built here, deliberately last, because
 // FileAccessGuard's ownership-checker registry must be complete before it
