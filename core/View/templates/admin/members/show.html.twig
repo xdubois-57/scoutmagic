@@ -364,6 +364,115 @@
                 </section>
             {% endif %}
 
+            {# Parcours de formation — alimenté par
+               Core\Module\FormationPathProvider, que le module leadership
+               implémente. Sur la page du membre lui-même ce bloc est
+               réservé à lui seul ; ici il est visible du Staff d'Unité, et
+               c'est délibéré : « /admin/leadership/training » porte
+               exactement le même plancher `admin`, donc rien n'apparaît ici
+               qu'un lecteur ne puisse déjà ouvrir à un menu de distance. #}
+            {% if formation_path %}
+                <section class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <i class="bi bi-mortarboard" aria-hidden="true"></i>
+                        <h2 class="h6 mb-0">Parcours de formation</h2>
+                    </div>
+                    <div class="card-body">
+                        {% if formation_path.isRecognised %}
+                            <ol class="list-unstyled d-flex flex-wrap gap-2 mb-3">
+                                {% for step in formation_path.steps %}
+                                    <li class="badge rounded-pill {{ step.reached ? 'text-bg-primary' : 'text-bg-light border' }}">
+                                        {{ step.label }}{% if step.current %} <span class="visually-hidden">(étape actuelle)</span>{% endif %}
+                                    </li>
+                                {% endfor %}
+                            </ol>
+                        {% endif %}
+                        <p class="small mb-0">
+                            {{ formation_path.currentLabel }}.
+                            {% if formation_path.nextLabel %}
+                                Prochaine étape connue : {{ formation_path.nextLabel }}.
+                            {% endif %}
+                        </p>
+                        {% if not formation_path.isRecognised %}
+                            <p class="small text-body-secondary mb-0 mt-2">
+                                Le site ne sait pas à quelle étape rattacher ce qui est encodé dans Desk ;
+                                rien n'est déduit tant qu'on ne le lui indique pas.
+                            </p>
+                        {% endif %}
+                    </div>
+                </section>
+            {% endif %}
+
+            {# Camps — rien n'enregistre les participants d'un camp un par
+               un : ce sont des SECTIONS qui partent. Une ligne apparaît
+               donc quand la section de la personne est partie une année où
+               elle en faisait partie. C'est ce que le site sait ; un bloc
+               qui prétendrait à une liste de participants l'inventerait. #}
+            {% if camp_stays is not empty %}
+                <section class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <i class="bi bi-tree" aria-hidden="true"></i>
+                        <h2 class="h6 mb-0">Camps</h2>
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        {% for stay in camp_stays %}
+                            <li class="list-group-item p-0">
+                                <a href="{{ stay.path }}" class="d-flex align-items-center gap-3 p-3 text-decoration-none text-body">
+                                    <span class="flex-grow-1 min-w-0">
+                                        <span class="fw-medium d-block">{{ stay.placeLabel }}</span>
+                                        <span class="text-body-secondary small">
+                                            {{ stay.periodLabel ?: stay.scoutYearLabel }} · {{ stay.sectionName }}
+                                        </span>
+                                    </span>
+                                    <i class="bi bi-chevron-right text-body-secondary flex-shrink-0" aria-hidden="true"></i>
+                                </a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                    {% if camp_stays_capped %}
+                        <div class="card-body pt-2">
+                            <p class="small text-body-secondary mb-0">
+                                Les {{ camp_stays|length }} plus récents.
+                            </p>
+                        </div>
+                    {% endif %}
+                </section>
+            {% endif %}
+
+            {# Groupes de discussion — l'appartenance, et rien d'autre :
+               aucun message, aucune réponse, aucun décompte. Un chef
+               d'unité a besoin de savoir par quels groupes la personne est
+               joignable ; ce que les gens s'écrivent n'est pas un fait à
+               résumer sur une page de staff.
+
+               Seules les appartenances explicites : un membre « dérivé »
+               l'est à cause de sa section, ce que la carte « Parcours dans
+               l'unité » dit déjà. #}
+            {% if discussion_groups is not empty %}
+                <section class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <i class="bi bi-chat-dots" aria-hidden="true"></i>
+                        <h2 class="h6 mb-0">Groupes de discussion</h2>
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        {% for group in discussion_groups %}
+                            <li class="list-group-item p-0">
+                                <a href="{{ group.path }}" class="d-flex align-items-center gap-2 p-3 text-decoration-none text-body">
+                                    <span class="flex-grow-1 min-w-0">{{ group.name }}</span>
+                                    {% if group.isModerator %}
+                                        <span class="badge text-bg-light border flex-shrink-0">Animateur</span>
+                                    {% endif %}
+                                    {% if group.isClosed %}
+                                        {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'clôturé' } only %}
+                                    {% endif %}
+                                    <i class="bi bi-chevron-right text-body-secondary flex-shrink-0" aria-hidden="true"></i>
+                                </a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </section>
+            {% endif %}
+
             {# D'où vient cette personne — un lien, jamais une copie. La
                demande garde sa propre page, construite par le module qui la
                possède ; en recopier trois champs ici créerait un second

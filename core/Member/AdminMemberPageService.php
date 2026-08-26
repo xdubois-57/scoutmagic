@@ -11,6 +11,12 @@ namespace Core\Member;
 use Core\Badge\Badge;
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
+use Core\Module\FormationPathProvider;
+use Core\Module\FormationPathView;
+use Core\Module\MemberCampStayProvider;
+use Core\Module\MemberCampStayView;
+use Core\Module\MemberDiscussionGroupProvider;
+use Core\Module\MemberDiscussionGroupView;
 use Core\Module\MemberPaymentProvider;
 use Core\Module\MemberPaymentView;
 use Core\Module\MemberRegistrationOriginProvider;
@@ -50,6 +56,20 @@ use Core\Photo\MemberPhotoService;
  * case**, not an anomaly. Neither block is drawn at all rather than
  * drawn empty with « aucune donnée ».
  *
+ * **The « parcours » blocks** come from three more: the training path
+ * (`FormationPathProvider`, leadership), the stays the member's sections
+ * went on (`MemberCampStayProvider`, camps) and the discussion groups
+ * they belong to (`MemberDiscussionGroupProvider`, groups).
+ *
+ * The training path is the one block here the member's OWN page shows
+ * only to themselves, and showing it to the Staff d'Unité is a deliberate
+ * decision rather than an oversight: `FormationPathProvider`'s docblock
+ * already says the answer for the unit belongs on that module's own
+ * role-gated pages, and `/admin/leadership/training` carries the same
+ * `admin` floor as this page. Nothing is revealed here that a reader
+ * could not already open one menu away, and the interface's docblock is
+ * updated in the same change so the two do not disagree.
+ *
  * **Two things this page must never show**, and the reasons are worth
  * keeping next to the code:
  *
@@ -83,7 +103,10 @@ class AdminMemberPageService
         private ScoutYearService $scoutYearService,
         private MemberEmailRepository $memberEmailRepository,
         private ?MemberPaymentProvider $memberPaymentProvider = null,
-        private ?MemberRegistrationOriginProvider $registrationOriginProvider = null
+        private ?MemberRegistrationOriginProvider $registrationOriginProvider = null,
+        private ?FormationPathProvider $formationPathProvider = null,
+        private ?MemberCampStayProvider $campStayProvider = null,
+        private ?MemberDiscussionGroupProvider $discussionGroupProvider = null
     ) {
     }
 
@@ -97,7 +120,11 @@ class AdminMemberPageService
      *   open_payments: list<MemberPaymentView>,
      *   settled_payments: list<MemberSettledPaymentView>,
      *   settled_payments_capped: bool,
-     *   registration_origin: ?MemberRegistrationOriginView
+     *   registration_origin: ?MemberRegistrationOriginView,
+     *   formation_path: ?FormationPathView,
+     *   camp_stays: list<MemberCampStayView>,
+     *   camp_stays_capped: bool,
+     *   discussion_groups: list<MemberDiscussionGroupView>
      * }
      */
     public function buildPageData(MemberProfile $profile, int $scoutYearId): array
@@ -106,6 +133,7 @@ class AdminMemberPageService
         // when the scout year turns, and a registration request produced
         // a person rather than one year's row.
         $settled = $this->memberPaymentProvider?->getSettledPayments($profile->memberId) ?? [];
+        $campStays = $this->campStayProvider?->getCampStays($profile->memberId) ?? [];
 
         return [
             'photo_file_id' => $this->memberPhotoService->resolveFileId($profile->memberId, $scoutYearId),
@@ -120,6 +148,14 @@ class AdminMemberPageService
             // silently truncated list reads as a complete one.
             'settled_payments_capped' => count($settled) >= MemberPaymentProvider::SETTLED_LIMIT,
             'registration_origin' => $this->registrationOriginProvider?->getRegistrationOrigin($profile->memberId),
+            // Scoped to the year the page is showing, unlike everything
+            // else here: a training path is a statement about where
+            // somebody stood in a given season, not a fact that
+            // accumulates.
+            'formation_path' => $this->formationPathProvider?->getFormationPath($profile->memberId, $scoutYearId),
+            'camp_stays' => $campStays,
+            'camp_stays_capped' => count($campStays) >= MemberCampStayProvider::LIMIT,
+            'discussion_groups' => $this->discussionGroupProvider?->getDiscussionGroups($profile->memberId) ?? [],
         ];
     }
 

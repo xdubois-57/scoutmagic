@@ -109,7 +109,10 @@ class AdminMemberPageServiceTest extends TestCase
      */
     private function serviceWith(
         ?\Core\Module\MemberPaymentProvider $payments,
-        ?\Core\Module\MemberRegistrationOriginProvider $origin
+        ?\Core\Module\MemberRegistrationOriginProvider $origin,
+        ?\Core\Module\FormationPathProvider $formation = null,
+        ?\Core\Module\MemberCampStayProvider $camps = null,
+        ?\Core\Module\MemberDiscussionGroupProvider $groups = null
     ): AdminMemberPageService {
         return new AdminMemberPageService(
             $this->badgeRepository,
@@ -119,7 +122,10 @@ class AdminMemberPageServiceTest extends TestCase
             $this->scoutYearService,
             $this->emailRepository,
             $payments,
-            $origin
+            $origin,
+            $formation,
+            $camps,
+            $groups
         );
     }
 
@@ -273,6 +279,91 @@ class AdminMemberPageServiceTest extends TestCase
         $this->assertSame([], $data['settled_payments']);
         $this->assertFalse($data['settled_payments_capped']);
         $this->assertNull($data['registration_origin']);
+        $this->assertNull($data['formation_path']);
+        $this->assertSame([], $data['camp_stays']);
+        $this->assertFalse($data['camp_stays_capped']);
+        $this->assertSame([], $data['discussion_groups']);
+    }
+
+    // ── the « parcours » blocks ────────────────────────────────────────
+
+    /**
+     * Three hooks take a `members.id`, and the training path takes a
+     * scout year on top — deliberately, because where somebody stood is
+     * a statement about a season, not a fact that accumulates.
+     */
+    public function testTheParcoursHooksAreAskedAboutThePersonAndTheYearOnScreen(): void
+    {
+        $formation = new class implements \Core\Module\FormationPathProvider {
+            public ?int $memberAskedFor = null;
+            public ?int $yearAskedFor = null;
+
+            public function getFormationPath(int $memberId, int $scoutYearId): ?\Core\Module\FormationPathView
+            {
+                $this->memberAskedFor = $memberId;
+                $this->yearAskedFor = $scoutYearId;
+
+                return null;
+            }
+        };
+        $camps = new class implements \Core\Module\MemberCampStayProvider {
+            public ?int $askedFor = null;
+
+            public function getCampStays(int $memberId): array
+            {
+                $this->askedFor = $memberId;
+
+                return [];
+            }
+        };
+        $groups = new class implements \Core\Module\MemberDiscussionGroupProvider {
+            public ?int $askedFor = null;
+
+            public function getDiscussionGroups(int $memberId): array
+            {
+                $this->askedFor = $memberId;
+
+                return [];
+            }
+        };
+
+        $this->serviceWith(null, null, $formation, $camps, $groups)->buildPageData(
+            $this->memberService->getMemberProfile($this->memberYearId),
+            $this->currentYearId
+        );
+
+        $this->assertSame($this->memberId, $formation->memberAskedFor);
+        $this->assertSame($this->currentYearId, $formation->yearAskedFor);
+        $this->assertSame($this->memberId, $camps->askedFor);
+        $this->assertSame($this->memberId, $groups->askedFor);
+    }
+
+    public function testAFullCampListIsFlaggedAsCapped(): void
+    {
+        $stays = [];
+        for ($i = 0; $i < \Core\Module\MemberCampStayProvider::LIMIT; $i++) {
+            $stays[] = new \Core\Module\MemberCampStayView('Lieu ' . $i, '2026', 'Meute', '2025-2026', '/chefs/camps/sejours/' . $i);
+        }
+
+        $camps = new class ($stays) implements \Core\Module\MemberCampStayProvider {
+            /** @param list<\Core\Module\MemberCampStayView> $stays */
+            public function __construct(private array $stays)
+            {
+            }
+
+            public function getCampStays(int $memberId): array
+            {
+                return $this->stays;
+            }
+        };
+
+        $data = $this->serviceWith(null, null, null, $camps, null)->buildPageData(
+            $this->memberService->getMemberProfile($this->memberYearId),
+            $this->currentYearId
+        );
+
+        $this->assertCount(\Core\Module\MemberCampStayProvider::LIMIT, $data['camp_stays']);
+        $this->assertTrue($data['camp_stays_capped']);
     }
 
     /**

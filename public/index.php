@@ -2144,6 +2144,14 @@ $calendarEventLookup = null;
 // that module's block below, same pattern as the two above.
 $formationPathProvider = null;
 
+// The admin member page's « parcours » blocks (ARCHITECTURE.md §7.4),
+// set in the camps and groups blocks below and null when either module is
+// disabled — the block is then not built at all. The leadership half of
+// that parcours uses $formationPathProvider above, unchanged: the same
+// hook now feeds two pages.
+$memberCampStayProvider = null;
+$memberDiscussionGroupProvider = null;
+
 // Optional dependency on the finance module (ARCHITECTURE.md §7.5) for
 // keeping a document as a receipt on one of the unit's accounts — set in
 // finance's own block below. The fees module's federation invoice is the
@@ -3207,6 +3215,12 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsMemberRepo, $groupsSectionRepo, $sectionMembershipRepository
     );
     $groupsService = new \Modules\Groups\Service\GroupService($groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo);
+    // Which groups a member belongs to, for the admin member page's
+    // « parcours » (ARCHITECTURE.md §7.4). Explicit memberships only,
+    // and membership only — never a post, never a count of them.
+    $memberDiscussionGroupProvider = new \Modules\Groups\Service\MemberDiscussionGroupService(
+        $groupsMemberRepo, $groupsGroupRepo
+    );
     // Per-member "last time I opened this group": drives the unread badge
     // on the group list, the home page's own activity card, and a post's
     // "vu par" list — all three read the same single mark, written once
@@ -3634,6 +3648,16 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     $campsDocumentRepo = new \Modules\Camps\Repository\DocumentRepository($pdo);
     $campsReviewRepo = new \Modules\Camps\Repository\ReviewRepository($pdo);
     $campsProposalRepo = new \Modules\Camps\Repository\FieldProposalRepository($pdo, $encryptionService);
+
+    // Which stays a member's sections went on, for the admin member
+    // page's « parcours » (ARCHITECTURE.md §7.4). Nothing records a
+    // camp's participants one by one, so this crosses core's
+    // member_section_periods with this module's camp_camp_sections —
+    // see the service's own docblock for what that infers and what it
+    // does not claim.
+    $memberCampStayProvider = new \Modules\Camps\Service\MemberCampStayService(
+        $campsCampRepo, $campsPlaceRepo, $sectionMembershipRepository, $sectionService, $scoutYearService
+    );
 
     $campsSectionDescriber = new \Modules\Camps\Service\SectionDescriber($sectionService);
     $campsPlaceService = new \Modules\Camps\Service\PlaceService($campsPlaceRepo, $auditService);
@@ -4858,18 +4882,20 @@ if (
 
 // The admin member page, registered here rather than with the other core
 // controllers above for the same reason MemberController is: two of its
-// blocks come from optional modules — finance's open and closed payments
-// (via $memberPaymentProvider) and registration's origin link (via
-// $memberRegistrationOriginProvider) — and both are only in scope once
-// those modules' blocks have run. Each stays null when its module is
-// disabled, and the corresponding block is then not built at all.
+// blocks come from optional modules — finance's open and closed payments,
+// registration's origin link, and the three « parcours » hooks
+// (leadership's training path, camps' stays, groups' memberships) — and
+// none of them is in scope until those modules' blocks have run. Each
+// stays null when its module is disabled, and the corresponding block is
+// then not built at all.
 $frontController->registerController(MemberSearchController::class, new MemberSearchController(
     $twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService,
     $memberExportRowBuilder, $memberExportService, $journalService,
     new \Core\Member\AdminMemberPageService(
         $memberBadgeRepository, $memberPhotoService, $sectionMembershipRepository,
         $sectionService, $scoutYearService, $memberEmailRepository,
-        $memberPaymentProvider, $memberRegistrationOriginProvider
+        $memberPaymentProvider, $memberRegistrationOriginProvider,
+        $formationPathProvider, $memberCampStayProvider, $memberDiscussionGroupProvider
     ),
     $memberYearRepo,
     new \Core\Member\MemberNoteService(

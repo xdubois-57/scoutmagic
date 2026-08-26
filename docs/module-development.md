@@ -508,6 +508,8 @@ The ones that exist today:
 | `Core\Module\MemberPaymentProvider` | `getOpenPayments()` — what is still owed | both pages |
 | `Core\Module\MemberPaymentProvider` | `getSettledPayments()` — what is over, capped at `SETTLED_LIMIT`, most recent first | the admin page only |
 | `Core\Module\MemberRegistrationOriginProvider` | which registration request this member came from | the admin page only |
+| `Core\Module\MemberCampStayProvider` | which stays this member's sections went on, capped at `LIMIT` | the admin page only |
+| `Core\Module\MemberDiscussionGroupProvider` | which discussion groups this member belongs to | the admin page only |
 | `Core\Module\SectionResponsableProvider` | who runs this member's section | the member's own page |
 
 Before writing a new one, check whether one of these already asks your question. The shape to copy, when none does:
@@ -524,6 +526,7 @@ interface MyThingProvider
 - **A read DTO beside the interface**, `public readonly` properties and no logic. Return `?XxxView` for one object, `list<XxxView>` for a collection, never an improvised associative array.
 - **Presentation-ready, in the module's own words.** Core owns the template but not the domain: hand over a label and an amount in cents, not your internal vocabulary. The exception is anything core has to *branch* on — a status that picks a badge colour — which is a small set of constants core declares, and your module maps onto.
 - **Say what `null` means** in the docblock: module absent, or no data. And treat "no data" as the ordinary case — most members owe nothing and came from no request, so the page draws nothing rather than « aucune donnée ».
+- **Say what your answer INFERS, when it infers anything.** `MemberCampStayProvider` is the example: nothing records a camp's participants one by one, so "went on" means "their section went, in a year they were in it". Write that in the interface's docblock. A hook that quietly claims more than the tables hold is the kind of wrong nobody catches, because the page looks right.
 - **The hook decides nothing about who may look.** The page has already answered that. A provider that re-derived its own audience would be a second answer waiting to disagree with the router's.
 - **The implementation lives in your module's `Service\`, not its `Api\`.** `Api\` is where a module *publishes* an interface of its own for others to consume (§7.5); here the interface is core's and you are implementing it (§7.4). Wiring it is one nullable argument in the composition root, inside your module's own `if (in_array('my_module', …))` block.
 
