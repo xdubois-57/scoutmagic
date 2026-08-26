@@ -72,6 +72,39 @@ class MemberServiceTest extends TestCase
         $this->assertSame('Mowgli', $members[1]->getDisplayName());
     }
 
+    /**
+     * The composition root resolves the same visitor's linked members
+     * several times per request — repeats are answered from memory.
+     * Proven by adding a member behind the service's back: a fresh read
+     * would see them, the memo must not.
+     */
+    public function testGetLinkedMembersIsMemoizedPerEmailAndYear(): void
+    {
+        $this->createTestMember($this->testEmail, 'Baloo');
+        $this->assertCount(1, $this->service->getLinkedMembers($this->testEmail, $this->scoutYearId));
+
+        $this->createTestMember($this->testEmail, 'Mowgli');
+
+        $this->assertCount(1, $this->service->getLinkedMembers($this->testEmail, $this->scoutYearId));
+        // A fresh instance (a fresh request) sees the new member.
+        $fresh = new MemberService(
+            memberYearRepo: new \Core\Import\MemberYearRepository($this->pdo),
+            encryption: new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+            connection: \Core\Database\Connection::withPdo($this->pdo)
+        );
+        $this->assertCount(2, $fresh->getLinkedMembers($this->testEmail, $this->scoutYearId));
+    }
+
+    public function testGetLinkedMembersMemoTellsEmailsAndYearsApart(): void
+    {
+        $this->createTestMember($this->testEmail, 'Baloo');
+        $this->createTestMember('other@example.com', 'Akela');
+
+        $this->assertCount(1, $this->service->getLinkedMembers($this->testEmail, $this->scoutYearId));
+        $this->assertCount(1, $this->service->getLinkedMembers('other@example.com', $this->scoutYearId));
+        $this->assertCount(0, $this->service->getLinkedMembers($this->testEmail, $this->scoutYearId + 999));
+    }
+
     public function testGetLinkedMembersReturnsEmptyArrayForUnknownEmail(): void
     {
         $members = $this->service->getLinkedMembers('unknown@example.com', $this->scoutYearId);

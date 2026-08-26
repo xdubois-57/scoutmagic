@@ -18,13 +18,26 @@ namespace Core\Photo;
  */
 class SectionPhotoService
 {
+    /**
+     * Resolutions for the lifetime of this instance, misses included —
+     * same per-request memo as MemberPhotoService.
+     *
+     * @var array<string, int|null>
+     */
+    private array $resolved = [];
+
     public function __construct(private SectionPhotoRepository $repository)
     {
     }
 
     public function resolveFileId(int $sectionId, int $scoutYearId): ?int
     {
-        return $this->repository->findFileIdForYearOrEarlier($sectionId, $scoutYearId);
+        $key = $sectionId . ':' . $scoutYearId;
+        if (!array_key_exists($key, $this->resolved)) {
+            $this->resolved[$key] = $this->repository->findFileIdForYearOrEarlier($sectionId, $scoutYearId);
+        }
+
+        return $this->resolved[$key];
     }
 
     /**
@@ -33,5 +46,8 @@ class SectionPhotoService
     public function setPhoto(int $sectionId, int $scoutYearId, int $fileId, ?int $createdBy): void
     {
         $this->repository->upsert($sectionId, $scoutYearId, $fileId, $createdBy);
+        // A photo set at year N also answers "year N or earlier" for later
+        // years — drop everything rather than track the fallback chain.
+        $this->resolved = [];
     }
 }

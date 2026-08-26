@@ -130,6 +130,35 @@ class AccountPhotoServiceTest extends TestCase
         );
     }
 
+    /**
+     * The nav asks for the connected account's avatar three times per
+     * page — the second and third answers come from memory. Proven by
+     * deleting the row behind the service's back: a fresh read would
+     * notice, the memo must not.
+     */
+    public function testRepeatedResolutionsAreAnsweredFromMemory(): void
+    {
+        $fileId = $this->createStoredFile('face.webp');
+        $this->service->setPhoto($this->accountId, $fileId);
+        $this->assertSame($fileId, $this->service->resolveFileId($this->accountId));
+
+        $this->pdo->exec('DELETE FROM user_account_photos');
+
+        $this->assertSame($fileId, $this->service->resolveFileId($this->accountId));
+    }
+
+    public function testBatchResolutionPrimesTheMemoForSingleLookups(): void
+    {
+        $mine = $this->createStoredFile('mine.webp');
+        $this->service->setPhoto($this->accountId, $mine);
+
+        $this->service->resolveFileIds([$this->accountId, $this->otherAccountId]);
+        $this->pdo->exec('DELETE FROM user_account_photos');
+
+        $this->assertSame($mine, $this->service->resolveFileId($this->accountId));
+        $this->assertNull($this->service->resolveFileId($this->otherAccountId));
+    }
+
     private function createAccount(string $suffix): int
     {
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');

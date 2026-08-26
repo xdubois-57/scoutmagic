@@ -35,6 +35,33 @@ class ScoutYearServiceTest extends TestCase
         $this->assertSame(1, (int) $stmt->fetchColumn());
     }
 
+    /**
+     * The four fields this service returns are fixed at INSERT and never
+     * updated, so repeats within one request are answered from memory —
+     * proven by deleting the rows behind the service's back.
+     */
+    public function testGetCurrentYearAndFindByIdAreMemoized(): void
+    {
+        $year = $this->service->getCurrentYear();
+        $this->assertNotNull($this->service->findById($year['id']));
+
+        $this->pdo->exec('DELETE FROM scout_years');
+
+        $this->assertSame($year, $this->service->getCurrentYear());
+        $this->assertSame($year, $this->service->findById($year['id']));
+        // …and no ghost row was recreated by the memoized getCurrentYear().
+        $stmt = $this->pdo->query('SELECT COUNT(*) FROM scout_years');
+        $this->assertSame(0, (int) $stmt->fetchColumn());
+    }
+
+    public function testFindByIdMemoizesAMissWithoutHidingLaterYears(): void
+    {
+        $this->assertNull($this->service->findById(424242));
+
+        $year = $this->service->getCurrentYear();
+        $this->assertNotNull($this->service->findById($year['id']));
+    }
+
     public function testLabelForDateSeptemberStartsNewYear(): void
     {
         $date = new \DateTimeImmutable('2025-09-15');

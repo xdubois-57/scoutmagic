@@ -14,6 +14,14 @@ class EditableContentService
 {
     private HtmlSanitizer $sanitizer;
 
+    /**
+     * Rows for the lifetime of this instance, misses included — a page
+     * with a dozen editable() blocks used to cost a query each.
+     *
+     * @var array<string, array<string, mixed>|null>
+     */
+    private array $rows = [];
+
     public function __construct(
         private EditableContentRepository $repository
     ) {
@@ -25,7 +33,7 @@ class EditableContentService
      */
     public function get(string $key, ?string $default = null): ?string
     {
-        $row = $this->repository->findByKey($key);
+        $row = $this->findRow($key);
 
         if ($row === null) {
             return $default;
@@ -45,6 +53,7 @@ class EditableContentService
         }
 
         $this->repository->upsert($key, $type, $value, null, $modifiedBy);
+        unset($this->rows[$key]);
     }
 
     /**
@@ -53,6 +62,7 @@ class EditableContentService
     public function delete(string $key): void
     {
         $this->repository->delete($key);
+        unset($this->rows[$key]);
     }
 
     /**
@@ -61,8 +71,20 @@ class EditableContentService
      */
     public function getLastUpdated(string $key): ?string
     {
-        $row = $this->repository->findByKey($key);
+        $row = $this->findRow($key);
 
         return $row['modified_at'] ?? null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function findRow(string $key): ?array
+    {
+        if (!array_key_exists($key, $this->rows)) {
+            $this->rows[$key] = $this->repository->findByKey($key);
+        }
+
+        return $this->rows[$key];
     }
 }
