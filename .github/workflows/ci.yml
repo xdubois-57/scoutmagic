@@ -228,12 +228,29 @@ jobs:
   authorization-matrix:
     name: Authorization matrix
     runs-on: ubuntu-latest
-    # 528 routes replayed as 6 roles, comparing each answer to the
-    # role_min the route declares (SECURITY.md § 36). No scanner and no
-    # browser, so it is fast enough to be a blocking check on every push
-    # — which is the point: an over-permissive route should fail the
-    # commit that introduced it, not a scan somebody remembers to run.
-    timeout-minutes: 10
+    # 534 routes replayed as 6 roles — 3204 (route, role) pairs — each
+    # answer compared to the role_min the route declares (SECURITY.md
+    # § 36). No scanner and no browser, so it is fast enough to be a
+    # blocking check on every push — which is the point: an
+    # over-permissive route should fail the commit that introduced it,
+    # not a scan somebody remembers to run.
+    #
+    # 20, raised from 10: the job is not slow, it outgrew its budget. It
+    # took 10m15s on af70f87c and was cancelled mid-run, having passed on
+    # the commit before — the ceiling was already being grazed, and the
+    # route count crossing 528 to 534 was enough to breach it. The cost
+    # of the old value was a red job that reported nothing about
+    # authorization, which is worse than no check at all: it trains
+    # readers to ignore the one signal that would catch an over-permissive
+    # route.
+    #
+    # 20 is roughly twice the measured time, so ordinary growth in the
+    # route table will not breach it again for a long while. It stays a
+    # real ceiling rather than a formality: the work is arithmetic over a
+    # fixed matrix with no network and no browser, so a run still going at
+    # 20 minutes is hung, not busy, and the timeout should end it instead
+    # of letting it burn the 360-minute default.
+    timeout-minutes: 20
     services:
       mysql:
         image: mysql:8.0
@@ -288,9 +305,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # For the SARIF upload below. Scoped to this job rather than
-      # granted file-wide: no other job here writes security events.
-      security-events: write
+      # No security-events: write. This job used to publish ZAP's SARIF to
+      # code scanning; it no longer does, and the reason is worth keeping —
+      # see "Why the findings are not in the Security tab" below.
     # The Playwright suite replayed through OWASP ZAP, with the passive
     # rules reading the traffic (SECURITY.md § 9, scripts/dast.sh). The
     # bound covers a cold 1.2 GB image pull plus the full browser suite.
@@ -347,17 +364,30 @@ jobs:
           DAST_DB_PASSWORD: test_password
         run: ./scripts/dast.sh --profile=passive
 
-      - name: Publish the findings to code scanning
-        # Always, and this matters: the run FAILS when the gate finds
-        # something at or above Medium, and that is exactly when the
-        # findings are worth having in the security tab. Uploading only
-        # on success would publish nothing on the runs that found
-        # something.
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: dast-report/dast-passive.sarif.json
-          category: owasp-zap-passive
+      # Why the findings are not in the Security tab
+      # ------------------------------------------------------------
+      # There used to be an upload-sarif step here. It failed every run:
+      #   SARIF URI scheme "https" did not match the checkout URI
+      #   scheme "file"
+      # and the failure was not a misconfiguration to tune away — it is
+      # the two tools disagreeing about what a finding IS. Code scanning
+      # anchors a result to a path inside the checkout it can blame a
+      # commit and a line for. A DAST result is an observation about a
+      # RUNNING instance: ZAP writes the URL it actually requested, and
+      # scripts/dast.sh serves that instance on a free port picked at run
+      # time, so the locations read `https://localhost:<random>/...` — an
+      # origin that never existed outside that one job and is different on
+      # the next one. Rewriting those URIs to repo-relative paths would
+      # make the upload succeed by inventing a source location for a
+      # finding that has none, pinning a header or cookie observation onto
+      # whichever file was picked to carry it.
+      #
+      # So the findings stay where they are true. The gate is not weakened
+      # by this: scripts/dast.sh exits non-zero on anything at or above
+      # Medium (SECURITY.md § 9), which fails this job on the very push
+      # that introduced it — enforcement the Security tab never provided.
+      # The HTML report and ZAP's own SARIF both ship in the artifact
+      # below, for whoever reads a failing run.
 
       - name: Upload the HTML report
         if: always()
