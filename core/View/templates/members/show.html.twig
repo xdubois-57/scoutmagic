@@ -8,7 +8,7 @@
    raw intrinsic size, which is the actual root cause of the member photo
    "taking the whole screen" — not the CSS technique itself. #}
 {% block stylesheets %}
-<link rel="stylesheet" href="/assets/css/components.css">
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
 {% endblock %}
 {% block content %}
     {# Header — photo (replaceable by the member themselves outside config
@@ -524,7 +524,7 @@
                             {% if branch_card.logo_file_id %}
                                 <img src="{{ file_url(branch_card.logo_file_id, 'md') }}" alt="{{ branch_card.label }}" class="img-fluid mb-2" style="max-height:120px;">
                             {% elseif branch_card.default_logo %}
-                                <img src="/assets/img/branches/{{ branch_card.default_logo }}" alt="{{ branch_card.label }}" class="img-fluid mb-2" style="max-height:120px;">
+                                <img src="{{ asset('/assets/img/branches/' ~ branch_card.default_logo) }}" alt="{{ branch_card.label }}" class="img-fluid mb-2" style="max-height:120px;">
                             {% endif %}
                             <h2 class="h6 mb-2">{{ branch_card.label }}</h2>
                             <a href="{{ branch_card.explanation_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">

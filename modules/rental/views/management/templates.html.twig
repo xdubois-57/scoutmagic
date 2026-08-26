@@ -393,15 +393,15 @@
 {% block stylesheets %}
 {# The keyword chips and the editing surface are styled by components.css,
    which base.html.twig deliberately does not load. #}
-<link rel="stylesheet" href="/assets/css/components.css">
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
 {% endblock %}
 
 {% block scripts %}
     {# type="module" for both: these files use `export`, and a classic
        <script> tag rejects such a file with a SyntaxError before a line
        of it runs — a failure that leaves no trace on the page itself. #}
-    <script type="module" src="/assets/js/rich-text-form-field.js"></script>
+    <script type="module" src="{{ asset('/assets/js/rich-text-form-field.js') }}"></script>
     {# Keeps the note under "Publier à partir de" describing the option
        currently selected rather than the one that happens to be saved. #}
-    <script type="module" src="/assets/js/select-explanation.js"></script>
+    <script type="module" src="{{ asset('/assets/js/select-explanation.js') }}"></script>
 {% endblock %}

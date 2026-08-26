@@ -293,7 +293,7 @@
 
 {% block scripts %}
 {% if not no_accounts %}
-<script src="/assets/js/pdf-thumbnail.js" defer></script>
-<script src="/assets/js/finance-movements.js" defer></script>
+<script src="{{ asset('/assets/js/pdf-thumbnail.js') }}" defer></script>
+<script src="{{ asset('/assets/js/finance-movements.js') }}" defer></script>
 {% endif %}
 {% endblock %}

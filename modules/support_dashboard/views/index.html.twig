@@ -360,7 +360,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
+<script src="{{ asset('/assets/vendor/chartjs/chart.umd.min.js') }}"></script>
 {# Server data as a JSON ISLAND, read by support-dashboard.js through
    ScoutMagicApi.pageData(). A version string is reported by a REMOTE
    installation, so it is untrusted text: an island makes it data to the
@@ -374,5 +374,5 @@
     history: history.series
 }|json_encode(json_flags)|raw }}
 </script>
-<script src="/assets/js/support-dashboard.js" defer></script>
+<script src="{{ asset('/assets/js/support-dashboard.js') }}" defer></script>
 {% endblock %}

@@ -114,6 +114,9 @@ class CalendarChiefControllerTest extends TestCase
         $loader = new FilesystemLoader($templateDir);
         $loader->addPath($moduleViews, 'calendar');
         $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_email', 'chief@test.be');

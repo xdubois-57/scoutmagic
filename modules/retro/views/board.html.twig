@@ -128,5 +128,5 @@
        retro/_comment.html.twig's structure) using the #retro-board container's
        data-* attributes above (vote-mode/is-chief/can-vote/status) — a poll response
        only ever carries the {id, column, body, votes, hidden} fields themselves. #}
-    <script src="/assets/js/retro-board.js" defer nonce="{{ csp_nonce }}"></script>
+    <script src="{{ asset('/assets/js/retro-board.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

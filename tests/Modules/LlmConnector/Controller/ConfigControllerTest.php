@@ -48,6 +48,9 @@ class ConfigControllerTest extends TestCase
         $loader = new FilesystemLoader($templateDir);
         $loader->addPath(dirname(__DIR__, 4) . '/modules/llm_connector/views', 'llm_connector');
         $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         foreach ([
             'site_name' => 'Test', 'is_authenticated' => true, 'current_user_role' => 'superadmin',
             'config_mode' => true, 'cookie_consent_given' => true, 'menus' => null, 'csp_nonce' => 'test-nonce',

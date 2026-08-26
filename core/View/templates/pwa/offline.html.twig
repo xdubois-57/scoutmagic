@@ -15,9 +15,9 @@
        plain external script: no inline handler, no CSP nonce, since a
        nonce baked into a precached response would go stale the moment
        the server issues a new one on the next request. #}
-    <link rel="stylesheet" href="/assets/vendor/bootstrap/css/bootstrap.min.css">
-    <link rel="stylesheet" href="/assets/vendor/bootstrap-icons/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="/assets/css/app.css">
+    <link rel="stylesheet" href="{{ asset('/assets/vendor/bootstrap/css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('/assets/vendor/bootstrap-icons/bootstrap-icons.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('/assets/css/app.css') }}">
 </head>
 <body>
     <div class="d-flex flex-column align-items-center justify-content-center text-center" style="min-height:100vh; padding:2rem;">
@@ -32,6 +32,6 @@
             <a href="/" class="btn btn-outline-secondary">Accueil</a>
         </div>
     </div>
-    <script src="/assets/js/offline-page.js"></script>
+    <script src="{{ asset('/assets/js/offline-page.js') }}"></script>
 </body>
 </html>

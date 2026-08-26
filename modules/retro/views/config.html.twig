@@ -223,5 +223,5 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="/assets/js/retro-config.js" defer nonce="{{ csp_nonce }}"></script>
+    <script src="{{ asset('/assets/js/retro-config.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

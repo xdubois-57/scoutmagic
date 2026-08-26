@@ -216,11 +216,11 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/push-notifications.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/push-notifications.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% if has_password is defined %}
 {# The checklist and the confirmation check come with the field itself
    (partials/password_field.html.twig) — this page writes none of it. #}
-<script type="module" src="/assets/js/password-field.js"></script>
+<script type="module" src="{{ asset('/assets/js/password-field.js') }}"></script>
 {% endif %}
-<script src="/assets/js/account-passkeys.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/account-passkeys.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

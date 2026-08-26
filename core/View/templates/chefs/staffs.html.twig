@@ -1,7 +1,7 @@
 {% extends 'base.html.twig' %}
 {% block title %}Staffs — {{ site_name }}{% endblock %}
 {% block stylesheets %}
-<link rel="stylesheet" href="/assets/css/components.css">
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
 {% endblock %}
 {% block content %}
     {% include 'partials/page_header.html.twig' with { title: 'Staffs' } only %}
@@ -313,8 +313,8 @@
     oversizeWarningMb: section_document_oversize_warning_mb|default(5)
 }|json_encode(json_flags)|raw }}
 </script>
-<script src="/assets/js/sortable.js" defer></script>
-<script src="/assets/js/list-editor.js" defer></script>
-<script src="/assets/js/staffs.js" defer></script>
+<script src="{{ asset('/assets/js/sortable.js') }}" defer></script>
+<script src="{{ asset('/assets/js/list-editor.js') }}" defer></script>
+<script src="{{ asset('/assets/js/staffs.js') }}" defer></script>
 {% endif %}
 {% endblock %}

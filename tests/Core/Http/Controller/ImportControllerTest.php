@@ -62,6 +62,9 @@ class ImportControllerTest extends TestCase
             'cache' => false,
             'autoescape' => 'html',
         ]);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         $twig->addGlobal('site_name', 'Test');
         // The shared French format filters (core/View/TwigFactory.php) used by
         // the templates under test - same rendering as the shipped ones.

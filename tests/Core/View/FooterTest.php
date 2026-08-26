@@ -19,6 +19,9 @@ class FooterTest extends TestCase
             'cache' => false,
             'autoescape' => 'html',
         ]);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         $this->twig->addGlobal('site_name', 'Test Unit');
         $this->twig->addGlobal('is_authenticated', false);
         $this->twig->addGlobal('current_user_email', null);

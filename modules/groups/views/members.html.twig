@@ -240,5 +240,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/groups.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/groups.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

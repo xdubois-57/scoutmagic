@@ -3,7 +3,7 @@
 {% block title %}Calendrier — {{ site_name }}{% endblock %}
 
 {% block stylesheets %}
-<link rel="stylesheet" href="/assets/css/components.css">
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -134,5 +134,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/calendar-public.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/calendar-public.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

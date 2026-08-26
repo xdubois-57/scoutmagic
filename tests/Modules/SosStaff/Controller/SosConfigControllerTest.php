@@ -75,6 +75,9 @@ class SosConfigControllerTest extends TestCase
         $loader = new FilesystemLoader($templateDir);
         $loader->addPath($moduleViews, 'sos_staff');
         $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_role', 'superadmin');

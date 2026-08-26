@@ -36,6 +36,9 @@ class AbstractControllerCsrfGuardTest extends TestCase
         unset($_SERVER['HTTP_X_CSRF_TOKEN']);
 
         $twig = new Environment(new ArrayLoader([]));
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         $this->controller = new class ($twig) extends AbstractController {
             public function callGuardCsrf(Request $request, string $redirectTo, ?string $token = null): ?Response
             {

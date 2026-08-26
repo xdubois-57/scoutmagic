@@ -6,7 +6,7 @@
            Chart.js: no npm, no build step, and above all no CDN — a CDN
            would hand a third party the IP of every chief opening this
            page, before they even asked for a map. #}
-        <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.css">
+        <link rel="stylesheet" href="{{ asset('/assets/vendor/leaflet/leaflet.css') }}">
     {% endif %}
 {% endblock %}
 {% block content %}
@@ -160,7 +160,7 @@
 {% endblock %}
 {% block scripts %}
     {% if not archived %}
-        <script src="/assets/vendor/leaflet/leaflet.js"></script>
-        <script src="/assets/js/camps-map.js"></script>
+        <script src="{{ asset('/assets/vendor/leaflet/leaflet.js') }}"></script>
+        <script src="{{ asset('/assets/js/camps-map.js') }}"></script>
     {% endif %}
 {% endblock %}

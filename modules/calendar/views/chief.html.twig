@@ -3,7 +3,7 @@
 {% block title %}Calendrier — {{ site_name }}{% endblock %}
 
 {% block stylesheets %}
-<link rel="stylesheet" href="/assets/css/components.css">
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -158,5 +158,5 @@
     defaultCalendarId: default_calendar_id
 }|json_encode(json_flags)|raw }}
 </script>
-<script src="/assets/js/calendar-chief.js" defer></script>
+<script src="{{ asset('/assets/js/calendar-chief.js') }}" defer></script>
 {% endblock %}

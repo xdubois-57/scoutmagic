@@ -246,8 +246,8 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="/assets/js/chunked-upload.js" defer></script>
-    <script src="/assets/js/drop-zone.js" defer></script>
-    <script src="/assets/js/sortable.js" defer></script>
-    <script src="/assets/js/gallery.js" defer></script>
+    <script src="{{ asset('/assets/js/chunked-upload.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/drop-zone.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/sortable.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/gallery.js') }}" defer></script>
 {% endblock %}

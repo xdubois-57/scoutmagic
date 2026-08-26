@@ -78,7 +78,8 @@ class MemberShowTemplateTest extends TestCase
     {
         $html = $this->render($this->makeMember());
 
-        $this->assertStringContainsString('<link rel="stylesheet" href="/assets/css/components.css">', $html);
+        // Through the asset() cache-busting helper, so the href carries ?v=….
+        $this->assertMatchesRegularExpression('~<link rel="stylesheet" href="/assets/css/components\.css\?v=[^"]+">~', $html);
     }
 
     public function testHeaderPhotoPlaceholderUsesTheSizedHeaderClass(): void

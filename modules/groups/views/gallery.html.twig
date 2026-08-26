@@ -3,7 +3,7 @@
 {% block title %}Galerie — {{ group_label|default(group.name) }} — {{ site_name }}{% endblock %}
 
 {% block stylesheets %}
-<link rel="stylesheet" href="/assets/css/components.css">
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
 {% endblock %}
 {#
   A group's photos, shown with gallery's OWN grid and gallery's own lightbox
@@ -54,5 +54,5 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="/assets/js/gallery.js" defer nonce="{{ csp_nonce }}"></script>
+    <script src="{{ asset('/assets/js/gallery.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

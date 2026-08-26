@@ -117,6 +117,6 @@
     {# Only when the page was opened FOR one instance: the server marks
        that accordion item with `data-scroll-focus` above. #}
     {% if focus_source and focus_id %}
-        <script src="/assets/js/scroll-into-focus.js" defer></script>
+        <script src="{{ asset('/assets/js/scroll-into-focus.js') }}" defer></script>
     {% endif %}
 {% endblock %}

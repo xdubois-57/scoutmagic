@@ -625,19 +625,19 @@
 {% block scripts %}
     {# type="module" — the file uses `export`, and a classic <script> tag
        rejects it with a SyntaxError before a line of it runs. #}
-    <script type="module" src="/assets/js/select-explanation.js"></script>
+    <script type="module" src="{{ asset('/assets/js/select-explanation.js') }}"></script>
     {# Suggests a billing unit matching the chosen type on the creation
        form (a hall → per person per night, a trailer → per full day).
        Without it the form keeps its server-rendered default. #}
-    <script type="module" src="/assets/js/rental-asset-defaults.js"></script>
+    <script type="module" src="{{ asset('/assets/js/rental-asset-defaults.js') }}"></script>
     {# Plain script, no module: it enhances the managers form in place and
        exports nothing the page needs. Without it the select it hides
        stays visible and the form works unchanged. No literal HTML tag in
        this comment: Twig comments are not HTML comments, so an analyser
        reading the rendered-source text would take one for a real
        unlabelled control. #}
-    <script src="/assets/js/rental-managers.js"></script>
+    <script src="{{ asset('/assets/js/rental-managers.js') }}"></script>
     {# Focuses the first field of a « Modifier » dialog when it opens, and
        opens the one a link names (design.md §1.9). #}
-    <script src="/assets/js/section-editor.js" defer></script>
+    <script src="{{ asset('/assets/js/section-editor.js') }}" defer></script>
 {% endblock %}

@@ -12,7 +12,7 @@
             {% if parcours_image_file_id > 0 %}
                 <img src="{{ file_url(parcours_image_file_id) }}" alt="Parcours scout : Baladins 6-8 ans, Louveteaux 8-12 ans, Éclaireurs 12-16 ans, Pionniers 16-18 ans" class="img-fluid rounded">
             {% else %}
-                <img src="/assets/img/parcours_scout.webp" alt="Parcours scout : Baladins 6-8 ans, Louveteaux 8-12 ans, Éclaireurs 12-16 ans, Pionniers 16-18 ans" class="img-fluid rounded">
+                <img src="{{ asset('/assets/img/parcours_scout.webp') }}" alt="Parcours scout : Baladins 6-8 ans, Louveteaux 8-12 ans, Éclaireurs 12-16 ans, Pionniers 16-18 ans" class="img-fluid rounded">
             {% endif %}
         </div>
 
@@ -251,5 +251,5 @@
     targetYearLabel: target_year_label
 }|json_encode(constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE'))|raw }}
 </script>
-<script src="/assets/js/registration-public-form.js" defer></script>
+<script src="{{ asset('/assets/js/registration-public-form.js') }}" defer></script>
 {% endblock %}

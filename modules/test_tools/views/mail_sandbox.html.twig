@@ -209,5 +209,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/mail-sandbox.js" defer nonce="{{ csp_nonce }}"></script>
+<script src="{{ asset('/assets/js/mail-sandbox.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

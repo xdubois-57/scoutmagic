@@ -408,6 +408,9 @@ class ToolsControllerTest extends TestCase
         $loader = new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates');
         $loader->addPath(dirname(__DIR__, 4) . '/modules/finance/views', 'finance');
         $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        // asset() is what base.html.twig references every static file through
+        // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
 
         $twig->addFilter(new TwigFilter('money_cents', fn($c) => $c === null || $c === '' ? '' : number_format(((int) $c) / 100, 2, ',', ' ') . ' €'));
         $twig->addFilter(new TwigFilter('money', fn($a) => $a === null || $a === '' ? '' : number_format((float) $a, 2, ',', ' ') . ' €'));

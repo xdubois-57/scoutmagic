@@ -173,5 +173,5 @@
     {# The summary is written by the LLM connector, which takes seconds:
        without a busy state the button looks inert and gets pressed twice,
        which is a second paid call for the same place. #}
-    <script src="/assets/js/camps-place-summary.js" defer></script>
+    <script src="{{ asset('/assets/js/camps-place-summary.js') }}" defer></script>
 {% endblock %}

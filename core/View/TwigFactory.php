@@ -100,6 +100,20 @@ class TwigFactory
         // input) rather than re-validated against the service, since the
         // actual security boundary is FileController::variant()'s own
         // check on the URL segment, not this URL-building helper.
+        // asset() — a static asset's URL with the release version as a
+        // cache-busting query (?v=…), the same mechanism base.html.twig
+        // already used for /sw.js. This is what lets the web server give
+        // /assets/** a far-future lifetime: the reference changes when a
+        // release changes the file, so a year-long cache can never serve
+        // a stale script against a new page. Every template reference to
+        // /assets/ must go through it — pinned by
+        // Tests\Core\View\AssetVersioningTest.
+        $environment->addFunction(new TwigFunction('asset', function (string $path) use ($environment): string {
+            $version = (string) ($environment->getGlobals()['app_version'] ?? 'dev');
+
+            return $path . '?v=' . rawurlencode($version);
+        }));
+
         $environment->addFunction(new TwigFunction('file_url', function (int|string|null $id, ?string $variant = null): string {
             if ($id === null || $id === '' || $id === 0) {
                 return '';
