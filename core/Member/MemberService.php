@@ -233,6 +233,21 @@ class MemberService
     }
 
     /**
+     * member_id => member_year id for one scout year, in one query — the
+     * id-resolution half of findProfileByMemberAndYear() below for callers
+     * that hold a whole list of persistent ids (the mass-mail tracking
+     * page) and hydrate the profiles in a batch of their own. Same
+     * semantics as the single variant: not filtered on is_active.
+     *
+     * @param int[] $memberIds
+     * @return array<int, int>
+     */
+    public function findMemberYearIdsByMembersAndYear(array $memberIds, int $scoutYearId): array
+    {
+        return $this->memberYearRepo->findIdsByMembersAndYear($memberIds, $scoutYearId);
+    }
+
+    /**
      * Resolve a member's profile from their persistent identity
      * (members.id) rather than a member_year id — for callers that only
      * hold onto the persistent id across scout years (e.g. a module

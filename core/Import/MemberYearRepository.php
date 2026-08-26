@@ -161,6 +161,37 @@ class MemberYearRepository
     }
 
     /**
+     * member_id => member_years.id for one scout year — the batched
+     * counterpart of findByMemberAndYear() above, and like it deliberately
+     * NOT filtered on is_active (a tracking page naming who an email went
+     * to must keep naming a member who has since been deactivated).
+     * idx_member_year (member_id, scout_year_id) guarantees at most one
+     * row per pair.
+     *
+     * @param int[] $memberIds
+     * @return array<int, int>
+     */
+    public function findIdsByMembersAndYear(array $memberIds, int $scoutYearId): array
+    {
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT id, member_id FROM member_years WHERE member_id IN ({$placeholders}) AND scout_year_id = ?"
+        );
+        $stmt->execute([...$memberIds, $scoutYearId]);
+
+        $ids = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $ids[(int) $row['member_id']] = (int) $row['id'];
+        }
+
+        return $ids;
+    }
+
+    /**
      * The member's own (Desk-imported) email blind index, from their most
      * recent scout year that actually has one — "which user_accounts row
      * does this member's primary address belong to", for the notification
