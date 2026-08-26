@@ -6,9 +6,11 @@
                value="{{ member.memberYearId }}" style="width:1.25rem;height:1.25rem;"
                aria-label="Sélectionner {{ member.lastName|normalize_name }} {{ member.firstName|normalize_name }} pour l'export">
     </label>
-    <a href="/admin/members?q={{ query|url_encode }}&member={{ member.memberYearId }}#member-detail"
+    {# The result is a link to the member's own page now, not a query
+       parameter re-rendering this same screen below the list. #}
+    <a href="/admin/members/{{ member.memberYearId }}"
        class="text-decoration-none text-body flex-grow-1">
-        <div class="border rounded-3 p-3 d-flex align-items-center gap-3 {{ selected ? 'border-primary bg-primary-subtle' : '' }}">
+        <div class="border rounded-3 p-3 d-flex align-items-center gap-3">
             <div class="rounded-circle bg-primary-subtle d-flex align-items-center justify-content-center flex-shrink-0"
                  style="width:40px;height:40px;">
                 <span class="small fw-semibold text-primary">{{ member.initials }}</span>
@@ -28,6 +30,7 @@
                     {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'non inscrit' } only %}
                 {% endif %}
             </span>
+            <i class="bi bi-chevron-right text-body-secondary flex-shrink-0" aria-hidden="true"></i>
         </div>
     </a>
 </div>

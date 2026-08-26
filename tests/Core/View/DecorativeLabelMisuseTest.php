@@ -60,7 +60,7 @@ class DecorativeLabelMisuseTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/<label\b[^>]*id="settingEditLabel"/', $html);
     }
 
-    public function testMemberDetailCardGroupHeadingsAreNotLabelElements(): void
+    public function testAdminMemberPageGroupHeadingsAreNotLabelElements(): void
     {
         $twig = $this->createTwig();
         $member = new MemberProfile(
@@ -72,15 +72,27 @@ class DecorativeLabelMisuseTest extends TestCase
             scoutYearLabel: '2025-2026'
         );
 
-        $html = $twig->render('admin/members/_detail_card.html.twig', [
+        // The three site actions each became a card with a real heading
+        // when the detail moved to its own page (/admin/members/{id}) —
+        // the point of this case is unchanged: a group heading is a
+        // heading, never a <label> pointing at nothing.
+        $html = $twig->render('admin/members/show.html.twig', [
             'member' => $member,
             'effective_age' => new EffectiveAge(null, null, null, null, null, null),
             'departure_leaving' => false,
             'departure_comment' => '',
+            'is_temporary_member' => false,
+            'year_label' => '2025-2026',
+            'photo_file_id' => null,
+            'badges' => [],
+            'functions' => [],
+            'section_history' => [],
+            'member_emails' => [],
         ]);
 
-        $this->assertTextIsNotInsideALabel($html, 'Décalage année scoute');
-        $this->assertTextIsNotInsideALabel($html, "Départ prévu l'année prochaine");
+        $this->assertTextIsNotInsideALabel($html, 'Année dans la branche');
+        $this->assertTextIsNotInsideALabel($html, 'Départ');
+        $this->assertTextIsNotInsideALabel($html, 'Voir le site à sa place');
     }
 
     public function testMassMailComposeDialogGroupHeadingsAreNotLabelElements(): void

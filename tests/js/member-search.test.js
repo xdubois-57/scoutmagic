@@ -7,15 +7,17 @@
 // test builds its fixture first and then imports the module via
 // vi.resetModules() + await import().
 //
-// The fixture mirrors what core/View/templates/admin/members/search.html.twig
-// and its two partials render: the export form with its selected[]
-// checkboxes, and the detail card's scout-year offset buttons and departure
-// controls.
+// The fixtures mirror the TWO screens this file now serves, which used to
+// be one: admin/members/search.html.twig's export form with its selected[]
+// checkboxes, and admin/members/show.html.twig's scout-year offset buttons
+// and departure controls. Each half guards on its own anchor, so the
+// combined fixture below is not a page that exists any more — it is what
+// proves neither half needs the other to be present.
 //
-// This page renders member personal data (AGENTS.md § Security checklist),
+// Both screens render member personal data (AGENTS.md § Security checklist),
 // so two of the cases below are specifically about a member name or a
-// server-sent label carrying a quote or a <script>: nothing on this page may
-// turn either into markup.
+// server-sent label carrying a quote or a <script>: nothing here may turn
+// either into markup.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** One result row, exactly as admin/members/_result_row.html.twig renders it. */
@@ -26,7 +28,7 @@ function resultRow(id, lastName, firstName) {
             <input class="form-check-input member-export-checkbox m-0" type="checkbox" name="selected[]"
                    value="${id}" aria-label="Sélectionner ${lastName} ${firstName} pour l'export">
         </label>
-        <a href="/admin/members?q=dupont&amp;member=${id}#member-detail"><div>${lastName}, ${firstName}</div></a>
+        <a href="/admin/members/${id}"><div>${lastName}, ${firstName}</div></a>
     </div>`;
 }
 
@@ -40,8 +42,9 @@ const EXPORT_FORM = `
         ${resultRow(102, 'Martin', 'Alex')}
     </form>`;
 
-const DETAIL_CARD = `
-    <div class="card mt-4" id="member-detail">
+/** The two interactive cards of admin/members/show.html.twig. */
+const MEMBER_PAGE = `
+    <div>
         <div id="scout-year-offset-card" data-member-year-id="101">
             <button type="button" class="btn offset-btn" data-offset="-1">−1</button>
             <button type="button" class="btn offset-btn active" data-offset="0">0</button>
@@ -57,7 +60,7 @@ const DETAIL_CARD = `
         </div>
     </div>`;
 
-const PAGE = EXPORT_FORM + DETAIL_CARD;
+const PAGE = EXPORT_FORM + MEMBER_PAGE;
 
 /** The site-wide envelope for a JSON answer the server really sent. */
 function jsonResponse(body, status = 200) {
@@ -112,19 +115,29 @@ describe('member-search.js', () => {
             expect(/** @type {HTMLButtonElement} */ (el('member-export-selection-btn')).disabled).toBe(true);
         });
 
-        it('wires the detail card on a page whose search returned a single member', async () => {
-            document.body.innerHTML = DETAIL_CARD;
+        it("wires the member's own page, which carries no export form at all", async () => {
+            document.body.innerHTML = MEMBER_PAGE;
             await boot();
             document.querySelector('.offset-btn').dispatchEvent(new Event('click'));
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             expect(lastRequest().url).toBe('/members/101/scout-year-offset');
         });
 
-        it('scrolls the detail card into view when the browser can', async () => {
-            const scrollIntoView = vi.fn();
-            document.getElementById('member-detail').scrollIntoView = scrollIntoView;
+        it('wires the search list, which carries no offset or departure card at all', async () => {
+            document.body.innerHTML = EXPORT_FORM;
+            await expect(boot()).resolves.not.toThrow();
+            expect(el('scout-year-offset-card')).toBeNull();
+            expect(el('departure-card')).toBeNull();
+        });
+
+        it('points each result at the member\'s own page rather than back at the search', async () => {
+            document.body.innerHTML = EXPORT_FORM;
             await boot();
-            expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+            const links = Array.from(document.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+            expect(links).toContain('/admin/members/101');
+            // The old shape dragged the query along, so a shared link
+            // replayed somebody else's search.
+            links.forEach((href) => expect(href).not.toContain('?q='));
         });
     });
 

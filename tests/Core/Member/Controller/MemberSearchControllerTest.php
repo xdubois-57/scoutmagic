@@ -102,7 +102,15 @@ class MemberSearchControllerTest extends TestCase
         );
         $this->controller = new MemberSearchController(
             $twig, $searchService, $memberService, $resolver, new MemberYearService(), $departureService,
-            $exportRowBuilder, new \Core\Member\Export\MemberExportService(), new JournalService(new JournalRepository($this->pdo))
+            $exportRowBuilder, new \Core\Member\Export\MemberExportService(), new JournalService(new JournalRepository($this->pdo)),
+            new \Core\Member\AdminMemberPageService(
+                new \Core\Badge\MemberBadgeRepository($this->pdo),
+                new \Core\Photo\MemberPhotoService(new \Core\Photo\MemberPhotoRepository($this->pdo)),
+                new \Core\Member\SectionMembershipRepository($this->pdo),
+                $sectionService,
+                $scoutYearService,
+                new \Core\Member\MemberEmailRepository($this->pdo, $this->enc)
+            )
         );
 
         if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -167,8 +175,8 @@ class MemberSearchControllerTest extends TestCase
         $this->assertStringContainsString('Dupont', $body);
         $this->assertStringNotContainsString('DUPONT', $body);
         $this->assertStringContainsString('inscrit', $body);
-        // Result rows link to the detail anchor so the detail is scrolled into view.
-        $this->assertStringContainsString('#member-detail', $body);
+        // A result row is a link to that member's own page now.
+        $this->assertMatchesRegularExpression('#href="/admin/members/\d+"#', $body);
     }
 
     public function testNoResultsMessage(): void
@@ -178,67 +186,112 @@ class MemberSearchControllerTest extends TestCase
         $this->assertStringContainsString('Aucun membre trouvé', $body);
     }
 
-    public function testDetailCardOffersTheTemporaryAddButton(): void
+    // --- GET /admin/members/{id} — the member's own page ---
+    //
+    // This detail used to render below the search results, reached as
+    // /admin/members?q=…&member={id}. It is its own route now; every case
+    // below is the one that guarded the card, moved with it. The point of
+    // keeping them rather than rewriting them is that this iteration
+    // MOVES a page and must lose nothing.
+
+    /**
+     * @param array<string, mixed> $query
+     */
+    private function showMember(int $memberYearId, array $query = []): \Core\Http\Response
+    {
+        return $this->controller->show($this->get($query), ['id' => (string) $memberYearId]);
+    }
+
+    public function testMemberPageOffersTheTemporaryAddButton(): void
     {
         $id = $this->seedMember();
 
-        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+        $body = $this->showMember($id)->getBody();
 
-        $this->assertStringContainsString('Ajouter temporairement à ma liste', $body);
+        $this->assertStringContainsString('Voir le site à sa place', $body);
         $this->assertStringContainsString("/admin/members/{$id}/temporary-access", $body);
         $this->assertStringNotContainsString('Retirer de ma liste', $body);
     }
 
-    public function testDetailCardOffersRemovalForTheMemberCurrentlyAdded(): void
+    /**
+     * The block changes the READER's session, not the member — the
+     * « Votre session » label is what says so, and the full text is what
+     * makes anyone dare click (ARCHITECTURE.md §8.42).
+     */
+    public function testTheTemporaryAccessCardKeepsItsFullExplanationAndItsSessionLabel(): void
+    {
+        $body = $this->showMember($this->seedMember())->getBody();
+
+        $this->assertStringContainsString('Votre session', $body);
+        $this->assertStringContainsString(
+            'Aucune modification n\'est enregistrée : le retrait ou la déconnexion annule tout.',
+            $body
+        );
+    }
+
+    public function testMemberPageOffersRemovalForTheMemberCurrentlyAdded(): void
     {
         $id = $this->seedMember();
         TemporaryMemberSession::set($id);
 
-        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+        $body = $this->showMember($id)->getBody();
 
         $this->assertStringContainsString('Retirer de ma liste', $body);
         $this->assertStringContainsString('/admin/members/temporary-access/remove', $body);
-        $this->assertStringNotContainsString('Ajouter temporairement à ma liste', $body);
 
         TemporaryMemberSession::clear();
     }
 
-    public function testDetailCardOfAnotherMemberStillOffersTheAddButton(): void
+    public function testMemberPageOfAnotherMemberStillOffersTheAddButton(): void
     {
         $id = $this->seedMember();
         TemporaryMemberSession::set($id + 1000);
 
-        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+        $body = $this->showMember($id)->getBody();
 
-        $this->assertStringContainsString('Ajouter temporairement à ma liste', $body);
+        $this->assertStringNotContainsString('Retirer de ma liste', $body);
 
         TemporaryMemberSession::clear();
     }
 
-    public function testDetailCardRendersForValidMember(): void
+    public function testMemberPageRendersEveryDeskFieldTheDetailCardCarried(): void
     {
         $id = $this->seedMember();
 
-        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+        $body = $this->showMember($id)->getBody();
 
         $this->assertStringContainsString('Données Desk', $body);
-        $this->assertStringContainsString('id="member-detail"', $body);
-        $this->assertStringContainsString('Données du site', $body);
         $this->assertStringContainsString('jean@ex.be', $body);
         // Phone normalized for display.
         $this->assertStringContainsString('+32 476 12 34 56', $body);
         $this->assertStringContainsString('Animateur', $body);
+        // The Desk half stays read-only, and says so.
+        $this->assertStringContainsString('lecture seule', $body);
     }
 
-    public function testDetailCardShowsScoutYearOffsetControlAndBranchYearLabel(): void
+    /**
+     * The old « Données du site » heading is gone on purpose: it stopped
+     * meaning anything once the page grew, since everything past the Desk
+     * half is site data. The three actions are three cards now.
+     */
+    public function testTheThreeSiteActionsAreThreeSeparateCards(): void
+    {
+        $body = $this->showMember($this->seedMember())->getBody();
+
+        $this->assertStringNotContainsString('Données du site', $body);
+        $this->assertStringContainsString('Année dans la branche', $body);
+        $this->assertStringContainsString('Départ', $body);
+        $this->assertStringContainsString('Voir le site à sa place', $body);
+    }
+
+    public function testMemberPageShowsScoutYearOffsetControlAndBranchYearLabel(): void
     {
         // 2014-01-01 → raw age 11 in scout year 2025-2026 (reference year 2025)
         // → louveteaux, 4e année.
         $id = $this->seedMember('2014-01-01');
 
-        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+        $body = $this->showMember($id)->getBody();
 
-        $this->assertStringContainsString('Décalage année scoute', $body);
         $this->assertStringContainsString('id="scout-year-offset-card"', $body);
         $this->assertStringContainsString('data-offset="-1"', $body);
         $this->assertStringContainsString('data-offset="0"', $body);
@@ -246,42 +299,74 @@ class MemberSearchControllerTest extends TestCase
         $this->assertStringContainsString('4e année louveteaux', $body);
         $this->assertStringContainsString('#639922', $body);
         // No offset set yet → "Normal" is the active segment.
-        $this->assertMatchesRegularExpression(
-            '/offset-btn active"\s+data-offset="0"/',
-            $body
-        );
+        $this->assertMatchesRegularExpression('/offset-btn active"\s+data-offset="0"/', $body);
     }
 
-    public function testDetailCardShowsDepartureControl(): void
+    public function testMemberPageShowsDepartureControl(): void
     {
         $id = $this->seedMember();
 
-        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+        $body = $this->showMember($id)->getBody();
 
         $this->assertStringContainsString('id="departure-card"', $body);
-        $this->assertStringContainsString('Départ prévu l\'année prochaine', $body);
+        $this->assertStringContainsString('Part l\'année prochaine', $body);
         // Not marked as leaving yet — checkbox unchecked, comment row hidden.
         $this->assertDoesNotMatchRegularExpression('/id="departure-checkbox"[^>]*checked/', $body);
         $this->assertMatchesRegularExpression('/id="departure-comment-row" style="display:none;"/', $body);
     }
 
-    public function testDetailCardReflectsExistingDepartureMarking(): void
+    public function testMemberPageReflectsExistingDepartureMarking(): void
     {
         $id = $this->seedMember();
         $departureService = new DepartureService(new DepartureRepository($this->pdo, $this->enc), new JournalService(new JournalRepository($this->pdo)));
         $departureService->markLeaving($id, 'Déménagement');
 
-        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+        $body = $this->showMember($id)->getBody();
 
         $this->assertMatchesRegularExpression('/id="departure-checkbox"[^>]*checked/', $body);
         $this->assertStringContainsString('Déménagement', $body);
     }
 
-    public function testNotFoundForInvalidMember(): void
+    /**
+     * The check that came with the card: the member must belong to the
+     * effective scout year, or 404 (IT-05 relaxes this deliberately; until
+     * then it holds exactly as it did).
+     */
+    public function testMemberPageIsNotFoundForAMemberOutsideTheEffectiveYear(): void
     {
         $this->seedMember();
-        $response = $this->controller->index($this->get(['member' => '99999']), []);
-        $this->assertSame(404, $response->getStatusCode());
+
+        $this->assertSame(404, $this->showMember(99999)->getStatusCode());
+    }
+
+    public function testMemberPageIsNotFoundForANonPositiveId(): void
+    {
+        $this->assertSame(404, $this->showMember(0)->getStatusCode());
+    }
+
+    /**
+     * ARCHITECTURE.md §8.3 — owner-scoped files carry an explicit
+     * no-chief-and-no-admin-bypass guarantee, and tax certificates will
+     * live there. The page says so rather than quietly omitting them,
+     * which is what stops the next person from "completing" it.
+     */
+    public function testMemberPageNeverListsPrivateDocumentsAndSaysWhy(): void
+    {
+        $body = $this->showMember($this->seedMember())->getBody();
+
+        $this->assertStringContainsString('Les documents privés du membre n\'apparaissent pas ici', $body);
+    }
+
+    public function testTheSearchPageNoLongerRendersTheDetailInline(): void
+    {
+        $id = $this->seedMember();
+
+        $body = $this->controller->index($this->get(['q' => 'dupont']), [])->getBody();
+
+        $this->assertStringNotContainsString('Données Desk', $body);
+        // ...and each result links to the member's own page instead of
+        // carrying the query along in a ?member= parameter.
+        $this->assertStringContainsString('href="/admin/members/' . $id . '"', $body);
     }
 
     // --- GET /admin/members/export (all results, or the checked selection) ---

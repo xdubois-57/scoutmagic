@@ -1852,6 +1852,11 @@ $router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'a
 // Scout year navigation and transition
 $router->addRoute('GET', '/admin/members', MemberSearchController::class, 'index', 'admin', ['label' => 'Membres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
 $router->addRoute('GET', '/admin/members/export', MemberSearchController::class, 'export', 'admin');
+// Declared after /export on purpose. {id} only ever matches digits
+// (Router::placeholderPattern), so "export" could not be read as one —
+// but registration order is what the reader checks first, and the
+// neighbouring temporary-access routes below already depend on it.
+$router->addRoute('GET', '/admin/members/{id}', MemberSearchController::class, 'show', 'admin', ['label' => 'Membre', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'ancestors' => [['label' => 'Membres', 'path' => '/admin/members']]]);
 // Temporary member override (ARCHITECTURE.md §8.42). The static "remove"
 // path is registered BEFORE the parameterised "add" one: Router::resolve()
 // is first-match-wins and both patterns are four segments deep, so
@@ -2271,7 +2276,11 @@ $frontController->registerController(\Core\Http\Controller\PwaController::class,
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
 $frontController->registerController(MemberSearchController::class, new MemberSearchController(
     $twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService,
-    $memberExportRowBuilder, $memberExportService, $journalService
+    $memberExportRowBuilder, $memberExportService, $journalService,
+    new \Core\Member\AdminMemberPageService(
+        $memberBadgeRepository, $memberPhotoService, $sectionMembershipRepository,
+        $sectionService, $scoutYearService, $memberEmailRepository
+    )
 ));
 $frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));

@@ -53,27 +53,21 @@
             </div>
             <div class="d-flex flex-column gap-2">
                 {% for member in results %}
-                    {% include 'admin/members/_result_row.html.twig' with {
-                        member: member,
-                        query: query,
-                        selected: member.memberYearId == selected_member_id
-                    } %}
+                    {% include 'admin/members/_result_row.html.twig' with { member: member } only %}
                 {% endfor %}
             </div>
         </form>
     {% endif %}
 
-    {% if detail %}
-        {% include 'admin/members/_detail_card.html.twig' with { member: detail, effective_age: effective_age, is_temporary_member: is_temporary_member } %}
-    {% endif %}
 {% endblock %}
 
 {% block scripts %}
-{# Export-selection conveniences on the result list, and the detail card's
-   scroll-into-view, scout-year offset buttons and departure controls —
-   public/assets/js/member-search.js, which guards each of those four
-   sections on its own anchor in the DOM. #}
-{% if results is not empty or detail %}
+{# Export-selection conveniences on the result list —
+   public/assets/js/member-search.js, which guards each of its sections on
+   its own anchor in the DOM. The offset and departure controls it also
+   carries live on the member's own page now and simply find no anchor
+   here. #}
+{% if results is not empty %}
 <script src="{{ asset('/assets/js/member-search.js') }}" defer></script>
 {% endif %}
 {% endblock %}
