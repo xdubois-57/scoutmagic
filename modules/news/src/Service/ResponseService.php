@@ -122,11 +122,13 @@ class ResponseService
             return [];
         }
 
+        $memberYearIds = $this->roleResolver->getLinkedMemberYears($email, $scoutYearId);
+        $profiles = $this->sectionService->hydrateMemberProfiles($memberYearIds);
+
         $options = [];
-        foreach ($this->roleResolver->getLinkedMemberYears($email, $scoutYearId) as $memberYearId) {
-            $profile = $this->sectionService->hydrateMemberProfile($memberYearId);
-            if ($profile !== null) {
-                $options[$memberYearId] = $profile->getDisplayName();
+        foreach ($memberYearIds as $memberYearId) {
+            if (isset($profiles[$memberYearId])) {
+                $options[$memberYearId] = $profiles[$memberYearId]->getDisplayName();
             }
         }
         return $options;

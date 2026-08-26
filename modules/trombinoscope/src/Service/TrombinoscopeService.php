@@ -31,11 +31,14 @@ class TrombinoscopeService implements SectionResponsableProvider, StaffDirectory
     public function getSectionStaff(int $sectionId, int $scoutYearId): array
     {
         $eligible = $this->repository->getEligibleStaffForSection($sectionId, $scoutYearId);
+        $profiles = $this->sectionService->hydrateMemberProfiles(
+            array_map(fn(array $entry) => (int) $entry['member_year_id'], $eligible)
+        );
 
         $lead = null;
         $staff = [];
         foreach ($eligible as $entry) {
-            $profile = $this->sectionService->hydrateMemberProfile($entry['member_year_id']);
+            $profile = $profiles[(int) $entry['member_year_id']] ?? null;
             if ($profile === null) {
                 continue;
             }

@@ -194,11 +194,15 @@ class SosSettingsService
         }
 
         $staffduId = $this->unitStaffSectionService->ensureSection();
-        foreach ($this->trombinoscopeRepository->getEligibleStaffForSection($staffduId, $scoutYearId) as $entry) {
-            if (!$entry['is_lead']) {
-                continue;
-            }
-            $profile = $this->sectionService->hydrateMemberProfile($entry['member_year_id']);
+        $leadEntries = array_values(array_filter(
+            $this->trombinoscopeRepository->getEligibleStaffForSection($staffduId, $scoutYearId),
+            fn(array $entry) => (bool) $entry['is_lead']
+        ));
+        $profiles = $this->sectionService->hydrateMemberProfiles(
+            array_map(fn(array $entry) => (int) $entry['member_year_id'], $leadEntries)
+        );
+        foreach ($leadEntries as $entry) {
+            $profile = $profiles[(int) $entry['member_year_id']] ?? null;
             if ($profile !== null && $profile->mobile !== null && $profile->mobile !== '') {
                 return $profile->memberId;
             }

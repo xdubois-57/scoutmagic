@@ -218,10 +218,10 @@ class MemberPageService
         $referentBadge = $this->badgeRepository->findByReferentSectionId($section['id']);
         if ($referentBadge !== null) {
             $holderIds = $this->memberBadgeRepository->findMemberYearIdsForBadgeAndYear($referentBadge->id, $scoutYearId);
+            $holders = $this->sectionService->hydrateMemberProfiles($holderIds);
             foreach ($holderIds as $memberYearId) {
-                $holder = $this->sectionService->hydrateMemberProfile($memberYearId);
-                if ($holder !== null) {
-                    $referentHolders[] = $holder;
+                if (isset($holders[$memberYearId])) {
+                    $referentHolders[] = $holders[$memberYearId];
                 }
             }
         }
