@@ -171,6 +171,16 @@ It used to render below the search results, as `?member={id}` appended to the qu
 
 **The core blocks** the page adds: the member's photo, the badges of the scout year, the year's functions, and the **parcours dans l'unité** — every section the person has been in, year by year, read from the membership periods keyed on the persistent member identity so the history survives the years that produced it.
 
+**Les notes internes.** Dated staff notes about the person, each carrying its author and its date — the only free text the site holds about a member. It exists because `registration_requests.internal_notes_encrypted` covers the *request* and stops the day it is accepted: nothing covered the person afterwards.
+
+Deliberately **dated entries and not one field**. A registration request lives a few weeks; a member stays ten years and passes through several staffs. A single field overwrites — the 2026 Baladins chief would silently replace what the Louveteaux chief wrote in 2023, and nobody would know anything had gone.
+
+**Any reader may edit or delete any entry**, not only its author: everyone who can read these is a chef d'unité, so restricting a delete buys nothing and costs something real — a note written on the wrong person has to be able to disappear, or somebody works around it by appending « ignorer la note ci-dessus ». The author and the date stay on screen; an edited entry says so.
+
+Where it lives *is* the decision. On this page, at `role_min: admin`, so **only the Staff d'Unité and the superadmin reach it** and the router's guard is the whole guarantee — there is no per-section compartmenting to apply. The cost is accepted: a chef de section who wants to write something down about one of their own animés has nowhere to do it.
+
+**It is never visible to the member or their parents** — not on their page, not in an export meant for them, not as a mail-merge field. The admin export of `/admin/members` never gains this column either, although all its readers are chefs d'unité: an exported file leaves the site's protections, travels by e-mail, lands in a shared folder and outlives whoever produced it.
+
 **Two things are never on this page.** A member's **private documents**: `files.owner_member_id` carries an explicit guarantee (ARCHITECTURE.md §8.3) of no chief and no admin bypass, tax certificates will live there, and listing them here would revoke that guarantee in silence. And a **writable** secondary-address control, for the reason above.
 
 **Searching, and who it proposes.** The repository never filtered on `is_active` and the result has always carried the flag — what was missing was a way to narrow. The filter is **actifs** by default (what is wanted nine times out of ten), with *inactifs* and *tous* one tap away, and it travels with the query so a submit keeps it. The row is unchanged otherwise: the export checkbox, the initials pill, the totem after the first name, the section and function, and the status badge whose exact words stay « inscrit » / « non inscrit », never « actif ». **The two exports coexist** — the whole search, and the checked selection — and are never merged; both follow the filter the screen is showing.

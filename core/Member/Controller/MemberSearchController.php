@@ -10,6 +10,7 @@ namespace Core\Member\Controller;
 
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
+use Core\Http\FlashMessage;
 use Core\Http\Response;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalService;
@@ -17,6 +18,8 @@ use Core\Member\DepartureService;
 use Core\Member\Export\MemberExportRowBuilder;
 use Core\Member\Export\MemberExportService;
 use Core\Member\AdminMemberPageService;
+use Core\Member\MemberNoteException;
+use Core\Member\MemberNoteService;
 use Core\Member\MemberNotFoundException;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
@@ -44,7 +47,8 @@ class MemberSearchController extends AbstractController
         private MemberExportService $exportService,
         private JournalService $journalService,
         private AdminMemberPageService $adminMemberPageService,
-        private MemberYearRepository $memberYearRepository
+        private MemberYearRepository $memberYearRepository,
+        private MemberNoteService $memberNoteService
     ) {
     }
 
@@ -153,12 +157,153 @@ class MemberSearchController extends AbstractController
                 'departure_leaving' => $departureStatus?->leaving ?? false,
                 'departure_comment' => $departureStatus?->comment ?? '',
                 'is_temporary_member' => TemporaryMemberSession::get() === $profile->memberYearId,
+                // Keyed on the PERSISTENT member id, not the annual row:
+                // a note about a person outlives the scout year that saw
+                // it written.
+                'notes' => $this->memberNoteService->listForMember($profile->memberId),
+                'note_max_length' => MemberNoteService::MAX_LENGTH,
                 // The year the page is actually showing, which is the
                 // member's own latest — not necessarily the effective one.
                 'year_label' => $profile->scoutYearLabel,
                 'is_past_year' => $profile->scoutYearLabel !== $effective->label,
             ]
         ));
+    }
+
+    /**
+     * POST /admin/members/{id}/notes — add one dated staff note.
+     *
+     * `role_min: admin`, the page's own floor: only the Staff d'Unité and
+     * the superadmin reach these, and the router's guard is the whole
+     * guarantee — there is no per-section compartmenting to apply on top
+     * (see Core\Member\MemberNoteService's docblock for what that costs).
+     *
+     * @param array<string, string> $params
+     */
+    public function addNote(Request $request, array $params): Response
+    {
+        [$profile, $error] = $this->loadMemberForNote($params);
+        if ($error !== null) {
+            return $error;
+        }
+        if (($guard = $this->guardCsrf($request, $this->memberPath($profile->memberYearId))) !== null) {
+            return $guard;
+        }
+
+        try {
+            $this->memberNoteService->add(
+                $profile->memberId,
+                (string) $request->getBody('body', ''),
+                AuthSession::getUserAccountId()
+            );
+            FlashMessage::set('success', 'Note ajoutée.');
+        } catch (MemberNoteException $e) {
+            FlashMessage::set('error', $e->getMessage());
+        }
+
+        return $this->redirect($this->memberPath($profile->memberYearId));
+    }
+
+    /**
+     * POST /admin/members/{id}/notes/{note_id} — correct an entry.
+     *
+     * Any reader may edit any entry, deliberately: everyone who can read
+     * these is a chef d'unité. The author and the date are not touched —
+     * they are what gives the history its meaning.
+     *
+     * @param array<string, string> $params
+     */
+    public function updateNote(Request $request, array $params): Response
+    {
+        [$profile, $error] = $this->loadMemberForNote($params);
+        if ($error !== null) {
+            return $error;
+        }
+        if (($guard = $this->guardCsrf($request, $this->memberPath($profile->memberYearId))) !== null) {
+            return $guard;
+        }
+
+        try {
+            $this->memberNoteService->update(
+                $profile->memberId,
+                (int) ($params['note_id'] ?? 0),
+                (string) $request->getBody('body', ''),
+                AuthSession::getUserAccountId()
+            );
+            FlashMessage::set('success', 'Note modifiée.');
+        } catch (MemberNoteException $e) {
+            FlashMessage::set('error', $e->getMessage());
+        }
+
+        return $this->redirect($this->memberPath($profile->memberYearId));
+    }
+
+    /**
+     * POST /admin/members/{id}/notes/{note_id}/delete
+     *
+     * A note written by mistake on the wrong person has to be able to
+     * disappear, or somebody works around it by appending "ignorer la
+     * note ci-dessus".
+     *
+     * @param array<string, string> $params
+     */
+    public function deleteNote(Request $request, array $params): Response
+    {
+        [$profile, $error] = $this->loadMemberForNote($params);
+        if ($error !== null) {
+            return $error;
+        }
+        if (($guard = $this->guardCsrf($request, $this->memberPath($profile->memberYearId))) !== null) {
+            return $guard;
+        }
+
+        try {
+            $this->memberNoteService->delete(
+                $profile->memberId,
+                (int) ($params['note_id'] ?? 0),
+                AuthSession::getUserAccountId()
+            );
+            FlashMessage::set('success', 'Note supprimée.');
+        } catch (MemberNoteException $e) {
+            FlashMessage::set('error', $e->getMessage());
+        }
+
+        return $this->redirect($this->memberPath($profile->memberYearId));
+    }
+
+    private function memberPath(int $memberYearId): string
+    {
+        return '/admin/members/' . $memberYearId;
+    }
+
+    /**
+     * The member the note routes act on, resolved exactly as show() does
+     * — including the normalisation onto their most recent annual row, so
+     * a note added from a former member's page attaches to the person and
+     * not to the year the URL happened to name.
+     *
+     * @param array<string, string> $params
+     * @return array{0: \Core\Member\MemberProfile|null, 1: Response|null}
+     */
+    private function loadMemberForNote(array $params): array
+    {
+        $memberYearId = (int) ($params['id'] ?? 0);
+        if ($memberYearId <= 0) {
+            return [null, $this->notFound()];
+        }
+
+        $requested = $this->memberYearRepository->findById($memberYearId);
+        if ($requested === null) {
+            return [null, $this->notFound()];
+        }
+
+        $latest = $this->memberYearRepository->findMostRecentForMember((int) $requested['member_id']);
+
+        try {
+            return [$this->memberService->getMemberProfile((int) ($latest['id'] ?? $memberYearId)), null];
+        } catch (MemberNotFoundException) {
+            return [null, $this->notFound()];
+        }
     }
 
     /**

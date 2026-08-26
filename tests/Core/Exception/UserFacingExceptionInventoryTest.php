@@ -49,6 +49,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Core\Maintenance\UpdateException::class,
         \Core\Member\Duplicate\MergeException::class,
         \Core\Member\MemberEmailException::class,
+        \Core\Member\MemberNoteException::class,
         \Core\Member\SectionDocumentException::class,
         \Core\Member\SectionException::class,
         \Core\Module\ModuleRefusalException::class,

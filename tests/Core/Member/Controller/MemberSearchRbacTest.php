@@ -74,6 +74,12 @@ class MemberSearchRbacTest extends TestCase
         // with role_min 'admin'.
         $router->addRoute('GET', '/admin/members/export', MembersStubController::class, 'index', 'admin');
         $router->addRoute('GET', '/admin/members/{id}', MembersStubController::class, 'index', 'admin');
+        // Notes internes: the page's own floor. The consequence is
+        // deliberate — only the Staff d'Unité and the superadmin reach
+        // them, and a chef de section sees nothing.
+        $router->addRoute('POST', '/admin/members/{id}/notes', MembersStubController::class, 'index', 'admin');
+        $router->addRoute('POST', '/admin/members/{id}/notes/{note_id}', MembersStubController::class, 'index', 'admin');
+        $router->addRoute('POST', '/admin/members/{id}/notes/{note_id}/delete', MembersStubController::class, 'index', 'admin');
         $fc = new FrontController($router, $this->twig, $this->config);
         $fc->registerController(MembersStubController::class, new MembersStubController($this->twig));
 
@@ -140,6 +146,36 @@ class MemberSearchRbacTest extends TestCase
         AuthSession::login(1, 'c@test.com', 'chief');
         $response = $this->buildFrontController()->handle(new Request('GET', '/admin/members/42', [], [], [], []));
         $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * @dataProvider noteRoutes
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('noteRoutes')]
+    public function testNoteRoutesAllowAdminAndRefuseOneLevelBelow(string $path): void
+    {
+        $this->startTestSession();
+
+        AuthSession::login(1, 'a@test.com', 'admin');
+        $this->assertSame(200, $this->buildFrontController()->handle(new Request('POST', $path, [], [], [], []))->getStatusCode());
+
+        // A chef de section is exactly who these notes are kept from —
+        // the RbacGuard is the whole guarantee, and it is enough because
+        // there is no per-section compartmenting to apply here.
+        AuthSession::login(1, 'c@test.com', 'chief');
+        $this->assertSame(403, $this->buildFrontController()->handle(new Request('POST', $path, [], [], [], []))->getStatusCode());
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function noteRoutes(): array
+    {
+        return [
+            'add' => ['/admin/members/42/notes'],
+            'update' => ['/admin/members/42/notes/7'],
+            'delete' => ['/admin/members/42/notes/7/delete'],
+        ];
     }
 
     public function testIdentifiedDenied(): void

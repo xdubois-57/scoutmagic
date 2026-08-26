@@ -8,22 +8,19 @@ paths: /admin/members/*
 related: membres-admin, import-desk
 ---
 
-La fiche d'un membre a sa propre page : vous pouvez en copier l'adresse
-pour la transmettre à un autre chef d'unité, ce qu'une recherche ne
-permettait pas.
+La fiche d'un membre a sa propre page, dont vous pouvez copier l'adresse
+pour la transmettre à un autre chef d'unité.
 
 Elle affiche toujours la **dernière année connue** du membre, et le dit
-quand ce n'est pas l'année en cours. Les coordonnées d'une année
+quand ce n'est pas l'année en cours : les coordonnées d'une année
 ancienne ne sont pas celles d'aujourd'hui.
 
 ## Données Desk
 
 En lecture seule : ce que la fédération connaît — coordonnées, date de
 naissance, section, fonction, téléphones des parents. Une correction s'y
-fait dans Desk, puis par un nouvel import.
-
-Les adresses secondaires du membre y figurent aussi, en lecture seule :
-le membre les gère lui-même, et personne d'autre.
+fait dans Desk, puis par un nouvel import. Les adresses secondaires du
+membre y figurent aussi : lui seul les gère.
 
 ## Ce que le site sait
 
@@ -42,12 +39,26 @@ année par année.
   compris.
 - **Voir le site à sa place** : vous fait voir le site comme ce membre
   le voit, le temps de votre session — utile pour comprendre un problème
-  qu'une famille vous signale. Un bandeau le rappelle sur chaque page, et
+  qu'une famille signale. Un bandeau le rappelle sur chaque page, et
   « Retirer » ou la déconnexion annule tout.
+
+## Les notes internes
+
+Des notes libres **datées**, chacune signée de son auteur : ce qu'un
+staff transmet au suivant pour bien accompagner un enfant. Une note par
+observation, jamais un champ unique — un membre reste dix ans dans
+l'unité, et un champ unique s'écrase sans que personne ne le sache.
+
+Tout chef d'unité peut corriger ou supprimer n'importe quelle note, y
+compris celle d'un autre : une note écrite par erreur sur la mauvaise
+personne doit pouvoir disparaître. L'auteur et la date restent affichés.
 
 Les documents privés d'un membre n'apparaissent pas ici : ils restent
 accessibles au seul membre, sans contournement possible par le staff.
 
-> Pendant l'accès temporaire, vous agissez réellement au nom du membre,
-> jusqu'à ses adresses e-mail. Chaque activation est consignée au
-> journal : réservez ce levier au dépannage.
+> Ces notes ne sont jamais visibles par le membre ni par ses parents, et
+> ne figurent dans aucun export. Un animateur de section n'y a pas accès
+> non plus : elles restent au niveau de l'unité.
+
+Pendant cet accès, vous agissez réellement au nom du membre, jusqu'à ses
+adresses e-mail, et chaque activation est consignée au journal.

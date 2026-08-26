@@ -35,10 +35,11 @@
     var exportSubmitBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('member-export-selection-btn'));
     var offsetCard = document.getElementById('scout-year-offset-card');
     var departureCard = document.getElementById('departure-card');
+    var noteEditButtons = document.querySelectorAll('.member-note-edit-btn');
 
     // A no-op on every other page of the site, and on this one before a
     // search has returned anything.
-    if (!exportSubmitBtn && !offsetCard && !departureCard) {
+    if (!exportSubmitBtn && !offsetCard && !departureCard && noteEditButtons.length === 0) {
         return;
     }
 
@@ -104,6 +105,21 @@
     // The scroll-into-view that used to live here is gone with the card it
     // scrolled to: a member's detail is its own page now, so the browser
     // lands at the top of it by itself.
+
+    // --- Notes internes: reveal one entry's edit form ---
+    // Both forms are already in the DOM and both post on their own, so
+    // the page works with JavaScript off — a reader without it simply
+    // sees every edit field open. This only folds them away.
+    noteEditButtons.forEach(function (button) {
+        button.addEventListener('click', function () {
+            var id = button.getAttribute('data-note-id');
+            var form = id ? document.getElementById('member-note-edit-' + id) : null;
+            if (!form) return;
+            form.classList.toggle('d-none');
+            var field = form.querySelector('textarea');
+            if (field && !form.classList.contains('d-none')) field.focus();
+        });
+    });
 
     // --- Scout-year offset ---
     if (offsetCard) {

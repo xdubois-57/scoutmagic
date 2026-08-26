@@ -102,6 +102,8 @@ The groups module names people one level up from this, because a message has an 
 
 A scout year runs from September to August (e.g. 2025-2026). All member-related tables carry a `scout_year_id`. History is preserved across years — the `members` table holds the persistent identity (`desk_id`), while `member_years` holds the annual snapshot.
 
+**The exception the rule allows**: a table whose rows already carry their own date, and whose subject is the person rather than their membership, hangs off `members.id` instead — `files.owner_member_id` (§8.3), `member_section_periods`, `rental_asset_managers`, `member_notes` (§8.62ter). What they have in common is that losing them every September would be a bug, not a reset.
+
 ## 5. Authentication
 
 Three methods, all resolving to the same email address:
@@ -1810,6 +1812,22 @@ The three site actions became three cards — the old « Données du site » hea
 **The search that feeds it** (`Core\Member\Service\MemberSearchService`): a membership scope (`active` by default, `inactive`, `all` — an unknown value falls back to the default rather than to "all", so a typo never quietly widens the list), and results grouped into `GroupedMemberSearchResult`, one per `members.id`. Widening to every scout year is `searchAllYears()`, a separate method rather than a flag, because each extra year is a whole year of AES decryption in PHP and the page must only pay it when a chef d'unité presses the button. **Grouped rows order on the scout year's `start_date`, never on its id**: `ScoutYearService::ensureYear()` can create a past year after a later one, so the ids are not chronological and sorting on them shows the wrong year's data under the right person's name — `MemberSearchServiceTest` caught exactly that during this iteration. `MemberYearRepository::findMostRecentForMember()` orders the same way, for the same reason.
 
 `public/assets/js/member-search.js` now serves two screens instead of one, each section guarded on its own anchor — the export-selection conveniences find no anchor on the member's page, and the offset/departure controls find none on the search.
+
+### 8.62ter Staff notes about a member (`Core\Member\MemberNoteService`)
+
+The « Notes internes » block of `/admin/members/{id}`. `registration_requests.internal_notes_encrypted` covers a *request* and stops the day it is accepted; nothing covered the person afterwards, which is the gap this fills.
+
+**Where it lives is the decision.** On the unit's own admin page, `role_min: admin`, so only the Staff d'Unité and the superadmin reach it and the router's `RbacGuard` is the whole guarantee — there is no per-section compartmenting to apply, so `SectionStaffAuthorizationService` has no part in it. The cost is real and accepted: a chef de section who wants to write something down about one of their own animés has nowhere to do it.
+
+**Dated entries, not one field.** A registration request lives a few weeks; a member stays ten years and passes through several staffs. A single field overwrites — the 2026 Baladins chief would silently replace what the Louveteaux chief wrote in 2023, and nobody would know anything had gone. Each entry carries its author (`created_by`, FK `ON DELETE SET NULL`: losing the account must never lose the note, since the note is a fact about the *member*) and its dates; an edit that changes `updated_at` makes `MemberNote::wasEdited()` true and the screen says so.
+
+**`member_notes.member_id` points at `members.id`**, the persistent identity, never `member_years.id` — a note about a person outlives the scout year that saw it written, same reason as `files.owner_member_id` (§8.3). It is the exception the "every member-data table carries a `scout_year_id`" rule allows for: the entry's own date already carries the temporal marker. The FK cascades, so deleting a member takes their notes with them and nothing else does.
+
+**Any reader may edit or delete any entry**, not only its author. Everyone who can read these is a chef d'unité, so restricting a delete buys nothing and costs something real: a note written on the wrong person has to be able to disappear, or somebody works around it by appending « ignorer la note ci-dessus ». What the service *does* enforce is that a note id from the URL is not a claim about whose note it is — `requireOwnNote()` re-reads the row and compares `member_id`, so `/admin/members/12` cannot edit a note about member 40. That is not a privilege boundary (both readers are unit chiefs); it stops writing on the wrong person's record, which is exactly the mistake the delete control exists to undo.
+
+**The body never leaves this page.** SECURITY.md §5 states the three rules and why: never in the journal (identifiers only), never in an error message (`MemberNoteException` is user-facing, so its text is shown verbatim), never in an export or in anything the member or their parents read. `MemberNoteRepository` resolves author names through `UserAccountRepository::findNamesByIds()` in one batched call — the names are themselves encrypted, so a per-row lookup would be one AES round trip per note.
+
+`public/assets/js/member-search.js` folds each entry's edit form away; both forms are in the DOM and post on their own, so with JavaScript off the page still works — a reader simply sees every edit field open.
 
 ### 8.63 The test toolbox and the mail sandbox (`Modules\TestTools`)
 

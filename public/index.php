@@ -1862,6 +1862,13 @@ $router->addRoute('GET', '/admin/members/{id}', MemberSearchController::class, '
 // is first-match-wins and both patterns are four segments deep, so
 // registration order is what keeps /admin/members/temporary-access/remove
 // from being read as {id} = "temporary-access".
+// Notes internes on a member's page (role_min: admin — the page's own
+// floor; only the Staff d'Unité and the superadmin reach these). The
+// fourth segment is the literal "notes", so none of these collides with
+// the temporary-access routes below whatever the registration order.
+$router->addRoute('POST', '/admin/members/{id}/notes', MemberSearchController::class, 'addNote', 'admin');
+$router->addRoute('POST', '/admin/members/{id}/notes/{note_id}', MemberSearchController::class, 'updateNote', 'admin');
+$router->addRoute('POST', '/admin/members/{id}/notes/{note_id}/delete', MemberSearchController::class, 'deleteNote', 'admin');
 $router->addRoute('POST', '/admin/members/temporary-access/remove', TemporaryMemberController::class, 'remove', 'admin');
 $router->addRoute('POST', '/admin/members/{id}/temporary-access', TemporaryMemberController::class, 'add', 'admin');
 $router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin', ['label' => 'Année scoute', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
@@ -2281,7 +2288,11 @@ $frontController->registerController(MemberSearchController::class, new MemberSe
         $memberBadgeRepository, $memberPhotoService, $sectionMembershipRepository,
         $sectionService, $scoutYearService, $memberEmailRepository
     ),
-    $memberYearRepo
+    $memberYearRepo,
+    new \Core\Member\MemberNoteService(
+        new \Core\Member\MemberNoteRepository($pdo, $encryptionService, $userAccountRepo),
+        $journalService
+    )
 ));
 $frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));

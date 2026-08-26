@@ -207,6 +207,22 @@ class DatabaseTestHelper
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id)
         )');
 
+        // Dated staff notes about a PERSON (Core\Member\MemberNoteService).
+        // Keyed on members.id, never on a member_year: a note outlives the
+        // scout year that saw it written. ON DELETE CASCADE on the member,
+        // SET NULL on the author — losing the author must not lose the
+        // note.
+        $pdo->exec('CREATE TABLE member_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            body BLOB NOT NULL,
+            created_by INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT,
+            FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+        )');
+
         $pdo->exec('CREATE TABLE section_documents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             section_id INTEGER NOT NULL,

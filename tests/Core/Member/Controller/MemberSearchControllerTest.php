@@ -21,6 +21,7 @@ use Core\Member\Service\MemberSearchService;
 use Core\Member\TemporaryMemberSession;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
+use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\View\TextNormalizerExtension;
 use Core\Http\Request;
@@ -111,7 +112,15 @@ class MemberSearchControllerTest extends TestCase
                 $scoutYearService,
                 new \Core\Member\MemberEmailRepository($this->pdo, $this->enc)
             ),
-            $memberYearRepo
+            $memberYearRepo,
+            new \Core\Member\MemberNoteService(
+                new \Core\Member\MemberNoteRepository(
+                    $this->pdo,
+                    $this->enc,
+                    new \Core\Security\UserAccountRepository($this->pdo, $this->enc)
+                ),
+                new JournalService(new JournalRepository($this->pdo))
+            )
         );
 
         if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -582,6 +591,85 @@ class MemberSearchControllerTest extends TestCase
         // ...and each result links to the member's own page instead of
         // carrying the query along in a ?member= parameter.
         $this->assertStringContainsString('href="/admin/members/' . $id . '"', $body);
+    }
+
+    // --- Notes internes ---
+
+    public function testANoteAddedFromThePageAppearsOnItWithItsAuthorAndDate(): void
+    {
+        $id = $this->seedMember();
+
+        $this->controller->addNote($this->post($id, ['body' => 'Allergie signalée.']), ['id' => (string) $id]);
+
+        $body = $this->showMember($id)->getBody();
+        $this->assertStringContainsString('Allergie signalée.', $body);
+        $this->assertStringContainsString('Notes internes', $body);
+    }
+
+    public function testTheNotesBlockSaysWhoItIsForAndWhoItIsNotFor(): void
+    {
+        $body = $this->showMember($this->seedMember())->getBody();
+
+        $this->assertStringContainsString("Staff d'unité uniquement", $body);
+        $this->assertStringContainsString('Jamais visible par le membre ni par ses parents', $body);
+    }
+
+    public function testAnEmptyNoteIsRefusedWithAMessageAndWritesNothing(): void
+    {
+        $id = $this->seedMember();
+
+        $this->controller->addNote($this->post($id, ['body' => '  ']), ['id' => (string) $id]);
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_notes')->fetchColumn());
+    }
+
+    public function testANoteCanBeCorrectedAndDeletedFromThePage(): void
+    {
+        $id = $this->seedMember();
+        $this->controller->addNote($this->post($id, ['body' => 'Première version.']), ['id' => (string) $id]);
+        $noteId = (int) $this->pdo->query('SELECT id FROM member_notes')->fetchColumn();
+
+        $this->controller->updateNote(
+            $this->post($id, ['body' => 'Version corrigée.']),
+            ['id' => (string) $id, 'note_id' => (string) $noteId]
+        );
+        $this->assertStringContainsString('Version corrigée.', $this->showMember($id)->getBody());
+
+        $this->controller->deleteNote(
+            $this->post($id, []),
+            ['id' => (string) $id, 'note_id' => (string) $noteId]
+        );
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_notes')->fetchColumn());
+    }
+
+    /**
+     * Decided: /admin/members/export never gains this column, even though
+     * every one of its readers is a chef d'unité. An exported file leaves
+     * the site's protections — it travels by email, lands in a shared
+     * folder, and survives the departure of whoever produced it.
+     */
+    public function testTheMemberExportNeverCarriesTheNotes(): void
+    {
+        $id = $this->seedMember();
+        $this->controller->addNote($this->post($id, ['body' => 'Parents séparés.']), ['id' => (string) $id]);
+
+        $rows = $this->exportToRows(['q' => 'dupont']);
+
+        foreach ($rows as $row) {
+            $this->assertStringNotContainsString('Parents séparés', implode('|', array_map('strval', $row)));
+        }
+        $header = implode('|', array_map('strval', $rows[0]));
+        $this->assertStringNotContainsStringIgnoringCase('note', $header);
+    }
+
+    /**
+     * @param array<string, mixed> $body
+     */
+    private function post(int $memberYearId, array $body): Request
+    {
+        $body['_csrf_token'] = CsrfGuard::generateToken();
+
+        return new Request('POST', '/admin/members/' . $memberYearId . '/notes', [], $body, [], []);
     }
 
     // --- GET /admin/members/export (all results, or the checked selection) ---

@@ -1153,3 +1153,53 @@ CREATE TABLE entity_changes (
     CONSTRAINT fk_entity_changes_actor
         FOREIGN KEY (actor_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- member_notes: dated, free-text staff notes about one PERSON — the
+-- « Notes internes » block of the admin member page (/admin/members/{id},
+-- Core\Member\MemberNoteService). Nothing on the site covered this
+-- before: registration_requests.internal_notes_encrypted covers a
+-- registration request, and nothing covered the person once they became
+-- a member.
+--
+-- Keyed on members.id, the PERSISTENT identity, never member_years.id —
+-- a note about a person survives the scout year that saw it written,
+-- same reason as files.owner_member_id. That makes it the exception the
+-- "every member-related table carries a scout_year_id" rule allows for
+-- (AGENTS.md § Database): the entry's own date is already the temporal
+-- marker, and a note tied to a year would vanish from the person it was
+-- written about every September.
+--
+-- Dated ENTRIES, not one field. A registration request lives a few
+-- weeks; a member stays ten years and passes through several staffs. A
+-- single field overwrites: the 2026 Baladins chief would silently
+-- replace what the Louveteaux chief wrote in 2023, and nobody would know
+-- anything had gone. Each entry carries its author and its date, which
+-- is what gives the history its meaning.
+--
+-- **This is probably the most sensitive free text on the site** —
+-- "allergie signalée par la maman", "parents séparés", "à ne pas laisser
+-- seul avec X". BLOB + encrypted via Core\Security\EncryptionService,
+-- encrypted and decrypted ONLY in Repository\MemberNoteRepository. It
+-- never reaches the journal (the member id and the note id are enough),
+-- never an error message, never a trace, never an export, and never the
+-- member or their parents.
+--
+-- No blind index: these are never searched, only listed for one member.
+CREATE TABLE IF NOT EXISTS member_notes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    body BLOB NOT NULL,
+    -- The account that wrote it. ON DELETE SET NULL rather than CASCADE:
+    -- losing the author must never lose the note, which is a fact about
+    -- the member and not about the person who typed it. The page then
+    -- renders an unnamed author rather than dropping the entry.
+    created_by INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Set explicitly by the Repository on edit — no "ON UPDATE
+    -- CURRENT_TIMESTAMP", which the migration system's ColumnDefinition
+    -- does not model (same note as news_articles.updated_at).
+    updated_at DATETIME NULL,
+    INDEX idx_member_notes_member (member_id, created_at),
+    CONSTRAINT fk_member_notes_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_member_notes_author FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
