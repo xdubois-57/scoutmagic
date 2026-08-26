@@ -35,6 +35,7 @@
     var exportSubmitBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('member-export-selection-btn'));
     var offsetCard = document.getElementById('scout-year-offset-card');
     var departureCard = document.getElementById('departure-card');
+    /** @type {NodeListOf<HTMLElement>} */
     var noteEditButtons = document.querySelectorAll('.member-note-edit-btn');
 
     // A no-op on every other page of the site, and on this one before a
