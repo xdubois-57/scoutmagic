@@ -356,10 +356,7 @@ class FormController extends AbstractController
             (int) AuthSession::getUserAccountId()
         );
 
-        return (new Response($xlsx))
-            ->setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            ->setHeader('Content-Disposition', 'attachment; filename="reponses-' . $article->id . '.xlsx"')
-            ->setHeader('Content-Length', (string) strlen($xlsx));
+        return \Core\Http\SpreadsheetResponse::download($xlsx, 'reponses-' . $article->id . '.xlsx');
     }
 
     /**
@@ -621,7 +618,7 @@ class FormController extends AbstractController
      * @param FormField[] $fields
      * @param FormResponse[] $responses
      */
-    private function buildXlsx(array $fields, array $responses, NewsForm $form): string
+    private function buildXlsx(array $fields, array $responses, NewsForm $form): \PhpOffice\PhpSpreadsheet\Spreadsheet
     {
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
@@ -698,10 +695,7 @@ class FormController extends AbstractController
             $rowNum++;
         }
 
-        $writer = new Xlsx($spreadsheet);
-        ob_start();
-        $writer->save('php://output');
-        return (string) ob_get_clean();
+        return $spreadsheet;
     }
 
     private function statusLabel(string $status): string

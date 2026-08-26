@@ -86,6 +86,15 @@ class Response
 
     public function getBody(): string
     {
+        // A file-backed response's body IS the file's bytes — callers
+        // (tests reading an export, an ETag over a whitelisted path) get
+        // the same answer send() will stream. Anything on a hot path that
+        // must stay constant-memory should keep reading
+        // getBodyFilePath() instead of materializing this.
+        if ($this->bodyFilePath !== null && is_file($this->bodyFilePath)) {
+            return (string) file_get_contents($this->bodyFilePath);
+        }
+
         return $this->body;
     }
 

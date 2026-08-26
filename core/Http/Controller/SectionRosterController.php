@@ -122,7 +122,7 @@ class SectionRosterController extends AbstractController
         $sectionIds = array_map(fn(array $s) => (int) $s['id'], $sectionsToRender);
 
         $rows = $this->exportRowBuilder->buildForSections($sectionIds, $effectiveYear->id);
-        $xlsx = $this->exportService->build($rows, $role, 'Membres ' . $effectiveYear->label);
+        $xlsx = $this->exportService->buildSpreadsheet($rows, $role, 'Membres ' . $effectiveYear->label);
 
         $this->journalService->log(
             'core',
@@ -135,10 +135,7 @@ class SectionRosterController extends AbstractController
 
         $filename = 'membres-' . preg_replace('/[^0-9A-Za-z_-]/', '_', $effectiveYear->label) . '.xlsx';
 
-        return (new Response($xlsx))
-            ->setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            ->setHeader('Content-Disposition', 'attachment; filename="' . $filename . '"')
-            ->setHeader('Content-Length', (string) strlen($xlsx));
+        return \Core\Http\SpreadsheetResponse::download($xlsx, $filename);
     }
 
     /**

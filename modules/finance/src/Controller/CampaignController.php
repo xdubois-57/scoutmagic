@@ -182,12 +182,10 @@ class CampaignController extends AbstractController
 
         $filter = CampaignOverviewService::normalizeFilter($request->getQuery('filter'));
         $detail = $this->overviewService->detail($campaign, $filter);
-        $xlsx = $this->exportService->build($campaign, $detail['rows']);
-
-        return (new Response($xlsx))
-            ->setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            ->setHeader('Content-Disposition', 'attachment; filename="campagne-' . $campaign->id . '.xlsx"')
-            ->setHeader('Content-Length', (string) strlen($xlsx));
+        return \Core\Http\SpreadsheetResponse::download(
+            $this->exportService->buildSpreadsheet($campaign, $detail['rows']),
+            'campagne-' . $campaign->id . '.xlsx'
+        );
     }
 
     /**

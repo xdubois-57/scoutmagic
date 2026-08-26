@@ -60,9 +60,30 @@ class CampaignExportService
     ];
 
     /**
+     * The serialized workbook — kept for callers/tests that want the
+     * bytes; the download route streams buildSpreadsheet() through
+     * Core\Http\SpreadsheetResponse instead, which avoids ever holding
+     * the file as a PHP string.
+     *
      * @param array<int, array<string, mixed>> $rows as built by Service\CampaignOverviewService::detail()
      */
     public function build(Campaign $campaign, array $rows): string
+    {
+        $spreadsheet = $this->buildSpreadsheet($campaign, $rows);
+
+        $writer = new Xlsx($spreadsheet);
+        ob_start();
+        $writer->save('php://output');
+        $output = (string) ob_get_clean();
+        $spreadsheet->disconnectWorksheets();
+
+        return $output;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows as built by Service\CampaignOverviewService::detail()
+     */
+    public function buildSpreadsheet(Campaign $campaign, array $rows): Spreadsheet
     {
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
@@ -91,13 +112,7 @@ class CampaignExportService
 
         $sheet->freezePane('A2');
 
-        $writer = new Xlsx($spreadsheet);
-        ob_start();
-        $writer->save('php://output');
-        $output = (string) ob_get_clean();
-        $spreadsheet->disconnectWorksheets();
-
-        return $output;
+        return $spreadsheet;
     }
 
     private static function euros(mixed $cents): float

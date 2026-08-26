@@ -131,7 +131,7 @@ class MemberSearchController extends AbstractController
         }
 
         $rows = $this->exportRowBuilder->buildForMemberYears($memberYearIds, $effective->id);
-        $xlsx = $this->exportService->build($rows, $role, 'Membres ' . $effective->label);
+        $xlsx = $this->exportService->buildSpreadsheet($rows, $role, 'Membres ' . $effective->label);
 
         // Counts only — the search query itself can contain a person's
         // name, so it never reaches the journal.
@@ -146,9 +146,6 @@ class MemberSearchController extends AbstractController
 
         $filename = 'membres-' . preg_replace('/[^0-9A-Za-z_-]/', '_', $effective->label) . '.xlsx';
 
-        return (new Response($xlsx))
-            ->setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            ->setHeader('Content-Disposition', 'attachment; filename="' . $filename . '"')
-            ->setHeader('Content-Length', (string) strlen($xlsx));
+        return \Core\Http\SpreadsheetResponse::download($xlsx, $filename);
     }
 }

@@ -206,17 +206,14 @@ class MovementController extends AbstractController
         $movementIds = array_map(fn(Transaction $transaction) => $transaction->id, $movements);
         $firstReceiptsByMovementId = $this->firstReceiptResolver->resolve($movementIds);
 
-        $xlsx = $this->buildMovementsXlsx($movements, $categoriesById, $firstReceiptsByMovementId, $account->name);
+        $spreadsheet = $this->buildMovementsXlsx($movements, $categoriesById, $firstReceiptsByMovementId, $account->name);
 
         $this->journalService->log(
             'finance', 'movements_exported', 'info', 'Export des mouvements en XLSX',
             ['account_id' => $account->id, 'count' => count($movements)], (int) AuthSession::getUserAccountId()
         );
 
-        return (new Response($xlsx))
-            ->setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            ->setHeader('Content-Disposition', 'attachment; filename="mouvements.xlsx"')
-            ->setHeader('Content-Length', (string) strlen($xlsx));
+        return \Core\Http\SpreadsheetResponse::download($spreadsheet, 'mouvements.xlsx');
     }
 
     /**
@@ -224,7 +221,7 @@ class MovementController extends AbstractController
      * @param array<int, \Modules\Finance\Repository\Category> $categoriesById
      * @param array<int, Attachment> $firstReceiptsByMovementId
      */
-    private function buildMovementsXlsx(array $movements, array $categoriesById, array $firstReceiptsByMovementId, string $accountName): string
+    private function buildMovementsXlsx(array $movements, array $categoriesById, array $firstReceiptsByMovementId, string $accountName): \PhpOffice\PhpSpreadsheet\Spreadsheet
     {
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
@@ -253,11 +250,7 @@ class MovementController extends AbstractController
             $rowNum++;
         }
 
-        $writer = new Xlsx($spreadsheet);
-        ob_start();
-        $writer->save('php://output');
-
-        return (string) ob_get_clean();
+        return $spreadsheet;
     }
 
     /**

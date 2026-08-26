@@ -133,10 +133,7 @@ class InvoiceReportController extends AbstractController
             AuthSession::getUserAccountId()
         );
 
-        return (new Response($xlsx))
-            ->setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            ->setHeader('Content-Disposition', 'attachment; filename="verification-facture.xlsx"')
-            ->setHeader('Content-Length', (string) strlen($xlsx));
+        return \Core\Http\SpreadsheetResponse::download($xlsx, 'verification-facture.xlsx');
     }
 
     /**
@@ -144,7 +141,7 @@ class InvoiceReportController extends AbstractController
      * reading the export recognises the screen they came from rather than
      * having to map one onto the other.
      */
-    private function buildXlsx(StoredInvoice $invoice): string
+    private function buildXlsx(StoredInvoice $invoice): \PhpOffice\PhpSpreadsheet\Spreadsheet
     {
         $spreadsheet = new Spreadsheet();
 
@@ -195,11 +192,7 @@ class InvoiceReportController extends AbstractController
         }
 
         $spreadsheet->setActiveSheetIndex(0);
-        $writer = new Xlsx($spreadsheet);
-        ob_start();
-        $writer->save('php://output');
-
-        return (string) ob_get_clean();
+        return $spreadsheet;
     }
 
     /**
