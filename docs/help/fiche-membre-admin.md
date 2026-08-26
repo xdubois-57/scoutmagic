@@ -17,21 +17,24 @@ ancienne ne sont pas celles d'aujourd'hui.
 
 ## Données Desk
 
-En lecture seule : ce que la fédération connaît — coordonnées, date de
-naissance, section, fonction, téléphones des parents. Une correction s'y
-fait dans Desk, puis par un nouvel import. Les adresses secondaires du
-membre y figurent aussi : lui seul les gère.
+En lecture seule : coordonnées, date de naissance, section, fonction,
+téléphones des parents. Une correction se fait dans Desk, puis par un
+nouvel import. Les adresses secondaires y figurent aussi : le membre
+seul les gère.
 
 ## Ce que le site sait
 
 La photo, les badges et les fonctions de l'année, et le **parcours dans
 l'unité** : chaque section où la personne est passée, année par année.
 
-Si le module Cotisations est actif, les **paiements** : ce qui reste dû
-d'abord, l'historique replié en dessous. Vous y lisez où en est un
-paiement ; c'est la page du membre, elle, qui porte le QR et l'IBAN.
-Enfin, un lien vers la **demande d'inscription d'origine**, s'il y en a
-une.
+Selon les modules actifs : les **paiements** — ce qui reste dû d'abord,
+l'historique replié en dessous ; un lien vers la **demande d'inscription
+d'origine** ; le **parcours de formation** ; les **camps** où sa section
+est partie ; et les **groupes de discussion** dont elle fait partie.
+
+Les camps sont déduits : ce sont des sections qui partent, pas des
+personnes une par une. Une ligne apparaît quand sa section est partie
+une année où elle en faisait partie.
 
 Les documents privés d'un membre n'apparaissent pas ici : ils restent
 accessibles au seul membre, sans contournement possible par le staff.
@@ -40,22 +43,20 @@ accessibles au seul membre, sans contournement possible par le staff.
 
 - **Année dans la branche** : « −1 an », « Normal » ou « +1 an », pour
   un enfant maintenu ou avancé d'un an. Le choix s'enregistre aussitôt
-  et replace le membre dans la bonne année de branche partout sur le
-  site, statistiques comprises.
+  et vaut partout sur le site, statistiques comprises.
 - **Départ** : la même case que sur la page Départs, avec un
-  commentaire facultatif. Disponible pour tout membre trouvé, animateurs
-  compris.
+  commentaire facultatif. Disponible pour tout membre trouvé.
 - **Voir le site à sa place** : vous agissez réellement au nom du
   membre, jusqu'à ses adresses e-mail, le temps de votre session. Un
-  bandeau le rappelle sur chaque page, « Retirer » ou la déconnexion
-  annule tout, et chaque activation est consignée au journal.
+  bandeau le rappelle, « Retirer » ou la déconnexion annule tout, et
+  chaque activation est consignée au journal.
 
 ## Les notes internes
 
 Des notes libres **datées**, chacune signée de son auteur : ce qu'un
 staff transmet au suivant pour bien accompagner un enfant. Une note par
-observation, jamais un champ unique — un membre reste dix ans dans
-l'unité, et un champ unique s'écrase sans que personne ne le sache.
+observation — un champ unique s'écraserait sans que personne ne le
+sache.
 
 Tout chef d'unité peut corriger ou supprimer n'importe quelle note, y
 compris celle d'un autre : une note écrite par erreur sur la mauvaise

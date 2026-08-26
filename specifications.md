@@ -189,6 +189,12 @@ Pas de QR ni d'IBAN ici, contrairement à la page du membre : un chef d'unité r
 
 **N'avoir ni créance ni demande d'origine est le cas courant**, pas une anomalie : rien ne s'affiche, plutôt qu'un bloc vide annonçant « aucune donnée ».
 
+**Le parcours**, en trois blocs alimentés par des modules. Le **parcours de formation** — le même que sur la page de l'animateur, ici visible du Staff d'Unité : « Espace admin > Formations » porte déjà exactement le même plancher, donc rien n'y apparaît qu'un lecteur ne puisse ouvrir à un menu de distance. Les **camps** où sa section est partie, du plus récent au plus ancien. Et les **groupes de discussion** auxquels la personne appartient, les ouverts d'abord, avec la mention « Animateur » quand elle en anime un.
+
+**Les camps sont une déduction, et la page ne prétend pas le contraire.** Rien n'enregistre les participants d'un camp un par un : ce sont des **sections** qui partent. Une ligne apparaît donc quand la section de la personne est partie une année où elle en faisait partie. C'est ce que le site sait ; une liste de participants serait inventée.
+
+**Les groupes, c'est l'appartenance et rien d'autre** : aucun message, aucune réponse, aucun décompte. Un chef d'unité a besoin de savoir par quels groupes la personne est joignable ; ce que les gens s'écrivent n'est pas un fait à résumer sur une page de staff.
+
 **Two things are never on this page.** A member's **private documents**: `files.owner_member_id` carries an explicit guarantee (ARCHITECTURE.md §8.3) of no chief and no admin bypass, tax certificates will live there, and listing them here would revoke that guarantee in silence. And a **writable** secondary-address control, for the reason above.
 
 **Searching, and who it proposes.** The repository never filtered on `is_active` and the result has always carried the flag — what was missing was a way to narrow. The filter is **actifs** by default (what is wanted nine times out of ten), with *inactifs* and *tous* one tap away, and it travels with the query so a submit keeps it. The row is unchanged otherwise: the export checkbox, the initials pill, the totem after the first name, the section and function, and the status badge whose exact words stay « inscrit » / « non inscrit », never « actif ». **The two exports coexist** — the whole search, and the checked selection — and are never merged; both follow the filter the screen is showing.

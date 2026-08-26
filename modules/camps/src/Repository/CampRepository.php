@@ -68,6 +68,35 @@ class CampRepository
     }
 
     /**
+     * Every stay one of these sections went on, newest first.
+     *
+     * The other axis of findByPlace(): "which stays involved these
+     * sections" rather than "which stays happened here". Feeds
+     * Service\MemberCampStayService, and the DISTINCT matters — a stay
+     * that two of a member's sections both went on is one stay.
+     *
+     * @param int[] $sectionIds
+     * @return Camp[]
+     */
+    public function findBySectionIds(array $sectionIds): array
+    {
+        if ($sectionIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($sectionIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT DISTINCT c.* FROM camp_camps c
+               JOIN camp_camp_sections cs ON cs.camp_id = c.id
+              WHERE cs.section_id IN ({$placeholders})
+              ORDER BY COALESCE(c.end_date, CONCAT(c.year_only, '-12-31')) DESC, c.id DESC"
+        );
+        $stmt->execute(array_map('intval', array_values($sectionIds)));
+
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Every upcoming stay, soonest first — the "À venir" list.
      *
      * @return Camp[]

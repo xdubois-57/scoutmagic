@@ -1831,6 +1831,26 @@ It is a new interface rather than a method bolted onto one of the registration m
 
 **`MemberSearchController` is registered late in the composition root**, after every module block, for the same reason `MemberController` already was: two of its blocks come from optional modules and neither is in scope earlier.
 
+### 8.62quinquies The « parcours » blocks (`Core\Module\MemberCampStayProvider`, `Core\Module\MemberDiscussionGroupProvider`)
+
+Three blocks of `/admin/members/{id}` answering "where has this person been": the training path, the stays their sections went on, and the discussion groups they belong to. All three are §7.4 hooks injected nullable into `AdminMemberPageService`; each implementation sits in its module's `Service\`, not its `Api\`, because `Api\` is where a module *publishes* an interface of its own (§7.5) and these are core's.
+
+**The training path creates nothing.** `Core\Module\FormationPathProvider` already existed and `Modules\Leadership\Service\MemberFormationPathService` already implemented it; the admin page simply becomes a second consumer, and it is the only block here scoped to a scout year — where somebody stood is a statement about a season, not a fact that accumulates.
+
+That interface's docblock used to read "self only" flatly. It is reworded in the same change rather than quietly contradicted: what "self only" forbade is a chief reading a member's training state off a page built *for the member*; it was never a rule that the unit may not know where its own staff stand. `/admin/leadership/training` carries the same `admin` floor as this page, so nothing reaches a reader here who could not already open it one menu away.
+
+**The camps block is an inference, and says so.** Nothing records a stay's participants one by one — `camp_camps` links to *sections*. A stay counts as this member's when their section went on it during a scout year in which they belonged to that section: core's `member_section_periods` crossed with the module's `camp_camp_sections`. A block claiming a real roster would be inventing one, so the interface's docblock states the inference where an implementer will read it.
+
+A stay carries no `scout_year_id`, only dates — or, for half of what a unit remembers about its own past, a bare year. Placing it is `ScoutYearService::labelForDate()` on the END date, the site's own rule. A `year_only` stay is read as the scout year **ending** in that year: a grand camp happens in July or August, so "2012" means 2011-2012. That is a convention, not a fact, and it is the least wrong one available — dropping those stays instead would silently empty the block for exactly the old camps the feature exists to remember. A stay with neither a readable date nor a year is attached to nobody: the site does not know when it happened.
+
+One line per stay even when two of the member's sections both went — the reader wants where they went, not how many rows the join produced. Capped at `MemberCampStayProvider::LIMIT`, on the interface for the same reason as `MemberPaymentProvider::SETTLED_LIMIT`, and the page says so when the cap bites.
+
+**The groups block is membership, and nothing else** — no post, no reply, no count of either. A chef d'unité fielding "elle ne reçoit rien" needs to know which groups reach this person; what people write to each other is not a fact about a member to be summarised on a staff page. `MemberDiscussionGroupServiceTest` pins the DTO's property list so a later "just add the post count" cannot pass unnoticed.
+
+Explicit `discussion_group_members` rows only. The module also derives membership from a section group's composition (`GroupAccessService::isDerivedMember()`), and that deliberately does not appear: a derived member is in the group *because* of the section they are in this year, which the page already states one card above under « Parcours dans l'unité ». Repeating it as a group membership would say a chef d'unité did something they did not. Open groups first, each side most recently active first — a closed group is still part of the journey, but it is not where somebody is reachable today.
+
+Both link out, and both links are always openable by whoever can see them: a stay page is `chief` and this page is `admin`, and a site admin reads every group by the groups module's own rule (`GroupAccessService::canRead()`).
+
 ### 8.62ter Staff notes about a member (`Core\Member\MemberNoteService`)
 
 The « Notes internes » block of `/admin/members/{id}`. `registration_requests.internal_notes_encrypted` covers a *request* and stops the day it is accepted; nothing covered the person afterwards, which is the gap this fills.
