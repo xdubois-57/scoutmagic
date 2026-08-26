@@ -570,7 +570,9 @@ test('on a phone the reaction picker folds away — and comes back when the scri
     // The fold is gated on a class that file puts on <html>, so without it
     // the six buttons must be exactly where they have always been — and
     // the toggle, which nothing could open, must not be shown at all.
-    await page.route('**/assets/js/groups.js', (route) => route.abort());
+    // The reference carries asset()'s ?v=… since versioning landed, so
+    // the glob has to allow the query string too.
+    await page.route('**/assets/js/groups.js*', (route) => route.abort());
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
 
     const plainReactions = page.locator('#groups-feed .groups-reactions').first();
