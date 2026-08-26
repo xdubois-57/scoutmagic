@@ -753,4 +753,74 @@ class ModuleManagerTest extends TestCase
         $this->assertNotNull($router->resolve(new Request('GET', '/visible-when', [], [], [], [])));
         $this->assertContains('visible_when_module', $manager->getEnabledModuleIds());
     }
+
+    // ── the persisted manifest cache ────────────────────────────────────
+
+    private function managerWithManifestCache(string $cacheDir): ModuleManager
+    {
+        return new ModuleManager(
+            $this->fixturesDir,
+            $this->settingService,
+            $this->cookieConsentService,
+            new MenuBuilder(Role::fromString('admin')),
+            $this->registryRepo,
+            $this->migrationRunner,
+            new JournalService(new JournalRepository($this->pdo)),
+            new Router(),
+            null,
+            $this->offlineWhitelist,
+            new InstallationProfile(),
+            null,
+            $cacheDir
+        );
+    }
+
+    /**
+     * The persisted cache answers exactly like the plain scan — same
+     * modules, same versions — and a second manager (a second request)
+     * reuses it. Entries are keyed on each file's mtime+size, so an
+     * edited manifest reparses immediately.
+     */
+    public function testManifestCachePersistsAndMatchesThePlainScan(): void
+    {
+        $cacheDir = sys_get_temp_dir() . '/scoutmagic-manifest-cache-' . bin2hex(random_bytes(4));
+
+        $uncached = array_map(
+            fn($info) => [$info->manifest->id, $info->manifest->version, count($info->manifest->routes)],
+            $this->manager->discoverModules()
+        );
+        $cachedFirst = array_map(
+            fn($info) => [$info->manifest->id, $info->manifest->version, count($info->manifest->routes)],
+            $this->managerWithManifestCache($cacheDir)->discoverModules()
+        );
+        $this->assertSame($uncached, $cachedFirst);
+        $this->assertFileExists($cacheDir . '/module-manifests.cache');
+
+        $cachedSecond = array_map(
+            fn($info) => [$info->manifest->id, $info->manifest->version, count($info->manifest->routes)],
+            $this->managerWithManifestCache($cacheDir)->discoverModules()
+        );
+        $this->assertSame($uncached, $cachedSecond);
+
+        foreach (glob($cacheDir . '/*') ?: [] as $file) {
+            @unlink($file);
+        }
+        @rmdir($cacheDir);
+    }
+
+    public function testAGarbageManifestCacheFallsBackToTheScan(): void
+    {
+        $cacheDir = sys_get_temp_dir() . '/scoutmagic-manifest-cache-' . bin2hex(random_bytes(4));
+        mkdir($cacheDir, 0777, true);
+        file_put_contents($cacheDir . '/module-manifests.cache', 'not-a-serialized-cache');
+
+        $modules = $this->managerWithManifestCache($cacheDir)->discoverModules();
+
+        $this->assertNotEmpty($modules);
+
+        foreach (glob($cacheDir . '/*') ?: [] as $file) {
+            @unlink($file);
+        }
+        @rmdir($cacheDir);
+    }
 }

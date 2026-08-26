@@ -56,6 +56,17 @@ class HelpRegistry
     public function __construct(
         private readonly string $coreDirectory,
         private readonly HelpFrontMatterParser $parser = new HelpFrontMatterParser(),
+        // The serialized-index escape hatch ARCHITECTURE.md §8.64 planned
+        // for when the corpus passed ~100 topics — it has (102 files,
+        // each opened on every GET before this existed). Both optional
+        // and trailing, so tests and callers that predate the cache keep
+        // the plain scan: $cacheDirectory is where the index lives
+        // (storage/core/help), $installedVersion is half of its key. A
+        // 'dev' version disables caching entirely, for the same reason
+        // TwigFactory keeps auto_reload on: a checkout-deployed site
+        // whose version never changes would serve a stale index forever.
+        private readonly ?string $cacheDirectory = null,
+        private readonly ?string $installedVersion = null,
     ) {
     }
 
@@ -79,10 +90,103 @@ class HelpRegistry
     public function all(): array
     {
         if ($this->topics === null) {
-            $this->topics = $this->load();
+            $cached = $this->loadFromCache();
+            if ($cached !== null) {
+                [$this->topics, $this->loadErrors] = $cached;
+            } else {
+                $this->topics = $this->load();
+                $this->writeCache();
+            }
         }
 
         return $this->topics;
+    }
+
+    /**
+     * The serialized index, if one exists for exactly this installation
+     * state — keyed on installed version + registered module set, per
+     * ARCHITECTURE.md §8.64. Anything unexpected (missing file, stale
+     * key, unserializable content) is a miss, never an error: the plain
+     * scan is always available behind it.
+     *
+     * @return array{0: array<string, HelpTopic>, 1: string[]}|null
+     */
+    private function loadFromCache(): ?array
+    {
+        if (!$this->cacheUsable()) {
+            return null;
+        }
+
+        $raw = @file_get_contents($this->cacheFilePath());
+        if ($raw === false) {
+            return null;
+        }
+
+        $data = @unserialize($raw, ['allowed_classes' => [HelpTopic::class, \Core\Security\Role::class]]);
+        if (!is_array($data)
+            || ($data['key'] ?? null) !== $this->cacheKey()
+            || !is_array($data['topics'] ?? null)
+            || !is_array($data['errors'] ?? null)
+        ) {
+            return null;
+        }
+
+        foreach ($data['topics'] as $topic) {
+            if (!$topic instanceof HelpTopic) {
+                return null;
+            }
+        }
+
+        return [$data['topics'], $data['errors']];
+    }
+
+    private function writeCache(): void
+    {
+        if (!$this->cacheUsable()) {
+            return;
+        }
+
+        $directory = (string) $this->cacheDirectory;
+        if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {
+            return;
+        }
+
+        $payload = serialize([
+            'key' => $this->cacheKey(),
+            'topics' => $this->topics,
+            'errors' => $this->loadErrors,
+        ]);
+        $tmp = $this->cacheFilePath() . '.' . bin2hex(random_bytes(4)) . '.tmp';
+        if (@file_put_contents($tmp, $payload) === false || !@rename($tmp, $this->cacheFilePath())) {
+            @unlink($tmp);
+        }
+    }
+
+    /**
+     * A version of 'dev' never changes on a checkout deployment, so it
+     * would pin a stale index forever — same rationale as TwigFactory's
+     * always-on auto_reload.
+     */
+    private function cacheUsable(): bool
+    {
+        return $this->cacheDirectory !== null
+            && $this->installedVersion !== null
+            && $this->installedVersion !== ''
+            && $this->installedVersion !== 'dev'
+            && !str_starts_with($this->installedVersion, 'dev-');
+    }
+
+    private function cacheKey(): string
+    {
+        $moduleIds = array_keys($this->moduleDirectories);
+        sort($moduleIds);
+
+        return $this->installedVersion . '|' . implode(',', $moduleIds);
+    }
+
+    private function cacheFilePath(): string
+    {
+        return $this->cacheDirectory . '/help-index.cache';
     }
 
     /**

@@ -1486,7 +1486,15 @@ $offlineWhitelist = new OfflineWhitelist();
 // docs/help/, module topics are registered by ModuleManager as each
 // enabled module loads, and HelpService (built on top, below) is the one
 // role-filtering consumer.
-$helpRegistry = new \Core\Help\HelpRegistry(dirname(__DIR__) . '/docs/help');
+// With the serialized-index cache §8.64 planned for a 100+ topic corpus:
+// keyed on installed version + active modules, disabled on 'dev' builds
+// (see HelpRegistry's constructor). Saves ~100 file opens per GET.
+$helpRegistry = new \Core\Help\HelpRegistry(
+    dirname(__DIR__) . '/docs/help',
+    new \Core\Help\HelpFrontMatterParser(),
+    dirname(__DIR__) . '/storage/core/help',
+    \Core\Maintenance\VersionFile::read(dirname(__DIR__))
+);
 $helpService = new \Core\Help\HelpService($helpRegistry);
 
 // Create ModuleManager (modules loaded after core routes are registered)
@@ -1505,7 +1513,10 @@ $moduleManager = new ModuleManager(
     $notificationService,
     $offlineWhitelist,
     $installationProfile,
-    $helpRegistry
+    $helpRegistry,
+    // Manifest cache (mtime-keyed): saves re-reading and re-validating
+    // every module.json on every request.
+    dirname(__DIR__) . '/storage/temp'
 );
 
 // Usage statistics (Core\Statistics, ARCHITECTURE.md §8.47). Built here

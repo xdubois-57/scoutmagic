@@ -225,7 +225,10 @@ $moduleManager = new ModuleManager(
     \Core\Module\InstallationProfile::resolve(
         (string) ($settingService->get('base_url') ?? ''),
         (string) ($settingService->get('statistics_destination') ?? '')
-    )
+    ),
+    null,
+    // Same manifest cache as public/index.php (mtime-keyed).
+    dirname(__DIR__) . '/storage/temp'
 );
 $moduleManager->loadEnabledModules();
 $runner->setModuleManager($moduleManager);
