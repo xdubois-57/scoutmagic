@@ -256,6 +256,94 @@
                 </section>
             {% endif %}
 
+            {# Argent — alimenté par Core\Module\MemberPaymentProvider, que
+               le module finance implémente. Le bloc n'existe pas du tout si
+               le module est désactivé ou si la personne n'a jamais rien dû :
+               c'est le cas courant, pas une anomalie, et « aucune donnée »
+               n'apprendrait rien à personne.
+
+               Pas de QR ni d'IBAN ici, contrairement à la page du membre :
+               un chef d'unité regarde où en est un paiement, il ne le fait
+               pas à la place de la famille. Ce qui appelle une action est
+               en haut ; l'historique est replié. #}
+            {% if open_payments is not empty or settled_payments is not empty %}
+                <section class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <i class="bi bi-cash-coin" aria-hidden="true"></i>
+                        <h2 class="h6 mb-0">Paiements</h2>
+                    </div>
+                    {% if open_payments is not empty %}
+                        <ul class="list-group list-group-flush">
+                            {% for payment in open_payments %}
+                                <li class="list-group-item d-flex justify-content-between align-items-start gap-3">
+                                    <span>
+                                        <span class="fw-medium">{{ payment.label }}</span>
+                                        <span class="d-block text-body-secondary small font-monospace">{{ payment.communication }}</span>
+                                        {% if payment.isPartiallyPaid %}
+                                            <span class="d-block text-body-secondary small">
+                                                {{ payment.amountReceivedCents|money_cents }} reçus sur {{ payment.amountDueCents|money_cents }}.
+                                            </span>
+                                        {% endif %}
+                                    </span>
+                                    <span class="text-end flex-shrink-0">
+                                        <span class="fw-semibold">{{ payment.amountRemainingCents|money_cents }}</span>
+                                        <span class="d-block">
+                                            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'à payer' } only %}
+                                        </span>
+                                    </span>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+
+                    {% if settled_payments is not empty %}
+                        <div class="card-body {% if open_payments is not empty %}border-top{% endif %} py-2">
+                            <button class="btn btn-sm btn-outline-secondary w-100" type="button"
+                                    data-bs-toggle="collapse" data-bs-target="#member-settled-payments"
+                                    aria-expanded="false" aria-controls="member-settled-payments">
+                                Voir les paiements clôturés ({{ settled_payments|length }})
+                            </button>
+                        </div>
+                        <div class="collapse" id="member-settled-payments">
+                            <ul class="list-group list-group-flush border-top">
+                                {% for payment in settled_payments %}
+                                    <li class="list-group-item d-flex justify-content-between align-items-start gap-3">
+                                        <span>
+                                            <span class="fw-medium">{{ payment.label }}</span>
+                                            {% if payment.settledOn %}
+                                                <span class="d-block text-body-secondary small">{{ payment.settledOn|date('d/m/Y') }}</span>
+                                            {% endif %}
+                                        </span>
+                                        <span class="text-end flex-shrink-0">
+                                            <span class="text-body-secondary">{{ payment.amountReceivedCents|money_cents }}</span>
+                                            <span class="d-block">
+                                                {% if payment.status == 'paid' %}
+                                                    {% include 'partials/status_badge.html.twig' with { status: 'confirmed', label: 'payé' } only %}
+                                                {% elseif payment.status == 'overpayment_refunded' %}
+                                                    {% include 'partials/status_badge.html.twig' with { status: 'cancelled', label: 'trop-perçu remboursé' } only %}
+                                                {% else %}
+                                                    {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'abandonné' } only %}
+                                                {% endif %}
+                                            </span>
+                                        </span>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                            {% if settled_payments_capped %}
+                                {# Dit plutôt que sous-entendu : une liste tronquée
+                                   en silence se lit comme une liste complète. #}
+                                <div class="card-body pt-2">
+                                    <p class="small text-body-secondary mb-0">
+                                        Les {{ settled_payments|length }} plus récents. L'historique complet est dans
+                                        le module Finance.
+                                    </p>
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </section>
+            {% endif %}
+
             {% if section_history is not empty %}
                 <section class="card mb-3">
                     <div class="card-header d-flex align-items-center gap-2">
@@ -273,6 +361,31 @@
                             {% endfor %}
                         </ol>
                     </div>
+                </section>
+            {% endif %}
+
+            {# D'où vient cette personne — un lien, jamais une copie. La
+               demande garde sa propre page, construite par le module qui la
+               possède ; en recopier trois champs ici créerait un second
+               endroit à tenir à jour. Les deux pages sont role_min: admin,
+               donc quiconque voit ce lien peut l'ouvrir.
+
+               Absent pour un membre importé de Desk avant l'existence du
+               module, ou arrivé autrement : c'est le cas courant. #}
+            {% if registration_origin %}
+                <section class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <i class="bi bi-signpost-split" aria-hidden="true"></i>
+                        <h2 class="h6 mb-0">Demande d'inscription d'origine</h2>
+                    </div>
+                    <a href="{{ registration_origin.path }}"
+                       class="card-body d-flex align-items-center gap-3 text-decoration-none text-body">
+                        <span class="flex-grow-1">
+                            <span class="fw-medium d-block">{{ registration_origin.label }}</span>
+                            <span class="text-body-secondary small">{{ registration_origin.statusLabel }}</span>
+                        </span>
+                        <i class="bi bi-chevron-right text-body-secondary flex-shrink-0" aria-hidden="true"></i>
+                    </a>
                 </section>
             {% endif %}
 

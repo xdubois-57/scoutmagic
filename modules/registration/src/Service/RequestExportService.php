@@ -42,14 +42,6 @@ use Modules\Registration\Repository\RegistrationRequest;
  */
 final class RequestExportService
 {
-    private const STATUS_LABELS = [
-        RegistrationRequest::STATUS_PENDING => 'En attente',
-        RegistrationRequest::STATUS_ACCEPTED => 'Acceptée',
-        RegistrationRequest::STATUS_REFUSED => 'Refusée',
-        RegistrationRequest::STATUS_WITHDRAWN => 'Retirée',
-        RegistrationRequest::STATUS_ENCODED => 'Encodée dans Desk',
-    ];
-
     /**
      * @return array<int, string>
      */
@@ -99,7 +91,7 @@ final class RequestExportService
 
             $sheetRows[] = [
                 $registrationRequest->receivedAt->format('d/m/Y'),
-                self::STATUS_LABELS[$registrationRequest->status] ?? $registrationRequest->status,
+                $registrationRequest->statusLabel(),
                 $registrationRequest->childLastName,
                 $registrationRequest->childFirstName,
                 $this->frenchDate($registrationRequest->birthDate),

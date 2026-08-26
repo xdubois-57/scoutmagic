@@ -11,6 +11,11 @@ namespace Core\Member;
 use Core\Badge\Badge;
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
+use Core\Module\MemberPaymentProvider;
+use Core\Module\MemberPaymentView;
+use Core\Module\MemberRegistrationOriginProvider;
+use Core\Module\MemberRegistrationOriginView;
+use Core\Module\MemberSettledPaymentView;
 use Core\Photo\MemberPhotoService;
 
 /**
@@ -30,7 +35,20 @@ use Core\Photo\MemberPhotoService;
  *
  * The nullable-dependency pattern is the one §8.22 established: a block
  * whose provider is absent is simply not built, never an error and never
- * an empty card.
+ * an empty card. Three of them come from modules: what is still owed and
+ * what is already closed (Core\Module\MemberPaymentProvider, finance),
+ * and which registration request the person came from
+ * (Core\Module\MemberRegistrationOriginProvider, registration).
+ *
+ * **Closed payments are asked for, never mixed in.** They are history,
+ * not a task: putting them next to the open demands would drown the one
+ * or two lines that actually call for an action. So the template folds
+ * them away, and this service caps them — the complete payment history
+ * belongs to the finance module, which is built to page through it.
+ *
+ * **Having no open demand and no registration request is the ordinary
+ * case**, not an anomaly. Neither block is drawn at all rather than
+ * drawn empty with « aucune donnée ».
  *
  * **Two things this page must never show**, and the reasons are worth
  * keeping next to the code:
@@ -63,7 +81,9 @@ class AdminMemberPageService
         private SectionMembershipRepository $sectionMembershipRepository,
         private SectionService $sectionService,
         private ScoutYearService $scoutYearService,
-        private MemberEmailRepository $memberEmailRepository
+        private MemberEmailRepository $memberEmailRepository,
+        private ?MemberPaymentProvider $memberPaymentProvider = null,
+        private ?MemberRegistrationOriginProvider $registrationOriginProvider = null
     ) {
     }
 
@@ -73,17 +93,33 @@ class AdminMemberPageService
      *   badges: Badge[],
      *   functions: array<int, array{label: string, section: ?string, is_main: bool}>,
      *   section_history: array<int, array{scout_year_label: string, section_name: string, is_current: bool}>,
-     *   member_emails: array<int, array{address: string, status: string}>
+     *   member_emails: array<int, array{address: string, status: string}>,
+     *   open_payments: list<MemberPaymentView>,
+     *   settled_payments: list<MemberSettledPaymentView>,
+     *   settled_payments_capped: bool,
+     *   registration_origin: ?MemberRegistrationOriginView
      * }
      */
     public function buildPageData(MemberProfile $profile, int $scoutYearId): array
     {
+        // Both keyed on the PERSISTENT member id: a debt does not expire
+        // when the scout year turns, and a registration request produced
+        // a person rather than one year's row.
+        $settled = $this->memberPaymentProvider?->getSettledPayments($profile->memberId) ?? [];
+
         return [
             'photo_file_id' => $this->memberPhotoService->resolveFileId($profile->memberId, $scoutYearId),
             'badges' => $this->memberBadgeRepository->getActiveBadgesForMemberYear($profile->memberYearId),
             'functions' => $this->buildFunctions($profile),
             'section_history' => $this->buildSectionHistory($profile->memberId, $scoutYearId),
             'member_emails' => $this->buildReadOnlyEmails($profile),
+            'open_payments' => $this->memberPaymentProvider?->getOpenPayments($profile->memberId) ?? [],
+            'settled_payments' => $settled,
+            // Said on screen rather than left to be inferred: a member of
+            // ten years has more closed rows than this page shows, and a
+            // silently truncated list reads as a complete one.
+            'settled_payments_capped' => count($settled) >= MemberPaymentProvider::SETTLED_LIMIT,
+            'registration_origin' => $this->registrationOriginProvider?->getRegistrationOrigin($profile->memberId),
         ];
     }
 

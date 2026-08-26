@@ -12,10 +12,12 @@ use Core\Member\MemberService;
 use Core\Module\HomePaymentDueProvider;
 use Core\Module\MemberPaymentProvider;
 use Core\Module\MemberPaymentView;
+use Core\Module\MemberSettledPaymentView;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\Role;
+use Core\Service\DateInput;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\CampaignRepository;
 use Modules\Finance\Repository\CampaignRowRepository;
@@ -26,6 +28,7 @@ use Modules\Finance\Service\CampaignService;
 use Modules\Finance\Service\IbanNormalizer;
 use Modules\Finance\Service\ReceivableAllocationService;
 use Modules\Finance\Service\ReceivableQrTokenService;
+use Modules\Finance\Service\ReceivableSettlement;
 
 /**
  * This module's answer to core's two family-facing hooks: the payment
@@ -84,7 +87,7 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
             return [];
         }
 
-        $labels = $this->labelsFor($open);
+        $labels = $this->labelsFor(array_column($open, 'receivable'));
 
         $views = [];
         foreach ($open as $entry) {
@@ -111,6 +114,94 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
         // Most recent first: the receivable somebody is being asked about
         // today is the one created last, not the one from two years ago.
         return array_reverse($views);
+    }
+
+    /**
+     * The other half of Core\Module\MemberPaymentProvider: what is over.
+     *
+     * Reads through settlementsFor(), NOT refreshAndSettle() and not
+     * storedSettlementsFor(). refreshAndSettle() writes: a page that only
+     * reports history has no business re-allocating on every view.
+     * storedSettlementsFor() reads too little — it deliberately skips the
+     * credit scan, so `amountDesignatedCents` never exceeds what was
+     * absorbed and a surplus is invisible. That would report a
+     * receivable overpaid by 5,00 € as exactly paid and could never
+     * reach STATUS_OVERPAYMENT_REFUNDED at all, which is the one thing
+     * this block exists to make visible. settlementsFor() is the full
+     * picture with no write.
+     *
+     * @return list<MemberSettledPaymentView>
+     */
+    public function getSettledPayments(int $memberId): array
+    {
+        $receivables = $this->receivables->findByMemberIds([$memberId]);
+        if ($receivables === []) {
+            return [];
+        }
+
+        $settlements = $this->allocations->settlementsFor($receivables);
+
+        $settled = [];
+        foreach ($receivables as $receivable) {
+            $settlement = $settlements[$receivable->id] ?? null;
+            if ($settlement === null || !$settlement->isSettled()) {
+                continue;
+            }
+            $settled[] = ['receivable' => $receivable, 'settlement' => $settlement];
+        }
+        if ($settled === []) {
+            return [];
+        }
+
+        $labels = $this->labelsFor(array_column($settled, 'receivable'));
+
+        $views = [];
+        foreach ($settled as $entry) {
+            $receivable = $entry['receivable'];
+            $settlement = $entry['settlement'];
+
+            $views[] = new MemberSettledPaymentView(
+                $labels[$receivable->id] ?? $receivable->label ?? 'Paiement demandé',
+                $receivable->amountDueCents,
+                $settlement->amountDesignatedCents,
+                self::outcomeOf($settlement),
+                // A waiver is dated by the waiver; anything else by the
+                // row itself. requireFromStorage() is not used here: an
+                // unreadable date makes the outcome undated on screen,
+                // which is honest, where a 500 would take the whole page
+                // down over one old row.
+                DateInput::fromStorage($receivable->waivedAt ?? $receivable->createdAt)
+            );
+        }
+
+        // Most recent first, then capped: the newest closed rows are the
+        // ones somebody is being asked about, and a member of ten years
+        // has dozens. The complete history lives in the finance module,
+        // which is built to page through it.
+        $views = array_reverse($views);
+
+        return array_slice($views, 0, MemberPaymentProvider::SETTLED_LIMIT);
+    }
+
+    /**
+     * Which of core's three outcomes a settlement is.
+     *
+     * A refunded surplus wins over "paid", deliberately: on its status
+     * alone such a row reads as simply paid, and a chef d'unité looking
+     * at « payé · 50,00 € » when 5,00 € of it went back out is being
+     * told the wrong thing about the money.
+     *
+     * @return MemberSettledPaymentView::STATUS_*
+     */
+    private static function outcomeOf(ReceivableSettlement $settlement): string
+    {
+        if ($settlement->refundState === ReceivableSettlement::REFUND_DONE) {
+            return MemberSettledPaymentView::STATUS_OVERPAYMENT_REFUNDED;
+        }
+
+        return $settlement->isWaived()
+            ? MemberSettledPaymentView::STATUS_WAIVED
+            : MemberSettledPaymentView::STATUS_PAID;
     }
 
     /**
@@ -169,7 +260,7 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
             return null;
         }
 
-        $labels = $this->labelsFor($open);
+        $labels = $this->labelsFor(array_column($open, 'receivable'));
 
         $total = 0;
         $demands = [];
@@ -264,15 +355,15 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
      * own label, which is what the treasurer typed and what the reminder
      * mail says.
      *
-     * @param list<array{receivable: ExpectedReceivable, remaining_cents: int, received_cents: int}> $open
+     * @param list<ExpectedReceivable> $receivables
      * @return array<int, string> receivable id => label
      */
-    private function labelsFor(array $open): array
+    private function labelsFor(array $receivables): array
     {
         $rowIds = [];
-        foreach ($open as $entry) {
-            if ($entry['receivable']->sourceModule === CampaignService::SOURCE_MODULE) {
-                $rowIds[] = $entry['receivable']->sourceReferenceId;
+        foreach ($receivables as $receivable) {
+            if ($receivable->sourceModule === CampaignService::SOURCE_MODULE) {
+                $rowIds[] = $receivable->sourceReferenceId;
             }
         }
         if ($rowIds === []) {
@@ -293,8 +384,7 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
         }
 
         $labels = [];
-        foreach ($open as $entry) {
-            $receivable = $entry['receivable'];
+        foreach ($receivables as $receivable) {
             if ($receivable->sourceModule !== CampaignService::SOURCE_MODULE) {
                 continue;
             }

@@ -27,6 +27,17 @@ final class RegistrationRequest
      */
     public const FINAL_STATUSES = [self::STATUS_ENCODED, self::STATUS_REFUSED, self::STATUS_WITHDRAWN];
 
+    /**
+     * @var array<string, string>
+     */
+    public const STATUS_LABELS = [
+        self::STATUS_PENDING => 'En attente',
+        self::STATUS_ACCEPTED => 'Acceptée',
+        self::STATUS_REFUSED => 'Refusée',
+        self::STATUS_WITHDRAWN => 'Retirée',
+        self::STATUS_ENCODED => 'Encodée dans Desk',
+    ];
+
     public function __construct(
         public readonly int $id,
         public readonly int $scoutYearId,
@@ -68,5 +79,19 @@ final class RegistrationRequest
     public function isFinal(): bool
     {
         return in_array($this->status, self::FINAL_STATUSES, true);
+    }
+
+    /**
+     * How a status reads to a chef d'unité. Here rather than in each
+     * consumer because there were already two copies of this table — the
+     * spreadsheet export's and the status badge's — and a third would
+     * have been the one that drifts.
+     *
+     * Falls back to the raw value rather than to an empty string: a
+     * status nobody has worded yet should be visible, not invisible.
+     */
+    public function statusLabel(): string
+    {
+        return self::STATUS_LABELS[$this->status] ?? $this->status;
     }
 }

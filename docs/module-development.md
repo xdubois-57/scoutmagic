@@ -496,6 +496,37 @@ Three rules, and the first is why this is not `DeskImportListener`:
 
 Each point carries four things, and they are the four a reader needs: what is wrong, why it matters, what to do about it, and — when there is one — by when. Write `why` as the consequence, never a restatement of the title.
 
+## Filling a block on a member's page (`Core\Module\…Provider`)
+
+Two core pages consolidate what the site knows about one person — a member's own page (`/members/{id}`) and the Staff d'Unité's page for them (`/admin/members/{id}`). Neither knows anything about your module. Each block they can show comes from a small interface core declares (ARCHITECTURE.md §7.4), which your module optionally implements; the composition root injects it **nullable**, so a disabled module means the block is not built at all — never an error, never an empty card.
+
+The ones that exist today:
+
+| Interface | Answers | Shown on |
+|---|---|---|
+| `Core\Module\FormationPathProvider` | where this animateur is in their training | the member's own page, self only |
+| `Core\Module\MemberPaymentProvider` | `getOpenPayments()` — what is still owed | both pages |
+| `Core\Module\MemberPaymentProvider` | `getSettledPayments()` — what is over, capped at `SETTLED_LIMIT`, most recent first | the admin page only |
+| `Core\Module\MemberRegistrationOriginProvider` | which registration request this member came from | the admin page only |
+| `Core\Module\SectionResponsableProvider` | who runs this member's section | the member's own page |
+
+Before writing a new one, check whether one of these already asks your question. The shape to copy, when none does:
+
+```php
+interface MyThingProvider
+{
+    public function getMyThing(int $memberId): ?MyThingView;   // or list<MyThingView>
+}
+```
+
+- **One interface per module, one question per method.** Resist a generic "tell me everything about this member" hook: it becomes exactly the coupling point §7.4 exists to prevent, and the first module with nothing to say still has to implement it. `MemberPaymentProvider` carries two methods, and that is a deliberate exception with a reason: open and settled receivables are two genuinely different questions, and widening `getOpenPayments()` with a flag would have rippled through callers — the member's own page and the homepage band — that asked for nothing.
+- **The identifier is a `members.id`**, the persistent identity, never `member_years.id`. A debt does not expire when the scout year turns, and a registration request produced a person rather than one year's row.
+- **A read DTO beside the interface**, `public readonly` properties and no logic. Return `?XxxView` for one object, `list<XxxView>` for a collection, never an improvised associative array.
+- **Presentation-ready, in the module's own words.** Core owns the template but not the domain: hand over a label and an amount in cents, not your internal vocabulary. The exception is anything core has to *branch* on — a status that picks a badge colour — which is a small set of constants core declares, and your module maps onto.
+- **Say what `null` means** in the docblock: module absent, or no data. And treat "no data" as the ordinary case — most members owe nothing and came from no request, so the page draws nothing rather than « aucune donnée ».
+- **The hook decides nothing about who may look.** The page has already answered that. A provider that re-derived its own audience would be a second answer waiting to disagree with the router's.
+- **The implementation lives in your module's `Service\`, not its `Api\`.** `Api\` is where a module *publishes* an interface of its own for others to consume (§7.5); here the interface is core's and you are implementing it (§7.4). Wiring it is one nullable argument in the composition root, inside your module's own `if (in_array('my_module', …))` block.
+
 ## Accessing core services
 
 Module controllers receive whatever services they need via constructor injection — there is no fixed list. The composition root (`public/index.php`) is where every controller is actually built and registered: inside the module's `if (in_array('my_module', $moduleManager->getEnabledModuleIds(), true)) { ... }` block, construct the module's repositories/services (passing `$pdo`/`$connection`, `$encryptionService`, `$mailService`, `$schedulerService`, `$sectionService`, or any other already-built core service the module needs), then `$frontController->registerController(MyModuleController::class, new MyModuleController($twig, ...))`. See any existing module block in `public/index.php` for the pattern.

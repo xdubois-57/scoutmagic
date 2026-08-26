@@ -25,6 +25,14 @@ namespace Core\Module;
 interface MemberPaymentProvider
 {
     /**
+     * How many closed rows getSettledPayments() may return. On the
+     * interface rather than in the module, so the page can say « les 20
+     * plus récents » without guessing, and a second implementation
+     * cannot quietly answer at a different scale.
+     */
+    public const SETTLED_LIMIT = 20;
+
+    /**
      * Everything this member still owes, most recent first, or an empty
      * list when they owe nothing.
      *
@@ -37,4 +45,29 @@ interface MemberPaymentProvider
      * @return list<MemberPaymentView>
      */
     public function getOpenPayments(int $memberId): array;
+
+    /**
+     * The demands that are over — paid, abandoned, refunded — most
+     * recent first, capped at self::SETTLED_LIMIT.
+     *
+     * **A second method rather than a parameter on the first**, and that
+     * is the decision worth writing down. `getOpenPayments()` is already
+     * consumed by the member's own page and by the homepage band, and
+     * both want open receivables and nothing else. Widening its
+     * signature would ripple a change through callers that asked for
+     * nothing — so this is the deliberate exception to the "one hook,
+     * one method" rule: two genuinely different questions, two methods.
+     *
+     * **Only the admin member page calls this.** A parent reading their
+     * child's page does not need to re-read their 2023 transfers, and
+     * mixing closed rows into the open ones would drown the two lines
+     * that actually call for an action.
+     *
+     * Capped because a member present for ten years accumulates dozens
+     * of closed rows, and this page is a summary: the complete payment
+     * history belongs to the finance module, which is built for it.
+     *
+     * @return list<MemberSettledPaymentView>
+     */
+    public function getSettledPayments(int $memberId): array;
 }

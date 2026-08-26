@@ -8,6 +8,8 @@ use Core\Database\Connection;
 use Core\Import\MemberYearRepository;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
+use Core\Module\MemberPaymentProvider;
+use Core\Module\MemberSettledPaymentView;
 use Core\Security\EncryptionService;
 use Modules\Finance\Api\FamilyPaymentService;
 use Modules\Finance\Repository\Account;
@@ -163,6 +165,118 @@ class FamilyPaymentServiceTest extends TestCase
             (new ReceivableQrTokenService($this->encryption))->urlFor($receivable->id, 'https://scoutmagic.test'),
             $payments[0]->qrUrl
         );
+    }
+
+    // ── what is over (the admin member page) ───────────────────────────
+
+    /**
+     * The other half of the hook. Deliberately a second method rather
+     * than a flag on getOpenPayments(): the member's own page and the
+     * homepage band both consume that one and want open receivables
+     * alone.
+     */
+    public function testAPaidDemandDisappearsFromTheOpenListAndAppearsInTheSettledOne(): void
+    {
+        $this->campaignWith([['Lucie', 4500]]);
+        $this->pay($this->memberIds['Lucie'], 45.00);
+
+        $service = $this->service();
+        $this->assertSame([], $service->getOpenPayments($this->memberIds['Lucie']));
+
+        $settled = $service->getSettledPayments($this->memberIds['Lucie']);
+        $this->assertCount(1, $settled);
+        $this->assertSame(MemberSettledPaymentView::STATUS_PAID, $settled[0]->status);
+        $this->assertSame(4500, $settled[0]->amountDueCents);
+        $this->assertSame(4500, $settled[0]->amountReceivedCents);
+        $this->assertSame('Cotisations 2025-2026', $settled[0]->label);
+    }
+
+    public function testAnAbandonedDemandReadsAsAbandonedAndNotAsPaid(): void
+    {
+        $this->campaignWith([['Lucie', 4500]]);
+        $receivable = $this->receivables->findByMemberIds([$this->memberIds['Lucie']])[0];
+        $this->receivables->setWaived($receivable->id, '2026-03-04 09:00:00', 7);
+
+        $settled = $this->service()->getSettledPayments($this->memberIds['Lucie']);
+
+        $this->assertCount(1, $settled);
+        $this->assertSame(MemberSettledPaymentView::STATUS_WAIVED, $settled[0]->status);
+        $this->assertSame(0, $settled[0]->amountReceivedCents);
+        // Dated by the waiver, not by the row: what the reader wants to
+        // know is when the unit gave up on it.
+        $this->assertSame('2026-03-04', $settled[0]->settledOn?->format('Y-m-d'));
+    }
+
+    /**
+     * A row that was overpaid and whose surplus has gone back out reads
+     * as simply "payé" on its status alone. Showing « payé · 50,00 € »
+     * when 5,00 € of it was returned tells a chef d'unité the wrong
+     * thing about the money, so the refunded surplus wins.
+     */
+    public function testASurplusPaidBackReadsAsRefundedRatherThanPaid(): void
+    {
+        $this->campaignWith([['Lucie', 4500]]);
+        $this->pay($this->memberIds['Lucie'], 50.00);
+        $this->refundSurplus($this->memberIds['Lucie'], 500);
+
+        $settled = $this->service()->getSettledPayments($this->memberIds['Lucie']);
+
+        $this->assertCount(1, $settled);
+        $this->assertSame(MemberSettledPaymentView::STATUS_OVERPAYMENT_REFUNDED, $settled[0]->status);
+    }
+
+    /**
+     * The same row before the surplus goes back: paid, because it is —
+     * the refund has not happened yet, and pre-announcing it would be a
+     * different lie.
+     */
+    public function testAnUnreturnedSurplusStillReadsAsPaid(): void
+    {
+        $this->campaignWith([['Lucie', 4500]]);
+        $this->pay($this->memberIds['Lucie'], 50.00);
+
+        $settled = $this->service()->getSettledPayments($this->memberIds['Lucie']);
+
+        $this->assertCount(1, $settled);
+        $this->assertSame(MemberSettledPaymentView::STATUS_PAID, $settled[0]->status);
+        $this->assertSame(5000, $settled[0]->amountReceivedCents);
+    }
+
+    public function testAnOpenDemandIsNeverInTheSettledList(): void
+    {
+        $this->campaignWith([['Lucie', 4500]]);
+        $this->pay($this->memberIds['Lucie'], 20.00);
+
+        $service = $this->service();
+        $this->assertCount(1, $service->getOpenPayments($this->memberIds['Lucie']));
+        $this->assertSame([], $service->getSettledPayments($this->memberIds['Lucie']));
+    }
+
+    public function testAMemberWhoNeverOwedAnythingGetsAnEmptyListRatherThanAnError(): void
+    {
+        $this->assertSame([], $this->service()->getSettledPayments($this->memberIds['Lucie']));
+    }
+
+    /**
+     * A member of ten years accumulates dozens of closed rows, and this
+     * page is a summary — the complete history belongs to the finance
+     * module, which is built to page through it. Most recent first, so
+     * what the cap drops is the oldest.
+     */
+    public function testTheSettledListIsCappedAndKeepsTheMostRecent(): void
+    {
+        $lines = [];
+        for ($i = 0; $i < MemberPaymentProvider::SETTLED_LIMIT + 3; $i++) {
+            $lines[] = ['Lucie', 100 + $i];
+        }
+        $this->campaignWith($lines);
+        foreach ($this->receivables->findByMemberIds([$this->memberIds['Lucie']]) as $receivable) {
+            $this->receivables->setWaived($receivable->id, '2026-03-04 09:00:00', 7);
+        }
+
+        $settled = $this->service()->getSettledPayments($this->memberIds['Lucie']);
+
+        $this->assertCount(MemberPaymentProvider::SETTLED_LIMIT, $settled);
     }
 
     // ── the homepage band ───────────────────────────────────────────────
@@ -365,6 +479,32 @@ class FamilyPaymentServiceTest extends TestCase
         // stored state without its own reconcile pass.
         FinanceTestHelper::allocationService($this->pdo, $this->encryption, $this->receivables)
             ->reconcileAccount($this->accountId);
+    }
+
+    /**
+     * The surplus really leaving the account: a debit naming the same
+     * receivable, attached to it as a refund. The state becomes
+     * "remboursé" because the money left, never because somebody ticked
+     * a box — Service\ReceivableAllocationService::allocateRefund().
+     */
+    private function refundSurplus(int $memberId, int $amountCents): void
+    {
+        $receivable = $this->receivables->findByMemberIds([$memberId])[0];
+        $transactionId = $this->transactions->create(
+            $this->accountId,
+            $this->scoutYearId,
+            'REFUND-' . $receivable->id,
+            '2026-03-01',
+            'Remboursement ' . $receivable->communication,
+            -($amountCents / 100),
+            null,
+            null,
+            'import',
+            null
+        );
+
+        FinanceTestHelper::allocationService($this->pdo, $this->encryption, $this->receivables)
+            ->allocateRefund($transactionId, $receivable->id, $amountCents, \Core\Security\Role::SUPERADMIN, null);
     }
 
     private function createMember(string $firstName, string $email): int
