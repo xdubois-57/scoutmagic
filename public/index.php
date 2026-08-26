@@ -867,7 +867,11 @@ if (\Core\Debug\RequestTimeline::isActive() && \Core\Security\AuthSession::isAut
 
 // Create Scheduler service
 $schedulerRepo = new SchedulerRepository($pdo);
-$schedulerService = new SchedulerService($schedulerRepo);
+// cachePendingRearms: the composition root makes ~20 rearm() probes per
+// request; the cache answers them from one query. Task handlers build
+// their own fresh SchedulerService and must never receive this instance
+// (see SchedulerService::__construct()).
+$schedulerService = new SchedulerService($schedulerRepo, cachePendingRearms: true);
 $schedulerRunner = new SchedulerRunner($schedulerRepo, $journalService);
 
 // Register param() Twig function — reads from settings database

@@ -10,8 +10,32 @@ namespace Core\Scheduler;
 
 class SchedulerService
 {
-    public function __construct(private SchedulerRepository $repository)
-    {
+    /**
+     * Pending (module, task, reference) triples, loaded once — see
+     * $cachePendingRearms. Null until first needed, or after an
+     * invalidating write (cancel/purge).
+     *
+     * @var array<string, true>|null
+     */
+    private ?array $pendingRearmKeys = null;
+
+    /**
+     * $cachePendingRearms trades one query for the ~20 per-request
+     * rearm() probes the composition root makes: the pending rows are
+     * loaded once and the "already queued?" guard answers from memory.
+     *
+     * It is OPT-IN, and only the composition root may opt in. A task
+     * handler re-arming itself from inside handle() relies on a FRESH
+     * read seeing its own row as `processing` (see rearm()); every
+     * handler builds its own service from the PDO, so the snapshot a
+     * cached instance took before the task was claimed is never
+     * consulted mid-run. Keep it that way: never hand a caching
+     * instance to a task handler.
+     */
+    public function __construct(
+        private SchedulerRepository $repository,
+        private bool $cachePendingRearms = false,
+    ) {
     }
 
     /**
@@ -56,7 +80,7 @@ class SchedulerService
         \DateTimeInterface|string $when,
         array $payload = []
     ): bool {
-        if ($this->find($moduleId, $taskKey, $reference) !== null) {
+        if ($this->hasPendingRearm($moduleId, $taskKey, $reference)) {
             return false;
         }
 
@@ -91,7 +115,7 @@ class SchedulerService
         ?int $requestedByUserAccountId = null
     ): int {
         $payloadJson = !empty($payload) ? json_encode($payload) : null;
-        return $this->repository->create(
+        $id = $this->repository->create(
             $moduleId,
             $taskKey,
             $runAt->format('Y-m-d H:i:s'),
@@ -99,6 +123,12 @@ class SchedulerService
             $reference,
             $requestedByUserAccountId
         );
+
+        if ($this->pendingRearmKeys !== null) {
+            $this->pendingRearmKeys[$this->pendingRearmKey($moduleId, $taskKey, $reference)] = true;
+        }
+
+        return $id;
     }
 
     /**
@@ -134,6 +164,10 @@ class SchedulerService
     public function cancel(int $actionId): void
     {
         $this->repository->cancel($actionId);
+        // The row is addressed by id, so its (module, task, reference)
+        // triple is unknown here — drop the whole snapshot rather than
+        // guess.
+        $this->pendingRearmKeys = null;
     }
 
     /**
@@ -184,6 +218,45 @@ class SchedulerService
      */
     public function deleteOlderThan(string $moduleId, string $taskKey, \DateTimeInterface $cutoff): int
     {
-        return $this->repository->deleteOlderThan($moduleId, $taskKey, $cutoff->format('Y-m-d H:i:s'));
+        $deleted = $this->repository->deleteOlderThan($moduleId, $taskKey, $cutoff->format('Y-m-d H:i:s'));
+        if ($deleted > 0) {
+            $this->pendingRearmKeys = null;
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * rearm()'s "already queued?" guard. Without the opt-in cache this is
+     * the same fresh find() as always. With it, the pending triples are
+     * loaded in one query and the answer comes from memory — schedule()
+     * keeps the snapshot coherent for rows created through this instance,
+     * and the invalidating writes (cancel, purge) drop it.
+     */
+    private function hasPendingRearm(string $moduleId, string $taskKey, string $reference): bool
+    {
+        if (!$this->cachePendingRearms) {
+            return $this->find($moduleId, $taskKey, $reference) !== null;
+        }
+
+        if ($this->pendingRearmKeys === null) {
+            $this->pendingRearmKeys = [];
+            foreach ($this->repository->findPendingKeys() as $row) {
+                $key = $this->pendingRearmKey(
+                    (string) $row['module_id'],
+                    (string) $row['task_key'],
+                    $row['reference'] !== null ? (string) $row['reference'] : null
+                );
+                $this->pendingRearmKeys[$key] = true;
+            }
+        }
+
+        return isset($this->pendingRearmKeys[$this->pendingRearmKey($moduleId, $taskKey, $reference)]);
+    }
+
+    private function pendingRearmKey(string $moduleId, string $taskKey, ?string $reference): string
+    {
+        // NUL never appears in these values, so the triple cannot collide.
+        return $moduleId . "\0" . $taskKey . "\0" . ($reference ?? "\0");
     }
 }
