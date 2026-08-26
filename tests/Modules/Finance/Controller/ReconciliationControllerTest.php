@@ -177,6 +177,25 @@ class ReconciliationControllerTest extends TestCase
         $this->assertStringContainsString('mouvement interne', $body);
     }
 
+    /**
+     * The overpaid tab offers the household's other receivables, and each
+     * option says what is still owed on it — the figure a treasurer picks
+     * on. It is rendered through `|money_cents` like every other displayed
+     * amount, so this pins the rendered string rather than the filter:
+     * the label read "45,00 €" before that conversion and must still.
+     */
+    public function testTheOverpaidTabNamesWhatIsStillOwedOnEachOtherReceivable(): void
+    {
+        $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
+        $this->receivable('Antoine', 4500, '+++123/4567/89025+++');
+        $this->credit('VANDENBRANDE M +++123/4567/89012+++', 60.00);
+
+        $body = $this->controller->index($this->get(['tab' => 'overpaid']), [])->getBody();
+
+        $this->assertStringContainsString('Imputer sur une autre créance du foyer', $body);
+        $this->assertStringContainsString('Vandenbrande Antoine — reste 45,00 €', $body);
+    }
+
     // ── the gestures ────────────────────────────────────────────────────
 
     public function testConfirmingASplitAllocatesEachShare(): void
