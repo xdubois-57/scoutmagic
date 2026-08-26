@@ -22,8 +22,15 @@ class SchemaComparator
      * - Modified column → ALTER TABLE MODIFY COLUMN
      * - Column in actual but not in declared → WARNING only (never DROP)
      * - Table in actual but not in declared → WARNING only (never DROP)
-     * - New index → CREATE INDEX or ADD INDEX
-     * - New FK → ADD CONSTRAINT
+     * - New index → CREATE INDEX or ADD INDEX — matched by NAME only: an
+     *   index that already exists under the declared name is left exactly
+     *   as it is, its columns are never compared. Changing an existing
+     *   index's column list in schema.sql is therefore a silent no-op on
+     *   every installed site (it only converges on fresh installs) —
+     *   redefine an index by declaring it under a NEW name instead.
+     *   Documented in ARCHITECTURE.md §10 and the AGENTS.md schema rules.
+     * - New FK → ADD CONSTRAINT (same name-only matching)
+     * - PRIMARY KEY changes on an existing table → skipped entirely
      *
      * @param array<TableDefinition> $declaredTables
      * @param array<TableDefinition> $actualTables
@@ -192,7 +199,10 @@ class SchemaComparator
             }
         }
 
-        // Compare indexes (excluding PRIMARY which is usually handled with the table)
+        // Compare indexes (excluding PRIMARY which is usually handled with
+        // the table). Name-only matching, per the class doc comment: a
+        // declared name already present is skipped without looking at its
+        // columns — redefining an index requires a new name.
         $actualIndexes = [];
         foreach ($actual->indexes as $idx) {
             $actualIndexes[$idx->name] = $idx;
