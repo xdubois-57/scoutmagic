@@ -237,6 +237,9 @@ final class UxConventionsTest extends TestCase
         '/groups/{id}/feed',
         '/groups/{id}/media-status',
         '/groups/{id}/member-search',
+        // The request list as a spreadsheet download — no page, no
+        // breadcrumb, same shape as /news/{id}/form/responses/export.
+        '/config/inscriptions/export',
         '/groups/{id}/mention-search',
         '/groups/{id}/posts/{postId}/reactions',
         '/groups/{id}/posts/{postId}/replies',

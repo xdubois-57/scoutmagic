@@ -12,7 +12,7 @@ use Core\Module\ModuleManager;
 use Core\Scheduler\CoreTaskHandlers;
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
-use Core\Support\SupportSpreadsheet;
+use Core\Export\TabularSpreadsheet;
 
 /**
  * `scheduled-tasks.xlsx` — one row per **declared handler**, core and
@@ -65,7 +65,7 @@ class ScheduledTasksCollector implements SupportCollectorInterface
 
         $context->addFileFromContent(
             'scheduled-tasks.xlsx',
-            SupportSpreadsheet::build(
+            TabularSpreadsheet::build(
                 [
                     'Source', 'Clé de tâche', 'Classe du handler',
                     'Dernière exécution — prévue le', 'Dernière exécution — exécutée le',

@@ -209,6 +209,22 @@
                     </div>
                 </form>
 
+                {# The export takes exactly the rows this screen shows,
+                   filters included — so it carries the same three query
+                   parameters, and its label carries the count. Exporter
+                   200 demandes en regardant les 12 en attente serait une
+                   surprise ; l'inverse serait pire. #}
+                <div class="mb-3">
+                    <a href="/config/inscriptions/export?year={{ selected_year.id }}&amp;status={{ status_filter|default('') }}&amp;q={{ search|default('')|url_encode }}"
+                       class="btn btn-outline-secondary btn-sm w-100 w-sm-auto">
+                        <i class="bi bi-download" aria-hidden="true"></i>
+                        Exporter ({{ request_rows|length }})
+                    </a>
+                    <span class="form-text d-block d-sm-inline ms-sm-2">
+                        Reprend les demandes affichées ci-dessous. Les notes internes n'y figurent jamais.
+                    </span>
+                </div>
+
                 <div class="table-responsive">
                     <table class="table table-sm align-middle">
                         <thead>
