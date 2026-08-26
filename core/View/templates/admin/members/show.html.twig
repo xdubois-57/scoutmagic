@@ -13,6 +13,20 @@
 } only %}
 
 <div class="page-wide">
+    {# The page always shows the member's LAST KNOWN year, whichever one a
+       search matched — and says which. Without that sentence a chef
+       d'unité reads a former member's 2019 details as current and phones
+       a number that stopped working years ago. #}
+    {% if is_past_year|default(false) %}
+        <div class="alert alert-warning d-flex align-items-start gap-2" role="status">
+            <i class="bi bi-calendar-event flex-shrink-0" aria-hidden="true"></i>
+            <div>
+                Données de l'année scoute <strong>{{ year_label }}</strong> — la dernière année
+                où ce membre est connu. Les coordonnées d'une année antérieure peuvent différer.
+            </div>
+        </div>
+    {% endif %}
+
     <div class="row g-3">
         <div class="col-12 col-lg-6">
             {# Données Desk — read-only, hence the padlock. The Desk/site

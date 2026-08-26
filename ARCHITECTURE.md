@@ -1807,6 +1807,8 @@ The core blocks it does build: the photo (`Core\Photo\MemberPhotoService`), the 
 
 The three site actions became three cards — the old « Données du site » heading stopped meaning anything once everything past the Desk half was site data. The temporary member addition (§8.42) keeps its full text, the "nothing is saved" sentence included, and is marked « Votre session » in its header rather than given a visual treatment of its own: it changes the reader's session, not the member.
 
+**The search that feeds it** (`Core\Member\Service\MemberSearchService`): a membership scope (`active` by default, `inactive`, `all` — an unknown value falls back to the default rather than to "all", so a typo never quietly widens the list), and results grouped into `GroupedMemberSearchResult`, one per `members.id`. Widening to every scout year is `searchAllYears()`, a separate method rather than a flag, because each extra year is a whole year of AES decryption in PHP and the page must only pay it when a chef d'unité presses the button. **Grouped rows order on the scout year's `start_date`, never on its id**: `ScoutYearService::ensureYear()` can create a past year after a later one, so the ids are not chronological and sorting on them shows the wrong year's data under the right person's name — `MemberSearchServiceTest` caught exactly that during this iteration. `MemberYearRepository::findMostRecentForMember()` orders the same way, for the same reason.
+
 `public/assets/js/member-search.js` now serves two screens instead of one, each section guarded on its own anchor — the export-selection conveniences find no anchor on the member's page, and the offset/departure controls find none on the search.
 
 ### 8.63 The test toolbox and the mail sandbox (`Modules\TestTools`)

@@ -53,7 +53,7 @@ class TemporaryMemberControllerTest extends TestCase
 
         $memberYearRepo = new MemberYearRepository($this->pdo);
         $resolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
-        $searchService = new MemberSearchService(new MemberSearchRepository($connection, $this->enc));
+        $searchService = new MemberSearchService(new MemberSearchRepository($connection, $this->enc), $scoutYearService);
 
         $this->yearId = $scoutYearService->ensureYear('2025-2026');
         $this->otherYearId = $scoutYearService->ensureYear('2024-2025');

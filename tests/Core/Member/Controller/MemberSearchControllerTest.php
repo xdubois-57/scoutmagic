@@ -55,7 +55,7 @@ class MemberSearchControllerTest extends TestCase
 
         $memberYearRepo = new MemberYearRepository($this->pdo);
         $resolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
-        $searchService = new MemberSearchService(new MemberSearchRepository($connection, $this->enc));
+        $searchService = new MemberSearchService(new MemberSearchRepository($connection, $this->enc), $scoutYearService);
         $memberService = new MemberService($memberYearRepo, $this->enc, $connection);
 
         $this->yearId = $scoutYearService->ensureYear('2025-2026');
@@ -110,7 +110,8 @@ class MemberSearchControllerTest extends TestCase
                 $sectionService,
                 $scoutYearService,
                 new \Core\Member\MemberEmailRepository($this->pdo, $this->enc)
-            )
+            ),
+            $memberYearRepo
         );
 
         if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -120,28 +121,24 @@ class MemberSearchControllerTest extends TestCase
         AuthSession::login(1, 'admin@test.be', 'admin');
     }
 
-    private function seedMember(?string $birthDate = null): int
+    private function seedMember(?string $birthDate = null, string $firstName = 'jean', bool $active = true): int
     {
-        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('BAL', 'Baladins', 1)");
-        $branchId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('BAL01', {$branchId}, 'Ruche')");
-        $sectionId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('ANIM', 'Animateur', 'chief', 1)");
-        $functionId = (int) $this->pdo->lastInsertId();
+        [$sectionId, $functionId] = $this->ensureReferenceRows();
 
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D1')");
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D" . uniqid() . "')");
         $memberId = (int) $this->pdo->lastInsertId();
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted, email_encrypted, mobile_encrypted, birth_date_encrypted, is_active)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $memberId, $this->yearId,
-            $this->enc->encrypt('jean', 'member_years.first_name'), $this->enc->encrypt('DUPONT', 'member_years.last_name'),
+            $this->enc->encrypt($firstName, 'member_years.first_name'), $this->enc->encrypt('DUPONT', 'member_years.last_name'),
             $this->enc->encrypt('renard', 'member_years.totem'), $this->enc->encrypt('jean@ex.be', 'member_years.email'),
             $this->enc->encrypt('0476123456', 'member_years.mobile'),
             $birthDate !== null ? $this->enc->encrypt($birthDate, 'member_years.birth_date') : null,
+            $active ? 1 : 0,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
@@ -151,6 +148,49 @@ class MemberSearchControllerTest extends TestCase
         $stmt->execute([$memberYearId, $functionId, $sectionId]);
 
         return $memberYearId;
+    }
+
+    /** Someone the effective year does not know at all. */
+    private function seedMemberInPastYear(string $lastName = 'ANCIENNE'): int
+    {
+        $pastYearId = (new ScoutYearService($this->pdo))->ensureYear('2024-2025');
+
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D" . uniqid() . "')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, is_active)
+             VALUES (?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([
+            $memberId, $pastYearId,
+            $this->enc->encrypt('Camille', 'member_years.first_name'),
+            $this->enc->encrypt($lastName, 'member_years.last_name'),
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * @return array{0: int, 1: int} section id, function id
+     */
+    private function ensureReferenceRows(): array
+    {
+        $sectionId = $this->pdo->query("SELECT id FROM sections WHERE desk_code = 'BAL01'")->fetchColumn();
+        if ($sectionId === false) {
+            $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('BAL', 'Baladins', 1)");
+            $branchId = (int) $this->pdo->lastInsertId();
+            $this->pdo->exec("INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('BAL01', {$branchId}, 'Ruche')");
+            $sectionId = (int) $this->pdo->lastInsertId();
+        }
+
+        $functionId = $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'ANIM'")->fetchColumn();
+        if ($functionId === false) {
+            $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('ANIM', 'Animateur', 'chief', 1)");
+            $functionId = (int) $this->pdo->lastInsertId();
+        }
+
+        return [(int) $sectionId, (int) $functionId];
     }
 
     private function get(array $query = []): Request
@@ -184,6 +224,119 @@ class MemberSearchControllerTest extends TestCase
         $this->seedMember();
         $body = $this->controller->index($this->get(['q' => 'zzznothing']), [])->getBody();
         $this->assertStringContainsString('Aucun membre trouvé', $body);
+    }
+
+    // --- The membership filter, and the widened past-year search ---
+
+    public function testTheSearchDefaultsToActiveMembersAndOffersTheOtherTwoScopes(): void
+    {
+        $this->seedMember();
+        $this->seedMember(firstName: 'marie', active: false);
+
+        $body = $this->controller->index($this->get(['q' => 'dupont']), [])->getBody();
+
+        // The default is « actifs » — what is wanted nine times out of ten.
+        $this->assertStringContainsString('Actifs', $body);
+        $this->assertStringContainsString('Inactifs', $body);
+        $this->assertStringContainsString('Tous', $body);
+        $this->assertMatchesRegularExpression('/id="scope-active"[^>]*checked/', $body);
+    }
+
+    public function testAnInactiveMemberIsHiddenByDefaultAndShownUnderTheOtherScopes(): void
+    {
+        $this->seedMember(firstName: 'marie', active: false);
+
+        $this->assertStringNotContainsString('marie', $this->controller->index($this->get(['q' => 'dupont']), [])->getBody());
+        $this->assertStringContainsString('Marie', $this->controller->index($this->get(['q' => 'dupont', 'scope' => 'inactive']), [])->getBody());
+        $this->assertStringContainsString('Marie', $this->controller->index($this->get(['q' => 'dupont', 'scope' => 'all']), [])->getBody());
+    }
+
+    /**
+     * Non-regression on the result row: the export checkbox, the initials
+     * pill, the totem after the first name, the section and function, and
+     * the exact status wording — « inscrit » / « non inscrit », never
+     * « actif ».
+     */
+    public function testTheResultRowKeepsEveryThingItAlreadyCarried(): void
+    {
+        $this->seedMember();
+
+        $body = $this->controller->index($this->get(['q' => 'dupont']), [])->getBody();
+
+        $this->assertStringContainsString('member-export-checkbox', $body);
+        $this->assertStringContainsString('name="selected[]"', $body);
+        $this->assertStringContainsString('JD', $body);
+        $this->assertStringContainsString('Renard', $body);
+        $this->assertStringContainsString('Ruche', $body);
+        $this->assertStringContainsString('Animateur', $body);
+        $this->assertStringContainsString('inscrit', $body);
+        $this->assertStringNotContainsString('>actif<', $body);
+    }
+
+    /** The two exports coexist and are never merged into one. */
+    public function testBothExportsStillExistSideBySide(): void
+    {
+        $this->seedMember();
+
+        $body = $this->controller->index($this->get(['q' => 'dupont']), [])->getBody();
+
+        $this->assertStringContainsString('Exporter les résultats', $body);
+        $this->assertStringContainsString('Exporter la sélection', $body);
+    }
+
+    public function testTheExportFollowsTheMembershipScopeTheScreenIsShowing(): void
+    {
+        $this->seedMember();
+        $body = $this->controller->index($this->get(['q' => 'dupont', 'scope' => 'all']), [])->getBody();
+
+        $this->assertStringContainsString('scope=all', $body);
+        $this->assertStringContainsString('name="scope" value="all"', $body);
+    }
+
+    /**
+     * Widening is an explicit act: no box ticked in advance, nothing
+     * fired on a keystroke. Every extra scout year is a whole year of
+     * AES decryption in PHP.
+     */
+    public function testThePastYearSearchIsAButtonAndNotADefault(): void
+    {
+        $this->seedMember();
+
+        $body = $this->controller->index($this->get(['q' => 'dupont']), [])->getBody();
+
+        $this->assertStringContainsString('Chercher aussi dans les années précédentes', $body);
+        $this->assertStringContainsString('annees=1', $body);
+        // Not a checkbox, and certainly not a checked one.
+        $this->assertStringNotContainsString('name="annees" type="checkbox"', $body);
+    }
+
+    public function testTheWidenedSearchFindsAFormerMemberAndSaysSo(): void
+    {
+        $this->seedMember();
+        $this->seedMemberInPastYear();
+
+        $narrow = $this->controller->index($this->get(['q' => 'ancienne']), [])->getBody();
+        $this->assertStringNotContainsString('Ancienne', $narrow);
+
+        $wide = $this->controller->index($this->get(['q' => 'ancienne', 'annees' => '1']), [])->getBody();
+        $this->assertStringContainsString('Ancienne', $wide);
+        $this->assertStringContainsString('ancien', $wide);
+        $this->assertStringContainsString('2024-2025', $wide);
+    }
+
+    /**
+     * The canonical member export is one scout year's worth of columns,
+     * and a former member has no row in the effective one — so the row
+     * offers no checkbox rather than one that would be dropped later.
+     */
+    public function testAFormerMemberRowOffersNoExportCheckbox(): void
+    {
+        $this->seedMemberInPastYear();
+
+        $body = $this->controller->index($this->get(['q' => 'ancienne', 'annees' => '1']), [])->getBody();
+
+        $this->assertStringContainsString('Ancienne', $body);
+        $this->assertStringNotContainsString('member-export-checkbox', $body);
     }
 
     // --- GET /admin/members/{id} — the member's own page ---
@@ -327,16 +480,78 @@ class MemberSearchControllerTest extends TestCase
         $this->assertStringContainsString('Déménagement', $body);
     }
 
-    /**
-     * The check that came with the card: the member must belong to the
-     * effective scout year, or 404 (IT-05 relaxes this deliberately; until
-     * then it holds exactly as it did).
-     */
-    public function testMemberPageIsNotFoundForAMemberOutsideTheEffectiveYear(): void
+    public function testMemberPageIsNotFoundForAMemberYearThatDoesNotExist(): void
     {
         $this->seedMember();
 
         $this->assertSame(404, $this->showMember(99999)->getStatusCode());
+    }
+
+    /**
+     * The old "belongs to the effective scout year, or 404" check is
+     * deliberately gone: it would 404 every former member, which is
+     * exactly who the widened search exists to find.
+     */
+    public function testAFormerMembersPageOpensRatherThanAnsweringNotFound(): void
+    {
+        $memberYearId = $this->seedMemberInPastYear();
+
+        $response = $this->showMember($memberYearId);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Camille', $response->getBody());
+    }
+
+    /**
+     * Decided: the page always shows the member's LAST KNOWN year, and
+     * names it. Someone looking up a former member wants their most
+     * recent details — and without the year being stated a chef d'unité
+     * reads them as current and phones a number that stopped working
+     * years ago.
+     */
+    public function testAFormerMembersPageNamesTheYearItIsShowing(): void
+    {
+        $memberYearId = $this->seedMemberInPastYear();
+
+        $body = $this->showMember($memberYearId)->getBody();
+
+        $this->assertStringContainsString('2024-2025', $body);
+        $this->assertStringContainsString('la dernière année', $body);
+    }
+
+    public function testAPastYearLinkNormalisesOntoTheMembersMostRecentYear(): void
+    {
+        // Same person, two annual rows: the older id is what an old link
+        // or a widened search may carry, and the page shows the newer.
+        $pastYearId = (new ScoutYearService($this->pdo))->ensureYear('2024-2025');
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D-span')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted, is_active)
+             VALUES (?, ?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([
+            $memberId, $pastYearId,
+            $this->enc->encrypt('Camille', 'member_years.first_name'),
+            $this->enc->encrypt('SPAN', 'member_years.last_name'),
+            $this->enc->encrypt('vieuxtotem', 'member_years.totem'),
+        ]);
+        $oldMemberYearId = (int) $this->pdo->lastInsertId();
+
+        $stmt->execute([
+            $memberId, $this->yearId,
+            $this->enc->encrypt('Camille', 'member_years.first_name'),
+            $this->enc->encrypt('SPAN', 'member_years.last_name'),
+            $this->enc->encrypt('totemrecent', 'member_years.totem'),
+        ]);
+
+        $body = $this->showMember($oldMemberYearId)->getBody();
+
+        $this->assertStringContainsString('Totemrecent', $body);
+        $this->assertStringNotContainsString('Vieuxtotem', $body);
+        // The year it lands on IS the effective one, so no banner.
+        $this->assertStringNotContainsString('la dernière année', $body);
     }
 
     public function testMemberPageIsNotFoundForANonPositiveId(): void
