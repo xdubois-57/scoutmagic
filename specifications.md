@@ -145,7 +145,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Import Desk | admin | CSV upload/import for current scout year. Year selection. Function mapping status. |
 | Journal | admin | Searchable event log. |
 | Année scoute | admin | The whole scout-year transition, as a workflow of three phases and fourteen steps (§16.3): preparing next year with the staffs, encoding it into Desk, then updating the site. The order is advice, not a gate; steps are either observed by the site or ticked off by hand, per target year. Steps belonging to a disabled module are absent. Displays effective year, public year, staff year, member/section counts. Public year activation is manual-only and available year-round; a non-blocking warning appears when the current public year is past its end date. When the Inscriptions module is active: the final step is refused server-side while any registration request is still pending/accepted (any target year); the staff-year step shows the same count as a non-blocking warning — see §19.2. |
-| Membres | admin | Member search (name/email/phone) for the effective scout year, with detailed view showing all personal data from Desk (contact info, addresses, functions, age), plus effective age calculation with scout year offset. Excel export of all search results or of a checked selection, in the canonical member-export format — reusable as-is as a mail-merge audience (§24). |
+| Membres | admin | Member search (name/email/phone) for the effective scout year. Excel export of all search results or of a checked selection, in the canonical member-export format — reusable as-is as a mail-merge audience (§24). A result opens **the member's own page**, `/admin/members/{id}` (below). |
 | Bannière (module) | admin | Homepage banner messages: rich text, minimum viewer role, active/inactive, delete. One of them is drawn at random on every homepage load — the list's own order is for the administrator's convenience and decides nothing on screen (§36) |
 | SOS Staff d'U (module) | admin | On-call duty roster (month grid), default forwarding number, live redirect status, scheduled redirection list |
 | Rétrospectives — Config (module) | admin | The rules common to every board: minimum role to create one and to close one, the defaults a new board starts from (word length, vote budget, refresh interval) and the automatic AI moderation mode. Each board then keeps its own settings — see §37 |
@@ -154,6 +154,26 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Encadrement (module leadership) | admin | Three lists of people to contact, read out of the Desk import — training paths, age-related legal deadlines, steward registrations. See §25 |
 | Locations (module rental) | admin | Which assets exist and who runs each one — creating an asset, its general description, its managers, archiving it, and the accounting account its money is expected on. Everything that is a property of one asset is set in that asset's own managed space instead. See §22 |
 | Cotisations (module fees) | admin | Checking what the federation bills against the unit's own roster: the season's snapshot, tariff accuracy per household, and the report of an imported invoice. See §31 |
+
+#### The page of one member (`/admin/members/{id}`)
+
+`/admin/members/{id}`, `role_min: admin` — the consolidated view of what the site knows about one person, and the page a search result opens.
+
+It used to render below the search results, as `?member={id}` appended to the query. A route with an identifier is what this codebase does everywhere a person carries this much detail (`/config/inscriptions/demandes/{id}`, `/members/{id}`), and it is what makes the address shareable: `?member=42` bolted onto a search dragged the `q=` along, so a link pasted to a colleague replayed an unrelated search. On a phone the alternative — a dialog holding all of this — would have been a page in less good: no back button, trapped scrolling, and a form that closes when you tap beside it.
+
+**The Desk half is read-only** and keeps its padlock: name, first name, birth date, sex, totem, section, function, address, e-mail as a `mailto:` link, both phone numbers as `tel:` links, disability, supplementary insurance. The member's secondary e-mail addresses are shown here too, **in reading only** — they are strict self-service (ARCHITECTURE.md §8.27), so the page offers no control at all rather than one the server would refuse.
+
+**The three site actions are three cards.** The old « Données du site » heading was dropped: once the page grew, everything past the Desk half is site data.
+
+1. **Année dans la branche** — the −1 / 0 / +1 group and the branch-year pill, recoloured on change. The action itself stays `role_min: chief`, unchanged, and is not aligned onto the page's own `admin` floor.
+2. **Départ** — the "leaving next year" box and its optional 1000-character comment, available for **any member found by search, staff included**.
+3. **Voir le site à sa place** — the temporary member addition (ARCHITECTURE.md §8.42). This one changes **the reader's session**, not the member, and says so with a « Votre session » label in its header and the full explanation in its body, the last sentence included: *« Aucune modification n'est enregistrée : le retrait ou la déconnexion annule tout. »* Without it nobody dares click. No other visual treatment — the card is identical to its neighbours.
+
+**The core blocks** the page adds: the member's photo, the badges of the scout year, the year's functions, and the **parcours dans l'unité** — every section the person has been in, year by year, read from the membership periods keyed on the persistent member identity so the history survives the years that produced it.
+
+**Two things are never on this page.** A member's **private documents**: `files.owner_member_id` carries an explicit guarantee (ARCHITECTURE.md §8.3) of no chief and no admin bypass, tax certificates will live there, and listing them here would revoke that guarantee in silence. And a **writable** secondary-address control, for the reason above.
+
+The check that came with the page moves with it: the member must belong to the effective scout year, or 404.
 
 ### 4.5 Configuration
 

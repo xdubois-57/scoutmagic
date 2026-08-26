@@ -1792,6 +1792,23 @@ set. `AudienceImportService::TIERS_ALIASES`/`EMAIL_ALIASES` is the
 authoritative list — extend it there, in the importer, rather than
 renaming an export's headers and breaking its users' habits.
 
+### 8.62bis The page of one member, for the Staff d'Unité (`Core\Member\AdminMemberPageService`)
+
+`GET /admin/members/{id}` (`role_min: admin`, `Core\Member\Controller\MemberSearchController::show()`) — what the site knows about one person, on its own page. It used to render below the search results as `?member={id}`; the move makes the address shareable (that parameter dragged `q=` along, so a shared link replayed an unrelated search) and follows the convention every other dense per-person screen already uses.
+
+**`AdminMemberPageService` is a SIBLING of `Core\Member\MemberPageService` (§8.22), never a subclass or an extension of it.** That service builds "Espace membres", whose shape is decided by two questions this page does not ask — is the viewer the member, and is the viewer a chief — and half of its blocks are self-only with no staff bypass (private documents, the formation path, the email management UI). Inheriting it would import those assumptions into a page whose every reader is a chef d'unité and none of whom is the member. The two consume the same `Core\Module` interfaces (§7.4/§7.5), never each other.
+
+**Two omissions are load-bearing, and both are recorded in the service's own docblock** so the next person does not "complete" the page:
+
+- **Private documents are never listed here.** `files.owner_member_id` carries an explicit *no chief and no admin bypass* guarantee (§8.3), and tax certificates will live behind it. Listing them would revoke that guarantee in silence, without anyone re-reading §8.3. The page says so on screen rather than omitting them quietly.
+- **Secondary email addresses are read-only here.** They are strict self-service (§8.27): the member alone manages them, with no chief or admin bypass. Showing them is defensible — a chef d'unité fielding "she isn't getting our mails" needs to know which addresses exist — so the service reads them straight off `MemberEmailRepository`, keeps only the `manual` rows (the Desk address has its own line in the Desk half), and returns an address and a state and nothing a mutation endpoint could be built on. There is no such endpoint.
+
+The core blocks it does build: the photo (`Core\Photo\MemberPhotoService`), the scout year's badges (`Core\Badge\MemberBadgeRepository`), the year's functions taken off `MemberProfile` in Desk's own main-function-first order, and the **section history** — read from `member_section_periods` via `SectionMembershipRepository::findAllForMember()`, keyed on `members.id`, the persistent identity, so it survives every scout year that produced it (same reason as `files.owner_member_id`). Two periods for one (year, section) collapse to one row: the page shows where the member was, not how many rows an import wrote.
+
+The three site actions became three cards — the old « Données du site » heading stopped meaning anything once everything past the Desk half was site data. The temporary member addition (§8.42) keeps its full text, the "nothing is saved" sentence included, and is marked « Votre session » in its header rather than given a visual treatment of its own: it changes the reader's session, not the member.
+
+`public/assets/js/member-search.js` now serves two screens instead of one, each section guarded on its own anchor — the export-selection conveniences find no anchor on the member's page, and the offset/departure controls find none on the search.
+
 ### 8.63 The test toolbox and the mail sandbox (`Modules\TestTools`)
 
 A toolbox that exists **only** on the project's reference installation and on a developer's machine: `"visible_when": ["reference_installation", "local_installation"]` (§8.49), `enabled_by_default: false`, every route `superadmin` under Configuration. No deploying unit's installation ever loads it, which is the condition that makes everything below admissible — read it as a condition, not as a claim.

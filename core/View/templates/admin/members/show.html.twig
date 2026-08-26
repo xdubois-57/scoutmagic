@@ -1,0 +1,286 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ member.lastName|normalize_name }} {{ member.firstName|normalize_name }} — Membres — {{ param('site_name') }}{% endblock %}
+
+{% block content %}
+{% import 'admin/members/_field.html.twig' as ui %}
+
+{% set mainFn = member.getMainFunction() %}
+
+{% include 'partials/page_header.html.twig' with {
+    title: member.lastName|normalize_name ~ ' ' ~ member.firstName|normalize_name,
+    subtitle: (mainFn ? (mainFn.sectionName ?? mainFn.sectionCode) ~ ' — ' ~ mainFn.functionLabel : null),
+    badge: year_label,
+} only %}
+
+<div class="page-wide">
+    <div class="row g-3">
+        <div class="col-12 col-lg-6">
+            {# Données Desk — read-only, hence the padlock. The Desk/site
+               split is structural, not decorative: nothing on this half
+               can be changed here, because Desk is the source of record. #}
+            <section class="card mb-3">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="bi bi-lock" aria-hidden="true"></i>
+                    <h2 class="h6 mb-0">Données Desk</h2>
+                </div>
+                <div class="card-body">
+                    <p class="text-body-secondary small mb-3">Informations importées depuis Desk — lecture seule.</p>
+
+                    {{ ui.field('bi-person', 'Nom', member.lastName|normalize_name) }}
+                    {{ ui.field('bi-person', 'Prénom', member.firstName|normalize_name) }}
+                    {{ ui.field('bi-calendar', 'Date de naissance', member.birthDate ? member.birthDate|date_fr : '') }}
+                    {{ ui.field('bi-gender-ambiguous', 'Sexe', member.gender) }}
+                    {{ ui.field('bi-feather', 'Totem', member.totem ? member.totem|normalize_totem : '') }}
+                    {{ ui.field('bi-people', 'Section', mainFn ? (mainFn.sectionName ?? mainFn.sectionCode) : '') }}
+                    {{ ui.field('bi-briefcase', 'Fonction', mainFn ? mainFn.functionLabel : '') }}
+
+                    {{ ui.field('bi-house', 'Adresse', member.addresses|length > 0 ? member.addresses[0].format()|normalize_address : '') }}
+
+                    <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
+                        <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-envelope" aria-hidden="true"></i> Email</span>
+                        <span class="text-end">
+                            {% if member.email %}<a href="mailto:{{ member.email }}" class="link-primary">{{ member.email }}</a>{% else %}—{% endif %}
+                        </span>
+                    </div>
+
+                    {# Desk provides two numbers: Tél (fixe) and GSM. #}
+                    <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
+                        <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-telephone" aria-hidden="true"></i> Tél. parent 1</span>
+                        <span class="text-end">
+                            {% if member.phone %}<a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}">{{ member.phone|normalize_phone }}</a>{% else %}—{% endif %}
+                        </span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
+                        <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-phone" aria-hidden="true"></i> Tél. parent 2</span>
+                        <span class="text-end">
+                            {% if member.mobile %}<a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}">{{ member.mobile|normalize_phone }}</a>{% else %}—{% endif %}
+                        </span>
+                    </div>
+
+                    {# Administrative (clear text). #}
+                    {{ ui.field('bi-shield-check', 'Assurance complémentaire', member.supplementaryInsurance) }}
+
+                    {# Health data (encrypted). Desk exports true/false. #}
+                    <div class="d-flex justify-content-between align-items-start gap-3 py-2">
+                        <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-heart-pulse" aria-hidden="true"></i> Handicap</span>
+                        <span class="text-end">
+                            {% if member.handicap == 'true' %}Oui{% elseif member.handicap == 'false' %}Non{% else %}{{ member.handicap|default('—') }}{% endif %}
+                        </span>
+                    </div>
+
+                    {# Secondary addresses: shown, never editable. They are
+                       strict self-service (ARCHITECTURE.md §8.27) — the
+                       member alone manages them, with no chief or admin
+                       bypass — so there is no control here at all rather
+                       than one that would be refused server-side. #}
+                    {% if member_emails is not empty %}
+                        <div class="mt-3 border-top pt-3">
+                            <p class="small fw-medium text-body-secondary mb-2">Adresses secondaires</p>
+                            <ul class="list-unstyled mb-2">
+                                {% for row in member_emails %}
+                                    <li class="d-flex justify-content-between align-items-center gap-2 py-1">
+                                        <span class="text-break">{{ row.address }}</span>
+                                        {% if row.status == 'valid' %}
+                                            {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'active' } only %}
+                                        {% elseif row.status == 'pending' %}
+                                            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'à confirmer' } only %}
+                                        {% else %}
+                                            {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'désactivée' } only %}
+                                        {% endif %}
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                            <p class="small text-body-secondary d-flex align-items-start gap-2 mb-0">
+                                <i class="bi bi-lock" aria-hidden="true"></i>
+                                <span>En lecture seule : le membre gère lui-même ses adresses, sans intervention du staff.</span>
+                            </p>
+                        </div>
+                    {% endif %}
+                </div>
+            </section>
+
+            {# The three site actions are three cards now: the old
+               « Données du site » heading stopped meaning anything once
+               the page grew — everything below is site data. #}
+            <section class="card mb-3">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="bi bi-calendar" aria-hidden="true"></i>
+                    <h2 class="h6 mb-0">Année dans la branche</h2>
+                </div>
+                <div class="card-body" id="scout-year-offset-card" data-member-year-id="{{ member.memberYearId }}">
+                    <p class="text-body-secondary small mb-2">
+                        Ajustez si ce membre est en avance ou en retard d'un an sur l'année habituelle de sa section.
+                    </p>
+                    <div class="btn-group" role="group" aria-label="Année dans la branche">
+                        <button type="button" class="btn btn-outline-secondary offset-btn{{ member.scoutYearOffset == -1 ? ' active' : '' }}" data-offset="-1">−1 an</button>
+                        <button type="button" class="btn btn-outline-secondary offset-btn{{ member.scoutYearOffset == 0 ? ' active' : '' }}" data-offset="0">Normal</button>
+                        <button type="button" class="btn btn-outline-secondary offset-btn{{ member.scoutYearOffset == 1 ? ' active' : '' }}" data-offset="1">+1 an</button>
+                    </div>
+                    <div class="mt-3">
+                        <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2">
+                            <span class="rounded-circle d-inline-block" id="scout-year-offset-dot"
+                                  style="width:10px;height:10px;background-color:{{ effective_age.branchColor|default('#adb5bd') }};"></span>
+                            <span id="scout-year-offset-label">{{ effective_age.getBranchYearLabel()|default('') != '' ? effective_age.getBranchYearLabel() : '—' }}</span>
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            {# Core\Member\DepartureService — the same fact the registration
+               module's « Départs » page marks (ARCHITECTURE.md §8.37),
+               reachable here for any member found by search, staff
+               included, rather than only the animés of a section a chief
+               actually staffs. #}
+            <section class="card mb-3">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
+                    <h2 class="h6 mb-0">Départ</h2>
+                </div>
+                <div class="card-body" id="departure-card" data-member-year-id="{{ member.memberYearId }}">
+                    <p class="text-body-secondary small mb-2">
+                        Indique que ce membre ne reviendra probablement pas l'année scoute prochaine.
+                    </p>
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="departure-checkbox" {{ departure_leaving|default(false) ? 'checked' : '' }}>
+                        <label class="form-check-label" for="departure-checkbox">Part l'année prochaine</label>
+                    </div>
+                    <div class="mt-2" id="departure-comment-row" style="{{ departure_leaving|default(false) ? '' : 'display:none;' }}">
+                        <label class="form-label small mb-1" for="departure-comment">Commentaire</label>
+                        <textarea class="form-control form-control-sm" id="departure-comment" rows="2" maxlength="1000"
+                            placeholder="Commentaire facultatif (motif du départ)">{{ departure_comment|default('') }}</textarea>
+                    </div>
+                </div>
+            </section>
+
+            {# ARCHITECTURE.md §8.42. This card does not change the member:
+               it changes the session of whoever is reading. The « Votre
+               session » label in the header is the whole distinguishing
+               treatment — the card stays identical to the others, because
+               a visual exception would read as a warning rather than as a
+               fact. The full text matters: without the last sentence
+               nobody dares click. #}
+            <section class="card mb-3">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="bi bi-person-walking" aria-hidden="true"></i>
+                    <h2 class="h6 mb-0">Voir le site à sa place</h2>
+                    <span class="ms-auto small text-body-secondary text-uppercase">Votre session</span>
+                </div>
+                <div class="card-body">
+                    <p class="text-body-secondary small mb-2">
+                        Ajoute ce membre à votre liste d'animés pour la durée de votre session,
+                        afin de voir le site comme il le voit et d'agir en son nom.
+                        Aucune modification n'est enregistrée : le retrait ou la déconnexion annule tout.
+                    </p>
+                    {% if is_temporary_member|default(false) %}
+                        <form method="post" action="/admin/members/temporary-access/remove">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-outline-danger">
+                                <i class="bi bi-person-dash" aria-hidden="true"></i> Retirer de ma liste
+                            </button>
+                        </form>
+                    {% else %}
+                        <form method="post" action="/admin/members/{{ member.memberYearId }}/temporary-access">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-outline-primary">
+                                <i class="bi bi-person-plus" aria-hidden="true"></i> Voir le site à sa place
+                            </button>
+                        </form>
+                    {% endif %}
+                </div>
+            </section>
+        </div>
+
+        <div class="col-12 col-lg-6">
+            {% if photo_file_id %}
+                <section class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <i class="bi bi-person-badge" aria-hidden="true"></i>
+                        <h2 class="h6 mb-0">Photo</h2>
+                    </div>
+                    <div class="card-body text-center">
+                        <img src="{{ file_url(photo_file_id, 'md') }}" alt="" class="rounded img-fluid" style="max-height:260px;" decoding="async">
+                    </div>
+                </section>
+            {% endif %}
+
+            {% if functions is not empty %}
+                <section class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <i class="bi bi-briefcase" aria-hidden="true"></i>
+                        <h2 class="h6 mb-0">Fonctions de l'année</h2>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-unstyled mb-0">
+                            {% for fn in functions %}
+                                <li class="d-flex justify-content-between align-items-center gap-2 py-1">
+                                    <span>
+                                        {{ fn.label }}
+                                        {% if fn.section %}<span class="text-body-secondary">· {{ fn.section }}</span>{% endif %}
+                                    </span>
+                                    {% if fn.is_main %}<span class="badge text-bg-light border flex-shrink-0">Principale</span>{% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </section>
+            {% endif %}
+
+            {% if badges is not empty %}
+                <section class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <i class="bi bi-award" aria-hidden="true"></i>
+                        <h2 class="h6 mb-0">Badges</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for badge in badges %}
+                                <span class="badge text-bg-light border">{{ badge.name }}</span>
+                            {% endfor %}
+                        </div>
+                        <p class="small text-body-secondary mb-0 mt-2">Attribués pour l'année {{ year_label }}.</p>
+                    </div>
+                </section>
+            {% endif %}
+
+            {% if section_history is not empty %}
+                <section class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <i class="bi bi-clock-history" aria-hidden="true"></i>
+                        <h2 class="h6 mb-0">Parcours dans l'unité</h2>
+                    </div>
+                    <div class="card-body">
+                        <ol class="list-unstyled mb-0">
+                            {% for entry in section_history %}
+                                <li class="d-flex gap-3 py-1">
+                                    <span class="text-body-secondary small flex-shrink-0" style="min-width:6rem;">{{ entry.scout_year_label }}</span>
+                                    <span class="fw-medium">{{ entry.section_name }}</span>
+                                    {% if entry.is_current %}<span class="badge text-bg-light border ms-auto flex-shrink-0">En cours</span>{% endif %}
+                                </li>
+                            {% endfor %}
+                        </ol>
+                    </div>
+                </section>
+            {% endif %}
+
+            {# ARCHITECTURE.md §8.3: files scoped to their owner carry an
+               explicit no-chief-and-no-admin-bypass guarantee, and that is
+               where tax certificates will live. Saying so here is what
+               stops the next person from "completing" this page with a
+               documents card. #}
+            <div class="alert alert-light border small" role="note">
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                Les documents privés du membre n'apparaissent pas ici : ils restent
+                accessibles au seul membre, sans contournement possible par le staff.
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{# The scout-year offset buttons and the departure controls —
+   public/assets/js/member-search.js, which guards each of its sections on
+   its own anchor in the DOM and so is a no-op for the export-selection
+   half that only exists on the search page. #}
+<script src="{{ asset('/assets/js/member-search.js') }}" defer></script>
+{% endblock %}

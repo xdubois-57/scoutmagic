@@ -73,6 +73,7 @@ class MemberSearchRbacTest extends TestCase
         // Same floor as the page itself — public/index.php declares both
         // with role_min 'admin'.
         $router->addRoute('GET', '/admin/members/export', MembersStubController::class, 'index', 'admin');
+        $router->addRoute('GET', '/admin/members/{id}', MembersStubController::class, 'index', 'admin');
         $fc = new FrontController($router, $this->twig, $this->config);
         $fc->registerController(MembersStubController::class, new MembersStubController($this->twig));
 
@@ -121,6 +122,23 @@ class MemberSearchRbacTest extends TestCase
 
         AuthSession::login(1, 'c@test.com', 'chief');
         $response = $this->buildFrontController()->handle(new Request('GET', '/admin/members/export', [], [], [], []));
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * The member's own page carries every Desk field the detail card did,
+     * so it takes the same floor as the search it came from — never a rung
+     * below, and never widened by having become its own route.
+     */
+    public function testMemberPageAllowedForAdminAndDeniedOneLevelBelow(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'a@test.com', 'admin');
+        $response = $this->buildFrontController()->handle(new Request('GET', '/admin/members/42', [], [], [], []));
+        $this->assertSame(200, $response->getStatusCode());
+
+        AuthSession::login(1, 'c@test.com', 'chief');
+        $response = $this->buildFrontController()->handle(new Request('GET', '/admin/members/42', [], [], [], []));
         $this->assertSame(403, $response->getStatusCode());
     }
 

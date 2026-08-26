@@ -3,11 +3,13 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// Admin member search page
-// (core/View/templates/admin/members/search.html.twig): the export-selection
-// conveniences on the result list, and — on the detail card of the selected
-// member — the scroll-into-view, the scout-year offset buttons and the
-// "leaving next year" departure controls.
+// Two admin screens, one file, each section guarded on its own anchor:
+// the export-selection conveniences of the member search
+// (core/View/templates/admin/members/search.html.twig), and the scout-year
+// offset buttons and "leaving next year" departure controls of a member's
+// own page (core/View/templates/admin/members/show.html.twig). They used
+// to be one screen, and the guards are what let the split cost nothing:
+// each half simply finds no anchor on the other's page.
 // Extracted from the template's two inline <script> blocks so the Vitest
 // suite can exercise the production code directly
 // (tests/js/member-search.test.js).
@@ -30,14 +32,13 @@
 (function () {
     var api = window.ScoutMagicApi;
 
-    var detailCard = document.getElementById('member-detail');
     var exportSubmitBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('member-export-selection-btn'));
     var offsetCard = document.getElementById('scout-year-offset-card');
     var departureCard = document.getElementById('departure-card');
 
     // A no-op on every other page of the site, and on this one before a
     // search has returned anything.
-    if (!detailCard && !exportSubmitBtn && !offsetCard && !departureCard) {
+    if (!exportSubmitBtn && !offsetCard && !departureCard) {
         return;
     }
 
@@ -100,12 +101,9 @@
         refresh();
     })();
 
-    // --- Bring the selected member's detail card into view ---
-    // Guarded on the method rather than the element: jsdom (and any browser
-    // without smooth scrolling) simply does not have it.
-    if (detailCard && typeof detailCard.scrollIntoView === 'function') {
-        detailCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    // The scroll-into-view that used to live here is gone with the card it
+    // scrolled to: a member's detail is its own page now, so the browser
+    // lands at the top of it by itself.
 
     // --- Scout-year offset ---
     if (offsetCard) {
