@@ -11,7 +11,7 @@ namespace Core\Support\Collector;
 use Core\Service\DateInput;
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
-use Core\Support\SupportSpreadsheet;
+use Core\Export\TabularSpreadsheet;
 
 /**
  * `update-history.xlsx` — which version was running when, and what each
@@ -98,7 +98,7 @@ class UpdateHistoryCollector implements SupportCollectorInterface
         $context->addNote(count($rows) . ' installation(s) enregistrée(s)');
         $context->addFileFromContent(
             'update-history.xlsx',
-            SupportSpreadsheet::build(
+            TabularSpreadsheet::build(
                 [
                     'Démarrée le (heure locale du serveur)',
                     'Terminée le',

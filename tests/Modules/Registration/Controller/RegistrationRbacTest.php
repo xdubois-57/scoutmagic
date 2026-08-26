@@ -114,7 +114,8 @@ class RegistrationRbacTest extends TestCase
         $this->configController = new RegistrationConfigController(
             $twig, $ageBracketRepository, $slotCapacityRepository, new RegistrationYearCodeRepository($this->pdo),
             $scoutYearResolver, $scoutYearService, $requestRepository, $slotService,
-            $sectionService, $editableContentService, $statusService, $journalService, $settingService
+            $sectionService, $editableContentService, $statusService, $journalService, $settingService,
+            new \Modules\Registration\Service\RequestExportService()
         );
         $this->requestController = new RegistrationRequestController(
             $twig, $requestRepository, $ageBracketRepository, $sectionService, $feeCategoryRepository, $feeEstimationService,
@@ -141,6 +142,10 @@ class RegistrationRbacTest extends TestCase
     {
         return [
             'management page' => ['/config/inscriptions', 'RegistrationConfigController', 'index'],
+            // The export takes the role of the page it lives on, never a
+            // rung below it — the requests it writes out are the same
+            // ones that page renders.
+            'export' => ['/config/inscriptions/export', 'RegistrationConfigController', 'export'],
             'fiche' => ['/config/inscriptions/demandes/{id}', 'RegistrationRequestController', 'show'],
         ];
     }

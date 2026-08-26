@@ -14,10 +14,12 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Http\SpreadsheetResponse;
 use Core\Journal\JournalService;
 use Core\Member\MemberYearService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
+use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\View\EditableContentService;
 use Modules\Registration\Repository\AgeBracketRepository;
@@ -25,6 +27,7 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
 use Modules\Registration\Service\RegistrationException;
+use Modules\Registration\Service\RequestExportService;
 use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SlotMath;
 use Modules\Registration\Service\SlotService;
@@ -71,7 +74,8 @@ class RegistrationConfigController extends AbstractController
         private EditableContentService $editableContentService,
         private RequestStatusService $statusService,
         private JournalService $journalService,
-        private SettingService $settingService
+        private SettingService $settingService,
+        private RequestExportService $requestExportService
     ) {
     }
 
@@ -82,15 +86,90 @@ class RegistrationConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        [$requestedYearId, $statusFilter, $search] = $this->readListFilters($request);
+
+        return $this->render('@registration/config.html.twig', $this->buildPageContext(
+            $requestedYearId,
+            $statusFilter,
+            $search
+        ));
+    }
+
+    /**
+     * GET /config/inscriptions/export — the request list as an .xlsx.
+     *
+     * `role_min: admin`, the same floor as the page it lives on: an
+     * export takes the role of its page, never a rung below.
+     *
+     * **It exports exactly what the screen shows**, filters included — it
+     * re-reads the same three query parameters and goes through the same
+     * row builder and the same filter as index() does, rather than
+     * re-deriving a list that could drift from it. That is also why the
+     * button carries the count: exporting 200 requests while looking at
+     * the 12 pending ones is a surprise, and the reverse is worse.
+     *
+     * @param array<string, string> $params
+     */
+    public function export(Request $request, array $params): Response
+    {
+        [$requestedYearId, $statusFilter, $search] = $this->readListFilters($request);
+
+        $selectedYear = $this->resolveSelectedYear($requestedYearId);
+        $rows = $this->buildFilteredRequestRows((int) $selectedYear['id'], $selectedYear, $statusFilter, $search);
+
+        // Counters and the year only. Never the search text — it is
+        // typically a child's or a parent's name — and never a row's
+        // contents, exactly like Modules\News\Controller\FormController
+        // journals its own export (AGENTS.md § Security checklist §4).
+        $this->journalService->log(
+            'registration',
+            'registration_requests_exported',
+            'info',
+            'Export des demandes d\'inscription',
+            [
+                'scout_year_id' => (int) $selectedYear['id'],
+                'request_count' => count($rows),
+                'status_filter' => $statusFilter ?? 'all',
+                'search_used' => $search !== null,
+            ],
+            (int) AuthSession::getUserAccountId()
+        );
+
+        return SpreadsheetResponse::download(
+            $this->requestExportService->buildSpreadsheet($rows),
+            'demandes-inscription-' . $this->fileNameSlug((string) $selectedYear['label']) . '.xlsx'
+        );
+    }
+
+    /**
+     * The three query parameters the request list reads, normalised once
+     * so index() and export() cannot read them differently.
+     *
+     * @return array{0: ?int, 1: ?string, 2: ?string}
+     */
+    private function readListFilters(Request $request): array
+    {
         $requestedYearId = (int) $request->getQuery('year', '0');
         $statusFilter = (string) $request->getQuery('status', '');
         $search = trim((string) $request->getQuery('q', ''));
 
-        return $this->render('@registration/config.html.twig', $this->buildPageContext(
+        return [
             $requestedYearId > 0 ? $requestedYearId : null,
             $statusFilter !== '' ? $statusFilter : null,
-            $search !== '' ? $search : null
-        ));
+            $search !== '' ? $search : null,
+        ];
+    }
+
+    /**
+     * A scout year label as a filename fragment: "2026-2027" survives,
+     * anything else becomes a dash rather than reaching the Content-
+     * Disposition header verbatim.
+     */
+    private function fileNameSlug(string $label): string
+    {
+        $slug = (string) preg_replace('/[^A-Za-z0-9-]+/', '-', $label);
+
+        return trim($slug, '-') !== '' ? trim($slug, '-') : 'annee';
     }
 
     /**
@@ -329,8 +408,7 @@ class RegistrationConfigController extends AbstractController
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $capacities = $this->slotCapacityRepository->findAllAsMap();
 
-        $years = $this->resolveSelectableYears($publicYear);
-        $selectedYear = $this->pickSelectedYear($years['selectable'], $requestedYearId) ?? $years['target'];
+        $selectedYear = $this->resolveSelectedYear($requestedYearId);
         $selectedYearId = (int) $selectedYear['id'];
         $isPastYear = $selectedYear['start_date'] < $publicYear['start_date'];
 
@@ -340,15 +418,9 @@ class RegistrationConfigController extends AbstractController
             (int) $publicYear['id']
         );
 
-        $sectionLabels = $this->sectionLabels();
-        $referenceYear = SlotMath::referenceCalendarYear(
-            MemberYearService::referenceYearFromScoutYearLabel((string) $selectedYear['label']),
-            $this->slotService->referenceMonthDay()
-        );
+        $requestRows = $this->buildFilteredRequestRows($selectedYearId, $selectedYear, $statusFilter, $search);
 
-        $requests = $this->requestRepository->findAllForYear($selectedYearId);
-        $requestRows = $this->buildRequestRows($requests, $brackets, $referenceYear, $sectionLabels);
-        $requestRows = $this->filterRows($requestRows, $statusFilter, $search);
+        $years = $this->resolveSelectableYears($publicYear);
 
         return [
             'brackets' => $brackets,
@@ -380,6 +452,46 @@ class RegistrationConfigController extends AbstractController
             'unreconciled' => $this->requestRepository->findUnreconciledAcceptedForYear($selectedYearId),
             'non_final_count' => count($this->requestRepository->findNonFinalForYear($selectedYearId)),
         ];
+    }
+
+    /**
+     * Which scout year the request list is looking at — the explicitly
+     * requested one when it is selectable, the target year otherwise.
+     * Shared by the page and its export so both always answer the same
+     * `?year=`.
+     *
+     * @return array{id: int, label: string, start_date: string, end_date: string}
+     */
+    private function resolveSelectedYear(?int $requestedYearId): array
+    {
+        $years = $this->resolveSelectableYears($this->scoutYearResolver->getCurrentPublicYear());
+
+        return $this->pickSelectedYear($years['selectable'], $requestedYearId) ?? $years['target'];
+    }
+
+    /**
+     * The request list for one year, built and filtered exactly once —
+     * the page renders these rows and the export writes the same ones,
+     * which is the whole reason this is a method rather than two copies.
+     *
+     * @param array{id: int, label: string, start_date: string, end_date: string} $selectedYear
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildFilteredRequestRows(int $selectedYearId, array $selectedYear, ?string $statusFilter, ?string $search): array
+    {
+        $referenceYear = SlotMath::referenceCalendarYear(
+            MemberYearService::referenceYearFromScoutYearLabel((string) $selectedYear['label']),
+            $this->slotService->referenceMonthDay()
+        );
+
+        $rows = $this->buildRequestRows(
+            $this->requestRepository->findAllForYear($selectedYearId),
+            $this->ageBracketRepository->findAllOrdered(),
+            $referenceYear,
+            $this->sectionLabels()
+        );
+
+        return $this->filterRows($rows, $statusFilter, $search);
     }
 
     /**
@@ -471,6 +583,13 @@ class RegistrationConfigController extends AbstractController
                 'intended_section_label' => $registrationRequest->intendedSectionId !== null
                     ? ($sectionLabels[$registrationRequest->intendedSectionId] ?? '—')
                     : null,
+                // Only the export reads this one today — the screen has
+                // no column for the family's own wish, which the staff's
+                // "section prévue" answers. It belongs on the row rather
+                // than in the exporter so both read one source.
+                'desired_section_label' => $registrationRequest->desiredSectionId !== null
+                    ? ($sectionLabels[$registrationRequest->desiredSectionId] ?? '')
+                    : '',
                 'sibling_count' => $siblingCounts[$registrationRequest->id] ?? 0,
             ];
         }

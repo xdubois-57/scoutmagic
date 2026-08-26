@@ -2399,7 +2399,11 @@ core/
   Statistics/    InstallationIdentityService, DestinationMatcher, StatisticsPayloadBuilder,
                  StatisticsSender + Task\SendStatisticsHandler (§8.47)
   Support/       SupportPackageService, SupportCollectorInterface + its collectors,
-                 SupportSpreadsheet, Task\GenerateSupportPackageHandler (§8.48)
+                 Task\GenerateSupportPackageHandler (§8.48)
+  Export/        TabularSpreadsheet — the generic "headers + rows → XLSX, every cell an
+                 explicit string" brick a module's own-domain export builds on, so member
+                 exports stay on Member/Export/ and nobody hand-rolls PhpSpreadsheet again
+                 (§8.62)
   Image/         ImageDimensionGuard — the pixel-count ceiling every decode passes (SECURITY.md §25)
   System/        ExecutableLocator, ShellExecutor
   Debug/         RequestTimeline — opt-in `?debug=1` per-request timing/memory checkpoints

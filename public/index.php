@@ -3998,7 +3998,7 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $registrationAgeBracketRepo, $registrationSlotCapacityRepo, $registrationYearCodeRepo,
             $scoutYearResolver, $scoutYearService, $registrationRequestRepo, $registrationSlotService,
             $sectionService, $editableContentService, $registrationStatusService, $journalService,
-            $settingService
+            $settingService, new \Modules\Registration\Service\RequestExportService()
         )
     );
     $frontController->registerController(

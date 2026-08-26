@@ -138,6 +138,15 @@
       "label": ""
     },
     {
+      "path": "/config/inscriptions/export",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "export",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/config/inscriptions/toggle-open",
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",

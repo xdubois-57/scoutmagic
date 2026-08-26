@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\SupportDashboard\Service;
 
-use Core\Support\SupportSpreadsheet;
+use Core\Export\TabularSpreadsheet;
 
 /**
  * The dashboard's XLSX export (ARCHITECTURE.md §8.50).
@@ -97,7 +97,7 @@ final class SupportInstallationExporter
             ];
         }
 
-        return SupportSpreadsheet::build(self::headers(), $sheetRows, 'Installations');
+        return TabularSpreadsheet::build(self::headers(), $sheetRows, 'Installations');
     }
 
     private static function text(mixed $value): string

@@ -11,7 +11,7 @@ namespace Core\Support\Collector;
 use Core\Config\SettingRepository;
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
-use Core\Support\SupportSpreadsheet;
+use Core\Export\TabularSpreadsheet;
 
 /**
  * `configuration-parameters.xlsx` — one row per `settings` entry, with the
@@ -67,7 +67,7 @@ class ConfigurationParametersCollector implements SupportCollectorInterface
 
         $context->addFileFromContent(
             'configuration-parameters.xlsx',
-            SupportSpreadsheet::build(
+            TabularSpreadsheet::build(
                 ['Clé', 'Module', 'Libellé', 'Type', 'Valeur courante', 'Valeur par défaut', 'Diffère du défaut', 'Éditable'],
                 $rows,
                 'Réglages'

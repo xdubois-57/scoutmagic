@@ -51,6 +51,7 @@ class RegistrationConfigControllerTest extends TestCase
     private int $currentYearId;
     private int $targetYearId;
     private int $pastYearId;
+    private JournalRepository $journalRepository;
 
     protected function setUp(): void
     {
@@ -109,8 +110,10 @@ class RegistrationConfigControllerTest extends TestCase
         $this->controller = new RegistrationConfigController(
             $twig, $ageBracketRepository, $slotCapacityRepository, $yearCodeRepository,
             $scoutYearResolver, $this->scoutYearService, $this->requestRepository, $slotService, $sectionService,
-            $editableContentService, $statusService, $journalService, $settingService
+            $editableContentService, $statusService, $journalService, $settingService,
+            new \Modules\Registration\Service\RequestExportService()
         );
+        $this->journalRepository = new JournalRepository($this->pdo);
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -128,6 +131,203 @@ class RegistrationConfigControllerTest extends TestCase
         ], null, []);
 
         return $created['id'];
+    }
+
+    public function testExportReturnsAnXlsxNamedAfterTheSelectedYear(): void
+    {
+        $this->createRequest($this->targetYearId, 'Noa');
+
+        $response = $this->controller->export(
+            new Request('GET', '/config/inscriptions/export', [], [], [], []),
+            []
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            $response->getHeaders()['Content-Type'] ?? null
+        );
+        $this->assertStringContainsString('demandes-inscription-2027-2028.xlsx', $response->getHeaders()['Content-Disposition'] ?? '');
+    }
+
+    /**
+     * The whole point of the export living on this page: it reproduces
+     * what the page shows, filters included. Exporting every request
+     * while looking at the pending ones would be a surprise.
+     */
+    public function testExportReflectsTheStatusFilterTheScreenIsShowing(): void
+    {
+        $pendingId = $this->createRequest($this->targetYearId, 'Noa');
+        $refusedId = $this->createRequest($this->targetYearId, 'Ilan');
+        $this->requestRepository->updateStatus($refusedId, 'refused', new \DateTimeImmutable());
+
+        $all = $this->readExportedRows([]);
+        $pendingOnly = $this->readExportedRows(['status' => 'pending']);
+
+        $this->assertCount(2, $all);
+        $this->assertCount(1, $pendingOnly);
+        $this->assertContains('Noa', $pendingOnly[0]);
+        $this->assertNotSame($pendingId, $refusedId);
+    }
+
+    public function testExportReflectsTheSearchTheScreenIsShowing(): void
+    {
+        $this->createRequest($this->targetYearId, 'Noa');
+        $this->createRequest($this->targetYearId, 'Ilan');
+
+        $rows = $this->readExportedRows(['q' => 'Ilan']);
+
+        $this->assertCount(1, $rows);
+        $this->assertContains('Ilan', $rows[0]);
+    }
+
+    public function testExportReflectsTheSelectedYear(): void
+    {
+        $this->createRequest($this->targetYearId, 'Noa');
+        $this->createRequest($this->pastYearId, 'Ancienne');
+
+        $rows = $this->readExportedRows(['year' => (string) $this->pastYearId]);
+
+        $this->assertCount(1, $rows);
+        $this->assertContains('Ancienne', $rows[0]);
+    }
+
+    /**
+     * Decided: internal notes never leave the site in an export. They are
+     * staff remarks about a family, and an exported file outlives every
+     * protection the site has — it travels by email and lands in a shared
+     * folder.
+     */
+    public function testExportNeverCarriesTheStaffsInternalNotes(): void
+    {
+        $id = $this->createRequest($this->targetYearId, 'Noa');
+        $this->requestRepository->updateInternalNotes($id, 'Parents séparés, ne pas appeler le père.');
+
+        $response = $this->controller->export(new Request('GET', '/config/inscriptions/export', [], [], [], []), []);
+        $rows = $this->rowsFromResponse($response);
+
+        $this->assertCount(1, $rows);
+        $this->assertNotContains('Parents séparés, ne pas appeler le père.', $rows[0]);
+        $this->assertStringNotContainsString('Parents séparés', implode('|', $rows[0]));
+        $this->assertNotContains('Notes internes', $this->headersFromResponse($response));
+    }
+
+    /**
+     * A registration request is filled in by anyone on a public form, so
+     * a remark starting with `=` reaches this file. It must arrive as
+     * text, never as a live formula in the chief's spreadsheet
+     * (SECURITY.md §23).
+     */
+    public function testExportedFreeTextIsWrittenAsTextNotAsAFormula(): void
+    {
+        $this->requestRepository->create($this->targetYearId, [
+            'parent_name' => 'Marie Dupont', 'child_last_name' => 'Dupont', 'child_first_name' => 'Noa',
+            'gender' => 'F', 'birth_date' => '2020-06-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'noa@example.com',
+            'phone1' => '000', 'phone2' => null,
+            'remarks' => '=HYPERLINK("http://evil.test","cliquez")',
+        ], null, []);
+
+        $sheet = $this->loadExportedSheet($this->controller->export(
+            new Request('GET', '/config/inscriptions/export', [], [], [], []),
+            []
+        ));
+
+        $remarksColumn = array_search('Remarques', \Modules\Registration\Service\RequestExportService::headers(), true);
+        $this->assertIsInt($remarksColumn);
+        $cell = $sheet->getCell([$remarksColumn + 1, 2]);
+        $this->assertSame(\PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING, $cell->getDataType());
+        $this->assertStringStartsWith('=HYPERLINK', (string) $cell->getValue());
+    }
+
+    /**
+     * AGENTS.md § Security checklist §4: counters only. A search term on
+     * this page is typically a child's or a parent's name.
+     */
+    public function testExportJournalsCountersAndNeverTheSearchText(): void
+    {
+        $this->createRequest($this->targetYearId, 'Noa');
+
+        $this->controller->export(
+            new Request('GET', '/config/inscriptions/export', ['q' => 'Noa'], [], [], []),
+            []
+        );
+
+        $entries = $this->journalRepository->search('registration');
+        $exported = array_values(array_filter($entries, fn(array $e) => $e['event_type'] === 'registration_requests_exported'));
+        $this->assertCount(1, $exported);
+
+        $serialized = json_encode($exported[0], JSON_UNESCAPED_UNICODE);
+        $this->assertIsString($serialized);
+        $this->assertStringNotContainsString('Noa', $serialized);
+        $this->assertStringNotContainsString('Dupont', $serialized);
+
+        $context = json_decode((string) $exported[0]['context'], true);
+        $this->assertSame(1, $context['request_count']);
+        $this->assertSame('all', $context['status_filter']);
+        // The fact that a search was used is a counter; the text is not.
+        $this->assertTrue($context['search_used']);
+        $this->assertArrayNotHasKey('search', $context);
+    }
+
+    public function testTheExportButtonCarriesTheCountAndTheCurrentFilters(): void
+    {
+        $this->createRequest($this->targetYearId, 'Noa');
+        $this->createRequest($this->targetYearId, 'Ilan');
+
+        $body = $this->controller->index(
+            new Request('GET', '/config/inscriptions', ['status' => 'pending'], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Exporter (2)', $body);
+        $this->assertStringContainsString('/config/inscriptions/export?year=' . $this->targetYearId, $body);
+        $this->assertStringContainsString('status=pending', $body);
+    }
+
+    /**
+     * @param array<string, string> $query
+     * @return array<int, array<int, string>>
+     */
+    private function readExportedRows(array $query): array
+    {
+        return $this->rowsFromResponse($this->controller->export(
+            new Request('GET', '/config/inscriptions/export', $query, [], [], []),
+            []
+        ));
+    }
+
+    /**
+     * @return array<int, array<int, string>>
+     */
+    private function rowsFromResponse(\Core\Http\Response $response): array
+    {
+        $rows = $this->loadExportedSheet($response)->toArray(null, true, true, false);
+        array_shift($rows);
+
+        return array_values(array_map(
+            static fn(array $row) => array_map(static fn($v) => (string) $v, $row),
+            $rows
+        ));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function headersFromResponse(\Core\Http\Response $response): array
+    {
+        $rows = $this->loadExportedSheet($response)->toArray(null, true, true, false);
+
+        return array_map(static fn($v) => (string) $v, $rows[0] ?? []);
+    }
+
+    private function loadExportedSheet(\Core\Http\Response $response): \PhpOffice\PhpSpreadsheet\Worksheet\Worksheet
+    {
+        $path = $response->getBodyFilePath();
+        $this->assertIsString($path);
+        $this->assertFileExists($path);
+
+        return \PhpOffice\PhpSpreadsheet\IOFactory::load($path)->getActiveSheet();
     }
 
     public function testIndexDefaultsToTargetYear(): void

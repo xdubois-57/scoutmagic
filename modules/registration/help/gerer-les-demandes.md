@@ -34,6 +34,18 @@ le même champ que sur la page Passage), la **catégorie tarifaire**
 explicitement) et des **notes internes**, jamais visibles ni
 journalisées.
 
+## Sortir la liste
+
+« Exporter » télécharge un tableur des demandes **telles que l'écran
+les affiche** : le filtre d'année, l'état et la recherche s'y
+appliquent, et le bouton porte le nombre de lignes qui partiront. Pour
+en exporter d'autres, changez de filtre d'abord.
+
+Le fichier reprend ce que la famille a écrit et ce que l'unité a
+décidé. Les notes internes n'y figurent jamais : un fichier exporté
+circule par e-mail, se retrouve dans un dossier partagé et survit au
+départ de celui qui l'a produit.
+
 ## Le rapprochement avec la fédération
 
 À chaque import Desk, les demandes acceptées sont comparées aux

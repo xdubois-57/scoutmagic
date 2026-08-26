@@ -11,7 +11,7 @@ namespace Core\Support\Collector;
 use Core\Service\DateInput;
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
-use Core\Support\SupportSpreadsheet;
+use Core\Export\TabularSpreadsheet;
 
 /**
  * `event-journal.xlsx` — every `event_log` entry from the last 48 hours,
@@ -70,7 +70,7 @@ class EventJournalCollector implements SupportCollectorInterface
         $context->addNote(count($rows) . ' entrée(s) sur ' . self::WINDOW_HOURS . ' h');
         $context->addFileFromContent(
             'event-journal.xlsx',
-            SupportSpreadsheet::build(
+            TabularSpreadsheet::build(
                 [
                     'Horodatage (heure locale du serveur)',
                     'Compte utilisateur', 'Adresse IP', 'Catégorie', 'Type', 'Niveau', 'Description', 'Contexte',
