@@ -49,18 +49,25 @@ class RetroChiefController extends AbstractController
     }
 
     /**
+     * How many archived boards the list shows. With auto-created retros
+     * (one per calendar event that asks for one) the archive grows by
+     * ~weekly forever; the open/closed half stays naturally small, so
+     * only the archive needs a cap.
+     */
+    private const ARCHIVED_BOARDS_SHOWN = 100;
+
+    /**
      * @param array<string, string> $params
      */
     public function index(Request $request, array $params): Response
     {
-        $entries = array_map(
-            fn(Board $b) => ['board' => $b, 'public_url' => $this->boardService->publicUrl($b)],
-            $this->boardRepository->findAllOrderedByCreated()
-        );
+        $toEntry = fn(Board $b) => ['board' => $b, 'public_url' => $this->boardService->publicUrl($b)];
+        $archivedTotal = $this->boardRepository->countArchived();
 
         return $this->render('@retro/list.html.twig', [
-            'boards' => array_values(array_filter($entries, fn(array $e) => !$e['board']->isArchived())),
-            'archived_boards' => array_values(array_filter($entries, fn(array $e) => $e['board']->isArchived())),
+            'boards' => array_map($toEntry, $this->boardRepository->findUnarchivedOrderedByCreated()),
+            'archived_boards' => array_map($toEntry, $this->boardRepository->findRecentArchived(self::ARCHIVED_BOARDS_SHOWN)),
+            'archived_total' => $archivedTotal,
             'can_create' => $this->hasRequiredRole('retro_role_min_create_board', 'intendant'),
             'can_close' => $this->hasRequiredRole('retro_role_min_close_board', 'chief'),
         ]);

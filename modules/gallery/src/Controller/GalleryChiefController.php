@@ -42,7 +42,11 @@ class GalleryChiefController extends AbstractController
         private StorageLocationService $storageLocationService,
         // Trailing/nullable so existing constructions keep working; without it
         // the chunked-upload protocol below simply reports unavailable.
-        private ?\Core\File\ChunkedUploadStore $chunkedUploadStore = null
+        private ?\Core\File\ChunkedUploadStore $chunkedUploadStore = null,
+        // Trailing/nullable for the same reason: with it, the manage list
+        // defaults to the current + previous scout years (?all=1 shows
+        // everything); without it, the full unfiltered list as before.
+        private ?\Core\Config\ScoutYearService $scoutYearService = null
     ) {
     }
 
@@ -56,6 +60,16 @@ class GalleryChiefController extends AbstractController
         [$role, $email] = $this->currentIdentity();
 
         $sectionLabels = $this->sectionLabels();
+
+        // Recent scout years by default (same two-year window as the
+        // chief-facing /gallery list), with ?all=1 as the escape into the
+        // whole history — an installation's every album ever has no
+        // business being read to manage this season's.
+        $showAll = $request->getQuery('all') === '1' || $this->scoutYearService === null;
+        $albumRows = $showAll
+            ? $this->albumService->findAllForManage()
+            : $this->albumService->findForManageByScoutYears($this->recentScoutYearIds());
+
         $albums = array_map(fn(Album $a) => [
             'album' => $a,
             'can_edit' => $this->accessService->canManageAlbum($role, $a->sectionId, $email),
@@ -64,12 +78,13 @@ class GalleryChiefController extends AbstractController
             'section_label' => $a->sectionId !== null
                 ? ($sectionLabels[$a->sectionId] ?? 'Section inconnue')
                 : null,
-        ], $this->albumService->findAllForManage());
+        ], $albumRows);
 
         $this->storageLocationService->ensureLegacyLocationBackfilled();
 
         return $this->render('@gallery/manage.html.twig', [
             'albums' => $albums,
+            'show_all_years' => $showAll,
             'allow_local' => $this->storageLocationRepository->findAll() !== [],
             'allow_external' => (bool) $this->settingService->get('gallery_allow_external', 'gallery', true),
         ]);
@@ -518,5 +533,31 @@ class GalleryChiefController extends AbstractController
     private function nullableInt(mixed $value): ?int
     {
         return $value === null || $value === '' ? null : (int) $value;
+    }
+
+    /**
+     * Current + previous scout year ids — the same window
+     * GalleryController::relevantScoutYearIds() applies to the
+     * chief-facing list.
+     *
+     * @return int[]
+     */
+    private function recentScoutYearIds(): array
+    {
+        \assert($this->scoutYearService !== null);
+        $current = $this->scoutYearService->getCurrentYear();
+        $years = $this->scoutYearService->getAll();
+
+        $ids = [$current['id']];
+        foreach ($years as $index => $year) {
+            if ($year['id'] === $current['id']) {
+                if ($index > 0) {
+                    $ids[] = $years[$index - 1]['id'];
+                }
+                break;
+            }
+        }
+
+        return $ids;
     }
 }

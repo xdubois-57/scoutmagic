@@ -95,10 +95,9 @@ class GalleryController extends AbstractController
         $scoutYearIds = $this->relevantScoutYearIds();
 
         if (Role::fromString(AuthSession::getRole())->hasAccess(Role::CHIEF)) {
-            $albums = array_values(array_filter(
-                $this->albumService->findAllForManage(),
-                fn(Album $a) => in_array($a->scoutYearId, $scoutYearIds, true)
-            ));
+            // Filtered in SQL — the PHP filter over findAllForManage()
+            // read the whole album history to keep two years of it.
+            $albums = $this->albumService->findForManageByScoutYears($scoutYearIds);
         } else {
             $sectionIds = $this->linkedSectionIds(AuthSession::getEmail() ?? '');
             $albums = $this->albumService->findVisibleForMember($sectionIds, $scoutYearIds);

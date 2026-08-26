@@ -56,6 +56,20 @@ class ArticleService implements HomeNewsProvider
     }
 
     /**
+     * One page of the public list plus its total — /news paginates in
+     * SQL so a decade of articles costs the same as its first month.
+     *
+     * @return array{articles: Article[], total: int}
+     */
+    public function findPublicListPage(int $limit, int $offset): array
+    {
+        return [
+            'articles' => $this->articleRepository->findByVisibilitiesPage([Article::VISIBILITY_PUBLIC], $limit, $offset),
+            'total' => $this->articleRepository->countByVisibilities([Article::VISIBILITY_PUBLIC]),
+        ];
+    }
+
+    /**
      * Core\Module\HomeNewsProvider — homepage news column.
      *
      * @return array<int, array{id: int, title: string, summary: ?string, image_url: ?string, created_at: string}>

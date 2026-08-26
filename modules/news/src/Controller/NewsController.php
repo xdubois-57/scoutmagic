@@ -43,6 +43,9 @@ use Twig\Environment;
 
 class NewsController extends AbstractController
 {
+    /** Cards per page on /news and /news/manage. */
+    private const LIST_PER_PAGE = 30;
+
     /** @var string[] */
     private const IMAGE_ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     private const IMAGE_MAX_SIZE_BYTES = 5 * 1024 * 1024;
@@ -88,11 +91,18 @@ class NewsController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        $articles = $this->articleService->findPublicList();
+        $page = max(1, (int) $request->getQuery('page', 1));
+        ['articles' => $articles, 'total' => $total] = $this->articleService->findPublicListPage(
+            self::LIST_PER_PAGE,
+            ($page - 1) * self::LIST_PER_PAGE
+        );
+        $totalPages = max(1, (int) ceil($total / self::LIST_PER_PAGE));
 
         return $this->render('@news/list.html.twig', [
             'articles' => $this->buildListCards($articles),
             'manage' => false,
+            'page' => min($page, $totalPages),
+            'total_pages' => $totalPages,
         ]);
     }
 
@@ -110,9 +120,19 @@ class NewsController extends AbstractController
 
         $articles = $this->articleService->findManagerList($role, $accountId);
 
+        // Manager filtering is per-role/author in PHP, so the rows are
+        // all read — but the page is what bounds buildListCards()'s
+        // per-card lookups (form badge, author name).
+        $page = max(1, (int) $request->getQuery('page', 1));
+        $totalPages = max(1, (int) ceil(count($articles) / self::LIST_PER_PAGE));
+        $page = min($page, $totalPages);
+        $pageArticles = array_slice($articles, ($page - 1) * self::LIST_PER_PAGE, self::LIST_PER_PAGE);
+
         return $this->render('@news/list.html.twig', [
-            'articles' => $this->buildListCards($articles, currentAccountId: $accountId),
+            'articles' => $this->buildListCards($pageArticles, currentAccountId: $accountId),
             'manage' => true,
+            'page' => $page,
+            'total_pages' => $totalPages,
         ]);
     }
 

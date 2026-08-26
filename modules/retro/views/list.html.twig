@@ -29,7 +29,7 @@
 
         {% if archived_boards is not empty %}
             <button class="btn btn-link btn-sm p-0 mt-4" type="button" data-bs-toggle="collapse" data-bs-target="#retro-archived">
-                <i class="bi bi-archive" aria-hidden="true"></i> Rétrospectives archivées ({{ archived_boards|length }})
+                <i class="bi bi-archive" aria-hidden="true"></i> Rétrospectives archivées ({{ archived_total }})
             </button>
             <div class="collapse mt-2" id="retro-archived">
                 <div class="d-flex flex-column gap-3">
@@ -37,6 +37,11 @@
                         {% include '@retro/_board_card.html.twig' with { entry: entry, can_close: can_close } %}
                     {% endfor %}
                 </div>
+                {% if archived_total > archived_boards|length %}
+                    <p class="text-body-secondary small mt-2 mb-0">
+                        Seules les {{ archived_boards|length }} rétrospectives archivées les plus récentes sont affichées ({{ archived_total }} au total).
+                    </p>
+                {% endif %}
             </div>
         {% endif %}
     {% endif %}

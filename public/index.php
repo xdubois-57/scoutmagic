@@ -3169,7 +3169,7 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Gallery\Controller\GalleryChiefController(
             $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galleryAccessService,
             $sectionService, $settingService, $galleryStorageLocationRepo, $galleryStorageLocationService,
-            new \Core\File\ChunkedUploadStore($storagePath)
+            new \Core\File\ChunkedUploadStore($storagePath), $scoutYearService
         )
     );
     // GalleryConfigController is NOT registered here — see the late block

@@ -188,4 +188,27 @@ class BoardRepositoryTest extends TestCase
 
         $this->assertFalse($board->resultsRevealed());
     }
+
+    /**
+     * The chief list reads the archive capped: only the most recent
+     * $limit archived boards, with the true total counted in SQL — the
+     * archive grows by one per auto-created retro forever.
+     */
+    public function testArchivedBoardsAreReadCappedAndCountedApart(): void
+    {
+        $open = $this->createBoard(['title' => 'Ouverte']);
+        $oldArchived = $this->createBoard(['title' => 'Archivée ancienne']);
+        $newArchived = $this->createBoard(['title' => 'Archivée récente']);
+        $this->pdo->exec("UPDATE retro_boards SET status = 'archived', created_at = '2020-01-01 00:00:00' WHERE id = {$oldArchived}");
+        $this->pdo->exec("UPDATE retro_boards SET status = 'archived' WHERE id = {$newArchived}");
+
+        $unarchived = $this->repository->findUnarchivedOrderedByCreated();
+        $this->assertSame([$open], array_map(fn($b) => $b->id, $unarchived));
+
+        $recent = $this->repository->findRecentArchived(1);
+        $this->assertSame([$newArchived], array_map(fn($b) => $b->id, $recent));
+
+        $this->assertSame(2, $this->repository->countArchived());
+    }
+
 }

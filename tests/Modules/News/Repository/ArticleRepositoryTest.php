@@ -121,4 +121,28 @@ class ArticleRepositoryTest extends TestCase
 
         $this->assertNull($this->repository->findById($id));
     }
+
+    /**
+     * The /news pagination: the SQL page answers exactly like the full
+     * read sliced, and the count like counting it.
+     */
+    public function testFindByVisibilitiesPageMatchesTheFullReadSliced(): void
+    {
+        for ($i = 1; $i <= 4; $i++) {
+            $id = $this->repository->create('Article ' . $i, Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId);
+            $this->pdo->exec("UPDATE news_articles SET created_at = '2026-01-0{$i} 10:00:00' WHERE id = {$id}");
+        }
+        $this->repository->create('Réservé', Article::VISIBILITY_CHIEF, false, null, null, $this->authorId);
+
+        $all = $this->repository->findByVisibilities([Article::VISIBILITY_PUBLIC]);
+        $page = $this->repository->findByVisibilitiesPage([Article::VISIBILITY_PUBLIC], 2, 2);
+
+        $this->assertSame(
+            array_map(fn(Article $a) => $a->id, array_slice($all, 2, 2)),
+            array_map(fn(Article $a) => $a->id, $page)
+        );
+        $this->assertSame(4, $this->repository->countByVisibilities([Article::VISIBILITY_PUBLIC]));
+        $this->assertSame([], $this->repository->findByVisibilitiesPage([], 10, 0));
+    }
+
 }
