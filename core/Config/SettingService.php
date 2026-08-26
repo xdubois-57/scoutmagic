@@ -13,6 +13,16 @@ class SettingService
     /** @var array<string, mixed>|null */
     private ?array $cache = null;
 
+    /**
+     * Declared default per setting, loaded together with $cache. Lets
+     * register() decide "row exists, default unchanged" from memory —
+     * the boot path calls register() once per declared setting, and each
+     * call used to cost a SELECT plus an unconditional UPDATE.
+     *
+     * @var array<string, string|null>|null
+     */
+    private ?array $defaults = null;
+
     public function __construct(private SettingRepository $repository)
     {
     }
@@ -93,6 +103,13 @@ class SettingService
     /**
      * Register a setting if it doesn't exist yet.
      *
+     * Decided against the already-loaded settings cache: an existing row
+     * whose stored default_value matches the declared default costs zero
+     * SQL. The declared default is still self-healed when it differs
+     * (including a NULL left by a row that predates the column) — the
+     * register() call site stays the single source of truth that
+     * Core\Maintenance\Task\ResetSettingsHandler relies on.
+     *
      * @param array<int, string>|null $selectOptions
      */
     public function register(
@@ -107,7 +124,18 @@ class SettingService
         bool $editable = true,
         int $sortOrder = 0
     ): void {
-        $this->repository->upsert(
+        $this->loadCache();
+        $cacheKey = ($moduleId ?? '_core_') . '::' . $key;
+
+        if ($this->defaults !== null && array_key_exists($cacheKey, $this->defaults)) {
+            if ($this->defaults[$cacheKey] !== $defaultValue) {
+                $this->repository->updateDefaultValue($moduleId, $key, $defaultValue);
+                $this->defaults[$cacheKey] = $defaultValue;
+            }
+            return;
+        }
+
+        $this->repository->insert(
             $moduleId,
             $key,
             $defaultValue,
@@ -119,6 +147,8 @@ class SettingService
             $editable,
             $sortOrder
         );
+        $this->cache[$cacheKey] = $defaultValue;
+        $this->defaults[$cacheKey] = $defaultValue;
     }
 
     /**
@@ -167,6 +197,7 @@ class SettingService
     public function clearCache(): void
     {
         $this->cache = null;
+        $this->defaults = null;
     }
 
     /**
@@ -186,10 +217,12 @@ class SettingService
         }
 
         $this->cache = [];
+        $this->defaults = [];
         $all = $this->repository->findAll();
         foreach ($all as $row) {
             $cacheKey = ($row['module_id'] ?? '_core_') . '::' . $row['setting_key'];
             $this->cache[$cacheKey] = $row['setting_value'];
+            $this->defaults[$cacheKey] = $row['default_value'] ?? null;
         }
     }
 
