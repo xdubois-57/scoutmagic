@@ -237,10 +237,46 @@ The breadcrumb bar is the site's **only** back affordance, and it shows at
 every width — mobile, desktop browser, installed PWA alike. (It used to be
 hidden on a desktop browser, where the permanent sub-menu row stated the
 current section; that row is gone.) No « Retour » buttons — a destination
-that matters belongs in the breadcrumb trail (`parents` for menu sections,
-`breadcrumb_trail` for real ancestor pages). Documented exceptions live in
-`UxConventionsTest::BACK_BUTTON_EXCEPTIONS`. A `parents` entry must exactly
-match a `MenuBuilder` label, or it renders as dead text.
+that matters belongs in the breadcrumb trail. Documented exceptions live in
+`UxConventionsTest::BACK_BUTTON_EXCEPTIONS`.
+
+**An intermediate step is one of two natures, and they are not
+interchangeable.**
+
+- A **menu label** (`parents`) opens that menu on click and never links to
+  a page. Most menu categories have no landing page at all, and the ones
+  that do would send everyone to an arbitrarily chosen member of the set.
+  A `parents` entry must exactly match a `MenuBuilder` label, or it renders
+  as dead text.
+- An **ancestor page** is a real link, because it is a real page. « Espace
+  admin » is not a page; « Membres » is one, it is unique, and it is
+  exactly where the visitor came from. Without it a detail page offers no
+  way back up to its list, since the site has no back button.
+
+Two sources feed the ancestor steps, rendered outermost-first, static
+before dynamic:
+
+- **`breadcrumb.ancestors`** on the route itself — `{label, path}` pairs in
+  `addRoute()`'s 6th argument for a core route, `module.json`'s
+  `routes[].breadcrumb` for a module one. **One fixed ancestor per page,
+  declared statically**: a page reachable from several lists (an article
+  opened from the public list, the homepage column or the management
+  screen) shows the one chosen once and for all — no referrer sniffing, no
+  session state. `Core\Http\Router::ancestorTrailFor()` **drops a step
+  whose route the visitor's role cannot reach** rather than rendering a
+  link to a 403, exactly as a menu entry behaves: visibility is a
+  convenience, never a boundary (`SECURITY.md` §3). The link points at the
+  **bare list**, with no filters or search copied onto it — the browser's
+  back button already restores that state, since it lives in the URL, and
+  the two do different jobs. `tests/Core/Http/BreadcrumbAncestorRoutesTest`
+  fails on an ancestor naming no route, or one stricter than the page under
+  it.
+- **`breadcrumb_trail`**, a controller context variable, for an ancestor
+  that is genuinely dynamic and therefore cannot be declared: a booking
+  under *its* asset, a form's responses under *their* article. The
+  controller resolves both label and url itself, which is exactly what a
+  JSON manifest cannot do. Reach for it only when the ancestor really does
+  depend on the row being shown.
 
 ### 7.4 Buttons
 

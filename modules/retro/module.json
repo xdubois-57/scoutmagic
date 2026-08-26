@@ -46,7 +46,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Nouvelle rétrospective", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Nouvelle rétrospective", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Rétrospectives", "path": "/retro" }] }
     },
     {
       "path": "/retro",
@@ -65,7 +65,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Modifier la rétrospective", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Modifier la rétrospective", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Rétrospectives", "path": "/retro" }] }
     },
     {
       "path": "/retro/{id}",

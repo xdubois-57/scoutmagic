@@ -42,6 +42,12 @@
         "label": "Demande envoyée",
         "parents": [
           "Notre unité"
+        ],
+        "ancestors": [
+          {
+            "label": "Inscriptions",
+            "path": "/inscriptions"
+          }
         ]
       }
     },
@@ -208,7 +214,7 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "",
-      "breadcrumb": { "label": "Demande", "parents": ["Espace chefs d'U"] }
+      "breadcrumb": { "label": "Demande", "parents": ["Espace chefs d'U"], "ancestors": [{ "label": "Inscriptions", "path": "/config/inscriptions" }] }
     },
     {
       "path": "/config/inscriptions/demandes/{id}/accept",

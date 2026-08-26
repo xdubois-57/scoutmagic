@@ -153,7 +153,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Suivi de l'envoi", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Suivi de l'envoi", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Envoi de mails", "path": "/mass-mail" }] }
     },
     {
       "path": "/mass-mail/recipients/{id}/resend",

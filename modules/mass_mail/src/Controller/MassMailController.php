@@ -469,9 +469,6 @@ class MassMailController extends AbstractController
         }
 
         return $this->render('@mass_mail/tracking.html.twig', [
-            'breadcrumb_trail' => [
-                ['label' => 'Envoi de mails', 'url' => '/mass-mail'],
-            ],
             'email' => $data['email'],
             'counts' => $data['counts'],
             'recipients' => $data['recipients'],

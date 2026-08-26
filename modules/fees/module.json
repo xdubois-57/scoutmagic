@@ -24,7 +24,7 @@
       "menu": "espace_admin",
       "label": "",
       "role_min": "admin",
-      "breadcrumb": { "label": "Justesse des tarifs", "parents": ["Espace chefs d'U"] }
+      "breadcrumb": { "label": "Justesse des tarifs", "parents": ["Espace chefs d'U"], "ancestors": [{ "label": "Cotisations", "path": "/admin/fees" }] }
     },
     {
       "path": "/admin/fees/tarifs/export",
@@ -61,7 +61,7 @@
       "menu": "espace_admin",
       "label": "",
       "role_min": "admin",
-      "breadcrumb": { "label": "Factures de la fédération", "parents": ["Espace chefs d'U"] }
+      "breadcrumb": { "label": "Factures de la fédération", "parents": ["Espace chefs d'U"], "ancestors": [{ "label": "Cotisations", "path": "/admin/fees" }] }
     },
     {
       "path": "/admin/fees/factures/import",
@@ -71,7 +71,7 @@
       "menu": "espace_admin",
       "label": "",
       "role_min": "admin",
-      "breadcrumb": { "label": "Importer une facture", "parents": ["Espace chefs d'U"] }
+      "breadcrumb": { "label": "Importer une facture", "parents": ["Espace chefs d'U"], "ancestors": [{ "label": "Factures de la fédération", "path": "/admin/fees/factures" }] }
     },
     {
       "path": "/admin/fees/factures/import",
@@ -90,7 +90,7 @@
       "menu": "espace_admin",
       "label": "",
       "role_min": "admin",
-      "breadcrumb": { "label": "Vérification d'une facture", "parents": ["Espace chefs d'U"] }
+      "breadcrumb": { "label": "Vérification d'une facture", "parents": ["Espace chefs d'U"], "ancestors": [{ "label": "Factures de la fédération", "path": "/admin/fees/factures" }] }
     },
     {
       "path": "/admin/fees/factures/{id}/export",

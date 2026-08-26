@@ -1765,7 +1765,7 @@ $router->addRoute('POST', '/api/rich-text-content', EditableContentController::c
 // empty on purpose: the help belongs to no menu, and a `parents` entry
 // that matches no MenuBuilder label renders as dead text (design.md §7.3).
 $router->addRoute('GET', '/aide', \Core\Http\Controller\HelpController::class, 'index', 'public', ['label' => 'Aide', 'parents' => []]);
-$router->addRoute('GET', '/aide/{topic}', \Core\Http\Controller\HelpController::class, 'show', 'public', ['label' => 'Aide', 'parents' => []]);
+$router->addRoute('GET', '/aide/{topic}', \Core\Http\Controller\HelpController::class, 'show', 'public', ['label' => 'Aide', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]]);
 
 // Cookie consent
 $router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public', ['label' => 'Préférences cookies', 'parents' => []]);
@@ -1839,10 +1839,10 @@ $router->addRoute('POST', '/setup/generate-dkim-key', SetupController::class, 'g
 // Import
 $router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'admin', ['label' => 'Import Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
 $router->addRoute('POST', '/admin/import', ImportController::class, 'import', 'admin');
-$router->addRoute('GET', '/admin/import/historique', ImportController::class, 'history', 'admin', ['label' => 'Historique des imports', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'breadcrumb_trail' => [['label' => 'Import Desk', 'url' => '/admin/import']]]);
-$router->addRoute('GET', '/admin/import/{id}/rapport', ImportController::class, 'report', 'admin', ['label' => "Rapport d'import", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'breadcrumb_trail' => [['label' => 'Import Desk', 'url' => '/admin/import'], ['label' => 'Historique des imports', 'url' => '/admin/import/historique']]]);
+$router->addRoute('GET', '/admin/import/historique', ImportController::class, 'history', 'admin', ['label' => 'Historique des imports', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'ancestors' => [['label' => 'Import Desk', 'path' => '/admin/import']]]);
+$router->addRoute('GET', '/admin/import/{id}/rapport', ImportController::class, 'report', 'admin', ['label' => "Rapport d'import", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'ancestors' => [['label' => 'Import Desk', 'path' => '/admin/import'], ['label' => 'Historique des imports', 'path' => '/admin/import/historique']]]);
 $router->addRoute('GET', '/admin/points-attention', \Core\Http\Controller\AttentionController::class, 'index', 'admin', ['label' => "Points d'attention", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
-$router->addRoute('GET', '/admin/doublons', \Core\Http\Controller\DuplicateMemberController::class, 'index', 'admin', ['label' => 'Fiches en double', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'breadcrumb_trail' => [['label' => "Points d'attention", 'url' => '/admin/points-attention']]]);
+$router->addRoute('GET', '/admin/doublons', \Core\Http\Controller\DuplicateMemberController::class, 'index', 'admin', ['label' => 'Fiches en double', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'ancestors' => [['label' => "Points d'attention", 'path' => '/admin/points-attention']]]);
 $router->addRoute('POST', '/admin/doublons/{id}/fusionner', \Core\Http\Controller\DuplicateMemberController::class, 'merge', 'admin');
 $router->addRoute('POST', '/admin/doublons/{id}/distinctes', \Core\Http\Controller\DuplicateMemberController::class, 'markDistinct', 'admin');
 

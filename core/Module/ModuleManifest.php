@@ -46,7 +46,7 @@ class ModuleManifest
     private const VALID_OFFLINE_MATCH_VALUES = ['exact', 'child'];
 
     /**
-     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, menu_group: ?string, breadcrumb: ?array{label: string, parents: array<string>}}> $routes
+     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, menu_group: ?string, breadcrumb: ?array{label: string, parents: array<string>, ancestors: array<int, array{label: string, path: string}>}}> $routes
      * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string, validation_regex: ?string, editable: bool}> $settings
      * @param array<int, array{name: string, category: string, purpose: string, duration: string}> $cookies
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
@@ -319,7 +319,7 @@ class ModuleManifest
 
     /**
      * @param array<string, mixed>|mixed $route
-     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, menu_group: ?string, breadcrumb: ?array{label: string, parents: array<string>}}
+     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, menu_group: ?string, breadcrumb: ?array{label: string, parents: array<string>, ancestors: array<int, array{label: string, path: string}>}}
      */
     private static function validateRoute(string $moduleId, mixed $route, int $index): array
     {
@@ -532,8 +532,16 @@ class ModuleManifest
      * Absent entirely → the breadcrumb simply stops at the home icon for this page,
      * which is not an error.
      *
+     * Two natures of intermediate step, and they are not interchangeable:
+     * `parents` names a MENU, which the step opens on click; `ancestors`
+     * names real ancestor PAGES by their own route path, and each renders
+     * as an actual link. A detail page declares the second one — a request
+     * under « Inscriptions », an article under « Actualités » — since the
+     * site has no back button by convention and a menu category cannot
+     * lead anywhere in particular. See Core\Http\Router::ancestorTrailFor().
+     *
      * @param mixed $breadcrumb
-     * @return ?array{label: string, parents: array<string>}
+     * @return ?array{label: string, parents: array<string>, ancestors: array<int, array{label: string, path: string}>}
      */
     private static function validateBreadcrumb(string $moduleId, mixed $breadcrumb, int $index): ?array
     {
@@ -565,7 +573,56 @@ class ModuleManifest
         return [
             'label' => $breadcrumb['label'],
             'parents' => $parents,
+            'ancestors' => self::validateBreadcrumbAncestors($moduleId, $breadcrumb['ancestors'] ?? null, $index),
         ];
+    }
+
+    /**
+     * `breadcrumb.ancestors`: an ordered, outermost-first list of
+     * `{label, path}` naming real ancestor PAGES.
+     *
+     * The path must be a concrete one — an ancestor is a list page, never
+     * a pattern, and « the link points at the bare list » is the rule the
+     * whole feature rests on. A `{placeholder}` here would have nothing
+     * to be resolved against and is refused at load time rather than
+     * rendering a literal `{id}` in somebody's breadcrumb.
+     *
+     * A path that matches no declared route is NOT an error: the step
+     * simply disappears at render time (Core\Http\Router::
+     * ancestorTrailFor()), which is what makes an ancestor living in a
+     * module the visitor has disabled degrade quietly.
+     *
+     * @param mixed $ancestors
+     * @return array<int, array{label: string, path: string}>
+     */
+    private static function validateBreadcrumbAncestors(string $moduleId, mixed $ancestors, int $index): array
+    {
+        if ($ancestors === null) {
+            return [];
+        }
+
+        if (!is_array($ancestors)) {
+            throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb 'ancestors' must be an array");
+        }
+
+        $validated = [];
+        foreach ($ancestors as $ancestor) {
+            if (!is_array($ancestor) || !isset($ancestor['label'], $ancestor['path'])) {
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb 'ancestors' entries must be objects with 'label' and 'path'");
+            }
+            if (!is_string($ancestor['label']) || $ancestor['label'] === '') {
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb ancestor 'label' must be a non-empty string");
+            }
+            if (!is_string($ancestor['path']) || !str_starts_with($ancestor['path'], '/')) {
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb ancestor 'path' must be an absolute path");
+            }
+            if (str_contains($ancestor['path'], '{')) {
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb ancestor 'path' must be a concrete page, not a pattern");
+            }
+            $validated[] = ['label' => $ancestor['label'], 'path' => $ancestor['path']];
+        }
+
+        return $validated;
     }
 
     /**

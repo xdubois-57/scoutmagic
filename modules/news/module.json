@@ -36,7 +36,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Nouvel article", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Nouvel article", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Actualités", "path": "/news/manage" }] }
     },
     {
       "path": "/news/seo/generate-keywords",
@@ -83,7 +83,7 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "",
-      "breadcrumb": { "label": "Actualité", "parents": ["Notre unité"] }
+      "breadcrumb": { "label": "Actualité", "parents": ["Notre unité"], "ancestors": [{ "label": "Actualités", "path": "/news" }] }
     },
     {
       "path": "/news/{id}/edit",
@@ -93,7 +93,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Modifier l'article", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Modifier l'article", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Actualités", "path": "/news/manage" }] }
     },
     {
       "path": "/news/{id}",

@@ -39,7 +39,8 @@ class BreadcrumbBarRenderingTest extends TestCase
         string $currentPath = '/some-page',
         ?string $breadcrumbCurrent = null,
         array $menus = [],
-        ?array $breadcrumbTrail = null
+        ?array $breadcrumbTrail = null,
+        ?array $routeAncestors = null
     ): string {
         $context = [
             'route_breadcrumb' => $routeBreadcrumb,
@@ -52,8 +53,75 @@ class BreadcrumbBarRenderingTest extends TestCase
         if ($breadcrumbTrail !== null) {
             $context['breadcrumb_trail'] = $breadcrumbTrail;
         }
+        if ($routeAncestors !== null) {
+            $context['route_breadcrumb_ancestors'] = $routeAncestors;
+        }
 
         return $this->twig->render('partials/breadcrumb_bar.html.twig', $context);
+    }
+
+    /**
+     * The route-declared ancestor page is a real link, exactly like a
+     * controller-supplied trail entry — and unlike a `parents` menu
+     * label, which is the whole point of the distinction.
+     */
+    public function testRouteDeclaredAncestorRendersAsARealLink(): void
+    {
+        $html = $this->render(
+            ['label' => 'Actualité', 'parents' => ['Notre unité']],
+            '/news/12',
+            'Camp 2026',
+            [],
+            null,
+            [['label' => 'Actualités', 'url' => '/news']]
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/<li class="breadcrumb-item text-truncate">\s*<a href="\/news" class="text-decoration-none">Actualités<\/a>\s*<\/li>/',
+            $html
+        );
+        $this->assertMatchesRegularExpression('/aria-current="page">\s*Camp 2026\s*<\/li>/', $html);
+    }
+
+    /**
+     * The static steps come first, the dynamic ones after: on a rental
+     * request form the module declares « Locations » on the route and the
+     * controller resolves the asset itself, and the reader has to walk
+     * them outermost-first.
+     */
+    public function testRouteDeclaredAncestorsRenderBeforeAControllerSuppliedTrail(): void
+    {
+        $html = $this->render(
+            ['label' => 'Demande de location', 'parents' => ['Notre unité']],
+            '/locations/le-chalet/demande',
+            null,
+            [],
+            [['label' => 'Le Chalet', 'url' => '/locations/le-chalet']],
+            [['label' => 'Locations', 'url' => '/locations']]
+        );
+
+        $this->assertLessThan(
+            strpos($html, 'Le Chalet'),
+            strpos($html, '>Locations</a>'),
+            'The statically declared ancestor must render before the dynamic one.'
+        );
+    }
+
+    public function testAnAncestorDroppedForTheReadersRoleLeavesNoEmptyStep(): void
+    {
+        // FrontController hands the partial only the steps that survived
+        // the role filter, so an empty list must simply render nothing.
+        $html = $this->render(
+            ['label' => 'Actualité', 'parents' => ['Notre unité']],
+            '/news/12',
+            null,
+            [],
+            null,
+            []
+        );
+
+        $this->assertSame(3, substr_count($html, '<li class="breadcrumb-item'));
+        $this->assertStringNotContainsString('breadcrumb-bar--has-trail', $html);
     }
 
     /**

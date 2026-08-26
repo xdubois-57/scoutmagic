@@ -217,11 +217,6 @@ class InvoiceController extends AbstractController
         $latestSnapshot = $this->snapshots->findLatestForYear($year->id);
 
         return $extra + [
-            // A real ancestor PAGE, not a menu category (design.md §7.3):
-            // the season is where this screen came from and where it
-            // returns to, and the nav cannot offer it — the module has one
-            // menu entry.
-            'breadcrumb_trail' => [['label' => 'Factures de la fédération', 'url' => self::PATH]],
             'scout_year_label' => $year->label,
             'last_import_at' => $this->imports->findLastImportAt($year->id),
             'latest_snapshot' => $latestSnapshot,

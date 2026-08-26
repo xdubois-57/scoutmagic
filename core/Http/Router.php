@@ -18,16 +18,17 @@ class Router
      */
     private const VALID_ROLES = ['public', 'identified', 'intendant', 'chief', 'admin', 'superadmin'];
 
-    /** @var array<array{method: string, path: string, controllerClass: string, action: string, roleMin: string, breadcrumb: ?array{label: string, parents: array<string>}}> */
+    /** @var array<array{method: string, path: string, controllerClass: string, action: string, roleMin: string, breadcrumb: ?array{label: string, parents: array<string>, ancestors?: array<int, array{label: string, path: string}>}}> */
     private array $routes = [];
 
     /** @var string[] Module IDs for routes that belong to modules */
     private array $moduleRoutes = [];
 
     /**
-     * @param ?array{label: string, parents: array<string>} $breadcrumb Optional breadcrumb declaration for this
-     *   route (see partials/breadcrumb_bar.html.twig) — null when the route doesn't declare one, which is valid:
-     *   the breadcrumb simply stops at the home icon for that page.
+     * @param ?array{label: string, parents: array<string>, ancestors?: array<int, array{label: string, path: string}>} $breadcrumb
+     *   Optional breadcrumb declaration for this route (see partials/breadcrumb_bar.html.twig) — null when the
+     *   route doesn't declare one, which is valid: the breadcrumb simply stops at the home icon for that page.
+     *   `ancestors` names real ancestor PAGES by their own route path; see ancestorTrailFor() below.
      */
     public function addRoute(string $method, string $path, string $controllerClass, string $action, string $roleMin, ?array $breadcrumb = null): void
     {
@@ -53,6 +54,76 @@ class Router
             'roleMin' => $roleMin,
             'breadcrumb' => $breadcrumb,
         ];
+    }
+
+    /**
+     * The role floor of the GET route declared at exactly $path, or null
+     * when no such route exists.
+     *
+     * Matched on the DECLARED path, textually — an ancestor is a concrete
+     * list page ("/news", "/gallery"), never a pattern, so there is
+     * nothing to resolve placeholders against. A path nobody declares
+     * answers null and its breadcrumb step disappears, which is the
+     * fail-safe direction: an ancestor from a module that was disabled,
+     * or a path someone mistyped, silently stops being a link rather
+     * than becoming a link to a 404.
+     */
+    public function roleMinForPath(string $path): ?string
+    {
+        foreach ($this->routes as $route) {
+            if ($route['method'] === 'GET' && $route['path'] === $path) {
+                return $route['roleMin'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The ancestor-page steps a route declares, resolved for one reader.
+     *
+     * A route's `breadcrumb.ancestors` names real pages the visitor came
+     * from — « Actualités » above an article, « Inscriptions » above a
+     * request — as `{label, path}` pairs, in outermost-first order. They
+     * are the second nature of breadcrumb step, and the only one that is
+     * a link: a `parents` entry names a MENU and opens it, because most
+     * menu categories have no landing page at all and the ones that do
+     * would send everyone to an arbitrarily chosen member of the set.
+     *
+     * Three rules, and they are why this lives here rather than in a
+     * controller:
+     *
+     * - **The ancestor is fixed and declared statically.** A page
+     *   reachable from several lists — an article opened from the public
+     *   list, from the homepage column or from the management screen —
+     *   shows one ancestor, chosen once. No referrer sniffing, no
+     *   session state, no detection of the path actually walked.
+     * - **A step the reader cannot reach disappears** rather than
+     *   rendering a link to a 403. That is already how a menu entry
+     *   behaves: visibility is a convenience, never a boundary
+     *   (SECURITY.md §3), and the ancestor page keeps enforcing its own
+     *   role_min whoever follows the link.
+     * - **The link points at the bare list**, with no filters or search
+     *   copied onto it. The browser's own back button already restores
+     *   that state, since it lives in the URL; the two do different jobs
+     *   and complicating a shared component for one of them is not worth
+     *   it.
+     *
+     * @param ?array{label: string, parents: array<string>, ancestors?: array<int, array{label: string, path: string}>} $breadcrumb
+     * @return array<int, array{label: string, url: string}>
+     */
+    public function ancestorTrailFor(?array $breadcrumb, \Core\Security\Role $viewerRole): array
+    {
+        $trail = [];
+        foreach ($breadcrumb['ancestors'] ?? [] as $ancestor) {
+            $roleMin = $this->roleMinForPath($ancestor['path']);
+            if ($roleMin === null || !$viewerRole->hasAccess(\Core\Security\Role::fromString($roleMin))) {
+                continue;
+            }
+            $trail[] = ['label' => $ancestor['label'], 'url' => $ancestor['path']];
+        }
+
+        return $trail;
     }
 
     /**
