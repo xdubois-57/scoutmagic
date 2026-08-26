@@ -41,8 +41,6 @@ use Twig\Environment;
  */
 class InvoiceReportController extends AbstractController
 {
-    private const PATH = '/admin/fees/factures';
-
     private const VIEWS = [
         'lignes' => 'Lignes reconstituées',
         'nominatif' => 'Écarts nominatifs',
@@ -106,7 +104,6 @@ class InvoiceReportController extends AbstractController
             'unmatched_people' => $this->verification->unmatchedPeopleCount($invoice),
             'snapshot_gap_days' => $this->verification->snapshotDateGapInDays($invoice),
             'breadcrumb_current' => 'Facture ' . $invoice->documentNumber,
-            'breadcrumb_trail' => [['label' => 'Factures de la fédération', 'url' => self::PATH]],
         ]);
     }
 

@@ -220,6 +220,77 @@ class FrontControllerTest extends TestCase
         $this->assertSame('null', $html);
     }
 
+    /**
+     * The route's declared ancestor pages reach the template already
+     * resolved for the visitor's own role — the partial renders what it
+     * is handed and makes no decision of its own.
+     */
+    public function testAncestorGlobalCarriesTheDeclaredAncestorPage(): void
+    {
+        $this->startTestSession();
+
+        $router = new Router();
+        $router->addRoute('GET', '/news', StubController::class, 'index', 'public', ['label' => 'Actualités', 'parents' => []]);
+        $router->addRoute('GET', '/news/{id}', StubController::class, 'index', 'public', [
+            'label' => 'Actualité',
+            'parents' => ['Notre unité'],
+            'ancestors' => [['label' => 'Actualités', 'path' => '/news']],
+        ]);
+
+        $fc = new FrontController($router, $this->twig, $this->config);
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $response = $fc->handle(new Request('GET', '/news/12', [], [], [], []));
+        $this->assertSame(200, $response->getStatusCode());
+
+        $html = $this->twig->createTemplate(
+            '{% for c in route_breadcrumb_ancestors %}{{ c.label }}={{ c.url }}{% endfor %}'
+        )->render();
+        $this->assertSame('Actualités=/news', $html);
+    }
+
+    /**
+     * Visibility is a convenience, never a boundary (SECURITY.md §3): a
+     * visitor below the ancestor's own floor loses the STEP, not the
+     * page. A link to a 403 would be worse than no link at all.
+     */
+    public function testAncestorTheVisitorCannotReachIsDroppedBeforeTheTemplateSeesIt(): void
+    {
+        $this->startTestSession();
+
+        $router = new Router();
+        $router->addRoute('GET', '/news/manage', StubController::class, 'index', 'chief', ['label' => 'Gestion', 'parents' => []]);
+        $router->addRoute('GET', '/news/{id}', StubController::class, 'index', 'public', [
+            'label' => 'Actualité',
+            'parents' => [],
+            'ancestors' => [['label' => 'Gestion', 'path' => '/news/manage']],
+        ]);
+
+        $fc = new FrontController($router, $this->twig, $this->config);
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $fc->handle(new Request('GET', '/news/12', [], [], [], []));
+
+        $html = $this->twig->createTemplate('{{ route_breadcrumb_ancestors|length }}')->render();
+        $this->assertSame('0', $html);
+    }
+
+    public function testAncestorGlobalIsAnEmptyListForARouteDeclaringNone(): void
+    {
+        $this->startTestSession();
+
+        $router = new Router();
+        $router->addRoute('GET', '/public-page', StubController::class, 'index', 'public', ['label' => 'Page', 'parents' => []]);
+
+        $fc = new FrontController($router, $this->twig, $this->config);
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $fc->handle(new Request('GET', '/public-page', [], [], [], []));
+
+        $html = $this->twig->createTemplate('{{ route_breadcrumb_ancestors|length }}')->render();
+        $this->assertSame('0', $html);
+    }
+
     public function testBreadcrumbGlobalNeverSetWhenRbacDenies(): void
     {
         $this->startTestSession();

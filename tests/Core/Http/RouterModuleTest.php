@@ -131,7 +131,7 @@ class RouterModuleTest extends TestCase
         $resolved = $this->router->resolve($request);
 
         $this->assertNotNull($resolved);
-        $this->assertSame(['label' => 'Calendrier', 'parents' => ['Espace membres']], $resolved->breadcrumb);
+        $this->assertSame(['label' => 'Calendrier', 'parents' => ['Espace membres'], 'ancestors' => []], $resolved->breadcrumb);
     }
 
     public function testRegisterModuleRoutesWithoutBreadcrumbResolvesToNull(): void

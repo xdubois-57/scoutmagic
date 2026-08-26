@@ -95,6 +95,12 @@
         "label": "Locations",
         "parents": [
           "Notre unité"
+        ],
+        "ancestors": [
+          {
+            "label": "Locations",
+            "path": "/locations"
+          }
         ]
       }
     },
@@ -721,6 +727,12 @@
         "label": "Demande de location",
         "parents": [
           "Notre unité"
+        ],
+        "ancestors": [
+          {
+            "label": "Locations",
+            "path": "/locations"
+          }
         ]
       }
     },

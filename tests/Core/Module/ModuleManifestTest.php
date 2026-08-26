@@ -457,7 +457,7 @@ class ModuleManifestTest extends TestCase
         ]);
 
         $this->assertSame(
-            ['label' => 'Staffs', 'parents' => ['Espace animateurs']],
+            ['label' => 'Staffs', 'parents' => ['Espace animateurs'], 'ancestors' => []],
             $manifest->routes[0]['breadcrumb']
         );
     }
@@ -480,7 +480,109 @@ class ModuleManifestTest extends TestCase
             ],
         ]);
 
-        $this->assertSame(['label' => 'Staffs', 'parents' => []], $manifest->routes[0]['breadcrumb']);
+        $this->assertSame(['label' => 'Staffs', 'parents' => [], 'ancestors' => []], $manifest->routes[0]['breadcrumb']);
+    }
+
+    /**
+     * `ancestors` is the second nature of breadcrumb step: real ancestor
+     * PAGES, named by their own route path, which render as actual links
+     * — unlike `parents`, which names a menu and opens it.
+     */
+    public function testRouteBreadcrumbParsesAncestorPages(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                [
+                    'path' => '/test/{id}',
+                    'controller' => 'C',
+                    'action' => 'a',
+                    'menu' => 'espace_chefs',
+                    'role_min' => 'intendant',
+                    'breadcrumb' => [
+                        'label' => 'Détail',
+                        'parents' => ['Espace animateurs'],
+                        'ancestors' => [['label' => 'Tests', 'path' => '/test']],
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->assertSame(
+            [['label' => 'Tests', 'path' => '/test']],
+            $manifest->routes[0]['breadcrumb']['ancestors']
+        );
+    }
+
+    public function testRouteBreadcrumbRejectsAnAncestorPathThatIsAPattern(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("must be a concrete page, not a pattern");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                [
+                    'path' => '/test/{id}/sub',
+                    'controller' => 'C',
+                    'action' => 'a',
+                    'menu' => 'espace_chefs',
+                    'role_min' => 'intendant',
+                    'breadcrumb' => [
+                        'label' => 'Détail',
+                        'ancestors' => [['label' => 'Test', 'path' => '/test/{id}']],
+                    ],
+                ],
+            ],
+        ]);
+    }
+
+    public function testRouteBreadcrumbRejectsARelativeAncestorPath(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("must be an absolute path");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                [
+                    'path' => '/test/{id}',
+                    'controller' => 'C',
+                    'action' => 'a',
+                    'menu' => 'espace_chefs',
+                    'role_min' => 'intendant',
+                    'breadcrumb' => ['label' => 'Détail', 'ancestors' => [['label' => 'Tests', 'path' => 'test']]],
+                ],
+            ],
+        ]);
+    }
+
+    public function testRouteBreadcrumbRejectsAnAncestorMissingItsLabel(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("must be objects with 'label' and 'path'");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                [
+                    'path' => '/test/{id}',
+                    'controller' => 'C',
+                    'action' => 'a',
+                    'menu' => 'espace_chefs',
+                    'role_min' => 'intendant',
+                    'breadcrumb' => ['label' => 'Détail', 'ancestors' => [['path' => '/test']]],
+                ],
+            ],
+        ]);
     }
 
     public function testRouteBreadcrumbRejectsMissingLabel(): void

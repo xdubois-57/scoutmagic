@@ -25,7 +25,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Paiements attendus", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Paiements attendus", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
     },
     {
       "path": "/finance/campaigns",
@@ -35,7 +35,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Campagnes", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Campagnes", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
     },
     {
       "path": "/finance/campaigns/new",
@@ -45,7 +45,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Nouvelle campagne", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Nouvelle campagne", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Campagnes", "path": "/finance/campaigns" }] }
     },
     {
       "path": "/finance/campaigns",
@@ -65,7 +65,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Campagne", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Campagne", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Campagnes", "path": "/finance/campaigns" }] }
     },
     {
       "path": "/finance/campaigns/{id}/export",
@@ -138,7 +138,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Rapprochement", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Rapprochement", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
     },
     {
       "path": "/finance/reconciliation/split/{transactionId}",
@@ -175,7 +175,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "QR de paiement", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "QR de paiement", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Paiements attendus", "path": "/finance/receivables" }] }
     },
     {
       "path": "/finance/tools",
@@ -185,7 +185,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Outils", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Outils", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
     },
     {
       "path": "/finance/tools/qr",
@@ -215,7 +215,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Mouvements", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Mouvements", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
     },
     {
       "path": "/finance/movements/export",
@@ -243,7 +243,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Importer", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Importer", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
     },
     {
       "path": "/finance/import",
@@ -263,7 +263,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Reçus", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Reçus", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
     },
     {
       "path": "/finance/receipts/new",
@@ -273,7 +273,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Nouveau reçu", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Nouveau reçu", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Reçus", "path": "/finance/receipts" }] }
     },
     {
       "path": "/finance/receipts/search",
@@ -394,7 +394,7 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": { "label": "Comptes", "parents": ["Configuration"] }
+      "breadcrumb": { "label": "Comptes", "parents": ["Configuration"], "ancestors": [{ "label": "Finances", "path": "/config/finance" }] }
     },
     {
       "path": "/config/finance/accounts",
@@ -413,7 +413,7 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": { "label": "Catégories", "parents": ["Configuration"] }
+      "breadcrumb": { "label": "Catégories", "parents": ["Configuration"], "ancestors": [{ "label": "Finances", "path": "/config/finance" }] }
     },
     {
       "path": "/config/finance/categories",

@@ -110,11 +110,6 @@ class HelpController extends AbstractController
             'content_html' => MarkdownRenderer::toHtml($topic->body(), self::RENDER_OPTIONS),
             'related_topics' => $this->helpService->relatedTopics($topic, $role),
             'breadcrumb_current' => $topic->title,
-            // Real ancestor-page link (design.md §7.3's breadcrumb_trail),
-            // so a topic page always offers the way back up to the index.
-            'breadcrumb_trail' => [
-                ['label' => 'Aide', 'url' => '/aide'],
-            ],
         ]);
     }
 }

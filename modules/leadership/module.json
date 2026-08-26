@@ -24,7 +24,7 @@
       "menu": "espace_admin",
       "label": "",
       "role_min": "admin",
-      "breadcrumb": { "label": "Formations", "parents": ["Espace chefs d'U"] }
+      "breadcrumb": { "label": "Formations", "parents": ["Espace chefs d'U"], "ancestors": [{ "label": "Encadrement", "path": "/admin/leadership" }] }
     },
     {
       "path": "/admin/leadership/obligations",
@@ -34,7 +34,7 @@
       "menu": "espace_admin",
       "label": "",
       "role_min": "admin",
-      "breadcrumb": { "label": "Obligations", "parents": ["Espace chefs d'U"] }
+      "breadcrumb": { "label": "Obligations", "parents": ["Espace chefs d'U"], "ancestors": [{ "label": "Encadrement", "path": "/admin/leadership" }] }
     },
     {
       "path": "/admin/leadership/stewards",
@@ -44,7 +44,7 @@
       "menu": "espace_admin",
       "label": "",
       "role_min": "admin",
-      "breadcrumb": { "label": "Intendants", "parents": ["Espace chefs d'U"] }
+      "breadcrumb": { "label": "Intendants", "parents": ["Espace chefs d'U"], "ancestors": [{ "label": "Encadrement", "path": "/admin/leadership" }] }
     },
     {
       "path": "/admin/leadership/training/mapping",

@@ -114,6 +114,19 @@ class FrontController
         // convenience (SECURITY §3), never a security boundary.
         $this->twig->addGlobal('route_breadcrumb', $resolvedRoute->breadcrumb);
 
+        // The real ancestor PAGE(s) this route declares, resolved for the
+        // role this visitor actually holds — a step they could not reach
+        // disappears rather than becoming a link to a 403, exactly like a
+        // menu entry (SECURITY.md §3). Set here, alongside the trail
+        // above and after the guard for the same never-leak reason.
+        // A controller may still pass its own `breadcrumb_trail` for an
+        // ancestor that is genuinely dynamic — a booking under ITS asset
+        // — and the partial renders the static steps ahead of it.
+        $this->twig->addGlobal(
+            'route_breadcrumb_ancestors',
+            $this->router->ancestorTrailFor($resolvedRoute->breadcrumb, Role::fromString(AuthSession::getRole()))
+        );
+
         // Contextual help (partials/help_button.html.twig / help_panel.
         // html.twig) — the topics covering this path, filtered by the
         // caller's CURRENT role (Core\Help\HelpService is the single role

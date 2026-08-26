@@ -24,30 +24,52 @@
    module.json breadcrumbs still hardcode their own copy, since a JSON
    manifest has no PHP to call that from).
 
-   A parent is never a link to a specific page anymore — most menu
+   THERE ARE TWO NATURES OF INTERMEDIATE STEP, and they are not
+   interchangeable.
+
+   A `parents` entry names a MENU and is never a link to a page. Most menu
    categories have no single landing page of their own, and even the ones
    that do would send every visitor to the same arbitrarily-chosen page
-   regardless of what they actually want. Instead, clicking a parent OPENS
-   that menu's own section (public/assets/js/breadcrumb.js): the desktop
+   regardless of what they actually want. Clicking one OPENS that menu's
+   own section instead (public/assets/js/breadcrumb.js): the desktop
    mega-menu panel, or the mobile offcanvas with the matching accordion
    section expanded — letting the visitor pick the sub-page themselves, same as
    using the nav directly. Only rendered as a button when the parent label
    actually matches one of the current `menus` (the same global the nav
    itself renders from); otherwise it stays plain text, exactly as before.
+   This behaviour is unchanged and must stay that way: it is half of the
+   breadcrumb of every page on the site.
+
+   An ancestor PAGE entry is a real link, because it is a real page. That
+   reasoning above holds for a menu, not for a page: "Espace admin" is not
+   a page, "Membres" is one, it is unique, and it is exactly where the
+   visitor came from. Without such a step a detail page offers no way back
+   up to its list at all, since this site has no back button by
+   convention (design.md §7.3). Two sources feed these steps, rendered
+   outermost-first, the static ones ahead of the dynamic ones:
+
+   - `route_breadcrumb_ancestors` — resolved by Core\Http\FrontController
+     from the route's own `breadcrumb.ancestors` declaration (addRoute()'s
+     6th argument for core routes, module.json's `routes[].breadcrumb` for
+     module ones). ONE fixed ancestor per page, declared statically: a page
+     reachable from several lists shows the one chosen once and for all,
+     with no referrer sniffing and no session state. A step the visitor's
+     role cannot reach is dropped by Core\Http\Router::ancestorTrailFor()
+     rather than rendering a link to a 403 — the same principle as a menu
+     entry, where visibility is a convenience and never a boundary
+     (SECURITY.md §3). The link points at the BARE list, with no filters
+     or search copied onto it: the browser's own back button already
+     restores that state since it lives in the URL, and the two do
+     different jobs.
+   - `breadcrumb_trail` — a controller context variable, for an ancestor
+     that is genuinely dynamic and therefore cannot be declared: a booking
+     under ITS asset, a section page under ITS group. The controller
+     resolves both label and url itself, which is exactly what a JSON
+     manifest cannot do.
+
    `breadcrumb_current`, when the controller passes it, replaces the
    route's static `label` for a dynamic page title (a member's name, an
    article title...); the current page is never itself a link.
-
-   `breadcrumb_trail` (a controller context variable, never a module.json
-   declaration) is a DIFFERENT thing from `parents` above, deliberately:
-   each entry is `{label, url}` and renders as a real link. This is safe
-   only because it is never a menu category — it names a specific,
-   unambiguous ancestor PAGE within the same controller's own page family
-   (e.g. a group's page linking back to "Groupes", the group list), not
-   "one of several unrelated pages this menu happens to contain". The
-   controller resolves both label and url itself (a group's name, its own
-   id), so there is nothing here for a JSON manifest to declare statically
-   the way `parents` is.
 
    The home page itself declares its own breadcrumb too (label "Accueil",
    no parents) so it ends the trail the same way every other page does —
@@ -66,7 +88,8 @@
    so one placement reaches mobile, desktop browser and installed PWA
    alike. The <ol> grows and the button never shrinks, so a long trail
    truncates before the button ever leaves the screen. #}
-<nav class="breadcrumb-bar{{ breadcrumb_trail|default([]) is not empty ? ' breadcrumb-bar--has-trail' : '' }} border-bottom bg-body-tertiary px-3 py-2 align-items-center" aria-label="Fil d'Ariane">
+{% set ancestor_steps = (route_breadcrumb_ancestors|default([]))|merge(breadcrumb_trail|default([])) %}
+<nav class="breadcrumb-bar{{ ancestor_steps is not empty ? ' breadcrumb-bar--has-trail' : '' }} border-bottom bg-body-tertiary px-3 py-2 align-items-center" aria-label="Fil d'Ariane">
     <ol class="breadcrumb mb-0 small align-items-center flex-grow-1" style="min-width:0;">
         <li class="breadcrumb-item"><a href="/" class="text-decoration-none" aria-label="Accueil"><i class="bi bi-house-door" aria-hidden="true"></i></a></li>
         {% set breadcrumb = route_breadcrumb|default(null) %}
@@ -84,7 +107,7 @@
                     <li class="breadcrumb-item text-body-secondary">{{ parent }}</li>
                 {% endif %}
             {% endfor %}
-            {% for crumb in breadcrumb_trail|default([]) %}
+            {% for crumb in ancestor_steps %}
                 <li class="breadcrumb-item text-truncate"><a href="{{ crumb.url }}" class="text-decoration-none">{{ crumb.label }}</a></li>
             {% endfor %}
             {# On one line on purpose: the indentation around this

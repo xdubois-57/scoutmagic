@@ -34,6 +34,12 @@
         "label": "Nouveau camp",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Camps",
+            "path": "/chefs/camps"
+          }
         ]
       }
     },
@@ -58,6 +64,12 @@
         "label": "Lieu",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Camps",
+            "path": "/chefs/camps"
+          }
         ]
       }
     },
@@ -73,6 +85,12 @@
         "label": "Modifier le lieu",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Camps",
+            "path": "/chefs/camps"
+          }
         ]
       }
     },
@@ -97,6 +115,12 @@
         "label": "Séjour",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Camps",
+            "path": "/chefs/camps"
+          }
         ]
       }
     },
@@ -112,6 +136,12 @@
         "label": "Modifier le séjour",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Camps",
+            "path": "/chefs/camps"
+          }
         ]
       }
     },
@@ -163,6 +193,12 @@
         "label": "Anonymiser un contact",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Camps",
+            "path": "/chefs/camps"
+          }
         ]
       }
     },
@@ -205,6 +241,12 @@
         "label": "Documents du séjour",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Camps",
+            "path": "/chefs/camps"
+          }
         ]
       }
     },
@@ -238,6 +280,12 @@
         "label": "Photos du séjour",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Camps",
+            "path": "/chefs/camps"
+          }
         ]
       }
     },
@@ -289,6 +337,12 @@
         "label": "Fusionner un lieu",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Camps",
+            "path": "/chefs/camps"
+          }
         ]
       }
     },
@@ -331,6 +385,12 @@
         "label": "Fusionner un séjour",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Camps",
+            "path": "/chefs/camps"
+          }
         ]
       }
     },
@@ -355,6 +415,12 @@
         "label": "Courrier non classé",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Camps",
+            "path": "/chefs/camps"
+          }
         ]
       }
     },

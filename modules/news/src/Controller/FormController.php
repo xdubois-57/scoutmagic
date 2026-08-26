@@ -180,6 +180,16 @@ class FormController extends AbstractController
         return $this->render('@news/responses.html.twig', [
             'article' => $article,
             'form' => $form,
+            // A genuinely dynamic ancestor, so a controller trail rather
+            // than the route's static `breadcrumb.ancestors`: these are
+            // the responses to THIS article's form, and the article is
+            // where the reader came from. Its own route is `public`, so
+            // the step survives for every role that reaches this page —
+            // which the management list, `chief`, would not have done for
+            // the intendants this page is open to.
+            'breadcrumb_trail' => [
+                ['label' => $article->title, 'url' => '/news/' . $article->id],
+            ],
             'fields' => $fields,
             'rows' => $rows,
             'finance_available' => $this->expectedReceivable !== null,

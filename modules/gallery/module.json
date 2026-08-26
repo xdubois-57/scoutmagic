@@ -52,6 +52,12 @@
         "label": "Nouvel album",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Galerie",
+            "path": "/gallery/manage"
+          }
         ]
       }
     },
@@ -67,6 +73,12 @@
         "label": "Album",
         "parents": [
           "Espace membres"
+        ],
+        "ancestors": [
+          {
+            "label": "Galerie",
+            "path": "/gallery"
+          }
         ]
       }
     },
@@ -124,6 +136,12 @@
         "label": "Modifier l'album",
         "parents": [
           "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Galerie",
+            "path": "/gallery/manage"
+          }
         ]
       }
     },
@@ -252,6 +270,12 @@
         "label": "Nouvel emplacement",
         "parents": [
           "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Galerie",
+            "path": "/config/gallery"
+          }
         ]
       }
     },
@@ -276,6 +300,12 @@
         "label": "Modifier l'emplacement",
         "parents": [
           "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Galerie",
+            "path": "/config/gallery"
+          }
         ]
       }
     },

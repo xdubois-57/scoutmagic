@@ -38,6 +38,12 @@
         "label": "Archives",
         "parents": [
           "Espace membres"
+        ],
+        "ancestors": [
+          {
+            "label": "Groupes",
+            "path": "/groups"
+          }
         ]
       }
     },
@@ -53,6 +59,12 @@
         "label": "Groupe",
         "parents": [
           "Espace membres"
+        ],
+        "ancestors": [
+          {
+            "label": "Groupes",
+            "path": "/groups"
+          }
         ]
       }
     },
