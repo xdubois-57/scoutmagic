@@ -167,6 +167,12 @@ CREATE TABLE IF NOT EXISTS finance_transactions (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_ft_account_reference (account_id, bank_reference),
     INDEX idx_ft_date (transaction_date),
+    -- (account_id, fiscal_year_id, transaction_date): the module's
+    -- hottest filter (TransactionRepository::findFiltered and the
+    -- dashboard's history reads) plus its ORDER BY, which otherwise
+    -- filesorts once the account prefix of idx_ft_account_reference
+    -- stops narrowing.
+    INDEX idx_ft_account_year_date (account_id, fiscal_year_id, transaction_date),
     CONSTRAINT fk_ft_account FOREIGN KEY (account_id) REFERENCES finance_accounts(id) ON DELETE CASCADE,
     CONSTRAINT fk_ft_scout_year FOREIGN KEY (fiscal_year_id) REFERENCES scout_years(id),
     CONSTRAINT fk_ft_category FOREIGN KEY (category_id) REFERENCES finance_categories(id) ON DELETE SET NULL
@@ -262,6 +268,10 @@ CREATE TABLE IF NOT EXISTS finance_attachments (
     parent_attachment_id INT UNSIGNED NULL,
     uploaded_by INT UNSIGNED NULL,
     uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- (account_id, status, uploaded_at): the receipts list and the
+    -- dashboard's pending counts filter on account + status and order by
+    -- uploaded_at on every load — none of the three was indexed.
+    INDEX idx_fatt_account_status_uploaded (account_id, status, uploaded_at),
     CONSTRAINT fk_fatt_account FOREIGN KEY (account_id) REFERENCES finance_accounts(id) ON DELETE SET NULL,
     CONSTRAINT fk_fatt_file FOREIGN KEY (file_id) REFERENCES files(id),
     CONSTRAINT fk_fatt_parent FOREIGN KEY (parent_attachment_id) REFERENCES finance_attachments(id) ON DELETE SET NULL

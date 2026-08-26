@@ -256,7 +256,11 @@ CREATE TABLE member_years (
     leaving_comment_encrypted BLOB,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_member_year (member_id, scout_year_id),
-    INDEX idx_scout_year (scout_year_id),
+    -- (scout_year_id, is_active): the roster filter used across core and
+    -- six modules. The scout_year_id prefix also serves fk_my_year, which
+    -- the plain idx_scout_year used to do; SchemaComparator never drops
+    -- an index, so installs that predate this composite simply keep both.
+    INDEX idx_my_year_active (scout_year_id, is_active),
     INDEX idx_email_blind (email_blind_index),
     CONSTRAINT fk_my_member FOREIGN KEY (member_id) REFERENCES members(id),
     CONSTRAINT fk_my_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),

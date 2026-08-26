@@ -2,7 +2,7 @@
   "id": "calendar",
   "name": "Calendrier",
   "description": "Calendrier des activités : un calendrier par section (automatique) et des calendriers supplémentaires configurables, avec abonnement ICS.",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "enabled_by_default": true,
   "routes": [
     {
