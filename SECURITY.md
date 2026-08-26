@@ -86,9 +86,19 @@ Everything else in that table follows the ordinary rules: the **recipient** is p
 
 All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 
-**Encrypted**: name, surname, totem, quali, date of birth, gender, street, number, box, complement, postal code, city, country, phone, mobile, email, departure comment (`member_years.leaving_comment_encrypted` — often a sensitive reason: conflict, family situation, health).
+**Encrypted**: name, surname, totem, quali, date of birth, gender, street, number, box, complement, postal code, city, country, phone, mobile, email, departure comment (`member_years.leaving_comment_encrypted` — often a sensitive reason: conflict, family situation, health), staff notes about a member (`member_notes.body`, see below).
 
 **In clear**: all IDs, FKs, timestamps, flags, module/role references.
+
+### The most sensitive free text the site holds
+
+`member_notes.body` (ARCHITECTURE.md §8.62ter) is what a chef d'unité writes down about a member: « allergie signalée par la maman », « parents séparés », « à ne pas laisser seul avec X ». It is a `BLOB` encrypted under the context `member_notes.body`, decrypted only in `Core\Member\MemberNoteRepository`, and it carries three rules beyond the ordinary ones — each pinned by its own test in `MemberNoteServiceTest`:
+
+- **Never in the journal.** `member_note_added` / `_updated` / `_deleted` record `member_id` and `note_id` and nothing else. §11's "no personal data in entries" is the general rule; here even a truncated body or a diff is refused.
+- **Never in an error message or a trace.** `Core\Member\MemberNoteException` is user-facing, so every message it carries is shown verbatim — none of them quotes the note.
+- **Never exported, and never shown to the member or their parents.** `MemberSearchController::export()` must not gain this column even though all its readers are chefs d'unité: an exported file leaves the site's protections, travels by e-mail, lands in a shared folder and outlives whoever produced it.
+
+There is no blind index on it: nothing searches these notes, and giving them one would create an exact-match oracle over the most sensitive text on the site for no feature anybody asked for.
 
 ### Implementation
 

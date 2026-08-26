@@ -31,7 +31,8 @@
       "id": "1"
     },
     "/admin/members/{id}": {
-      "id": "1"
+      "id": "1",
+      "note_id": "1"
     },
     "/aide/{topic}": {
       "topic": "premiers-pas"

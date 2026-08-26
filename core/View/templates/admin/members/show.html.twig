@@ -288,6 +288,92 @@
             </div>
         </div>
     </div>
+
+    {# Notes internes — dated entries, never one field: a member stays ten
+       years and passes through several staffs, and a single field would
+       let one chief silently overwrite what another wrote three years
+       earlier. Reserved to the Staff d'Unité by the route's own role_min;
+       never visible to the member or their parents, and never in an
+       export. #}
+    <section class="card mt-3 border-2">
+        <div class="card-header d-flex align-items-center gap-2 bg-body-tertiary">
+            <i class="bi bi-lock" aria-hidden="true"></i>
+            <h2 class="h6 mb-0">Notes internes</h2>
+            <span class="ms-auto small text-body-secondary text-uppercase">Staff d'unité uniquement</span>
+        </div>
+        <div class="card-body border-bottom">
+            <form method="post" action="/admin/members/{{ member.memberYearId }}/notes">
+                {{ csrf_field()|raw }}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'member-note-body',
+                    field_name: 'body',
+                    label: 'Ajouter une note',
+                    type: 'textarea',
+                    rows: 2,
+                    maxlength: note_max_length,
+                    required: true,
+                    help: "Jamais visible par le membre ni par ses parents, et jamais incluse dans un export.",
+                } only %}
+                <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
+            </form>
+        </div>
+
+        {% if notes is empty %}
+            <div class="card-body">
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucune note interne.',
+                    compact: true,
+                } only %}
+            </div>
+        {% else %}
+            <ul class="list-group list-group-flush">
+                {% for note in notes %}
+                    <li class="list-group-item">
+                        <p class="mb-2" style="white-space:pre-wrap;">{{ note.body }}</p>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <span class="small text-body-secondary">
+                                {{ note.authorName ?? 'Auteur inconnu' }} — {{ note.createdAt|date('d/m/Y') }}
+                                {%- if note.wasEdited() %} · modifiée le {{ note.updatedAt|date('d/m/Y') }}{% endif %}
+                            </span>
+                            <div class="ms-auto d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary member-note-edit-btn"
+                                        data-note-id="{{ note.id }}" aria-label="Modifier la note">
+                                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                                </button>
+                                {# design.md §7.5: data-confirm on the FORM,
+                                   never on the button — the global handler
+                                   listens on submit. #}
+                                <form method="post" action="/admin/members/{{ member.memberYearId }}/notes/{{ note.id }}/delete"
+                                      data-confirm="Supprimer cette note ? Elle disparaîtra définitivement.">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" aria-label="Supprimer la note">
+                                        <i class="bi bi-trash" aria-hidden="true"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                        <form method="post" action="/admin/members/{{ member.memberYearId }}/notes/{{ note.id }}"
+                              class="mt-2 d-none" id="member-note-edit-{{ note.id }}">
+                            {{ csrf_field()|raw }}
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'member-note-body-' ~ note.id,
+                                field_name: 'body',
+                                label: 'Modifier la note',
+                                label_visually_hidden: true,
+                                type: 'textarea',
+                                rows: 2,
+                                maxlength: note_max_length,
+                                value: note.body,
+                                required: true,
+                                size: 'sm',
+                            } only %}
+                            <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
+                        </form>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </section>
 </div>
 {% endblock %}
 
