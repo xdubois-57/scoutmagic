@@ -58,6 +58,12 @@ et heure, heure belge). Trois niveaux :
 Le quatrième mode, « Développement », installe chaque évolution
 immédiatement : il est réservé aux sites de test et le dit clairement.
 
+Chaque installation automatique se signale ensuite, réussie ou non, par
+une notification dans la cloche : active d'office pour les super
+administrateurs, éteinte et disponible pour un administrateur du site,
+dans ses préférences de notification. « Installer maintenant » ne
+prévient que vous.
+
 > Restez sur « Patch + Mineur » pour un site d'unité : vous profitez
 > des corrections et des nouveautés sans risquer un changement majeur
 > non préparé un lundi à 3 h du matin.

@@ -39,6 +39,37 @@ class NotificationRegistry
                 roleMin: 'admin',
                 channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
             ),
+            // The two automatic-update notices. Only ever dispatched by
+            // Core\Maintenance\Task\InstallUpdateHandler for an install
+            // NOBODY requested — a webhook-triggered release or dev-branch
+            // build (update_history.requested_by null). A manual
+            // "Installer maintenant" still notifies its own requester
+            // directly and only them, so an admin who watched the install
+            // happen is never told about it twice.
+            //
+            // role_min 'admin' with default_on_role_min 'superadmin':
+            // whoever runs the site wants to know unprompted that its code
+            // changed under it, while an admin gets the same switches on
+            // /notifications/preferences with nothing switched on for them
+            // (NotificationType::defaultsOnForRole()).
+            new NotificationType(
+                id: 'core.update_installed',
+                label: 'Mise à jour installée',
+                description: 'Quand une mise à jour du site s\'installe automatiquement (nouvelle version ou build de développement)',
+                group: 'Maintenance',
+                roleMin: 'admin',
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+                defaultOnRoleMin: 'superadmin'
+            ),
+            new NotificationType(
+                id: 'core.update_failed',
+                label: 'Échec de mise à jour',
+                description: 'Quand une mise à jour automatique du site échoue, avec ou sans restauration de la version précédente',
+                group: 'Maintenance',
+                roleMin: 'admin',
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+                defaultOnRoleMin: 'superadmin'
+            ),
             new NotificationType(
                 id: 'core.support_package_ready',
                 label: 'Paquet de support prêt',

@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Core\Maintenance\Task;
 
+use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Maintenance\Task\InstallUpdateHandler;
@@ -21,6 +23,7 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
+use Core\Security\RoleResolver;
 use Core\Security\UserAccountRepository;
 use Minishlink\WebPush\WebPush;
 use PHPUnit\Framework\TestCase;
@@ -603,5 +606,126 @@ class InstallUpdateHandlerTest extends TestCase
         $method->invoke($this->handler);
 
         $this->assertSame([], $this->replacedPhpFiles(), 'the list is released once it has been acted on');
+    }
+
+    /**
+     * A superadmin account plus a TaskContext whose NotificationService can
+     * actually resolve roles — the shape a real install runs in, and the
+     * only shape in which the automatic-update types' role_min means
+     * anything (the shared context in setUp() has no RoleResolver, so it
+     * degrades to "every recipient allowed").
+     *
+     * @return array{0: int, 1: TaskContext}
+     */
+    private function superadminAndRoleAwareContext(): array
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $email = 'super@test.example';
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, 1)'
+        );
+        $stmt->execute([
+            $encryption->encrypt($email, 'user_accounts.email'),
+            $encryption->blindIndex($email, 'email'),
+        ]);
+        $superadminId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+
+        $journalService = new JournalService(new JournalRepository($this->pdo));
+        $userAccountRepository = new UserAccountRepository($this->pdo, $encryption);
+        $settings = new SettingService(new SettingRepository($this->pdo));
+
+        $context = new TaskContext(
+            Connection::withPdo($this->pdo),
+            $encryption,
+            $this->createMock(MailService::class),
+            $journalService,
+            $settings,
+            $userAccountRepository,
+            $this->storagePath,
+            new NotificationService(
+                new NotificationRepository($this->pdo, $encryption),
+                new PushSubscriptionRepository($this->pdo, $encryption),
+                new NotificationPreferenceRepository($this->pdo),
+                $this->createMock(WebPush::class),
+                $settings,
+                $journalService,
+                new SchedulerService(new SchedulerRepository($this->pdo)),
+                $userAccountRepository,
+                new RoleResolver(new MemberYearRepository($this->pdo), $encryption, $this->pdo),
+                new ScoutYearService($this->pdo)
+            )
+        );
+
+        return [$superadminId, $context];
+    }
+
+    /**
+     * The bug this whole feature exists for: a dev build installed from a
+     * push webhook has no requester, and used to notify nobody at all —
+     * several could install overnight leaving nothing but journal entries.
+     */
+    public function testAnInstallNobodyRequestedNotifiesTheDeclaredAudience(): void
+    {
+        [$superadminId, $context] = $this->superadminAndRoleAwareContext();
+        $id = $this->updateHistoryRepository->create('1.0.0', 'dev-a1b2c3d', false, null);
+
+        $this->handler->handle(
+            ['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip', 'source_type' => 'branch'],
+            $context
+        );
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($superadminId);
+        $this->assertCount(1, $notifications);
+        $this->assertSame('core.update_failed', $notifications[0]->typeId);
+        $this->assertSame('Échec de la mise à jour', $notifications[0]->title);
+    }
+
+    /**
+     * An admin is offered the same type but has to ask for it — nothing
+     * arrives while they have never touched the switch.
+     */
+    public function testAnInstallNobodyRequestedLeavesAnAccountBelowRoleMinAlone(): void
+    {
+        [, $context] = $this->superadminAndRoleAwareContext();
+        $id = $this->updateHistoryRepository->create('1.0.0', 'dev-a1b2c3d', false, null);
+
+        $this->handler->handle(
+            ['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip', 'source_type' => 'branch'],
+            $context
+        );
+
+        // $this->userId is the plain account created in setUp(): no
+        // superadmin flag, no member_year, so RoleResolver puts it at
+        // "identified" — below the types' 'admin' role_min.
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->assertCount(
+            0,
+            (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId)
+        );
+    }
+
+    /**
+     * A manual "Installer maintenant" still answers its own requester
+     * directly, and only them — the broadcast would otherwise tell the
+     * superadmin who clicked the button about it a second time.
+     */
+    public function testARequestedInstallStillNotifiesOnlyItsRequester(): void
+    {
+        [$superadminId, $context] = $this->superadminAndRoleAwareContext();
+        $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);
+
+        $this->handler->handle(['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip'], $context);
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $repository = new NotificationRepository($this->pdo, $encryption);
+
+        $requesterNotifications = $repository->findByUserAccountId($this->userId);
+        $this->assertCount(1, $requesterNotifications);
+        $this->assertSame('Échec de la mise à jour', $requesterNotifications[0]->title);
+
+        $this->assertCount(0, $repository->findByUserAccountId($superadminId));
     }
 }

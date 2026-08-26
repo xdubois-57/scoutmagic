@@ -221,14 +221,13 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 $history->requestedBy
             );
 
-            if ($history->requestedBy !== null) {
-                $context->notifications?->notify(
-                    $history->requestedBy,
-                    'Échec de la mise à jour',
-                    'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée.',
-                    '/config/maintenance'
-                );
-            }
+            $this->announce(
+                $context,
+                $history,
+                'core.update_failed',
+                'Échec de la mise à jour',
+                'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée.'
+            );
         } finally {
             $this->removeDirectory($tempDir);
         }
@@ -301,14 +300,13 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo, 'error' => $migrationError->getMessage()],
                     $history->requestedBy
                 );
-                if ($history->requestedBy !== null) {
-                    $context->notifications?->notify(
-                        $history->requestedBy,
-                        'Échec critique de la mise à jour',
-                        'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être restaurée automatiquement. Une intervention manuelle est nécessaire.',
-                        '/config/maintenance'
-                    );
-                }
+                $this->announce(
+                    $context,
+                    $history,
+                    'core.update_failed',
+                    'Échec critique de la mise à jour',
+                    'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être restaurée automatiquement. Une intervention manuelle est nécessaire.'
+                );
                 return;
             }
 
@@ -371,12 +369,82 @@ class InstallUpdateHandler implements TaskHandlerInterface
 
         $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
 
-        if ($history->requestedBy !== null) {
-            $context->notifications?->notify(
-                $history->requestedBy,
-                'Mise à jour terminée',
-                "La mise à jour vers la version {$history->versionTo} est terminée.",
-                '/config/maintenance'
+        $this->announce(
+            $context,
+            $history,
+            'core.update_installed',
+            'Mise à jour terminée',
+            "La mise à jour vers la version {$history->versionTo} est terminée."
+        );
+    }
+
+    /**
+     * Tells somebody the update is over, one way or the other.
+     *
+     * Two audiences, never both at once — an install has exactly one
+     * origin, and telling the same superadmin twice about one install is
+     * worse than telling them once:
+     *
+     * - A **requested** install (manual "Installer maintenant",
+     *   update_history.requested_by set) notifies its requester and only
+     *   them, unchanged: they are watching /config/maintenance poll and
+     *   this is the answer to a question they just asked, so it goes out
+     *   through notify() — immediate, no preference to consult, no way to
+     *   miss it.
+     * - An **automatic** install (webhook release, dev-branch push, or the
+     *   daily stable check — Core\Maintenance\GitHubWebhookService,
+     *   requested_by null) has no requester to answer, which is exactly
+     *   why it used to notify nobody at all: several dev builds could
+     *   install overnight and leave nothing behind but journal entries.
+     *   It now announces itself as a declared type to everyone who wants
+     *   it (NotificationService::recipientsForType()) — on by default for
+     *   superadmins, available and off by default for admins, per the
+     *   type's `default_on_role_min` (Core\Notification\
+     *   NotificationRegistry).
+     *
+     * Both notification paths are best-effort by construction
+     * ($context->notifications is null when VAPID keys aren't provisioned)
+     * and neither may take an install down after the fact: the update is
+     * already installed and its outcome already journaled by the time this
+     * runs, so a notification failure is caught and dropped rather than
+     * left to surface as a failed scheduled task.
+     */
+    private function announce(
+        TaskContext $context,
+        UpdateHistory $history,
+        string $typeId,
+        string $title,
+        string $body
+    ): void {
+        try {
+            if ($history->requestedBy !== null) {
+                $context->notifications?->notify($history->requestedBy, $title, $body, '/config/maintenance');
+                return;
+            }
+
+            $notifications = $context->notifications;
+            if ($notifications === null) {
+                return;
+            }
+
+            $recipients = $notifications->recipientsForType($typeId);
+            if ($recipients === []) {
+                return;
+            }
+
+            $notifications->dispatch($typeId, $recipients, [
+                'title' => $title,
+                'body' => $body,
+                'url' => '/config/maintenance',
+            ]);
+        } catch (\Throwable $e) {
+            $context->journal->log(
+                'core',
+                'update_notification_failed',
+                'info',
+                'La notification de fin de mise à jour n\'a pas pu être envoyée',
+                ['type_id' => $typeId, 'error' => $e->getMessage()],
+                $history->requestedBy
             );
         }
     }
@@ -447,9 +515,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $notifyBody = 'La mise à jour a échoué et la restauration automatique a également échoué. Une intervention manuelle est nécessaire.';
         }
 
-        if ($history->requestedBy !== null) {
-            $context->notifications?->notify($history->requestedBy, $notifyTitle, $notifyBody, '/config/maintenance');
-        }
+        $this->announce($context, $history, 'core.update_failed', $notifyTitle, $notifyBody);
     }
 
     /**
