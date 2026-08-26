@@ -67,6 +67,20 @@ class PersonAvatarTest extends TestCase
     }
 
     /**
+     * A roster page draws dozens of avatars, each /files/… request a full
+     * application boot — only the visible ones should fire. The explicit
+     * width/height reserve the box, so lazy-loading cannot shift layout.
+     */
+    public function testThePhotoIsLazyLoadedWithItsBoxReserved(): void
+    {
+        $html = PersonAvatar::render('Marie Dupont', 77, 32);
+
+        $this->assertStringContainsString('loading="lazy"', $html);
+        $this->assertStringContainsString('decoding="async"', $html);
+        $this->assertStringContainsString('width="32" height="32"', $html);
+    }
+
+    /**
      * The name is somebody's own, and it lands in an attribute: escaped,
      * like every other piece of personal data this codebase renders.
      */

@@ -56,9 +56,15 @@ final class PersonAvatar
         $dimensions = 'width:' . $size . 'px;height:' . $size . 'px;';
 
         if ($fileId !== null) {
+            // loading="lazy": a roster page draws dozens of these, each
+            // /files/… request a full application boot — only the visible
+            // ones should fire. The inline width/height reserve the box,
+            // so lazy-loading cannot shift the layout.
             $inner = '<img src="/files/' . $fileId . '/thumb"'
                 . ' alt="' . htmlspecialchars($name, ENT_QUOTES) . '"'
                 . ' class="' . htmlspecialchars($classes, ENT_QUOTES) . '"'
+                . ' width="' . $size . '" height="' . $size . '"'
+                . ' loading="lazy" decoding="async"'
                 . ' style="' . $dimensions . 'object-fit:cover;flex-shrink:0;">';
         } else {
             // aria-hidden with a title: the initials are a decoration of

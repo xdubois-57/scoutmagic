@@ -258,6 +258,26 @@ class TwigFactoryTest extends TestCase
         $this->assertStringNotContainsString('editable-image', $html);
     }
 
+    /**
+     * The trombinoscope and rosters render one member_photo() per member,
+     * each /files/… request a full application boot — only the visible
+     * ones should fire.
+     */
+    public function testMemberPhotoIsLazyLoaded(): void
+    {
+        $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
+        $service = $this->createMock(\Core\Photo\MemberPhotoService::class);
+        $service->method('resolveFileId')->willReturn(7);
+        $twig->addGlobal('_member_photo_service', $service);
+        $twig->addGlobal('effective_scout_year_id', 999);
+        $twig->addGlobal('config_mode', false);
+
+        $html = ($this->memberPhotoFunction($twig))(42, 'Jean');
+
+        $this->assertStringContainsString('loading="lazy"', $html);
+        $this->assertStringContainsString('decoding="async"', $html);
+    }
+
     private function editableImageFunction(Environment $twig): callable
     {
         foreach ($twig->getFunctions() as $f) {
