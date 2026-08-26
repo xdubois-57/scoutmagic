@@ -684,11 +684,23 @@ fi
 # ---------------------------------------------------------------
 echo "DAST: running the Playwright suite through ZAP..."
 set +e
+# ${PLAYWRIGHT_ARGS[@]+"${PLAYWRIGHT_ARGS[@]}"}, not the plain
+# "${PLAYWRIGHT_ARGS[@]}": under `set -u` (line 2), bash 3.2 — which is
+# what macOS still ships as /bin/bash, and this script's shebang — treats
+# an EMPTY array's expansion as an unbound variable and aborts. The array
+# is empty on exactly the path that matters: scripts/release.sh's dynamic
+# gate calls this script with only --profile=passive and no extra
+# Playwright arguments, so the browser suite died here before sending ZAP
+# a single request, and the gate then failed for "a browser suite that did
+# not complete". It went unseen because CI runs bash 5 on Linux, where
+# expanding an empty array under `set -u` has been legal since 4.4.
+# The ${var[@]+…} form expands to nothing when the array is empty and to
+# the properly quoted elements otherwise, in both bash versions.
 E2E_BASE_URL="${BASE_URL}" \
 E2E_PROXY_SERVER="${ZAP_PROXY}" \
 E2E_IGNORE_HTTPS_ERRORS="1" \
 E2E_TIMEOUT_FACTOR="${DAST_TIMEOUT_FACTOR}" \
-    npm exec --no -- playwright test --config="${REPO_ROOT}/tests/e2e/playwright.config.js" "${PLAYWRIGHT_ARGS[@]}" &
+    npm exec --no -- playwright test --config="${REPO_ROOT}/tests/e2e/playwright.config.js" ${PLAYWRIGHT_ARGS[@]+"${PLAYWRIGHT_ARGS[@]}"} &
 PLAYWRIGHT_PID=$!
 wait "${PLAYWRIGHT_PID}"
 PLAYWRIGHT_EXIT=$?
