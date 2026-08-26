@@ -552,6 +552,59 @@ class ReceivableAllocationService
      * @param ExpectedReceivable[] $receivables
      * @return array<int, ReceivableSettlement>
      */
+    /**
+     * The settlements as the STORED allocations alone tell them — one
+     * query, no account-history scan, no writes. Authoritative for what
+     * the home payment band reads: amountAllocated, amountRemaining,
+     * amountRefunded, and the status (waived/unpaid/partial/paid) —
+     * statusFor() derives entirely from stored allocations.
+     * amountDesignated is reported as the allocated floor (the
+     * arrived-but-unabsorbed share needs the credit scan settlementsFor()
+     * pays for), so overpaid/refundState may under-report; a surface that
+     * shows those must use settlementsFor() or refreshAndSettle().
+     *
+     * @param ExpectedReceivable[] $receivables
+     * @return array<int, ReceivableSettlement>
+     */
+    public function storedSettlementsFor(array $receivables): array
+    {
+        if ($receivables === []) {
+            return [];
+        }
+
+        $allocationsByReceivable = $this->allocationRepository->findByReceivableIds(
+            array_map(static fn(ExpectedReceivable $receivable): int => $receivable->id, $receivables)
+        );
+
+        $settlements = [];
+        foreach ($receivables as $receivable) {
+            $allocated = 0;
+            $refunded = 0;
+            foreach ($allocationsByReceivable[$receivable->id] ?? [] as $allocation) {
+                if ($allocation->amountCents > 0) {
+                    $allocated += $allocation->amountCents;
+                } elseif ($allocation->amountCents < 0) {
+                    $refunded += -$allocation->amountCents;
+                }
+            }
+
+            $grossOverpaid = max(0, $allocated - $receivable->amountDueCents);
+
+            $settlements[$receivable->id] = new ReceivableSettlement(
+                receivableId: $receivable->id,
+                amountDueCents: $receivable->amountDueCents,
+                amountAllocatedCents: $allocated,
+                amountDesignatedCents: $allocated,
+                amountRefundedCents: $refunded,
+                amountOverpaidCents: max(0, $grossOverpaid - $refunded),
+                status: $this->statusFor($receivable, $allocated),
+                refundState: $this->refundStateFor($receivable, $grossOverpaid, $refunded)
+            );
+        }
+
+        return $settlements;
+    }
+
     public function settlementsFor(array $receivables): array
     {
         if ($receivables === []) {

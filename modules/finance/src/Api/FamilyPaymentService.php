@@ -79,7 +79,7 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
      */
     public function getOpenPayments(int $memberId): array
     {
-        $open = $this->openReceivablesFor([$memberId]);
+        $open = $this->openReceivablesFor([$memberId], refresh: true);
         if ($open === []) {
             return [];
         }
@@ -154,7 +154,17 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
                 : $profile->getDisplayName();
         }
 
-        $open = $this->openReceivablesFor(array_keys($memberYearIdByMemberId));
+        // refresh: false — the home band reads the STORED allocations. The
+        // number a family acts on stays never-stale where they act on it
+        // (the member page and the QR route both refresh), while the most
+        // visited page of the site no longer re-reads and re-decrypts an
+        // account's entire movement history — nor writes allocations — for
+        // every parent with an open receivable. Staleness here is bounded
+        // by the layers that already keep allocations current: they are
+        // written the moment a bank import lands, when a receivable is
+        // created or its amount moves, and the nightly
+        // Task\ReconcileReceivablesHandler sweeps whatever those missed.
+        $open = $this->openReceivablesFor(array_keys($memberYearIdByMemberId), refresh: false);
         if ($open === []) {
             return null;
         }
@@ -210,21 +220,27 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
      * The still-open receivables of a set of members, oldest first, each
      * with what is left on it.
      *
-     * refreshAndSettle() rather than a plain read, for the same reason
-     * the QR route does it: what a family is shown they owe is the one
-     * number here that must never be stale.
+     * $refresh chooses between the two read stances the allocation model
+     * offers. true — refreshAndSettle(), the same as the QR route: what a
+     * family is shown where they PAY must never be stale, and the member
+     * page is that place. false — storedSettlementsFor(), the stored
+     * state: for the home band, whose freshness is already guaranteed by the writes
+     * at import/creation time and the nightly reconcile task, and whose
+     * traffic must not carry a full account-history scan per view.
      *
      * @param int[] $memberIds
      * @return list<array{receivable: ExpectedReceivable, remaining_cents: int, received_cents: int}>
      */
-    private function openReceivablesFor(array $memberIds): array
+    private function openReceivablesFor(array $memberIds, bool $refresh): array
     {
         $receivables = $this->receivables->findByMemberIds($memberIds);
         if ($receivables === []) {
             return [];
         }
 
-        $settlements = $this->allocations->refreshAndSettle($receivables);
+        $settlements = $refresh
+            ? $this->allocations->refreshAndSettle($receivables)
+            : $this->allocations->storedSettlementsFor($receivables);
 
         $open = [];
         foreach ($receivables as $receivable) {
