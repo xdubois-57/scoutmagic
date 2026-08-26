@@ -370,29 +370,54 @@
         });
     }
 
-    // There is no standalone "Accès au formulaire" control anymore
-    // (usability review) — whether the form requires login is derived
-    // from the article's own Visibilité: Public/Lien direct pages are
-    // reachable by anyone anyway, so the form needs no login either;
-    // Chefs/Chefs d'Unité already require being logged in just to see the
-    // page.
-    function isPublicAccess() {
+    // Everything the editor's Visibilité control decides, as a pure
+    // function of the chosen value — deliberately separated from the DOM
+    // that applies it, so the rules can be tested without a page.
+    //
+    // - Public and Lien direct pages are reachable by anyone anyway, so
+    //   their form needs no login either; the other three already require
+    //   being signed in just to see the page. There is no standalone
+    //   "Accès au formulaire" control anymore (usability review).
+    // - Lien direct and Membres connectés both refuse indexing on the
+    //   server (Service\ArticleService::enforceSeoRules) — the first
+    //   because it is in no list, the second because a crawler never
+    //   signs in and would publish the preview of a members-only article.
+    //   Hiding the SEO panel only spares the author a section the server
+    //   is going to discard; it is not the protection.
+    //
+    // @param {string} value
+    // @returns {{formAccessIsPublic: boolean, showDirectLinkHelp: boolean, showIdentifiedHelp: boolean, showSeoSection: boolean}}
+    function visibilityUiState(value) {
+        return {
+            formAccessIsPublic: value === 'public' || value === 'direct_link',
+            showDirectLinkHelp: value === 'direct_link',
+            showIdentifiedHelp: value === 'identified',
+            showSeoSection: value !== 'direct_link' && value !== 'identified',
+        };
+    }
+
+    function selectedVisibility() {
         var selected = /** @type {HTMLInputElement} */ (document.querySelector('input[name="visibility"]:checked'));
-        var value = selected ? selected.value : 'public';
-        return value === 'public' || value === 'direct_link';
+        return selected ? selected.value : 'public';
+    }
+
+    function isPublicAccess() {
+        return visibilityUiState(selectedVisibility()).formAccessIsPublic;
     }
 
     // --- Visibility segmented buttons ---
     var visibilityGroup = document.getElementById('news-visibility-group');
     if (visibilityGroup) {
         var directLinkHelp = document.getElementById('news-direct-link-help');
+        var identifiedHelp = document.getElementById('news-identified-help');
         var seoSection = document.getElementById('news-seo-section');
 
         function updateVisibilityUi() {
             var selected = /** @type {HTMLInputElement} */ (visibilityGroup.querySelector('input:checked'));
-            var isDirectLink = selected && selected.value === 'direct_link';
-            if (directLinkHelp) directLinkHelp.classList.toggle('d-none', !isDirectLink);
-            if (seoSection) seoSection.classList.toggle('d-none', isDirectLink);
+            var state = visibilityUiState(selected ? selected.value : 'public');
+            if (directLinkHelp) directLinkHelp.classList.toggle('d-none', !state.showDirectLinkHelp);
+            if (identifiedHelp) identifiedHelp.classList.toggle('d-none', !state.showIdentifiedHelp);
+            if (seoSection) seoSection.classList.toggle('d-none', !state.showSeoSection);
             updateAccessUi();
         }
 
@@ -1286,6 +1311,7 @@
         sanitizeHtmlAttributes: sanitizeHtmlAttributes,
         isSafeUrlScheme: isSafeUrlScheme,
         isPublicAccess: isPublicAccess,
+        visibilityUiState: visibilityUiState,
         hasTitleOrContent: hasTitleOrContent,
         setAiButtonBusy: setAiButtonBusy,
         HTML_SANITIZER_ALLOWED_TAGS: HTML_SANITIZER_ALLOWED_TAGS,

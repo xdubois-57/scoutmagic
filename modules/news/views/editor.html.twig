@@ -74,6 +74,8 @@
                     <div class="btn-group d-flex flex-wrap" role="group" id="news-visibility-group">
                         <input type="radio" class="btn-check" name="visibility" id="vis-public" value="public" {{ visibility_value == 'public' ? 'checked' : '' }}>
                         <label class="btn btn-outline-primary" for="vis-public">Public</label>
+                        <input type="radio" class="btn-check" name="visibility" id="vis-identified" value="identified" {{ visibility_value == 'identified' ? 'checked' : '' }}>
+                        <label class="btn btn-outline-primary" for="vis-identified">Membres connectés</label>
                         <input type="radio" class="btn-check" name="visibility" id="vis-chief" value="chief" {{ visibility_value == 'chief' ? 'checked' : '' }}>
                         <label class="btn btn-outline-primary" for="vis-chief">Animateurs</label>
                         <input type="radio" class="btn-check" name="visibility" id="vis-admin" value="admin" {{ visibility_value == 'admin' ? 'checked' : '' }}>
@@ -84,8 +86,11 @@
                     <p class="form-text d-none" id="news-direct-link-help">
                         Cet article n'apparaîtra dans aucune liste. Il sera accessible uniquement par son URL ou via le QR code de l'affiche.
                     </p>
+                    <p class="form-text d-none" id="news-identified-help">
+                        Cet article sera visible par les animés, leurs parents et les animateurs, une fois connectés. Il ne sera pas référencé, et un lien partagé sur les réseaux sociaux n'affichera ni titre, ni résumé, ni image.
+                    </p>
                     <p class="form-text">
-                        Public et Lien direct ne nécessitent pas de connexion pour répondre au formulaire ; Chefs et Chefs d'Unité si.
+                        Public et Lien direct ne nécessitent pas de connexion pour répondre au formulaire ; Membres connectés, Animateurs et Chefs d'Unité si.
                     </p>
                 </div>
             </div>

@@ -11,20 +11,31 @@
     {% if article.summary %}<meta name="description" content="{{ article.summary }}">{% endif %}
 
     {# Social sharing (Facebook, Instagram, and any other Open Graph /
-       Twitter Card reader) — module usability review. #}
-    <meta property="og:type" content="article">
-    <meta property="og:title" content="{{ article.title }}">
-    {% if article.summary %}<meta property="og:description" content="{{ article.summary }}">{% endif %}
-    <meta property="og:url" content="{{ og_url }}">
-    <meta property="og:site_name" content="{{ site_name }}">
-    {% if og_image_url %}
-        <meta property="og:image" content="{{ og_image_url }}">
-        <meta name="twitter:card" content="summary_large_image">
-    {% else %}
-        <meta name="twitter:card" content="summary">
+       Twitter Card reader) — module usability review.
+
+       Emitted only when `social_preview` says so, which the controller
+       gets from Service\ArticleService::isSociallyShareable(): an
+       article restricted to identified members (or to the staff) keeps
+       its title, its summary and its cover image off every link preview.
+       The body is already protected by the 403 in
+       Controller\NewsController::show(), but a preview is not a body —
+       a link pasted into a public group would otherwise say everything
+       the page was hiding. #}
+    {% if social_preview %}
+        <meta property="og:type" content="article">
+        <meta property="og:title" content="{{ article.title }}">
+        {% if article.summary %}<meta property="og:description" content="{{ article.summary }}">{% endif %}
+        <meta property="og:url" content="{{ og_url }}">
+        <meta property="og:site_name" content="{{ site_name }}">
+        {% if og_image_url %}
+            <meta property="og:image" content="{{ og_image_url }}">
+            <meta name="twitter:card" content="summary_large_image">
+        {% else %}
+            <meta name="twitter:card" content="summary">
+        {% endif %}
+        <meta name="twitter:title" content="{{ article.title }}">
+        {% if article.summary %}<meta name="twitter:description" content="{{ article.summary }}">{% endif %}
     {% endif %}
-    <meta name="twitter:title" content="{{ article.title }}">
-    {% if article.summary %}<meta name="twitter:description" content="{{ article.summary }}">{% endif %}
 {% endblock %}
 
 {% block content %}

@@ -57,7 +57,7 @@ class PageController extends AbstractController
     {
         return $this->render('pages/home.html.twig', [
             'banner_html' => $this->bannerProvider?->getRandomBannerHtml(AuthSession::getRole()),
-            'news_articles' => $this->newsProvider?->getLatestPublicArticles(self::HOME_NEWS_LIMIT) ?? [],
+            'news_articles' => $this->newsProvider?->getLatestVisibleArticles(self::HOME_NEWS_LIMIT, AuthSession::getRole()) ?? [],
             // The provider resolves the caller from the session itself and
             // answers null for a visitor with no unread groups (and for
             // an anonymous one), so there is nothing to gate on here.

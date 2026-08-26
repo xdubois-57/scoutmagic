@@ -17,11 +17,21 @@ namespace Core\Module;
 interface HomeNewsProvider
 {
     /**
-     * The $limit most recent `public`-visibility articles (module usability
-     * review: homepage news column) — never `chief`/`admin`/`direct_link`
-     * ones, same filtering as the module's own public list.
+     * The $limit most recent articles a reader at $role may be shown in a
+     * list (module usability review: homepage news column), same filtering
+     * as the module's own public list.
+     *
+     * $role is the caller's role name (Core\Security\Role's backing
+     * value), passed rather than read from the session because a provider
+     * is a Service and never touches $_SESSION — same shape as
+     * Core\Module\HomeBannerProvider::getRandomBannerHtml(). It exists
+     * because a "members only" article has to be reachable from the
+     * homepage of the members who may read it; `chief`/`admin`
+     * visibilities still never appear here (they have their own manager
+     * view) and neither does `direct_link`, which means "in no list at
+     * all" whoever is asking.
      *
      * @return array<int, array{id: int, title: string, summary: ?string, image_url: ?string, created_at: string}>
      */
-    public function getLatestPublicArticles(int $limit): array;
+    public function getLatestVisibleArticles(int $limit, string $role): array;
 }

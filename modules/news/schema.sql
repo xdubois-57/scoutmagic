@@ -25,10 +25,16 @@ CREATE TABLE IF NOT EXISTS news_articles (
     -- the article's own visibility. Used as the list thumbnail and the
     -- og:image for social sharing.
     image_file_id INT UNSIGNED NULL,
-    visibility ENUM('public', 'chief', 'admin', 'direct_link') NOT NULL DEFAULT 'public',
+    -- 'identified' is a rung of the role ladder (Core\Security\Role):
+    -- animés, their parents and the staff, once signed in. 'direct_link'
+    -- is NOT — it means "unlisted", and grants anyone holding the URL.
+    visibility ENUM('public', 'identified', 'chief', 'admin', 'direct_link') NOT NULL DEFAULT 'public',
     has_form BOOLEAN NOT NULL DEFAULT FALSE,
-    -- direct_link visibility forces is_indexed = false (Service\
-    -- ArticleService, enforced server-side, not just hidden in the UI).
+    -- direct_link AND identified visibility both force is_indexed =
+    -- false (Service\ArticleService, enforced server-side, not just
+    -- hidden in the UI). For identified the reason is the preview, not
+    -- the listing: an indexed page hands its title, summary and cover
+    -- image to a crawler that will never be asked to log in.
     is_indexed BOOLEAN NOT NULL DEFAULT FALSE,
     seo_keywords TEXT NULL,
     seo_stop_date DATE NULL,

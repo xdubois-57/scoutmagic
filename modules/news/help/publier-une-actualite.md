@@ -18,9 +18,15 @@ Chaque article demande une image, un titre et un résumé d'une phrase —
 c'est lui qui s'affiche dans la liste, sur l'affiche et lors d'un
 partage. Le corps de l'article est le premier bloc du formulaire, un
 bloc de texte riche toujours présent. La visibilité décide qui voit
-l'article : Public, Animateurs, Chefs d'Unité, ou « Lien direct » —
-l'article n'apparaît alors dans aucune liste et ne se partage que par
-son adresse ou le code QR de l'affiche.
+l'article : Public, Membres connectés, Animateurs, Chefs d'Unité, ou
+« Lien direct » — l'article n'apparaît alors dans aucune liste et ne se
+partage que par son adresse ou le code QR de l'affiche.
+
+« Membres connectés » réserve l'article aux animés, à leurs parents et
+aux animateurs, une fois connectés. Un article réservé n'est jamais
+référencé, et un lien partagé sur les réseaux sociaux n'en affiche ni
+le titre, ni le résumé, ni l'image : l'aperçu dirait sinon ce que
+l'article voulait garder pour l'unité.
 
 ## Construire le formulaire
 

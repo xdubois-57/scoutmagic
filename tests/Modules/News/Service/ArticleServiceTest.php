@@ -145,16 +145,120 @@ class ArticleServiceTest extends TestCase
         $this->assertTrue($this->service->canEdit($article, Role::ADMIN, 999));
     }
 
+    public function testCanViewIdentifiedArticleRequiresIdentifiedRole(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1);
+
+        $this->assertFalse($this->service->canView($article, Role::PUBLIC));
+        $this->assertTrue($this->service->canView($article, Role::IDENTIFIED));
+        $this->assertTrue($this->service->canView($article, Role::CHIEF));
+    }
+
     public function testFindPublicListExcludesDirectLinkAndChiefArticles(): void
     {
         $this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
         $this->service->create('Chef', Article::VISIBILITY_CHIEF, false, null, null, $this->authorId, 'Résumé.', 1);
         $this->service->create('Lien direct', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->authorId, 'Résumé.', 1);
 
-        $list = $this->service->findPublicList();
+        $list = $this->service->findPublicList(Role::PUBLIC);
 
         $this->assertCount(1, $list);
         $this->assertSame('Public', $list[0]->title);
+    }
+
+    public function testFindPublicListHidesIdentifiedArticleFromAnonymousVisitor(): void
+    {
+        $this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1);
+
+        $titles = array_map(fn(Article $a) => $a->title, $this->service->findPublicList(Role::PUBLIC));
+
+        $this->assertSame(['Public'], $titles);
+    }
+
+    public function testFindPublicListShowsIdentifiedArticleToSignedInReader(): void
+    {
+        $this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1);
+
+        $titles = array_map(fn(Article $a) => $a->title, $this->service->findPublicList(Role::IDENTIFIED));
+
+        sort($titles);
+        $this->assertSame(['Membres', 'Public'], $titles);
+    }
+
+    public function testFindPublicListPageCountsOnlyWhatTheReaderMaySee(): void
+    {
+        $this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1);
+
+        $this->assertSame(1, $this->service->findPublicListPage(Role::PUBLIC, 10, 0)['total']);
+        $this->assertSame(2, $this->service->findPublicListPage(Role::IDENTIFIED, 10, 0)['total']);
+    }
+
+    public function testHomeColumnFollowsTheSameRoleRule(): void
+    {
+        $this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->create('Lien direct', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->authorId, 'Résumé.', 1);
+
+        $anonymous = array_column($this->service->getLatestVisibleArticles(10, 'public'), 'title');
+        $identified = array_column($this->service->getLatestVisibleArticles(10, 'identified'), 'title');
+
+        sort($anonymous);
+        sort($identified);
+        $this->assertSame(['Public'], $anonymous);
+        $this->assertSame(['Membres', 'Public'], $identified);
+    }
+
+    public function testManagerListIncludesIdentifiedArticles(): void
+    {
+        $this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1);
+
+        $titles = array_map(fn(Article $a) => $a->title, $this->service->findManagerList(Role::CHIEF, $this->authorId));
+
+        $this->assertContains('Membres', $titles);
+    }
+
+    /**
+     * The whole point of the decision recorded in schema.sql: an
+     * `identified` article must not be indexable, so the preview a
+     * crawler would publish never exists in the first place.
+     */
+    public function testIdentifiedVisibilityForcesIndexingOffOnCreate(): void
+    {
+        $article = $this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, true, 'camp, scouts', '2099-01-01', $this->authorId, 'Résumé.', 1);
+
+        $this->assertFalse($article->isIndexed);
+        $this->assertNull($article->seoKeywords);
+        $this->assertNull($article->seoStopDate);
+        $this->assertFalse($article->isEffectivelyIndexed());
+    }
+
+    public function testIdentifiedVisibilityForcesIndexingOffOnUpdate(): void
+    {
+        $article = $this->service->create('Public', Article::VISIBILITY_PUBLIC, true, 'camp', null, $this->authorId, 'Résumé.', 1);
+        $this->assertTrue($article->isIndexed);
+
+        $updated = $this->service->update($article->id, 'Public', Article::VISIBILITY_IDENTIFIED, true, 'camp', null, 'Résumé.', null);
+
+        $this->assertFalse($updated->isIndexed);
+        $this->assertNull($updated->seoKeywords);
+    }
+
+    public function testOnlyPubliclyReadableArticlesAreSociallyShareable(): void
+    {
+        $public = $this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $identified = $this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1);
+        $chief = $this->service->create('Chef', Article::VISIBILITY_CHIEF, false, null, null, $this->authorId, 'Résumé.', 1);
+        $directLink = $this->service->create('Lien', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->authorId, 'Résumé.', 1);
+
+        $this->assertTrue($this->service->isSociallyShareable($public));
+        // Unlisted, but readable by anyone holding the address — a
+        // preview gives away nothing the link itself did not.
+        $this->assertTrue($this->service->isSociallyShareable($directLink));
+        $this->assertFalse($this->service->isSociallyShareable($identified));
+        $this->assertFalse($this->service->isSociallyShareable($chief));
     }
 
     public function testDeleteRemovesArticleAndBodyContent(): void

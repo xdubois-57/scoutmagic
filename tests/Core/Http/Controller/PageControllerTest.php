@@ -350,8 +350,13 @@ class PageControllerTest extends TestCase
     public function testHomePageRendersNewsColumnWhenProviderReturnsArticles(): void
     {
         $provider = new class implements HomeNewsProvider {
-            public function getLatestPublicArticles(int $limit): array
+            /** @var string[] */
+            public array $rolesAsked = [];
+
+            public function getLatestVisibleArticles(int $limit, string $role): array
             {
+                $this->rolesAsked[] = $role;
+
                 return [
                     ['id' => 1, 'title' => 'Camp ete', 'summary' => 'Inscriptions ouvertes.', 'image_url' => '/files/42', 'created_at' => '2026-01-01 00:00:00'],
                 ];
@@ -365,12 +370,15 @@ class PageControllerTest extends TestCase
         $this->assertStringContainsString('Actualités', $response->getBody());
         $this->assertStringContainsString('Camp ete', $response->getBody());
         $this->assertStringContainsString('/news/1', $response->getBody());
+        // The provider filters by role itself (a Service never reads
+        // $_SESSION), so the controller has to hand it one.
+        $this->assertSame(['public'], $provider->rolesAsked);
     }
 
     public function testHomePageRendersNoNewsColumnWhenProviderReturnsNoArticles(): void
     {
         $provider = new class implements HomeNewsProvider {
-            public function getLatestPublicArticles(int $limit): array
+            public function getLatestVisibleArticles(int $limit, string $role): array
             {
                 return [];
             }
