@@ -1055,6 +1055,45 @@ class NewsIntegrationTest extends TestCase
         $this->assertSame(0, count($this->articleRepository->findAll()));
     }
 
+    /**
+     * The list/home cards render /files/{id}/thumb and the detail page
+     * /files/{id}/md — FileController::variant() never falls back to the
+     * original, so the upload itself must leave both derivatives behind.
+     */
+    public function testStoringAnArticleImageGeneratesItsThumbAndMdDerivatives(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $csrfToken = CsrfGuard::generateToken();
+
+        $fileRepository = new FileRepository($this->pdo);
+        $variantService = new \Core\Photo\ImageVariantService(
+            $fileRepository, new \Core\Photo\ImageVariantProcessor(), sys_get_temp_dir()
+        );
+        $controller = new NewsController(
+            $this->twig, $this->articleService, $this->formService, $this->responseService, new SeoKeywordService(null),
+            new PosterPdfService(), $this->scoutYearService, $this->settingService, $this->schedulerService, $this->userAccountRepository,
+            $this->memberService, $this->sectionService, new UploadHandler($fileRepository, sys_get_temp_dir()),
+            $fileRepository, sys_get_temp_dir(), $this->journalService, null, null, $variantService
+        );
+
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $response = $controller->store(new Request('POST', '/news', [], [
+            '_csrf_token' => $csrfToken,
+            'title' => 'Camp illustré',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+        ], [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $article = $this->articleRepository->findAll()[0];
+        $this->assertNotNull($article->imageFileId);
+        $file = $fileRepository->findById($article->imageFileId);
+        $this->assertNotNull($file);
+        $this->assertNotNull($variantService->resolvePath($file->relativePath, 'thumb'));
+        $this->assertNotNull($variantService->resolvePath($file->relativePath, 'md'));
+    }
+
     public function testStoreCreatesArticleWithFormAndRedirects(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');

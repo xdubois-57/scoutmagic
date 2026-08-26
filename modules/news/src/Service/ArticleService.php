@@ -66,7 +66,9 @@ class ArticleService implements HomeNewsProvider
             'id' => $article->id,
             'title' => $article->title,
             'summary' => $article->summary,
-            'image_url' => $article->imageFileId !== null ? '/files/' . $article->imageFileId : null,
+            // The 192px thumb, not the original: the homepage card renders
+            // this in a 56px box, and originals can weigh several MB.
+            'image_url' => $article->imageFileId !== null ? '/files/' . $article->imageFileId . '/thumb' : null,
             'created_at' => $article->createdAt,
         ], $this->articleRepository->findLatestPublic($limit));
     }

@@ -64,6 +64,25 @@ class FileRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * Ids of every file whose relative_path starts with $prefix — for
+     * maintenance passes over one storage subdirectory (e.g. the news
+     * module backfilling image derivatives for files uploaded before its
+     * variant pipeline existed). $prefix is a code-supplied directory
+     * prefix, never request input; its LIKE metacharacters are escaped
+     * anyway so a literal '_' in a path cannot widen the match.
+     *
+     * @return int[]
+     */
+    public function findIdsByPathPrefix(string $prefix): array
+    {
+        $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix);
+        $stmt = $this->pdo->prepare('SELECT id FROM files WHERE relative_path LIKE ? ORDER BY id');
+        $stmt->execute([$escaped . '%']);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
     public function delete(int $id): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM files WHERE id = ?');

@@ -35,7 +35,7 @@
         } only %}
 
         {% if article.imageFileId %}
-            <img src="{{ file_url(article.imageFileId) }}" alt="" class="rounded mb-4 w-100" style="max-height:400px;object-fit:cover;">
+            <img src="{{ file_url(article.imageFileId, 'md') }}" alt="" class="rounded mb-4 w-100" style="max-height:400px;object-fit:cover;" decoding="async">
         {% endif %}
 
         {# The form's non-input fields (module usability review: "bloc de

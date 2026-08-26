@@ -3040,9 +3040,36 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $newsArticleService, $newsFormService, $newsResponseService, $newsSeoKeywordService,
             $posterPdfService, $scoutYearService, $settingService, $schedulerService, $userAccountRepo,
             $memberService, $sectionService, $uploadHandler, $fileRepository, $storagePath, $journalService,
-            $financeAccountForOthers, $humanCheckService
+            $financeAccountForOthers, $humanCheckService, $imageVariantService
         )
     );
+
+    // One-shot backfill of thumb/md derivatives for article images uploaded
+    // before the news module generated variants at upload — the templates
+    // render /files/{id}/thumb|md and FileController::variant() never falls
+    // back to the original, so pre-existing images would 404 without it.
+    // The non-editable flag (finance's own `…_seeded` runtime-flag pattern)
+    // keeps this to a settings-cache read on every later request; the
+    // handler flips it once the pass has completed.
+    if ($settingService->get(\Modules\News\Task\GenerateImageVariantsHandler::DONE_FLAG, 'news') !== '1') {
+        $settingService->register(
+            \Modules\News\Task\GenerateImageVariantsHandler::DONE_FLAG,
+            '0',
+            'boolean',
+            'Variantes d\'images générées',
+            'Indicateur interne : le rattrapage des miniatures d\'images des actualités a été effectué.',
+            'news',
+            null,
+            null,
+            false
+        );
+        $schedulerService->rearm(
+            'news',
+            \Modules\News\Task\GenerateImageVariantsHandler::TASK_KEY,
+            \Modules\News\Task\GenerateImageVariantsHandler::REFERENCE,
+            new DateTimeImmutable()
+        );
+    }
     $frontController->registerController(
         \Modules\News\Controller\FormController::class,
         new \Modules\News\Controller\FormController(
