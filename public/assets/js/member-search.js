@@ -112,7 +112,7 @@
     // sees every edit field open. This only folds them away.
     noteEditButtons.forEach(function (button) {
         button.addEventListener('click', function () {
-            var id = button.getAttribute('data-note-id');
+            var id = button.dataset.noteId;
             var form = id ? document.getElementById('member-note-edit-' + id) : null;
             if (!form) return;
             form.classList.toggle('d-none');
