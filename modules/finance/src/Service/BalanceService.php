@@ -55,6 +55,91 @@ class BalanceService
     }
 
     /**
+     * The balance at each of several dates, in one pass.
+     *
+     * getBalanceAt() answers one date and costs two queries plus a full
+     * read of the account's history since its checkpoint. The dashboard's
+     * evolution chart asks twelve times, which was twenty-four queries
+     * and twelve reads of the same rows — the single slowest thing on
+     * that page.
+     *
+     * **Same arithmetic, same answer, per date.** Each date still starts
+     * from the checkpoint closest at or before IT, not from one shared
+     * anchor: a checkpoint is an authoritative balance that re-anchors
+     * the running total, so a mid-year one must keep correcting the
+     * months after it exactly as it did before. All that changes is that
+     * the checkpoints and the movements are each read once and the sums
+     * come from a running total rather than from a fresh scan per date.
+     *
+     * @param \DateTimeInterface[] $dates
+     * @return array<string, ?float> keyed by Y-m-d, null for a date with
+     *         no checkpoint at or before it — the same "no known
+     *         reference point" answer getBalanceAt() gives
+     */
+    public function getBalancesAt(Account $account, array $dates): array
+    {
+        if ($dates === []) {
+            return [];
+        }
+
+        $checkpoints = $this->checkpointRepository->findByAccountId($account->id);
+        $wanted = [];
+        foreach ($dates as $date) {
+            $wanted[$date->format('Y-m-d')] = null;
+        }
+
+        if ($checkpoints === []) {
+            return $wanted;
+        }
+
+        // Cumulative movement total up to and including each date that
+        // matters — the month ends asked for, and every checkpoint date,
+        // since a balance is (checkpoint + everything strictly after it).
+        $milestones = array_keys($wanted);
+        foreach ($checkpoints as $checkpoint) {
+            $milestones[] = $checkpoint->checkpointDate;
+        }
+        $milestones = array_values(array_unique($milestones));
+        sort($milestones);
+
+        $earliest = $checkpoints[0]->checkpointDate;
+        $runningTotal = 0.0;
+        $cumulativeUpTo = [];
+        $movements = $this->transactionRepository->findByAccountAfterDate($account->id, $earliest);
+        $index = 0;
+        $count = count($movements);
+        foreach ($milestones as $milestone) {
+            while ($index < $count && $movements[$index]->transactionDate <= $milestone) {
+                $runningTotal += $movements[$index]->amount;
+                $index++;
+            }
+            $cumulativeUpTo[$milestone] = $runningTotal;
+        }
+
+        foreach ($wanted as $date => $_) {
+            $anchor = null;
+            foreach ($checkpoints as $checkpoint) {
+                if ($checkpoint->checkpointDate <= $date) {
+                    $anchor = $checkpoint;
+                    continue;
+                }
+                break;
+            }
+            if ($anchor === null) {
+                continue;
+            }
+
+            // Movements strictly after the checkpoint, up to and
+            // including the date — getBalanceAt()'s own window.
+            $wanted[$date] = $anchor->balance
+                + $cumulativeUpTo[$date]
+                - $cumulativeUpTo[$anchor->checkpointDate];
+        }
+
+        return $wanted;
+    }
+
+    /**
      * Lowest balance reached at any point from $since to today — walks
      * forward from a starting balance, transaction by transaction,
      * tracking the running minimum (balance only ever changes at a

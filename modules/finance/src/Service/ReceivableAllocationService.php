@@ -179,9 +179,17 @@ class ReceivableAllocationService
         // in one pass cannot both fill it.
         $allocatedByReceivable = [];
         $existingByPair = [];
+        // One query for the whole set, not one per receivable: this pass
+        // runs on every status read (refreshAndSettle), so an account
+        // with 200 receivables was issuing 200 queries to build a map
+        // that findByReceivableIds() already returns in one — the same
+        // batched call settlementsFor() below has always used.
+        $allocationsByReceivable = $this->allocationRepository->findByReceivableIds(
+            array_map(static fn(ExpectedReceivable $receivable): int => $receivable->id, $receivables)
+        );
         foreach ($receivables as $receivable) {
             $allocatedByReceivable[$receivable->id] = 0;
-            foreach ($this->allocationRepository->findByReceivableId($receivable->id) as $allocation) {
+            foreach ($allocationsByReceivable[$receivable->id] ?? [] as $allocation) {
                 $existingByPair[$allocation->transactionId][$allocation->receivableId] = $allocation;
                 if ($allocation->amountCents > 0) {
                     $allocatedByReceivable[$receivable->id] += $allocation->amountCents;

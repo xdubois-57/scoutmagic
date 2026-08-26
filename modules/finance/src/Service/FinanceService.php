@@ -720,10 +720,13 @@ class FinanceService
     /**
      * Month-end cumulative balance across a fiscal year, from its start
      * up to today (never projected into the future) — backs the
-     * dashboard's balance-evolution line chart. Each point reuses
-     * Service\BalanceService::getBalanceAt(), so it's seeded from
-     * whatever checkpoint is closest to that month's end, exactly like
-     * every other balance figure in the module.
+     * dashboard's balance-evolution line chart. Every point is still
+     * seeded from whatever checkpoint is closest to ITS own month end,
+     * exactly like every other balance figure in the module; the twelve
+     * of them are simply asked for at once (Service\BalanceService::
+     * getBalancesAt()) rather than one at a time, which is two queries
+     * and one read of the account's history instead of twenty-four and
+     * twelve.
      *
      * @return array<int, array{month: string, balance: ?float}>
      */
@@ -746,19 +749,25 @@ class FinanceService
             return [];
         }
 
-        $evolution = [];
+        $monthEnds = [];
         while ($cursor <= $end) {
             $monthEnd = $cursor->modify('last day of this month');
             if ($monthEnd > $end) {
                 $monthEnd = $end;
             }
 
-            $evolution[] = [
-                'month' => $cursor->format('Y-m'),
-                'balance' => $this->balanceService->getBalanceAt($account, $monthEnd),
-            ];
-
+            $monthEnds[$cursor->format('Y-m')] = $monthEnd;
             $cursor = $cursor->modify('first day of next month');
+        }
+
+        $balances = $this->balanceService->getBalancesAt($account, array_values($monthEnds));
+
+        $evolution = [];
+        foreach ($monthEnds as $month => $monthEnd) {
+            $evolution[] = [
+                'month' => $month,
+                'balance' => $balances[$monthEnd->format('Y-m-d')] ?? null,
+            ];
         }
 
         return $evolution;
