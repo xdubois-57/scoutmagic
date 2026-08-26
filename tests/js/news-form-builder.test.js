@@ -21,7 +21,7 @@ import '../../public/assets/js/toast.js';
 import '../../public/assets/js/news-form-builder.js';
 
 const nfb = globalThis.ScoutMagicNewsFormBuilderInternals;
-const { sanitizeHtml, isSafeUrlScheme } = nfb;
+const { sanitizeHtml, isSafeUrlScheme, visibilityUiState } = nfb;
 
 describe('news-form-builder.js: isSafeUrlScheme()', () => {
     it('allows a URL with no scheme at all', () => {
@@ -355,5 +355,59 @@ describe('news-form-builder.js: addFieldEditRow() is only ever handed a literal'
             // quoted literal after the panel, and no ` + ` splicing.
             expect(args, `addFieldEditRow(${args})`).not.toMatch(/\s\+\s/);
         });
+    });
+});
+
+// The editor's Visibilité control decides four things at once, and three
+// of them are only ever a courtesy: the server refuses indexing for
+// `direct_link` and `identified` on its own (Service\ArticleService::
+// enforceSeoRules), and derives the form's access from the same value.
+// Hiding the SEO panel spares the author a section that would be
+// discarded; it is never the protection. These cases pin the rules as a
+// table so a fifth visibility cannot be added without deciding them.
+describe('news-form-builder.js: visibilityUiState()', () => {
+    it('lets Public and Lien direct answer a form without signing in', () => {
+        expect(visibilityUiState('public').formAccessIsPublic).toBe(true);
+        expect(visibilityUiState('direct_link').formAccessIsPublic).toBe(true);
+    });
+
+    it('requires a session to answer the form of every restricted article', () => {
+        ['identified', 'chief', 'admin'].forEach((v) => {
+            expect(visibilityUiState(v).formAccessIsPublic, v).toBe(false);
+        });
+    });
+
+    it('offers the SEO panel only where indexing is actually possible', () => {
+        expect(visibilityUiState('public').showSeoSection).toBe(true);
+        expect(visibilityUiState('chief').showSeoSection).toBe(true);
+        expect(visibilityUiState('admin').showSeoSection).toBe(true);
+    });
+
+    it('hides the SEO panel for the two visibilities the server refuses to index', () => {
+        // direct_link: in no list at all. identified: a crawler never
+        // signs in, so an indexed page would publish the title, the
+        // summary and the cover image of a members-only article.
+        expect(visibilityUiState('direct_link').showSeoSection).toBe(false);
+        expect(visibilityUiState('identified').showSeoSection).toBe(false);
+    });
+
+    it('shows each explanatory note only under its own visibility', () => {
+        expect(visibilityUiState('direct_link').showDirectLinkHelp).toBe(true);
+        expect(visibilityUiState('direct_link').showIdentifiedHelp).toBe(false);
+        expect(visibilityUiState('identified').showIdentifiedHelp).toBe(true);
+        expect(visibilityUiState('identified').showDirectLinkHelp).toBe(false);
+        ['public', 'chief', 'admin'].forEach((v) => {
+            expect(visibilityUiState(v).showDirectLinkHelp, v).toBe(false);
+            expect(visibilityUiState(v).showIdentifiedHelp, v).toBe(false);
+        });
+    });
+
+    it('treats an unknown value as an ordinary restricted one rather than throwing', () => {
+        const state = visibilityUiState('something-else');
+
+        expect(state.formAccessIsPublic).toBe(false);
+        expect(state.showSeoSection).toBe(true);
+        expect(state.showDirectLinkHelp).toBe(false);
+        expect(state.showIdentifiedHelp).toBe(false);
     });
 });

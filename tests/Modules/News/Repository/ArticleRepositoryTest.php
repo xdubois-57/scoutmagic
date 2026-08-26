@@ -145,4 +145,38 @@ class ArticleRepositoryTest extends TestCase
         $this->assertSame([], $this->repository->findByVisibilitiesPage([], 10, 0));
     }
 
+    /**
+     * The homepage column reads the same visibilities the /news list
+     * does — the caller decides the set from the reader's role, so this
+     * takes a list rather than hardcoding `public` the way it used to.
+     */
+    public function testFindLatestByVisibilitiesReturnsTheMostRecentOfEachRequestedVisibility(): void
+    {
+        $public = $this->repository->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId);
+        $this->pdo->exec("UPDATE news_articles SET created_at = '2026-01-01 10:00:00' WHERE id = {$public}");
+        $identified = $this->repository->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId);
+        $this->pdo->exec("UPDATE news_articles SET created_at = '2026-01-02 10:00:00' WHERE id = {$identified}");
+        $this->repository->create('Chef', Article::VISIBILITY_CHIEF, false, null, null, $this->authorId);
+
+        $anonymous = $this->repository->findLatestByVisibilities([Article::VISIBILITY_PUBLIC], 10);
+        $member = $this->repository->findLatestByVisibilities(
+            [Article::VISIBILITY_PUBLIC, Article::VISIBILITY_IDENTIFIED],
+            10
+        );
+
+        $this->assertSame(['Public'], array_map(fn(Article $a) => $a->title, $anonymous));
+        // Most recent first, and the chief-only article in neither list.
+        $this->assertSame(['Membres', 'Public'], array_map(fn(Article $a) => $a->title, $member));
+    }
+
+    public function testFindLatestByVisibilitiesHonoursTheLimitAndAnEmptySet(): void
+    {
+        $this->repository->create('A', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId);
+        $this->repository->create('B', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId);
+
+        $this->assertCount(1, $this->repository->findLatestByVisibilities([Article::VISIBILITY_PUBLIC], 1));
+        // An empty set means "nothing to show", never "show everything" —
+        // a `WHERE visibility IN ()` would be a syntax error anyway.
+        $this->assertSame([], $this->repository->findLatestByVisibilities([], 10));
+    }
 }

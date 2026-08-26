@@ -181,6 +181,30 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringContainsString('Camp ete', $response->getBody());
     }
 
+    /**
+     * The second page is a second query, and it has to ask the same
+     * role-aware question as the first — an `identified` article that
+     * fell past page 1 must still reach the member it was written for.
+     */
+    public function testPublicListSecondPageStaysRoleAware(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'parent@test.com', 'identified');
+
+        // 30 per page: 31 public articles push one `identified` article
+        // onto page 2, oldest last.
+        $reserved = $this->articleRepository->create('Reserve aux membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
+        $this->pdo->exec("UPDATE news_articles SET created_at = '2020-01-01 10:00:00' WHERE id = {$reserved}");
+        for ($i = 1; $i <= 31; $i++) {
+            $id = $this->articleRepository->create('Public ' . $i, Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+            $this->pdo->exec("UPDATE news_articles SET created_at = '2026-01-01 10:00:00' WHERE id = {$id}");
+        }
+
+        $page2 = $this->newsController->index(new Request('GET', '/news', ['page' => '2'], [], [], []), []);
+
+        $this->assertSame(200, $page2->getStatusCode());
+        $this->assertStringContainsString('Reserve aux membres', $page2->getBody());
+    }
+
     public function testPublicListNeverShowsDirectLinkArticles(): void
     {
         $this->articleRepository->create('Secret', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->chiefAccountId);
