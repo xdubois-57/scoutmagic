@@ -1,0 +1,303 @@
+{% extends "base.html.twig" %}
+
+{#
+  Table on desktop, cards on mobile — `table-responsive d-none d-md-block`
+  then the card list under it, exactly as receivables.html.twig does. A
+  treasurer working through 262 receivables on a wide screen needs the
+  density of a table; the same page on a phone needs cards.
+
+  Both renderings share one macro for a line's detail, so the note and the
+  abandon can never drift apart between the two. Their element ids carry a
+  prefix for the same reason ids have to be unique even when half the DOM
+  is hidden by a `d-none`.
+
+  The expansion is Bootstrap's own collapse, never a hand-rolled
+  expandable card (AGENTS.md § CSS forbids redrawing a Bootstrap component
+  in custom CSS). On desktop the collapsible sits inside a full-width
+  `<td>` rather than on the `<tr>` itself: Bootstrap toggles `display`,
+  and a shown `<tr>` set to `display: block` stops being a table row.
+
+  Statuses go through partials/status_badge.html.twig and nowhere else.
+  « Impayée » is `pending` (amber), not `danger`: it is WAITING for
+  somebody, it has not failed. The label tells it apart from
+  « Partielle », the colour does not — and this page has no red state at
+  all, because nothing on it ever fails.
+#}
+
+{% macro status_badge(row) %}
+    {% if row.status == 'paid' %}
+        {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Payée' } only %}
+    {% elseif row.status == 'partial' %}
+        {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Partielle' } only %}
+    {% elseif row.status == 'waived' %}
+        {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'Abandonnée' } only %}
+    {% else %}
+        {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Impayée' } only %}
+    {% endif %}
+    {% if row.amount_overpaid > 0 %}
+        {% if row.refund_state == 'requested' %}
+            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'À rembourser' } only %}
+        {% else %}
+            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Trop-perçu' } only %}
+        {% endif %}
+    {% endif %}
+{% endmacro %}
+
+{% macro row_detail(campaign, row, filter, prefix) %}
+    {% if row.amount_overpaid > 0 %}
+        <div class="alert alert-warning" role="alert">
+            <strong>Trop-perçu de {{ row.amount_overpaid|money_cents }}</strong><br>
+            {{ row.amount_designated|money_cents }} reçus pour {{ row.amount_due|money_cents }} dus.
+            Le montant en trop n'est pas imputé — une créance n'absorbe jamais plus que ce qu'elle doit.
+        </div>
+    {% endif %}
+
+    <dl class="row mb-3">
+        <dt class="col-5 col-sm-4 fw-normal text-body-secondary">Communication</dt>
+        <dd class="col-7 col-sm-8 font-monospace small">{{ row.communication ?? '—' }}</dd>
+        <dt class="col-5 col-sm-4 fw-normal text-body-secondary">Reçu</dt>
+        <dd class="col-7 col-sm-8">{{ row.amount_received|money_cents }}</dd>
+        <dt class="col-5 col-sm-4 fw-normal text-body-secondary">Reste à payer</dt>
+        <dd class="col-7 col-sm-8">{{ row.amount_remaining|money_cents }}</dd>
+    </dl>
+
+    <form method="post" action="/finance/campaigns/{{ campaign.id }}/rows/{{ row.row_id }}/note" class="mb-3">
+        {{ csrf_field()|raw }}
+        <input type="hidden" name="filter" value="{{ filter }}">
+        {% include 'partials/form_field.html.twig' with {
+            field_id: prefix ~ '-note-' ~ row.row_id, field_name: 'note',
+            label: 'Note interne — jamais visible par la famille',
+            type: 'textarea', rows: 2, size: 'sm', value: row.note,
+            help: row.note_updated_at
+                ? 'Dernière modification : ' ~ (row.note_author ? row.note_author ~ ', ' : '') ~ (row.note_updated_at|datetime_fr)
+                : "Visible des seuls trésoriers, et reprise dans l'export.",
+        } only %}
+        <button type="submit" class="btn btn-sm btn-outline-secondary tap-target">
+            {{ row.note ? 'Modifier la note' : 'Ajouter une note' }}
+        </button>
+    </form>
+
+    {% if row.receivable_id and (row.status == 'unpaid' or row.status == 'partial') %}
+        {# Full screen, because the gesture is handing a phone to a parent
+           met after the meeting. The QR asks for what is STILL DUE — see
+           Controller\ReconciliationController::qr(). #}
+        <p class="mb-3">
+            <a class="btn btn-sm btn-primary tap-target"
+               href="/finance/receivables/{{ row.receivable_id }}/qr?campaign_id={{ campaign.id }}">
+                <i class="bi bi-qr-code" aria-hidden="true"></i> Afficher le QR
+            </a>
+        </p>
+    {% endif %}
+
+    {% if row.receivable_id and row.status != 'paid' %}
+        <form method="post"
+              action="/finance/campaigns/{{ campaign.id }}/receivables/{{ row.receivable_id }}/waive"
+              data-confirm="{{ row.status == 'waived'
+                  ? 'Annuler l\'abandon ? La créance redevient due.'
+                  : 'Abandonner la créance ? Elle sera soldée sans qu\'aucun paiement n\'entre en caisse.' }}">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="filter" value="{{ filter }}">
+            <input type="hidden" name="waived" value="{{ row.status == 'waived' ? '0' : '1' }}">
+            <button type="submit" class="btn btn-sm btn-outline-danger tap-target">
+                {{ row.status == 'waived' ? "Annuler l'abandon" : 'Abandonner la créance' }}
+            </button>
+        </form>
+    {% endif %}
+{% endmacro %}
+
+{% import _self as ui %}
+
+{% block title %}{{ campaign.label }} — Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: campaign.label,
+        badge: scout_year,
+        subtitle: counts.all ~ ' créance' ~ (counts.all > 1 ? 's' : '') ~ ', une par membre'
+            ~ (account ? ' — ' ~ account.name : ''),
+    } only %}
+
+    {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
+
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        {% if campaign.isOpen %}
+            {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Ouverte' } only %}
+        {% else %}
+            {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'Clôturée' } only %}
+        {% endif %}
+        {% if not campaign.isNotified %}
+            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Familles non notifiées' } only %}
+        {% else %}
+            <span class="text-body-secondary small">
+                <i class="bi bi-bell" aria-hidden="true"></i>
+                Familles prévenues le {{ campaign.notifiedAt|date('d/m/Y') }}
+            </span>
+        {% endif %}
+    </div>
+
+    <div class="row g-2 mb-3">
+        {% set tiles = [
+            { value: totals.amount_due|money_cents, label: 'total dû' },
+            { value: totals.amount_received|money_cents, label: 'reçu' },
+            { value: totals.unpaid_count, label: 'impayées' },
+            { value: totals.overpaid_count, label: 'trop-perçus' },
+        ] %}
+        {% for tile in tiles %}
+            <div class="col-6 col-md-3">
+                <div class="border rounded-3 p-2 h-100">
+                    <p class="fw-semibold mb-0">{{ tile.value }}</p>
+                    <p class="text-body-secondary small mb-0">{{ tile.label }}</p>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        {% if reminder_available|default(false) %}
+            <form method="post" action="/finance/campaigns/{{ campaign.id }}/reminder" class="d-inline">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-primary btn-sm tap-target">
+                    <i class="bi bi-envelope" aria-hidden="true"></i> Brouillon de rappel
+                </button>
+            </form>
+        {% endif %}
+        {% if not campaign.isNotified %}
+            <form method="post" action="/finance/campaigns/{{ campaign.id }}/notify" class="d-inline">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-secondary btn-sm tap-target">
+                    <i class="bi bi-bell" aria-hidden="true"></i> Notifier les familles
+                </button>
+            </form>
+        {% endif %}
+        <a class="btn btn-outline-secondary btn-sm tap-target"
+           href="/finance/campaigns/{{ campaign.id }}/export?filter={{ filter }}">
+            <i class="bi bi-download" aria-hidden="true"></i> Exporter ({{ rows|length }})
+        </a>
+        <form method="post" action="/finance/campaigns/{{ campaign.id }}/status" class="d-inline"
+              data-confirm="{{ campaign.isOpen
+                  ? 'Clôturer la campagne ? Les rappels s\'arrêtent et la campagne est figée — elle reste consultable.'
+                  : 'Rouvrir la campagne ?' }}">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="status" value="{{ campaign.isOpen ? 'closed' : 'open' }}">
+            <button type="submit" class="btn btn-outline-secondary btn-sm tap-target">
+                {{ campaign.isOpen ? 'Clôturer' : 'Rouvrir' }}
+            </button>
+        </form>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mb-2">
+        {% set tabs = [
+            { key: 'todo', label: 'À traiter', count: counts.todo },
+            { key: 'paid', label: 'Payées', count: counts.paid },
+            { key: 'waived', label: 'Abandonnées', count: counts.waived },
+            { key: 'all', label: 'Toutes', count: counts.all },
+        ] %}
+        {% for tab in tabs %}
+            <a class="btn btn-sm tap-target {{ tab.key == filter ? 'btn-primary' : 'btn-outline-secondary' }}"
+               href="/finance/campaigns/{{ campaign.id }}?filter={{ tab.key }}">{{ tab.label }} ({{ tab.count }})</a>
+        {% endfor %}
+    </div>
+
+    {% if reminder_available|default(false) %}
+        <div class="alert alert-info" role="alert">
+            <i class="bi bi-envelope" aria-hidden="true"></i>
+            Le brouillon est préparé avec les destinataires, leur montant, leur communication et leur QR —
+            mais <strong>n'est jamais envoyé automatiquement</strong>. Vous le relisez et vous l'envoyez
+            depuis le publipostage.
+        </div>
+    {% endif %}
+
+    <p class="text-body-secondary small">
+        Triées par nom de famille — les créances d'un même foyer se suivent.
+        <br>
+        <strong>L'export reprend les {{ rows|length }} créance{{ rows|length > 1 ? 's' : '' }} affichée{{ rows|length > 1 ? 's' : '' }}</strong>
+        {{ filter == 'all' ? '— soit la campagne entière.' : "— changez de filtre pour en exporter d'autres." }}
+    </p>
+
+    {% if rows is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune créance dans ce filtre.',
+            icon: 'bi-check2-circle',
+        } only %}
+    {% else %}
+        <div class="table-responsive d-none d-md-block">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">Membre</th>
+                        <th scope="col">Section</th>
+                        <th scope="col">Communication</th>
+                        <th scope="col" class="text-end">Dû</th>
+                        <th scope="col" class="text-end">Reçu</th>
+                        <th scope="col">Statut</th>
+                        <th scope="col"><span class="visually-hidden">Détail</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>
+                            <td>
+                                <strong>{{ row.last_name }}</strong> {{ row.first_name }}
+                                {% if row.note %}
+                                    <i class="bi bi-lock-fill text-body-secondary small" aria-hidden="true"></i>
+                                    <span class="visually-hidden">Note interne</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-body-secondary">{{ row.section ?? '—' }}</td>
+                            <td class="font-monospace small text-body-secondary">{{ row.communication ?? '—' }}</td>
+                            <td class="text-end">{{ row.amount_due|money_cents }}</td>
+                            <td class="text-end text-body-secondary">{{ row.amount_received|money_cents }}</td>
+                            <td>{{ ui.status_badge(row) }}</td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-secondary tap-target collapsed" type="button"
+                                        data-bs-toggle="collapse" data-bs-target="#row-desktop-{{ row.row_id }}"
+                                        aria-expanded="false" aria-controls="row-desktop-{{ row.row_id }}">
+                                    <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                                    <span class="visually-hidden">Détail de la créance</span>
+                                </button>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td colspan="7" class="p-0 border-0">
+                                <div class="collapse" id="row-desktop-{{ row.row_id }}">
+                                    <div class="bg-body-tertiary p-3">
+                                        {{ ui.row_detail(campaign, row, filter, 'desktop') }}
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="accordion d-md-none" id="campaign-rows">
+            {% for row in rows %}
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                data-bs-target="#row-mobile-{{ row.row_id }}" aria-expanded="false"
+                                aria-controls="row-mobile-{{ row.row_id }}">
+                            <span class="flex-grow-1 text-start">
+                                <strong>{{ row.last_name }}</strong> {{ row.first_name }}
+                                <span class="d-block text-body-secondary small">{{ row.section ?? '—' }}</span>
+                                <span class="d-block mt-1">{{ ui.status_badge(row) }}</span>
+                            </span>
+                            <span class="fw-semibold me-2">{{ row.amount_due|money_cents }}</span>
+                        </button>
+                    </h2>
+                    <div id="row-mobile-{{ row.row_id }}" class="accordion-collapse collapse" data-bs-parent="#campaign-rows">
+                        <div class="accordion-body">
+                            {{ ui.row_detail(campaign, row, filter, 'mobile') }}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <p class="text-body-secondary small mt-4">
+        Les créances payées sont masquées par défaut — sauf celles qui portent un trop-perçu, qui appellent
+        encore un geste. Rien ne s'acquitte à la main : un statut vient des relevés bancaires importés.
+    </p>
+{% endblock %}

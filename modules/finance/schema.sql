@@ -310,6 +310,28 @@ CREATE TABLE IF NOT EXISTS finance_ai_category_suggestions (
 -- finance_transactions sharing the same communication (Service\
 -- ExpectedReceivableService::getReceivableStatus()), since a receivable
 -- can be settled across several bank transactions over time.
+--
+-- waived_at/waived_by record an abandoned receivable — a dispense, a
+-- goodwill gesture, an invoicing mistake. **Abandoning is not
+-- collecting**: it settles the receivable without a cent entering the
+-- account, so it is deliberately not expressed as an allocation of some
+-- imaginary payment, which would inflate every incoming total the
+-- treasurer reads.
+--
+-- member_id says WHO owes this, when the debtor is a member of the unit
+-- — which a payment campaign always requires and `rental` never can:
+-- that module invoices outside renters who are not members at all, so
+-- the column is **optional** and making it mandatory would break the
+-- letting. It points at `members.id`, the persistent identity, and not
+-- at a member_year: a receivable outlives the scout year that saw it
+-- born, exactly as `files.owner_member_id` does.
+--
+-- refund_requested_at/refund_requested_by record the one human decision
+-- in the overpayment cycle: "this surplus is to be paid back". Whether
+-- it HAS been paid back is never stored — it is read from the refund
+-- allocations against the receivable (finance_receivable_allocations
+-- with a negative amount), because the debit leaving the account is what
+-- makes a refund real, not a checkbox somebody ticked.
 CREATE TABLE IF NOT EXISTS finance_expected_receivables (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     source_module VARCHAR(50) NOT NULL,
@@ -318,8 +340,165 @@ CREATE TABLE IF NOT EXISTS finance_expected_receivables (
     amount_due_cents INT UNSIGNED NOT NULL,
     communication VARCHAR(24) NOT NULL,
     label_encrypted BLOB NULL,
+    member_id INT UNSIGNED NULL,
+    waived_at DATETIME NULL,
+    waived_by INT UNSIGNED NULL,
+    refund_requested_at DATETIME NULL,
+    refund_requested_by INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_fer_source (source_module, source_reference_id),
     INDEX idx_fer_communication (communication),
-    CONSTRAINT fk_fer_account FOREIGN KEY (account_id) REFERENCES finance_accounts(id)
+    INDEX idx_fer_member (member_id),
+    CONSTRAINT fk_fer_account FOREIGN KEY (account_id) REFERENCES finance_accounts(id),
+    CONSTRAINT fk_fer_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- finance_receivable_allocations: "this much of that bank movement pays
+-- for this receivable". Before it existed nothing was written down at
+-- all — a receivable's status was refabricated on every display by
+-- summing the *whole* amount of every transaction whose text carried its
+-- communication — so no human could correct anything, a single transfer
+-- covering three siblings could not be split, and a credit nobody's
+-- communication matched could not be attached by hand.
+--
+-- amount_cents is signed, and the sign is the row's meaning:
+--
+--   > 0  the movement settles the receivable. Never more than what is
+--        still due (Service\ReceivableAllocationService), which is the
+--        single rule behind "paid too much", "paid twice a month apart"
+--        and "paid in instalments that overshoot" alike — the surplus
+--        simply stays unallocated instead of pretending a receivable
+--        absorbed more than it was ever worth.
+--   = 0  a human decided this movement pays nothing towards this
+--        receivable. A tombstone, not a no-op: removing an automatic
+--        allocation has to leave a trace, or the next automatic run
+--        would put it straight back.
+--   < 0  a debit refunding an overpayment on this receivable. Same
+--        mechanism in reverse, which is why the refund cycle closes on
+--        the account statement rather than on somebody's word.
+--
+-- source is 'auto' for Service\ReceivableAllocationService's matching at
+-- import time and 'manual' for anything a human did — the same
+-- distinction, and the same purpose, as finance_transactions
+-- .category_source: **the automatic pass never touches a row marked
+-- manual**, so a correction survives the next import.
+--
+-- The unique (transaction_id, receivable_id) pair is what makes the
+-- automatic pass idempotent: re-running it over a statement that was
+-- re-imported writes nothing new. Re-importing the statement itself is
+-- already a no-op one level down, on finance_transactions' own unique
+-- (account_id, bank_reference).
+--
+-- There is deliberately no cross-account flag: an allocation joins a
+-- movement and a receivable that live on the SAME account, and the
+-- service refuses anything else. Money paid onto the wrong account is
+-- reported on both sides and transferred for real — never imputed at a
+-- distance, which would mark a receivable settled while the account
+-- concerned received nothing.
+CREATE TABLE IF NOT EXISTS finance_receivable_allocations (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    transaction_id INT UNSIGNED NOT NULL,
+    receivable_id INT UNSIGNED NOT NULL,
+    amount_cents INT NOT NULL,
+    source ENUM('auto', 'manual') NOT NULL,
+    created_by INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_fra_pair (transaction_id, receivable_id),
+    INDEX idx_fra_receivable (receivable_id),
+    CONSTRAINT fk_fra_transaction FOREIGN KEY (transaction_id) REFERENCES finance_transactions(id) ON DELETE CASCADE,
+    CONSTRAINT fk_fra_receivable FOREIGN KEY (receivable_id) REFERENCES finance_expected_receivables(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- finance_campaigns: "invoice this amount to each member of this list,
+-- and follow the payments". A generic mechanism, not a cotisation
+-- feature — a camp balance and a weekend both use it unchanged.
+--
+-- **A campaign belongs to a scout year**, because without one neither
+-- the retention nor the filing has a rule, and a cotisation campaign
+-- with no season makes no sense to anybody reading it later.
+--
+-- **Two states, and no draft.** The receivables exist from the import
+-- onwards, so there is nothing a draft could usefully hold back.
+-- Closing stops the reminders and freezes the campaign, which stays
+-- readable for ever.
+--
+-- source_file_id points at the uploaded spreadsheet, stored encrypted
+-- through Core\File\EncryptedFileStorageService like any other
+-- confidential file. It is kept because it is the only way to
+-- investigate "where did this amount come from" months later — and
+-- purged with the same window as a Desk import (two scout years,
+-- `import_retention_scout_years`, Task\PurgeCampaignFilesHandler),
+-- because a second retention period to maintain is a second retention
+-- period to get wrong.
+--
+-- notified_at records the treasurer pressing "Notifier les familles".
+-- Not the creation of the campaign: the reminder e-mail leaves by hand
+-- from the mass-mail draft, so the site cannot know when the request
+-- actually went out, and a notification sent at import time would
+-- announce a message that has not been written yet.
+CREATE TABLE IF NOT EXISTS finance_campaigns (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    label VARCHAR(150) NOT NULL,
+    scout_year_id INT UNSIGNED NOT NULL,
+    account_id INT UNSIGNED NOT NULL,
+    status ENUM('open', 'closed') NOT NULL DEFAULT 'open',
+    source_file_id INT UNSIGNED NULL,
+    source_filename VARCHAR(255) NOT NULL DEFAULT '',
+    merge_columns TEXT NULL,
+    notified_at DATETIME NULL,
+    notified_by INT UNSIGNED NULL,
+    closed_at DATETIME NULL,
+    created_by INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_fcamp_year (scout_year_id),
+    INDEX idx_fcamp_account (account_id),
+    CONSTRAINT fk_fcamp_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+    CONSTRAINT fk_fcamp_account FOREIGN KEY (account_id) REFERENCES finance_accounts(id),
+    CONSTRAINT fk_fcamp_file FOREIGN KEY (source_file_id) REFERENCES files(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- finance_campaign_rows: one row per member, one receivable per row.
+--
+-- **One receivable per member, never per household.** A family of three
+-- gets three requests, three communications, three transfers. The
+-- household decides the TARIFF; it never decides the receivable. This is
+-- the same shape as the federation's own invoice, which is nominative
+-- too, and it is what makes a payment identifiable when it arrives.
+--
+-- member_id is MANDATORY here, unlike on finance_expected_receivables:
+-- a campaign line that resolves to nobody is refused at import, and the
+-- whole import fails rather than landing partially. There is no
+-- fall-back matching on a name — the identifier column produced by the
+-- site's own member export is what ties an amount to a person, and a
+-- file rebuilt by hand without it is rejected with that sentence.
+--
+-- merge_data holds the spreadsheet's other columns for this line,
+-- encrypted: they become the merge variables of the reminder draft, and
+-- they are personal data (a name, an address, a section) that has no
+-- business sitting in the clear. Purged with the source file, for the
+-- same reason — keeping a copy of a file we have promised to delete
+-- would make the promise decorative.
+--
+-- note is the treasurer's own note about this receivable, encrypted and
+-- **never visible to the family**. A single field with its author and
+-- the date it last moved, not a thread of dated entries: the question it
+-- answers is "where do we stand with this one", and a thread answers it
+-- worse. Present in the export, never offered as a merge variable — a
+-- note that could end up in a reminder is a note nobody will write
+-- honestly.
+CREATE TABLE IF NOT EXISTS finance_campaign_rows (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    campaign_id INT UNSIGNED NOT NULL,
+    member_id INT UNSIGNED NOT NULL,
+    amount_cents INT UNSIGNED NOT NULL,
+    source_line INT UNSIGNED NOT NULL DEFAULT 0,
+    merge_data BLOB NULL,
+    note BLOB NULL,
+    note_author_id INT UNSIGNED NULL,
+    note_updated_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_fcrow_campaign (campaign_id),
+    INDEX idx_fcrow_member (member_id),
+    CONSTRAINT fk_fcrow_campaign FOREIGN KEY (campaign_id) REFERENCES finance_campaigns(id) ON DELETE CASCADE,
+    CONSTRAINT fk_fcrow_member FOREIGN KEY (member_id) REFERENCES members(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

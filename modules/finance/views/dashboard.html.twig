@@ -79,6 +79,32 @@
             </div>
         {% endif %}
 
+        {# « À rapprocher » is the only tile that is a THING TO DO rather
+           than a state of affairs: a balance is read, a rapprochement is
+           acted on, and nothing else on the site will do it.
+
+           Its sublabel names what the figure is made of — assembled here
+           rather than inside the tile list, where a Twig comment cannot
+           go and the four French wordings would drown the other tiles.
+           Naming them matters: a number that stays put is then a
+           deliberate choice the treasurer can see rather than a nag they
+           learn to ignore, an unallocated remainder not being an error
+           in itself. #}
+        {% set reconciliation_parts = [] %}
+        {% if reconciliation_counts.split|default(0) > 0 %}
+            {% set reconciliation_parts = reconciliation_parts|merge([reconciliation_counts.split ~ ' à répartir']) %}
+        {% endif %}
+        {% if reconciliation_counts.orphans|default(0) > 0 %}
+            {% set reconciliation_parts = reconciliation_parts|merge([reconciliation_counts.orphans ~ ' non imputé' ~ (reconciliation_counts.orphans > 1 ? 's' : '')]) %}
+        {% endif %}
+        {% if reconciliation_counts.overpaid|default(0) > 0 %}
+            {% set reconciliation_parts = reconciliation_parts|merge([reconciliation_counts.overpaid ~ ' trop-perçu' ~ (reconciliation_counts.overpaid > 1 ? 's' : '')]) %}
+        {% endif %}
+        {% if reconciliation_counts.cross_account|default(0) > 0 %}
+            {% set reconciliation_parts = reconciliation_parts|merge([reconciliation_counts.cross_account ~ ' sur un autre compte']) %}
+        {% endif %}
+        {% set reconciliation_breakdown = reconciliation_parts|join(' · ') %}
+
         {% include 'partials/stat_tiles.html.twig' with {
             tiles: [
                 {
@@ -108,7 +134,17 @@
                     link_label: 'Voir les reçus →',
                     link_url: '/finance/receipts?account_id=' ~ selected_account.id,
                 },
+                {
+                    label: 'À rapprocher',
+                    value: reconciliation_pending|default(0),
+                    sublabel: reconciliation_pending|default(0) > 0
+                        ? reconciliation_breakdown
+                        : 'Rien en attente',
+                    link_label: 'Rapprocher →',
+                    link_url: '/finance/reconciliation?account_id=' ~ selected_account.id,
+                },
             ],
+            columns: 3,
         } only %}
 
         <div class="d-flex flex-column flex-sm-row gap-2 mb-4">

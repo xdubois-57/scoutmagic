@@ -162,10 +162,7 @@ class RentalManagementControllerTest extends TestCase
             new \Modules\Rental\Repository\RentalPaymentRepository($this->pdo, $this->encryption),
             $bookingAudit,
             $journal,
-            new ExpectedReceivableService(
-                $receivableRepository,
-                new TransactionRepository($this->pdo, $this->encryption)
-            ),
+            FinanceTestHelper::receivableService($this->pdo, $this->encryption, $receivableRepository),
             new StructuredCommunicationService($receivableRepository)
         );
 

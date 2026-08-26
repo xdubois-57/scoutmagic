@@ -60,7 +60,8 @@ class MergeDraftService implements MassMailDraftInterface
         array $rows,
         string $actorRole,
         string $actorEmail,
-        ?int $actorAccountId
+        ?int $actorAccountId,
+        ?string $bodyHtml = null
     ): string {
         $rows = $this->deduplicateByAddress($rows);
         if ($rows === []) {
@@ -101,7 +102,7 @@ class MergeDraftService implements MassMailDraftInterface
         // that decides who may send from where.
         $email = $this->massMailService->createDraft(
             $subject,
-            '',
+            $bodyHtml ?? '',
             $senderSectionId,
             Email::LIST_TYPE_MAIL_MERGE,
             null,

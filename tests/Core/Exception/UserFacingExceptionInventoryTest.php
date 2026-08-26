@@ -57,6 +57,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Core\View\RgpdGenerationException::class,
         \Modules\Banner\Service\BannerException::class,
         \Modules\Calendar\Service\CalendarException::class,
+        \Modules\Finance\Service\CampaignImportException::class,
         \Modules\Finance\Service\FinanceException::class,
         \Modules\Camps\Service\CampsException::class,
         \Modules\Gallery\Service\GalleryException::class,

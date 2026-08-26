@@ -166,7 +166,8 @@ class FinanceRbacTest extends TestCase
         $importService = new ImportService(
             $this->pdo, $encryption, $parserFactory, $this->transactionRepository, $this->checkpointRepository,
             $statementImportRepository, $this->fiscalYearRepository, $this->categoryRuleEngine, $this->balanceService,
-            $receiptMatchingService, $this->bulkCategorizationService
+            $receiptMatchingService, $this->bulkCategorizationService,
+            FinanceTestHelper::allocationService($this->pdo, $encryption)
         );
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_rbac_test_' . uniqid());
         $this->receiptService = new ReceiptService($this->attachmentRepository, $accountRepository, $this->transactionAttachmentRepository, $fileStorage, $this->transactionRepository);
@@ -202,7 +203,7 @@ class FinanceRbacTest extends TestCase
         $this->parserFactory = $parserFactory;
 
         $this->expectedReceivableRepository = new ExpectedReceivableRepository($this->pdo, $encryption);
-        $this->expectedReceivableService = new ExpectedReceivableService($this->expectedReceivableRepository, $this->transactionRepository);
+        $this->expectedReceivableService = FinanceTestHelper::receivableService($this->pdo, $encryption, $this->expectedReceivableRepository);
         $this->receivablesOverviewService = new ReceivablesOverviewService(
             $this->expectedReceivableRepository, $this->expectedReceivableService, $accountRepository, $this->accountVisibility
         );
@@ -228,6 +229,9 @@ class FinanceRbacTest extends TestCase
             'import form' => ['/finance/import', 'ImportController', 'form', 'intendant', 'identified'],
             'receipts' => ['/finance/receipts', 'ReceiptController', 'list', 'intendant', 'identified'],
             'receivables' => ['/finance/receivables', 'ReceivablesController', 'index', 'intendant', 'identified'],
+            'campaigns' => ['/finance/campaigns', 'CampaignController', 'index', 'intendant', 'identified'],
+            'campaign form' => ['/finance/campaigns/new', 'CampaignController', 'form', 'intendant', 'identified'],
+            'reconciliation' => ['/finance/reconciliation', 'ReconciliationController', 'index', 'intendant', 'identified'],
             'tools' => ['/finance/tools', 'ToolsController', 'index', 'intendant', 'identified'],
             'config index' => ['/config/finance', 'ConfigController', 'index', 'superadmin', 'admin'],
             'config accounts' => ['/config/finance/accounts', 'ConfigAccountController', 'index', 'superadmin', 'admin'],
@@ -287,7 +291,7 @@ class FinanceRbacTest extends TestCase
             'DashboardController' => new DashboardController(
                 $this->twig, $this->financeService, $this->balanceService, $this->transactionRepository, $this->receiptService,
                 $this->categoryRepository, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->statementImportRepository,
-                $this->firstReceiptResolver
+                $this->firstReceiptResolver, $this->reconciliationServiceForDashboard(), new \Core\Config\ScoutYearService($this->pdo)
             ),
             'MovementController' => new MovementController(
                 $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
@@ -312,12 +316,147 @@ class FinanceRbacTest extends TestCase
                 $this->financeService, $this->bulkCategorizationService
             ),
             'ReceivablesController' => new ReceivablesController($this->twig, $this->receivablesOverviewService),
+            'CampaignController' => $this->campaignController(),
+            'ReconciliationController' => $this->reconciliationController(),
             'ToolsController' => new \Modules\Finance\Controller\ToolsController(
                 $this->twig, $this->financeService, $this->expectedReceivableRepository, $this->journalService,
                 new \Modules\Finance\Service\SepaQrCodeService()
             ),
             default => throw new \RuntimeException("Unknown controller {$name}"),
         };
+    }
+
+    private function campaignController(): \Modules\Finance\Controller\CampaignController
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $campaignRepository = new \Modules\Finance\Repository\CampaignRepository($this->pdo);
+        $campaignRowRepository = new \Modules\Finance\Repository\CampaignRowRepository($this->pdo, $encryption);
+        $scoutYearService = new \Core\Config\ScoutYearService($this->pdo);
+        $accountVisibility = new \Modules\Finance\Service\AccountVisibility(
+            \Modules\Finance\Service\TreasurerScope::systemCaller()
+        );
+
+        return new \Modules\Finance\Controller\CampaignController(
+            $this->twig,
+            new \Modules\Finance\Service\CampaignService(
+                $this->pdo,
+                $campaignRepository,
+                $campaignRowRepository,
+                new \Modules\Finance\Service\CampaignImportService(
+                    new \Modules\Finance\Repository\MemberLookupRepository($this->pdo)
+                ),
+                $this->expectedReceivableService,
+                new \Modules\Finance\Service\StructuredCommunicationService($this->expectedReceivableRepository),
+                $this->accountRepository,
+                $accountVisibility,
+                new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir()),
+                $this->journalService
+            ),
+            new \Modules\Finance\Service\CampaignOverviewService(
+                $campaignRepository,
+                $campaignRowRepository,
+                $this->expectedReceivableRepository,
+                FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
+                $this->accountRepository,
+                $accountVisibility,
+                $this->memberServiceForCampaigns(),
+                new \Core\Security\UserAccountRepository($this->pdo, $encryption)
+            ),
+            new \Modules\Finance\Service\CampaignExportService(),
+            new \Modules\Finance\Service\CampaignReminderService(
+                $campaignRowRepository,
+                $this->expectedReceivableRepository,
+                FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
+                $this->accountRepository,
+                $this->memberServiceForCampaigns(),
+                new \Modules\Finance\Service\ReceivableQrTokenService($encryption),
+                'https://scoutmagic.test',
+                null
+            ),
+            new \Modules\Finance\Service\CampaignNotificationService(
+                $campaignRowRepository,
+                $this->expectedReceivableRepository,
+                FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
+                new \Core\Member\MemberAccountResolver(
+                    new \Core\Import\MemberYearRepository($this->pdo),
+                    new \Core\Member\MemberEmailRepository($this->pdo, $encryption),
+                    new \Core\Security\UserAccountRepository($this->pdo, $encryption),
+                    $encryption
+                ),
+                $this->memberServiceForCampaigns(),
+                new \Core\Import\MemberYearRepository($this->pdo),
+                null
+            ),
+            $this->financeService,
+            FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
+            $scoutYearService
+        );
+    }
+
+    /**
+     * The dashboard's "À rapprocher" tile reads the reconciliation
+     * screen's own counts, so it needs the same service.
+     */
+    private function reconciliationServiceForDashboard(): \Modules\Finance\Service\ReconciliationService
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return new \Modules\Finance\Service\ReconciliationService(
+            $this->expectedReceivableRepository,
+            new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo),
+            $this->transactionRepository,
+            $this->accountRepository,
+            new \Modules\Finance\Service\AccountVisibility(\Modules\Finance\Service\TreasurerScope::systemCaller()),
+            FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
+            $this->memberServiceForCampaigns(),
+            new \Core\Member\Household\HouseholdService(
+                new \Core\Member\Household\HouseholdRepository($this->pdo, $encryption),
+                $encryption
+            )
+        );
+    }
+
+    private function reconciliationController(): \Modules\Finance\Controller\ReconciliationController
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $accountVisibility = new \Modules\Finance\Service\AccountVisibility(
+            \Modules\Finance\Service\TreasurerScope::systemCaller()
+        );
+        $allocations = FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository);
+
+        return new \Modules\Finance\Controller\ReconciliationController(
+            $this->twig,
+            new \Modules\Finance\Service\ReconciliationService(
+                $this->expectedReceivableRepository,
+                new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo),
+                $this->transactionRepository,
+                $this->accountRepository,
+                $accountVisibility,
+                $allocations,
+                $this->memberServiceForCampaigns(),
+                new \Core\Member\Household\HouseholdService(
+                    new \Core\Member\Household\HouseholdRepository($this->pdo, $encryption),
+                    $encryption
+                )
+            ),
+            $allocations,
+            $this->expectedReceivableRepository,
+            $this->financeService,
+            $this->memberServiceForCampaigns(),
+            new \Core\Config\ScoutYearService($this->pdo),
+            new \Modules\Finance\Service\SepaQrCodeService()
+        );
+    }
+
+    private function memberServiceForCampaigns(): \Core\Member\MemberService
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return new \Core\Member\MemberService(
+            new \Core\Import\MemberYearRepository($this->pdo),
+            $encryption,
+            Connection::withPdo($this->pdo)
+        );
     }
 
     // ------------------------------------------------------------------

@@ -273,10 +273,26 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
                 new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService))
             ),
             $journalService,
-            new \Modules\Finance\Service\ExpectedReceivableService(
-                new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryptionService),
-                new \Modules\Finance\Repository\TransactionRepository($pdo, $encryptionService)
-            )
+            (static function () use ($pdo, $encryptionService): \Modules\Finance\Service\ExpectedReceivableService {
+                $receivableRepository = new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryptionService);
+
+                return new \Modules\Finance\Service\ExpectedReceivableService(
+                    $receivableRepository,
+                    new \Modules\Finance\Service\ReceivableAllocationService(
+                        $receivableRepository,
+                        new \Modules\Finance\Repository\ReceivableAllocationRepository($pdo),
+                        new \Modules\Finance\Repository\TransactionRepository($pdo, $encryptionService),
+                        new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService),
+                        // Nothing on the cron path has a session to
+                        // narrow the account partition against — the same
+                        // "acting for the installation" stance as the
+                        // audit entries just above.
+                        new \Modules\Finance\Service\AccountVisibility(
+                            \Modules\Finance\Service\TreasurerScope::systemCaller()
+                        )
+                    )
+                );
+            })()
         );
     }
 

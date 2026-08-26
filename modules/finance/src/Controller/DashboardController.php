@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Controller;
 
+use Core\Config\ScoutYearService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -24,8 +25,9 @@ use Modules\Finance\Service\BalanceService;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\FirstReceiptResolver;
 use Modules\Finance\Service\MovementPresenter;
-use Modules\Finance\Service\ReceiptService;
 use Modules\Finance\Repository\TransactionRepository;
+use Modules\Finance\Service\ReceiptService;
+use Modules\Finance\Service\ReconciliationService;
 
 class DashboardController extends AbstractController
 {
@@ -43,7 +45,9 @@ class DashboardController extends AbstractController
         private AttachmentRepository $attachmentRepository,
         private TransactionAttachmentRepository $transactionAttachmentRepository,
         private StatementImportRepository $statementImportRepository,
-        private FirstReceiptResolver $firstReceiptResolver
+        private FirstReceiptResolver $firstReceiptResolver,
+        private ReconciliationService $reconciliationService,
+        private ScoutYearService $scoutYears
     ) {
     }
 
@@ -138,6 +142,17 @@ class DashboardController extends AbstractController
             $categoriesById[$category->id] = $category;
         }
 
+        // What still needs a treasurer's hand on the reconciliation
+        // screen. On the dashboard because it is the only one of these
+        // figures that is a THING TO DO rather than a state of affairs:
+        // a balance is read, a split is acted on, and nothing else on
+        // the site will do it.
+        $reconciliationCounts = $this->reconciliationService->pendingCounts(
+            $account->id,
+            (int) ($this->scoutYears->getCurrentYear()['id']),
+            $role
+        );
+
         return $this->render('@finance/dashboard.html.twig', [
             'accounts' => $accounts,
             'selected_account' => $account,
@@ -163,6 +178,8 @@ class DashboardController extends AbstractController
             'uncategorized_count' => $uncategorizedCount,
             'pending_receipts' => $pendingReceipts,
             'pending_receipts_count' => count($allPendingReceipts),
+            'reconciliation_counts' => $reconciliationCounts,
+            'reconciliation_pending' => array_sum($reconciliationCounts),
             // The account picker (_nav.html.twig) changes what this page
             // shows without changing its URL structure (?account_id={id})
             // — the breadcrumb's own segment must reflect the current

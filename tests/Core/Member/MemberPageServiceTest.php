@@ -18,6 +18,8 @@ use Core\Member\MemberProfile;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Module\FormationPathProvider;
+use Core\Module\MemberPaymentProvider;
+use Core\Module\MemberPaymentView;
 use Core\Module\FormationPathView;
 use Core\Module\SectionResponsableProvider;
 use Core\Security\EncryptionService;
@@ -103,7 +105,8 @@ class MemberPageServiceTest extends TestCase
         ?MassMailQueryInterface $massMailQuery = null,
         ?GalleryAlbumProvider $galleryAlbumProvider = null,
         ?CalendarEventLookupInterface $calendarEventLookup = null,
-        ?FormationPathProvider $formationPathProvider = null
+        ?FormationPathProvider $formationPathProvider = null,
+        ?MemberPaymentProvider $memberPaymentProvider = null
     ): MemberPageService {
         return new MemberPageService(
             $this->sectionService,
@@ -118,7 +121,8 @@ class MemberPageServiceTest extends TestCase
             $massMailQuery,
             $galleryAlbumProvider,
             $calendarEventLookup,
-            $formationPathProvider
+            $formationPathProvider,
+            $memberPaymentProvider
         );
     }
 
@@ -496,5 +500,54 @@ class MemberPageServiceTest extends TestCase
         $data = $this->buildService()->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
 
         $this->assertNull($data['formation_path']);
+    }
+
+    /**
+     * Unlike the training path, the payment block is NOT self-only: a
+     * treasurer looking at this page is exactly who gets asked "où en
+     * est-elle ?" at the section's door, and the same block answers it.
+     */
+    public function testWhatIsStillOwedIsShownToTheMemberAndToStaff(): void
+    {
+        $profile = $this->createMemberInSection();
+
+        $view = new MemberPaymentView('Cotisation 2025-2026', 3825, 3825, 0, '+++123/4567/89012+++', 'Unité', 'BE71 0961 2345 6769', 'https://x/qr');
+        $provider = $this->createMock(MemberPaymentProvider::class);
+        $provider->method('getOpenPayments')->willReturn([$view]);
+
+        $service = $this->buildService(null, null, null, null, null, $provider);
+
+        $ownPage = $service->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
+        $this->assertSame([$view], $ownPage['open_payments']);
+
+        $staffView = $service->buildPageData($profile, $this->scoutYearId, false, true, Role::ADMIN);
+        $this->assertSame([$view], $staffView['open_payments']);
+    }
+
+    /**
+     * A visitor the page did not clear for personal data never reaches
+     * the provider at all — the block is not merely hidden in the
+     * template.
+     */
+    public function testAVisitorWithoutPersonalAccessNeverReachesThePaymentProvider(): void
+    {
+        $profile = $this->createMemberInSection();
+
+        $provider = $this->createMock(MemberPaymentProvider::class);
+        $provider->expects($this->never())->method('getOpenPayments');
+
+        $data = $this->buildService(null, null, null, null, null, $provider)
+            ->buildPageData($profile, $this->scoutYearId, false, false, Role::IDENTIFIED);
+
+        $this->assertSame([], $data['open_payments']);
+    }
+
+    public function testNothingIsOwedWhenTheFinanceModuleIsDisabled(): void
+    {
+        $profile = $this->createMemberInSection();
+
+        $data = $this->buildService()->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
+
+        $this->assertSame([], $data['open_payments']);
     }
 }

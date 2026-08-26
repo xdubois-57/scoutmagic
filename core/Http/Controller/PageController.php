@@ -17,6 +17,7 @@ use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Module\HomeBannerProvider;
 use Core\Module\HomeGroupActivityProvider;
+use Core\Module\HomePaymentDueProvider;
 use Core\Module\HomeNewsProvider;
 use Core\Module\SectionResponsableProvider;
 use Core\Security\AuthSession;
@@ -42,7 +43,8 @@ class PageController extends AbstractController
         private ?HomeBannerProvider $bannerProvider = null,
         private ?HomeNewsProvider $newsProvider = null,
         private ?SectionResponsableProvider $sectionResponsableProvider = null,
-        private ?HomeGroupActivityProvider $groupActivityProvider = null
+        private ?HomeGroupActivityProvider $groupActivityProvider = null,
+        private ?HomePaymentDueProvider $paymentDueProvider = null
     ) {
     }
 
@@ -60,6 +62,7 @@ class PageController extends AbstractController
             // answers null for a visitor with no unread groups (and for
             // an anonymous one), so there is nothing to gate on here.
             'group_activity' => $this->groupActivityProvider?->getHomeActivitySummaryForCurrentUser(),
+            'payment_due' => $this->paymentDueProvider?->getHomePaymentSummaryForCurrentUser(),
         ]);
     }
 

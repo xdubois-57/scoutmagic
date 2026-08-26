@@ -13,6 +13,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Scheduler\SchedulerService;
 use Modules\Finance\Service\FinanceService;
+use Modules\Finance\Task\PurgeCampaignFilesHandler;
 
 /**
  * GET /config/finance — landing page: summary counts linking to the four
@@ -36,6 +37,8 @@ class ConfigController extends AbstractController
     {
         $this->financeService->ensureDefaultAccountsForSections();
         $this->ensurePurgeScheduled();
+        $this->ensureReconciliationScheduled();
+        $this->ensureCampaignFilePurgeScheduled();
 
         $accounts = $this->financeService->getAllAccountsForConfig();
 
@@ -61,5 +64,45 @@ class ConfigController extends AbstractController
         }
 
         $this->schedulerService->schedule('finance', 'purge_old_movements', new \DateTimeImmutable('+1 month'), [], 'monthly');
+    }
+
+    /**
+     * Ensures the nightly receivable-reconciliation task is scheduled —
+     * the safety net under Service\ReceivableAllocationService, which
+     * matters most on an installation whose movements and receivables
+     * both predate the allocation model and have nothing written between
+     * them. Same idempotent check-then-schedule shape as above.
+     */
+    private function ensureReconciliationScheduled(): void
+    {
+        $existing = $this->schedulerService->find('finance', 'reconcile_receivables', 'nightly');
+        if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()) {
+            return;
+        }
+
+        $this->schedulerService->schedule('finance', 'reconcile_receivables', new \DateTimeImmutable('tomorrow 04:00'), [], 'nightly');
+    }
+
+    /**
+     * Ensures the daily campaign-file retention purge is scheduled. It
+     * enforces an RGPD promise, so it must run even on an installation
+     * where nobody creates campaigns any more — a retention hung off the
+     * next campaign would keep its promise only while the unit keeps
+     * making them.
+     */
+    private function ensureCampaignFilePurgeScheduled(): void
+    {
+        $existing = $this->schedulerService->find('finance', PurgeCampaignFilesHandler::TASK_KEY, PurgeCampaignFilesHandler::REFERENCE);
+        if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()) {
+            return;
+        }
+
+        $this->schedulerService->scheduleAfter(
+            'finance',
+            PurgeCampaignFilesHandler::TASK_KEY,
+            PurgeCampaignFilesHandler::INTERVAL_SECONDS,
+            [],
+            PurgeCampaignFilesHandler::REFERENCE
+        );
     }
 }

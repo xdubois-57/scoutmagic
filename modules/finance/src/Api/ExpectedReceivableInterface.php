@@ -27,6 +27,12 @@ interface ExpectedReceivableInterface
      * could never be matched — it is rejected with a
      * Modules\Finance\Service\FinanceException rather than stored as a
      * receivable that can never be settled.
+     *
+     * $memberId names the debtor when the debtor is a member of the unit
+     * — `members.id`, the persistent identity, so the link survives the
+     * scout year. It is **optional on purpose**: a module invoicing
+     * somebody who is not a member (an outside renter) has nobody to
+     * name, and making it mandatory would shut that case out.
      */
     public function createReceivable(
         string $sourceModule,
@@ -34,7 +40,8 @@ interface ExpectedReceivableInterface
         int $accountId,
         int $amountCents,
         string $communication,
-        ?string $label
+        ?string $label,
+        ?int $memberId = null
     ): int;
 
     /**

@@ -51,6 +51,57 @@
                     {% endif %}
                 </div>
             {% endif %}
+            {#
+              "Il reste quelque chose à payer" — the third band, under the
+              editorial banner and the group activity, above the welcome
+              text. Only ever non-null for a signed-in visitor with
+              members linked to their address who still owe something:
+              the provider (Core\Module\HomePaymentDueProvider,
+              implemented by Modules\Finance\Api\FamilyPaymentService)
+              resolves the caller itself and returns null for everyone
+              else, so no access check belongs in this template.
+
+              One band for the whole family, never one per child — a
+              parent of three sees three lines, not three bands. Band-
+              shaped like the two above it, never a card taller than the
+              welcome text it introduces.
+
+              The date is the last bank statement the unit imported,
+              followed by a plain-prose delay. There is deliberately no
+              bank-closing computation: a constant of hours and working
+              days would be wrong on every public holiday, while this
+              sentence absorbs weekends and holidays without ever lying.
+            #}
+            {% if payment_due|default(null) is not null %}
+                <div id="home-payment-due" class="alert alert-warning d-flex gap-2 mb-4" role="alert">
+                    <i class="bi bi-exclamation-triangle mt-1 flex-shrink-0" aria-hidden="true"></i>
+                    <div class="flex-grow-1" style="min-width:0;">
+                        <strong>{{ payment_due.total_cents|money_cents }} {{ payment_due.demands|length > 1 ? 'restent' : 'reste' }} à payer</strong>
+                        <ul class="list-unstyled my-2">
+                            {% for demand in payment_due.demands %}
+                                <li class="d-flex justify-content-between gap-3">
+                                    <a href="/members/{{ demand.member_year_id }}" class="text-truncate">
+                                        {{ demand.member_name }} — {{ demand.label }}
+                                    </a>
+                                    <span class="fw-medium flex-shrink-0">{{ demand.amount_cents|money_cents }}</span>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                        {% if payment_due.statement_date %}
+                            <p class="small mb-0">
+                                Les paiements reçus jusqu'au <strong>{{ payment_due.statement_date|date('d/m/Y') }}</strong> sont pris
+                                en compte. Un virement met généralement un à deux jours ouvrables à apparaître : si vous
+                                avez payé récemment, il est normal qu'il ne soit pas encore visible ici.
+                            </p>
+                        {% endif %}
+                        {% if payment_due.single_member_year_id %}
+                            <a href="/members/{{ payment_due.single_member_year_id }}"
+                               class="btn btn-sm btn-primary tap-target mt-2">Voir le détail et payer</a>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+
             <div class="mb-4">
                 {{ editable_image('home.hero', 'Photo d\'accueil', 'img-fluid rounded w-100') }}
             </div>

@@ -1035,6 +1035,14 @@ $sectionDocumentRepository = new \Core\Member\SectionDocumentRepository($pdo);
 // before $roleResolver so login-by-email resolution can also match a
 // currently-valid secondary address (see RoleResolver's own docblock).
 $memberEmailRepository = new \Core\Member\MemberEmailRepository($pdo, $encryptionService);
+
+// "Which logins can read a notification addressed to this member?" — the
+// Desk address plus every confirmed secondary one, resolved in one place
+// so a module can never answer it differently (Core\Member\
+// MemberAccountResolver).
+$memberAccountResolver = new \Core\Member\MemberAccountResolver(
+    $memberYearRepo, $memberEmailRepository, $userAccountRepo, $encryptionService
+);
 $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo, $memberEmailRepository);
 
 // Notification centre (Lot 2) — built here, not alongside $webPush/
@@ -2085,6 +2093,13 @@ $sectionResponsableProvider = null;
 $bannerService = null;
 $newsArticleService = null;
 
+// The homepage's "il reste quelque chose à payer" band and the member
+// page's payment block (ARCHITECTURE.md §8.85), both set in finance's
+// block below and both null when that module is disabled — the band and
+// the block then simply do not render.
+$homePaymentDueProvider = null;
+$memberPaymentProvider = null;
+
 // Optional dependency on the calendar module (ARCHITECTURE.md §7.5) for
 // the member page's "next upcoming event" (§3) — set below only when
 // 'calendar' is enabled, same pattern as $sectionResponsableProvider
@@ -2607,10 +2622,22 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         $financeTransactionRepo, $financeRuleEngine, $financeAiCategorizationService, $settingService, $schedulerService
     );
 
+    // Who paid what, written down (ARCHITECTURE.md §8.81). Declared here,
+    // above the import service, because a bank import's whole point is to
+    // let these rows be written in the same request; the public
+    // cross-module API further down reads through the very same instance,
+    // so no two parts of the application can disagree about a status.
+    $financeExpectedReceivableRepo = new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryptionService);
+    $financeAllocationRepo = new \Modules\Finance\Repository\ReceivableAllocationRepository($pdo);
+    $financeAllocationService = new \Modules\Finance\Service\ReceivableAllocationService(
+        $financeExpectedReceivableRepo, $financeAllocationRepo, $financeTransactionRepo,
+        $financeAccountRepo, $financeAccountVisibility
+    );
+
     $financeImportService = new \Modules\Finance\Service\ImportService(
         $pdo, $encryptionService, $financeParserFactory, $financeTransactionRepo, $financeCheckpointRepo,
         $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine, $financeBalanceService, $financeReceiptMatchingService,
-        $financeBulkCategorizationService
+        $financeBulkCategorizationService, $financeAllocationService
     );
     $financeEncryptedFileStorage = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
     $financeReceiptService = new \Modules\Finance\Service\ReceiptService(
@@ -2650,12 +2677,27 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeReceiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService($schedulerService, $llmConnectorForRgpd);
     $financeFirstReceiptResolver = new \Modules\Finance\Service\FirstReceiptResolver($financeTransactionAttachmentRepo, $financeAttachmentRepo);
 
+    // Built here rather than next to its own controller a few hundred
+    // lines down: the dashboard's "À rapprocher" tile reads the same
+    // counts, and a second way of counting them would be a second answer
+    // waiting to disagree with the screen it links to.
+    $financeReconciliationService = new \Modules\Finance\Service\ReconciliationService(
+        $financeExpectedReceivableRepo,
+        $financeAllocationRepo,
+        $financeTransactionRepo,
+        $financeAccountRepo,
+        $financeAccountVisibility,
+        $financeAllocationService,
+        $memberService,
+        $householdService
+    );
+
     $frontController->registerController(
         \Modules\Finance\Controller\DashboardController::class,
         new \Modules\Finance\Controller\DashboardController(
             $twig, $financeService, $financeBalanceService, $financeTransactionRepo, $financeReceiptService,
             $financeCategoryRepo, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeStatementImportRepo,
-            $financeFirstReceiptResolver
+            $financeFirstReceiptResolver, $financeReconciliationService, $scoutYearService
         )
     );
     $frontController->registerController(
@@ -2709,9 +2751,8 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
 
     // Public API implementations (ARCHITECTURE.md §7.5) — instantiated
     // here so other modules (news) can consume them as nullable deps.
-    $financeExpectedReceivableRepo = new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryptionService);
     $financeStructuredCommunicationForOthers = new \Modules\Finance\Service\StructuredCommunicationService($financeExpectedReceivableRepo);
-    $financeExpectedReceivableForOthers = new \Modules\Finance\Service\ExpectedReceivableService($financeExpectedReceivableRepo, $financeTransactionRepo);
+    $financeExpectedReceivableForOthers = new \Modules\Finance\Service\ExpectedReceivableService($financeExpectedReceivableRepo, $financeAllocationService);
     $financeSepaQrCodeForOthers = new \Modules\Finance\Service\SepaQrCodeService();
     $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService($financeAccountRepo);
 
@@ -2724,6 +2765,142 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Finance\Controller\ReceivablesController::class,
         new \Modules\Finance\Controller\ReceivablesController($twig, $financeReceivablesOverviewService)
+    );
+
+    // The QR of one receivable, served to a mail client by an
+    // unguessable derived token (ARCHITECTURE.md §8.84): an image in an
+    // e-mail is fetched by a program that has no session and never will.
+    $financeQrTokenService = new \Modules\Finance\Service\ReceivableQrTokenService($encryptionService);
+
+    // Payment campaigns (ARCHITECTURE.md §8.82). The import resolves a
+    // spreadsheet line to a person through the identifier the site's own
+    // member export produces, and through nothing else — hence the plain
+    // members lookup rather than any name-matching helper.
+    $financeCampaignRepo = new \Modules\Finance\Repository\CampaignRepository($pdo);
+    $financeCampaignRowRepo = new \Modules\Finance\Repository\CampaignRowRepository($pdo, $encryptionService);
+    $financeCampaignService = new \Modules\Finance\Service\CampaignService(
+        $pdo,
+        $financeCampaignRepo,
+        $financeCampaignRowRepo,
+        new \Modules\Finance\Service\CampaignImportService(new \Modules\Finance\Repository\MemberLookupRepository($pdo)),
+        $financeExpectedReceivableForOthers,
+        $financeStructuredCommunicationForOthers,
+        $financeAccountRepo,
+        $financeAccountVisibility,
+        $financeEncryptedFileStorage,
+        $journalService
+    );
+    $financeCampaignOverviewService = new \Modules\Finance\Service\CampaignOverviewService(
+        $financeCampaignRepo,
+        $financeCampaignRowRepo,
+        $financeExpectedReceivableRepo,
+        $financeAllocationService,
+        $financeAccountRepo,
+        $financeAccountVisibility,
+        $memberService,
+        $userAccountRepo
+    );
+    // Everything the campaign controller needs, closed over here where
+    // the finance services live — but NOT registered here. Its reminder
+    // draft is an optional dependency on mass_mail (ARCHITECTURE.md
+    // §7.5), and in a straight-line script that provider does not exist
+    // yet; the closure is called a few hundred lines down, once it does.
+    $financeCampaignControllerFactory = static fn(?\Modules\MassMail\Api\MassMailDraftInterface $draft):
+        \Modules\Finance\Controller\CampaignController => new \Modules\Finance\Controller\CampaignController(
+            $twig,
+            $financeCampaignService,
+            $financeCampaignOverviewService,
+            new \Modules\Finance\Service\CampaignExportService(),
+            new \Modules\Finance\Service\CampaignReminderService(
+                $financeCampaignRowRepo,
+                $financeExpectedReceivableRepo,
+                $financeAllocationService,
+                $financeAccountRepo,
+                $memberService,
+                $financeQrTokenService,
+                (string) $settingService->get('base_url'),
+                $draft
+            ),
+            new \Modules\Finance\Service\CampaignNotificationService(
+                $financeCampaignRowRepo,
+                $financeExpectedReceivableRepo,
+                $financeAllocationService,
+                $memberAccountResolver,
+                $memberService,
+                $memberYearRepo,
+                $notificationService
+            ),
+            $financeService,
+            $financeAllocationService,
+            $scoutYearService
+        );
+
+    // The family side (ARCHITECTURE.md §8.85): the payment block on a
+    // member's own page and the homepage band summarising a whole
+    // family's open demands. One service for both, because they are one
+    // question asked at two scales.
+    $financeFamilyPaymentService = new \Modules\Finance\Api\FamilyPaymentService(
+        $financeExpectedReceivableRepo,
+        $financeAllocationService,
+        $financeAccountRepo,
+        $financeCampaignRowRepo,
+        $financeCampaignRepo,
+        $financeStatementImportRepo,
+        $financeQrTokenService,
+        $memberService,
+        $scoutYearResolver,
+        (string) $settingService->get('base_url')
+    );
+    $homePaymentDueProvider = $financeFamilyPaymentService;
+    $memberPaymentProvider = $financeFamilyPaymentService;
+
+    // Re-registers PageController with the payment band's provider —
+    // same core-hook precedent, and the same "reuse whatever the earlier
+    // blocks already set" rule, as the banner/news/groups blocks
+    // (ARCHITECTURE.md §7.4). news' and groups' own re-registrations run
+    // after this one and carry $homePaymentDueProvider forward, so no
+    // hook is lost whichever combination is enabled.
+    $frontController->registerController(
+        PageController::class,
+        new PageController(
+            $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
+            $sectionService, $unitStaffSectionService, $scoutYearService,
+            in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
+            $newsArticleService,
+            $sectionResponsableProvider,
+            null,
+            $homePaymentDueProvider
+        )
+    );
+
+    $frontController->registerController(
+        \Modules\Finance\Controller\ReceivableQrController::class,
+        new \Modules\Finance\Controller\ReceivableQrController(
+            $twig,
+            $financeExpectedReceivableRepo,
+            $financeAccountRepo,
+            $financeAllocationService,
+            $financeQrTokenService,
+            $financeSepaQrCodeForOthers
+        )
+    );
+
+    // « Rapprochement » (ARCHITECTURE.md §8.83) — the four situations the
+    // automatic matching cannot settle on its own. The QR generator is
+    // the module's own, and the page degrades to the payment details in
+    // text rather than a fatal if it is ever absent.
+    $frontController->registerController(
+        \Modules\Finance\Controller\ReconciliationController::class,
+        new \Modules\Finance\Controller\ReconciliationController(
+            $twig,
+            $financeReconciliationService,
+            $financeAllocationService,
+            $financeExpectedReceivableRepo,
+            $financeService,
+            $memberService,
+            $scoutYearService,
+            $financeSepaQrCodeForOthers
+        )
     );
 
     // "Outils" (ARCHITECTURE.md §8.73). The QR generator is handed the
@@ -2815,6 +2992,19 @@ if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
     // — see the comment there for why.
 }
 
+// Payment campaigns (ARCHITECTURE.md §8.82), registered here rather than
+// in the finance block: the reminder draft is an optional dependency on
+// mass_mail (§7.5) and $massMailDraftForOthers only exists once that
+// block has run. It is null when mass_mail is disabled, which is exactly
+// the graceful degradation the pattern asks for — the button disappears
+// and the campaigns work unchanged.
+if (isset($financeCampaignControllerFactory)) {
+    $frontController->registerController(
+        \Modules\Finance\Controller\CampaignController::class,
+        $financeCampaignControllerFactory($massMailDraftForOthers)
+    );
+}
+
 if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
     $newsArticleRepo = new \Modules\News\Repository\ArticleRepository($pdo);
     $newsFormRepo = new \Modules\News\Repository\FormRepository($pdo);
@@ -2868,7 +3058,9 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
             $sectionService, $unitStaffSectionService, $scoutYearService,
             in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
             $newsArticleService,
-            $sectionResponsableProvider
+            $sectionResponsableProvider,
+            null,
+            $homePaymentDueProvider
         )
     );
 }
@@ -3251,7 +3443,8 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
                 \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
                 \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
                 $notificationRepo
-            )
+            ),
+            $homePaymentDueProvider
         )
     );
     $frontController->registerController(
@@ -4566,7 +4759,9 @@ if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
 // récentes", gallery's "Galeries photos", trombinoscope's section-
 // responsable lookup (via $sectionResponsableProvider, ARCHITECTURE.md
 // §7.4), calendar's next-upcoming-event lookup (via $calendarEventLookup),
-// and leadership's own training path (via $formationPathProvider); each
+// leadership's own training path (via $formationPathProvider), and
+// finance's "ce qu'il reste à payer" block (via $memberPaymentProvider);
+// each
 // stays null when its module is disabled and the corresponding page block
 // just doesn't render. Placed after every one of those modules' blocks
 // above so their repositories/services are in scope.
@@ -4576,6 +4771,7 @@ if (
     || in_array('calendar', $moduleManager->getEnabledModuleIds(), true)
     || in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)
     || in_array('leadership', $moduleManager->getEnabledModuleIds(), true)
+    || in_array('finance', $moduleManager->getEnabledModuleIds(), true)
 ) {
     $massMailQueryForMember = in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)
         ? new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
@@ -4589,7 +4785,8 @@ if (
     $memberPageService = new \Core\Member\MemberPageService(
         $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
         $sectionDocumentService, $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookup,
-        $formationPathProvider
+        $formationPathProvider,
+        $memberPaymentProvider
     );
 
     $frontController->registerController(

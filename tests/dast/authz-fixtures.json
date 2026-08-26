@@ -113,8 +113,29 @@
       "id": "1",
       "variant": "thumbnail"
     },
+    "/finance/campaigns/{id}": {
+      "id": "1",
+      "rowId": "1",
+      "receivableId": "1"
+    },
     "/finance/movements/{id}": {
       "id": "1"
+    },
+    "/finance/qr/{id}": {
+      "id": "1",
+      "token": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "/finance/receivables/{id}": {
+      "id": "1"
+    },
+    "/finance/reconciliation/attach/{transactionId}": {
+      "transactionId": "1"
+    },
+    "/finance/reconciliation/overpaid/{receivableId}": {
+      "receivableId": "1"
+    },
+    "/finance/reconciliation/split/{transactionId}": {
+      "transactionId": "1"
     },
     "/finance/receipts/{id}": {
       "id": "1"

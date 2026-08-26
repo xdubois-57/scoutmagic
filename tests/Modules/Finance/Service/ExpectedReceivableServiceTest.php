@@ -32,7 +32,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
-        $this->service = new ExpectedReceivableService(new ExpectedReceivableRepository($this->pdo, $encryption), $this->transactionRepository);
+        $this->service = FinanceTestHelper::receivableService($this->pdo, $encryption);
 
         $stmt = $this->pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Compte', 'bank')");
         $stmt->execute();
@@ -254,6 +254,103 @@ class ExpectedReceivableServiceTest extends TestCase
 
         $this->assertSame(2500, $status['amount_received']);
         $this->assertSame('paid', $status['status']);
+    }
+
+    /**
+     * Regression, and the reason IT-01 exists: the digits of a line were
+     * flattened into one run and the communication was looked for inside
+     * it with str_contains(). This line carries no communication at all —
+     * four unrelated numbers — but stripping its separators produces
+     * exactly "123456789012", so +++123/4567/89012+++ used to read paid
+     * off somebody else's payment.
+     *
+     * As long as the status was recomputed on every display this only
+     * made a page lie. IT-02 writes an allocation from the same match, so
+     * from there on a stranger's payment marks this receivable settled and
+     * the error stays in the database.
+     */
+    public function testDigitsGluedTogetherAcrossSeparatorsAreNotACommunication(): void
+    {
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
+
+        $this->createTransaction('Virement 12 dossier 3456 lot 7890 caisse 12', 25.00);
+
+        $status = $this->service->getReceivableStatus($id);
+
+        $this->assertSame(0, $status['amount_received']);
+        $this->assertSame('unpaid', $status['status']);
+    }
+
+    /**
+     * The same defect from the other side: the communication really is
+     * present as a digit sub-sequence, but only because it sits inside a
+     * longer number that is not a communication — here a counterparty
+     * account number the export dropped into the free text.
+     */
+    public function testACommunicationFoundInsideALongerNumberIsNotAMatch(): void
+    {
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
+
+        // 123456789012 is in there, between a leading 7 and a trailing 34.
+        $this->createTransaction('Virement compte 712345678901234', 25.00);
+
+        $status = $this->service->getReceivableStatus($id);
+
+        $this->assertSame(0, $status['amount_received']);
+        $this->assertSame('unpaid', $status['status']);
+    }
+
+    /**
+     * A line can carry several twelve-digit sequences — a bank reference,
+     * an account number, and the communication. Position decides nothing:
+     * the communication is recognized wherever it sits.
+     */
+    public function testACommunicationIsFoundAmongOtherTwelveDigitSequences(): void
+    {
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
+
+        $this->createTransaction('REF 987654321098 / 111122223333 / +++123/4567/89012+++', 25.00);
+
+        $status = $this->service->getReceivableStatus($id);
+
+        $this->assertSame(2500, $status['amount_received']);
+        $this->assertSame('paid', $status['status']);
+    }
+
+    /**
+     * Some exports print the communication glued to whatever precedes it.
+     * A window inside a longer run is only a candidate when its own mod-97
+     * check passes, which is what keeps an account number from
+     * volunteering half a dozen of them.
+     */
+    public function testACommunicationGluedToOtherDigitsIsStillFound(): void
+    {
+        $communication = \Modules\Finance\Service\StructuredCommunicationService::format('1234567890');
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, $communication, null);
+
+        $digits = preg_replace('/\D/', '', $communication) ?? '';
+        $this->createTransaction('COMM' . '2026' . $digits, 25.00);
+
+        $status = $this->service->getReceivableStatus($id);
+
+        $this->assertSame(2500, $status['amount_received']);
+        $this->assertSame('paid', $status['status']);
+    }
+
+    /**
+     * The `***…***` form some banks print, and the dotted grouping, are
+     * the same communication as the canonical one.
+     */
+    public function testTheStarredAndDottedFormsAreTheSameCommunication(): void
+    {
+        $starred = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
+        $dotted = $this->service->createReceivable('news', 13, $this->accountId, 2500, '+++104/1932/40720+++', null);
+
+        $this->createTransaction('Virement ***123/4567/89012***', 25.00);
+        $this->createTransaction('Virement 104.1932.40720', 25.00);
+
+        $this->assertSame('paid', $this->service->getReceivableStatus($starred)['status']);
+        $this->assertSame('paid', $this->service->getReceivableStatus($dotted)['status']);
     }
 
     /**

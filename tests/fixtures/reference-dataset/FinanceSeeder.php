@@ -25,18 +25,23 @@ use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\BalanceCheckpointRepository;
 use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\CategoryRuleRepository;
+use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Repository\FiscalYearRepository;
+use Modules\Finance\Repository\ReceivableAllocationRepository;
 use Modules\Finance\Repository\StatementImportRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\AccountTransferCategoryService;
+use Modules\Finance\Service\AccountVisibility;
 use Modules\Finance\Service\AiCategorizationService;
 use Modules\Finance\Service\BalanceService;
 use Modules\Finance\Service\BulkCategorizationService;
 use Modules\Finance\Service\CategoryRuleEngine;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\ImportService;
+use Modules\Finance\Service\ReceivableAllocationService;
 use Modules\Finance\Service\ReceiptMatchingService;
+use Modules\Finance\Service\TreasurerScope;
 
 /**
  * Creates the unit's two bank accounts and imports the six statements through
@@ -284,6 +289,14 @@ final class FinanceSeeder
                 $aiCategorizationService,
                 $settingService,
                 $schedulerService,
+            ),
+            new ReceivableAllocationService(
+                new ExpectedReceivableRepository($this->pdo, $this->encryption),
+                new ReceivableAllocationRepository($this->pdo),
+                $transactionRepository,
+                new AccountRepository($this->pdo, $this->encryption),
+                // A seeder acts for the installation, not for a person.
+                new AccountVisibility(TreasurerScope::systemCaller()),
             ),
         );
     }

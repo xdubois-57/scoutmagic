@@ -64,11 +64,12 @@ class ExpectedReceivableRepository
         int $accountId,
         int $amountDueCents,
         string $communication,
-        ?string $label
+        ?string $label,
+        ?int $memberId = null
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO finance_expected_receivables (source_module, source_reference_id, account_id, amount_due_cents, communication, label_encrypted)
-             VALUES (?, ?, ?, ?, ?, ?)'
+            'INSERT INTO finance_expected_receivables (source_module, source_reference_id, account_id, amount_due_cents, communication, label_encrypted, member_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $sourceModule,
@@ -77,8 +78,63 @@ class ExpectedReceivableRepository
             $amountDueCents,
             $communication,
             $label !== null ? $this->encryption->encrypt($label, 'finance_expected_receivables.label') : null,
+            $memberId,
         ]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Every receivable naming one of these members — what the member's
+     * own page and the home banner read, in one query rather than one
+     * per child.
+     *
+     * @param int[] $memberIds
+     * @return ExpectedReceivable[]
+     */
+    public function findByMemberIds(array $memberIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM finance_expected_receivables WHERE member_id IN ($placeholders) ORDER BY id ASC"
+        );
+        $stmt->execute($ids);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * The receivables a set of source instances owns, keyed by
+     * source_reference_id — a campaign reads a few hundred of its rows'
+     * receivables at once and must not query per line.
+     *
+     * @param int[] $sourceReferenceIds
+     * @return array<int, ExpectedReceivable>
+     */
+    public function findBySourceReferenceIds(string $sourceModule, array $sourceReferenceIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $sourceReferenceIds)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM finance_expected_receivables WHERE source_module = ? AND source_reference_id IN ($placeholders) ORDER BY id ASC"
+        );
+        $stmt->execute(array_merge([$sourceModule], $ids));
+
+        $byReference = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $receivable = $this->hydrate($row);
+            $byReference[$receivable->sourceReferenceId] = $receivable;
+        }
+
+        return $byReference;
     }
 
     /**
@@ -151,6 +207,65 @@ class ExpectedReceivableRepository
     }
 
     /**
+     * @param int[] $ids
+     * @return ExpectedReceivable[]
+     */
+    public function findByIds(array $ids): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare("SELECT * FROM finance_expected_receivables WHERE id IN ($placeholders) ORDER BY id ASC");
+        $stmt->execute($ids);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Every receivable booked against an account — what the automatic
+     * matching pass iterates over once per account, rather than once per
+     * source module.
+     *
+     * @return ExpectedReceivable[]
+     */
+    public function findByAccountId(int $accountId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_expected_receivables WHERE account_id = ? ORDER BY id ASC');
+        $stmt->execute([$accountId]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Marks a receivable abandoned, or lifts the abandon ($at === null).
+     *
+     * The timestamp comes from PHP rather than NOW(): the test database
+     * is SQLite, whose CURRENT_TIMESTAMP is UTC while the rest of the
+     * application is on Europe/Brussels
+     * (docs/module-development.md § Timestamps).
+     */
+    public function setWaived(int $id, ?string $at, ?int $by): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE finance_expected_receivables SET waived_at = ?, waived_by = ? WHERE id = ?');
+        $stmt->execute([$at, $by, $id]);
+    }
+
+    /**
+     * Records — or withdraws — the decision that the surplus on this
+     * receivable is owed back. Never records that it HAS been paid back:
+     * that is read from the refund allocations, because the debit
+     * leaving the account is what makes a refund real.
+     */
+    public function setRefundRequested(int $id, ?string $at, ?int $by): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE finance_expected_receivables SET refund_requested_at = ?, refund_requested_by = ? WHERE id = ?');
+        $stmt->execute([$at, $by, $id]);
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): ExpectedReceivable
@@ -163,7 +278,12 @@ class ExpectedReceivableRepository
             amountDueCents: (int) $row['amount_due_cents'],
             communication: (string) $row['communication'],
             label: $row['label_encrypted'] !== null ? $this->encryption->decrypt($row['label_encrypted'], 'finance_expected_receivables.label') : null,
-            createdAt: (string) $row['created_at']
+            createdAt: (string) $row['created_at'],
+            memberId: isset($row['member_id']) ? (int) $row['member_id'] : null,
+            waivedAt: isset($row['waived_at']) ? (string) $row['waived_at'] : null,
+            waivedBy: isset($row['waived_by']) ? (int) $row['waived_by'] : null,
+            refundRequestedAt: isset($row['refund_requested_at']) ? (string) $row['refund_requested_at'] : null,
+            refundRequestedBy: isset($row['refund_requested_by']) ? (int) $row['refund_requested_by'] : null
         );
     }
 }

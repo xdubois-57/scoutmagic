@@ -111,6 +111,8 @@ class DashboardControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
         $twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
+        $expectedReceivableRepository = new \Modules\Finance\Repository\ExpectedReceivableRepository($this->pdo, $encryption);
+
         $this->controller = new DashboardController(
             $twig,
             $financeService,
@@ -121,7 +123,21 @@ class DashboardControllerTest extends TestCase
             $this->attachmentRepository,
             $this->transactionAttachmentRepository,
             new StatementImportRepository($this->pdo),
-            new \Modules\Finance\Service\FirstReceiptResolver($this->transactionAttachmentRepository, $this->attachmentRepository)
+            new \Modules\Finance\Service\FirstReceiptResolver($this->transactionAttachmentRepository, $this->attachmentRepository),
+            new \Modules\Finance\Service\ReconciliationService(
+                $expectedReceivableRepository,
+                new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo),
+                $this->transactionRepository,
+                $this->accountRepository,
+                new \Modules\Finance\Service\AccountVisibility(\Modules\Finance\Service\TreasurerScope::systemCaller()),
+                \Tests\Modules\Finance\FinanceTestHelper::allocationService($this->pdo, $encryption, $expectedReceivableRepository),
+                new \Core\Member\MemberService(new \Core\Import\MemberYearRepository($this->pdo), $encryption, $connection),
+                new \Core\Member\Household\HouseholdService(
+                    new \Core\Member\Household\HouseholdRepository($this->pdo, $encryption),
+                    $encryption
+                )
+            ),
+            new \Core\Config\ScoutYearService($this->pdo)
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -496,6 +512,55 @@ class DashboardControllerTest extends TestCase
         $body = $response->getBody();
 
         $this->assertSame(3, substr_count($body, 'En attente</span>'));
+    }
+
+    /**
+     * The reconciliation tile is the only figure on this page that is a
+     * thing to DO. It has to be zero when there is nothing to do, or it
+     * becomes a nag the treasurer learns to ignore.
+     */
+    public function testTheReconciliationTileIsZeroWhenThereIsNothingToReconcile(): void
+    {
+        $accountId = $this->createAccount();
+
+        $body = $this->controller->index(
+            new Request('GET', '/finance', ['account_id' => (string) $accountId], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('À rapprocher', $body);
+        $this->assertStringContainsString('Rien en attente', $body);
+        $this->assertStringContainsString('/finance/reconciliation?account_id=' . $accountId, $body);
+    }
+
+    /**
+     * A credit whose communication names nothing the site knows is the
+     * "non imputés" situation — one of the four the reconciliation screen
+     * exists for, and the tile must say so rather than just show a
+     * number.
+     */
+    public function testACreditNamingNoReceivableShowsUpOnTheTile(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        FinanceTestHelper::createScoutYear($this->pdo, \Core\Config\ScoutYearService::labelForDate(new \DateTimeImmutable('today')), '2025-09-01', '2026-08-31', true);
+
+        // A receivable so the account has something to reconcile against,
+        // and a credit that names nothing — the orphan case.
+        $receivables = new \Modules\Finance\Repository\ExpectedReceivableRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
+        $receivables->create('finance', 1, $accountId, 4500, '+++123/4567/89012+++', null, null);
+        $this->transactionRepository->create(
+            $accountId, $fiscalYearId, 'orphan-1', '2026-02-18', 'Virement sans communication',
+            30.0, null, null, Transaction::SOURCE_IMPORT, null
+        );
+
+        $body = $this->controller->index(
+            new Request('GET', '/finance', ['account_id' => (string) $accountId], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('1 non imputé', $body);
+        $this->assertStringNotContainsString('Rien en attente', $body);
     }
 
     private function createFile(): int

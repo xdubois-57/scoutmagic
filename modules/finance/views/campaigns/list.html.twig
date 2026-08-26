@@ -1,0 +1,71 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Campagnes de paiement — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Campagnes de paiement',
+        subtitle: "Une campagne facture un montant à chaque membre d'une liste et suit les paiements reçus.",
+        badge: selected_scout_year_label,
+        action_label: accounts ? 'Nouvelle campagne' : '',
+        action_url: accounts ? '/finance/campaigns/new' : '',
+    } only %}
+
+    {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
+
+    {% if scout_years|length > 1 %}
+        <div class="d-flex flex-wrap gap-2 mb-3">
+            {% for year in scout_years %}
+                <a class="btn btn-sm tap-target {{ year.id == selected_scout_year_id ? 'btn-primary' : 'btn-outline-secondary' }}"
+                   href="/finance/campaigns?scout_year_id={{ year.id }}">{{ year.label }}</a>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% if summaries is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune campagne pour cette année scoute.',
+            icon: 'bi-cash-coin',
+            action_url: accounts ? '/finance/campaigns/new' : '',
+            action_label: accounts ? 'Créez la première campagne !' : '',
+        } only %}
+    {% else %}
+        <div class="d-flex flex-column gap-3">
+            {% for summary in summaries %}
+                <a class="text-decoration-none text-body border rounded-3 p-3 d-block"
+                   href="/finance/campaigns/{{ summary.campaign.id }}">
+                    <div class="d-flex align-items-start gap-3">
+                        <div class="flex-grow-1 min-w-0">
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <span class="fw-semibold">{{ summary.campaign.label }}</span>
+                                {% if summary.campaign.isOpen %}
+                                    {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Ouverte' } only %}
+                                {% else %}
+                                    {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'Clôturée' } only %}
+                                {% endif %}
+                                {% if not summary.campaign.isNotified %}
+                                    {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Non notifiée' } only %}
+                                {% endif %}
+                            </div>
+                            <p class="text-body-secondary small mb-0 mt-1">
+                                {{ summary.row_count }} créance{{ summary.row_count > 1 ? 's' : '' }} —
+                                {{ summary.amount_received|money_cents }} sur {{ summary.amount_due|money_cents }}
+                            </p>
+                        </div>
+                        <span class="fw-semibold flex-shrink-0">{{ summary.percent }} %</span>
+                    </div>
+                    <div class="progress mt-2" style="height: 6px;" role="progressbar"
+                         aria-label="Progression des paiements" aria-valuenow="{{ summary.percent }}"
+                         aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-bar {{ summary.percent >= 100 ? 'bg-success' : '' }}" style="width: {{ summary.percent }}%"></div>
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <p class="text-body-secondary small mt-4">
+        Une créance par membre : une famille de trois enfants reçoit trois demandes, chacune avec sa propre
+        communication structurée. C'est ce qui permet d'identifier chaque virement à son arrivée.
+    </p>
+{% endblock %}

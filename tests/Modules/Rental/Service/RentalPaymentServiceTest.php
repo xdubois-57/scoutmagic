@@ -93,7 +93,7 @@ class RentalPaymentServiceTest extends TestCase
             $this->paymentRepository,
             $this->bookingAudit,
             $journal,
-            new ExpectedReceivableService($receivableRepository, $this->transactionRepository),
+            FinanceTestHelper::receivableService($this->pdo, $this->encryption, $receivableRepository),
             new StructuredCommunicationService($receivableRepository),
             new SepaQrCodeService(),
             new FinanceAccountService($accountRepository)

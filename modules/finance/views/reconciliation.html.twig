@@ -1,0 +1,329 @@
+{% extends "base.html.twig" %}
+
+{#
+  « Rapprochement » — four situations, four tabs, four different gestures.
+
+  The tab rail is the shared nav rail (design.md §7.6): a fixed set of
+  views of one page is sub-navigation, never a row of filter chips.
+
+  Nothing on this page is `danger`: a payment that lands awkwardly has not
+  failed, it is waiting for somebody. Amber throughout, and the labels do
+  the telling apart.
+#}
+
+{% block title %}Rapprochement — Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Rapprochement',
+        subtitle: "Ce que le rapprochement automatique n'a pas su traiter seul.",
+    } only %}
+
+    {% include '@finance/_nav.html.twig' with {
+        'accounts': accounts,
+        'selected_account': selected_account,
+        'hide_account_picker': false,
+    } %}
+
+    {% if view is null %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun compte visible pour votre rôle.',
+            icon: 'bi-bank',
+        } only %}
+    {% else %}
+        <div class="row g-2 mb-3">
+            {% set tiles = [
+                { value: view.counts.split, label: 'à répartir' },
+                { value: view.counts.orphans, label: 'non imputés' },
+                { value: view.counts.overpaid, label: 'trop-perçus' },
+                { value: view.counts.cross_account, label: 'mauvais compte' },
+            ] %}
+            {% for tile in tiles %}
+                <div class="col-6 col-md-3">
+                    <div class="border rounded-3 p-2 h-100">
+                        <p class="fw-semibold mb-0">{{ tile.value }}</p>
+                        <p class="text-body-secondary small mb-0">{{ tile.label }}</p>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        {% include 'partials/nav_rail.html.twig' with {
+            picker_id: 'reconciliation-tabs',
+            aria_label: 'Situations à traiter',
+            base_url: '/finance/reconciliation?account_id=' ~ selected_account.id ~ '&tab=',
+            items: [
+                { id: 'split', label: 'À répartir (' ~ view.counts.split ~ ')', selected: tab == 'split' },
+                { id: 'orphans', label: 'Non imputés (' ~ view.counts.orphans ~ ')', selected: tab == 'orphans' },
+                { id: 'overpaid', label: 'Trop-perçus (' ~ view.counts.overpaid ~ ')', selected: tab == 'overpaid' },
+                { id: 'cross_account', label: 'Mauvais compte (' ~ view.counts.cross_account ~ ')', selected: tab == 'cross_account' },
+            ],
+        } only %}
+
+        {# ---------------------------------------------------- à répartir #}
+        {% if tab == 'split' %}
+            <div class="alert alert-warning mt-3" role="alert">
+                Un virement unique qui couvre plusieurs créances du même foyer. Nous demandons un virement par
+                créance, mais une partie des familles paie groupé — le site propose la répartition, vous la
+                confirmez.
+            </div>
+
+            {% if view.split is empty %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun virement à répartir.', icon: 'bi-check2-circle',
+                } only %}
+            {% else %}
+                {% for item in view.split %}
+                    <form method="post" action="/finance/reconciliation/split/{{ item.transaction_id }}" class="border rounded-3 mb-3">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="account_id" value="{{ selected_account.id }}">
+
+                        <div class="bg-body-tertiary p-3 border-bottom">
+                            <p class="fw-semibold mb-1">{{ item.amount_cents|money_cents }} — {{ item.date|date_fr }}</p>
+                            <p class="small text-body-secondary mb-1">
+                                {{ item.counterparty ?? '—' }} · <span class="font-monospace">{{ item.label }}</span>
+                            </p>
+                            <p class="small mb-0">
+                                Cette communication désigne la créance de {{ item.named_name }}
+                                ({{ item.named_amount_cents|money_cents }}), mais il reste
+                                {{ item.remainder_cents|money_cents }} à placer.
+                            </p>
+                        </div>
+
+                        <div class="p-3">
+                            {% for line in item.lines %}
+                                <div class="d-flex align-items-center gap-2 py-2 border-bottom">
+                                    <div class="flex-grow-1 min-w-0">
+                                        <p class="mb-0 text-truncate">{{ line.name }}</p>
+                                        <p class="mb-0 small text-body-secondary text-truncate">
+                                            {{ line.section ?? '—' }} — reste {{ line.remaining_cents|money_cents }}
+                                        </p>
+                                    </div>
+                                    {% include 'partials/form_field.html.twig' with {
+                                        field_id: 'split-' ~ item.transaction_id ~ '-' ~ line.receivable_id,
+                                        field_name: 'amount[' ~ line.receivable_id ~ ']',
+                                        label: 'Montant imputé à ' ~ line.name,
+                                        label_visually_hidden: true,
+                                        size: 'sm', wrapper_class: 'mb-0',
+                                        value: (line.amount_cents / 100)|number_format(2, ',', ''),
+                                        inputmode: 'decimal',
+                                        control_class_extra: 'w-auto',
+                                    } only %}
+                                </div>
+                            {% endfor %}
+
+                            {% if item.unassigned_cents > 0 %}
+                                <p class="small text-body-secondary mt-2 mb-0">
+                                    {{ item.unassigned_cents|money_cents }} resteront non imputés — les créances du foyer
+                                    ne couvrent pas tout le virement.
+                                </p>
+                            {% endif %}
+                        </div>
+
+                        <div class="bg-body-tertiary p-3 border-top d-flex flex-wrap gap-2">
+                            <button type="submit" class="btn btn-sm btn-primary tap-target">Imputer</button>
+                        </div>
+                    </form>
+                {% endfor %}
+            {% endif %}
+        {% endif %}
+
+        {# --------------------------------------------------- non imputés #}
+        {% if tab == 'orphans' %}
+            <p class="text-body-secondary small mt-3">
+                Ces crédits ne portent aucune communication reconnue. Rattachez-les à une créance, ou
+                laissez-les — un reste non imputé n'est pas une erreur en soi : ce peut être un paiement pour
+                quelque chose qui n'a pas encore été facturé.
+            </p>
+
+            {% if view.orphans is empty %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun crédit non imputé.', icon: 'bi-check2-circle',
+                } only %}
+            {% else %}
+                {% for item in view.orphans %}
+                    <div class="border rounded-3 p-3 mb-3">
+                        <p class="fw-semibold mb-1">{{ item.amount_cents|money_cents }} — {{ item.date|date_fr }}</p>
+                        <p class="small text-body-secondary mb-1">
+                            {{ item.counterparty ?? '—' }} · <span class="font-monospace">{{ item.label }}</span>
+                        </p>
+                        <p class="small mb-3">{{ item.reason }}</p>
+
+                        <form method="post" action="/finance/reconciliation/attach/{{ item.transaction_id }}"
+                              class="row g-2 align-items-end">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="account_id" value="{{ selected_account.id }}">
+                            <div class="col-12 col-md-4">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'attach-receivable-' ~ item.transaction_id,
+                                    field_name: 'receivable_id',
+                                    label: 'Créance', type: 'number', size: 'sm', wrapper_class: 'mb-0',
+                                    help: "L'identifiant de la créance, repris dans l'export de la campagne.",
+                                } only %}
+                            </div>
+                            <div class="col-12 col-md-3">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'attach-amount-' ~ item.transaction_id,
+                                    field_name: 'amount',
+                                    label: 'Montant', size: 'sm', wrapper_class: 'mb-0',
+                                    value: (item.amount_cents / 100)|number_format(2, ',', ''),
+                                    inputmode: 'decimal',
+                                } only %}
+                            </div>
+                            <div class="col-12 col-md-auto">
+                                <button type="submit" class="btn btn-sm btn-primary tap-target">Rattacher à une créance</button>
+                            </div>
+                        </form>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endif %}
+
+        {# ---------------------------------------------------- trop-perçus #}
+        {% if tab == 'overpaid' %}
+            <p class="text-body-secondary small mt-3">
+                Ces créances ont reçu plus que leur montant, d'un seul versement ou de plusieurs dont la somme
+                dépasse. Le rapprochement automatique n'impute <strong>jamais</strong> au-delà du montant
+                restant : l'excédent atterrit ici.
+            </p>
+
+            {% if view.overpaid is empty %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun trop-perçu.', icon: 'bi-check2-circle',
+                } only %}
+            {% else %}
+                {% for item in view.overpaid %}
+                    <div class="border rounded-3 p-3 mb-3">
+                        <div class="d-flex flex-wrap align-items-start gap-2">
+                            <div class="flex-grow-1 min-w-0">
+                                <p class="fw-semibold mb-0">{{ item.name }}</p>
+                                <p class="small text-body-secondary mb-0">{{ item.section ?? '—' }}</p>
+                            </div>
+                            {% if item.refund_state == 'requested' %}
+                                {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'À rembourser' } only %}
+                            {% else %}
+                                {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'Trop-perçu' } only %}
+                            {% endif %}
+                        </div>
+
+                        <p class="mt-2 mb-1">
+                            <strong>{{ item.amount_received|money_cents }}</strong> reçus pour
+                            <strong>{{ item.amount_due|money_cents }}</strong> dus —
+                            <strong>{{ item.amount_overpaid|money_cents }} en trop</strong>
+                        </p>
+                        <ul class="small text-body-secondary">
+                            {% for instalment in item.instalments %}
+                                <li>{{ instalment.amount_cents|money_cents }} le {{ instalment.date|date_fr }}{{ instalment.is_refund ? ' (remboursement)' : '' }}</li>
+                            {% endfor %}
+                        </ul>
+
+                        {% if item.refund_state == 'requested' %}
+                            <div class="alert alert-info mb-0" role="alert">
+                                Passera à « remboursé » quand un débit correspondant apparaîtra, au prochain import —
+                                parce que le débit existe, pas parce qu'une case a été cochée.
+                            </div>
+                        {% else %}
+                            <form method="post" action="/finance/reconciliation/overpaid/{{ item.receivable_id }}"
+                                  class="d-flex flex-wrap gap-2 align-items-end">
+                                {{ csrf_field()|raw }}
+                                <input type="hidden" name="account_id" value="{{ selected_account.id }}">
+                                <input type="hidden" name="action" value="refund">
+                                <button type="submit" class="btn btn-sm btn-primary tap-target">Déclarer à rembourser</button>
+                            </form>
+
+                            {% if item.siblings is not empty %}
+                                <form method="post" action="/finance/reconciliation/overpaid/{{ item.receivable_id }}"
+                                      class="row g-2 align-items-end mt-1">
+                                    {{ csrf_field()|raw }}
+                                    <input type="hidden" name="account_id" value="{{ selected_account.id }}">
+                                    <input type="hidden" name="action" value="transfer">
+                                    <div class="col-12 col-md-5">
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'transfer-target-' ~ item.receivable_id,
+                                            field_name: 'target_receivable_id',
+                                            label: 'Imputer sur une autre créance du foyer',
+                                            type: 'select', size: 'sm', wrapper_class: 'mb-0',
+                                            options: item.siblings|map(sibling => {
+                                                value: sibling.receivable_id,
+                                                label: sibling.name ~ ' — reste ' ~ (sibling.remaining_cents / 100)|number_format(2, ',', ' ') ~ ' €',
+                                            }),
+                                        } only %}
+                                    </div>
+                                    <div class="col-12 col-md-3">
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'transfer-amount-' ~ item.receivable_id,
+                                            field_name: 'amount', label: 'Montant', size: 'sm', wrapper_class: 'mb-0',
+                                            value: (item.amount_overpaid / 100)|number_format(2, ',', ''),
+                                            inputmode: 'decimal',
+                                        } only %}
+                                    </div>
+                                    <div class="col-12 col-md-auto">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary tap-target">Imputer</button>
+                                    </div>
+                                </form>
+                            {% endif %}
+
+                            <p class="small text-body-secondary mt-2 mb-0">
+                                Ou laissez en l'état : un reste non imputé est neutre tant que personne n'a décidé
+                                qu'il est dû.
+                            </p>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endif %}
+
+        {# -------------------------------------------------- mauvais compte #}
+        {% if tab == 'cross_account' %}
+            <div class="alert alert-warning mt-3" role="alert">
+                L'argent doit arriver sur le bon compte : <strong>rien ne s'impute à distance</strong>. Les
+                signalements ci-dessous disparaîtront quand le virement sera fait et les deux comptes
+                réimportés — entre les deux, ils restent affichés.
+            </div>
+
+            {% if view.cross_account.received_here is empty and view.cross_account.paid_elsewhere is empty %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun paiement arrivé sur le mauvais compte.', icon: 'bi-check2-circle',
+                } only %}
+            {% endif %}
+
+            {% for item in view.cross_account.received_here %}
+                <div class="border rounded-3 mb-3">
+                    <div class="bg-body-tertiary p-3 border-bottom">
+                        {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Reçu à tort sur ce compte' } only %}
+                        <p class="fw-semibold mb-1 mt-2">{{ item.amount_cents|money_cents }} — {{ item.date|date_fr }}</p>
+                        <p class="mb-0">
+                            Ce paiement concerne une créance du <strong>{{ item.target_account }}</strong>.
+                            Transférez-le.
+                        </p>
+                    </div>
+                    <div class="p-3">
+                        <p class="mb-2">
+                            <strong>Reprenez la communication d'origine</strong> :
+                            <span class="font-monospace text-break">{{ item.communication }}</span>. Sans elle, le
+                            crédit arrivera sans se rattacher à rien, et les deux signalements resteront.
+                        </p>
+                        <p class="small text-body-secondary mb-0">
+                            Catégorisez le débit d'ici et le crédit là-bas comme un <strong>mouvement interne</strong>,
+                            sinon l'unité comptera deux fois la même recette.
+                        </p>
+                    </div>
+                </div>
+            {% endfor %}
+
+            {% for item in view.cross_account.paid_elsewhere %}
+                <div class="border rounded-3 mb-3">
+                    <div class="bg-body-tertiary p-3 border-bottom">
+                        {% include 'partials/status_badge.html.twig' with { status: 'info', label: 'Payé sur un autre compte' } only %}
+                        <p class="fw-semibold mb-1 mt-2">{{ item.name }} — {{ item.amount_cents|money_cents }}</p>
+                        <p class="mb-0">
+                            Reçu le <strong>{{ item.date|date_fr }} sur le {{ item.other_account }}</strong>.
+                            Contactez son trésorier.
+                        </p>
+                    </div>
+                    <p class="small text-body-secondary p-3 mb-0">Ne relancez pas cette famille : elle a payé.</p>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endif %}
+{% endblock %}
