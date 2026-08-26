@@ -629,6 +629,51 @@ else
     echo "DAST: not Linux — ZAP will reach the instance as ${ZAP_TARGET}."
 fi
 
+# The URL the BROWSER is given, which is not always the one this script
+# serves. Every request the browser makes is resolved by ZAP, not by the
+# browser, so the hostname in it has to be one that means "the instance"
+# from INSIDE the container. On Linux that is `localhost` for both, since
+# --network=host makes the two loopbacks the same interface, and
+# BROWSER_URL is BASE_URL unchanged.
+#
+# On Docker Desktop they are different machines and `localhost` inside the
+# container is the container itself, where nothing listens. Handing the
+# browser BASE_URL there produced the one failure this whole block exists
+# to prevent, and produced it silently: every request 502'd or timed out,
+# every spec failed for its own apparent reason, and ZAP's site map for
+# ZAP_TARGET stayed empty because the browser had never asked for that
+# host — so the scan "completed" having seen no traffic at all. The two
+# halves of the harness were aimed at two different hostnames: ZAP_TARGET
+# went to ZAP for its context, site map and alerts (below), while the
+# browser was still being sent to localhost.
+#
+# The self-signed certificate stays a localhost certificate and does not
+# need a host.docker.internal SAN: ZAP terminates and re-signs every
+# HTTPS connection with its own CA, so the browser never sees the
+# instance's certificate, and ZAP does not verify it.
+#
+# NECESSARY BUT NOT YET SUFFICIENT ON DOCKER DESKTOP. This restores the
+# traffic — ZAP records the site map it used to leave empty — and most of
+# the suite passes. What still fails is every scenario that follows a link
+# the SERVER built: the instance is provisioned through
+# scripts/e2e-support.php e2e_base_url(), which hardcodes `localhost`, so
+# a magic-link email and a passkey's Relying Party ID still name a host
+# ZAP resolves to its own container. Measured: the password login and the
+# public pages pass, the magic link and the passkey do not.
+#
+# Making the instance agree is NOT the one-line change it looks like, and
+# e2e_base_url()'s own docblock is where to start before trying: three
+# documented behaviours are keyed to the literal name `localhost` — most
+# sharply Core\Statistics\StatisticsSender::isPublicHost(), which refuses
+# to report BECAUSE it recognises that name. An instance calling itself
+# host.docker.internal may consider itself a public host and start
+# reporting outward from a security scanning bench. Any fix has to answer
+# that first.
+#
+# Until then the dynamic gate is a Linux/CI gate: it runs green there (and
+# on af70f87c it did), and needs --skip-dast-gate to release from macOS.
+BROWSER_URL="${ZAP_TARGET}"
+
 echo "DAST: starting OWASP ZAP (${DAST_ZAP_IMAGE}) on ${ZAP_PROXY}."
 docker run --detach --rm \
     --name "${ZAP_CONTAINER}" \
@@ -684,11 +729,23 @@ fi
 # ---------------------------------------------------------------
 echo "DAST: running the Playwright suite through ZAP..."
 set +e
-E2E_BASE_URL="${BASE_URL}" \
+# ${PLAYWRIGHT_ARGS[@]+"${PLAYWRIGHT_ARGS[@]}"}, not the plain
+# "${PLAYWRIGHT_ARGS[@]}": under `set -u` (line 2), bash 3.2 — which is
+# what macOS still ships as /bin/bash, and this script's shebang — treats
+# an EMPTY array's expansion as an unbound variable and aborts. The array
+# is empty on exactly the path that matters: scripts/release.sh's dynamic
+# gate calls this script with only --profile=passive and no extra
+# Playwright arguments, so the browser suite died here before sending ZAP
+# a single request, and the gate then failed for "a browser suite that did
+# not complete". It went unseen because CI runs bash 5 on Linux, where
+# expanding an empty array under `set -u` has been legal since 4.4.
+# The ${var[@]+…} form expands to nothing when the array is empty and to
+# the properly quoted elements otherwise, in both bash versions.
+E2E_BASE_URL="${BROWSER_URL}" \
 E2E_PROXY_SERVER="${ZAP_PROXY}" \
 E2E_IGNORE_HTTPS_ERRORS="1" \
 E2E_TIMEOUT_FACTOR="${DAST_TIMEOUT_FACTOR}" \
-    npm exec --no -- playwright test --config="${REPO_ROOT}/tests/e2e/playwright.config.js" "${PLAYWRIGHT_ARGS[@]}" &
+    npm exec --no -- playwright test --config="${REPO_ROOT}/tests/e2e/playwright.config.js" ${PLAYWRIGHT_ARGS[@]+"${PLAYWRIGHT_ARGS[@]}"} &
 PLAYWRIGHT_PID=$!
 wait "${PLAYWRIGHT_PID}"
 PLAYWRIGHT_EXIT=$?
