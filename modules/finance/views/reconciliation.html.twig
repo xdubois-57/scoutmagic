@@ -9,6 +9,14 @@
   Nothing on this page is `danger`: a payment that lands awkwardly has not
   failed, it is waiting for somebody. Amber throughout, and the labels do
   the telling apart.
+
+  Every amount this page DISPLAYS goes through `|money_cents`. The three
+  remaining hand-written `number_format` calls are the `value:` of an
+  editable input and are deliberately not converted: `|money_cents`
+  appends « € » and a thin thousands separator, and a treasurer correcting
+  a split would be typing into a field pre-filled with a currency symbol
+  the form then has to parse back off. An input's value is a number, not
+  a rendered amount.
 #}
 
 {% block title %}Rapprochement — Finances — {{ site_name }}{% endblock %}
@@ -245,7 +253,7 @@
                                             type: 'select', size: 'sm', wrapper_class: 'mb-0',
                                             options: item.siblings|map(sibling => {
                                                 value: sibling.receivable_id,
-                                                label: sibling.name ~ ' — reste ' ~ (sibling.remaining_cents / 100)|number_format(2, ',', ' ') ~ ' €',
+                                                label: sibling.name ~ ' — reste ' ~ (sibling.remaining_cents|money_cents),
                                             }),
                                         } only %}
                                     </div>
