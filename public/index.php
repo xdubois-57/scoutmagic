@@ -1072,7 +1072,7 @@ $notificationService = new NotificationService(
 $temporaryMemberProvider = new \Core\Member\SessionTemporaryMemberProvider();
 $memberService = new MemberService($memberYearRepo, $encryptionService, $connection, $temporaryMemberProvider, $memberEmailRepository);
 $memberYearService = new MemberYearService();
-$memberSearchService = new MemberSearchService(new MemberSearchRepository($connection, $encryptionService));
+$memberSearchService = new MemberSearchService(new MemberSearchRepository($connection, $encryptionService), $scoutYearService);
 // "Won't be back next scout year" marking (ARCHITECTURE.md §8) — a plain
 // fact about a member_year, not inscriptions-specific, so it lives here at
 // core level even though the registration module's own "Départs" page
@@ -2280,7 +2280,8 @@ $frontController->registerController(MemberSearchController::class, new MemberSe
     new \Core\Member\AdminMemberPageService(
         $memberBadgeRepository, $memberPhotoService, $sectionMembershipRepository,
         $sectionService, $scoutYearService, $memberEmailRepository
-    )
+    ),
+    $memberYearRepo
 ));
 $frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));

@@ -563,6 +563,40 @@ class MemberYearRepository
     }
 
     /**
+     * The member_year row of this member's MOST RECENT scout year — the
+     * one the admin member page shows whoever a search found them
+     * through.
+     *
+     * Someone looking up a former member wants their latest known
+     * contact details, not the ones from the year the search matched: a
+     * chef d'unité reading a 2019 row believes they are reading current
+     * data and phones a number that has not worked in years. The page
+     * says which year it is showing for the same reason.
+     *
+     * Ordered by the scout year's own start_date rather than by id: an
+     * `ensureYear()` call can create a past year after a later one, so
+     * the ids are not chronological.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findMostRecentForMember(int $memberId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT my.*, m.desk_id
+             FROM member_years my
+             JOIN members m ON my.member_id = m.id
+             JOIN scout_years sy ON sy.id = my.scout_year_id
+             WHERE my.member_id = ?
+             ORDER BY sy.start_date DESC
+             LIMIT 1'
+        );
+        $stmt->execute([$memberId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row ?: null;
+    }
+
+    /**
      * Find a member year by ID.
      *
      * @return array<string, mixed>|null

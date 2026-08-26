@@ -6,12 +6,27 @@
         subtitle: "Recherche parmi les membres de l'année " ~ year_label ~ '.',
     } only %}
 
+    {% set scope_labels = { 'active': 'Actifs', 'inactive': 'Inactifs', 'all': 'Tous' } %}
+
     <form method="get" action="/admin/members" class="mb-4">
         <div class="input-group">
             <input type="search" name="q" class="form-control" value="{{ query }}"
                    placeholder="Nom, prénom, email, téléphone…" aria-label="Recherche" autofocus>
             <button type="submit" class="btn btn-primary">Rechercher</button>
         </div>
+        {# The membership filter travels with the query, so a submit keeps
+           it. Default « Actifs » — that is what is wanted nine times out
+           of ten, and the other two are one tap away. #}
+        <div class="btn-group mt-2" role="group" aria-label="Membres affichés">
+            {% for value in scopes %}
+                <input type="radio" class="btn-check" name="scope" id="scope-{{ value }}" value="{{ value }}"
+                       {{ scope == value ? 'checked' : '' }} autocomplete="off">
+                <label class="btn btn-outline-secondary btn-sm" for="scope-{{ value }}">{{ scope_labels[value] }}</label>
+            {% endfor %}
+        </div>
+        {% if all_years %}
+            <input type="hidden" name="annees" value="1">
+        {% endif %}
     </form>
 
     {% if query is empty %}
@@ -32,6 +47,8 @@
            mail-merge audience. #}
         <form method="get" action="/admin/members/export" id="member-export-form">
             <input type="hidden" name="q" value="{{ query }}">
+            {# The export follows the membership filter the screen shows. #}
+            <input type="hidden" name="scope" value="{{ scope }}">
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                 <label class="d-flex align-items-center gap-2 m-0 small text-body-secondary tap-target" style="cursor:pointer;">
                     <input class="form-check-input m-0" type="checkbox" id="member-export-select-all" style="width:1.25rem;height:1.25rem;">
@@ -39,7 +56,7 @@
                 </label>
                 <span class="small text-body-secondary ms-1">{{ results|length }} résultat{{ results|length > 1 ? 's' : '' }}</span>
                 <div class="d-flex flex-wrap gap-2 ms-auto">
-                    <a href="/admin/members/export?q={{ query|url_encode }}" class="btn btn-sm btn-outline-primary">
+                    <a href="/admin/members/export?q={{ query|url_encode }}&amp;scope={{ scope }}" class="btn btn-sm btn-outline-primary">
                         <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Exporter les résultats
                     </a>
                     {# Not disabled in the markup: without JS the form still
@@ -52,11 +69,50 @@
                 </div>
             </div>
             <div class="d-flex flex-column gap-2">
-                {% for member in results %}
-                    {% include 'admin/members/_result_row.html.twig' with { member: member } only %}
+                {% for group in results %}
+                    {% include 'admin/members/_result_row.html.twig' with { group: group } only %}
                 {% endfor %}
             </div>
         </form>
+    {% endif %}
+
+    {# Widening to the past years is a deliberate act, never a checkbox
+       ticked in advance and never triggered by typing: each extra scout
+       year is a whole year of AES decryption in PHP. The button carries
+       the query and the filter already entered, so nothing is retyped. #}
+    {% if query is not empty %}
+        <div class="mt-4">
+            {% if all_years %}
+                <div class="alert alert-info d-flex align-items-start gap-2" role="status">
+                    <i class="bi bi-clock-history flex-shrink-0" aria-hidden="true"></i>
+                    <div>
+                        La recherche porte sur toutes les années scoutes.
+                        {% if former_count > 0 %}
+                            <strong>{{ former_count }} ancien{{ former_count > 1 ? 's' : '' }} membre{{ former_count > 1 ? 's' : '' }}</strong>
+                            trouvé{{ former_count > 1 ? 's' : '' }}, affiché{{ former_count > 1 ? 's' : '' }} avec les années où on {{ former_count > 1 ? 'les' : 'le' }} trouve.
+                        {% else %}
+                            Aucun ancien membre ne correspond à cette recherche.
+                        {% endif %}
+                        <a href="/admin/members?q={{ query|url_encode }}&amp;scope={{ scope }}">Revenir à l'année en cours</a>.
+                    </div>
+                </div>
+            {% else %}
+                <div class="card">
+                    <div class="card-body">
+                        <p class="fw-medium mb-1">Vous ne trouvez pas la personne ?</p>
+                        <p class="small text-body-secondary mb-3">
+                            La recherche porte sur l'année scoute en cours. Chercher dans les années
+                            précédentes prend quelques secondes de plus.
+                        </p>
+                        <a class="btn btn-outline-secondary btn-sm w-100 w-sm-auto"
+                           href="/admin/members?q={{ query|url_encode }}&amp;scope={{ scope }}&amp;annees=1">
+                            <i class="bi bi-clock-history" aria-hidden="true"></i>
+                            Chercher aussi dans les années précédentes
+                        </a>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
     {% endif %}
 
 {% endblock %}

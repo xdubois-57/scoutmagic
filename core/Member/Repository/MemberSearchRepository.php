@@ -29,9 +29,17 @@ class MemberSearchRepository
     }
 
     /**
+     * Every member of one scout year, decrypted.
+     *
+     * **No `is_active` filter, deliberately.** A row deactivated mid-year
+     * is still a member of that year and still someone a chef d'unité
+     * searches for; the flag rides along on each result and the caller
+     * decides. The search page defaults to the active ones, which is what
+     * is wanted nine times in ten, and offers the other two scopes.
+     *
      * @return MemberSearchResult[]
      */
-    public function findAllForYear(int $scoutYearId): array
+    public function findAllForYear(int $scoutYearId, string $scoutYearLabel = '', string $scoutYearStartDate = ''): array
     {
         $pdo = $this->connection->getPdo();
 
@@ -52,6 +60,10 @@ class MemberSearchRepository
             $fn = $functions[$id] ?? null;
             $results[] = new MemberSearchResult(
                 memberYearId: $id,
+                memberId: (int) $row['member_id'],
+                scoutYearId: $scoutYearId,
+                scoutYearLabel: $scoutYearLabel,
+                scoutYearStartDate: $scoutYearStartDate,
                 firstName: $this->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
                 lastName: $this->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
                 totem: $this->decryptNullable($row['totem_encrypted'], 'member_years.totem'),

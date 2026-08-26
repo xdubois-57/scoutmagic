@@ -11,6 +11,7 @@ namespace Core\Member\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Import\MemberYearRepository;
 use Core\Journal\JournalService;
 use Core\Member\DepartureService;
 use Core\Member\Export\MemberExportRowBuilder;
@@ -42,7 +43,8 @@ class MemberSearchController extends AbstractController
         private MemberExportRowBuilder $exportRowBuilder,
         private MemberExportService $exportService,
         private JournalService $journalService,
-        private AdminMemberPageService $adminMemberPageService
+        private AdminMemberPageService $adminMemberPageService,
+        private MemberYearRepository $memberYearRepository
     ) {
     }
 
@@ -53,14 +55,29 @@ class MemberSearchController extends AbstractController
     {
         $role = Role::fromString(AuthSession::getRole());
         $effective = $this->resolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
-        $yearId = $effective->id;
 
         $query = trim((string) $request->getQuery('q', ''));
-        $results = $query !== '' ? $this->searchService->search($yearId, $query) : [];
+        $scope = MemberSearchService::normalizeScope($request->getQuery('scope'));
+        // Widening to the past years is an explicit act, never a default
+        // and never a keystroke: every extra year is a whole year of
+        // AES decryption in PHP (Service\MemberSearchService's own
+        // docblock). The page offers a button; this reads what it sent.
+        $allYears = $request->getQuery('annees') === '1';
+
+        $results = [];
+        if ($query !== '') {
+            $results = $allYears
+                ? $this->searchService->searchAllYears($query, $scope, $effective->id)
+                : $this->searchService->searchGrouped($effective->id, $query, $scope, $effective->id);
+        }
 
         return $this->render('admin/members/search.html.twig', [
             'query' => $query,
             'results' => $results,
+            'scope' => $scope,
+            'scopes' => MemberSearchService::SCOPES,
+            'all_years' => $allYears,
+            'former_count' => count(array_filter($results, fn($r) => $r->isFormerMember)),
             'year_label' => $effective->label,
         ]);
     }
@@ -78,8 +95,19 @@ class MemberSearchController extends AbstractController
      * search never was: that link dragged the `q=` along and replayed an
      * unrelated search for whoever opened it.
      *
-     * The check that came with it: the member must belong to the
-     * effective scout year, or 404. It moved here unchanged.
+     * **The page always shows the member's LAST KNOWN year**, whichever
+     * one the search matched, and names it on screen. Someone looking up
+     * a former member wants their most recent contact details, not the
+     * ones from 2019 — and without the year being stated a chef d'unité
+     * reads them as current and phones a number that stopped working
+     * years ago.
+     *
+     * That is why the old "belongs to the effective scout year, or 404"
+     * check is gone: it would 404 every former member, which is exactly
+     * who the widened search exists to find. What replaces it is weaker
+     * on purpose and still a real check — the `member_years` row must
+     * exist, and the member must have a most recent year to show. The
+     * boundary here is the route's own `role_min: admin`, unchanged.
      *
      * @param array<string, string> $params
      */
@@ -88,10 +116,20 @@ class MemberSearchController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $effective = $this->resolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
         $memberYearId = (int) ($params['id'] ?? 0);
-
-        if ($memberYearId <= 0 || $this->searchService->findById($effective->id, $memberYearId) === null) {
+        if ($memberYearId <= 0) {
             return $this->notFound();
         }
+
+        $requested = $this->memberYearRepository->findById($memberYearId);
+        if ($requested === null) {
+            return $this->notFound();
+        }
+
+        // Normalise onto the member's most recent annual row: a link may
+        // legitimately carry a past year's id, and the page shows the
+        // latest either way.
+        $latest = $this->memberYearRepository->findMostRecentForMember((int) $requested['member_id']);
+        $memberYearId = (int) ($latest['id'] ?? $memberYearId);
 
         try {
             $profile = $this->memberService->getMemberProfile($memberYearId);
@@ -115,7 +153,10 @@ class MemberSearchController extends AbstractController
                 'departure_leaving' => $departureStatus?->leaving ?? false,
                 'departure_comment' => $departureStatus?->comment ?? '',
                 'is_temporary_member' => TemporaryMemberSession::get() === $profile->memberYearId,
-                'year_label' => $effective->label,
+                // The year the page is actually showing, which is the
+                // member's own latest — not necessarily the effective one.
+                'year_label' => $profile->scoutYearLabel,
+                'is_past_year' => $profile->scoutYearLabel !== $effective->label,
             ]
         ));
     }
@@ -147,9 +188,18 @@ class MemberSearchController extends AbstractController
             $scope = 'selection';
         } else {
             $query = trim((string) $request->getQuery('q', ''));
+            // The same membership scope the screen is showing — exporting
+            // the actives while looking at « Tous » would be a surprise.
+            // Never the widened past-year search, though: the canonical
+            // member export is one scout year's worth of columns, and a
+            // former member has no row in this one.
             $memberYearIds = array_map(
                 fn(\Core\Member\Service\MemberSearchResult $r) => $r->memberYearId,
-                $this->searchService->search($effective->id, $query)
+                $this->searchService->search(
+                    $effective->id,
+                    $query,
+                    MemberSearchService::normalizeScope($request->getQuery('scope'))
+                )
             );
             $scope = 'search';
         }
