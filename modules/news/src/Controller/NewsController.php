@@ -91,17 +91,27 @@ class NewsController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        // Clamp BEFORE fetching (count first, like the movements list):
+        // an out-of-range ?page= must land on the last real page, never on
+        // an empty result that renders as "no news".
         $page = max(1, (int) $request->getQuery('page', 1));
         ['articles' => $articles, 'total' => $total] = $this->articleService->findPublicListPage(
             self::LIST_PER_PAGE,
-            ($page - 1) * self::LIST_PER_PAGE
+            0
         );
         $totalPages = max(1, (int) ceil($total / self::LIST_PER_PAGE));
+        $page = min($page, $totalPages);
+        if ($page > 1) {
+            ['articles' => $articles] = $this->articleService->findPublicListPage(
+                self::LIST_PER_PAGE,
+                ($page - 1) * self::LIST_PER_PAGE
+            );
+        }
 
         return $this->render('@news/list.html.twig', [
             'articles' => $this->buildListCards($articles),
             'manage' => false,
-            'page' => min($page, $totalPages),
+            'page' => $page,
             'total_pages' => $totalPages,
         ]);
     }

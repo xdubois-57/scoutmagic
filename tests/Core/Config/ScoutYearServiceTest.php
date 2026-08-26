@@ -103,6 +103,22 @@ class ScoutYearServiceTest extends TestCase
         $this->assertSame(1, (int) $stmt->fetchColumn());
     }
 
+    public function testCurrentAndPreviousYearIdsReturnsBothWhenAPreviousYearExists(): void
+    {
+        $currentLabel = ScoutYearService::labelForDate(new \DateTimeImmutable());
+        $previousId = $this->service->ensureYear(ScoutYearService::previousLabel($currentLabel));
+        $current = $this->service->getCurrentYear();
+
+        $this->assertSame([$current['id'], $previousId], $this->service->currentAndPreviousYearIds());
+    }
+
+    public function testCurrentAndPreviousYearIdsIsCurrentOnlyOnAFreshInstallation(): void
+    {
+        $current = $this->service->getCurrentYear();
+
+        $this->assertSame([$current['id']], $this->service->currentAndPreviousYearIds());
+    }
+
     public function testGetAllReturnsOrderedByStartDateAsc(): void
     {
         $this->service->ensureYear('2023-2024');

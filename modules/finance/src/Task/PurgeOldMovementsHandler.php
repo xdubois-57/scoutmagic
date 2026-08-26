@@ -137,6 +137,11 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
             throw $e;
         }
 
+        // The service memoizes an account's movements; the rows above are
+        // gone, and the next fiscal year of this same account computes its
+        // own consolidated balance from a fresh read.
+        $balanceService->forgetAccount($account->id);
+
         // File deletion happens after the DB commit — never remove a
         // real file for a database change that could still be rolled back.
         $deletedAttachments = 0;

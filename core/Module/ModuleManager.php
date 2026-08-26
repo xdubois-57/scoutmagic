@@ -114,46 +114,52 @@ class ModuleManager
      */
     private function readManifestCache(): array
     {
-        $raw = @file_get_contents($this->manifestCacheFilePath());
-        if ($raw === false) {
-            return [];
-        }
-
-        $data = @unserialize($raw, ['allowed_classes' => [ModuleManifest::class]]);
-        if (!is_array($data)) {
-            return [];
-        }
-
-        foreach ($data as $entry) {
-            if (!is_array($entry) || !isset($entry['stamp'], $entry['manifest']) || !$entry['manifest'] instanceof ModuleManifest) {
-                return [];
+        $data = $this->manifestCacheFile()->read(function (mixed $data): bool {
+            if (!is_array($data)) {
+                return false;
             }
-        }
+            foreach ($data as $entry) {
+                if (!is_array($entry) || !isset($entry['stamp'], $entry['manifest']) || !$entry['manifest'] instanceof ModuleManifest) {
+                    return false;
+                }
+            }
 
-        /** @var array<string, array{stamp: string, manifest: ModuleManifest}> $data */
-        return $data;
+            return true;
+        });
+
+        /** @var array<string, array{stamp: string, manifest: ModuleManifest}> */
+        return is_array($data) ? $data : [];
     }
 
-    private function persistManifestCache(): void
+    /**
+     * Persists only the entries the CURRENT scan touched — a deleted or
+     * renamed module's entry would otherwise sit in the file forever,
+     * unserialized and re-written on every request.
+     *
+     * @param string[] $seenPaths the manifest paths this scan resolved
+     */
+    private function persistManifestCache(array $seenPaths): void
     {
-        if (!$this->manifestFileCacheDirty || $this->manifestCacheDirectory === null || $this->manifestFileCache === null) {
+        if ($this->manifestCacheDirectory === null || $this->manifestFileCache === null) {
             return;
         }
 
-        if (!is_dir($this->manifestCacheDirectory)
-            && !@mkdir($this->manifestCacheDirectory, 0755, true)
-            && !is_dir($this->manifestCacheDirectory)
-        ) {
+        $kept = array_intersect_key($this->manifestFileCache, array_flip($seenPaths));
+        if (!$this->manifestFileCacheDirty && count($kept) === count($this->manifestFileCache)) {
             return;
         }
+        $this->manifestFileCache = $kept;
 
-        $tmp = $this->manifestCacheFilePath() . '.' . bin2hex(random_bytes(4)) . '.tmp';
-        if (@file_put_contents($tmp, serialize($this->manifestFileCache)) === false
-            || !@rename($tmp, $this->manifestCacheFilePath())
-        ) {
-            @unlink($tmp);
-        }
+        $this->manifestCacheFile()->write($kept);
         $this->manifestFileCacheDirty = false;
+    }
+
+    private function manifestCacheFile(): \Core\Cache\SerializedFileCache
+    {
+        return new \Core\Cache\SerializedFileCache(
+            $this->manifestCacheFilePath(),
+            [ModuleManifest::class]
+        );
     }
 
     private function manifestCacheFilePath(): string
@@ -210,6 +216,7 @@ class ModuleManager
         $sortKeys = [];
 
         // Scan disk
+        $seenManifestPaths = [];
         if (is_dir($this->modulesDir)) {
             $dirs = scandir($this->modulesDir);
             if ($dirs !== false) {
@@ -222,6 +229,7 @@ class ModuleManager
                         continue;
                     }
                     $manifestPath = $fullPath . '/module.json';
+                    $seenManifestPaths[] = $manifestPath;
                     $validationError = null;
                     $manifest = null;
 
@@ -284,7 +292,7 @@ class ModuleManager
             $sortKeys[$moduleId] = $entry['sort_order'];
         }
 
-        $this->persistManifestCache();
+        $this->persistManifestCache($seenManifestPaths);
 
         uksort($modules, fn(string $a, string $b) => [$sortKeys[$a], $a] <=> [$sortKeys[$b], $b]);
         return array_values($modules);

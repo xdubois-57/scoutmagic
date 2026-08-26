@@ -696,19 +696,7 @@ class GalleryController extends AbstractController
      */
     private function relevantScoutYearIds(): array
     {
-        $current = $this->scoutYearService->getCurrentYear();
-        $years = $this->scoutYearService->getAll();
-
-        $ids = [$current['id']];
-        foreach ($years as $index => $year) {
-            if ($year['id'] === $current['id']) {
-                if ($index > 0) {
-                    $ids[] = $years[$index - 1]['id'];
-                }
-                break;
-            }
-        }
-        return $ids;
+        return $this->scoutYearService->currentAndPreviousYearIds();
     }
 
     private function isVisible(Album $album): bool

@@ -111,6 +111,13 @@ class FileController extends AbstractController
         // access like any other.
         $etag = '"f' . $file->id . '-' . $file->sizeBytes . '"';
         $ifNoneMatch = $request->getServer('HTTP_IF_NONE_MATCH');
+        // mod_deflate (DeflateAlterETag AddSuffix, the default) rewrites
+        // the ETag it compressed to `…-gzip"`, and the browser replays
+        // exactly that — a strict comparison would then never match for
+        // any content type the .htaccess deflates (SVG among them).
+        if (is_string($ifNoneMatch)) {
+            $ifNoneMatch = str_replace('-gzip"', '"', $ifNoneMatch);
+        }
         if (is_string($ifNoneMatch) && $ifNoneMatch === $etag) {
             return (new Response('', 304))
                 ->setHeader('ETag', $etag)

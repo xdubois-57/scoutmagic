@@ -117,27 +117,24 @@ class HelpRegistry
             return null;
         }
 
-        $raw = @file_get_contents($this->cacheFilePath());
-        if ($raw === false) {
-            return null;
-        }
-
-        $data = @unserialize($raw, ['allowed_classes' => [HelpTopic::class, \Core\Security\Role::class]]);
-        if (!is_array($data)
-            || ($data['key'] ?? null) !== $this->cacheKey()
-            || !is_array($data['topics'] ?? null)
-            || !is_array($data['errors'] ?? null)
-        ) {
-            return null;
-        }
-
-        foreach ($data['topics'] as $topic) {
-            if (!$topic instanceof HelpTopic) {
-                return null;
+        $data = $this->cacheFile()->read(function (mixed $data): bool {
+            if (!is_array($data)
+                || ($data['key'] ?? null) !== $this->cacheKey()
+                || !is_array($data['topics'] ?? null)
+                || !is_array($data['errors'] ?? null)
+            ) {
+                return false;
             }
-        }
+            foreach ($data['topics'] as $topic) {
+                if (!$topic instanceof HelpTopic) {
+                    return false;
+                }
+            }
 
-        return [$data['topics'], $data['errors']];
+            return true;
+        });
+
+        return is_array($data) ? [$data['topics'], $data['errors']] : null;
     }
 
     private function writeCache(): void
@@ -146,20 +143,19 @@ class HelpRegistry
             return;
         }
 
-        $directory = (string) $this->cacheDirectory;
-        if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {
-            return;
-        }
-
-        $payload = serialize([
+        $this->cacheFile()->write([
             'key' => $this->cacheKey(),
             'topics' => $this->topics,
             'errors' => $this->loadErrors,
         ]);
-        $tmp = $this->cacheFilePath() . '.' . bin2hex(random_bytes(4)) . '.tmp';
-        if (@file_put_contents($tmp, $payload) === false || !@rename($tmp, $this->cacheFilePath())) {
-            @unlink($tmp);
-        }
+    }
+
+    private function cacheFile(): \Core\Cache\SerializedFileCache
+    {
+        return new \Core\Cache\SerializedFileCache(
+            $this->cacheFilePath(),
+            [HelpTopic::class, \Core\Security\Role::class]
+        );
     }
 
     /**

@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------
+# Static asset lifetimes — THIS directory only, which is the point:
+# a rule in the parent .htaccess also stamped Expires/max-age onto the
+# application's own PHP responses of the same content types, fighting
+# the Cache-Control each controller sets.
+#
+# The far-future tier is safe because every template reference to
+# /assets/** goes through the asset() helper, whose ?v=… changes with
+# the release (pinned by Tests\Core\View\AssetVersioningTest) — a
+# year-long cache can never serve a stale script against a new page.
+# Two shorter tiers for what is referenced WITHOUT a version: fonts and
+# images reached from inside vendored CSS files keep their bare URL, so
+# they get days, not a year — stale for at most that long after a
+# vendored-library upgrade.
+#
+# Pinned by Tests\Bootstrap\HtaccessExpiresTest. mod_expires is not
+# universal on shared hosting, so this degrades silently when absent.
+# ---------------------------------------------------------------------
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 1 year"
+    ExpiresByType application/javascript "access plus 1 year"
+    ExpiresByType text/javascript "access plus 1 year"
+    ExpiresByType image/png "access plus 30 days"
+    ExpiresByType image/jpeg "access plus 30 days"
+    ExpiresByType image/gif "access plus 30 days"
+    ExpiresByType image/webp "access plus 30 days"
+    ExpiresByType image/svg+xml "access plus 30 days"
+    ExpiresByType image/x-icon "access plus 30 days"
+    ExpiresByType font/woff2 "access plus 7 days"
+    ExpiresByType font/woff "access plus 7 days"
+    ExpiresByType font/ttf "access plus 7 days"
+</IfModule>

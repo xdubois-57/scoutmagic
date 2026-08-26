@@ -605,6 +605,14 @@ class ReceivableAllocationService
         return $settlements;
     }
 
+    /**
+     * The full settlement picture — stored allocations PLUS the credit
+     * scan that finds arrived-but-unabsorbed designated money, which
+     * storedSettlementsFor() deliberately skips.
+     *
+     * @param ExpectedReceivable[] $receivables
+     * @return array<int, ReceivableSettlement>
+     */
     public function settlementsFor(array $receivables): array
     {
         if ($receivables === []) {

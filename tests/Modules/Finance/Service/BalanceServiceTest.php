@@ -101,6 +101,24 @@ class BalanceServiceTest extends TestCase
         $this->assertSame(700.0, $this->service->getLowestBalanceSince($this->account, new \DateTimeImmutable('2026-09-01')));
     }
 
+    /**
+     * The escape hatch for the rare holder that WRITES movements between
+     * balance reads (Task\PurgeOldMovementsHandler): forgetAccount() must
+     * drop the memo so the next read sees the database as it now is.
+     */
+    public function testForgetAccountMakesTheNextReadSeeFreshRows(): void
+    {
+        $this->checkpointRepository->create($this->account->id, '2026-09-01', 1000.0, BalanceCheckpoint::SOURCE_IMPORT);
+        $this->transactionRepository->create($this->account->id, $this->fiscalYearId, 'R1', '2026-09-10', 'Achat', -100.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $this->assertSame(900.0, $this->service->getBalanceAt($this->account, new \DateTimeImmutable('2026-10-31')));
+
+        $this->pdo->exec('DELETE FROM finance_transactions');
+        $this->service->forgetAccount($this->account->id);
+
+        $this->assertSame(1000.0, $this->service->getBalanceAt($this->account, new \DateTimeImmutable('2026-10-31')));
+    }
+
     // --- getLowestBalanceSince() ---
 
     public function testGetLowestBalanceSinceReturnsNullWhenNoCheckpoint(): void

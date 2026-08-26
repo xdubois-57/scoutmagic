@@ -26,6 +26,12 @@ use Modules\Finance\Repository\TransactionRepository;
  */
 class BalanceService
 {
+    /**
+     * Movements are memoized per account for this instance's lifetime
+     * (see $movementsSinceCache below) — a holder that WRITES to
+     * finance_transactions between reads must call forgetAccount() after
+     * the write, or the next read answers from before it.
+     */
     public function __construct(
         private BalanceCheckpointRepository $checkpointRepository,
         private TransactionRepository $transactionRepository
@@ -44,6 +50,17 @@ class BalanceService
      * @var array<int, array{from: string, movements: Transaction[]}>
      */
     private array $movementsSinceCache = [];
+
+    /**
+     * Drops the memoized movements for one account — for the rare holder
+     * that deletes/creates movements between balance reads
+     * (Task\PurgeOldMovementsHandler purging several fiscal years of one
+     * account in a run).
+     */
+    public function forgetAccount(int $accountId): void
+    {
+        unset($this->movementsSinceCache[$accountId]);
+    }
 
     /**
      * findByAccountAfterDate() through the per-account memo: a window the
