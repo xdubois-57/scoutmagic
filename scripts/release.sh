@@ -22,8 +22,16 @@ set -euo pipefail
 #                               instead of the auto-generated commit list.
 #                               See AGENTS.md "Releases" for what a
 #                               Claude-authored notes file must contain.
-#   --skip-security-gate       Bypass the CodeQL/Dependabot check.
-#                               Emergency use only — prints a warning. See
+#   --skip-security-gate       Bypass composer audit, npm audit, AND the
+#                               CodeQL/Dependabot check. Emergency use
+#                               only — prints a warning. Note that a
+#                               permission gap on the CodeQL/Dependabot
+#                               query alone (this session's GitHub access
+#                               lacking that specific repo permission) is
+#                               NOT what this flag is for — that case is
+#                               already a non-blocking warning inside the
+#                               gate itself, composer audit/npm audit
+#                               still run and still block for real. See
 #                               check_security_gate.
 #   --skip-tests-gate          Bypass phpstan/phpunit AND the JavaScript
 #                               portion (npm run typecheck static analysis
@@ -233,20 +241,77 @@ check_deployment_gate() {
 # ---------------------------------------------------------------
 check_security_gate() {
     command -v gh &> /dev/null || { echo "ERROR: GitHub CLI (gh) is required for the security gate — install it and run gh auth login." >&2; exit 1; }
+    command -v composer &> /dev/null || { echo "ERROR: composer is required for the security gate (composer audit)." >&2; exit 1; }
+    command -v npm &> /dev/null || { echo "ERROR: npm is required for the security gate (npm audit) — see package.json/README.md § Développement." >&2; exit 1; }
+    [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see README.md § Développement) before the security gate can run npm audit." >&2; exit 1; }
 
     local err codeql_lines dependabot_lines codeql_count dependabot_count
+    local codeql_status dependabot_status permission_gap=""
+    local audit_output audit_exit
 
-    # One line per OPEN CodeQL finding: "<number> <rule description>".
+    # composer audit / npm audit: known CVEs in installed dependencies
+    # (Composer's require+require-dev, and the full npm lockfile), queried
+    # directly against the FriendsOfPHP / npm advisory databases — no
+    # GitHub API, no App permission of any kind. Mandatory and always
+    # blocking: a real advisory here is a real finding regardless of what
+    # GitHub's own alerts say, and unlike the CodeQL/Dependabot queries
+    # below this pair cannot be permission-limited, so there is no softer
+    # path for a nonzero exit here.
+    echo "Running composer audit..."
+    audit_output="$(composer audit 2>&1)"; audit_exit=$?
+    if [[ "${audit_exit}" -ne 0 ]]; then
+        echo "ERROR: composer audit found an advisory (or failed to run) — release blocked by the security gate." >&2
+        echo "${audit_output}" >&2
+        exit 1
+    fi
+
+    echo "Running npm audit..."
+    audit_output="$(npm audit 2>&1)"; audit_exit=$?
+    if [[ "${audit_exit}" -ne 0 ]]; then
+        echo "ERROR: npm audit found a vulnerability (or failed to run) — release blocked by the security gate." >&2
+        echo "${audit_output}" >&2
+        exit 1
+    fi
+
+    # CodeQL / Dependabot: fail-closed on any error EXCEPT the specific
+    # case of a permission gap — GitHub's own "Resource not accessible by
+    # integration" message, returned when the calling token/App is
+    # authenticated and can reach this repo for everything else, but was
+    # never granted the "Code scanning alerts" / "Dependabot alerts"
+    # repository permission. That is a statement about what THIS caller
+    # can reach, not a security finding, so it downgrades to a warning
+    # instead of blocking — every other error (auth failure, rate limit,
+    # an unreachable host, an unexpected response) still aborts exactly as
+    # before. See AGENTS.md § Releases for the manual-verification
+    # fallback this warning points at (check the Security tab by hand).
     err="$(mktemp)"
     codeql_lines="$(gh api "repos/{owner}/{repo}/code-scanning/alerts" --paginate \
-        --jq '.[] | select(.state == "open") | "\(.number)\t\(.rule.description)"' 2>"${err}")" \
-        || { echo "ERROR: cannot query CodeQL findings:" >&2; cat "${err}" >&2; rm -f "${err}"; exit 1; }
+        --jq '.[] | select(.state == "open") | "\(.number)\t\(.rule.description)"' 2>"${err}")"
+    codeql_status=$?
+    if [[ "${codeql_status}" -ne 0 ]]; then
+        if grep -qi "Resource not accessible by integration" "${err}"; then
+            echo "WARNING: could not check CodeQL findings — this session's GitHub access lacks the 'Code scanning alerts' repository permission (a permission gap, not a finding). Verify manually: https://github.com/{owner}/{repo}/security/code-scanning" >&2
+            codeql_lines=""
+            permission_gap="${permission_gap}CodeQL, "
+        else
+            echo "ERROR: cannot query CodeQL findings:" >&2; cat "${err}" >&2; rm -f "${err}"; exit 1
+        fi
+    fi
     rm -f "${err}"
 
     err="$(mktemp)"
     dependabot_lines="$(gh api "repos/{owner}/{repo}/dependabot/alerts" --paginate \
-        --jq '.[] | select(.state == "open") | "\(.number)\t\(.security_advisory.summary)"' 2>"${err}")" \
-        || { echo "ERROR: cannot query Dependabot alerts:" >&2; cat "${err}" >&2; rm -f "${err}"; exit 1; }
+        --jq '.[] | select(.state == "open") | "\(.number)\t\(.security_advisory.summary)"' 2>"${err}")"
+    dependabot_status=$?
+    if [[ "${dependabot_status}" -ne 0 ]]; then
+        if grep -qi "Resource not accessible by integration" "${err}"; then
+            echo "WARNING: could not check Dependabot alerts — this session's GitHub access lacks the 'Dependabot alerts' repository permission (a permission gap, not a finding). Verify manually: https://github.com/{owner}/{repo}/security/dependabot" >&2
+            dependabot_lines=""
+            permission_gap="${permission_gap}Dependabot, "
+        else
+            echo "ERROR: cannot query Dependabot alerts:" >&2; cat "${err}" >&2; rm -f "${err}"; exit 1
+        fi
+    fi
     rm -f "${err}"
 
         codeql_count="$(grep -c . <<< "${codeql_lines}" || true)"
@@ -265,8 +330,14 @@ check_security_gate() {
         exit 1
     fi
 
-    echo "vérifié — aucun signalement CodeQL ni alerte Dependabot ouvert." > "${GATE_REPORT_FILE}"
-    echo "Security gate OK: no open CodeQL findings, no open Dependabot alerts."
+    if [[ -n "${permission_gap}" ]]; then
+        permission_gap="${permission_gap%, }"
+        echo "vérifié — composer audit et npm audit : aucune vulnérabilité connue. ${permission_gap} non vérifié(s) depuis cette session (permission GitHub manquante) — vérifié manuellement à la place (voir la remarque associée)." > "${GATE_REPORT_FILE}"
+        echo "Security gate OK (partial): composer audit and npm audit clean; ${permission_gap} could not be checked from this session (permission gap, not a finding — see warning above)." >&2
+    else
+        echo "vérifié — composer audit et npm audit : aucune vulnérabilité connue ; aucun signalement CodeQL ni alerte Dependabot ouvert." > "${GATE_REPORT_FILE}"
+        echo "Security gate OK: composer audit and npm audit clean; no open CodeQL findings, no open Dependabot alerts."
+    fi
 }
 
 # ---------------------------------------------------------------
@@ -667,7 +738,7 @@ else
 fi
 
 if [[ "${SKIP_SECURITY_GATE}" -eq 1 ]]; then
-    echo "WARNING: --skip-security-gate used — open CodeQL findings and/or Dependabot alerts were NOT checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
+    echo "WARNING: --skip-security-gate used — composer audit, npm audit, open CodeQL findings and open Dependabot alerts were NONE of them checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
     SECURITY_GATE_REPORT_LINE="ignoré (\`--skip-security-gate\`) — à vérifier manuellement."
 else
     launch_gate security "Security" check_security_gate
