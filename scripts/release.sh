@@ -127,6 +127,85 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# ---------------------------------------------------------------
+# Preflight — executables/resources checked immediately here, right
+# after argument parsing and BEFORE any gate is launched (and before
+# the version bump below touches anything). Every gate below runs in
+# its own background subshell (see launch_gate/"Gate execution"),
+# with its own output only surfacing once EVERY gate has finished —
+# exactly the wrong place to first discover a prerequisite that is
+# missing 100% of the time regardless of what the code under test
+# does, and that would otherwise only surface after this script has
+# already spent most of the run on everything else (a full PHPUnit
+# suite, the whole authorization matrix, …). Checked once, here,
+# instead. A prerequisite only a SKIPPED gate would need is not
+# checked — same "skipped means skipped" rule as every --skip-*-gate
+# flag documented above.
+# ---------------------------------------------------------------
+
+# Chromium: both the end-to-end and dynamic-scan gates drive Playwright
+# against the same browser (tests/e2e/playwright.config.js), so this is
+# checked once here rather than duplicated across both gates' logs —
+# and unlike a plain "missing executable" check, a broken default here
+# is repaired automatically rather than only reported, because this
+# specific failure has a known, reliable fix (see below).
+if [[ "${SKIP_E2E_GATE}" -eq 0 || "${SKIP_DAST_GATE}" -eq 0 ]]; then
+    chromium_path="${E2E_CHROMIUM_EXECUTABLE:-}"
+    if [[ -z "${chromium_path}" ]]; then
+        # Ask Playwright itself which executable it would launch, rather
+        # than guessing a path — this stays correct across
+        # @playwright/test version bumps, unlike hardcoding a browser
+        # revision number. Empty output (module not found, no browser
+        # installed, …) is treated the same as "no default found" below.
+        chromium_path="$(node -e '
+            try { console.log(require("playwright-core").chromium.executablePath()); }
+            catch (e) { /* left empty on purpose */ }
+        ' 2>/dev/null)"
+    fi
+
+    if [[ -n "${chromium_path}" && -x "${chromium_path}" ]]; then
+        : # works as configured — nothing to repair, nothing to export
+    elif [[ -x "/opt/pw-browsers/chromium" ]]; then
+        # Known-good fallback for a Claude Code sandbox specifically:
+        # PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers pre-installs a
+        # browser revision that can differ from what the installed
+        # @playwright/test version looks for by default — the exact
+        # mismatch this project hit once already (AGENTS.md § Releases).
+        # Exported right here, so every gate this script launches from
+        # this point on (each its own background subshell) inherits it
+        # automatically — no restart, no manual export, no editing this
+        # script.
+        echo "WARNING: the configured Chromium ('${chromium_path:-<none found>}') is missing or not executable. Falling back automatically to /opt/pw-browsers/chromium (this environment's known-good path) for the rest of this run." >&2
+        export E2E_CHROMIUM_EXECUTABLE="/opt/pw-browsers/chromium"
+    else
+        echo "ERROR: no runnable Chromium executable found for the end-to-end/dynamic-scan gates." >&2
+        echo "  Configured/default path: '${chromium_path:-<none found>}'" >&2
+        echo "  Fallback also checked and missing: /opt/pw-browsers/chromium" >&2
+        echo "Install a browser (README.md § Tests de bout en bout — 'npm run e2e:install'), set E2E_CHROMIUM_EXECUTABLE to a working one yourself, or re-run with --skip-e2e-gate and --skip-dast-gate (emergency use only)." >&2
+        exit 1
+    fi
+fi
+
+# ZAP: only the dynamic-scan gate needs Docker or this image, and —
+# same fail-closed-not-silent-fetch philosophy as every other gate in
+# this script — nothing here pulls the ~1.2GB image on the releaser's
+# behalf. check_dast_gate and scripts/dast.sh both re-check Docker
+# itself before actually using it, but neither checks the image until
+# several minutes into the gate (after the authorization matrix has
+# already run) — checked here too, so a missing image is reported in
+# seconds, not minutes.
+if [[ "${SKIP_DAST_GATE}" -eq 0 ]]; then
+    DAST_ZAP_IMAGE="${DAST_ZAP_IMAGE:-ghcr.io/zaproxy/zaproxy:stable}"
+    command -v docker &> /dev/null || { echo "ERROR: Docker is required for the dynamic security gate — OWASP ZAP runs as a container. Install it, or re-run with --skip-dast-gate (emergency use only)." >&2; exit 1; }
+    docker info &> /dev/null || { echo "ERROR: the Docker daemon is not reachable, and the dynamic security gate needs it. Start it, or re-run with --skip-dast-gate (emergency use only)." >&2; exit 1; }
+    docker image inspect "${DAST_ZAP_IMAGE}" &> /dev/null || {
+        echo "ERROR: the ZAP image (${DAST_ZAP_IMAGE}) is not present locally. Pull it once with:" >&2
+        echo "           docker pull ${DAST_ZAP_IMAGE}" >&2
+        echo "       (about 1.2 GB; nothing here downloads it for you), or re-run with --skip-dast-gate (emergency use only)." >&2
+        exit 1
+    }
+fi
+
 # Get current version from latest git tag (default 0.0.0 if no tags)
 CURRENT=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
 CURRENT="${CURRENT#v}"  # strip leading v
