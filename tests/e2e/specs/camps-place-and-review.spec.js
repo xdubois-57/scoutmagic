@@ -91,7 +91,14 @@ test.describe('Camps', () => {
         // place, not to a placeholder: the breadcrumb back to the place is
         // the proof, since it is built from the stay's own place id.
         await expect(page.getByRole('link', { name: PLACE_NAME }).first()).toBeVisible();
-        await expect(page.getByText('48').first()).toBeVisible();
+        // Exact match: getByText('48') alone substring-matches ANY text
+        // node containing "48" — including another fixture's millisecond
+        // timestamp-derived name (e.g. an unrelated, hidden calendar event
+        // titled "…1787805434855"), which this suite's own SUFFIX pattern
+        // can produce. participantCount renders as its own bare text node
+        // (modules/camps/views/camp.html.twig), so exact:true still finds
+        // it — it just stops finding anything else too.
+        await expect(page.getByText('48', { exact: true }).first()).toBeVisible();
 
         const stayUrl = page.url();
         expect(stayUrl).toMatch(/\/chefs\/camps\/sejours\/\d+/);
