@@ -300,4 +300,91 @@ class MailboxAdminServiceTest extends TestCase
     {
         $this->assertSame(['INBOX'], MailboxAdminService::parseFolders("INBOX\nINBOX"));
     }
+
+    // ── Test from form parameters (pre-save) ────────────────────────────
+
+    public function testFromParamsSucceedsWithoutSavingAnything(): void
+    {
+        $this->client->addRawMessage('INBOX', 1, "From: a@b\r\n\r\nx");
+        $this->client->addRawMessage('Sent', 2, "From: a@b\r\n\r\ny");
+
+        $result = $this->service->testConnectionFromParams(
+            'imap.test', 993, 'ssl', 'user@test', 'secret', null, new \DateTimeImmutable()
+        );
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame(['INBOX', 'Sent'], $result['folders']);
+        // Nothing was persisted — the mailbox table is empty.
+        $this->assertCount(0, $this->service->listMailboxes());
+    }
+
+    public function testFromParamsReusesStoredPasswordWhenBlank(): void
+    {
+        $id = $this->createMailbox(password: 'stored-secret');
+        $this->client->addRawMessage('INBOX', 1, "From: a@b\r\n\r\nx");
+
+        $result = $this->service->testConnectionFromParams(
+            'imap.test', 993, 'ssl', 'locations@unite.be', '', $id, new \DateTimeImmutable()
+        );
+
+        $this->assertTrue($result['ok']);
+    }
+
+    public function testFromParamsRecordsSuccessOnAnExistingBox(): void
+    {
+        $id = $this->createMailbox();
+        $this->client->addRawMessage('INBOX', 1, "From: a@b\r\n\r\nx");
+
+        $now = new \DateTimeImmutable('2027-08-01 12:00:00');
+        $this->service->testConnectionFromParams('imap.test', 993, 'ssl', 'locations@unite.be', '', $id, $now);
+
+        $mailbox = $this->repository->findById($id);
+        $this->assertNotNull($mailbox);
+        $this->assertSame(SyncState::OK, $mailbox->syncState);
+    }
+
+    public function testFromParamsRecordsFailureOnAnExistingBox(): void
+    {
+        $id = $this->createMailbox();
+        $this->client->failNextConnect(new \RuntimeException('timeout'));
+
+        $now = new \DateTimeImmutable('2027-08-01 12:00:00');
+        $this->service->testConnectionFromParams('imap.test', 993, 'ssl', 'locations@unite.be', '', $id, $now);
+
+        $mailbox = $this->repository->findById($id);
+        $this->assertNotNull($mailbox);
+        $this->assertSame(SyncState::ERROR, $mailbox->syncState);
+    }
+
+    public function testFromParamsDoesNotRecordAnythingForANewBox(): void
+    {
+        $this->client->addRawMessage('INBOX', 1, "From: a@b\r\n\r\nx");
+
+        $this->service->testConnectionFromParams(
+            'imap.test', 993, 'ssl', 'user@test', 'secret', null, new \DateTimeImmutable()
+        );
+
+        // No rows created or updated.
+        $this->assertCount(0, $this->service->listMailboxes());
+    }
+
+    public function testFromParamsRequiresPasswordForANewBox(): void
+    {
+        $result = $this->service->testConnectionFromParams(
+            'imap.test', 993, 'ssl', 'user@test', '', null, new \DateTimeImmutable()
+        );
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('Le mot de passe est obligatoire.', $result['message']);
+    }
+
+    public function testFromParamsReturnsNotFoundForBogusExistingId(): void
+    {
+        $result = $this->service->testConnectionFromParams(
+            'imap.test', 993, 'ssl', 'user@test', '', 99999, new \DateTimeImmutable()
+        );
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('Boîte introuvable.', $result['message']);
+    }
 }

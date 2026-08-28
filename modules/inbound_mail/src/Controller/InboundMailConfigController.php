@@ -134,6 +134,56 @@ class InboundMailConfigController extends AbstractController
     }
 
     /**
+     * JSON endpoint for the form's « Tester la connexion » button.
+     *
+     * Accepts the connection parameters as JSON, tries them without saving
+     * anything, and returns the list of folders the server exposes. When
+     * editing an existing box and the password field was left blank the
+     * stored one is reused — the page never re-displays it.
+     *
+     * @param array<string, string> $params
+     */
+    public function testConnectionFromForm(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Données invalides.']);
+        }
+
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $host = trim((string) ($data['host'] ?? ''));
+        $port = (int) ($data['port'] ?? 993);
+        $encryption = (string) ($data['encryption'] ?? 'ssl');
+        $username = trim((string) ($data['username'] ?? ''));
+        $password = (string) ($data['password'] ?? '');
+        $existingId = (int) ($data['mailbox_id'] ?? 0);
+
+        if ($host === '' || $username === '') {
+            return $this->json(['success' => false, 'error' => "L'hôte et le compte sont obligatoires."]);
+        }
+
+        $result = $this->adminService->testConnectionFromParams(
+            $host,
+            $port,
+            $encryption,
+            $username,
+            $password,
+            $existingId > 0 ? $existingId : null,
+            new \DateTimeImmutable()
+        );
+
+        return $this->json([
+            'success' => $result['ok'],
+            'error' => $result['ok'] ? null : $result['message'],
+            'message' => $result['ok'] ? $result['message'] : null,
+            'folders' => $result['folders'],
+        ]);
+    }
+
+    /**
      * @param array<string, string> $params
      */
     public function toggle(Request $request, array $params): Response

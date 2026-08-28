@@ -82,6 +82,17 @@
                                 </td>
                                 <td class="text-end">
                                     <div class="d-flex flex-wrap gap-2 justify-content-end">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary js-edit-mailbox"
+                                                data-id="{{ mailbox.id }}"
+                                                data-name="{{ mailbox.name|e('html_attr') }}"
+                                                data-host="{{ mailbox.host|e('html_attr') }}"
+                                                data-port="{{ mailbox.port }}"
+                                                data-encryption="{{ mailbox.encryption|e('html_attr') }}"
+                                                data-username="{{ mailbox.username|e('html_attr') }}"
+                                                data-folders="{{ mailbox.folders|join("\n")|e('html_attr') }}"
+                                                data-is-enabled="{{ mailbox.isEnabled ? '1' : '0' }}">
+                                            Modifier
+                                        </button>
                                         <form method="post"
                                               action="/config/courrier-entrant/boites/{{ mailbox.id }}/test">
                                             {{ csrf_field()|raw }}
@@ -121,10 +132,11 @@
 {# ── Add a mailbox ──────────────────────────────────────────────────── #}
 <div class="card mb-4">
     <div class="card-body">
-        <h2 class="h5 mb-3">Ajouter une boîte</h2>
+        <h2 class="h5 mb-3" id="mailbox-form-title">Ajouter une boîte</h2>
 
-        <form method="post" action="/config/courrier-entrant/boites" class="row g-3">
+        <form method="post" action="/config/courrier-entrant/boites" class="row g-3" id="mailbox-form">
             {{ csrf_field()|raw }}
+            <input type="hidden" name="id" id="mailbox-id" value="0">
 
             <div class="col-12 col-md-6">
                 {% include 'partials/form_field.html.twig' with {
@@ -182,12 +194,32 @@
                 </div>
             </div>
 
+            <div class="col-12">
+                <div class="d-flex align-items-center gap-3 mb-2">
+                    <button type="button" class="btn btn-outline-primary" id="test-connection-btn">
+                        <i class="bi bi-plug" aria-hidden="true"></i>
+                        Tester la connexion
+                    </button>
+                    <span id="test-connection-result"></span>
+                </div>
+            </div>
+
             <div class="col-12 col-md-6">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'mailbox-folders', field_name: 'folders', type: 'textarea',
-                    label: 'Dossiers surveillés', rows: 3, placeholder: 'INBOX',
-                    help: 'Un par ligne, avec leur nom exact sur le serveur. Vide = INBOX.',
-                } only %}
+                {# Textarea fallback (no-JS) + backing store for the checkbox picker.
+                   JS hides it and shows the checkbox container instead. #}
+                <div id="mailbox-folders-wrapper">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'mailbox-folders', field_name: 'folders', type: 'textarea',
+                        label: 'Dossiers surveillés', rows: 3, placeholder: 'INBOX',
+                        help: 'Un par ligne, avec leur nom exact sur le serveur. Vide = INBOX.',
+                    } only %}
+                </div>
+                {# Populated by JS after a successful connection test. #}
+                <div id="mailbox-folders-picker" class="d-none">
+                    <span class="form-label d-block mb-1">Dossiers surveillés</span>
+                    <div id="mailbox-folders-list" class="border rounded p-2" style="max-height: 12rem; overflow-y: auto;"></div>
+                    <div class="form-text">Cochez les dossiers à surveiller. Vide = INBOX.</div>
+                </div>
             </div>
 
             <div class="col-12">
@@ -201,9 +233,16 @@
             </div>
 
             <div class="col-12">
-                <button type="submit" class="btn btn-primary">Ajouter la boîte</button>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary" id="mailbox-submit-btn">Ajouter la boîte</button>
+                    <button type="button" class="btn btn-outline-secondary d-none" id="mailbox-cancel-btn">Annuler</button>
+                </div>
             </div>
         </form>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/inbound-mail-config.js"></script>
 {% endblock %}

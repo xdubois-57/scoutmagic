@@ -10,7 +10,9 @@ namespace Modules\InboundMail\Service;
 
 use Modules\InboundMail\Client\MailboxConnectionException;
 use Modules\InboundMail\Mailbox\Mailbox;
+use Modules\InboundMail\Mailbox\MailboxCredentials;
 use Modules\InboundMail\Mailbox\ProviderType;
+use Modules\InboundMail\Mailbox\SyncState;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 
 /**
@@ -161,6 +163,85 @@ class MailboxAdminService
         }
 
         $this->repository->recordSuccess($id, $now);
+
+        return [
+            'ok' => true,
+            'message' => 'Connexion réussie. ' . count($folders) . ' dossier(s) visible(s).',
+            'folders' => $folders,
+        ];
+    }
+
+    /**
+     * Same test as `testConnection()`, but from raw form parameters rather
+     * than a persisted mailbox — so the operator can verify credentials
+     * *before* saving.
+     *
+     * When `$existingId` identifies an already-saved box **and** $password
+     * is blank, the stored password is reused (the page never re-displays
+     * it, so "blank = keep" is the only reasonable default — same rule the
+     * save path already follows).
+     *
+     * If the box is already persisted, success/failure is recorded so the
+     * dashboard stays current even after a manual test. For a brand-new
+     * box (no id), there is nothing to record against.
+     *
+     * @return array{ok: bool, message: string, folders: string[]}
+     */
+    public function testConnectionFromParams(
+        string $host,
+        int $port,
+        string $encryption,
+        string $username,
+        string $password,
+        ?int $existingId,
+        \DateTimeImmutable $now
+    ): array {
+        if ($password === '' && $existingId !== null && $existingId > 0) {
+            $storedCredentials = $this->repository->findCredentials($existingId);
+            if ($storedCredentials === null) {
+                return ['ok' => false, 'message' => 'Boîte introuvable.', 'folders' => []];
+            }
+            $password = $storedCredentials->password;
+        }
+
+        if ($password === '') {
+            return ['ok' => false, 'message' => 'Le mot de passe est obligatoire.', 'folders' => []];
+        }
+
+        $mailbox = new Mailbox(
+            id: 0,
+            name: 'test',
+            providerType: ProviderType::IMAP,
+            host: $host,
+            port: $port,
+            encryption: self::normaliseEncryption($encryption),
+            username: $username,
+            folders: [],
+            isEnabled: true,
+            syncState: SyncState::NEVER
+        );
+
+        $credentials = new MailboxCredentials($username, $password);
+        $client = $this->clientFactory->forMailbox($mailbox);
+
+        try {
+            $client->connect($mailbox, $credentials);
+            $folders = $client->listFolders();
+            $client->disconnect();
+        } catch (MailboxConnectionException | \RuntimeException $e) {
+            $reason = $this->errorFormatter->format($e);
+            $client->disconnect();
+
+            if ($existingId !== null && $existingId > 0) {
+                $this->repository->recordFailure($existingId, $reason, $now);
+            }
+
+            return ['ok' => false, 'message' => $reason, 'folders' => []];
+        }
+
+        if ($existingId !== null && $existingId > 0) {
+            $this->repository->recordSuccess($existingId, $now);
+        }
 
         return [
             'ok' => true,

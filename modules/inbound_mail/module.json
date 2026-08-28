@@ -41,6 +41,15 @@
       "label": ""
     },
     {
+      "path": "/config/courrier-entrant/test-connexion",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "testConnectionFromForm",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
       "path": "/config/courrier-entrant/boites/{id}/activation",
       "method": "POST",
       "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
