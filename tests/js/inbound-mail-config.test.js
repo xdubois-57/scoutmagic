@@ -6,17 +6,14 @@
 // What this file protects:
 //   - the test button sends the form values as a JSON body (never in the URL);
 //   - a successful test populates the folder checkboxes and hides the textarea;
-//   - edit mode fills the form, switches labels, and cancel resets everything;
 //   - a failed test shows an error and does not touch the folder picker;
 //   - no credential is ever put into a URL.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const PAGE_DOM = `
-    <h2 class="h5 mb-3" id="mailbox-form-title">Ajouter une boîte</h2>
-    <form method="post" action="/config/courrier-entrant/boites" class="row g-3" id="mailbox-form">
+    <form method="post" action="/config/courrier-entrant/boites" id="mailbox-form">
         <input type="hidden" name="_csrf_token" value="tok-csrf">
         <input type="hidden" name="id" id="mailbox-id" value="0">
-        <input id="mailbox-name" name="name" value="">
         <input id="mailbox-username" name="username" value="">
         <input id="mailbox-host" name="host" value="">
         <input id="mailbox-port" name="port" type="number" value="993">
@@ -37,21 +34,7 @@ const PAGE_DOM = `
             <span class="form-label d-block mb-1">Dossiers surveillés</span>
             <div id="mailbox-folders-list"></div>
         </div>
-
-        <input type="checkbox" id="mailbox-enabled" name="is_enabled" checked>
-        <button type="submit" id="mailbox-submit-btn">Ajouter la boîte</button>
-        <button type="button" class="d-none" id="mailbox-cancel-btn">Annuler</button>
     </form>
-
-    <button type="button" class="js-edit-mailbox"
-            data-id="42"
-            data-name="Locations"
-            data-host="imap.gmail.com"
-            data-port="993"
-            data-encryption="ssl"
-            data-username="locs@unite.be"
-            data-folders="INBOX&#10;Sent"
-            data-is-enabled="1">Modifier</button>
 `;
 
 function jsonResponse(body, status = 200) {
@@ -233,90 +216,19 @@ describe('inbound-mail-config.js', () => {
         });
     });
 
-    describe('edit mode', () => {
-        it('fills the form from the edit button data attributes', async () => {
+    describe('edit page (existing mailbox)', () => {
+        it('sends the mailbox_id from the hidden field when testing', async () => {
+            document.getElementById('mailbox-id').value = '42';
             await boot();
-            click(document.querySelector('.js-edit-mailbox'));
-
-            expect(document.getElementById('mailbox-id').value).toBe('42');
-            expect(document.getElementById('mailbox-name').value).toBe('Locations');
-            expect(document.getElementById('mailbox-host').value).toBe('imap.gmail.com');
-            expect(document.getElementById('mailbox-port').value).toBe('993');
-            expect(document.getElementById('mailbox-encryption').value).toBe('ssl');
-            expect(document.getElementById('mailbox-username').value).toBe('locs@unite.be');
-            expect(document.getElementById('mailbox-folders').value).toBe('INBOX\nSent');
-            expect(document.getElementById('mailbox-enabled').checked).toBe(true);
-        });
-
-        it('switches the title and button text', async () => {
-            await boot();
-            click(document.querySelector('.js-edit-mailbox'));
-
-            expect(document.getElementById('mailbox-form-title').textContent).toBe('Modifier la boîte');
-            expect(document.getElementById('mailbox-submit-btn').textContent).toBe('Enregistrer');
-        });
-
-        it('shows the cancel button', async () => {
-            await boot();
-            click(document.querySelector('.js-edit-mailbox'));
-
-            expect(document.getElementById('mailbox-cancel-btn').classList.contains('d-none')).toBe(false);
-        });
-
-        it('removes the required attribute from the password field', async () => {
-            await boot();
-            click(document.querySelector('.js-edit-mailbox'));
-
-            expect(document.getElementById('mailbox-password').hasAttribute('required')).toBe(false);
-        });
-
-        it('sends the mailbox_id when testing an existing box', async () => {
-            await boot();
-            click(document.querySelector('.js-edit-mailbox'));
-            document.getElementById('mailbox-password').value = '';
             document.getElementById('mailbox-host').value = 'imap.gmail.com';
             document.getElementById('mailbox-username').value = 'locs@unite.be';
+            document.getElementById('mailbox-password').value = '';
 
             click('test-connection-btn');
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
             const { body } = lastRequest();
             expect(body.mailbox_id).toBe(42);
-        });
-    });
-
-    describe('cancel edit', () => {
-        it('resets the form back to add mode', async () => {
-            await boot();
-            click(document.querySelector('.js-edit-mailbox'));
-            click('mailbox-cancel-btn');
-
-            expect(document.getElementById('mailbox-id').value).toBe('0');
-            expect(document.getElementById('mailbox-form-title').textContent).toBe('Ajouter une boîte');
-            expect(document.getElementById('mailbox-submit-btn').textContent).toBe('Ajouter la boîte');
-            expect(document.getElementById('mailbox-cancel-btn').classList.contains('d-none')).toBe(true);
-            expect(document.getElementById('mailbox-password').hasAttribute('required')).toBe(true);
-        });
-
-        it('hides the folder picker and restores the textarea wrapper', async () => {
-            global.fetch = mockFetch({
-                'test-connexion': { success: true, message: 'OK', folders: ['INBOX'] },
-            });
-            await boot();
-            click(document.querySelector('.js-edit-mailbox'));
-            document.getElementById('mailbox-host').value = 'h';
-            document.getElementById('mailbox-username').value = 'u';
-            document.getElementById('mailbox-password').value = 'p';
-
-            click('test-connection-btn');
-            await vi.waitFor(() => {
-                return expect(document.querySelectorAll('.folder-checkbox').length).toBe(1);
-            });
-
-            click('mailbox-cancel-btn');
-
-            expect(document.getElementById('mailbox-folders-picker').classList.contains('d-none')).toBe(true);
-            expect(document.getElementById('mailbox-folders-wrapper').classList.contains('d-none')).toBe(false);
         });
     });
 });

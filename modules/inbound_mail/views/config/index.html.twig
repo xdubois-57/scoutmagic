@@ -32,20 +32,25 @@
 {# ── Configured mailboxes ───────────────────────────────────────────── #}
 <div class="card mb-4">
     <div class="card-body">
-        <h2 class="h5 mb-3">Boîtes configurées</h2>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h6 mb-0">Boîtes configurées</h2>
+            <a href="/config/courrier-entrant/boites/nouvelle" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter une boîte
+            </a>
+        </div>
 
         {% if mailboxes is empty %}
             {% include 'partials/empty_state.html.twig' with { message: "Aucune boîte n'est configurée pour l'instant.", compact: true } only %}
         {% else %}
             <div class="table-responsive">
-                <table class="table align-middle">
+                <table class="table table-sm align-middle">
                     <thead>
                         <tr>
-                            <th scope="col">Nom</th>
-                            <th scope="col">Compte</th>
-                            <th scope="col">État</th>
-                            <th scope="col">Dernière synchro</th>
-                            <th scope="col" class="text-end">Actions</th>
+                            <th>Nom</th>
+                            <th>Compte</th>
+                            <th>État</th>
+                            <th>Dernière synchro</th>
+                            <th class="text-end">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -67,9 +72,6 @@
                                         label: mailbox.syncState.label,
                                     } only %}
                                     {% if mailbox.lastError %}
-                                        {# The operator-facing sentence, written by
-                                           MailboxErrorFormatter — never a library's own
-                                           exception text, which carries the account name. #}
                                         <div class="form-text text-danger">{{ mailbox.lastError }}</div>
                                     {% endif %}
                                 </td>
@@ -81,44 +83,39 @@
                                     {% endif %}
                                 </td>
                                 <td class="text-end">
-                                    <div class="d-flex flex-wrap gap-2 justify-content-end">
-                                        <button type="button" class="btn btn-sm btn-outline-secondary js-edit-mailbox"
-                                                data-id="{{ mailbox.id }}"
-                                                data-name="{{ mailbox.name|e('html_attr') }}"
-                                                data-host="{{ mailbox.host|e('html_attr') }}"
-                                                data-port="{{ mailbox.port }}"
-                                                data-encryption="{{ mailbox.encryption|e('html_attr') }}"
-                                                data-username="{{ mailbox.username|e('html_attr') }}"
-                                                data-folders="{{ mailbox.folders|join("\n")|e('html_attr') }}"
-                                                data-is-enabled="{{ mailbox.isEnabled ? '1' : '0' }}">
-                                            Modifier
+                                    <form method="post"
+                                          action="/config/courrier-entrant/boites/{{ mailbox.id }}/test"
+                                          class="d-inline">
+                                        {{ csrf_field()|raw }}
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Tester la connexion" aria-label="Tester la connexion">
+                                            <i class="bi bi-plug" aria-hidden="true"></i>
                                         </button>
-                                        <form method="post"
-                                              action="/config/courrier-entrant/boites/{{ mailbox.id }}/test">
-                                            {{ csrf_field()|raw }}
-                                            <button type="submit" class="btn btn-sm btn-outline-primary">
-                                                Tester
-                                            </button>
-                                        </form>
-                                        <form method="post"
-                                              action="/config/courrier-entrant/boites/{{ mailbox.id }}/activation">
-                                            {{ csrf_field()|raw }}
-                                            {% if not mailbox.isEnabled %}
-                                                <input type="hidden" name="enable" value="1">
-                                            {% endif %}
-                                            <button type="submit" class="btn btn-sm btn-outline-secondary">
-                                                {{ mailbox.isEnabled ? 'Désactiver' : 'Réactiver' }}
-                                            </button>
-                                        </form>
-                                        <form method="post"
-                                              action="/config/courrier-entrant/boites/{{ mailbox.id }}/suppression"
-                                              data-confirm="Supprimer cette boîte ? Les messages déjà rattachés à un dossier sont conservés.">
-                                            {{ csrf_field()|raw }}
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                                Supprimer
-                                            </button>
-                                        </form>
-                                    </div>
+                                    </form>
+                                    <a href="/config/courrier-entrant/boites/{{ mailbox.id }}/modification" class="btn btn-sm btn-outline-secondary" title="Modifier" aria-label="Modifier">
+                                        <i class="bi bi-pencil" aria-hidden="true"></i>
+                                    </a>
+                                    <form method="post"
+                                          action="/config/courrier-entrant/boites/{{ mailbox.id }}/activation"
+                                          class="d-inline">
+                                        {{ csrf_field()|raw }}
+                                        {% if not mailbox.isEnabled %}
+                                            <input type="hidden" name="enable" value="1">
+                                        {% endif %}
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                                title="{{ mailbox.isEnabled ? 'Désactiver' : 'Réactiver' }}"
+                                                aria-label="{{ mailbox.isEnabled ? 'Désactiver' : 'Réactiver' }}">
+                                            <i class="bi {{ mailbox.isEnabled ? 'bi-pause-circle' : 'bi-play-circle' }}" aria-hidden="true"></i>
+                                        </button>
+                                    </form>
+                                    <form method="post"
+                                          action="/config/courrier-entrant/boites/{{ mailbox.id }}/suppression"
+                                          data-confirm="Supprimer cette boîte ? Les messages déjà rattachés à un dossier sont conservés."
+                                          class="d-inline">
+                                        {{ csrf_field()|raw }}
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Supprimer" aria-label="Supprimer">
+                                            <i class="bi bi-trash" aria-hidden="true"></i>
+                                        </button>
+                                    </form>
                                 </td>
                             </tr>
                         {% endfor %}
@@ -128,121 +125,4 @@
         {% endif %}
     </div>
 </div>
-
-{# ── Add a mailbox ──────────────────────────────────────────────────── #}
-<div class="card mb-4">
-    <div class="card-body">
-        <h2 class="h5 mb-3" id="mailbox-form-title">Ajouter une boîte</h2>
-
-        <form method="post" action="/config/courrier-entrant/boites" class="row g-3" id="mailbox-form">
-            {{ csrf_field()|raw }}
-            <input type="hidden" name="id" id="mailbox-id" value="0">
-
-            <div class="col-12 col-md-6">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'mailbox-name', field_name: 'name',
-                    label: 'Nom', required: true,
-                    maxlength: 150, placeholder: 'Locations',
-                    help: "Le seul élément que verront les gestionnaires : ni l'hôte, ni le compte.",
-                } only %}
-            </div>
-
-            <div class="col-12 col-md-6">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'mailbox-username', field_name: 'username',
-                    label: 'Compte', required: true,
-                    autocomplete: 'off', placeholder: 'locations@unite.be',
-                } only %}
-            </div>
-
-            <div class="col-12 col-md-6">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'mailbox-host', field_name: 'host',
-                    label: 'Serveur IMAP', required: true,
-                    placeholder: 'imap.gmail.com',
-                } only %}
-            </div>
-
-            <div class="col-6 col-md-3">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'mailbox-port', field_name: 'port', type: 'number',
-                    label: 'Port', required: true,
-                    value: 993, min: 1, max: 65535,
-                } only %}
-            </div>
-
-            <div class="col-6 col-md-3">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'mailbox-encryption', field_name: 'encryption', type: 'select',
-                    label: 'Chiffrement',
-                    options: [
-                        { value: 'ssl', label: 'SSL', selected: true },
-                        { value: 'tls', label: 'TLS' },
-                        { value: 'starttls', label: 'STARTTLS' },
-                    ],
-                    help: "Un certificat invalide fait échouer la connexion : il n'y a pas d'option pour l'ignorer.",
-                } only %}
-            </div>
-
-            <div class="col-12 col-md-6">
-                <label class="form-label" for="mailbox-password">Mot de passe</label>
-                <input type="password" class="form-control" id="mailbox-password" name="password"
-                       autocomplete="new-password" required>
-                <div class="form-text">
-                    Il ne sera plus jamais réaffiché. Laissez le champ vide lors d'une modification
-                    pour conserver celui déjà enregistré.
-                </div>
-            </div>
-
-            <div class="col-12">
-                <div class="d-flex align-items-center gap-3 mb-2">
-                    <button type="button" class="btn btn-outline-primary" id="test-connection-btn">
-                        <i class="bi bi-plug" aria-hidden="true"></i>
-                        Tester la connexion
-                    </button>
-                    <span id="test-connection-result"></span>
-                </div>
-            </div>
-
-            <div class="col-12 col-md-6">
-                {# Textarea fallback (no-JS) + backing store for the checkbox picker.
-                   JS hides it and shows the checkbox container instead. #}
-                <div id="mailbox-folders-wrapper">
-                    {% include 'partials/form_field.html.twig' with {
-                        field_id: 'mailbox-folders', field_name: 'folders', type: 'textarea',
-                        label: 'Dossiers surveillés', rows: 3, placeholder: 'INBOX',
-                        help: 'Un par ligne, avec leur nom exact sur le serveur. Vide = INBOX.',
-                    } only %}
-                </div>
-                {# Populated by JS after a successful connection test. #}
-                <div id="mailbox-folders-picker" class="d-none">
-                    <span class="form-label d-block mb-1">Dossiers surveillés</span>
-                    <div id="mailbox-folders-list" class="border rounded p-2" style="max-height: 12rem; overflow-y: auto;"></div>
-                    <div class="form-text">Cochez les dossiers à surveiller. Vide = INBOX.</div>
-                </div>
-            </div>
-
-            <div class="col-12">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="mailbox-enabled"
-                           name="is_enabled" checked>
-                    <label class="form-check-label" for="mailbox-enabled">
-                        Synchroniser cette boîte
-                    </label>
-                </div>
-            </div>
-
-            <div class="col-12">
-                <div class="d-flex gap-2">
-                    <button type="submit" class="btn btn-primary" id="mailbox-submit-btn">Ajouter la boîte</button>
-                    <button type="button" class="btn btn-outline-secondary d-none" id="mailbox-cancel-btn">Annuler</button>
-                </div>
-            </div>
-        </form>
-    </div>
-</div>
-{% endblock %}
-
-{% block scripts %}
-<script src="/assets/js/inbound-mail-config.js"></script>
 {% endblock %}

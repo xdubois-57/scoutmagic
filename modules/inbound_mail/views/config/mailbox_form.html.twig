@@ -1,0 +1,128 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ mailbox ? 'Modifier la boîte' : 'Nouvelle boîte' }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with { title: mailbox ? 'Modifier la boîte' : 'Nouvelle boîte' } only %}
+
+    <form method="post" action="/config/courrier-entrant/boites" id="mailbox-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="id" id="mailbox-id" value="{{ mailbox ? mailbox.id : 0 }}">
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'mailbox-name', field_name: 'name',
+                            label: 'Nom', required: true,
+                            maxlength: 150, placeholder: 'Locations',
+                            value: mailbox ? mailbox.name : '',
+                            help: "Le seul élément que verront les gestionnaires : ni l'hôte, ni le compte.",
+                        } only %}
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'mailbox-username', field_name: 'username',
+                            label: 'Compte', required: true,
+                            autocomplete: 'off', placeholder: 'locations@unite.be',
+                            value: mailbox ? mailbox.username : '',
+                        } only %}
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'mailbox-host', field_name: 'host',
+                            label: 'Serveur IMAP', required: true,
+                            placeholder: 'imap.gmail.com',
+                            value: mailbox ? mailbox.host : '',
+                        } only %}
+                    </div>
+
+                    <div class="col-6 col-md-3">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'mailbox-port', field_name: 'port', type: 'number',
+                            label: 'Port', required: true,
+                            value: mailbox ? mailbox.port : 993, min: 1, max: 65535,
+                        } only %}
+                    </div>
+
+                    <div class="col-6 col-md-3">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'mailbox-encryption', field_name: 'encryption', type: 'select',
+                            label: 'Chiffrement',
+                            options: [
+                                { value: 'ssl', label: 'SSL', selected: mailbox ? mailbox.encryption == 'ssl' : true },
+                                { value: 'tls', label: 'TLS', selected: mailbox ? mailbox.encryption == 'tls' : false },
+                                { value: 'starttls', label: 'STARTTLS', selected: mailbox ? mailbox.encryption == 'starttls' : false },
+                            ],
+                            help: "Un certificat invalide fait échouer la connexion : il n'y a pas d'option pour l'ignorer.",
+                        } only %}
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="mailbox-password">Mot de passe</label>
+                        <input type="password" class="form-control" id="mailbox-password" name="password"
+                               autocomplete="new-password" {{ mailbox ? '' : 'required' }}>
+                        <div class="form-text">
+                            {% if mailbox %}
+                                Laissez le champ vide pour conserver le mot de passe déjà enregistré.
+                            {% else %}
+                                Il ne sera plus jamais réaffiché.
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    {# ── Test connection + folder picker ──────────────────────── #}
+                    <div class="col-12">
+                        <div class="d-flex align-items-center gap-3 mb-2">
+                            <button type="button" class="btn btn-outline-primary" id="test-connection-btn">
+                                <i class="bi bi-plug" aria-hidden="true"></i>
+                                Tester la connexion
+                            </button>
+                            <span id="test-connection-result"></span>
+                        </div>
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        {# Textarea fallback (no-JS) + backing store for the checkbox picker.
+                           JS hides it and shows the checkbox container instead. #}
+                        <div id="mailbox-folders-wrapper">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'mailbox-folders', field_name: 'folders', type: 'textarea',
+                                label: 'Dossiers surveillés', rows: 3, placeholder: 'INBOX',
+                                value: mailbox ? mailbox.folders|join("\n") : '',
+                                help: 'Testez la connexion pour afficher les dossiers disponibles. Vide = INBOX.',
+                            } only %}
+                        </div>
+                        {# Populated by JS after a successful connection test. #}
+                        <div id="mailbox-folders-picker" class="d-none">
+                            <span class="form-label d-block mb-1">Dossiers surveillés</span>
+                            <div id="mailbox-folders-list" class="border rounded p-2" style="max-height: 12rem; overflow-y: auto;"></div>
+                            <div class="form-text">Cochez les dossiers à surveiller. Vide = INBOX.</div>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="mailbox-enabled"
+                                   name="is_enabled" {{ (not mailbox or mailbox.isEnabled) ? 'checked' : '' }}>
+                            <label class="form-check-label" for="mailbox-enabled">
+                                Synchroniser cette boîte
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">
+            {{ mailbox ? 'Enregistrer' : 'Ajouter la boîte' }}
+        </button>
+    </form>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/inbound-mail-config.js"></script>
+{% endblock %}

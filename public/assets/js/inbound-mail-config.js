@@ -3,11 +3,10 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// Inbound-mail configuration page
-// (modules/inbound_mail/views/config/index.html.twig):
-// the « Tester la connexion » button, the folder-checkbox picker it
-// populates, and the edit-mode toggle that fills the form from an
-// existing mailbox row.
+// Inbound-mail mailbox form page
+// (modules/inbound_mail/views/config/mailbox_form.html.twig):
+// the « Tester la connexion » button and the folder-checkbox picker it
+// populates on success.
 //
 // Same conventions as sos-config.js: fetches ride ScoutMagicApi, every
 // server-supplied string reaches the screen via textContent or a DOM
@@ -23,9 +22,7 @@
 
     // ── DOM handles ────────────────────────────────────────────────────
 
-    var formTitle = document.getElementById('mailbox-form-title');
     var idInput = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-id'));
-    var nameInput = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-name'));
     var usernameInput = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-username'));
     var hostInput = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-host'));
     var portInput = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-port'));
@@ -35,9 +32,6 @@
     var foldersWrapper = document.getElementById('mailbox-folders-wrapper');
     var foldersPicker = document.getElementById('mailbox-folders-picker');
     var foldersList = document.getElementById('mailbox-folders-list');
-    var enabledCheckbox = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-enabled'));
-    var submitBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('mailbox-submit-btn'));
-    var cancelBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('mailbox-cancel-btn'));
     var testBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('test-connection-btn'));
     var testResult = document.getElementById('test-connection-result');
 
@@ -211,92 +205,4 @@
         });
     }
 
-    // ── Edit mode ──────────────────────────────────────────────────────
-
-    /**
-     * @param {string} val
-     * @param {HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement|null} el
-     */
-    function setVal(el, val) {
-        if (el) {
-            el.value = val;
-        }
-    }
-
-    function enterEditMode(dataset) {
-        setVal(idInput, dataset.id || '0');
-        setVal(nameInput, dataset.name || '');
-        setVal(usernameInput, dataset.username || '');
-        setVal(hostInput, dataset.host || '');
-        setVal(portInput, dataset.port || '993');
-        setVal(passwordInput, '');
-        setVal(foldersTextarea, dataset.folders || '');
-
-        if (encryptionSelect) {
-            encryptionSelect.value = dataset.encryption || 'ssl';
-        }
-        if (enabledCheckbox) {
-            enabledCheckbox.checked = dataset.isEnabled === '1';
-        }
-        if (passwordInput) {
-            passwordInput.removeAttribute('required');
-        }
-
-        hideFolderPicker();
-
-        if (testResult) {
-            testResult.textContent = '';
-        }
-
-        if (formTitle) {
-            formTitle.textContent = 'Modifier la boîte';
-        }
-        if (submitBtn) {
-            submitBtn.textContent = 'Enregistrer';
-        }
-        if (cancelBtn) {
-            cancelBtn.classList.remove('d-none');
-        }
-
-        if (form.scrollIntoView) {
-            form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-    }
-
-    function leaveEditMode() {
-        form.reset();
-        setVal(idInput, '0');
-
-        if (passwordInput) {
-            passwordInput.setAttribute('required', '');
-        }
-
-        hideFolderPicker();
-
-        if (testResult) {
-            testResult.textContent = '';
-        }
-
-        if (formTitle) {
-            formTitle.textContent = 'Ajouter une boîte';
-        }
-        if (submitBtn) {
-            submitBtn.textContent = 'Ajouter la boîte';
-        }
-        if (cancelBtn) {
-            cancelBtn.classList.add('d-none');
-        }
-    }
-
-    /** @type {NodeListOf<HTMLButtonElement>} */
-    var editButtons = document.querySelectorAll('.js-edit-mailbox');
-    editButtons.forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            enterEditMode(btn.dataset);
-        });
-    });
-
-    if (cancelBtn) {
-        cancelBtn.addEventListener('click', leaveEditMode);
-    }
 })();

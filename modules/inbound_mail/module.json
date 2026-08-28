@@ -23,6 +23,27 @@
       }
     },
     {
+      "path": "/config/courrier-entrant/boites/nouvelle",
+      "method": "GET",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "createMailbox",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Nouvelle boîte",
+        "parents": [
+          "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Courrier entrant",
+            "path": "/config/courrier-entrant"
+          }
+        ]
+      }
+    },
+    {
       "path": "/config/courrier-entrant/boites",
       "method": "POST",
       "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
@@ -30,6 +51,27 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""
+    },
+    {
+      "path": "/config/courrier-entrant/boites/{id}/modification",
+      "method": "GET",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "editMailbox",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifier la boîte",
+        "parents": [
+          "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Courrier entrant",
+            "path": "/config/courrier-entrant"
+          }
+        ]
+      }
     },
     {
       "path": "/config/courrier-entrant/boites/{id}/test",

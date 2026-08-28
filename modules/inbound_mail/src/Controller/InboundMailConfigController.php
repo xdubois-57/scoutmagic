@@ -14,6 +14,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\CsrfGuard;
+use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Service\MailboxAdminService;
 use Twig\Environment;
 
@@ -51,6 +52,31 @@ class InboundMailConfigController extends AbstractController
             'mailboxes' => $this->adminService->listMailboxes(),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
+    }
+
+    /**
+     * GET /config/courrier-entrant/boites/nouvelle
+     *
+     * @param array<string, string> $params
+     */
+    public function createMailbox(Request $request, array $params): Response
+    {
+        return $this->render('@inbound_mail/config/mailbox_form.html.twig', $this->formContext(null));
+    }
+
+    /**
+     * GET /config/courrier-entrant/boites/{id}/modification
+     *
+     * @param array<string, string> $params
+     */
+    public function editMailbox(Request $request, array $params): Response
+    {
+        $mailbox = $this->adminService->findById((int) ($params['id'] ?? 0));
+        if ($mailbox === null) {
+            return $this->notFound();
+        }
+
+        return $this->render('@inbound_mail/config/mailbox_form.html.twig', $this->formContext($mailbox));
     }
 
     /**
@@ -236,5 +262,19 @@ class InboundMailConfigController extends AbstractController
         FlashMessage::set('success', 'Boîte supprimée.');
 
         return $this->redirect('/config/courrier-entrant');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formContext(?Mailbox $mailbox): array
+    {
+        return [
+            'mailbox' => $mailbox,
+            'breadcrumb_trail' => [
+                ['label' => 'Courrier entrant', 'url' => '/config/courrier-entrant'],
+            ],
+            'csrf_token' => CsrfGuard::generateToken(),
+        ];
     }
 }

@@ -41,6 +41,11 @@ class MailboxAdminService
         return $this->repository->findAll();
     }
 
+    public function findById(int $id): ?Mailbox
+    {
+        return $this->repository->findById($id);
+    }
+
     /**
      * What a module or a page outside Configuration may know about the
      * boxes: their name and whether they are working (§7.4). Never the
