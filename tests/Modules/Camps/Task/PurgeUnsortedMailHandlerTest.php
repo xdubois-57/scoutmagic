@@ -199,6 +199,25 @@ class PurgeUnsortedMailHandlerTest extends TestCase
         );
     }
 
+    public function testTodayThePurgeRunsWhetherOrNotTheInboundMailModuleIsEnabled(): void
+    {
+        // The provider-absent case, stated explicitly (chantier
+        // « dépendances entre modules », IT-02). This handler reaches
+        // straight into inbound_mail's repositories and never consults
+        // the module registry, so a disabled provider module changes
+        // nothing — the purge still runs against its tables. Pinned here
+        // as the CURRENT behaviour: IT-04 migrates this handler to
+        // TaskContext::getOptional() and will deliberately flip this to
+        // "provider absent → no-op", updating this test in the same
+        // change.
+        $this->pdo->exec("INSERT INTO module_registry (module_id, enabled, installed_version) VALUES ('inbound_mail', 0, '1.0.0')");
+        $old = $this->unsortedMessage('-8 months', 'vieux@mozet.be');
+
+        $this->handle();
+
+        $this->assertNull($this->find($old));
+    }
+
     // ── helpers ─────────────────────────────────────────────────────
 
     private function handle(): void

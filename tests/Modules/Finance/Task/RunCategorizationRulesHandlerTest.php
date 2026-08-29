@@ -98,6 +98,34 @@ class RunCategorizationRulesHandlerTest extends TestCase
         $this->assertSame(1, $result['categorized_by_rules']);
     }
 
+    public function testHandleAppliesKeywordRulesAndSkipsAiWhenNoLlmProviderIsConfigured(): void
+    {
+        // The provider-absent case, stated explicitly (chantier
+        // « dépendances entre modules », IT-02): the llm_connector tables
+        // exist but hold no active provider — also what this handler sees
+        // today when the module is disabled, since it constructs
+        // LlmConnectorService unconditionally and only isAvailable() gates
+        // the calls. Keyword rules still categorize; no AI suggestion row
+        // is written and nothing fails.
+        $categoryId = $this->categoryRepository->create('Alimentation');
+        $this->categoryRuleRepository->create($categoryId, 0, 'delhaize', null, null);
+        $matched = $this->transactionRepository->create(
+            $this->accountId, $this->fiscalYearId, 'r1', '2026-10-01', 'VIR Delhaize', -20.0, null, null, Transaction::SOURCE_MANUAL, null
+        );
+        // A movement no keyword rule matches — the one an AI pass would
+        // have been asked about.
+        $this->transactionRepository->create(
+            $this->accountId, $this->fiscalYearId, 'r2', '2026-10-02', 'VIR Mystere', -10.0, null, null, Transaction::SOURCE_MANUAL, null
+        );
+
+        $handler = new RunCategorizationRulesHandler();
+        $handler->handle([], $this->createTaskContext());
+
+        $this->assertSame($categoryId, $this->transactionRepository->findById($matched)->categoryId);
+        $suggestionCount = (int) $this->pdo->query('SELECT COUNT(*) FROM finance_ai_category_suggestions')->fetchColumn();
+        $this->assertSame(0, $suggestionCount);
+    }
+
     public function testHandleDegradesGracefullyWhenCalendarModuleIsNotEnabled(): void
     {
         // No module_registry row for 'calendar' at all — the handler must
