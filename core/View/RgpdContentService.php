@@ -11,12 +11,11 @@ namespace Core\View;
 use Core\Config\AppClock;
 use Core\Config\SettingService;
 use Core\Module\ModuleManager;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Module\SubProcessorProvider;
+use Core\Module\SubProcessorView;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmRequest;
 use Modules\LlmConnector\Api\LlmTier;
-use Modules\LlmConnector\Repository\ProviderModelRepository;
-use Modules\LlmConnector\Repository\ProviderRepository;
 
 class RgpdContentService
 {
@@ -27,24 +26,28 @@ class RgpdContentService
     // turns out to be much lower than the requested max_tokens.
     private const MAX_CONTINUATIONS = 2;
 
-    // Set after construction (public/index.php builds this service before
-    // the gallery module's own block, which is where its repository is
-    // built) — nullable either way, since the gallery module itself is
-    // optional (ARCHITECTURE.md §7.5 pattern, same as $llmConnector below).
-    private ?StorageLocationRepository $galleryStorageLocationRepository = null;
+    /**
+     * The Core\Module\SubProcessorProvider hooks (§7.4) whose modules are
+     * enabled — appended after construction because each module's
+     * composition-root block runs after this service is built (the same
+     * late-attach reason the gallery repository setter this replaces
+     * had). This is how core states each module's effective
+     * sub-processors without reading any module's tables.
+     *
+     * @var list<SubProcessorProvider>
+     */
+    private array $subProcessorProviders = [];
 
     public function __construct(
         private ModuleManager $moduleManager,
         private SettingService $settingService,
-        private ?LlmConnectorInterface $llmConnector = null,
-        private ?ProviderRepository $llmProviderRepo = null,
-        private ?ProviderModelRepository $llmModelRepo = null
+        private ?LlmConnectorInterface $llmConnector = null
     ) {
     }
 
-    public function setGalleryStorageLocationRepository(StorageLocationRepository $repository): void
+    public function addSubProcessorProvider(SubProcessorProvider $provider): void
     {
-        $this->galleryStorageLocationRepository = $repository;
+        $this->subProcessorProviders[] = $provider;
     }
 
     /**
@@ -117,10 +120,17 @@ class RgpdContentService
 
         $baseContent = $this->getDefaultContent();
         $activeModules = $this->moduleManager->getEnabledModuleIds();
-        $providerInfo = $this->getActiveProviderInfo();
-        $modelsInfo = $this->getActiveModelsInfo();
+
+        // Every fact about a module's sub-processors comes from the
+        // module itself, through the SubProcessorProvider hook — never
+        // from core reading a module's tables. The views are folded back
+        // into the prompt's established slots so the generated document's
+        // inputs stay exactly what they have always been.
+        $subProcessors = $this->collectSubProcessors();
+        $providerInfo = $this->aiProviderInfo($subProcessors);
+        $modelsInfo = $this->aiModelsInfo($subProcessors);
         $phoneProvider = $this->getPhoneProviderInfo();
-        $galleryStorage = $this->getGalleryStorageInfo();
+        $galleryStorage = $this->galleryStorageInfo($subProcessors);
 
         $systemPrompt = $this->buildSystemPrompt($baseContent, $activeModules, $providerInfo, $modelsInfo, $phoneProvider, $galleryStorage, $userPrompt);
 
@@ -396,64 +406,52 @@ PROMPT;
     /**
      * Get info about the active AI provider for RGPD disclosure
      */
-    private function getActiveProviderInfo(): string
+    /**
+     * @return list<SubProcessorView>
+     */
+    private function collectSubProcessors(): array
     {
-        if ($this->llmProviderRepo === null) {
-            return 'Non configuré';
+        $views = [];
+        foreach ($this->subProcessorProviders as $provider) {
+            foreach ($provider->getSubProcessors() as $view) {
+                $views[] = $view;
+            }
         }
 
-        $provider = $this->llmProviderRepo->findFirstActive();
-        if ($provider === null) {
-            return 'Non configuré';
+        return $views;
+    }
+
+    /**
+     * @param list<SubProcessorView> $views
+     */
+    private function aiProviderInfo(array $views): string
+    {
+        foreach ($views as $view) {
+            if ($view->category === SubProcessorView::CATEGORY_AI) {
+                return $view->name;
+            }
         }
 
-        $driver = $provider['driver'];
-        return match ($driver) {
-            'anthropic' => 'Anthropic (États-Unis, hors UE)',
-            'mistral' => 'Mistral AI (France, UE)',
-            'scaleway' => 'Scaleway (France/Pays-Bas, UE)',
-            default => $provider['name'],
-        };
+        return 'Non configuré';
+    }
+
+    /**
+     * @param list<SubProcessorView> $views
+     */
+    private function aiModelsInfo(array $views): string
+    {
+        foreach ($views as $view) {
+            if ($view->category === SubProcessorView::CATEGORY_AI) {
+                return $view->details ?? 'Non configuré';
+            }
+        }
+
+        return 'Non configuré';
     }
 
     /**
      * Get info about the active AI models for RGPD disclosure
      */
-    private function getActiveModelsInfo(): string
-    {
-        if ($this->llmProviderRepo === null || $this->llmModelRepo === null) {
-            return 'Non configuré';
-        }
-
-        $provider = $this->llmProviderRepo->findFirstActive();
-        if ($provider === null) {
-            return 'Non configuré';
-        }
-
-        $models = $this->llmModelRepo->findByProvider((int) $provider['id']);
-        $assigned = [];
-        foreach ($models as $model) {
-            $tiers = [];
-            if ($model['is_tier_cheap']) {
-                $tiers[] = 'économique';
-            }
-            if ($model['is_tier_capable']) {
-                $tiers[] = 'performant';
-            }
-            if ($model['is_tier_ocr']) {
-                $tiers[] = 'OCR';
-            }
-            if (!empty($tiers)) {
-                $assigned[] = $model['display_name'] . ' (' . implode(', ', $tiers) . ')';
-            }
-        }
-
-        if (empty($assigned)) {
-            return 'Aucun modèle assigné';
-        }
-
-        return implode('; ', $assigned);
-    }
 
     /**
      * Get info about the phone provider for SOS module
@@ -476,36 +474,33 @@ PROMPT;
      * more S3 buckets), so this lists every one actually configured
      * instead of assuming a single active backend.
      */
-    private function getGalleryStorageInfo(): string
+    /**
+     * The gallery slot, rebuilt from the module's declared views. A
+     * declared media-storage sub-processor is by contract an EXTERNAL
+     * one, so "no view" from an enabled gallery means every byte stays
+     * on the unit's own server — the exact sentence the prompt has
+     * always carried for that case.
+     *
+     * @param list<SubProcessorView> $views
+     */
+    private function galleryStorageInfo(array $views): string
     {
         if (!in_array('gallery', $this->moduleManager->getEnabledModuleIds(), true)) {
             return 'Aucun (module galerie inactif)';
         }
-        if ($this->galleryStorageLocationRepository === null) {
-            return 'Stockage local (disque du serveur, pas de sous-traitant externe)';
-        }
 
-        $locations = $this->galleryStorageLocationRepository->findAll();
-        if ($locations === []) {
-            return 'Stockage local (disque du serveur, pas de sous-traitant externe)';
-        }
-
-        $descriptions = [];
-        foreach ($locations as $location) {
-            if (!$location->isS3()) {
-                $descriptions[] = 'Stockage local (disque du serveur, pas de sous-traitant externe)';
-                continue;
+        $names = [];
+        foreach ($views as $view) {
+            if ($view->category === SubProcessorView::CATEGORY_MEDIA_STORAGE) {
+                $names[] = $view->name;
             }
-            $descriptions[] = match ($location->s3Provider) {
-                'hetzner' => 'Hetzner Object Storage (Allemagne/Finlande, UE)',
-                'cloudflare_r2' => 'Cloudflare R2 (réseau mondial, région selon configuration du bucket : ' . ($location->s3Region !== null && $location->s3Region !== '' ? $location->s3Region : 'non précisée') . ')',
-                'scaleway' => 'Scaleway Object Storage (France/Pays-Bas, UE)',
-                'ovhcloud' => 'OVHcloud Object Storage (France/Allemagne/Pologne, UE)',
-                default => 'Fournisseur S3-compatible personnalisé (localisation selon configuration)',
-            };
         }
 
-        return implode(' ET ', array_unique($descriptions));
+        if ($names === []) {
+            return 'Stockage local (disque du serveur, pas de sous-traitant externe)';
+        }
+
+        return implode(' ET ', array_unique($names));
     }
 
     /**

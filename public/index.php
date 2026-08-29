@@ -2049,16 +2049,22 @@ foreach ($menus as $menu) {
 $twig->addGlobal('active_menu_id', $activeMenuId);
 $twig->addGlobal('active_page_url', $activePageUrl);
 
-// RGPD content service (may use LLM if module is active)
+// RGPD content service (may use LLM if module is active). Each module's
+// effective sub-processors reach it through the Core\Module\
+// SubProcessorProvider hook (§7.4), registered from the module's own
+// block below — core never reads a module's tables for the RGPD page.
 $llmConnectorForRgpd = null;
-$llmProviderRepoForRgpd = null;
-$llmModelRepoForRgpd = null;
+$llmSubProcessorProvider = null;
 if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
     $llmProviderRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
     $llmModelRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
     $llmConnectorForRgpd = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepoForRgpd, $llmModelRepoForRgpd, $journalService);
+    $llmSubProcessorProvider = new \Modules\LlmConnector\Service\LlmSubProcessorService($llmProviderRepoForRgpd, $llmModelRepoForRgpd);
 }
-$rgpdContentService = new RgpdContentService($moduleManager, $settingService, $llmConnectorForRgpd, $llmProviderRepoForRgpd, $llmModelRepoForRgpd);
+$rgpdContentService = new RgpdContentService($moduleManager, $settingService, $llmConnectorForRgpd);
+if ($llmSubProcessorProvider !== null) {
+    $rgpdContentService->addSubProcessorProvider($llmSubProcessorProvider);
+}
 
 // Household size and the fee category it implies (ARCHITECTURE.md §8.34).
 // A core service, built once here rather than inside the registration
@@ -3131,7 +3137,12 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
     // gallery_storage_locations table the very first time it runs.
     $galleryS3SecretRepo = new \Modules\Gallery\Repository\S3SecretRepository($pdo, $encryptionService);
     $galleryStorageLocationRepo = new \Modules\Gallery\Repository\StorageLocationRepository($pdo, $encryptionService);
-    $rgpdContentService->setGalleryStorageLocationRepository($galleryStorageLocationRepo);
+    // The gallery's S3 storage as declared sub-processors (§7.4) — the
+    // module's own reading of its own tables, so the RGPD prompt states
+    // exactly what is configured without core touching this repository.
+    $rgpdContentService->addSubProcessorProvider(
+        new \Modules\Gallery\Service\GalleryStorageSubProcessorService($galleryStorageLocationRepo)
+    );
 
     $galleryAccessService = new \Modules\Gallery\Service\GalleryAccessService($memberService, $sectionService, $scoutYearService);
     $galleryOgScraperService = new \Modules\Gallery\Service\OgScraperService();

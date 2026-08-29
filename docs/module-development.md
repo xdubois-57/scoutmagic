@@ -496,6 +496,52 @@ Three rules, and the first is why this is not `DeskImportListener`:
 
 Each point carries four things, and they are the four a reader needs: what is wrong, why it matters, what to do about it, and — when there is one — by when. Write `why` as the consequence, never a restatement of the title.
 
+## Declaring your sub-processors (`Core\Module\SubProcessorProvider`)
+
+If your module's configuration can engage an external data processor — an
+object-storage provider, an AI provider, any third party the unit's data
+reaches — implement `Core\Module\SubProcessorProvider` so the RGPD page's
+generation prompt states it without core ever reading your tables:
+
+```php
+class MyStorageSubProcessorService implements \Core\Module\SubProcessorProvider
+{
+    /** @return list<\Core\Module\SubProcessorView> */
+    public function getSubProcessors(): array
+    {
+        // Inspect the REAL configuration: a potential sub-processor that
+        // nothing is configured to reach is NOT a sub-processor, and the
+        // empty list is the ordinary answer.
+        return [new \Core\Module\SubProcessorView(
+            \Core\Module\SubProcessorView::CATEGORY_MEDIA_STORAGE,
+            'Hetzner Object Storage (Allemagne/Finlande, UE)',   // name + location, in French
+            'Hébergement des photos et vidéos de la galerie'
+        )];
+    }
+}
+```
+
+- **Dynamic, always.** Answer what is effectively active right now — the
+  S3 provider actually configured, the AI provider actually enabled and
+  its assigned models — with its data location worded for the RGPD
+  document. Declaring a merely *possible* processor would make the
+  document claim a data flow that does not exist.
+- `category` comes from the closed `SubProcessorView::CATEGORY_*`
+  vocabulary, because the generation prompt has to branch on it — the
+  same "small set of constants core declares" rule as the member-page
+  views below. A new kind of processor means adding a constant, a product
+  decision rather than a free string.
+- The implementation lives in your module's `Service\`, not its `Api\`
+  (the interface is core's — §7.4). Wire it in the composition root,
+  inside your module's own block:
+  `$rgpdContentService->addSubProcessorProvider(new MyStorageSubProcessorService(...));`
+- Two shipped examples: `Modules\Gallery\Service\GalleryStorageSubProcessorService`
+  (one view per configured S3 provider, none for local storage) and
+  `Modules\LlmConnector\Service\LlmSubProcessorService` (the active AI
+  provider and its assigned models, none when unconfigured).
+- This complements — never replaces — AGENTS.md § RGPD page maintenance:
+  the *default* RGPD content is still a static document to keep in step.
+
 ## Filling a block on a member's page (`Core\Module\…Provider`)
 
 Two core pages consolidate what the site knows about one person — a member's own page (`/members/{id}`) and the Staff d'Unité's page for them (`/admin/members/{id}`). Neither knows anything about your module. Each block they can show comes from a small interface core declares (ARCHITECTURE.md §7.4), which your module optionally implements; the composition root injects it **nullable**, so a disabled module means the block is not built at all — never an error, never an empty card.
