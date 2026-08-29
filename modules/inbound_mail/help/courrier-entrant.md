@@ -4,7 +4,7 @@ title: Raccorder le courrier entrant
 summary: Connecter les boîtes e-mail de l'unité, en lecture seule.
 category: Configuration
 role_min: superadmin
-paths: /config/courrier-entrant
+paths: /config/courrier-entrant, /config/courrier-entrant/boites/nouvelle, /config/courrier-entrant/boites/*/modification
 related: gerer-les-locations
 ---
 

@@ -9,7 +9,8 @@
         "typecheck": "node scripts/js-typecheck.mjs",
         "test": "vitest run",
         "test:coverage": "vitest run --coverage",
-        "e2e": "./scripts/e2e.sh",
+        "e2e": "./scripts/e2e.sh --grep-invert @full",
+        "e2e:full": "./scripts/e2e.sh",
         "e2e:install": "playwright install --with-deps chromium"
     },
     "engines": {

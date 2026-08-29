@@ -59,7 +59,7 @@ class InboundMailConfigController extends AbstractController
      *
      * @param array<string, string> $params
      */
-    public function createMailbox(Request $request, array $params): Response
+    public function newMailbox(Request $request, array $params): Response
     {
         return $this->render('@inbound_mail/config/mailbox_form.html.twig', $this->formContext(null));
     }
