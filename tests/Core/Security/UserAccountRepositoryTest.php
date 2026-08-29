@@ -165,4 +165,94 @@ class UserAccountRepositoryTest extends TestCase
     {
         $this->assertSame([], $this->repo->findAllIds());
     }
+
+    /**
+     * The bug this replaced: `DELETE FROM user_accounts WHERE
+     * is_super_admin = TRUE` followed by a fresh create(). The repair
+     * fires when the lookup misses — and a blind-index key problem makes
+     * it miss for every row at once, so a single unreadable admin used to
+     * take every other super admin down with it, silently.
+     */
+    public function testRepairSuperAdminLeavesEveryOtherSuperAdminAlone(): void
+    {
+        $first = $this->repo->create('first-admin@test.com', true);
+        $second = $this->repo->create('second-admin@test.com', true);
+        $third = $this->repo->create('third-admin@test.com', true);
+
+        // The address secrets['admin_email'] names is no longer findable:
+        // its blind index was written under a key that no longer applies.
+        $this->pdo->exec(
+            "UPDATE user_accounts SET email_blind_index = 'stale-index' WHERE id = " . $third->id
+        );
+        $this->assertNull($this->repo->findByEmail('third-admin@test.com'));
+
+        $this->repo->repairSuperAdmin('third-admin@test.com');
+
+        $survivors = $this->repo->findAllIds();
+        $this->assertContains($first->id, $survivors);
+        $this->assertContains($second->id, $survivors);
+        $this->assertSame('first-admin@test.com', $this->repo->findById($first->id)?->email);
+        $this->assertSame('second-admin@test.com', $this->repo->findById($second->id)?->email);
+    }
+
+    public function testRepairSuperAdminRekeysTheExistingRowRatherThanAddingOne(): void
+    {
+        $admin = $this->repo->create('admin@test.com', true);
+        $this->pdo->exec(
+            "UPDATE user_accounts SET email_blind_index = 'stale-index' WHERE id = " . $admin->id
+        );
+
+        $repaired = $this->repo->repairSuperAdmin('admin@test.com');
+
+        $this->assertSame($admin->id, $repaired->id);
+        $this->assertCount(1, $this->repo->findAllIds());
+
+        // Findable again, which is what the repair exists to restore.
+        $found = $this->repo->findByEmail('admin@test.com');
+        $this->assertNotNull($found);
+        $this->assertSame($admin->id, $found->id);
+        $this->assertTrue($found->isSuperAdmin);
+    }
+
+    public function testRepairSuperAdminCreatesTheAccountWhenNoRowMatches(): void
+    {
+        $other = $this->repo->create('other-admin@test.com', true);
+
+        $created = $this->repo->repairSuperAdmin('missing-admin@test.com');
+
+        $this->assertNotSame($other->id, $created->id);
+        $this->assertSame('missing-admin@test.com', $created->email);
+        $this->assertTrue($created->isSuperAdmin);
+
+        // The existing super admin is still there, untouched.
+        $this->assertSame('other-admin@test.com', $this->repo->findById($other->id)?->email);
+    }
+
+    public function testRepairSuperAdminSkipsRowsItCannotDecrypt(): void
+    {
+        $unreadable = $this->repo->create('unreadable-admin@test.com', true);
+        $this->pdo->exec(
+            "UPDATE user_accounts SET email_encrypted = 'not-decryptable' WHERE id = " . $unreadable->id
+        );
+
+        $created = $this->repo->repairSuperAdmin('admin@test.com');
+
+        // The row nobody can read is neither claimed nor deleted: it may
+        // belong to somebody else, and this code cannot tell.
+        $this->assertNotSame($unreadable->id, $created->id);
+        $this->assertContains($unreadable->id, $this->repo->findAllIds());
+    }
+
+    public function testRepairSuperAdminNormalizesTheAddressLikeCreateDoes(): void
+    {
+        $admin = $this->repo->create('Mixed@Test.com', true);
+        $this->pdo->exec(
+            "UPDATE user_accounts SET email_blind_index = 'stale-index' WHERE id = " . $admin->id
+        );
+
+        $repaired = $this->repo->repairSuperAdmin('MIXED@TEST.COM');
+
+        $this->assertSame($admin->id, $repaired->id);
+        $this->assertNotNull($this->repo->findByEmail('mixed@test.com'));
+    }
 }
