@@ -45,12 +45,14 @@ class DeskImportService
         private ?DuplicateMemberDetector $duplicateDetector = null,
         /**
          * Modules reconciling their own member-referencing data at the end
-         * of an import (ARCHITECTURE.md §7.4). Empty unless the composition
-         * root wired one in, so core never depends on any module.
-         *
-         * @var DeskImportListener[]
+         * of an import (ARCHITECTURE.md §7.4). A mutable registry rather
+         * than an array, read at import time: a module block registers its
+         * listener wherever it sits in `public/index.php`, long after this
+         * service was constructed. Core never depends on any module —
+         * empty registry (or none, for a fixture replay) means no
+         * reconciliation.
          */
-        private array $importListeners = []
+        private ?DeskImportListenerRegistry $importListeners = null
     ) {
     }
 
@@ -174,9 +176,10 @@ class DeskImportService
             // the commit deliberately: derived state half-applied to core
             // but not to a module is worse than an import that failed and
             // can simply be retried (see DeskImportListener's docblock).
-            if ($this->importListeners !== []) {
+            $listeners = $this->importListeners?->all() ?? [];
+            if ($listeners !== []) {
                 $activeMemberIds = $this->memberYearRepository->findActiveMemberIdsForYear($scoutYearId);
-                foreach ($this->importListeners as $listener) {
+                foreach ($listeners as $listener) {
                     $listener->onDeskImportCompleted($scoutYearId, $activeMemberIds);
                 }
             }

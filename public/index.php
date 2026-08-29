@@ -1160,11 +1160,20 @@ $rosterReplacementGuard = new \Core\Import\RosterReplacementGuard(
     new \Core\Import\RosterComparisonRepository($pdo),
     $scoutYearResolver
 );
+// Desk-import listeners (Core\Import\DeskImportListener, ARCHITECTURE.md
+// §7.4) — a module reconciling its own references to members.id at the
+// end of an import. A mutable registry (§7.6 shape) built empty here:
+// each module block registers its listener from its own `$isEnabled(...)`
+// block far below, and the service reads the registry at import time, so
+// this single construction serves every ImportController registration in
+// the file. (It used to be an array, which forced a second, early rental
+// block before this line and a conditional rebuild of the service.)
+$deskImportListeners = new \Core\Import\DeskImportListenerRegistry();
 $importService = new DeskImportService(
     $pdo, $encryptionService, $csvParser, $mappingResolver,
     $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService,
     $sectionMembershipService, $rosterReplacementGuard, $journalService, $rosterSnapshotRepository,
-    $encryptedFileStorageService, $importDiffCalculator, $duplicateMemberDetector
+    $encryptedFileStorageService, $importDiffCalculator, $duplicateMemberDetector, $deskImportListeners
 );
 $importReportPresenter = new \Core\Import\ImportReportPresenter(
     new \Core\Import\ImportReportRepository($pdo, $encryptionService)
@@ -1988,29 +1997,6 @@ $isEnabled = static fn (string $moduleId): bool => in_array($moduleId, $moduleMa
 // (`$sectionResponsableProvider`, `$homePaymentDueProvider`, …). The name
 // alone says which side of §7.4/§7.5 a handle lives on.
 
-// Desk-import listeners (Core\Import\DeskImportListener, ARCHITECTURE.md
-// §7.4) — a module reconciling its own references to members.id at the end
-// of an import. $importService was built far above, before $moduleManager
-// existed, so it is rebuilt here rather than gaining a forward reference;
-// every ImportController registration happens later in this file and so
-// picks up this instance, including the registration module's own
-// re-registration.
-$deskImportListeners = [];
-if ($isEnabled('rental')) {
-    $deskImportListeners[] = new \Modules\Rental\Service\RentalDeskImportListener(
-        new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo),
-        $journalService
-    );
-}
-if ($deskImportListeners !== []) {
-    $importService = new DeskImportService(
-        $pdo, $encryptionService, $csvParser, $mappingResolver,
-        $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService,
-        $sectionMembershipService, $rosterReplacementGuard, $journalService, $rosterSnapshotRepository,
-        $encryptedFileStorageService, $importDiffCalculator, $duplicateMemberDetector, $deskImportListeners
-    );
-}
-
 // Register module template namespaces in Twig
 $twigLoader = $twig->getLoader();
 if ($twigLoader instanceof \Twig\Loader\FilesystemLoader) {
@@ -2067,22 +2053,11 @@ foreach ($menus as $menu) {
 $twig->addGlobal('active_menu_id', $activeMenuId);
 $twig->addGlobal('active_page_url', $activePageUrl);
 
-// RGPD content service (may use LLM if module is active). Each module's
-// effective sub-processors reach it through the Core\Module\
-// SubProcessorProvider hook (§7.4), registered from the module's own
-// block below — core never reads a module's tables for the RGPD page.
+// The LLM connector other modules consume and its RGPD sub-processor
+// declaration — assigned in the module's single block below, after
+// $frontController exists (its config page registers there too).
 $llmConnectorForOthers = null;
 $llmSubProcessorProvider = null;
-if ($isEnabled('llm_connector')) {
-    $llmProviderRepoForOthers = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
-    $llmModelRepoForOthers = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
-    $llmConnectorForOthers = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepoForOthers, $llmModelRepoForOthers, $journalService);
-    $llmSubProcessorProvider = new \Modules\LlmConnector\Service\LlmSubProcessorService($llmProviderRepoForOthers, $llmModelRepoForOthers);
-}
-$rgpdContentService = new RgpdContentService($moduleManager, $settingService, $llmConnectorForOthers);
-if ($llmSubProcessorProvider !== null) {
-    $rgpdContentService->addSubProcessorProvider($llmSubProcessorProvider);
-}
 
 // Household size and the fee category it implies (ARCHITECTURE.md §8.34).
 // A core service, built once here rather than inside the registration
@@ -2132,6 +2107,40 @@ $frontController->registerController(
     \Core\Http\Controller\HelpController::class,
     new \Core\Http\Controller\HelpController($twig, $helpService)
 );
+
+// LLM connector — the module's ONE block: its config page, the connector
+// every consuming module reads ($llmConnectorForOthers — RGPD text,
+// finance's receipt reading and AI categorization, news' SEO keywords,
+// gallery's S3 error explainer), and its RGPD sub-processor declaration.
+// It sits this early because RgpdContentService, built in the trunk just
+// below, is the first consumer.
+if ($isEnabled('llm_connector')) {
+    $llmProviderRepo = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
+    $llmModelRepo = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
+    $llmConnectorForOthers = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepo, $llmModelRepo, $journalService);
+    $llmSubProcessorProvider = new \Modules\LlmConnector\Service\LlmSubProcessorService($llmProviderRepo, $llmModelRepo);
+
+    $frontController->registerController(
+        \Modules\LlmConnector\Controller\ConfigController::class,
+        new \Modules\LlmConnector\Controller\ConfigController(
+            $twig,
+            $llmProviderRepo,
+            $llmModelRepo,
+            new \Modules\LlmConnector\Service\OcrModelSelector(),
+            $schedulerService,
+            $journalService
+        )
+    );
+}
+
+// RGPD content service (may use LLM if module is active). Each module's
+// effective sub-processors reach it through the Core\Module\
+// SubProcessorProvider hook (§7.4), registered from the module's own
+// block — core never reads a module's tables for the RGPD page.
+$rgpdContentService = new RgpdContentService($moduleManager, $settingService, $llmConnectorForOthers);
+if ($llmSubProcessorProvider !== null) {
+    $rgpdContentService->addSubProcessorProvider($llmSubProcessorProvider);
+}
 
 // Optional dependency on the trombinoscope module (ARCHITECTURE.md §7.4)
 // for the Sections page's "responsable" name — set below only when
@@ -2417,7 +2426,12 @@ if ($isEnabled('trombinoscope')) {
 // direction.
 $calendarVirtualEventRegistry = null;
 
-// The two calendar collaborators other modules consume, seeded null and
+// The retro-link registry (§7.6, see its construction below) — null-seeded
+// here so retro's own block can `provide()` into it when calendar is
+// enabled, and provably skip when it is not.
+$calendarRetroLinks = null;
+
+// The calendar collaborators other modules consume, seeded null and
 // assigned inside the block below — same convention as
 // $financeExpectedReceivableForOthers above. Declaring them here rather
 // than reaching for $calendarService from inside another module's block is
@@ -2427,6 +2441,14 @@ $calendarIcsBuilderForOthers = null;
 
 if ($isEnabled('calendar')) {
     $calendarVirtualEventRegistry = new \Modules\Calendar\Service\VirtualEventRegistry();
+    // The retro-link registry breaks the calendar↔retro cycle the same
+    // way the virtual-event registry breaks calendar↔rental (§7.6):
+    // built empty here, handed to every service that renders retro
+    // links, and filled from retro's own block far below. Before it, the
+    // whole calendar had to be built and registered a SECOND time after
+    // retro — a duplicate block whose re-registration silently dropped
+    // the virtual-event registry from the public controller.
+    $calendarRetroLinks = new \Modules\Calendar\Service\RetroEventLinkRegistry();
     $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService);
     $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
     $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository($pdo, $encryptionService);
@@ -2439,17 +2461,20 @@ if ($isEnabled('calendar')) {
     $calendarScoutYearEventCount = new \Modules\Calendar\Service\ScoutYearEventCountService($calendarEventRepo);
 
     $calendarService = new \Modules\Calendar\Service\CalendarService(
-        $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo
+        $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo, $calendarRetroLinks
     );
     $calendarNotificationService = new \Modules\Calendar\Service\CalendarNotificationService(
         $schedulerService, $settingService, $calendarService, $calendarEventRepo, $notificationService, $userAccountRepo
     );
+    $calendarRetroAutoCreateService = new \Modules\Calendar\Service\CalendarRetroAutoCreateService(
+        $schedulerService, $calendarRetroLinks
+    );
     $calendarEventService = new \Modules\Calendar\Service\CalendarEventService(
-        $calendarEventRepo, $calendarService, $calendarNotificationService
+        $calendarEventRepo, $calendarService, $calendarNotificationService, $calendarRetroAutoCreateService
     );
     $calendarPersonalFeedService = new \Modules\Calendar\Service\PersonalFeedService(
         $calendarPersonalTokenRepo, $calendarService, $calendarEventRepo,
-        $roleResolver, $memberService, $userAccountRepo, $sectionService
+        $roleResolver, $memberService, $userAccountRepo, $sectionService, $calendarRetroLinks
     );
     $calendarPickerService = new \Modules\Calendar\Service\CalendarPickerService(
         $calendarService, $calendarPersonalFeedService
@@ -2459,6 +2484,11 @@ if ($isEnabled('calendar')) {
 
     $calendarServiceForOthers = $calendarService;
     $calendarIcsBuilderForOthers = $calendarIcsBuilder;
+    // CalendarService implements Modules\Calendar\Api\CalendarEventLookupInterface
+    // — reused as-is (member page §3's "next upcoming event", groups'
+    // "this post is about that event" picker) rather than adding a second
+    // lookup surface.
+    $calendarEventLookupForOthers = $calendarService;
 
     $frontController->registerController(
         \Modules\Calendar\Controller\CalendarPublicController::class,
@@ -2549,23 +2579,6 @@ if ($isEnabled('banner')) {
     $frontController->registerController(
         PageController::class,
         new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $sectionService, $unitStaffSectionService, $scoutYearService, $bannerService, null, $sectionResponsableProvider)
-    );
-}
-
-if ($isEnabled('llm_connector')) {
-    $llmProviderRepo = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
-    $llmModelRepo = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
-
-    $frontController->registerController(
-        \Modules\LlmConnector\Controller\ConfigController::class,
-        new \Modules\LlmConnector\Controller\ConfigController(
-            $twig,
-            $llmProviderRepo,
-            $llmModelRepo,
-            new \Modules\LlmConnector\Service\OcrModelSelector(),
-            $schedulerService,
-            $journalService
-        )
     );
 }
 
@@ -3512,7 +3525,16 @@ if ($isEnabled('groups')) {
             )
         );
     };
-    $groupsRegisterEventAwareControllers(null);
+    // Called exactly once now: the calendar's single block above already
+    // assigned $calendarEventLookupForOthers, so the "register event-less,
+    // re-register after retro" dance this closure existed for is gone —
+    // it stays as the one construction site for the three controllers
+    // that share the feed service.
+    $groupsRegisterEventAwareControllers(
+        $calendarEventLookupForOthers !== null
+            ? new \Modules\Groups\Service\PostEventService($calendarEventLookupForOthers)
+            : null
+    );
 
     // Re-registers PageController with the groups activity hook — same
     // core-hook precedent as the banner/news/trombinoscope blocks above
@@ -3883,9 +3905,16 @@ if ($isEnabled('retro')) {
         $retroBoardRepo, $retroCommentRepo, $memberService, $sectionService, $schedulerService, $journalService,
         $mailService, $twig, (string) ($settingService->get('site_name') ?: 'Unité scoute'), (string) ($settingService->get('base_url') ?: ''),
         $shortUrlService,
-        $isEnabled('calendar') ? $calendarService : null,
+        $calendarServiceForOthers,
         $retroSummaryService
     );
+
+    // The other half of the calendar↔retro pair (§7.6): the calendar's
+    // services render links to linked boards through the retro-link
+    // registry they were built with — provide this module's lookup into
+    // it. With calendar disabled the registry was never built and there
+    // is nothing to render a link on.
+    $calendarRetroLinks?->provide($retroBoardService);
 
     $frontController->registerController(
         \Modules\Retro\Controller\RetroChiefController::class,
@@ -3926,65 +3955,6 @@ if ($isEnabled('retro')) {
 // $calendarEventRepo/etc. are still in scope here — PHP has no block
 // scoping, only function scoping, so calendar's own top-level `if` body
 // variables remain readable for the rest of this script.
-if ($isEnabled('calendar')) {
-    $retroEventLinkLookup = $isEnabled('retro') ? $retroBoardService : null;
-
-    $calendarService = new \Modules\Calendar\Service\CalendarService(
-        $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo, $retroEventLinkLookup
-    );
-    // CalendarService implements Modules\Calendar\Api\CalendarEventLookupInterface
-    // — reused as-is (member page §3's "next upcoming event", no interface
-    // change needed) rather than adding a second lookup surface.
-    $calendarEventLookupForOthers = $calendarService;
-    $calendarRetroAutoCreateService = new \Modules\Calendar\Service\CalendarRetroAutoCreateService(
-        $schedulerService, $retroEventLinkLookup
-    );
-    $calendarEventService = new \Modules\Calendar\Service\CalendarEventService(
-        $calendarEventRepo, $calendarService, $calendarNotificationService, $calendarRetroAutoCreateService
-    );
-    $calendarPersonalFeedService = new \Modules\Calendar\Service\PersonalFeedService(
-        $calendarPersonalTokenRepo, $calendarService, $calendarEventRepo,
-        $roleResolver, $memberService, $userAccountRepo, $sectionService, $retroEventLinkLookup
-    );
-    $calendarPickerService = new \Modules\Calendar\Service\CalendarPickerService(
-        $calendarService, $calendarPersonalFeedService
-    );
-
-    $frontController->registerController(
-        \Modules\Calendar\Controller\CalendarPublicController::class,
-        new \Modules\Calendar\Controller\CalendarPublicController(
-            $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarPersonalFeedService,
-            $calendarIcsBuilder, $scoutYearResolver, $journalService
-        )
-    );
-    $frontController->registerController(
-        \Modules\Calendar\Controller\CalendarChiefController::class,
-        new \Modules\Calendar\Controller\CalendarChiefController(
-            $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarEventService,
-            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager,
-            $sectionStaffAuthorizationService
-        )
-    );
-
-    // Groups' optional "ce message parle de la réunion de samedi" link.
-    // $calendarEventLookupForOthers only exists this far down the file, so groups'
-    // own block wired its two event-aware controllers with no event
-    // service and left the closure below behind to redo it once the
-    // lookup is real. Calling it a second time replaces both
-    // registrations; with calendar disabled this never runs and the
-    // event-less pair stays in place, which is exactly the "works with
-    // the other module switched off" contract of ARCHITECTURE.md §7.5.
-    //
-    // isset() rather than the module check the rest of this file uses:
-    // the closure is the honest witness that groups' block actually ran,
-    // and it is what static analysis can follow.
-    if (isset($groupsRegisterEventAwareControllers)) {
-        $groupsRegisterEventAwareControllers(
-            new \Modules\Groups\Service\PostEventService($calendarEventLookupForOthers)
-        );
-    }
-}
-
 if ($isEnabled('registration')) {
     $registrationBaseUrl = (string) ($settingService->get('base_url') ?: '');
     $registrationSiteName = (string) ($settingService->get('site_name') ?: 'Unité scoute');
@@ -4247,6 +4217,15 @@ if ($isEnabled('rental')) {
 
     $rentalAssetRepository = new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService);
     $rentalManagerRepository = new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo);
+
+    // Reconcile this module's manager references after a Desk import
+    // (Core\Import\DeskImportListener, §7.4) — registered here, in the
+    // module's own block, into the mutable registry DeskImportService
+    // reads at import time.
+    $deskImportListeners->register(new \Modules\Rental\Service\RentalDeskImportListener(
+        $rentalManagerRepository,
+        $journalService
+    ));
 
     $rentalAuthorizationService = new \Modules\Rental\Service\RentalAuthorizationService(
         $memberService,
