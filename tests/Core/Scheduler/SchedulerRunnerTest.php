@@ -274,7 +274,7 @@ class SchedulerRunnerTest extends TestCase
     public function testProcessOverdueResolvesAHandlerClassThroughTheModuleManager(): void
     {
         $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
-        $moduleManager->method('getTaskHandler')
+        $moduleManager->expects($this->once())->method('getTaskHandler')
             ->with('some_module', 'auto_task')
             ->willReturn(ModuleResolvedFixtureHandler::class);
         $this->runner->setModuleManager($moduleManager);
