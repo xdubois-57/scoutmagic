@@ -2,7 +2,7 @@
   "id": "sos_staff",
   "name": "SOS Staff d'U",
   "description": "Planification des gardes du numéro SOS de l'unité et automatisation des changements de redirection téléphonique.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled_by_default": false,
   "routes": [
     {

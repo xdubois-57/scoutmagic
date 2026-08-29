@@ -26,4 +26,17 @@ interface CalendarDirectoryInterface
      * @return list<SelectableCalendar>
      */
     public function selectableCalendars(): array;
+
+    /**
+     * The id of the default "Animateurs" supplementary calendar, or null
+     * when it has not been created yet (it is created lazily the first
+     * time the calendar module renders its own pages).
+     *
+     * Read-only on purpose: a consumer that needs the default calendar to
+     * exist must NOT get a way to create it — it publishes virtual events
+     * onto it (§7.6), and a calendar nobody has ever opened is a calendar
+     * nobody is looking at, so having nothing to publish onto is the
+     * correct degraded answer, not an error.
+     */
+    public function defaultCalendarId(): ?int;
 }

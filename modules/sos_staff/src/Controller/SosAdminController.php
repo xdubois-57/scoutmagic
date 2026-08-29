@@ -21,10 +21,9 @@ use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Core\Service\DateInput;
 use Core\Service\IntegerInput;
-use Modules\Calendar\Service\CalendarService;
+use Modules\Calendar\Api\CalendarEventLookupInterface;
 use Modules\SosStaff\Provider\ProviderException;
 use Modules\SosStaff\Repository\OnCallAssignment;
-use Modules\SosStaff\Service\CalendarSyncService;
 use Modules\SosStaff\Service\OnCallService;
 use Modules\SosStaff\Service\ProviderConfigService;
 use Modules\SosStaff\Service\RedirectService;
@@ -45,12 +44,11 @@ class SosAdminController extends AbstractController
         private SosSettingsService $settingsService,
         private OnCallService $onCallService,
         private RedirectService $redirectService,
-        private CalendarSyncService $calendarSyncService,
         private SectionService $sectionService,
         private SchedulerService $schedulerService,
         private ScoutYearResolver $scoutYearResolver,
         private JournalService $journalService,
-        private ?CalendarService $calendarService = null
+        private ?CalendarEventLookupInterface $calendarEvents = null
     ) {
     }
 
@@ -91,7 +89,7 @@ class SosAdminController extends AbstractController
             'next_month_param' => sprintf('%04d-%02d', $nextYear, $nextMonth),
             'days' => $grid['days'],
             'states' => $grid['states'],
-            'section_activity' => $this->buildSectionActivity($year, $month),
+            'section_activity' => $this->buildSectionActivity($year, $month, $role),
             'planned_transitions' => $transitions['entries'],
             'planned_transitions_page' => $transitions['page'],
             'planned_transitions_total_pages' => $transitions['total_pages'],
@@ -207,9 +205,11 @@ class SosAdminController extends AbstractController
 
     /**
      * Save the complete month state (module spec §2.6), recompute
-     * transitions (§3), sync the calendar (§5), purge >1 year old data
-     * (§6), and apply today's transition immediately if it's already due
-     * (§3 "application immédiate").
+     * transitions (§3), purge >1 year old data (§6), and apply today's
+     * transition immediately if it's already due (§3 "application
+     * immédiate"). The calendar needs no syncing here: duty periods are
+     * virtual events computed live from the saved assignments
+     * (Calendar\SosVirtualEventProvider, §7.6).
      *
      * @param array<string, string> $params
      */
@@ -281,7 +281,6 @@ class SosAdminController extends AbstractController
 
         $result = $this->onCallService->saveMonth($year, $month, $validCells, $orderedStaffMemberIds, $effectiveYear->id);
 
-        $this->calendarSyncService->resync($effectiveYear->id);
         $this->onCallService->cleanupOlderThanOneYear();
 
         if ($result['today_due_now']) {
@@ -342,58 +341,38 @@ class SosAdminController extends AbstractController
     /**
      * Left zone (module spec §2.6): one column per non-excluded section,
      * days marked when that section's calendar has an event. No-ops (no
-     * columns) when the calendar module is disabled.
+     * columns) when the calendar module is disabled. The per-day activity
+     * comes from the calendar module's read Api
+     * (Modules\Calendar\Api\CalendarEventLookupInterface, §7.5) — one call
+     * for the whole month, every section; a section the Api doesn't
+     * mention simply has no calendar (or none this role may see) and
+     * renders as an empty column.
      *
      * @return array<int, array{section_id: int, label: string, color: ?string, events_by_day: array<string, string[]>}>
      */
-    private function buildSectionActivity(int $year, int $month): array
+    private function buildSectionActivity(int $year, int $month, Role $role): array
     {
-        if ($this->calendarService === null) {
+        if ($this->calendarEvents === null) {
             return [];
         }
 
-        $this->calendarService->ensureSectionCalendars();
+        $activityBySectionId = $this->calendarEvents->sectionActivityForMonth($year, $month, $role);
+
         $excludedIds = $this->settingsService->getExcludedSectionIds();
         $sections = array_values(array_filter(
             $this->sectionService->getAllWithBranches(),
             fn(array $s) => !in_array($s['id'], $excludedIds, true)
         ));
 
-        $calendarBySectionId = [];
-        foreach ($this->calendarService->getSectionCalendars() as $calendar) {
-            if ($calendar->sectionId !== null) {
-                $calendarBySectionId[$calendar->sectionId] = $calendar;
-            }
-        }
-        $colors = $this->calendarService->colorsByCalendarId();
-
-        $firstOfMonth = DateInput::firstOfMonth($year, $month);
-        $monthStart = $firstOfMonth->format('Y-m-d');
-        $monthEnd = $firstOfMonth->modify('last day of this month')->format('Y-m-d');
-
         $columns = [];
         foreach ($sections as $section) {
-            $calendar = $calendarBySectionId[$section['id']] ?? null;
-            $eventsByDay = [];
-
-            if ($calendar !== null) {
-                foreach ($this->calendarService->getEventsForMonth([$calendar->id], $year, $month) as $event) {
-                    $start = max($event->startDate, $monthStart);
-                    $end = min($event->endDate ?? $event->startDate, $monthEnd);
-                    $cursor = DateInput::requireFromStorage($start, 'calendar_events.start_date');
-                    $endDate = DateInput::requireFromStorage($end, 'calendar_events.end_date');
-                    while ($cursor <= $endDate) {
-                        $eventsByDay[$cursor->format('Y-m-d')][] = $event->title;
-                        $cursor = $cursor->modify('+1 day');
-                    }
-                }
-            }
+            $activity = $activityBySectionId[$section['id']] ?? null;
 
             $columns[] = [
                 'section_id' => $section['id'],
                 'label' => $section['name'] ?? $section['desk_code'],
-                'color' => $calendar !== null ? ($colors[$calendar->id] ?? null) : null,
-                'events_by_day' => $eventsByDay,
+                'color' => $activity?->color,
+                'events_by_day' => $activity->eventTitlesByDay ?? [],
             ];
         }
 

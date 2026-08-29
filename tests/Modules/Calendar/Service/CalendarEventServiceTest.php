@@ -96,7 +96,7 @@ class CalendarEventServiceTest extends TestCase
     public function testAChiefCannotMoveAnEventIntoAnAdminOnlyCalendar(): void
     {
         $adminOnlyId = $this->createAdminOnlyCalendar();
-        $event = $this->service->createEvent($this->calendarId, 'Sortie', '2026-03-15', null, null, null, null, null, null);
+        $event = $this->service->createEvent($this->calendarId, 'Sortie', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF);
 
         $this->expectException(CalendarException::class);
         $this->service->updateEvent($event->id, $adminOnlyId, 'Sortie', '2026-03-15', null, null, null, null, null, false, null, Role::CHIEF);
@@ -109,7 +109,7 @@ class CalendarEventServiceTest extends TestCase
     public function testAChiefCannotMoveAnEventOutOfAnAdminOnlyCalendar(): void
     {
         $adminOnlyId = $this->createAdminOnlyCalendar();
-        $event = $this->service->createEvent($adminOnlyId, 'Réunion CU', '2026-03-15', null, null, null, null, null, null);
+        $event = $this->service->createEvent($adminOnlyId, 'Réunion CU', '2026-03-15', null, null, null, null, null, null, false, Role::ADMIN);
 
         $this->expectException(CalendarException::class);
         $this->service->updateEvent($event->id, $this->calendarId, 'Réunion CU', '2026-03-15', null, null, null, null, null, false, null, Role::CHIEF);
@@ -118,7 +118,7 @@ class CalendarEventServiceTest extends TestCase
     public function testAChiefCannotDeleteAnEventInAnAdminOnlyCalendar(): void
     {
         $adminOnlyId = $this->createAdminOnlyCalendar();
-        $event = $this->service->createEvent($adminOnlyId, 'Réunion CU', '2026-03-15', null, null, null, null, null, null);
+        $event = $this->service->createEvent($adminOnlyId, 'Réunion CU', '2026-03-15', null, null, null, null, null, null, false, Role::ADMIN);
 
         try {
             $this->service->deleteEvent($event->id, Role::CHIEF);
@@ -142,19 +142,18 @@ class CalendarEventServiceTest extends TestCase
     }
 
     /**
-     * A system caller (Modules\SosStaff\Service\CalendarSyncService keeps
-     * its own calendar on the unit's behalf) has no session to narrow
-     * against and must stay unaffected.
+     * The role-less "system caller" short-circuit is GONE: its one caller
+     * (the SOS module's calendar sync) was replaced by virtual events
+     * (§7.6), so a missing viewer role now fails closed like every other
+     * way of not proving write access — a call site that forgets the
+     * argument is denied, never granted.
      */
-    public function testASystemCallerWithNoViewerRoleIsUnaffected(): void
+    public function testACallerWithNoViewerRoleIsDeniedEveryWrite(): void
     {
         $adminOnlyId = $this->createAdminOnlyCalendar();
 
-        $event = $this->service->createEvent($adminOnlyId, 'Permanence SOS', '2026-03-15', null, null, null, null, null, null);
-
-        $this->assertSame($adminOnlyId, $event->calendarId);
-        $this->service->deleteEvent($event->id);
-        $this->assertNull((new CalendarEventRepository($this->pdo))->findById($event->id));
+        $this->expectException(CalendarException::class);
+        $this->service->createEvent($adminOnlyId, 'Permanence SOS', '2026-03-15', null, null, null, null, null, null);
     }
 
     private function createAdminOnlyCalendar(): int
@@ -165,7 +164,7 @@ class CalendarEventServiceTest extends TestCase
 
     public function testCreateEventSucceeds(): void
     {
-        $event = $this->service->createEvent($this->calendarId, 'Réunion', '2026-03-15', null, '14:00', '16:00', 'Local', 'Desc', 5);
+        $event = $this->service->createEvent($this->calendarId, 'Réunion', '2026-03-15', null, '14:00', '16:00', 'Local', 'Desc', 5, false, Role::CHIEF);
 
         $this->assertSame('Réunion', $event->title);
         $this->assertSame('2026-03-15', $event->startDate);
@@ -175,36 +174,36 @@ class CalendarEventServiceTest extends TestCase
     public function testCreateEventRejectsEmptyTitle(): void
     {
         $this->expectException(CalendarException::class);
-        $this->service->createEvent($this->calendarId, '  ', '2026-03-15', null, null, null, null, null, null);
+        $this->service->createEvent($this->calendarId, '  ', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF);
     }
 
     public function testCreateEventRejectsInvalidStartDate(): void
     {
         $this->expectException(CalendarException::class);
-        $this->service->createEvent($this->calendarId, 'Title', 'not-a-date', null, null, null, null, null, null);
+        $this->service->createEvent($this->calendarId, 'Title', 'not-a-date', null, null, null, null, null, null, false, Role::CHIEF);
     }
 
     public function testCreateEventRejectsEndDateBeforeStartDate(): void
     {
         $this->expectException(CalendarException::class);
-        $this->service->createEvent($this->calendarId, 'Title', '2026-03-15', '2026-03-10', null, null, null, null, null);
+        $this->service->createEvent($this->calendarId, 'Title', '2026-03-15', '2026-03-10', null, null, null, null, null, false, Role::CHIEF);
     }
 
     public function testCreateEventAcceptsEndDateEqualToStartDate(): void
     {
-        $event = $this->service->createEvent($this->calendarId, 'Title', '2026-03-15', '2026-03-15', null, null, null, null, null);
+        $event = $this->service->createEvent($this->calendarId, 'Title', '2026-03-15', '2026-03-15', null, null, null, null, null, false, Role::CHIEF);
         $this->assertSame('2026-03-15', $event->endDate);
     }
 
     public function testCreateEventRejectsUnknownCalendar(): void
     {
         $this->expectException(CalendarException::class);
-        $this->service->createEvent(9999, 'Title', '2026-03-15', null, null, null, null, null, null);
+        $this->service->createEvent(9999, 'Title', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF);
     }
 
     public function testCreateEventTreatsEmptyOptionalFieldsAsNull(): void
     {
-        $event = $this->service->createEvent($this->calendarId, 'Title', '2026-03-15', '', '', '', '', '', null);
+        $event = $this->service->createEvent($this->calendarId, 'Title', '2026-03-15', '', '', '', '', '', null, false, Role::CHIEF);
 
         $this->assertNull($event->endDate);
         $this->assertNull($event->startTime);
@@ -215,9 +214,9 @@ class CalendarEventServiceTest extends TestCase
 
     public function testUpdateEventChangesFields(): void
     {
-        $event = $this->service->createEvent($this->calendarId, 'Old', '2026-03-15', null, null, null, null, null, null);
+        $event = $this->service->createEvent($this->calendarId, 'Old', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF);
 
-        $updated = $this->service->updateEvent($event->id, $this->calendarId, 'New', '2026-03-20', null, '10:00', '12:00', 'Loc', 'Desc');
+        $updated = $this->service->updateEvent($event->id, $this->calendarId, 'New', '2026-03-20', null, '10:00', '12:00', 'Loc', 'Desc', false, null, Role::CHIEF);
 
         $this->assertSame('New', $updated->title);
         $this->assertSame('2026-03-20', $updated->startDate);
@@ -227,23 +226,23 @@ class CalendarEventServiceTest extends TestCase
     public function testUpdateEventRejectsUnknownEvent(): void
     {
         $this->expectException(CalendarException::class);
-        $this->service->updateEvent(9999, $this->calendarId, 'Title', '2026-03-15', null, null, null, null, null);
+        $this->service->updateEvent(9999, $this->calendarId, 'Title', '2026-03-15', null, null, null, null, null, false, null, Role::CHIEF);
     }
 
     public function testDeleteEventRemovesIt(): void
     {
-        $event = $this->service->createEvent($this->calendarId, 'Title', '2026-03-15', null, null, null, null, null, null);
+        $event = $this->service->createEvent($this->calendarId, 'Title', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF);
 
-        $this->service->deleteEvent($event->id);
+        $this->service->deleteEvent($event->id, Role::CHIEF);
 
         $this->expectException(CalendarException::class);
-        $this->service->updateEvent($event->id, $this->calendarId, 'x', '2026-01-01', null, null, null, null, null);
+        $this->service->updateEvent($event->id, $this->calendarId, 'x', '2026-01-01', null, null, null, null, null, false, null, Role::CHIEF);
     }
 
     public function testDeleteEventRejectsUnknownEvent(): void
     {
         $this->expectException(CalendarException::class);
-        $this->service->deleteEvent(9999);
+        $this->service->deleteEvent(9999, Role::CHIEF);
     }
 
     public function testEverySectionCalendarStaysVIEWABLEByAnyChief(): void
@@ -463,19 +462,17 @@ class CalendarEventServiceTest extends TestCase
     }
 
     /**
-     * The system caller (Modules\SosStaff\Service\CalendarSyncService) acts
-     * for the unit, not for a session: it passes no role, and the null
-     * short-circuit must keep letting it through even though it names no
-     * staffed section at all. Without this the SOS rota stops publishing.
+     * The former role-less "system caller" short-circuit let a session-less
+     * caller write in ANY calendar, staffed sections notwithstanding. Its
+     * one caller (the SOS calendar sync) is gone — duty periods are virtual
+     * events now (§7.6) — so the same call is refused everywhere, section
+     * calendars included.
      */
-    public function testASystemCallerWithNoRoleStillWritesAnywhere(): void
+    public function testACallerWithNoRoleIsDeniedSectionCalendarsToo(): void
     {
         [, $anyCalendar] = $this->createSectionWithCalendar('BAL01', 'Baladins', 10);
 
-        $event = $this->service->createEvent($anyCalendar, 'Permanence SOS', '2026-03-15', null, null, null, null, null, null);
-
-        $this->assertSame($anyCalendar, $event->calendarId);
-        // Deleting through the same session-less path must not throw either.
-        $this->service->deleteEvent($event->id);
+        $this->expectException(CalendarException::class);
+        $this->service->createEvent($anyCalendar, 'Permanence SOS', '2026-03-15', null, null, null, null, null, null);
     }
 }

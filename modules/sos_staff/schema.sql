@@ -71,22 +71,9 @@ CREATE TABLE IF NOT EXISTS sos_oncall_assignments (
     CONSTRAINT fk_sos_oncall_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- sos_calendar_sync: bookkeeping for the merged "consecutive oncall days"
--- events synced into the calendar module's calendar (module spec §5). Every
--- grid save regenerates this: previous rows' calendar_event_id are deleted
--- via the calendar module's own CalendarEventService before new merged
--- streaks are computed and re-created. No FK to the calendar module's own
--- tables — a module never has a hard schema dependency on another module,
--- since either could be disabled independently; calendar_event_id is just a
--- loosely-typed reference, validated only in Service\CalendarSyncService.
-CREATE TABLE IF NOT EXISTS sos_calendar_sync (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    member_id INT UNSIGNED NOT NULL,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    calendar_event_id INT UNSIGNED NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_sos_sync_member (member_id),
-    INDEX idx_sos_sync_dates (start_date, end_date),
-    CONSTRAINT fk_sos_sync_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- There is deliberately no calendar bookkeeping table anymore: duty
+-- periods reach the calendar as VIRTUAL events computed live from
+-- sos_oncall_assignments (Calendar\SosVirtualEventProvider, ARCHITECTURE.md
+-- §7.6), so nothing is ever written to calendar_events and there is no copy
+-- to keep in step. The former sos_calendar_sync table is dropped in
+-- drops.sql.

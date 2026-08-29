@@ -2470,33 +2470,20 @@ if (in_array('sos_staff', $moduleManager->getEnabledModuleIds(), true)) {
     $sosSettingsRepo = new \Modules\SosStaff\Repository\SosSettingsRepository($pdo);
     $sosExcludedSectionRepo = new \Modules\SosStaff\Repository\ExcludedSectionRepository($pdo);
     $sosOnCallRepo = new \Modules\SosStaff\Repository\OnCallRepository($pdo);
-    $sosCalendarSyncRepo = new \Modules\SosStaff\Repository\CalendarSyncRepository($pdo);
-
-    // Optional dependency on the trombinoscope module — the default
-    // number's auto-resolution falls back to the first Staff d'U roster
-    // member (Service\SosSettingsService) when trombinoscope is disabled or
-    // no "responsable" is flagged, so this is never a hard requirement.
-    $sosTrombinoscopeRepo = in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)
-        ? new \Modules\Trombinoscope\Repository\TrombinoscopeRepository($connection)
-        : null;
 
     $sosProviderConfigService = new \Modules\SosStaff\Service\ProviderConfigService($sosProviderCredentialRepo);
+    // $sectionResponsableProvider is the same core hook instance the
+    // Sections page uses (Core\Module\SectionResponsableProvider,
+    // ARCHITECTURE.md §7.4) — the trombinoscope module's service when that
+    // module is enabled, null otherwise; the default number's
+    // auto-resolution then falls back to the first Staff d'U roster member.
     $sosSettingsService = new \Modules\SosStaff\Service\SosSettingsService(
         $sosExcludedSectionRepo, $sosSettingsRepo, $sectionService, $memberYearRepo, $unitStaffSectionService,
-        $settingService, $sosTrombinoscopeRepo
+        $settingService, $sectionResponsableProvider
     );
     $sosOnCallService = new \Modules\SosStaff\Service\OnCallService($sosOnCallRepo, $schedulerService, $sosSettingsService);
     $sosRedirectService = new \Modules\SosStaff\Service\RedirectService(
         $sosProviderConfigService, $sosSettingsService, $memberService, $userAccountRepo, $mailService, $journalService, $twig
-    );
-
-    // Optional dependency on the calendar module (module spec §5) — sync
-    // and the admin page's section-activity columns both no-op gracefully
-    // when it's disabled, per Service\CalendarSyncService's own contract.
-    $sosCalendarService = in_array('calendar', $moduleManager->getEnabledModuleIds(), true) ? $calendarService : null;
-    $sosCalendarEventService = in_array('calendar', $moduleManager->getEnabledModuleIds(), true) ? $calendarEventService : null;
-    $sosCalendarSyncService = new \Modules\SosStaff\Service\CalendarSyncService(
-        $sosCalendarSyncRepo, $sosOnCallRepo, $memberService, $sosCalendarService, $sosCalendarEventService
     );
 
     $frontController->registerController(
@@ -2509,10 +2496,24 @@ if (in_array('sos_staff', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\SosStaff\Controller\SosAdminController::class,
         new \Modules\SosStaff\Controller\SosAdminController(
             $twig, $sosProviderConfigService, $sosSettingsService, $sosOnCallService, $sosRedirectService,
-            $sosCalendarSyncService, $sectionService, $schedulerService, $scoutYearResolver, $journalService,
-            $sosCalendarService
+            $sectionService, $schedulerService, $scoutYearResolver, $journalService,
+            // The admin page's section-activity columns consume the
+            // calendar module's read Api (§7.5) and no-op when it's
+            // disabled ($calendarServiceForOthers is then still null).
+            $calendarServiceForOthers
         )
     );
+
+    // Duty periods reach the calendar as virtual events (§7.6) computed
+    // live from the on-call assignments — same append-after-construction
+    // registry pattern as the rental module's occupancy provider. A
+    // non-null registry implies the calendar block ran, which is also
+    // where $calendarServiceForOthers was assigned.
+    if ($calendarVirtualEventRegistry !== null) {
+        $calendarVirtualEventRegistry->register(new \Modules\SosStaff\Calendar\SosVirtualEventProvider(
+            $sosOnCallRepo, $memberService, $calendarServiceForOthers
+        ));
+    }
 }
 
 if (in_array('banner', $moduleManager->getEnabledModuleIds(), true)) {

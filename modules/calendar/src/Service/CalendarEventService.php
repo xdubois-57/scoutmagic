@@ -226,12 +226,13 @@ class CalendarEventService
      * staff, and create, move or delete events in it. role_min: chief on
      * the route is the floor, not the per-calendar boundary.
      *
-     * $viewerRole null means there is no user to narrow against — a system
-     * caller such as Modules\SosStaff\Service\CalendarSyncService, which
-     * maintains its own calendar on the unit's behalf rather than acting
-     * for a session. Only request-driven callers pass a role, and the
-     * short-circuit below is what keeps the SOS on-call rota publishing;
-     * $staffedSectionIds is meaningless for such a caller and ignored.
+     * $viewerRole null now DENIES, like everything else about this check:
+     * the one role-less "system caller" that used to short-circuit here
+     * (the SOS module's calendar sync) is gone — duty periods are virtual
+     * events (ARCHITECTURE.md §7.6) and nothing writes to `calendar_events`
+     * without a session anymore. The parameter stays nullable only so a
+     * call site that forgets it fails closed instead of failing to compile
+     * into a broader grant.
      *
      * @param int[] $staffedSectionIds
      * @throws CalendarException
@@ -239,7 +240,7 @@ class CalendarEventService
     private function assertCalendarEditable(int $calendarId, ?Role $viewerRole, array $staffedSectionIds): void
     {
         if ($viewerRole === null) {
-            return;
+            throw new CalendarException('Calendrier introuvable.');
         }
 
         foreach ($this->getEditableCalendars($viewerRole, $staffedSectionIds) as $calendar) {

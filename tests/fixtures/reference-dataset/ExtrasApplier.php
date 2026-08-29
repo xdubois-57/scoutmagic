@@ -392,6 +392,12 @@ final class ExtrasApplier
                 $event['location'],
                 null,
                 $this->actorId,
+                false,
+                // The seeder writes as the unit's chef d'unité across every
+                // seeded section — the write check has no role-less path
+                // anymore (there is no "system caller" bypass to lean on).
+                \Core\Security\Role::SUPERADMIN,
+                array_values($this->sectionIds),
             );
             $applied++;
         }

@@ -314,6 +314,66 @@ class CalendarService implements CalendarEventLookupInterface, \Modules\Calendar
     }
 
     /**
+     * Api\CalendarEventLookupInterface implementation — see its docblock.
+     *
+     * One repository fetch covers every visible section calendar; events
+     * are bucketed by calendar afterwards, so a unit with eight sections
+     * still costs one query, not eight.
+     */
+    public function sectionActivityForMonth(int $year, int $month, Role $viewerRole): array
+    {
+        $this->ensureSectionCalendars();
+
+        $calendarBySectionId = [];
+        foreach ($this->getSectionCalendars() as $calendar) {
+            if ($calendar->sectionId !== null && $this->isVisibleToRole($calendar, $viewerRole)) {
+                $calendarBySectionId[$calendar->sectionId] = $calendar;
+            }
+        }
+        if ($calendarBySectionId === []) {
+            return [];
+        }
+
+        $colors = $this->colorsByCalendarId();
+        $firstOfMonth = DateInput::firstOfMonth($year, $month);
+        $monthStart = $firstOfMonth->format('Y-m-d');
+        $monthEnd = $firstOfMonth->modify('last day of this month')->format('Y-m-d');
+
+        $calendarIds = array_map(fn(Calendar $c) => $c->id, array_values($calendarBySectionId));
+        $titlesByCalendarAndDay = [];
+        foreach ($this->getEventsForMonth($calendarIds, $year, $month) as $event) {
+            // A multi-day event marks every day it covers, clamped to the
+            // month being rendered.
+            $start = max($event->startDate, $monthStart);
+            $end = min($event->endDate ?? $event->startDate, $monthEnd);
+            $cursor = DateInput::requireFromStorage($start, 'calendar_events.start_date');
+            $endDate = DateInput::requireFromStorage($end, 'calendar_events.end_date');
+            while ($cursor <= $endDate) {
+                $titlesByCalendarAndDay[$event->calendarId][$cursor->format('Y-m-d')][] = $event->title;
+                $cursor = $cursor->modify('+1 day');
+            }
+        }
+
+        $activity = [];
+        foreach ($calendarBySectionId as $sectionId => $calendar) {
+            $activity[$sectionId] = new \Modules\Calendar\Api\SectionMonthActivity(
+                sectionId: $sectionId,
+                color: $colors[$calendar->id] ?? self::SUPPLEMENTARY_CALENDAR_COLOR,
+                eventTitlesByDay: $titlesByCalendarAndDay[$calendar->id] ?? []
+            );
+        }
+        return $activity;
+    }
+
+    /**
+     * Api\CalendarDirectoryInterface implementation — see its docblock.
+     */
+    public function defaultCalendarId(): ?int
+    {
+        return $this->calendarRepository->findDefaultCalendar()?->id;
+    }
+
+    /**
      * @throws CalendarException on invalid name or a name collision
      */
     public function addCalendar(string $name, string $visibility): Calendar

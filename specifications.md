@@ -1641,7 +1641,7 @@ The telephony provider is pluggable; OVH is the one implemented. Its credentials
 
 ### 38.5 On the calendar
 
-Consecutive duty days are merged into single read-only events on the animateurs' calendar (§27), regenerated on every save of the grid. With the Calendrier module disabled, this does nothing at all.
+Consecutive duty days appear as single read-only events on the animateurs' calendar (§27) — **computed live from the duty grid** as virtual events, never written into the calendar's own storage, so the grid stays the single source of truth and the two can never disagree. They are consequently not editable from the calendar page: the duty grid is where the rota changes, and a calendar-side edit could never reach the telephony forwarding anyway. With the Calendrier module disabled, this does nothing at all.
 
 
 ## 39. Connecteur IA (module llm_connector)
