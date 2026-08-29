@@ -14,6 +14,7 @@ use Core\Badge\MemberBadgeRepository;
 use Core\Import\AgeBranchRepository;
 use Core\Module\FormationPathProvider;
 use Core\Module\MemberPaymentProvider;
+use Core\Module\HookRegistry;
 use Core\Module\SectionResponsableProvider;
 use Core\Security\Role;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
@@ -41,12 +42,17 @@ class MemberPageService
         private MemberDocumentService $memberDocumentService,
         private MemberEmailService $memberEmailService,
         private SectionDocumentService $sectionDocumentService,
-        private ?SectionResponsableProvider $sectionResponsableProvider = null,
+        /**
+         * Single-implementation CORE hooks (SectionResponsableProvider,
+         * FormationPathProvider, MemberPaymentProvider) resolve through
+         * the registry at use time (ARCHITECTURE.md §7.4); the three
+         * module-Api collaborators below stay constructor-injected
+         * (§7.5) because they are published capabilities, not hooks.
+         */
+        private ?HookRegistry $hooks = null,
         private ?MassMailQueryInterface $massMailQuery = null,
         private ?GalleryAlbumProvider $galleryAlbumProvider = null,
-        private ?CalendarEventLookupInterface $calendarEventLookup = null,
-        private ?FormationPathProvider $formationPathProvider = null,
-        private ?MemberPaymentProvider $memberPaymentProvider = null
+        private ?CalendarEventLookupInterface $calendarEventLookup = null
     ) {
     }
 
@@ -95,7 +101,7 @@ class MemberPageService
             'member_emails' => $memberEmails,
             'member_email_resend_cooldown_minutes' => $resendCooldownMinutes,
             'gallery_albums' => $this->getGalleryAlbums($profile),
-            'trombinoscope_enabled' => $this->sectionResponsableProvider !== null,
+            'trombinoscope_enabled' => $this->hooks?->getOptional(SectionResponsableProvider::class) !== null,
             'calendar_enabled' => $this->calendarEventLookup !== null,
             // Distinct from the (possibly empty) lists above: the template
             // needs to tell "module enabled, nothing to show yet" (render
@@ -118,10 +124,10 @@ class MemberPageService
             // be on this page at all was decided by
             // Core\Http\Controller\MemberController::show().
             'open_payments' => $showPersonal
-                ? ($this->memberPaymentProvider?->getOpenPayments($profile->memberId) ?? [])
+                ? ($this->hooks?->getOptional(MemberPaymentProvider::class)?->getOpenPayments($profile->memberId) ?? [])
                 : [],
             'formation_path' => $isSelf
-                ? $this->formationPathProvider?->getFormationPath($profile->memberId, $scoutYearId)
+                ? $this->hooks?->getOptional(FormationPathProvider::class)?->getFormationPath($profile->memberId, $scoutYearId)
                 : null,
         ];
     }
@@ -185,15 +191,13 @@ class MemberPageService
     private function buildSectionInfo(MemberProfile $profile, array $section, int $scoutYearId): array
     {
         $responsable = null;
-        if ($this->sectionResponsableProvider !== null) {
-            $lead = $this->sectionResponsableProvider->getResponsable($section['id'], $scoutYearId);
-            if ($lead !== null) {
-                // SectionService::hydrateMemberProfile() (which every
-                // SectionResponsableProvider implementation is built on)
-                // never loads addresses — re-resolve via the one method
-                // that does, specifically for this postal-address need.
-                $responsable = $this->memberService->findProfileByMemberAndYear($lead->memberId, $scoutYearId) ?? $lead;
-            }
+        $lead = $this->hooks?->getOptional(SectionResponsableProvider::class)?->getResponsable($section['id'], $scoutYearId);
+        if ($lead !== null) {
+            // SectionService::hydrateMemberProfile() (which every
+            // SectionResponsableProvider implementation is built on)
+            // never loads addresses — re-resolve via the one method
+            // that does, specifically for this postal-address need.
+            $responsable = $this->memberService->findProfileByMemberAndYear($lead->memberId, $scoutYearId) ?? $lead;
         }
 
         $sectionStaff = $this->sectionService->getSectionStaff($section['id'], $scoutYearId);

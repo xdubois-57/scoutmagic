@@ -14,6 +14,7 @@ use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Member\TemporaryMemberProviderInterface;
 use Core\Member\UnitStaffSectionService;
+use Core\Module\HookRegistry;
 use Core\Module\StaffDirectoryProvider;
 use Core\Photo\MemberPhotoService;
 use Core\Photo\SectionPhotoService;
@@ -58,7 +59,7 @@ class OfflineManifestService
         private ScoutYearService $scoutYearService,
         private EditableContentService $editableContentService,
         private AgeBranchRepository $ageBranchRepository,
-        private ?StaffDirectoryProvider $staffDirectoryProvider = null,
+        private ?HookRegistry $hooks = null,
         private ?TemporaryMemberProviderInterface $temporaryMemberProvider = null
     ) {
     }
@@ -133,8 +134,9 @@ class OfflineManifestService
             }
         }
 
-        if ($hasTrombinoscope && $this->staffDirectoryProvider !== null) {
-            foreach ($this->staffDirectoryProvider->getAllEligibleStaffMemberIds($scoutYearId) as $memberId) {
+        $staffDirectoryProvider = $this->hooks?->getOptional(StaffDirectoryProvider::class);
+        if ($hasTrombinoscope && $staffDirectoryProvider !== null) {
+            foreach ($staffDirectoryProvider->getAllEligibleStaffMemberIds($scoutYearId) as $memberId) {
                 $this->addImage($images, $this->memberPhotoService->resolveFileId($memberId, $scoutYearId), 'thumb');
             }
         }

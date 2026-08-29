@@ -72,6 +72,11 @@ class OfflineManifestServiceTest extends TestCase
         ?StaffDirectoryProvider $staffDirectoryProvider = null,
         ?TemporaryMemberProviderInterface $temporaryMemberProvider = null
     ): OfflineManifestService {
+        $hooks = new \Core\Module\HookRegistry();
+        if ($staffDirectoryProvider !== null) {
+            $hooks->register(StaffDirectoryProvider::class, $staffDirectoryProvider);
+        }
+
         return new OfflineManifestService(
             $this->offlineWhitelist,
             $this->memberService,
@@ -82,7 +87,7 @@ class OfflineManifestServiceTest extends TestCase
             new ScoutYearService($this->pdo),
             new EditableContentService(new EditableContentRepository($this->pdo)),
             new AgeBranchRepository($this->pdo),
-            $staffDirectoryProvider,
+            $hooks,
             $temporaryMemberProvider
         );
     }

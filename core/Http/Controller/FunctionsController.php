@@ -19,6 +19,7 @@ use Core\Member\SectionException;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Module\FunctionFlagsProvider;
+use Core\Module\HookRegistry;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -46,8 +47,18 @@ class FunctionsController extends AbstractController
         private ScoutYearResolver $scoutYearResolver,
         private BadgeService $badgeService,
         private AgeBranchRepository $ageBranchRepository,
-        private ?FunctionFlagsProvider $functionFlagsProvider = null
+        private ?HookRegistry $hooks = null
     ) {
+    }
+
+    /**
+     * The optional per-function flag hook (trombinoscope "responsable"),
+     * resolved through the hook registry at request time (ARCHITECTURE.md
+     * §7.4) — this controller used to be constructed twice for it.
+     */
+    private function functionFlagsProvider(): ?FunctionFlagsProvider
+    {
+        return $this->hooks?->getOptional(FunctionFlagsProvider::class);
     }
 
     /**
@@ -80,11 +91,12 @@ class FunctionsController extends AbstractController
         // "responsable"), only shown for chief/chief-d'unité functions where
         // such a flag is meaningful.
         $functionFlags = null;
-        if ($this->functionFlagsProvider !== null) {
+        $functionFlagsProvider = $this->functionFlagsProvider();
+        if ($functionFlagsProvider !== null) {
             $functionFlags = [
-                'section_label' => $this->functionFlagsProvider->getSectionLabel(),
-                'lead_label' => $this->functionFlagsProvider->getLeadLabel(),
-                'flags' => $this->functionFlagsProvider->getLeadFlags(),
+                'section_label' => $functionFlagsProvider->getSectionLabel(),
+                'lead_label' => $functionFlagsProvider->getLeadLabel(),
+                'flags' => $functionFlagsProvider->getLeadFlags(),
             ];
         }
 
@@ -206,7 +218,8 @@ class FunctionsController extends AbstractController
      */
     public function updateFlags(Request $request, array $params): Response
     {
-        if ($this->functionFlagsProvider === null) {
+        $functionFlagsProvider = $this->functionFlagsProvider();
+        if ($functionFlagsProvider === null) {
             return $this->json(['success' => false, 'error' => 'Fonctionnalité indisponible.'], 404);
         }
 
@@ -228,7 +241,7 @@ class FunctionsController extends AbstractController
 
         $lead = (bool) ($json['lead'] ?? false);
 
-        $this->functionFlagsProvider->setLead($functionId, $lead);
+        $functionFlagsProvider->setLead($functionId, $lead);
 
         $this->journalService->log(
             'core',

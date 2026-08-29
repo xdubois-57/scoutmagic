@@ -108,6 +108,20 @@ class MemberPageServiceTest extends TestCase
         ?FormationPathProvider $formationPathProvider = null,
         ?MemberPaymentProvider $memberPaymentProvider = null
     ): MemberPageService {
+        // The three CORE hooks travel through the registry, exactly as
+        // the composition root wires them; the module-Api collaborators
+        // stay constructor arguments (§7.5).
+        $hooks = new \Core\Module\HookRegistry();
+        if ($responsableProvider !== null) {
+            $hooks->register(SectionResponsableProvider::class, $responsableProvider);
+        }
+        if ($formationPathProvider !== null) {
+            $hooks->register(FormationPathProvider::class, $formationPathProvider);
+        }
+        if ($memberPaymentProvider !== null) {
+            $hooks->register(MemberPaymentProvider::class, $memberPaymentProvider);
+        }
+
         return new MemberPageService(
             $this->sectionService,
             $this->memberService,
@@ -117,12 +131,10 @@ class MemberPageServiceTest extends TestCase
             $this->memberDocumentService,
             $this->memberEmailService,
             $this->sectionDocumentService,
-            $responsableProvider,
+            $hooks,
             $massMailQuery,
             $galleryAlbumProvider,
-            $calendarEventLookup,
-            $formationPathProvider,
-            $memberPaymentProvider
+            $calendarEventLookup
         );
     }
 

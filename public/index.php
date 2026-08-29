@@ -1997,6 +1997,14 @@ $isEnabled = static fn (string $moduleId): bool => in_array($moduleId, $moduleMa
 // (`$sectionResponsableProvider`, `$homePaymentDueProvider`, …). The name
 // alone says which side of §7.4/§7.5 a handle lives on.
 
+// Single-implementation CORE hooks (§7.4) all register here — one line in
+// the providing module's block, resolved by consumers at request time
+// (Core\Module\HookRegistry's own docblock says why this is not a DI
+// container). Multi-contributor hooks keep their dedicated registries:
+// menus (DynamicMenuRegistrar), RGPD sub-processors (RgpdContentService),
+// Desk-import listeners (DeskImportListenerRegistry).
+$moduleHooks = new \Core\Module\HookRegistry();
+
 // Register module template namespaces in Twig
 $twigLoader = $twig->getLoader();
 if ($twigLoader instanceof \Twig\Loader\FilesystemLoader) {
@@ -2142,53 +2150,18 @@ if ($llmSubProcessorProvider !== null) {
     $rgpdContentService->addSubProcessorProvider($llmSubProcessorProvider);
 }
 
-// Optional dependency on the trombinoscope module (ARCHITECTURE.md §7.4)
-// for the Sections page's "responsable" name — set below only when
-// 'trombinoscope' is enabled; every PageController re-registration after
-// that block reuses this variable, exactly like $bannerService and
-// $newsArticleService just below.
-$sectionResponsableProvider = null;
-
-// The other two optional home-page hook providers (ARCHITECTURE.md
-// §7.4), each set further down only when its own module is enabled.
-// Declared here for the same reason as the line above: the
-// PageController re-registrations in news' and groups' blocks reuse
-// whichever ones are real, so no hook is lost when several modules are
-// active — and they must be readable whether or not those blocks ran.
-$bannerService = null;
+// Core-hook implementations (the sections page's responsable, the home
+// page's banner/news/activity/payment bands, the member pages' payment,
+// origin and parcours blocks, the offline manifest's staff directory)
+// no longer travel as per-hook variables: each providing module block
+// registers into $moduleHooks and consumers resolve per request.
 $newsArticleService = null;
-
-// The homepage's "il reste quelque chose à payer" band and the member
-// page's payment block (ARCHITECTURE.md §8.85), both set in finance's
-// block below and both null when that module is disabled — the band and
-// the block then simply do not render.
-$homePaymentDueProvider = null;
-$memberPaymentProvider = null;
-
-// The admin member page's "demande d'inscription d'origine" line
-// (ARCHITECTURE.md §7.4), set in registration's block below and null when
-// that module is disabled — the line then simply does not render, which
-// is also what a member who never came through a request gets.
-$memberRegistrationOriginProvider = null;
 
 // Optional dependency on the calendar module (ARCHITECTURE.md §7.5) for
 // the member page's "next upcoming event" (§3) — set below only when
 // 'calendar' is enabled, same pattern as $sectionResponsableProvider
 // above.
 $calendarEventLookupForOthers = null;
-
-// Optional dependency on the leadership module (ARCHITECTURE.md §7.5) for
-// the member page's own "Mon parcours de formation" card (§6bis) — set in
-// that module's block below, same pattern as the two above.
-$formationPathProvider = null;
-
-// The admin member page's « parcours » blocks (ARCHITECTURE.md §7.4),
-// set in the camps and groups blocks below and null when either module is
-// disabled — the block is then not built at all. The leadership half of
-// that parcours uses $formationPathProvider above, unchanged: the same
-// hook now feeds two pages.
-$memberCampStayProvider = null;
-$memberDiscussionGroupProvider = null;
 
 // Optional dependency on the finance module (ARCHITECTURE.md §7.5) for
 // keeping a document as a receipt on one of the unit's accounts — set in
@@ -2197,16 +2170,17 @@ $memberDiscussionGroupProvider = null;
 // offered, the PDF is not kept, and the verification works the same.
 $expenseReceiptProvider = null;
 
-// Baseline MemberPageService (core deps only) — re-registered further
-// down, once mass_mail/gallery/trombinoscope/calendar/leadership
-// availability is known, exactly like MemberController itself.
+// Baseline MemberPageService — its CORE hooks resolve through
+// $moduleHooks per request, and only the three module-Api collaborators
+// (mass_mail, gallery, calendar) still require the re-registration
+// further down, once their blocks have run.
 $memberPageService = new \Core\Member\MemberPageService(
     $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
-    $sectionDocumentService
+    $sectionDocumentService, $moduleHooks
 );
 
 // Register controllers with dependencies
-$frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $sectionService, $unitStaffSectionService, $scoutYearService));
+$frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $sectionService, $unitStaffSectionService, $scoutYearService, $moduleHooks));
 $frontController->registerController(CookieController::class, new CookieController($twig, $cookieConsentService));
 $setupController = new SetupController($twig, $secretManager, $dkimManager, $schemaPath, __DIR__);
 $setupController->setSettingService($settingService);
@@ -2305,13 +2279,14 @@ $editableContentController->setJournalService($journalService);
 $frontController->registerController(EditableContentController::class, $editableContentController);
 // FileController (and the FileAccessGuard it consumes) is registered at
 // the end of this file instead of here — see the comment there.
-// staffDirectoryProvider is wired for real inside the trombinoscope block
-// below (re-registered there, same Core\Module\SectionResponsableProvider
-// precedent as PageController) — null here degrades to "no trombinoscope
-// photos in the manifest" when that module is disabled.
+// The staff directory (Core\Module\StaffDirectoryProvider) reaches the
+// manifest through $moduleHooks, registered from the trombinoscope block
+// below and resolved per request — no re-registration needed; without the
+// module it resolves to null and the manifest carries no trombinoscope
+// photos.
 $offlineManifestService = new \Core\Offline\OfflineManifestService(
     $offlineWhitelist, $memberService, $memberPhotoService, $sectionPhotoService, $sectionService,
-    $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, null,
+    $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, $moduleHooks,
     $temporaryMemberProvider
 );
 $offlineController = new OfflineController($twig, $offlineManifestService);
@@ -2347,7 +2322,7 @@ $frontController->registerController(ScheduledActionsController::class, new Sche
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
 $frontController->registerController(ConfigModulesController::class, new ConfigModulesController($twig, $moduleManager, $journalService));
 $frontController->registerController(ConfigBadgesController::class, new ConfigBadgesController($twig, $badgeService, $journalService));
-$frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $badgeService, $ageBranchRepo));
+$frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $badgeService, $ageBranchRepo, $moduleHooks));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
 // Module controllers with dependencies (only wired when the module is enabled).
@@ -2364,18 +2339,9 @@ if ($isEnabled('member_stats')) {
 }
 
 if ($isEnabled('trombinoscope')) {
-    // Re-registers FunctionsController with the trombinoscope function-flags
-    // hook (Core\Module\FunctionFlagsProvider) so the Config Desk page can
-    // expose the "responsable" checkbox — core never depends on the module
-    // directly, only on the interface it implements.
     $trombinoscopeFunctionFlagsService = new \Modules\Trombinoscope\Service\FunctionFlagsService(
         new \Modules\Trombinoscope\Repository\FunctionFlagsRepository($pdo)
     );
-    $frontController->registerController(
-        FunctionsController::class,
-        new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $badgeService, $ageBranchRepo, $trombinoscopeFunctionFlagsService)
-    );
-
     $trombinoscopeService = new \Modules\Trombinoscope\Service\TrombinoscopeService(
         new \Modules\Trombinoscope\Repository\TrombinoscopeRepository($connection),
         $sectionService
@@ -2385,26 +2351,16 @@ if ($isEnabled('trombinoscope')) {
         new \Modules\Trombinoscope\Controller\TrombinoscopeController($twig, $sectionService, $trombinoscopeService, $scoutYearResolver)
     );
 
-    // Re-registers PageController with the real section-responsable
-    // provider (Core\Module\SectionResponsableProvider) — same core-hook
-    // precedent as the banner/news blocks below (ARCHITECTURE.md §7.4).
-    $sectionResponsableProvider = $trombinoscopeService;
-    $frontController->registerController(
-        PageController::class,
-        new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $sectionService, $unitStaffSectionService, $scoutYearService, null, null, $sectionResponsableProvider)
-    );
-
-    // Re-registers OfflineController with the real staff directory
-    // (Core\Module\StaffDirectoryProvider) — same core-hook precedent as
-    // $sectionResponsableProvider just above.
-    $frontController->registerController(
-        OfflineController::class,
-        new OfflineController($twig, new \Core\Offline\OfflineManifestService(
-            $offlineWhitelist, $memberService, $memberPhotoService, $sectionPhotoService, $sectionService,
-            $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, $trombinoscopeService,
-            $temporaryMemberProvider
-        ))
-    );
+    // The module's three core-hook implementations (§7.4), registered
+    // once into $moduleHooks and resolved by their consumers per request:
+    // the sections/member pages' "responsable" name, the offline
+    // manifest's staff directory, and the Config Desk page's
+    // per-function "responsable" flag. The FunctionsController,
+    // PageController and OfflineController re-registrations this block
+    // used to carry are gone with the per-hook constructor arguments.
+    $moduleHooks->register(\Core\Module\SectionResponsableProvider::class, $trombinoscopeService);
+    $moduleHooks->register(\Core\Module\StaffDirectoryProvider::class, $trombinoscopeService);
+    $moduleHooks->register(\Core\Module\FunctionFlagsProvider::class, $trombinoscopeFunctionFlagsService);
 }
 
 // Virtual-event providers (Modules\Calendar\Api\
@@ -2520,14 +2476,15 @@ if ($isEnabled('sos_staff')) {
     $sosOnCallRepo = new \Modules\SosStaff\Repository\OnCallRepository($pdo);
 
     $sosProviderConfigService = new \Modules\SosStaff\Service\ProviderConfigService($sosProviderCredentialRepo);
-    // $sectionResponsableProvider is the same core hook instance the
-    // Sections page uses (Core\Module\SectionResponsableProvider,
-    // ARCHITECTURE.md §7.4) — the trombinoscope module's service when that
-    // module is enabled, null otherwise; the default number's
-    // auto-resolution then falls back to the first Staff d'U roster member.
+    // The responsable hook resolves at CONSTRUCTION here, which is
+    // order-sensitive by design: trombinoscope's block (the registrant)
+    // runs before this one, exactly as it had to when the hook travelled
+    // as a variable (Core\Module\SectionResponsableProvider, §7.4). Null
+    // without it — the default number's auto-resolution then falls back
+    // to the first Staff d'U roster member.
     $sosSettingsService = new \Modules\SosStaff\Service\SosSettingsService(
         $sosExcludedSectionRepo, $sosSettingsRepo, $sectionService, $memberYearRepo, $unitStaffSectionService,
-        $settingService, $sectionResponsableProvider
+        $settingService, $moduleHooks->getOptional(\Core\Module\SectionResponsableProvider::class)
     );
     $sosOnCallService = new \Modules\SosStaff\Service\OnCallService($sosOnCallRepo, $schedulerService, $sosSettingsService);
     $sosRedirectService = new \Modules\SosStaff\Service\RedirectService(
@@ -2573,13 +2530,9 @@ if ($isEnabled('banner')) {
         new \Modules\Banner\Controller\BannerConfigController($twig, $bannerService, $journalService, $memberService, $scoutYearService)
     );
 
-    // Re-registers PageController with the real banner provider — same
-    // core-hook precedent as FunctionsController/trombinoscope above
-    // (ARCHITECTURE.md §7.4): core never depends on the module directly.
-    $frontController->registerController(
-        PageController::class,
-        new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $sectionService, $unitStaffSectionService, $scoutYearService, $bannerService, null, $sectionResponsableProvider)
-    );
+    // The home page's banner hook (§7.4) — resolved per request through
+    // $moduleHooks, no PageController re-registration.
+    $moduleHooks->register(\Core\Module\HomeBannerProvider::class, $bannerService);
 }
 
 // Inbound mail (§7). The message-consumer registry — the ARCHITECTURE.md
@@ -2921,27 +2874,11 @@ if ($isEnabled('finance')) {
         $scoutYearResolver,
         (string) $settingService->get('base_url')
     );
-    $homePaymentDueProvider = $financeFamilyPaymentService;
-    $memberPaymentProvider = $financeFamilyPaymentService;
-
-    // Re-registers PageController with the payment band's provider —
-    // same core-hook precedent, and the same "reuse whatever the earlier
-    // blocks already set" rule, as the banner/news/groups blocks
-    // (ARCHITECTURE.md §7.4). news' and groups' own re-registrations run
-    // after this one and carry $homePaymentDueProvider forward, so no
-    // hook is lost whichever combination is enabled.
-    $frontController->registerController(
-        PageController::class,
-        new PageController(
-            $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
-            $sectionService, $unitStaffSectionService, $scoutYearService,
-            $isEnabled('banner') ? $bannerService : null,
-            $newsArticleService,
-            $sectionResponsableProvider,
-            null,
-            $homePaymentDueProvider
-        )
-    );
+    // One class answers both family-facing hooks (§8.85) — the home
+    // page's payment band and the member pages' payment blocks resolve it
+    // per request through $moduleHooks.
+    $moduleHooks->register(\Core\Module\HomePaymentDueProvider::class, $financeFamilyPaymentService);
+    $moduleHooks->register(\Core\Module\MemberPaymentProvider::class, $financeFamilyPaymentService);
 
     $frontController->registerController(
         \Modules\Finance\Controller\ReceivableQrController::class,
@@ -3144,22 +3081,9 @@ if ($isEnabled('news')) {
         )
     );
 
-    // Re-registers PageController with the real news provider — same
-    // core-hook precedent as the banner block above (ARCHITECTURE.md §7.4).
-    // Reuses $bannerService/$sectionResponsableProvider if those modules
-    // were also enabled above, so no hook is lost when several are active.
-    $frontController->registerController(
-        PageController::class,
-        new PageController(
-            $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
-            $sectionService, $unitStaffSectionService, $scoutYearService,
-            $isEnabled('banner') ? $bannerService : null,
-            $newsArticleService,
-            $sectionResponsableProvider,
-            null,
-            $homePaymentDueProvider
-        )
-    );
+    // The home page's news hook (§7.4) — resolved per request through
+    // $moduleHooks, no PageController re-registration.
+    $moduleHooks->register(\Core\Module\HomeNewsProvider::class, $newsArticleService);
 }
 
 if ($isEnabled('gallery')) {
@@ -3256,8 +3180,9 @@ if ($isEnabled('groups')) {
     // Which groups a member belongs to, for the admin member page's
     // « parcours » (ARCHITECTURE.md §7.4). Explicit memberships only,
     // and membership only — never a post, never a count of them.
-    $memberDiscussionGroupProvider = new \Modules\Groups\Service\MemberDiscussionGroupService(
-        $groupsMemberRepo, $groupsGroupRepo
+    $moduleHooks->register(
+        \Core\Module\MemberDiscussionGroupProvider::class,
+        new \Modules\Groups\Service\MemberDiscussionGroupService($groupsMemberRepo, $groupsGroupRepo)
     );
     // Per-member "last time I opened this group": drives the unread badge
     // on the group list, the home page's own activity card, and a post's
@@ -3536,34 +3461,18 @@ if ($isEnabled('groups')) {
             : null
     );
 
-    // Re-registers PageController with the groups activity hook — same
-    // core-hook precedent as the banner/news/trombinoscope blocks above
-    // (ARCHITECTURE.md §7.4), and the same "reuse whatever the earlier
-    // blocks already set" rule, so enabling groups never silently drops
-    // another module's homepage contribution. This block runs after all
-    // three of them, so each variable is either the real provider or the
-    // null it was initialised to.
-    $frontController->registerController(
-        PageController::class,
-        new PageController(
-            $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
-            $sectionService, $unitStaffSectionService, $scoutYearService,
-            $isEnabled('banner') ? $bannerService : null,
-            $isEnabled('news') ? $newsArticleService : null,
-            $sectionResponsableProvider,
-            new \Modules\Groups\Service\HomeActivityService(
-                $groupsListService,
-                $groupsContextFactory,
-                $groupsReadRepo,
-                $groupsPostRepo,
-                $groupsReplyRepo,
-                \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
-                \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
-                $notificationRepo
-            ),
-            $homePaymentDueProvider
-        )
-    );
+    // The home page's group-activity hook (§7.4) — resolved per request
+    // through $moduleHooks, no PageController re-registration.
+    $moduleHooks->register(\Core\Module\HomeGroupActivityProvider::class, new \Modules\Groups\Service\HomeActivityService(
+        $groupsListService,
+        $groupsContextFactory,
+        $groupsReadRepo,
+        $groupsPostRepo,
+        $groupsReplyRepo,
+        \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
+        \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
+        $notificationRepo
+    ));
     $frontController->registerController(
         \Modules\Groups\Controller\ReplyController::class,
         new \Modules\Groups\Controller\ReplyController(
@@ -3702,9 +3611,9 @@ if ($isEnabled('camps')) {
     // member_section_periods with this module's camp_camp_sections —
     // see the service's own docblock for what that infers and what it
     // does not claim.
-    $memberCampStayProvider = new \Modules\Camps\Service\MemberCampStayService(
+    $moduleHooks->register(\Core\Module\MemberCampStayProvider::class, new \Modules\Camps\Service\MemberCampStayService(
         $campsCampRepo, $campsPlaceRepo, $sectionMembershipRepository, $sectionService, $scoutYearService
-    );
+    ));
 
     $campsSectionDescriber = new \Modules\Camps\Service\SectionDescriber($sectionService);
     $campsPlaceService = new \Modules\Camps\Service\PlaceService($campsPlaceRepo, $auditService);
@@ -3983,7 +3892,10 @@ if ($isEnabled('registration')) {
     // Which registration request a member came from, for the admin member
     // page's origin line (ARCHITECTURE.md §7.4). A pointer only — the
     // request keeps its own page, and nothing of its content is copied.
-    $memberRegistrationOriginProvider = new \Modules\Registration\Service\MemberRegistrationOriginService($registrationRequestRepo);
+    $moduleHooks->register(
+        \Core\Module\MemberRegistrationOriginProvider::class,
+        new \Modules\Registration\Service\MemberRegistrationOriginService($registrationRequestRepo)
+    );
 
     // Iteration 5's staff-side services — status transitions, acceptance/
     // refusal emails, and the one migration path shared by automatic
@@ -4650,11 +4562,11 @@ if ($isEnabled('leadership')) {
         )
     );
 
-    $formationPathProvider = new \Modules\Leadership\Service\MemberFormationPathService(
+    $moduleHooks->register(\Core\Module\FormationPathProvider::class, new \Modules\Leadership\Service\MemberFormationPathService(
         $leadershipRepository,
         $leadershipMappingRepository,
         $leadershipResolver
-    );
+    ));
 }
 
 if ($isEnabled('fees')) {
@@ -4780,9 +4692,7 @@ if (
 
     $memberPageService = new \Core\Member\MemberPageService(
         $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
-        $sectionDocumentService, $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookupForOthers,
-        $formationPathProvider,
-        $memberPaymentProvider
+        $sectionDocumentService, $moduleHooks, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookupForOthers
     );
 
     $frontController->registerController(
@@ -4805,8 +4715,7 @@ $frontController->registerController(MemberSearchController::class, new MemberSe
     new \Core\Member\AdminMemberPageService(
         $memberBadgeRepository, $memberPhotoService, $sectionMembershipRepository,
         $sectionService, $scoutYearService, $memberEmailRepository,
-        $memberPaymentProvider, $memberRegistrationOriginProvider,
-        $formationPathProvider, $memberCampStayProvider, $memberDiscussionGroupProvider
+        $moduleHooks
     ),
     $memberYearRepo,
     new \Core\Member\MemberNoteService(

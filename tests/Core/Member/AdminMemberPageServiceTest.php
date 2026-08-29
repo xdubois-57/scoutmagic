@@ -114,6 +114,23 @@ class AdminMemberPageServiceTest extends TestCase
         ?\Core\Module\MemberCampStayProvider $camps = null,
         ?\Core\Module\MemberDiscussionGroupProvider $groups = null
     ): AdminMemberPageService {
+        $hooks = new \Core\Module\HookRegistry();
+        if ($payments !== null) {
+            $hooks->register(\Core\Module\MemberPaymentProvider::class, $payments);
+        }
+        if ($origin !== null) {
+            $hooks->register(\Core\Module\MemberRegistrationOriginProvider::class, $origin);
+        }
+        if ($formation !== null) {
+            $hooks->register(\Core\Module\FormationPathProvider::class, $formation);
+        }
+        if ($camps !== null) {
+            $hooks->register(\Core\Module\MemberCampStayProvider::class, $camps);
+        }
+        if ($groups !== null) {
+            $hooks->register(\Core\Module\MemberDiscussionGroupProvider::class, $groups);
+        }
+
         return new AdminMemberPageService(
             $this->badgeRepository,
             new MemberPhotoService(new MemberPhotoRepository($this->pdo)),
@@ -121,11 +138,7 @@ class AdminMemberPageServiceTest extends TestCase
             $this->sectionService,
             $this->scoutYearService,
             $this->emailRepository,
-            $payments,
-            $origin,
-            $formation,
-            $camps,
-            $groups
+            $hooks
         );
     }
 

@@ -13,6 +13,7 @@ use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Member\MemberProfile;
 use Core\Module\HomeBannerProvider;
+use Core\Module\HookRegistry;
 use Core\Module\HomePaymentDueProvider;
 use Core\Module\HomeNewsProvider;
 use Core\Module\SectionResponsableProvider;
@@ -183,7 +184,7 @@ class PageControllerTest extends TestCase
                 return '<p>Message important</p>';
             }
         };
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $provider);
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $this->hooksWith(\Core\Module\HomeBannerProvider::class, $provider));
 
         $request = new Request('GET', '/', [], [], [], []);
         $response = $controller->home($request, []);
@@ -292,7 +293,7 @@ class PageControllerTest extends TestCase
         return new PageController(
             $this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService,
             $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService,
-            null, null, null, null, $provider
+            $this->hooksWith(\Core\Module\HomePaymentDueProvider::class, $provider)
         );
     }
 
@@ -310,7 +311,7 @@ class PageControllerTest extends TestCase
                 return null;
             }
         };
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $provider);
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $this->hooksWith(\Core\Module\HomeBannerProvider::class, $provider));
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -331,7 +332,7 @@ class PageControllerTest extends TestCase
                 return null;
             }
         };
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $provider);
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $this->hooksWith(\Core\Module\HomeBannerProvider::class, $provider));
 
         $request = new Request('GET', '/', [], [], [], []);
         $response = $controller->home($request, []);
@@ -362,7 +363,7 @@ class PageControllerTest extends TestCase
                 ];
             }
         };
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, null, $provider);
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $this->hooksWith(\Core\Module\HomeNewsProvider::class, $provider));
 
         $request = new Request('GET', '/', [], [], [], []);
         $response = $controller->home($request, []);
@@ -383,7 +384,7 @@ class PageControllerTest extends TestCase
                 return [];
             }
         };
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, null, $provider);
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $this->hooksWith(\Core\Module\HomeNewsProvider::class, $provider));
 
         $request = new Request('GET', '/', [], [], [], []);
         $response = $controller->home($request, []);
@@ -481,7 +482,7 @@ class PageControllerTest extends TestCase
 
         $controller = new PageController(
             $this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService,
-            $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, null, null, $provider
+            $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $this->hooksWith(\Core\Module\SectionResponsableProvider::class, $provider)
         );
 
         $request = new Request('GET', '/sections', [], [], [], []);
@@ -499,5 +500,17 @@ class PageControllerTest extends TestCase
         $response = $this->controller->rgpd($request, []);
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Protection des données', $response->getBody());
+    }
+    /**
+     * A registry carrying exactly one hook — what the composition root
+     * builds, reduced to the hook under test.
+     *
+     * @param class-string $hookInterface
+     */
+    private function hooksWith(string $hookInterface, object $implementation): HookRegistry
+    {
+        $hooks = new HookRegistry();
+        $hooks->register($hookInterface, $implementation);
+        return $hooks;
     }
 }
