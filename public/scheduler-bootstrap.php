@@ -111,6 +111,17 @@ function scoutmagic_bootstrap_scheduler(
     );
 
     $capabilities->register(
+        \Modules\Retro\Api\RetroBoardCreationInterface::class,
+        'retro',
+        static fn (): object => new \Modules\Retro\Service\AutoBoardCreationService(
+            new \Modules\Retro\Repository\BoardRepository($pdo, $encryptionService),
+            $settingService,
+            $schedulerService,
+            $journalService
+        )
+    );
+
+    $capabilities->register(
         \Modules\InboundMail\Api\InboundMailInterface::class,
         'inbound_mail',
         static fn (): object => new \Modules\InboundMail\Service\InboundMailService(

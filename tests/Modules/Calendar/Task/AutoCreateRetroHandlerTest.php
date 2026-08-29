@@ -45,10 +45,11 @@ class AutoCreateRetroHandlerTest extends TestCase
         $this->eventRepository = new CalendarEventRepository($this->pdo);
         $this->boardRepository = new BoardRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
 
-        // Retro's enablement now reaches the handler through
-        // TaskContext::isModuleEnabled() (IT-04 — the raw module_registry
-        // query is gone): the default context knows retro as disabled,
-        // and enableRetro() swaps in one that knows it as enabled.
+        // Board creation now reaches the handler as a capability
+        // (Modules\Retro\Api\RetroBoardCreationInterface, IT-08): the
+        // registration below mirrors public/scheduler-bootstrap.php, and
+        // TaskCapabilities' own live enablement re-check is what makes
+        // the default context (retro not enabled) resolve it to null.
         $this->context = $this->buildContext(['calendar']);
     }
 
@@ -61,6 +62,18 @@ class AutoCreateRetroHandlerTest extends TestCase
         $moduleManager->method('getEnabledModuleIds')->willReturn($enabledModuleIds);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
+        $capabilities = new \Core\Scheduler\TaskCapabilities($moduleManager);
+        $capabilities->register(
+            \Modules\Retro\Api\RetroBoardCreationInterface::class,
+            'retro',
+            fn (): object => new \Modules\Retro\Service\AutoBoardCreationService(
+                $this->boardRepository,
+                new SettingService(new SettingRepository($this->pdo)),
+                new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)),
+                new JournalService(new JournalRepository($this->pdo))
+            )
+        );
+
         return new TaskContext(
             Connection::withPdo($this->pdo),
             $encryption,
@@ -70,7 +83,7 @@ class AutoCreateRetroHandlerTest extends TestCase
             new UserAccountRepository($this->pdo, $encryption),
             sys_get_temp_dir(),
             null,
-            new \Core\Scheduler\TaskCapabilities($moduleManager)
+            $capabilities
         );
     }
 
@@ -160,5 +173,21 @@ class AutoCreateRetroHandlerTest extends TestCase
 
         $count = (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'board_auto_created_from_event'")->fetchColumn();
         $this->assertSame(1, $count);
+    }
+
+    public function testSchedulesTheBoardsAutoCloseOnTheRetroSide(): void
+    {
+        $this->enableRetro();
+        $eventId = $this->createEvent();
+
+        (new AutoCreateRetroHandler())->handle(['event_id' => $eventId], $this->context);
+
+        $board = $this->boardRepository->findByCalendarEventId($eventId);
+        $this->assertNotNull($board);
+        $stmt = $this->pdo->prepare(
+            "SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'retro' AND task_key = 'auto_close_board' AND reference = ?"
+        );
+        $stmt->execute(['board_' . $board->id]);
+        $this->assertSame(1, (int) $stmt->fetchColumn());
     }
 }

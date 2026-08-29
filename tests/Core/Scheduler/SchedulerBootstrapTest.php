@@ -213,6 +213,18 @@ class SchedulerBootstrapTest extends TestCase
         );
     }
 
+    public function testTheRetroBoardCreationCapabilityResolvesExactlyWhenTheModuleIsEnabled(): void
+    {
+        ['context' => $with] = $this->bootstrap(['retro']);
+        ['context' => $without] = $this->bootstrap([]);
+
+        $this->assertInstanceOf(
+            \Modules\Retro\Api\RetroBoardCreationInterface::class,
+            $with->getOptional(\Modules\Retro\Api\RetroBoardCreationInterface::class)
+        );
+        $this->assertNull($without->getOptional(\Modules\Retro\Api\RetroBoardCreationInterface::class));
+    }
+
     public function testIsModuleEnabledAnswersFromTheLiveRegistry(): void
     {
         ['context' => $context] = $this->bootstrap(['retro']);

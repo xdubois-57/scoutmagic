@@ -8,37 +8,32 @@ declare(strict_types=1);
 
 namespace Modules\Calendar\Task;
 
-use Core\Config\SettingRepository;
-use Core\Config\SettingService;
-use Core\Scheduler\SchedulerRepository;
-use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
-use Core\Security\CapabilityToken;
 use Modules\Calendar\Repository\Calendar;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarRepository;
-use Modules\Retro\Repository\BoardRepository;
 
 /**
  * Scheduled by Service\CalendarRetroAutoCreateService::syncAutoCreateForEvent()
  * (reference "event-{id}") for an event whose auto_create_retro flag is
- * set. Self-contained — task handlers get no persistent DI container (see
- * docs/module-development.md) — and re-checks everything fresh at run
- * time rather than trusting anything true when it was scheduled, since a
- * task can be scheduled weeks in advance:
- *   1. the retro module must still be enabled right now
- *      (TaskContext::isModuleEnabled() — the supported replacement for
- *      the raw module_registry query this handler once had to invent);
+ * set. Re-checks everything fresh at run time rather than trusting
+ * anything true when it was scheduled, since a task can be scheduled
+ * weeks in advance:
+ *   1. the retro module must still be enabled right now — encoded by the
+ *      capability resolving at all (TaskCapabilities re-checks enablement
+ *      on every resolve);
  *   2. the event must still exist;
- *   3. no board must already be linked (idempotency — a chief may have
- *      manually created/linked one before this ran, or this handler may
- *      somehow run twice).
- * Creates the board directly via BoardRepository (not Modules\Retro\
- * Service\BoardService — its constructor needs MemberService/
- * SectionService/SchedulerService/ShortUrlService/MailService/Twig, all
- * irrelevant here) — same "small tolerated duplication" convention as
- * Modules\Retro\Task\AutoCloseHandler.
+ *   3. at most one board per event — enforced by the retro module itself
+ *      inside createBoardForEvent(), where the rule belongs.
+ *
+ * The split of responsibilities (ARCHITECTURE.md §7.5): the flag and this
+ * task's scheduling are the calendar's — it knows when a board should
+ * come to exist. What a board IS — title format, defaults, token,
+ * auto-close and its scheduling, journal — is the retro module's, behind
+ * Modules\Retro\Api\RetroBoardCreationInterface. This handler used to
+ * reach into the retro module's BoardRepository and re-implement all of
+ * that by hand.
  */
 class AutoCreateRetroHandler implements TaskHandlerInterface
 {
@@ -52,11 +47,12 @@ class AutoCreateRetroHandler implements TaskHandlerInterface
             return;
         }
 
-        $pdo = $context->connection->getPdo();
-
-        if (!$context->isModuleEnabled('retro')) {
-            return;
+        $retroBoards = $context->getOptional(\Modules\Retro\Api\RetroBoardCreationInterface::class);
+        if ($retroBoards === null) {
+            return; // retro disabled since scheduling — quiet degradation
         }
+
+        $pdo = $context->connection->getPdo();
 
         $eventRepository = new CalendarEventRepository($pdo);
         $event = $eventRepository->findById($eventId);
@@ -64,60 +60,15 @@ class AutoCreateRetroHandler implements TaskHandlerInterface
             return; // deleted since scheduling
         }
 
-        $boardRepository = new BoardRepository($pdo, $context->encryption);
-        if ($boardRepository->findByCalendarEventId($eventId) !== null) {
-            return; // already linked — nothing to do
-        }
-
         $calendarRepository = new CalendarRepository($pdo, $context->encryption);
         $calendar = $calendarRepository->findById($event->calendarId);
-        $calendarName = $this->resolveCalendarName($calendar, $pdo);
 
-        $settingService = new SettingService(new SettingRepository($pdo));
-        $maxCommentLength = (int) ($settingService->get('retro_default_max_comment_length', 'retro') ?: 140);
-        $voteBudget = (int) ($settingService->get('retro_default_vote_budget', 'retro') ?: 5);
-
-        $title = "Rétrospective {$event->title} - {$calendarName} - {$event->startDate}";
-        $token = CapabilityToken::generate();
-        $autoCloseMoment = new \DateTimeImmutable('+7 days');
-        $autoCloseAt = $autoCloseMoment->format('Y-m-d H:i:s');
-
-        $boardId = $boardRepository->create(
-            $title,
-            $event->endDate ?? $event->startDate,
+        $retroBoards->createBoardForEvent(
             $eventId,
-            $token,
-            null,
-            true,
-            'unlimited',
-            $voteBudget,
-            true,
-            'cookie',
-            $maxCommentLength,
-            '7d',
-            $autoCloseAt,
-            null,
-            true,
-            null,
-            'chief'
-        );
-
-        $schedulerService = new SchedulerService(new SchedulerRepository($pdo));
-        $schedulerService->schedule(
-            'retro',
-            'auto_close_board',
-            $autoCloseMoment,
-            ['board_id' => $boardId],
-            'board_' . $boardId
-        );
-
-        $context->journal->log(
-            'retro',
-            'board_auto_created_from_event',
-            'info',
-            "Rétrospective créée automatiquement pour l'évènement « {$event->title} »",
-            ['board_id' => $boardId, 'event_id' => $eventId],
-            null
+            $event->title,
+            $this->resolveCalendarName($calendar, $pdo),
+            $event->startDate,
+            $event->endDate
         );
     }
 
