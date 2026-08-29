@@ -49,20 +49,20 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
     private const INTERVAL_SECONDS = 86400;
 
     /**
-     * The fully-wired service, when a composition root supplied one.
+     * An injected service is for TESTS; production always auto-resolves
+     * this handler from the manifest (`new` with no arguments) and builds
+     * the full service below from the TaskContext.
      *
-     * It has to be injected rather than built here for one reason: the
-     * money reminders need Finance's public API, and only a composition
-     * root knows whether that module is enabled. So this handler is
-     * registered explicitly in **both** `public/index.php` and
-     * `public/cron.php`, like the inbound-mail one — and a test pins both
-     * call sites, because a handler registered in only one entry point
-     * fails unconditionally under the other (§8.17/§8.20).
-     *
-     * Auto-resolved from the manifest instead, it falls back to the
-     * self-built service below: everything still fires except the money
-     * reminders, which stay silent rather than guessing (see
-     * RentalReminderService::paymentStatus()).
+     * It used to be the other way around: the money reminders need
+     * Finance's public API, only a composition root knew whether that
+     * module was enabled, so the handler was hand-registered in both
+     * entry points — and the two constructions drifted, `public/cron.php`
+     * assembling it WITHOUT Finance while the web path assembled it WITH.
+     * The same task said nothing about money under a real crontab and
+     * everything about it under the poor man's cron. Finance now arrives
+     * through `TaskContext::getOptional()` (ARCHITECTURE.md §7.5 on the
+     * scheduled path), so there is exactly ONE construction and the
+     * drift cannot recur.
      */
     public function __construct(private ?RentalReminderService $service = null)
     {
@@ -88,15 +88,53 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
     private function selfBuiltService(TaskContext $context): RentalReminderService
     {
         $pdo = $context->connection->getPdo();
+        $fileRepository = new \Core\File\FileRepository($pdo);
+        $bookingRepository = new RentalBookingRepository($pdo, $context->encryption);
+        // No ActorAccountResolver on the scheduled path: every change is
+        // the application acting on its own, which Core\Audit renders as
+        // an automatic entry — the honest reading and the one a manager
+        // needs.
+        $bookingAudit = new \Modules\Rental\Audit\BookingAudit(
+            new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $context->encryption))
+        );
+
+        // The money side arrives as capabilities (TaskContext::
+        // getOptional(), ARCHITECTURE.md §7.5 on the scheduled path):
+        // null with Finance disabled, and RentalPaymentService then says
+        // nothing about money rather than guessing what was received.
+        $paymentService = new \Modules\Rental\Service\RentalPaymentService(
+            new \Modules\Rental\Repository\RentalPaymentRepository($pdo, $context->encryption),
+            $bookingAudit,
+            $context->journal,
+            $context->getOptional(\Modules\Finance\Api\ExpectedReceivableInterface::class),
+            $context->getOptional(\Modules\Finance\Api\StructuredCommunicationInterface::class),
+            $context->getOptional(\Modules\Finance\Api\SepaQrCodeInterface::class),
+            $context->getOptional(\Modules\Finance\Api\FinanceAccountInterface::class)
+        );
+
+        $documentService = new \Modules\Rental\Service\RentalDocumentService(
+            new \Modules\Rental\Repository\RentalDocumentRepository($pdo),
+            $bookingRepository,
+            $bookingAudit,
+            new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($pdo)),
+            $fileRepository,
+            new \Core\File\AttachedFileRemover($fileRepository, $context->storagePath),
+            new \Core\Pdf\DocumentPdfService(),
+            new \Core\Security\HtmlSanitizer(),
+            $context->settings,
+            $context->journal,
+            $context->storagePath
+        );
 
         return new RentalReminderService(
-            new RentalBookingRepository($pdo, $context->encryption),
+            $bookingRepository,
             new RentalAssetRepository($pdo, $context->encryption),
             new RentalAssetManagerRepository($pdo),
             new RentalComplianceService(
                 new RentalComplianceRepository($pdo),
                 $context->settings,
-                $context->journal
+                $context->journal,
+                $fileRepository
             ),
             new RentalReminderRepository($pdo),
             new ReminderPlanner(),
@@ -104,9 +142,20 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
             $context->userAccounts,
             $context->journal,
             $context->notifications,
-            null,
-            null,
-            null,
+            $paymentService,
+            $documentService,
+            new \Modules\Rental\Service\RentalStayService(
+                new \Modules\Rental\Repository\RentalStayRepository($pdo, $context->encryption),
+                $bookingAudit,
+                new \Modules\Rental\Service\RentalPricingService(
+                    new \Modules\Rental\Repository\RentalPricingRepository($pdo),
+                    new \Modules\Rental\Pricing\RentalPricingEngine(),
+                    $context->journal
+                ),
+                new \Modules\Rental\Stay\SettlementCalculator(),
+                $context->journal,
+                $paymentService
+            ),
             // The renter's practical-info email needs a renderer, and
             // TaskContext carries no Twig — the same construction every
             // other module's mailing task does (Calendar\Task\

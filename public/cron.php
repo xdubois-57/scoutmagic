@@ -21,6 +21,11 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
+// Marks this process as a real entry point, so the shared composition
+// files it requires (public/scheduler-bootstrap.php) refuse to run when
+// hit directly over HTTP.
+define('SCOUTMAGIC_ENTRYPOINT', true);
+
 $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 
 // Same wall clock as public/index.php — a scheduled action written by a web
@@ -58,11 +63,9 @@ use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
 use Core\Notification\PushSubscriptionRepository;
 use Core\Notification\VapidKeyPairFactory;
-use Core\Scheduler\CoreTaskHandlers;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerRunner;
 use Core\Scheduler\SchedulerService;
-use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Member\MemberEmailRepository;
 use Core\Security\Role;
@@ -231,149 +234,23 @@ $moduleManager = new ModuleManager(
     dirname(__DIR__) . '/storage/temp'
 );
 $moduleManager->loadEnabledModules();
-$runner->setModuleManager($moduleManager);
 
-// Core (not module) scheduled task handlers. Declared once in
-// Core\Scheduler\CoreTaskHandlers and registered identically here and in
-// public/index.php — this file used to carry its own hand-maintained copy
-// of the list, and create_backup being absent from it meant a real crontab
-// failed every background backup with "No handler registered" (§8.17).
-CoreTaskHandlers::registerAll($runner);
-
-// The rentals reminder pass (§6.29), for the same reason: its money
-// reminders need Finance's public API, which only a composition root can
-// build. Registered in public/index.php too — a handler registered in one
-// entry point only fails unconditionally under the other (§8.17/§8.20).
-//
-// Under a real crontab there is no request, so the service is assembled
-// here from what this file already has. Finance is genuinely absent in this
-// construction, and RentalReminderService says nothing about money rather
-// than guessing what was received.
-if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
-    $runner->registerHandler(
-        'rental',
-        \Modules\Rental\Task\SendRentalRemindersHandler::TASK_KEY,
-        new \Modules\Rental\Task\SendRentalRemindersHandler()
-    );
-
-    // The retention purge (§6.35), same shape — and assembled here rather
-    // than left to the handler's self-built fallback, because that fallback
-    // cannot reach Finance either. A purged booking whose receivable
-    // survives leaves the unit being owed money by a stay that no longer
-    // exists, under a label carrying the renter's name: the deletion would
-    // be incomplete in exactly the way §6.35 forbids. `inbound_mail` is
-    // still absent from this construction; a purged booking's emails are
-    // cleaned up on the next web-path run.
-    $rentalPurgePaymentService = null;
-    if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
-        $rentalPurgePaymentService = new \Modules\Rental\Service\RentalPaymentService(
-            new \Modules\Rental\Repository\RentalPaymentRepository($pdo, $encryptionService),
-            // No ActorAccountResolver: nothing on the cron path has an
-            // actor to resolve. Every change it records is the application
-            // acting on its own, which Core\Audit renders as an automatic
-            // entry — the honest reading and the one a manager needs.
-            new \Modules\Rental\Audit\BookingAudit(
-                new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService))
-            ),
-            $journalService,
-            (static function () use ($pdo, $encryptionService): \Modules\Finance\Service\ExpectedReceivableService {
-                $receivableRepository = new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryptionService);
-
-                return new \Modules\Finance\Service\ExpectedReceivableService(
-                    $receivableRepository,
-                    new \Modules\Finance\Service\ReceivableAllocationService(
-                        $receivableRepository,
-                        new \Modules\Finance\Repository\ReceivableAllocationRepository($pdo),
-                        new \Modules\Finance\Repository\TransactionRepository($pdo, $encryptionService),
-                        new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService),
-                        // Nothing on the cron path has a session to
-                        // narrow the account partition against — the same
-                        // "acting for the installation" stance as the
-                        // audit entries just above.
-                        new \Modules\Finance\Service\AccountVisibility(
-                            \Modules\Finance\Service\TreasurerScope::systemCaller()
-                        )
-                    )
-                );
-            })()
-        );
-    }
-
-    $runner->registerHandler(
-        'rental',
-        \Modules\Rental\Task\PurgeRentalBookingsHandler::TASK_KEY,
-        new \Modules\Rental\Task\PurgeRentalBookingsHandler(
-            new \Modules\Rental\Service\RentalRetentionService(
-                new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService),
-                new \Modules\Rental\Repository\RentalDocumentRepository($pdo),
-                new \Modules\Rental\Repository\RentalAggregateRepository($pdo),
-                new \Modules\Rental\Repository\RentalReminderRepository($pdo),
-                $settingService,
-                $journalService,
-                $pdo,
-                new \Core\File\FileRepository($pdo),
-                null,
-                dirname(__DIR__) . '/storage',
-                $rentalPurgePaymentService,
-                // Its change history too: `entity_changes` carries no
-                // foreign key, so nothing about it cascades (§8.66).
-                new \Modules\Rental\Audit\BookingAudit(
-                    new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService))
-                )
-            )
-        )
-    );
-}
-
-// Inbound mail's polling task (§7.4) is the one module task that cannot be
-// auto-resolved from its manifest: it needs the consumer registry, and only
-// a composition root can build one. The same registration exists in
-// public/index.php — a handler registered in only one of the two entry
-// points fails unconditionally under the other with "No handler
-// registered" (§8.17/§8.20), which is precisely the bug create_backup once
-// shipped.
-//
-// Under a real crontab there is no HTTP request and therefore no consuming
-// module's block to append to this registry; each enabled consumer
-// registers itself below, exactly as it does on the web path.
-if (in_array('inbound_mail', $moduleManager->getEnabledModuleIds(), true)) {
-    $inboundMailConsumerRegistry = new \Modules\InboundMail\Service\MessageConsumerRegistry();
-
-    $runner->registerHandler(
-        'inbound_mail',
-        \Modules\InboundMail\Task\SyncMailboxesHandler::TASK_KEY,
-        new \Modules\InboundMail\Task\SyncMailboxesHandler($inboundMailConsumerRegistry)
-    );
-}
-
-// Camps' summary refresher is the second hand-registered module task, for
-// the same reason and with the same failure mode: it consumes
-// `llm_connector`'s public API (ARCHITECTURE.md §7.5), only a composition
-// root knows whether that module is enabled, and a handler registered in
-// only one of the two entry points fails unconditionally under the other.
-// Null connector — llm_connector absent or disabled — means no summary is
-// written and every other camps screen is unaffected.
-if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
-    $campsLlmConnector = null;
-    if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
-        $campsLlmConnector = new \Modules\LlmConnector\Service\LlmConnectorService(
-            new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService),
-            new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo),
-            $journalService
-        );
-    }
-
-    $runner->registerHandler(
-        'camps',
-        \Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY,
-        new \Modules\Camps\Task\RefreshPlaceSummariesHandler($campsLlmConnector)
-    );
-}
-
-// Task handlers need the same shared services a real request builds (DB,
-// encryption, mail, journal, settings, and the super-admin lookup used for
-// system-alert emails) — see Core\Scheduler\TaskContext.
-$runner->setTaskContext(new TaskContext(
+// The scheduler's whole wiring — ModuleManager, TaskContext (with the
+// optional cross-module capabilities handlers reach through
+// getOptional()), every core handler, the hand-registered module handler
+// and the recurring-task seeds — lives in ONE shared file called
+// identically here and in public/index.php. This file used to carry its
+// own hand-maintained copy of that wiring, and every drift between the
+// two copies became a production bug: create_backup absent (§8.17), a
+// NotificationService without role resolution (§8.17 again), rental's
+// reminder pass assembled WITHOUT Finance here while the web path
+// assembled it WITH — the same task, two behaviours, decided by which
+// trigger fired it.
+require_once __DIR__ . '/scheduler-bootstrap.php';
+scoutmagic_bootstrap_scheduler(
+    $runner,
+    new SchedulerService($schedulerRepo),
+    $moduleManager,
     $connection,
     $encryptionService,
     $mailService,
@@ -382,7 +259,7 @@ $runner->setTaskContext(new TaskContext(
     $userAccountRepo,
     dirname(__DIR__) . '/storage',
     $notificationService
-));
+);
 
 // Process overdue tasks
 $processed = $runner->processOverdue();

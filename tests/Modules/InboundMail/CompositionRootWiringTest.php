@@ -7,18 +7,17 @@ namespace Tests\Modules\InboundMail;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The two wiring facts that live in the procedural bootstrap, where no unit
- * test reaches them.
+ * The wiring facts that live in the composition roots, where no unit test
+ * reaches them.
  *
- * The polling task is the one module task that cannot be auto-resolved from
- * its manifest: it needs the consumer registry, and only a composition root
- * can build one. So it is registered by hand — and a handler registered in
- * only ONE of the two entry points fails unconditionally under the other
- * with "No handler registered". This codebase has shipped that exact bug
- * before (ARCHITECTURE.md §8.17/§8.20: `create_backup` was absent from
- * cron.php's hand-maintained list, and every backup under a real crontab
- * failed silently), which is why both call sites are pinned here rather
- * than trusted to review.
+ * The polling task is the one module task that cannot be auto-resolved
+ * from its manifest: it needs the message-consumer registry, whose
+ * consumers belong to OTHER modules — only a composition root can build
+ * one. That composition now lives in public/scheduler-bootstrap.php, the
+ * ONE file both entry points call identically, as a lazy factory; what
+ * this file pins is the factory's own load-bearing facts (the registry is
+ * passed, the camps consumer is registered last) and that neither entry
+ * point re-grows a private copy of the wiring.
  */
 class CompositionRootWiringTest extends TestCase
 {
@@ -28,6 +27,24 @@ class CompositionRootWiringTest extends TestCase
         self::assertNotFalse($contents);
 
         return $contents;
+    }
+
+    public function testTheSharedBootstrapRegistersTheSyncHandlerAsALazyFactory(): void
+    {
+        $bootstrap = self::source('scheduler-bootstrap.php');
+
+        $this->assertStringContainsString(
+            "registerHandlerFactory(\n            'inbound_mail',\n            \\Modules\\InboundMail\\Task\\SyncMailboxesHandler::TASK_KEY",
+            $bootstrap,
+            'The shared bootstrap must register the sync handler as a lazy factory.'
+        );
+        // Constructed without a registry it connects to nothing — every
+        // message would be fetched and discarded unclaimed — so a factory
+        // that forgot it would look wired and collect nothing.
+        $this->assertStringContainsString(
+            'new \\Modules\\InboundMail\\Task\\SyncMailboxesHandler($registry)',
+            $bootstrap
+        );
     }
 
     /**
@@ -42,48 +59,32 @@ class CompositionRootWiringTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
-    public function testTheSyncHandlerIsRegisteredInBothEntryPoints(string $file): void
+    public function testNoEntryPointBuildsItsOwnConsumerRegistryAnyMore(string $file): void
     {
-        $this->assertStringContainsString(
-            'Modules\\InboundMail\\Task\\SyncMailboxesHandler::TASK_KEY',
+        // A private registry re-grown in one entry point is exactly the
+        // drift that once ran the real crontab's sync with an EMPTY
+        // registry: every message unclaimed, none stored, the cursor
+        // advancing past mail that was never coming back.
+        $this->assertStringNotContainsString(
+            'new \\Modules\\InboundMail\\Service\\MessageConsumerRegistry()',
             self::source($file),
-            $file . ' must register the inbound-mail sync handler.'
+            $file . ' must leave the consumer registry to the shared scheduler bootstrap.'
         );
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
-    public function testBothEntryPointsGuardOnTheModuleBeingEnabled(string $file): void
+    public function testTheCampsConsumerIsRegisteredLast(): void
     {
-        $this->assertMatchesRegularExpression(
-            "/in_array\\('inbound_mail', \\\$moduleManager->getEnabledModuleIds\\(\\), true\\)/",
-            self::source($file),
-            $file . ' must only wire the module when it is enabled.'
-        );
-    }
+        // First-claim-wins in registration order, and a dedicated camps
+        // mailbox claims EVERYTHING it is offered: registered earlier, it
+        // would swallow the mail rental was waiting for.
+        $bootstrap = self::source('scheduler-bootstrap.php');
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
-    public function testTheHandlerAlwaysGetsAConsumerRegistry(string $file): void
-    {
-        // Constructed without one it connects to nothing — every message
-        // would be fetched and discarded unclaimed — so a registration that
-        // forgot it would look wired and collect nothing.
-        $this->assertMatchesRegularExpression(
-            '/new \\\\Modules\\\\InboundMail\\\\Task\\\\SyncMailboxesHandler\\(\\$inboundMailConsumerRegistry\\)/',
-            self::source($file),
-            $file . ' must pass the consumer registry to the handler.'
-        );
-    }
+        $rental = strpos($bootstrap, 'new \\Modules\\Rental\\Mail\\RentalMessageConsumer(');
+        $camps = strpos($bootstrap, 'new \\Modules\\Camps\\Mail\\CampsMessageConsumer(');
 
-    public function testTheRegistryIsSeededNullBeforeTheModuleBlockDecidesToBuildIt(): void
-    {
-        $source = self::source('index.php');
-
-        $seeded = strpos($source, '$inboundMailConsumerRegistry = null;');
-        $built = strpos($source, '$inboundMailConsumerRegistry = new \\Modules\\InboundMail\\Service\\MessageConsumerRegistry();');
-
-        $this->assertIsInt($seeded);
-        $this->assertIsInt($built);
-        $this->assertLessThan($built, $seeded, 'The registry must be readable whether or not the module block ran.');
+        $this->assertIsInt($rental);
+        $this->assertIsInt($camps);
+        $this->assertLessThan($camps, $rental, 'The camps consumer must be registered after every other consumer.');
     }
 
     public function testTheApiIsPublishedThroughANullSeededHandleLikeEveryOtherCrossModuleDependency(): void
@@ -93,13 +94,15 @@ class CompositionRootWiringTest extends TestCase
         $this->assertStringContainsString('$inboundMailForOthers = null;', self::source('index.php'));
     }
 
-    public function testTheFirstRunIsBootstrappedOnTheWebPath(): void
+    public function testTheFirstRunIsSeededByTheSharedBootstrap(): void
     {
         // Without the initial nudge the self-rescheduling chain never
-        // starts, and the box is polled exactly never.
+        // starts, and the box is polled exactly never. Seeded in the
+        // shared bootstrap, so a site reached only by its crontab still
+        // polls.
         $this->assertStringContainsString(
             'Modules\\InboundMail\\Task\\SyncMailboxesHandler::bootstrap($schedulerService)',
-            self::source('index.php')
+            self::source('scheduler-bootstrap.php')
         );
     }
 

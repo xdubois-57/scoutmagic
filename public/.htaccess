@@ -14,6 +14,15 @@ RewriteRule ^ index.php [QSA,L]
     Require all denied
 </Files>
 
+# Same treatment for the shared scheduler composition file: it exists on
+# disk, so the rewrite above would let GET /scheduler-bootstrap.php run
+# it directly. Its own SCOUTMAGIC_ENTRYPOINT guard (see its top) is the
+# load-bearing control — a direct hit answers 404 and defines a function
+# nothing calls — and this block is the same belt-and-braces as cron.php's.
+<Files "scheduler-bootstrap.php">
+    Require all denied
+</Files>
+
 # ---------------------------------------------------------------------
 # Baseline security headers for the files Apache serves ITSELF.
 #

@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+// Marks this process as a real entry point, so the shared composition
+// files it requires (public/scheduler-bootstrap.php) refuse to run when
+// hit directly over HTTP.
+define('SCOUTMAGIC_ENTRYPOINT', true);
+
 $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 
 // The application's wall clock is Belgian, because its users are — and the
@@ -1552,11 +1557,18 @@ $statisticsSender = new \Core\Statistics\StatisticsSender(
     \Core\Maintenance\VersionFile::read(dirname(__DIR__))
 );
 
-// Set up SchedulerRunner with ModuleManager and the context task handlers run
-// with — without this, processOverdue() throws the moment it reaches a real
-// (module-registered) task, since TaskContext has no fallback construction.
-$schedulerRunner->setModuleManager($moduleManager);
-$schedulerRunner->setTaskContext(new TaskContext(
+// The scheduler's whole wiring — ModuleManager, TaskContext (with the
+// optional cross-module capabilities handlers reach through
+// getOptional()), every core handler, the hand-registered module handler
+// and the recurring-task seeds — lives in ONE shared file called
+// identically here and in public/cron.php. Hand-maintaining two copies is
+// exactly how create_backup once ended up missing from cron.php (§8.17)
+// and how rental's reminders ran without Finance under a real crontab.
+require_once __DIR__ . '/scheduler-bootstrap.php';
+scoutmagic_bootstrap_scheduler(
+    $schedulerRunner,
+    $schedulerService,
+    $moduleManager,
     $connection,
     $encryptionService,
     $mailService,
@@ -1565,14 +1577,7 @@ $schedulerRunner->setTaskContext(new TaskContext(
     $userAccountRepo,
     $storagePath,
     $notificationService
-));
-
-// Core (not module) scheduled task handlers. Declared once in
-// Core\Scheduler\CoreTaskHandlers and registered identically here and in
-// public/cron.php — hand-maintaining two lists is exactly how create_backup
-// once ended up missing from cron.php, silently failing every background
-// backup under a real crontab (§8.17).
-\Core\Scheduler\CoreTaskHandlers::registerAll($schedulerRunner);
+);
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
 // re-schedules itself at the end of every run (same pattern as
@@ -2539,21 +2544,17 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
-// Inbound mail (§7). The consumer registry is created empty here and
-// appended to from each consuming module's block further down — the
-// ARCHITECTURE.md §7.6 pattern, the same shape as
-// $calendarVirtualEventRegistry above: the sync service holds the registry
-// object rather than a snapshot of its contents, so a consumer registered
-// later still reaches it.
+// Inbound mail (§7). The message-consumer registry — the ARCHITECTURE.md
+// §7.6 pattern — now lives entirely on the scheduler path: it is built,
+// with every enabled module's consumer, inside the sync handler's lazy
+// factory in public/scheduler-bootstrap.php, since nothing on the web
+// path ever reads it.
 //
-// Null when `inbound_mail` is disabled: a consumer then registers nothing
-// and shows no communications, which is the clean degradation in that
-// direction.
-$inboundMailConsumerRegistry = null;
+// Null when `inbound_mail` is disabled: a consumer module then shows no
+// communications, which is the clean degradation in that direction.
 $inboundMailForOthers = null;
 
 if (in_array('inbound_mail', $moduleManager->getEnabledModuleIds(), true)) {
-    $inboundMailConsumerRegistry = new \Modules\InboundMail\Service\MessageConsumerRegistry();
     $inboundMailboxRepository = new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService);
     $inboundMessageRepository = new \Modules\InboundMail\Repository\InboundMessageRepository($pdo, $encryptionService);
 
@@ -2576,18 +2577,10 @@ if (in_array('inbound_mail', $moduleManager->getEnabledModuleIds(), true)) {
         )
     );
 
-    // The polling task needs the consumer registry, which only this file
-    // can build — so unlike most module tasks it is registered explicitly
-    // rather than auto-resolved from the manifest, HERE AND IN
-    // public/cron.php both. Registering it in only one of the two entry
-    // points is a bug this codebase has shipped before (§8.17/§8.20), and
-    // a test pins both call sites.
-    $schedulerRunner->registerHandler(
-        'inbound_mail',
-        \Modules\InboundMail\Task\SyncMailboxesHandler::TASK_KEY,
-        new \Modules\InboundMail\Task\SyncMailboxesHandler($inboundMailConsumerRegistry)
-    );
-    \Modules\InboundMail\Task\SyncMailboxesHandler::bootstrap($schedulerService);
+    // The polling task and the consumer registry it needs are wired in
+    // public/scheduler-bootstrap.php (shared by both entry points), as a
+    // lazy factory — so the three-module consumer graph is only ever
+    // assembled when a sync task is actually due, never on a page view.
 }
 
 // Optional dependency on the finance module (ARCHITECTURE.md §7.5) — set
@@ -3743,19 +3736,11 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         );
     }
 
-    // The summary refresher is registered by hand rather than
-    // auto-resolved from the manifest, because it is the one camps task
-    // that consumes another module's public API (ARCHITECTURE.md §7.5):
-    // only a composition root knows whether `llm_connector` is enabled,
-    // and the handler must not reach into that module's own classes to
-    // find out. Registered in public/cron.php too — a handler registered
-    // in only one of the two entry points fails unconditionally under the
-    // other (§8.17/§8.20), which is why a test pins both.
-    $schedulerRunner->registerHandler(
-        'camps',
-        \Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY,
-        new \Modules\Camps\Task\RefreshPlaceSummariesHandler($llmConnectorForRgpd ?? null)
-    );
+    // The summary refresher is auto-resolved from the manifest like any
+    // other task; it reaches llm_connector through
+    // TaskContext::getOptional() at run time (the capability is
+    // registered in public/scheduler-bootstrap.php, identically for both
+    // entry points).
 
     // BOTH file gates, because they guard different routes and a module
     // registering only one leaves its files reachable through the other:
@@ -3768,10 +3753,11 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     // Read back at the very end of this file, when the response exists.
     $campsMapTileOrigin = \Modules\Camps\Service\MapTiles::ORIGIN;
 
-    // Inbound mail. Built here, REGISTERED much further down — see the
-    // comment at the registration itself: MessageConsumerRegistry is
-    // first-claim-wins in registration order, and this consumer must come
-    // last.
+    // Inbound mail. The mail-reading services below serve the WEB
+    // controllers (« Créer un camp depuis ce message », field
+    // completion); the module's MessageConsumer itself is built inside
+    // the sync handler's lazy factory in public/scheduler-bootstrap.php,
+    // where its last-in-registration-order rule is enforced once.
     $campsMessageReader = new \Modules\Camps\Mail\MessageReader();
     $campsFieldCompletion = new \Modules\Camps\Mail\MailFieldCompletionService(
         $campsCampRepo, $campsProposalRepo, $auditService, $campsMessageReader
@@ -3787,14 +3773,6 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
         $campsDuplicateDetector, $campsMessageReader, $settingService,
         $inboundMailForOthers ?? null, $llmConnectorForRgpd ?? null
     );
-    $campsMailConsumer = isset($inboundMailForOthers)
-        ? new \Modules\Camps\Mail\CampsMessageConsumer(
-            $campsCampRepo, $pdo, $encryptionService, $settingService,
-            $inboundMailForOthers, $campsDocumentService, $campsFieldCompletion,
-            $campsStayFromMail
-        )
-        : null;
-
     $frontController->registerController(
         \Modules\Camps\Controller\CampsMailController::class,
         new \Modules\Camps\Controller\CampsMailController(
@@ -4452,25 +4430,14 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     // degrade on their own — with `calendar` off the registry is null and
     // no provider is built; with `rental` off the registry simply has one
     // fewer entry.
-    // Inbound mail (§7.6). The other consumer-registry wiring, same shape
-    // as the calendar one below: `inbound_mail` built the registry empty in
-    // its own block, and `rental` appends its consumer here. With
-    // `inbound_mail` disabled the registry is null, nothing is registered,
-    // and the Communications tab is simply not offered.
+    // Inbound mail (§7.6). This module's MessageConsumer is built inside
+    // the sync handler's lazy factory in public/scheduler-bootstrap.php —
+    // nothing on the web path reads the consumer registry. With
+    // `inbound_mail` disabled the API handle is null and the
+    // Communications tab is simply not offered.
     $rentalCommunicationService = null;
 
-    // One guard, not three: `$inboundMailForOthers` is assigned in the very
-    // same block that builds the registry, and `$rentalDocumentService` is
-    // unconditional in this one — so the registry's existence is exactly
-    // "is `inbound_mail` enabled?".
-    if ($inboundMailConsumerRegistry !== null) {
-        $inboundMailConsumerRegistry->register(new \Modules\Rental\Mail\RentalMessageConsumer(
-            $rentalBookingRepository,
-            $inboundMailForOthers,
-            $rentalDocumentService,
-            $rentalMailboxSelection->selectedIds()
-        ));
-
+    if ($inboundMailForOthers !== null) {
         $rentalCommunicationService = new \Modules\Rental\Service\RentalCommunicationService(
             $rentalBookingRepository,
             $rentalDocumentRepository,
@@ -4573,64 +4540,13 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     // deadline passes, which the calculator reads directly.
     \Modules\Rental\Task\ExpireRentalHoldsHandler::bootstrap($schedulerService);
 
-    // The daily reminder pass (§6.29). Registered explicitly rather than
-    // auto-resolved from the manifest, HERE AND IN public/cron.php both,
-    // because the money reminders need Finance's public API and only a
-    // composition root knows whether that module is enabled. A handler
-    // registered in only one of the two entry points fails unconditionally
-    // under the other (§8.17/§8.20), and a test pins both call sites.
-    $rentalReminderService = new \Modules\Rental\Service\RentalReminderService(
-        $rentalBookingRepository,
-        $rentalAssetRepository,
-        $rentalManagerRepository,
-        $rentalComplianceService,
-        new \Modules\Rental\Repository\RentalReminderRepository($pdo),
-        new \Modules\Rental\Reminder\ReminderPlanner(),
-        $memberYearRepo,
-        $userAccountRepo,
-        $journalService,
-        $notificationService,
-        $rentalPaymentService,
-        $rentalDocumentService,
-        $rentalStayService,
-        $rentalBookingMailService
-    );
-    $schedulerRunner->registerHandler(
-        'rental',
-        \Modules\Rental\Task\SendRentalRemindersHandler::TASK_KEY,
-        new \Modules\Rental\Task\SendRentalRemindersHandler($rentalReminderService)
-    );
-    \Modules\Rental\Task\SendRentalRemindersHandler::bootstrap($schedulerService);
-
-    // The retention purge (§6.35). Registered explicitly in both entry
-    // points for the same reason as the reminder task above: only a
-    // composition root knows whether `inbound_mail` is enabled, and a
-    // purged booking's emails must go with it.
-    $rentalRetentionService = new \Modules\Rental\Service\RentalRetentionService(
-        $rentalBookingRepository,
-        $rentalDocumentRepository,
-        new \Modules\Rental\Repository\RentalAggregateRepository($pdo),
-        new \Modules\Rental\Repository\RentalReminderRepository($pdo),
-        $settingService,
-        $journalService,
-        $pdo,
-        $fileRepository,
-        $inboundMailForOthers,
-        $storagePath,
-        // And its receivables: Finance's tables are outside every cascade
-        // this module's schema declares, so a purged booking would keep
-        // being owed for otherwise.
-        $rentalPaymentService,
-        // And its change history: `entity_changes` has no foreign key, so
-        // the purge deletes it explicitly (§8.66).
-        $rentalBookingAudit
-    );
-    $schedulerRunner->registerHandler(
-        'rental',
-        \Modules\Rental\Task\PurgeRentalBookingsHandler::TASK_KEY,
-        new \Modules\Rental\Task\PurgeRentalBookingsHandler($rentalRetentionService)
-    );
-    \Modules\Rental\Task\PurgeRentalBookingsHandler::bootstrap($schedulerService);
+    // The daily reminder pass (§6.29) and the retention purge (§6.35) are
+    // auto-resolved from the manifest like any other task: each builds its
+    // full service itself from the TaskContext, reaching Finance and
+    // inbound_mail through TaskContext::getOptional() — one construction,
+    // identical under the poor man's cron and a real crontab (the drift
+    // where a crontab-run reminder pass said nothing about money is gone).
+    // Their first occurrences are seeded by the shared scheduler bootstrap.
 
     // Menu hook (Core\Module\MenuEntryProvider) — the "Locations" index and
     // one entry per pinned public asset in "Notre unité", plus "Mes
@@ -4666,22 +4582,6 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $twig->addGlobal('active_menu_id', $activeMenuId);
         $twig->addGlobal('active_page_url', $activePageUrl);
     }
-}
-
-// The camps consumer is registered LAST, after every other module's, and
-// that ordering is load-bearing: Service\MessageConsumerRegistry is
-// first-claim-wins in registration order, and a dedicated camps mailbox
-// claims EVERYTHING it is offered. Registered earlier, it would swallow
-// the mail another module was waiting for — rental's own mailbox setting
-// defaults to "all mailboxes", so the two would otherwise fight over
-// every message on an installation running both.
-//
-// In a shared mailbox the camps consumer is narrow and this ordering
-// costs nothing; in a dedicated one it is the whole reason the setting's
-// description tells administrators to exclude that box from other
-// modules.
-if (isset($campsMailConsumer, $inboundMailConsumerRegistry)) {
-    $inboundMailConsumerRegistry->register($campsMailConsumer);
 }
 
 // Leadership ("Encadrement") — four read-only admin pages built entirely

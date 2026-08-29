@@ -9,13 +9,14 @@ use PHPUnit\Framework\TestCase;
 /**
  * The retention purge's wiring (§6.35).
  *
- * The purge deletes a booking's Finance receivables, and Finance is only
- * reachable from a composition root — the handler's self-built fallback
- * cannot see whether that module is even enabled. So the service has to be
- * assembled in **both** entry points, and both are pinned here at the
- * source level, exactly as `RentalReminderWiringTest` pins the reminder
- * task. A handler wired in one entry point only is the shape of a bug this
- * codebase has already shipped once (`create_backup`, §8.17/§8.20).
+ * The purge deletes a booking's Finance receivables and its inbound-mail
+ * correspondence — cross-module needs that now arrive as capabilities
+ * (TaskContext::getOptional()), so the handler is auto-resolved from the
+ * manifest and builds its full service itself, identically under both
+ * entry points. What this file pins is that nothing re-grows a
+ * per-entry-point hand wiring (the shape of the `create_backup` bug,
+ * §8.17/§8.20), that the self-build really reads the capabilities, and
+ * that the one Finance call the purge exists to make is still made.
  */
 class PurgeRentalBookingsWiringTest extends TestCase
 {
@@ -36,37 +37,62 @@ class PurgeRentalBookingsWiringTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
-    public function testThePurgeHandlerIsRegisteredInBothEntryPoints(string $file): void
+    public function testNoEntryPointHandRegistersThePurgeHandlerAnyMore(string $file): void
     {
-        $this->assertStringContainsString(
-            'Modules\\Rental\\Task\\PurgeRentalBookingsHandler::TASK_KEY',
+        // A hand registration re-grown in one entry point would replace
+        // the capability-fed self-build with whatever that one file wired
+        // — the exact per-entry-point divergence this iteration removed
+        // (public/cron.php's construction could never reach inbound_mail,
+        // leaving a purged booking's emails behind under a real crontab).
+        $this->assertStringNotContainsString(
+            'new \\Modules\\Rental\\Task\\PurgeRentalBookingsHandler(',
             self::source($file),
-            $file . ' must register the rentals retention purge handler.'
+            $file . ' must leave the purge handler to manifest auto-resolution.'
         );
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
-    public function testBothEntryPointsBuildTheRetentionServiceThemselves(string $file): void
+    public function testTheManifestDeclaresTheHandlerSoAutoResolutionFindsIt(): void
     {
-        // The handler's self-built fallback reaches neither `inbound_mail`
-        // nor Finance. Left to it, a purged booking keeps its emails and
-        // its receivables — the deletion would be incomplete in the two
-        // ways that matter.
-        $this->assertStringContainsString(
-            'new \\Modules\\Rental\\Service\\RentalRetentionService(',
-            self::source($file),
-            $file . ' must build the retention service rather than let the handler self-build it.'
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/rental/module.json'),
+            true
+        );
+        $handlers = array_column($manifest['scheduled_tasks'] ?? [], 'handler', 'key');
+
+        $this->assertSame(
+            \Modules\Rental\Task\PurgeRentalBookingsHandler::class,
+            $handlers[\Modules\Rental\Task\PurgeRentalBookingsHandler::TASK_KEY] ?? null
         );
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
-    public function testBothEntryPointsHandThePurgeAPaymentService(string $file): void
+    public function testTheFirstRunIsSeededByTheSharedBootstrap(): void
     {
-        $this->assertMatchesRegularExpression(
-            '/new \\\\Modules\\\\Rental\\\\Service\\\\RentalPaymentService\\(|\\$rentalPaymentService/',
-            self::source($file),
-            $file . ' must give the retention service a payment service so receivables are forgotten.'
+        $this->assertStringContainsString(
+            'Modules\\Rental\\Task\\PurgeRentalBookingsHandler::bootstrap($schedulerService)',
+            self::source('scheduler-bootstrap.php')
         );
+    }
+
+    public function testTheSelfBuiltServiceReadsTheFinanceAndInboundMailCapabilities(): void
+    {
+        // A purged booking must lose its receivables AND its mail on both
+        // entry points — from one single construction reading the
+        // capabilities, never a per-entry-point wiring decision.
+        $handler = file_get_contents(
+            dirname(__DIR__, 4) . '/modules/rental/src/Task/PurgeRentalBookingsHandler.php'
+        );
+        $this->assertNotFalse($handler);
+
+        foreach ([
+            'Modules\\Finance\\Api\\ExpectedReceivableInterface::class',
+            'Modules\\InboundMail\\Api\\InboundMailInterface::class',
+        ] as $capability) {
+            $this->assertStringContainsString(
+                '$context->getOptional(\\' . $capability . ')',
+                $handler,
+                'The self-built service must read ' . $capability . ' off the context.'
+            );
+        }
     }
 
     public function testThePurgeForgetsTheBookingsReceivables(): void

@@ -37,21 +37,19 @@ use Modules\LlmConnector\Api\LlmConnectorInterface;
  * twenty years of camps must not turn one task run into twenty model
  * calls. What is left stays stale and is picked up tomorrow.
  *
- * **The connector is injected, never built here** (ARCHITECTURE.md §7.5).
- * This module consumes `llm_connector`'s public API and must degrade to
- * "no summary" when that module is absent or disabled — which it cannot
- * do while reaching into that module's own repositories and services, as
- * this handler used to: those classes stop existing the moment the module
- * is removed from an install. Only a composition root knows
- * whether it is enabled, so this handler is registered by hand in
- * public/index.php AND public/cron.php, the same as `inbound_mail`'s
- * polling task (§8.58): a handler registered in only one of the two fails
- * unconditionally under the other, and a test pins both call sites.
- *
- * The nullable default keeps the manifest's auto-resolution (`new
- * $handlerClass()`) working rather than fatal — an installation whose
- * composition root somehow missed this handler gets no summaries, which
- * is the same outcome as `llm_connector` being off.
+ * **The connector is a capability, never built here** (ARCHITECTURE.md
+ * §7.5 on the scheduled path). This module consumes `llm_connector`'s
+ * public API and must degrade to "no summary" when that module is absent
+ * or disabled — which it cannot do while reaching into that module's own
+ * repositories and services, as this handler once did: those classes stop
+ * existing the moment the module is removed from an install. The handler
+ * is auto-resolved from the manifest and asks
+ * `TaskContext::getOptional(LlmConnectorInterface::class)` at run time,
+ * which answers null whenever the module is disabled — the shared
+ * scheduler bootstrap registers the factory, identically for both entry
+ * points, so the hand-registration (and the drift it invited, §8.17) is
+ * gone. The nullable constructor parameter remains for tests, and wins
+ * over the capability when set.
  */
 class RefreshPlaceSummariesHandler implements TaskHandlerInterface
 {
@@ -97,7 +95,7 @@ class RefreshPlaceSummariesHandler implements TaskHandlerInterface
                 $context->encryption,
                 new MemberBadgeRepository($pdo)
             )),
-            $this->llm
+            $this->llm ?? $context->getOptional(LlmConnectorInterface::class)
         );
 
         if (!$service->isAvailable()) {
