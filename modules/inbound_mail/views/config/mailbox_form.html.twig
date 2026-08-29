@@ -6,7 +6,7 @@
     {% include 'partials/page_header.html.twig' with { title: mailbox ? 'Modifier la boîte' : 'Nouvelle boîte' } only %}
 
     <form method="post" action="/config/courrier-entrant/boites" id="mailbox-form">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        {{ csrf_field()|raw }}
         <input type="hidden" name="id" id="mailbox-id" value="{{ mailbox ? mailbox.id : 0 }}">
 
         <div class="card mb-4">
@@ -124,5 +124,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/assets/js/inbound-mail-config.js"></script>
+<script src="{{ asset('/assets/js/inbound-mail-config.js') }}"></script>
 {% endblock %}
