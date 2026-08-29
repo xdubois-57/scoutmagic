@@ -19,6 +19,7 @@ use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\HtmlSanitizer;
+use Modules\MassMail\Api\MassMailException;
 use Modules\MassMail\Repository\AudienceRepository;
 use Modules\MassMail\Repository\AudienceRow;
 use Modules\MassMail\Repository\Email;

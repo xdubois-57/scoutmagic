@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Parser;
 
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 
 interface BankStatementParserInterface
 {

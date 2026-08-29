@@ -10,7 +10,7 @@ use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Repository\ReceivableAllocation;
 use Modules\Finance\Repository\ReceivableAllocationRepository;
 use Modules\Finance\Repository\TransactionRepository;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\ReceivableAllocationService;
 use Modules\Finance\Service\ReceivableSettlement;
 use PHPUnit\Framework\TestCase;

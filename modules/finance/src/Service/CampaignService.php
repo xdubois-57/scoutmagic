@@ -12,6 +12,7 @@ use Core\File\EncryptedFileStorageService;
 use Core\Journal\JournalService;
 use Core\Security\Role;
 use Modules\Finance\Api\ExpectedReceivableInterface;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\Campaign;
 use Modules\Finance\Repository\CampaignRepository;

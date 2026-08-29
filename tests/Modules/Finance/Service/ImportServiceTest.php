@@ -30,7 +30,7 @@ use Modules\Finance\Service\AiCategorizationService;
 use Modules\Finance\Service\BalanceService;
 use Modules\Finance\Service\BulkCategorizationService;
 use Modules\Finance\Service\CategoryRuleEngine;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\ImportService;
 use Modules\Finance\Service\ReceiptMatchingService;
 use PHPUnit\Framework\TestCase;

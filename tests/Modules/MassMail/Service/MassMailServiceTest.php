@@ -32,7 +32,7 @@ use Modules\MassMail\Repository\Recipient;
 use Modules\MassMail\Repository\RecipientRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Service\MailingListService;
-use Modules\MassMail\Service\MassMailException;
+use Modules\MassMail\Api\MassMailException;
 use Modules\MassMail\Service\MassMailService;
 use Modules\MassMail\Service\MergeRenderer;
 use Modules\MassMail\Service\SenderAuthorization;

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Finance\Service;
 
 use Modules\Finance\Api\ExpectedReceivableInterface;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Repository\ExpectedReceivable;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 

@@ -425,7 +425,7 @@ class InvoiceControllerTest extends TestCase
                 ?int $uploadedBy
             ): int {
                 if ($this->fail) {
-                    throw new \Modules\Finance\Service\FinanceException('Compte introuvable.');
+                    throw new \Modules\Finance\Api\FinanceException('Compte introuvable.');
                 }
                 $this->stored = true;
                 $this->lastMimeType = $mimeType;

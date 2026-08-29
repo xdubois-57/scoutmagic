@@ -18,7 +18,7 @@ use Modules\Finance\Repository\AiCategorySuggestionRepository;
 use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\BulkCategorizationService;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
 
 /**

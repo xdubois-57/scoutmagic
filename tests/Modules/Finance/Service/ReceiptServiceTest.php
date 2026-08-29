@@ -13,7 +13,7 @@ use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\ReceiptService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;

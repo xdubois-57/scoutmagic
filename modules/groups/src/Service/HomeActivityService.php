@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Modules\Groups\Api;
+namespace Modules\Groups\Service;
 
 use Core\Module\HomeGroupActivityProvider;
 use Core\Notification\NotificationRepository;
@@ -16,10 +16,6 @@ use Modules\Groups\Repository\GroupReadRepository;
 use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Repository\ReactionRepository;
 use Modules\Groups\Repository\ReplyRepository;
-use Modules\Groups\Service\GroupListItem;
-use Modules\Groups\Service\GroupListService;
-use Modules\Groups\Service\GroupNotificationService;
-use Modules\Groups\Service\GroupSessionContextFactory;
 
 /**
  * This module's answer to core's Core\Module\HomeGroupActivityProvider
@@ -27,10 +23,13 @@ use Modules\Groups\Service\GroupSessionContextFactory;
  * you last looked" — a count of active groups and three counters (new
  * posts, replies-or-reactions, mentions), never a per-group list.
  *
- * Lives under Api\ rather than Service\ for the same reason
- * Modules\Gallery\Api\* does (ARCHITECTURE.md §7.5): it is the surface
- * another part of the codebase consumes, not an internal collaborator of
- * this module. Group visibility goes through Service\GroupListService,
+ * A concrete Service, deliberately NOT under Api\ (ARCHITECTURE.md §7.5,
+ * strict contract): what the rest of the codebase consumes is the core
+ * hook interface this class implements, and only the composition root
+ * ever names the class itself — an Api\ namespace carries interfaces and
+ * immutable value objects, never a class whose imports would drag this
+ * module's repositories into every consumer's reach.
+ * Group visibility goes through Service\GroupListService,
  * which is the batched form of the same membership rules
  * Service\GroupAccessService applies to a single group — so a group the
  * caller cannot read can never be counted here, exactly as it cannot

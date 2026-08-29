@@ -21,7 +21,7 @@ use Modules\Finance\Service\AccountVisibility;
 use Modules\Finance\Service\CampaignImportException;
 use Modules\Finance\Service\CampaignImportService;
 use Modules\Finance\Service\CampaignService;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\ReceivableSettlement;
 use Modules\Finance\Service\StructuredCommunicationService;
 use Modules\Finance\Service\TreasurerScope;

@@ -12,6 +12,7 @@ use Core\Config\SettingService;
 use Core\Member\SectionService;
 use Core\Security\Role;
 use Core\Service\DateInput;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\Category;

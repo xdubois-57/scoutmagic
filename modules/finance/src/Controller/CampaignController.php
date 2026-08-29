@@ -22,7 +22,7 @@ use Modules\Finance\Service\CampaignNotificationService;
 use Modules\Finance\Service\CampaignReminderService;
 use Modules\Finance\Service\CampaignOverviewService;
 use Modules\Finance\Service\CampaignService;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\ReceivableAllocationService;
 use Twig\Environment;

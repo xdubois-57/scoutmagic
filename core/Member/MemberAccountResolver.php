@@ -25,7 +25,7 @@ use Core\Security\UserAccountRepository;
  * Extracted to core because three callers need the same list and a second
  * copy is a second answer waiting to disagree: Modules\Groups\Service\
  * GroupRecipientResolver (who could be sitting behind this membership)
- * and Modules\Finance\Api\FamilyPaymentService (who to tell about an
+ * and Modules\Finance\Service\FamilyPaymentService (who to tell about an
  * unpaid receivable) both delegate here.
  *
  * A member with no account at all yields an empty list — an animé with no

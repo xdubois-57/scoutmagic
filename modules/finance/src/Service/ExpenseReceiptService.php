@@ -10,6 +10,7 @@ namespace Modules\Finance\Service;
 
 use Core\Security\Role;
 use Modules\Finance\Api\ExpenseReceiptInterface;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
 

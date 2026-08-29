@@ -140,7 +140,7 @@ class ErrorMessageLeakTest extends TestCase
     {
         $massMailService = $this->createMock(MassMailService::class);
         $massMailService->method('sendTestEmail')->willThrowException(
-            new \Modules\MassMail\Service\MassMailException('Adresse email invalide.')
+            new \Modules\MassMail\Api\MassMailException('Adresse email invalide.')
         );
 
         $response = $this->massMailController($massMailService)->testSend(

@@ -14,6 +14,7 @@ use Core\Member\SectionService;
 use Core\Security\Role;
 use Core\View\SectionPickerHelper;
 use Modules\MassMail\Api\MassMailDraftInterface;
+use Modules\MassMail\Api\MassMailException;
 use Modules\MassMail\Repository\AudienceRepository;
 use Modules\MassMail\Repository\Email;
 

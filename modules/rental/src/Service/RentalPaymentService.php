@@ -248,7 +248,7 @@ class RentalPaymentService
             // has nothing to say here.
             //
             // UserFacingMessage decides which of the two this is, from the
-            // class alone — no catch on Finance\Service\FinanceException,
+            // class alone — no catch on Finance\Api\FinanceException,
             // which would reach past that module's Api namespace into its
             // internals (ARCHITECTURE.md §7.5).
             throw new RentalException(

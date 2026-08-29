@@ -8,7 +8,7 @@ use Core\Security\EncryptionService;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\ExpectedReceivableService;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;

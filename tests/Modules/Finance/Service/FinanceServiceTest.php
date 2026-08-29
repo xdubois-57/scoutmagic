@@ -20,7 +20,7 @@ use Modules\Finance\Repository\Transaction;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\AccountTransferCategoryService;
 use Modules\Finance\Service\BalanceService;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;

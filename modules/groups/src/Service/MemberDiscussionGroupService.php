@@ -19,7 +19,7 @@ use Modules\Groups\Repository\GroupRepository;
  *
  * Lives under Service\, not Api\: `Api\` is where this module publishes
  * an interface of its own for others to consume (§7.5 —
- * Api\HomeActivityService does exactly that), and here the interface is
+ * Service\HomeActivityService does exactly that), and here the interface is
  * core's.
  *
  * **Explicit memberships only**, the rows of `discussion_group_members`.

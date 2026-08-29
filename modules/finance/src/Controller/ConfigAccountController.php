@@ -18,7 +18,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AttachmentRepository;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
 
 /**

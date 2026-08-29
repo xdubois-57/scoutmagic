@@ -16,7 +16,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Modules\Finance\Parser\BankStatementParserFactory;
 use Modules\Finance\Repository\BalanceCheckpointRepository;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\ImportService;
 
