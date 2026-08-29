@@ -25,14 +25,15 @@ use Modules\Rental\Service\RentalRetentionService;
  * the same pattern as `Core\Notification\Task\PurgeNotificationsHandler`,
  * which §6.35 names as the model.
  *
- * **`inbound_mail` and Finance are null here.** Under a real crontab the
- * composition root that knows whether those modules are enabled has not
- * run, so the handler cannot reach them — which would leave a purged
- * booking's emails behind, and Finance still expecting money for a stay
- * that no longer exists. It is therefore registered explicitly with a
- * wired service in **both** entry points, like the reminder task; this
- * self-built fallback purges everything else, and a test pins both call
- * sites.
+ * **`inbound_mail` and Finance arrive as capabilities** —
+ * `TaskContext::getOptional()` (ARCHITECTURE.md §7.5 on the scheduled
+ * path) — so the purge takes a booking's emails and its receivables with
+ * it on BOTH entry points, from one single construction. It used to be
+ * hand-registered with a wired service in each entry point instead, and
+ * the two constructions drifted (`public/cron.php`'s could never reach
+ * `inbound_mail`, leaving a purged booking's mail behind under a real
+ * crontab). Auto-resolved from the manifest now; the injected-service
+ * constructor parameter remains for tests.
  */
 class PurgeRentalBookingsHandler implements TaskHandlerInterface
 {
@@ -65,6 +66,26 @@ class PurgeRentalBookingsHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
 
+        // No ActorAccountResolver on the scheduled path: every change is
+        // the application acting on its own, rendered by Core\Audit as an
+        // automatic entry.
+        $bookingAudit = new \Modules\Rental\Audit\BookingAudit(
+            new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $context->encryption))
+        );
+
+        // A purged booking's receivables must go with it: Finance's tables
+        // are outside every cascade this module's schema declares. Null —
+        // Finance disabled — means there was nothing to forget.
+        $payments = new \Modules\Rental\Service\RentalPaymentService(
+            new \Modules\Rental\Repository\RentalPaymentRepository($pdo, $context->encryption),
+            $bookingAudit,
+            $context->journal,
+            $context->getOptional(\Modules\Finance\Api\ExpectedReceivableInterface::class),
+            $context->getOptional(\Modules\Finance\Api\StructuredCommunicationInterface::class),
+            $context->getOptional(\Modules\Finance\Api\SepaQrCodeInterface::class),
+            $context->getOptional(\Modules\Finance\Api\FinanceAccountInterface::class)
+        );
+
         return new RentalRetentionService(
             new RentalBookingRepository($pdo, $context->encryption),
             new RentalDocumentRepository($pdo),
@@ -74,8 +95,12 @@ class PurgeRentalBookingsHandler implements TaskHandlerInterface
             $context->journal,
             $pdo,
             new FileRepository($pdo),
-            null,
-            $context->storagePath
+            // And its correspondence: null with inbound_mail disabled,
+            // where no mail was ever attached.
+            $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class),
+            $context->storagePath,
+            $payments,
+            $bookingAudit
         );
     }
 

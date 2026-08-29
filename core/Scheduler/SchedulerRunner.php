@@ -18,6 +18,9 @@ class SchedulerRunner
     /** @var array<string, TaskHandlerInterface> */
     private array $handlers = [];
 
+    /** @var array<string, callable(TaskContext): TaskHandlerInterface> */
+    private array $handlerFactories = [];
+
     private ?ModuleManager $moduleManager = null;
     private ?TaskContext $taskContext = null;
 
@@ -46,6 +49,24 @@ class SchedulerRunner
     }
 
     /**
+     * Register a handler LAZILY: the factory is invoked — once, with the
+     * TaskContext — only when a due task actually needs it. This is what
+     * lets the shared scheduler bootstrap declare a handler whose
+     * dependency graph is expensive to assemble (inbound mail's consumer
+     * registry spans three modules) without every web request paying that
+     * construction for a task that fires a few times a day.
+     *
+     * Resolution order: a directly registered instance wins over a
+     * factory, and a factory wins over manifest auto-resolution.
+     *
+     * @param callable(TaskContext): TaskHandlerInterface $factory
+     */
+    public function registerHandlerFactory(string $moduleId, string $taskKey, callable $factory): void
+    {
+        $this->handlerFactories[$moduleId . '::' . $taskKey] = $factory;
+    }
+
+    /**
      * Process all due tasks.
      */
     public function processOverdue(): int
@@ -60,6 +81,13 @@ class SchedulerRunner
             $handler = $this->handlers[$handlerKey] ?? null;
             $taskStart = microtime(true);
             RequestTimeline::mark('scheduler_task_start:' . $handlerKey, ['task_id' => $task['id']]);
+
+            // A registered factory builds the handler on first use, with
+            // the context, and the instance serves the rest of the pass.
+            if ($handler === null && isset($this->handlerFactories[$handlerKey])) {
+                $handler = ($this->handlerFactories[$handlerKey])($this->taskContext ?? $this->createFallbackContext());
+                $this->handlers[$handlerKey] = $handler;
+            }
 
             // Try to resolve via ModuleManager if no directly registered handler
             if ($handler === null && $this->moduleManager !== null) {

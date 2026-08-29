@@ -77,6 +77,45 @@ class TaskContextTest extends TestCase
         $this->assertNull($context->notifications);
     }
 
+    public function testGetOptionalAndIsModuleEnabledDegradeSafelyWithoutCapabilities(): void
+    {
+        // A context built without capabilities — every test double, and a
+        // bootstrap that predates them — must answer "absent", never
+        // crash: a handler treats "don't know" exactly like "disabled".
+        $context = $this->buildContext(withNotificationsArg: false);
+
+        $this->assertNull($context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class));
+        $this->assertFalse($context->isModuleEnabled('llm_connector'));
+    }
+
+    public function testGetOptionalAndIsModuleEnabledDelegateToTheCapabilities(): void
+    {
+        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager->method('getEnabledModuleIds')->willReturn(['some_module']);
+        $capabilities = new \Core\Scheduler\TaskCapabilities($moduleManager);
+        $instance = new class implements \Tests\Core\Scheduler\FakeCapabilityInterface {
+        };
+        $capabilities->register(FakeCapabilityInterface::class, 'some_module', static fn (): object => $instance);
+
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $context = new TaskContext(
+            Connection::withPdo($pdo),
+            $encryption,
+            $this->createMock(MailService::class),
+            new JournalService(new JournalRepository($pdo)),
+            new SettingService(new SettingRepository($pdo)),
+            new UserAccountRepository($pdo, $encryption),
+            '/tmp/storage-root',
+            null,
+            $capabilities
+        );
+
+        $this->assertSame($instance, $context->getOptional(FakeCapabilityInterface::class));
+        $this->assertTrue($context->isModuleEnabled('some_module'));
+        $this->assertFalse($context->isModuleEnabled('other_module'));
+    }
+
     public function testEveryExposedDependencyIsReadonly(): void
     {
         // A handler mutating the shared context would poison every later

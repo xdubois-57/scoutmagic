@@ -61,8 +61,15 @@ class CronEntryPointTest extends TestCase
      */
     public function testBothEntryPointsRegisterCoreHandlersFromTheSharedRegistry(): void
     {
-        $this->assertStringContainsString('CoreTaskHandlers::registerAll(', $this->index);
-        $this->assertStringContainsString('CoreTaskHandlers::registerAll(', $this->cron);
+        // Since the shared scheduler bootstrap, CoreTaskHandlers is called
+        // from public/scheduler-bootstrap.php — the ONE file both entry
+        // points call — rather than from each entry point separately.
+        $bootstrap = file_get_contents(dirname(__DIR__, 2) . '/public/scheduler-bootstrap.php');
+        $this->assertNotFalse($bootstrap);
+        $this->assertStringContainsString('CoreTaskHandlers::registerAll(', $bootstrap);
+
+        $this->assertStringContainsString('scoutmagic_bootstrap_scheduler(', $this->index);
+        $this->assertStringContainsString('scoutmagic_bootstrap_scheduler(', $this->cron);
 
         $this->assertDoesNotMatchRegularExpression(
             "/registerHandler\(\s*'core'/",

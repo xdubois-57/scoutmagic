@@ -30,25 +30,20 @@ class RentalInboundMailWiringTest extends TestCase
         return $contents;
     }
 
-    public function testRentalRegistersItsConsumerOnlyWhenTheRegistryExists(): void
+    public function testRentalsConsumerIsRegisteredOnlyWhenInboundMailAndRentalAreBothEnabled(): void
     {
+        // The registry now lives in the sync handler's lazy factory in
+        // public/scheduler-bootstrap.php; the rental consumer joins it
+        // only when both halves of the pair are enabled.
+        $bootstrap = file_get_contents(dirname(__DIR__, 4) . '/public/scheduler-bootstrap.php');
+        $this->assertNotFalse($bootstrap);
+
         $this->assertMatchesRegularExpression(
-            '/if \(\$inboundMailConsumerRegistry !== null\) \{\s*\$inboundMailConsumerRegistry->register\(/',
-            self::indexSource(),
-            'The rental block must only register its consumer when inbound_mail is enabled.'
+            '/if \(\$inboundMail !== null && in_array\(\'rental\', \$enabledModuleIds, true\)\) \{/',
+            $bootstrap,
+            'The bootstrap must only register the rental consumer when inbound_mail resolves and rental is enabled.'
         );
-    }
-
-    public function testTheRegistryIsBuiltBeforeRentalAppendsToIt(): void
-    {
-        $source = self::indexSource();
-
-        $built = strpos($source, '$inboundMailConsumerRegistry = new \\Modules\\InboundMail\\Service\\MessageConsumerRegistry();');
-        $used = strpos($source, '$inboundMailConsumerRegistry->register(');
-
-        $this->assertIsInt($built);
-        $this->assertIsInt($used);
-        $this->assertLessThan($used, $built);
+        $this->assertStringContainsString('new \\Modules\\Rental\\Mail\\RentalMessageConsumer(', $bootstrap);
     }
 
     public function testRentalReachesInboundMailThroughItsPublishedApiOnly(): void

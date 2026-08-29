@@ -16,13 +16,14 @@ use PHPUnit\Framework\TestCase;
  * removed from an install, so "degrades gracefully when the other module
  * is absent" was not true of the one code path that ran unattended.
  *
- * The connector is now injected, which means only a composition root can
- * supply it — and a handler registered in one entry point only fails
- * unconditionally under the other with "No handler registered"
- * (§8.17/§8.20). That is the bug this codebase has already shipped once
- * (`create_backup`), so both call sites are pinned here, exactly as
- * `Tests\Modules\InboundMail\CompositionRootWiringTest` pins the polling
- * task's.
+ * The connector now arrives as a CAPABILITY —
+ * `TaskContext::getOptional(LlmConnectorInterface::class)`, registered in
+ * public/scheduler-bootstrap.php identically for both entry points — so
+ * the handler is auto-resolved from the manifest like any other task and
+ * the hand-registration (with the per-entry-point drift it invited,
+ * §8.17/§8.20) is gone. What stays pinned: the handler still names none
+ * of llm_connector's internals, really asks the capability, and no entry
+ * point re-grows a private construction.
  */
 class RefreshPlaceSummariesWiringTest extends TestCase
 {
@@ -43,32 +44,35 @@ class RefreshPlaceSummariesWiringTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
-    public function testTheHandlerIsRegisteredByHandInBothEntryPoints(string $file): void
+    public function testNoEntryPointHandRegistersTheHandlerAnyMore(string $file): void
     {
-        $this->assertStringContainsString(
+        // A hand registration re-grown in one entry point would shadow the
+        // capability-fed auto-resolution with whatever that one file wired
+        // — the per-entry-point drift this iteration removed.
+        $this->assertStringNotContainsString(
             'new \\Modules\\Camps\\Task\\RefreshPlaceSummariesHandler(',
             self::source($file),
-            $file . ' must construct the camps summary handler itself, not leave it to manifest auto-resolution.'
-        );
-        $this->assertStringContainsString(
-            'Modules\\Camps\\Task\\RefreshPlaceSummariesHandler::TASK_KEY',
-            self::source($file),
-            $file . ' must register the camps summary handler.'
+            $file . ' must leave the camps summary handler to manifest auto-resolution.'
         );
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
-    public function testBothEntryPointsGuardTheConnectorOnTheModuleBeingEnabled(string $file): void
+    public function testTheHandlerAsksTheCapabilityAtRunTime(): void
     {
-        // Either the shared `$llmConnectorForRgpd` handle (web, which is
-        // already null when the module is off) or an explicit
-        // getEnabledModuleIds() check (cron). What must never appear is an
-        // unconditional construction.
-        $this->assertMatchesRegularExpression(
-            '/\\$llmConnectorForRgpd|in_array\\(\'llm_connector\', \\$moduleManager->getEnabledModuleIds\\(\\), true\\)/',
-            self::source($file),
-            $file . ' must only reach llm_connector when that module is enabled.'
+        // The enablement decision belongs to the capability resolution
+        // (re-read live), never to the handler naming another module's
+        // internals to find out.
+        $this->assertStringContainsString(
+            '$this->llm ?? $context->getOptional(LlmConnectorInterface::class)',
+            self::source('modules/camps/src/Task/RefreshPlaceSummariesHandler.php')
         );
+    }
+
+    public function testTheSharedBootstrapRegistersTheLlmCapability(): void
+    {
+        $bootstrap = self::source('public/scheduler-bootstrap.php');
+
+        $this->assertStringContainsString('Modules\\LlmConnector\\Api\\LlmConnectorInterface::class', $bootstrap);
+        $this->assertStringContainsString("'llm_connector',", $bootstrap);
     }
 
     /**

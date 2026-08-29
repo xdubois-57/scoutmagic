@@ -9,14 +9,17 @@ use PHPUnit\Framework\TestCase;
 /**
  * The reminder task's wiring, and the cron warning (§6.29).
  *
- * Both live where no unit test reaches them — the procedural bootstrap and
- * a Twig template — so both are pinned at the source level, the precedent
+ * Both live where no unit test reaches them — the composition roots and a
+ * Twig template — so both are pinned at the source level, the precedent
  * `tests/Security/` sets for exactly this.
  *
- * The bug this file exists to prevent has shipped in this codebase before:
- * `create_backup` was registered in `public/index.php` and absent from
- * `public/cron.php`'s hand-maintained list, so every backup under a real
- * crontab failed silently with "No handler registered" (§8.17/§8.20).
+ * The handler is auto-resolved from the manifest and builds its full
+ * service itself, reaching Finance through TaskContext::getOptional() —
+ * so there is exactly ONE construction and the drift this file used to
+ * guard against (a crontab-run reminder pass assembled WITHOUT Finance
+ * while the web path assembled it WITH, §8.17-class) cannot recur. What
+ * remains to pin: nothing re-grew a hand registration, the self-build
+ * really reads the capabilities, and the first run is still seeded.
  */
 class RentalReminderWiringTest extends TestCase
 {
@@ -37,45 +40,66 @@ class RentalReminderWiringTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
-    public function testTheReminderHandlerIsRegisteredInBothEntryPoints(string $file): void
+    public function testNoEntryPointHandRegistersTheReminderHandlerAnyMore(string $file): void
     {
-        $this->assertStringContainsString(
-            'Modules\\Rental\\Task\\SendRentalRemindersHandler::TASK_KEY',
+        // A hand registration re-grown in one entry point would replace
+        // the capability-fed self-build with whatever that one file wired
+        // — the exact per-entry-point divergence this iteration removed.
+        $this->assertStringNotContainsString(
+            'new \\Modules\\Rental\\Task\\SendRentalRemindersHandler(',
             self::source($file),
-            $file . ' must register the rentals reminder handler.'
+            $file . ' must leave the reminder handler to manifest auto-resolution.'
         );
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
-    public function testBothEntryPointsGuardOnTheModuleBeingEnabled(string $file): void
+    public function testTheManifestDeclaresTheHandlerSoAutoResolutionFindsIt(): void
     {
-        $this->assertMatchesRegularExpression(
-            "/in_array\\('rental', \\\$moduleManager->getEnabledModuleIds\\(\\), true\\)/",
-            self::source($file),
-            $file . ' must only wire the reminder handler when rental is enabled.'
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/rental/module.json'),
+            true
+        );
+        $handlers = array_column($manifest['scheduled_tasks'] ?? [], 'handler', 'key');
+
+        $this->assertSame(
+            \Modules\Rental\Task\SendRentalRemindersHandler::class,
+            $handlers[\Modules\Rental\Task\SendRentalRemindersHandler::TASK_KEY] ?? null
         );
     }
 
-    public function testTheFirstRunIsBootstrappedOnTheWebPath(): void
+    public function testTheFirstRunIsSeededByTheSharedBootstrap(): void
     {
         // Without the initial nudge the self-rescheduling chain never
-        // starts, and the reminders go out exactly never.
+        // starts, and the reminders go out exactly never. Seeded in the
+        // shared scheduler bootstrap, so a site reached only by its
+        // crontab still gets them.
         $this->assertStringContainsString(
             'Modules\\Rental\\Task\\SendRentalRemindersHandler::bootstrap($schedulerService)',
-            self::source('index.php')
+            self::source('scheduler-bootstrap.php')
         );
     }
 
-    public function testTheWebPathHandsTheHandlerAFullyWiredService(): void
+    public function testTheSelfBuiltServiceReadsTheFinanceCapabilities(): void
     {
-        // The money reminders need Finance's public API, which only a
-        // composition root can build. Auto-resolved from the manifest
-        // instead, the handler builds its own service and stays silent
-        // about money rather than guessing.
-        $this->assertMatchesRegularExpression(
-            '/new \\\\Modules\\\\Rental\\\\Task\\\\SendRentalRemindersHandler\\(\\$rentalReminderService\\)/',
-            self::source('index.php')
+        // The money reminders exist exactly when Finance is enabled, on
+        // BOTH entry points, because the one construction reads the
+        // capability — never a per-entry-point wiring decision.
+        $handler = file_get_contents(
+            dirname(__DIR__, 4) . '/modules/rental/src/Task/SendRentalRemindersHandler.php'
         );
+        $this->assertNotFalse($handler);
+
+        foreach ([
+            'Modules\\Finance\\Api\\ExpectedReceivableInterface::class',
+            'Modules\\Finance\\Api\\StructuredCommunicationInterface::class',
+            'Modules\\Finance\\Api\\SepaQrCodeInterface::class',
+            'Modules\\Finance\\Api\\FinanceAccountInterface::class',
+        ] as $capability) {
+            $this->assertStringContainsString(
+                '$context->getOptional(\\' . $capability . ')',
+                $handler,
+                'The self-built service must read ' . $capability . ' off the context.'
+            );
+        }
     }
 
     // ── The cron warning (§6.29) ────────────────────────────────────────

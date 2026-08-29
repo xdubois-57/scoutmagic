@@ -8,6 +8,7 @@ parameters:
     - modules
     - public/index.php
     - public/cron.php
+    - public/scheduler-bootstrap.php
     # tests/ is deliberately NOT analysed as a whole — this one directory
     # is. The reference-dataset builder composes core and module services
     # by hand, exactly like the composition roots above, and breaks the

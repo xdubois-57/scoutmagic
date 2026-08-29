@@ -334,6 +334,67 @@ class SchedulerRunnerTest extends TestCase
         $this->assertStringContainsString('No handler registered', $action['last_error']);
     }
 
+    public function testARegisteredFactoryBuildsTheHandlerLazilyWithTheContextAndOnlyOnce(): void
+    {
+        $builds = 0;
+        $seenContext = null;
+        $handler = new class implements TaskHandlerInterface {
+            public int $calls = 0;
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->calls++;
+            }
+        };
+        $this->runner->registerHandlerFactory('some_module', 'lazy_task', function (TaskContext $context) use (&$builds, &$seenContext, $handler): TaskHandlerInterface {
+            $builds++;
+            $seenContext = $context;
+
+            return $handler;
+        });
+
+        // Nothing due yet: the factory must not have run at all.
+        $this->runner->processOverdue();
+        $this->assertSame(0, $builds);
+
+        $pastTime = (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s');
+        $this->repo->create('some_module', 'lazy_task', $pastTime, null, null);
+        $this->repo->create('some_module', 'lazy_task', $pastTime, null, null);
+
+        $processed = $this->runner->processOverdue();
+
+        $this->assertSame(2, $processed);
+        $this->assertSame(2, $handler->calls);
+        $this->assertSame(1, $builds, 'The factory builds once; the instance serves the rest of the pass.');
+        $this->assertInstanceOf(TaskContext::class, $seenContext);
+    }
+
+    public function testARegisteredFactoryWinsOverModuleManagerResolution(): void
+    {
+        // The factory carries the wired dependency graph; the manifest's
+        // `new $handlerClass()` carries nothing. The wired one must win.
+        $handler = new class implements TaskHandlerInterface {
+            public bool $called = false;
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->called = true;
+            }
+        };
+        $this->runner->registerHandlerFactory('some_module', 'factory_task', static fn (TaskContext $context): TaskHandlerInterface => $handler);
+
+        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager->expects($this->never())->method('getTaskHandler');
+        $this->runner->setModuleManager($moduleManager);
+
+        $pastTime = (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s');
+        $this->repo->create('some_module', 'factory_task', $pastTime, null, null);
+
+        $this->runner->processOverdue();
+
+        $this->assertTrue($handler->called);
+    }
+
     public function testADirectlyRegisteredHandlerWinsOverModuleManagerResolution(): void
     {
         // The composition roots hand-register a few module handlers WITH
