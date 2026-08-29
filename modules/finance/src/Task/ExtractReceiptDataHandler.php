@@ -20,12 +20,10 @@ use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\ReceiptDateNormalizer;
 use Modules\Finance\Service\ReceiptMatchingService;
+use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmRequest;
 use Modules\LlmConnector\Api\LlmTier;
-use Modules\LlmConnector\Repository\ProviderModelRepository;
-use Modules\LlmConnector\Repository\ProviderRepository;
-use Modules\LlmConnector\Service\LlmConnectorService;
 
 /**
  * One-shot task (scheduled by Service\ReceiptExtractionService right
@@ -99,13 +97,12 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             return;
         }
 
-        $llmConnector = new LlmConnectorService(
-            new ProviderRepository($pdo, $context->encryption),
-            new ProviderModelRepository($pdo),
-            $context->journal
-        );
-
-        if (!$llmConnector->isAvailable()) {
+        // The connector is a capability (ARCHITECTURE.md §7.5 on the
+        // scheduled path): null — llm_connector absent or disabled —
+        // means no suggestion is written and the receipt stays fully
+        // usable manually, same degradation as no configured provider.
+        $llmConnector = $context->getOptional(LlmConnectorInterface::class);
+        if ($llmConnector === null || !$llmConnector->isAvailable()) {
             return;
         }
 

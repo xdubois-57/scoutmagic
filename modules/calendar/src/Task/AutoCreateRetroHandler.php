@@ -27,9 +27,9 @@ use Modules\Retro\Repository\BoardRepository;
  * docs/module-development.md) — and re-checks everything fresh at run
  * time rather than trusting anything true when it was scheduled, since a
  * task can be scheduled weeks in advance:
- *   1. the retro module must still be enabled right now (task handlers get
- *      no ModuleManager — the established raw-query workaround, same
- *      precedent used wherever else this codebase needs it);
+ *   1. the retro module must still be enabled right now
+ *      (TaskContext::isModuleEnabled() — the supported replacement for
+ *      the raw module_registry query this handler once had to invent);
  *   2. the event must still exist;
  *   3. no board must already be linked (idempotency — a chief may have
  *      manually created/linked one before this ran, or this handler may
@@ -54,8 +54,7 @@ class AutoCreateRetroHandler implements TaskHandlerInterface
 
         $pdo = $context->connection->getPdo();
 
-        $retroEnabled = $pdo->query("SELECT enabled FROM module_registry WHERE module_id = 'retro'")->fetchColumn();
-        if ((int) $retroEnabled !== 1) {
+        if (!$context->isModuleEnabled('retro')) {
             return;
         }
 

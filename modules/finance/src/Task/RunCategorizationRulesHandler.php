@@ -10,7 +10,6 @@ namespace Modules\Finance\Task;
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
-use Core\Module\ModuleRegistryRepository;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -27,9 +26,7 @@ use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\AiCategorizationService;
 use Modules\Finance\Service\BulkCategorizationService;
 use Modules\Finance\Service\CategoryRuleEngine;
-use Modules\LlmConnector\Repository\ProviderModelRepository;
-use Modules\LlmConnector\Repository\ProviderRepository;
-use Modules\LlmConnector\Service\LlmConnectorService;
+use Modules\LlmConnector\Api\LlmConnectorInterface;
 
 /**
  * Runs Controller\ConfigCategoryController's "Exécuter les règles sur les
@@ -57,13 +54,13 @@ class RunCategorizationRulesHandler implements TaskHandlerInterface
         $categoryRepository = new CategoryRepository($pdo);
         $ruleEngine = new CategoryRuleEngine($transactionRepository, $categoryRuleRepository);
 
-        $llmConnector = new LlmConnectorService(
-            new ProviderRepository($pdo, $context->encryption),
-            new ProviderModelRepository($pdo),
-            $context->journal
-        );
+        // The connector is a capability (ARCHITECTURE.md §7.5 on the
+        // scheduled path): null — llm_connector absent or disabled —
+        // means AiCategorizationService reports unavailable, keyword
+        // rules still apply, and nothing fails.
+        $llmConnector = $context->getOptional(LlmConnectorInterface::class);
 
-        $calendarEnabled = (new ModuleRegistryRepository($pdo))->findByModuleId('calendar')['enabled'] ?? false;
+        $calendarEnabled = $context->isModuleEnabled('calendar');
 
         $aiCategorizationService = new AiCategorizationService(
             $llmConnector,

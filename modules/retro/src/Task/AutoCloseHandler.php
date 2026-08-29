@@ -10,9 +10,7 @@ namespace Modules\Retro\Task;
 
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
-use Modules\LlmConnector\Repository\ProviderModelRepository;
-use Modules\LlmConnector\Repository\ProviderRepository;
-use Modules\LlmConnector\Service\LlmConnectorService;
+use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\Retro\Repository\BoardRepository;
 use Modules\Retro\Repository\CommentRepository;
 use Modules\Retro\Service\RetroException;
@@ -32,10 +30,10 @@ use Twig\Loader\FilesystemLoader;
  * all irrelevant to auto-closing) — a small, self-contained duplication of
  * the close+optional-summary logic instead, same "small tolerated
  * duplication" convention as Core\Maintenance's purge-beyond-limit helpers.
- * LlmConnectorService is always constructed directly from $pdo regardless
- * of whether the llm_connector module is enabled — same precedent as
- * Modules\Finance\Task\ExtractReceiptDataHandler — its own isAvailable()
- * check degrades gracefully either way.
+ * The connector is a capability (TaskContext::getOptional(),
+ * ARCHITECTURE.md §7.5 on the scheduled path): null — module absent or
+ * disabled — means the board still closes and notifies, only the AI
+ * summary is skipped.
  */
 class AutoCloseHandler implements TaskHandlerInterface
 {
@@ -61,16 +59,12 @@ class AutoCloseHandler implements TaskHandlerInterface
         $boardRepository->close($boardId);
         $context->journal->log('retro', 'board_auto_closed', 'info', 'Rétrospective clôturée automatiquement', ['board_id' => $boardId]);
 
-        $llmConnector = new LlmConnectorService(
-            new ProviderRepository($pdo, $context->encryption),
-            new ProviderModelRepository($pdo),
-            $context->journal
-        );
-        $summaryService = new SummaryService($llmConnector);
+        $llmConnector = $context->getOptional(LlmConnectorInterface::class);
+        $summaryService = $llmConnector !== null ? new SummaryService($llmConnector) : null;
 
         $visible = array_values(array_filter($commentRepository->findByBoardId($boardId), fn($c) => !$c->hidden));
 
-        if ($summaryService->isAvailable()) {
+        if ($summaryService !== null && $summaryService->isAvailable()) {
             try {
                 $summary = $summaryService->generate($visible);
                 if ($summary !== '') {

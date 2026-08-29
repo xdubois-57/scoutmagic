@@ -72,8 +72,28 @@ class ExtractReceiptDataHandlerTest extends TestCase
         rmdir($dir);
     }
 
-    private function createTaskContext(): TaskContext
+    private function createTaskContext(bool $withLlmConnector = true): TaskContext
     {
+        // The connector arrives as a capability (IT-04): the ordinary
+        // test context carries it, backed by the real service over this
+        // test's own llm tables — empty tables still mean "no provider
+        // configured", exactly as before the migration.
+        $capabilities = null;
+        if ($withLlmConnector) {
+            $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+            $moduleManager->method('getEnabledModuleIds')->willReturn(['finance', 'llm_connector']);
+            $capabilities = new \Core\Scheduler\TaskCapabilities($moduleManager);
+            $capabilities->register(
+                \Modules\LlmConnector\Api\LlmConnectorInterface::class,
+                'llm_connector',
+                fn (): object => new \Modules\LlmConnector\Service\LlmConnectorService(
+                    new \Modules\LlmConnector\Repository\ProviderRepository($this->pdo, $this->encryption),
+                    new \Modules\LlmConnector\Repository\ProviderModelRepository($this->pdo),
+                    new JournalService(new JournalRepository($this->pdo))
+                )
+            );
+        }
+
         return new TaskContext(
             Connection::withPdo($this->pdo),
             $this->encryption,
@@ -81,8 +101,28 @@ class ExtractReceiptDataHandlerTest extends TestCase
             new JournalService(new JournalRepository($this->pdo)),
             new SettingService(new SettingRepository($this->pdo)),
             $this->createMock(UserAccountRepository::class),
-            $this->storagePath
+            $this->storagePath,
+            null,
+            $capabilities
         );
+    }
+
+    public function testNoOpWhenTheLlmConnectorModuleIsAbsent(): void
+    {
+        // Provider MODULE absent — the capability resolves to null — must
+        // degrade exactly like a configured module with no provider: no
+        // suggestion written, no failure, receipt fully usable manually.
+        $providerId = $this->providerRepository->create('Test', 'anthropic', 'http://127.0.0.1:19', 'sk-test', true);
+        $this->modelRepository->upsert($providerId, 'test-model', 'Test Model');
+        $attachmentId = $this->createAttachment();
+
+        (new ExtractReceiptDataHandler())->handle(
+            ['attachment_id' => $attachmentId],
+            $this->createTaskContext(withLlmConnector: false)
+        );
+
+        $attachment = $this->attachmentRepository->findById($attachmentId);
+        $this->assertNull($attachment->suggestedAmount);
     }
 
     /**
