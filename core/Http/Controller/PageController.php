@@ -19,6 +19,7 @@ use Core\Module\HomeBannerProvider;
 use Core\Module\HomeGroupActivityProvider;
 use Core\Module\HomePaymentDueProvider;
 use Core\Module\HomeNewsProvider;
+use Core\Module\HookRegistry;
 use Core\Module\SectionResponsableProvider;
 use Core\Security\AuthSession;
 use Core\Service\DateInput;
@@ -31,6 +32,15 @@ class PageController extends AbstractController
 {
     private const HOME_NEWS_LIMIT = 5;
 
+    /**
+     * The five optional module contributions this controller renders (the
+     * home page's banner, news, group-activity and payment bands, and the
+     * sections page's responsable names) resolve through the hook
+     * registry AT REQUEST TIME (ARCHITECTURE.md §7.4): the controller is
+     * constructed once, before any module block ran, and still sees every
+     * hook a later block registered — the property that removed this
+     * class's six construction sites from the composition root.
+     */
     public function __construct(
         protected Environment $twig,
         private EditableContentService $editableContentService,
@@ -40,11 +50,7 @@ class PageController extends AbstractController
         private SectionService $sectionService,
         private UnitStaffSectionService $unitStaffSectionService,
         private ScoutYearService $scoutYearService,
-        private ?HomeBannerProvider $bannerProvider = null,
-        private ?HomeNewsProvider $newsProvider = null,
-        private ?SectionResponsableProvider $sectionResponsableProvider = null,
-        private ?HomeGroupActivityProvider $groupActivityProvider = null,
-        private ?HomePaymentDueProvider $paymentDueProvider = null
+        private ?HookRegistry $hooks = null
     ) {
     }
 
@@ -56,13 +62,13 @@ class PageController extends AbstractController
     public function home(Request $request, array $params): Response
     {
         return $this->render('pages/home.html.twig', [
-            'banner_html' => $this->bannerProvider?->getRandomBannerHtml(AuthSession::getRole()),
-            'news_articles' => $this->newsProvider?->getLatestVisibleArticles(self::HOME_NEWS_LIMIT, AuthSession::getRole()) ?? [],
+            'banner_html' => $this->hooks?->getOptional(HomeBannerProvider::class)?->getRandomBannerHtml(AuthSession::getRole()),
+            'news_articles' => $this->hooks?->getOptional(HomeNewsProvider::class)?->getLatestVisibleArticles(self::HOME_NEWS_LIMIT, AuthSession::getRole()) ?? [],
             // The provider resolves the caller from the session itself and
             // answers null for a visitor with no unread groups (and for
             // an anonymous one), so there is nothing to gate on here.
-            'group_activity' => $this->groupActivityProvider?->getHomeActivitySummaryForCurrentUser(),
-            'payment_due' => $this->paymentDueProvider?->getHomePaymentSummaryForCurrentUser(),
+            'group_activity' => $this->hooks?->getOptional(HomeGroupActivityProvider::class)?->getHomeActivitySummaryForCurrentUser(),
+            'payment_due' => $this->hooks?->getOptional(HomePaymentDueProvider::class)?->getHomePaymentSummaryForCurrentUser(),
         ]);
     }
 
@@ -101,9 +107,11 @@ class PageController extends AbstractController
         $groups = $this->sectionRepository->findAllGroupedByBranch();
         $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
 
+        // Resolved once for the whole page, not once per section.
+        $responsableProvider = $this->hooks?->getOptional(SectionResponsableProvider::class);
         foreach ($groups as &$group) {
             foreach ($group['sections'] as &$section) {
-                $section['responsable'] = $this->sectionResponsableProvider?->getResponsable($section['id'], $scoutYearId);
+                $section['responsable'] = $responsableProvider?->getResponsable($section['id'], $scoutYearId);
             }
             unset($section);
         }

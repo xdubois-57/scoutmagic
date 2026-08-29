@@ -369,7 +369,7 @@ class FunctionsControllerTest extends TestCase
     {
         $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
 
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->stubFlagsProvider());
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->hooksWithFlags($this->stubFlagsProvider()));
 
         $request = new Request('GET', '/config/functions', [], [], [], []);
         $response = $controller->index($request, []);
@@ -415,7 +415,7 @@ class FunctionsControllerTest extends TestCase
 
         $id = $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
         $provider = $this->stubFlagsProvider();
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $provider);
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->hooksWithFlags($provider));
 
         $request = $this->createJsonRequest(['function_id' => $id, 'lead' => true, '_csrf_token' => $token]);
         $response = $controller->updateFlags($request, []);
@@ -428,7 +428,7 @@ class FunctionsControllerTest extends TestCase
     public function testUpdateFlagsWithInvalidCsrfReturnsError(): void
     {
         $id = $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->stubFlagsProvider());
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->hooksWithFlags($this->stubFlagsProvider()));
 
         $request = $this->createJsonRequest(['function_id' => $id, 'lead' => false, '_csrf_token' => 'bad']);
         $response = $controller->updateFlags($request, []);
@@ -881,5 +881,12 @@ class FunctionsControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
+    }
+
+    private function hooksWithFlags(\Core\Module\FunctionFlagsProvider $provider): \Core\Module\HookRegistry
+    {
+        $hooks = new \Core\Module\HookRegistry();
+        $hooks->register(\Core\Module\FunctionFlagsProvider::class, $provider);
+        return $hooks;
     }
 }
