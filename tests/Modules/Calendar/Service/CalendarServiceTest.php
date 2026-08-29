@@ -85,6 +85,27 @@ class CalendarServiceTest extends TestCase
         $this->assertContains('PION-1', array_column($this->service->listSelectableCalendars(), 'label'));
     }
 
+    public function testSelectableCalendarsPublishesTheSameListAsApiValueObjects(): void
+    {
+        // The Api\CalendarDirectoryInterface half (chantier IT-06): a
+        // consuming module (rental's publication picker) gets the same
+        // list as public DTOs, without touching this module's internals.
+        $sectionId = $this->createRegularSection('BALA', 'Baladins');
+        $this->calendarRepository->createSectionCalendar($sectionId, Calendar::VISIBILITY_PUBLIC);
+        $this->service->ensureDefaultCalendar();
+
+        $views = $this->service->selectableCalendars();
+
+        $this->assertContainsOnlyInstancesOf(\Modules\Calendar\Api\SelectableCalendar::class, $views);
+        $byLabel = [];
+        foreach ($views as $view) {
+            $byLabel[$view->label] = $view;
+        }
+        $this->assertTrue($byLabel['Baladins']->isSection);
+        $this->assertFalse($byLabel['Animateurs']->isSection);
+        $this->assertGreaterThan(0, $byLabel['Baladins']->id);
+    }
+
     public function testASectionCalendarIsMarkedAsOneSoAConsumerCanGroupThem(): void
     {
         $sectionId = $this->createRegularSection('BALA', 'Baladins');

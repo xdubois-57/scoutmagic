@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Gallery\Service;
 
+use Modules\Gallery\Api\GalleryException;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmRequest;

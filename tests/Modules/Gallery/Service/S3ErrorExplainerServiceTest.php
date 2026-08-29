@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Gallery\Service;
 
-use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Service\S3ErrorExplainerService;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;

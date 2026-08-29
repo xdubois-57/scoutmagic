@@ -10,8 +10,8 @@ namespace Modules\Finance\Service;
 
 use Core\Journal\JournalService;
 use Core\Service\DateInput;
-use Modules\Calendar\Repository\CalendarEventRepository;
-use Modules\Calendar\Repository\CalendarRepository;
+use Core\Security\Role;
+use Modules\Calendar\Api\CalendarEventLookupInterface;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\AiCategorySuggestionRepository;
 use Modules\Finance\Repository\AttachmentRepository;
@@ -74,8 +74,12 @@ class AiCategorizationService
         private ?AccountRepository $accountRepository = null,
         private ?TransactionAttachmentRepository $transactionAttachmentRepository = null,
         private ?AttachmentRepository $attachmentRepository = null,
-        private ?CalendarRepository $calendarRepository = null,
-        private ?CalendarEventRepository $calendarEventRepository = null
+        /**
+         * The calendar's PUBLISHED read Api (ARCHITECTURE.md §7.5) — null
+         * when the calendar module is disabled, and the categorization
+         * prompt then simply carries no activity-date hints.
+         */
+        private ?CalendarEventLookupInterface $calendarEvents = null
     ) {
     }
 
@@ -224,7 +228,7 @@ class AiCategorizationService
      */
     private function findNearbyCalendarEvents(Transaction $transaction): array
     {
-        if ($this->accountRepository === null || $this->calendarRepository === null || $this->calendarEventRepository === null) {
+        if ($this->accountRepository === null || $this->calendarEvents === null) {
             return [];
         }
 
@@ -233,19 +237,22 @@ class AiCategorizationService
             return [];
         }
 
-        $calendar = $this->calendarRepository->findBySectionId($account->sectionId);
-        if ($calendar === null) {
-            return [];
-        }
-
         $transactionDate = DateInput::requireFromStorage(
             $transaction->transactionDate,
             'finance_transactions.transaction_date'
         );
-        $fromDate = $transactionDate->modify('-21 days')->format('Y-m-d');
-        $toDate = $transactionDate->modify('+21 days')->format('Y-m-d');
 
-        $events = $this->calendarEventRepository->findByCalendarIdsInRange([$calendar->id], $fromDate, $toDate);
+        // Through the calendar's published lookup, scoped to the
+        // account's section. The superadmin viewer is deliberate: this is
+        // the application reading the unit's own calendar to hint its own
+        // categorization model, not a member browsing — the same
+        // system-caller stance as every scheduled read.
+        $events = $this->calendarEvents->findEventsInWindow(
+            $transactionDate->modify('-21 days'),
+            $transactionDate->modify('+21 days'),
+            $account->sectionId,
+            Role::SUPERADMIN
+        );
 
         return array_map(
             fn($event) => $event->description !== null && trim($event->description) !== ''

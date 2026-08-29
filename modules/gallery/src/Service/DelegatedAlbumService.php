@@ -12,6 +12,7 @@ use Core\Config\ScoutYearService;
 use Modules\Gallery\Api\DelegatedAlbum;
 use Modules\Gallery\Api\DelegatedAlbumManager;
 use Modules\Gallery\Api\DelegatedMedia;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;

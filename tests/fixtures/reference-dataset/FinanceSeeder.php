@@ -263,7 +263,6 @@ final class FinanceSeeder
             $transactionAttachmentRepository,
             $attachmentRepository,
             null,
-            null,
         );
 
         return new ImportService(

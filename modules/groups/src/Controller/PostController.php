@@ -15,7 +15,7 @@ use Core\Http\Response;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\Post;

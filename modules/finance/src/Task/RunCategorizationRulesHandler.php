@@ -14,8 +14,7 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
-use Modules\Calendar\Repository\CalendarEventRepository;
-use Modules\Calendar\Repository\CalendarRepository;
+use Modules\Calendar\Api\CalendarEventLookupInterface;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\AiCategorySuggestionRepository;
 use Modules\Finance\Repository\AttachmentRepository;
@@ -60,8 +59,6 @@ class RunCategorizationRulesHandler implements TaskHandlerInterface
         // rules still apply, and nothing fails.
         $llmConnector = $context->getOptional(LlmConnectorInterface::class);
 
-        $calendarEnabled = $context->isModuleEnabled('calendar');
-
         $aiCategorizationService = new AiCategorizationService(
             $llmConnector,
             $categoryRepository,
@@ -70,8 +67,10 @@ class RunCategorizationRulesHandler implements TaskHandlerInterface
             new AccountRepository($pdo, $context->encryption),
             new TransactionAttachmentRepository($pdo),
             new AttachmentRepository($pdo, $context->encryption),
-            $calendarEnabled ? new CalendarRepository($pdo, $context->encryption) : null,
-            $calendarEnabled ? new CalendarEventRepository($pdo) : null
+            // The calendar's published read Api, as a capability — null
+            // when that module is disabled, and the prompt then carries
+            // no activity-date hints (ARCHITECTURE.md §7.5).
+            $context->getOptional(CalendarEventLookupInterface::class)
         );
 
         $bulkCategorizationService = new BulkCategorizationService(

@@ -17,6 +17,7 @@ use Core\Scheduler\SchedulerService;
 use Core\Security\Role;
 use Core\Security\UserAccountRepository;
 use Core\Service\DateInput;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;

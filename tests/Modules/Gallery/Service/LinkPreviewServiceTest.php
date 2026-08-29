@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Gallery\Service;
 
 use Modules\Gallery\Repository\LinkPreviewCacheRepository;
-use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Service\LinkPreviewService;
 use Modules\Gallery\Service\OgScraperService;
 use PHPUnit\Framework\Attributes\Group;

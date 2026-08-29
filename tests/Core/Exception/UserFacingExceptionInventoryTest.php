@@ -61,7 +61,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Modules\Finance\Service\CampaignImportException::class,
         \Modules\Finance\Service\FinanceException::class,
         \Modules\Camps\Service\CampsException::class,
-        \Modules\Gallery\Service\GalleryException::class,
+        \Modules\Gallery\Api\GalleryException::class,
         \Modules\Groups\Service\GroupsException::class,
         \Modules\InboundMail\Client\MailboxConnectionException::class,
         \Modules\LlmConnector\Api\LlmException::class,

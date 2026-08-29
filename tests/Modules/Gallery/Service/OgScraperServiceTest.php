@@ -137,7 +137,7 @@ class OgScraperServiceTest extends TestCase
     #[DataProvider('ssrfTargetUrls')]
     public function testFetchRejectsPrivateAndReservedTargets(string $url): void
     {
-        $this->expectException(\Modules\Gallery\Service\GalleryException::class);
+        $this->expectException(\Modules\Gallery\Api\GalleryException::class);
         $this->service->fetch($url);
     }
 

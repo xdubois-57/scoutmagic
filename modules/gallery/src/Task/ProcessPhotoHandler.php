@@ -15,7 +15,7 @@ use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
 use Modules\Gallery\Repository\S3SecretRepository;
 use Modules\Gallery\Repository\StorageLocationRepository;
-use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Service\ImageProcessingService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
 use Modules\Gallery\Service\StorageLocationService;

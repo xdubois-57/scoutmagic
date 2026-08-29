@@ -547,7 +547,7 @@ class GroupLifecycleServiceTest extends TestCase
         });
         $manager->method('deleteAlbum')->willReturnCallback(function (int $albumId) use ($albumMissing): void {
             if ($albumMissing) {
-                throw new \Modules\Gallery\Service\GalleryException('Album introuvable.');
+                throw new \Modules\Gallery\Api\GalleryException('Album introuvable.');
             }
             $this->deletedAlbums[] = $albumId;
             $this->albumMedia = [];

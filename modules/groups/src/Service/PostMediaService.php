@@ -10,7 +10,7 @@ namespace Modules\Groups\Service;
 
 use Modules\Gallery\Api\DelegatedAlbumManager;
 use Modules\Gallery\Api\DelegatedMedia;
-use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Groups\File\GroupFileOwnershipChecker;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;

@@ -69,10 +69,25 @@ class AiCategorizationServiceTest extends TestCase
 
     private function service(?LlmConnectorInterface $llmConnector): AiCategorizationService
     {
+        // The calendar hints now arrive through the calendar's PUBLISHED
+        // read Api (IT-06) — a real CalendarService over this test's own
+        // database, exactly what the composition root injects.
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $calendarService = new \Modules\Calendar\Service\CalendarService(
+            $this->calendarRepository,
+            $this->calendarEventRepository,
+            new \Core\Member\SectionService(
+                \Core\Database\Connection::withPdo($this->pdo),
+                $encryption,
+                new \Core\Badge\MemberBadgeRepository($this->pdo)
+            ),
+            new \Modules\Calendar\Repository\CalendarUnitFeedTokenRepository($this->pdo, $encryption)
+        );
+
         return new AiCategorizationService(
             $llmConnector, $this->categoryRepository, $this->suggestionRepository, new JournalService(new JournalRepository($this->pdo)),
             $this->accountRepository, $this->transactionAttachmentRepository, $this->attachmentRepository,
-            $this->calendarRepository, $this->calendarEventRepository
+            $calendarService
         );
     }
 

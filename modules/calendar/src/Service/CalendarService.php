@@ -22,7 +22,7 @@ use Modules\Calendar\Repository\CalendarRepository;
 use Modules\Calendar\Repository\CalendarUnitFeedTokenRepository;
 use Modules\Retro\Api\RetroEventLinkLookupInterface;
 
-class CalendarService implements CalendarEventLookupInterface
+class CalendarService implements CalendarEventLookupInterface, \Modules\Calendar\Api\CalendarDirectoryInterface
 {
     private const DEFAULT_CALENDAR_NAME = 'Animateurs';
     /** Fixed accent color (bordeaux) for every supplementary calendar's
@@ -161,6 +161,25 @@ class CalendarService implements CalendarEventLookupInterface
     }
 
     /**
+     * Api\CalendarDirectoryInterface implementation — the same list as
+     * listSelectableCalendars(), as public DTOs a consuming module may
+     * hold without touching this module's internals.
+     *
+     * @return list<\Modules\Calendar\Api\SelectableCalendar>
+     */
+    public function selectableCalendars(): array
+    {
+        return array_map(
+            static fn(array $calendar): \Modules\Calendar\Api\SelectableCalendar => new \Modules\Calendar\Api\SelectableCalendar(
+                (int) $calendar['id'],
+                (string) $calendar['label'],
+                (bool) $calendar['is_section']
+            ),
+            $this->listSelectableCalendars()
+        );
+    }
+
+    /**
      * The first of $candidates that is a non-blank string, or null.
      *
      * @param array<int, mixed> $candidates
@@ -262,7 +281,8 @@ class CalendarService implements CalendarEventLookupInterface
             title: $e->title,
             calendarName: $labels[$e->calendarId] ?? 'Calendrier',
             startDate: $e->startDate,
-            endDate: $e->endDate ?? $e->startDate
+            endDate: $e->endDate ?? $e->startDate,
+            description: $e->description
         ), $events);
     }
 
@@ -288,7 +308,8 @@ class CalendarService implements CalendarEventLookupInterface
             title: $event->title,
             calendarName: $labels[$event->calendarId] ?? 'Calendrier',
             startDate: $event->startDate,
-            endDate: $event->endDate ?? $event->startDate
+            endDate: $event->endDate ?? $event->startDate,
+            description: $event->description
         );
     }
 
