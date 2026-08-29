@@ -1970,6 +1970,24 @@ $router->addRoute('POST', '/config/functions/branch-url', FunctionsController::c
 // Load enabled modules (routes registered AFTER core routes so core takes priority)
 $moduleManager->loadEnabledModules();
 
+// One question, asked the same way at every module block below: is this
+// module enabled? Deliberately a closure over ModuleManager and NOT a
+// pre-computed array or set: every call reads getEnabledModuleIds() live,
+// exactly as the 39 inline in_array() calls it replaces did, so nothing
+// about when enablement is read changes. (Each call site was audited
+// before this helper landed — composition runs once per request and none
+// of them is hot, so there is nothing for a cache to win and one
+// invariant fewer for it to break.)
+$isEnabled = static fn (string $moduleId): bool => in_array($moduleId, $moduleManager->getEnabledModuleIds(), true);
+
+// Handle naming, throughout the rest of this file: a module capability
+// consumed by other blocks is `$<module><Capability>ForOthers` —
+// null-seeded before the providing module's block, assigned inside it, so
+// every consumer reads a variable that provably exists. A module's
+// implementation of a CORE hook instead keeps the hook's own name
+// (`$sectionResponsableProvider`, `$homePaymentDueProvider`, …). The name
+// alone says which side of §7.4/§7.5 a handle lives on.
+
 // Desk-import listeners (Core\Import\DeskImportListener, ARCHITECTURE.md
 // §7.4) — a module reconciling its own references to members.id at the end
 // of an import. $importService was built far above, before $moduleManager
@@ -1978,7 +1996,7 @@ $moduleManager->loadEnabledModules();
 // picks up this instance, including the registration module's own
 // re-registration.
 $deskImportListeners = [];
-if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('rental')) {
     $deskImportListeners[] = new \Modules\Rental\Service\RentalDeskImportListener(
         new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo),
         $journalService
@@ -2053,15 +2071,15 @@ $twig->addGlobal('active_page_url', $activePageUrl);
 // effective sub-processors reach it through the Core\Module\
 // SubProcessorProvider hook (§7.4), registered from the module's own
 // block below — core never reads a module's tables for the RGPD page.
-$llmConnectorForRgpd = null;
+$llmConnectorForOthers = null;
 $llmSubProcessorProvider = null;
-if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
-    $llmProviderRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
-    $llmModelRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
-    $llmConnectorForRgpd = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepoForRgpd, $llmModelRepoForRgpd, $journalService);
-    $llmSubProcessorProvider = new \Modules\LlmConnector\Service\LlmSubProcessorService($llmProviderRepoForRgpd, $llmModelRepoForRgpd);
+if ($isEnabled('llm_connector')) {
+    $llmProviderRepoForOthers = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
+    $llmModelRepoForOthers = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
+    $llmConnectorForOthers = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepoForOthers, $llmModelRepoForOthers, $journalService);
+    $llmSubProcessorProvider = new \Modules\LlmConnector\Service\LlmSubProcessorService($llmProviderRepoForOthers, $llmModelRepoForOthers);
 }
-$rgpdContentService = new RgpdContentService($moduleManager, $settingService, $llmConnectorForRgpd);
+$rgpdContentService = new RgpdContentService($moduleManager, $settingService, $llmConnectorForOthers);
 if ($llmSubProcessorProvider !== null) {
     $rgpdContentService->addSubProcessorProvider($llmSubProcessorProvider);
 }
@@ -2074,16 +2092,16 @@ if ($llmSubProcessorProvider !== null) {
 // accepted/encoded requests to the PROJECTED count, through the same
 // nullable Api provider as before (ARCHITECTURE.md §7.5) — null when it is
 // disabled, and the service degrades to counting members alone.
-$householdRegistrationCount = null;
-if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
-    $householdRegistrationCount = new \Modules\Registration\Service\HouseholdRegistrationCountService(
+$householdRegistrationCountForOthers = null;
+if ($isEnabled('registration')) {
+    $householdRegistrationCountForOthers = new \Modules\Registration\Service\HouseholdRegistrationCountService(
         new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryptionService)
     );
 }
 $feeEstimationService = new \Core\Member\FeeEstimationService(
     new \Core\Member\FeeEstimationRepository($pdo),
     $encryptionService,
-    $householdRegistrationCount
+    $householdRegistrationCountForOthers
 );
 // Its twin, and core for the same reason: the two counts a household has
 // (what Desk holds, what it will hold) are not the fees module's notion,
@@ -2092,7 +2110,7 @@ $feeEstimationService = new \Core\Member\FeeEstimationService(
 $householdService = new \Core\Member\Household\HouseholdService(
     new \Core\Member\Household\HouseholdRepository($pdo),
     $encryptionService,
-    $householdRegistrationCount
+    $householdRegistrationCountForOthers
 );
 
 // Handle the request
@@ -2148,7 +2166,7 @@ $memberRegistrationOriginProvider = null;
 // the member page's "next upcoming event" (§3) — set below only when
 // 'calendar' is enabled, same pattern as $sectionResponsableProvider
 // above.
-$calendarEventLookup = null;
+$calendarEventLookupForOthers = null;
 
 // Optional dependency on the leadership module (ARCHITECTURE.md §7.5) for
 // the member page's own "Mon parcours de formation" card (§6bis) — set in
@@ -2324,7 +2342,7 @@ $frontController->registerController(FunctionsController::class, new FunctionsCo
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
 // Module controllers with dependencies (only wired when the module is enabled).
-if (in_array('member_stats', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('member_stats')) {
     $memberStatsService = new \Modules\MemberStats\Service\MemberStatsService(
         new \Modules\MemberStats\Repository\MemberStatsRepository($connection, $encryptionService),
         $sectionService,
@@ -2336,7 +2354,7 @@ if (in_array('member_stats', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
-if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('trombinoscope')) {
     // Re-registers FunctionsController with the trombinoscope function-flags
     // hook (Core\Module\FunctionFlagsProvider) so the Config Desk page can
     // expose the "responsable" checkbox — core never depends on the module
@@ -2407,7 +2425,7 @@ $calendarVirtualEventRegistry = null;
 $calendarServiceForOthers = null;
 $calendarIcsBuilderForOthers = null;
 
-if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('calendar')) {
     $calendarVirtualEventRegistry = new \Modules\Calendar\Service\VirtualEventRegistry();
     $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService);
     $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
@@ -2465,7 +2483,7 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
-if (in_array('sos_staff', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('sos_staff')) {
     $sosProviderCredentialRepo = new \Modules\SosStaff\Repository\ProviderCredentialRepository($pdo, $encryptionService);
     $sosSettingsRepo = new \Modules\SosStaff\Repository\SosSettingsRepository($pdo);
     $sosExcludedSectionRepo = new \Modules\SosStaff\Repository\ExcludedSectionRepository($pdo);
@@ -2516,7 +2534,7 @@ if (in_array('sos_staff', $moduleManager->getEnabledModuleIds(), true)) {
     }
 }
 
-if (in_array('banner', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('banner')) {
     $bannerRepo = new \Modules\Banner\Repository\BannerRepository($pdo);
     $bannerService = new \Modules\Banner\Service\BannerService($bannerRepo, $editableContentService);
 
@@ -2534,7 +2552,7 @@ if (in_array('banner', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
-if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('llm_connector')) {
     $llmProviderRepo = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
     $llmModelRepo = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
 
@@ -2561,7 +2579,7 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
 // communications, which is the clean degradation in that direction.
 $inboundMailForOthers = null;
 
-if (in_array('inbound_mail', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('inbound_mail')) {
     $inboundMailboxRepository = new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService);
     $inboundMessageRepository = new \Modules\InboundMail\Repository\InboundMessageRepository($pdo, $encryptionService);
 
@@ -2599,7 +2617,7 @@ $financeExpectedReceivableForOthers = null;
 $financeSepaQrCodeForOthers = null;
 $financeAccountForOthers = null;
 
-if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('finance')) {
     $financeFiscalYearRepo = new \Modules\Finance\Repository\FiscalYearRepository($pdo, $scoutYearService);
     $financeAccountRepo = new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService);
     $financeCategoryRepo = new \Modules\Finance\Repository\CategoryRepository($pdo);
@@ -2638,7 +2656,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     // the AI-assisted matching fallback degrades to rule-based-only
     // whenever it's null/unavailable.
     $financeReceiptMatchingService = new \Modules\Finance\Service\ReceiptMatchingService(
-        $financeAttachmentRepo, $financeTransactionRepo, $financeTransactionAttachmentRepo, $journalService, $llmConnectorForRgpd
+        $financeAttachmentRepo, $financeTransactionRepo, $financeTransactionAttachmentRepo, $journalService, $llmConnectorForOthers
     );
 
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
@@ -2649,7 +2667,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     // section calendar events" section when calendar is disabled.
     $financeAiSuggestionRepo = new \Modules\Finance\Repository\AiCategorySuggestionRepository($pdo);
     $financeAiCategorizationService = new \Modules\Finance\Service\AiCategorizationService(
-        $llmConnectorForRgpd, $financeCategoryRepo, $financeAiSuggestionRepo, $journalService,
+        $llmConnectorForOthers, $financeCategoryRepo, $financeAiSuggestionRepo, $journalService,
         $financeAccountRepo, $financeTransactionAttachmentRepo, $financeAttachmentRepo,
         // The calendar's PUBLISHED read Api (§7.5) — the null-seeded
         // handle from the calendar block above implements it; null with
@@ -2713,7 +2731,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     // §7.5) — reuses the same LlmConnectorInterface instance already
     // built for RGPD content generation above; extraction is skipped
     // gracefully whenever it's null/unavailable.
-    $financeReceiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService($schedulerService, $llmConnectorForRgpd);
+    $financeReceiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService($schedulerService, $llmConnectorForOthers);
     $financeFirstReceiptResolver = new \Modules\Finance\Service\FirstReceiptResolver($financeTransactionAttachmentRepo, $financeAttachmentRepo);
 
     // Built here rather than next to its own controller a few hundred
@@ -2772,7 +2790,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Finance\Controller\ConfigCategoryController::class,
         new \Modules\Finance\Controller\ConfigCategoryController(
             $twig, $financeService, $financeCategoryRuleRepo, $journalService, $financeAiSuggestionRepo,
-            $financeBulkCategorizationService, $financeTransactionRepo, $llmConnectorForRgpd !== null
+            $financeBulkCategorizationService, $financeTransactionRepo, $llmConnectorForOthers !== null
         )
     );
     $frontController->registerController(
@@ -2904,7 +2922,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         new PageController(
             $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
             $sectionService, $unitStaffSectionService, $scoutYearService,
-            in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
+            $isEnabled('banner') ? $bannerService : null,
             $newsArticleService,
             $sectionResponsableProvider,
             null,
@@ -2961,7 +2979,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
 // appear without it.
 $massMailDraftForOthers = null;
 
-if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('mass_mail')) {
     $massMailListRepo = new \Modules\MassMail\Repository\MailingListRepository($pdo);
     $massMailResolutionRepo = new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService);
     $massMailEmailRepo = new \Modules\MassMail\Repository\EmailRepository($pdo);
@@ -3044,7 +3062,7 @@ if (isset($financeCampaignControllerFactory)) {
     );
 }
 
-if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('news')) {
     $newsArticleRepo = new \Modules\News\Repository\ArticleRepository($pdo);
     $newsFormRepo = new \Modules\News\Repository\FormRepository($pdo);
     $newsFieldRepo = new \Modules\News\Repository\FormFieldRepository($pdo);
@@ -3067,7 +3085,7 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
     // "Générer avec l'IA" button is simply hidden when it's unavailable.
-    $newsSeoKeywordService = new \Modules\News\Service\SeoKeywordService($llmConnectorForRgpd);
+    $newsSeoKeywordService = new \Modules\News\Service\SeoKeywordService($llmConnectorForOthers);
 
     $frontController->registerController(
         \Modules\News\Controller\NewsController::class,
@@ -3122,7 +3140,7 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
         new PageController(
             $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
             $sectionService, $unitStaffSectionService, $scoutYearService,
-            in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
+            $isEnabled('banner') ? $bannerService : null,
             $newsArticleService,
             $sectionResponsableProvider,
             null,
@@ -3131,7 +3149,7 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
-if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('gallery')) {
     $galleryAlbumRepo = new \Modules\Gallery\Repository\AlbumRepository($pdo);
     $galleryMediaRepo = new \Modules\Gallery\Repository\MediaRepository($pdo);
     // Legacy singleton (pre-multi-location) — only read from now on, by
@@ -3160,7 +3178,7 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
     // "Expliquer avec l'IA" button is simply hidden when it's unavailable.
-    $galleryS3ErrorExplainerService = new \Modules\Gallery\Service\S3ErrorExplainerService($llmConnectorForRgpd);
+    $galleryS3ErrorExplainerService = new \Modules\Gallery\Service\S3ErrorExplainerService($llmConnectorForOthers);
     // Reclaims the `files` row + bytes behind a media's staging original and
     // an external album's cached og:image once nothing references them.
     $galleryStoredFileCleaner = new \Modules\Gallery\Service\StoredFileCleaner($fileRepository, $storagePath);
@@ -3214,7 +3232,7 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
-if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('groups')) {
     $groupsGroupRepo = new \Modules\Groups\Repository\GroupRepository($pdo);
     $groupsSectionRepo = new \Modules\Groups\Repository\GroupSectionRepository($pdo);
     $groupsMemberRepo = new \Modules\Groups\Repository\GroupMemberRepository($pdo);
@@ -3248,7 +3266,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
 
     // Flood protection and the a-priori AI check (prompt 9). The
     // moderation service is an OPTIONAL llm_connector consumer
-    // (ARCHITECTURE.md §7.5): $llmConnectorForRgpd is already null when
+    // (ARCHITECTURE.md §7.5): $llmConnectorForOthers is already null when
     // that module is disabled, and Service\ModerationService degrades to
     // "unavailable", which means every post is published unmoderated
     // rather than refused. `groups` deliberately does NOT reuse retro's
@@ -3256,7 +3274,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     $groupsRateLimitService = new \Modules\Groups\Service\RateLimitService(
         new \Modules\Groups\Repository\RateLimitRepository($pdo)
     );
-    $groupsModerationService = new \Modules\Groups\Service\ModerationService($settingService, $llmConnectorForRgpd);
+    $groupsModerationService = new \Modules\Groups\Service\ModerationService($settingService, $llmConnectorForOthers);
 
     $groupsPostService = new \Modules\Groups\Service\PostService(
         $groupsPostRepo, $groupsActivityService, $groupsRateLimitService, $groupsModerationService
@@ -3508,8 +3526,8 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new PageController(
             $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
             $sectionService, $unitStaffSectionService, $scoutYearService,
-            in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
-            in_array('news', $moduleManager->getEnabledModuleIds(), true) ? $newsArticleService : null,
+            $isEnabled('banner') ? $bannerService : null,
+            $isEnabled('news') ? $newsArticleService : null,
             $sectionResponsableProvider,
             new \Modules\Groups\Service\HomeActivityService(
                 $groupsListService,
@@ -3554,7 +3572,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
 // Modules\SupportDashboard — the statistics receiver (ARCHITECTURE.md
 // §8.49). Only ever discovered on the receiving installation, so this block
 // is dead code everywhere else by construction.
-if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('support_dashboard')) {
     $supportInstallationRepo = new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo);
     $supportRateLimitRepo = new \Modules\SupportDashboard\Repository\SupportReportRateLimitRepository($pdo);
     $supportMonthlyAggregateRepo = new \Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository($pdo);
@@ -3609,7 +3627,7 @@ if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) 
     }
 }
 
-if (in_array('test_tools', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('test_tools')) {
     // The mail sandbox (ARCHITECTURE.md §8.63). Its transport was already
     // decided far above, next to MailService — this half only wires the
     // pages that show what was captured.
@@ -3647,7 +3665,7 @@ if (in_array('test_tools', $moduleManager->getEnabledModuleIds(), true)) {
     }
 }
 
-if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('camps')) {
     $campsPlaceRepo = new \Modules\Camps\Repository\PlaceRepository($pdo);
     $campsCampRepo = new \Modules\Camps\Repository\CampRepository($pdo, $encryptionService);
     $campsContactRepo = new \Modules\Camps\Repository\ContactRepository($pdo, $encryptionService);
@@ -3695,7 +3713,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService, $campsPlaceRepo);
     $campsSummaryService = new \Modules\Camps\Service\PlaceSummaryService(
         $campsPlaceRepo, $campsCampRepo, $campsReviewRepo, $editableContentService,
-        $campsSectionDescriber, $llmConnectorForRgpd ?? null
+        $campsSectionDescriber, $llmConnectorForOthers ?? null
     );
     $campsArchiveService = new \Modules\Camps\Service\PlaceArchiveService(
         $campsPlaceRepo, $campsCampRepo, $auditService
@@ -3714,7 +3732,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     // accepts or refuses, and nothing here can merge on its own.
     $campsDuplicateDetector = new \Modules\Camps\Service\DuplicatePlaceDetector(
         $campsPlaceRepo,
-        $llmConnectorForRgpd ?? null
+        $llmConnectorForOthers ?? null
     );
 
     // The three DAILY tasks re-arm themselves to a fixed hour, so each
@@ -3785,7 +3803,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     $campsStayFromMail = new \Modules\Camps\Mail\StayFromMailService(
         $campsCampRepo, $campsCampService, $campsPlaceService,
         $campsDuplicateDetector, $campsMessageReader, $settingService,
-        $inboundMailForOthers ?? null, $llmConnectorForRgpd ?? null
+        $inboundMailForOthers ?? null, $llmConnectorForOthers ?? null
     );
     $frontController->registerController(
         \Modules\Camps\Controller\CampsMailController::class,
@@ -3847,7 +3865,7 @@ if (in_array('camps', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
-if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('retro')) {
     $retroBoardRepo = new \Modules\Retro\Repository\BoardRepository($pdo, $encryptionService);
     $retroCommentRepo = new \Modules\Retro\Repository\CommentRepository($pdo);
     $retroVoteRepo = new \Modules\Retro\Repository\VoteRepository($pdo);
@@ -3858,14 +3876,14 @@ if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
     // moderation check and AI-shorten button simply degrade to unavailable.
-    $retroModerationService = new \Modules\Retro\Service\ModerationService($llmConnectorForRgpd);
-    $retroSummaryService = new \Modules\Retro\Service\SummaryService($llmConnectorForRgpd);
+    $retroModerationService = new \Modules\Retro\Service\ModerationService($llmConnectorForOthers);
+    $retroSummaryService = new \Modules\Retro\Service\SummaryService($llmConnectorForOthers);
     $retroCommentService = new \Modules\Retro\Service\CommentService($retroCommentRepo, $retroModerationService, $retroRateLimitService);
     $retroBoardService = new \Modules\Retro\Service\BoardService(
         $retroBoardRepo, $retroCommentRepo, $memberService, $sectionService, $schedulerService, $journalService,
         $mailService, $twig, (string) ($settingService->get('site_name') ?: 'Unité scoute'), (string) ($settingService->get('base_url') ?: ''),
         $shortUrlService,
-        in_array('calendar', $moduleManager->getEnabledModuleIds(), true) ? $calendarService : null,
+        $isEnabled('calendar') ? $calendarService : null,
         $retroSummaryService
     );
 
@@ -3908,8 +3926,8 @@ if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
 // $calendarEventRepo/etc. are still in scope here — PHP has no block
 // scoping, only function scoping, so calendar's own top-level `if` body
 // variables remain readable for the rest of this script.
-if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
-    $retroEventLinkLookup = in_array('retro', $moduleManager->getEnabledModuleIds(), true) ? $retroBoardService : null;
+if ($isEnabled('calendar')) {
+    $retroEventLinkLookup = $isEnabled('retro') ? $retroBoardService : null;
 
     $calendarService = new \Modules\Calendar\Service\CalendarService(
         $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo, $retroEventLinkLookup
@@ -3917,7 +3935,7 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
     // CalendarService implements Modules\Calendar\Api\CalendarEventLookupInterface
     // — reused as-is (member page §3's "next upcoming event", no interface
     // change needed) rather than adding a second lookup surface.
-    $calendarEventLookup = $calendarService;
+    $calendarEventLookupForOthers = $calendarService;
     $calendarRetroAutoCreateService = new \Modules\Calendar\Service\CalendarRetroAutoCreateService(
         $schedulerService, $retroEventLinkLookup
     );
@@ -3949,7 +3967,7 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
     );
 
     // Groups' optional "ce message parle de la réunion de samedi" link.
-    // $calendarEventLookup only exists this far down the file, so groups'
+    // $calendarEventLookupForOthers only exists this far down the file, so groups'
     // own block wired its two event-aware controllers with no event
     // service and left the closure below behind to redo it once the
     // lookup is real. Calling it a second time replaces both
@@ -3962,12 +3980,12 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
     // and it is what static analysis can follow.
     if (isset($groupsRegisterEventAwareControllers)) {
         $groupsRegisterEventAwareControllers(
-            new \Modules\Groups\Service\PostEventService($calendarEventLookup)
+            new \Modules\Groups\Service\PostEventService($calendarEventLookupForOthers)
         );
     }
 }
 
-if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('registration')) {
     $registrationBaseUrl = (string) ($settingService->get('base_url') ?: '');
     $registrationSiteName = (string) ($settingService->get('site_name') ?: 'Unité scoute');
 
@@ -4127,7 +4145,7 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     $registrationExternalMailingListService = new \Modules\Registration\Service\ExternalMailingListService(
         $pdo, $encryptionService, $scoutYearResolver, $scoutYearService, $registrationRequestRepo
     );
-    if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
+    if ($isEnabled('mass_mail')) {
         // $massMailService itself holds its own internal reference to the
         // OLD $massMailListService built above (before this provider
         // existed) — rebuilding just the list service wouldn't be enough,
@@ -4224,7 +4242,7 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
 // module list is settled into anything a static analyser can follow, so
 // reusing its locals would only mean a forward reference nothing can prove
 // is defined. Both are stateless wrappers around the same PDO handle.
-if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('rental')) {
     $rentalCurrentYearId = (int) $scoutYearService->getCurrentYear()['id'];
 
     $rentalAssetRepository = new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService);
@@ -4604,7 +4622,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
 // module stores nothing but its formation-level vocabulary mapping, so
 // there is no cache to warm here and nothing to invalidate after an
 // import.
-if (in_array('leadership', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('leadership')) {
     $leadershipRepository = new \Modules\Leadership\Repository\LeadershipRepository($connection, $encryptionService);
     $leadershipMappingRepository = new \Modules\Leadership\Repository\FormationLevelMappingRepository($connection);
     $leadershipResolver = new \Modules\Leadership\Service\FormationLevelResolver();
@@ -4660,7 +4678,7 @@ if (in_array('leadership', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
-if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
+if ($isEnabled('fees')) {
     $feesImportRepo = new \Modules\Fees\Repository\FeesImportRepository($pdo);
     $feesIgnoredHouseholdRepo = new \Modules\Fees\Repository\IgnoredHouseholdRepository($pdo, $encryptionService);
     $feesTariffService = new \Modules\Fees\Service\HouseholdTariffService(
@@ -4757,7 +4775,7 @@ if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
 // whichever optional providers are available — mass_mail's "Communications
 // récentes", gallery's "Galeries photos", trombinoscope's section-
 // responsable lookup (via $sectionResponsableProvider, ARCHITECTURE.md
-// §7.4), calendar's next-upcoming-event lookup (via $calendarEventLookup),
+// §7.4), calendar's next-upcoming-event lookup (via $calendarEventLookupForOthers),
 // leadership's own training path (via $formationPathProvider), and
 // finance's "ce qu'il reste à payer" block (via $memberPaymentProvider);
 // each
@@ -4765,17 +4783,17 @@ if (in_array('fees', $moduleManager->getEnabledModuleIds(), true)) {
 // just doesn't render. Placed after every one of those modules' blocks
 // above so their repositories/services are in scope.
 if (
-    in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)
-    || in_array('gallery', $moduleManager->getEnabledModuleIds(), true)
-    || in_array('calendar', $moduleManager->getEnabledModuleIds(), true)
-    || in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)
-    || in_array('leadership', $moduleManager->getEnabledModuleIds(), true)
-    || in_array('finance', $moduleManager->getEnabledModuleIds(), true)
+    $isEnabled('mass_mail')
+    || $isEnabled('gallery')
+    || $isEnabled('calendar')
+    || $isEnabled('trombinoscope')
+    || $isEnabled('leadership')
+    || $isEnabled('finance')
 ) {
-    $massMailQueryForMember = in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)
+    $massMailQueryForMember = $isEnabled('mass_mail')
         ? new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
         : null;
-    $galleryAlbumProviderForMember = in_array('gallery', $moduleManager->getEnabledModuleIds(), true)
+    $galleryAlbumProviderForMember = $isEnabled('gallery')
         ? new \Modules\Gallery\Service\GalleryMemberQueryService(
             $galleryAlbumRepo, $galleryMediaRepo, $galleryMediaService, $sectionService, $scoutYearService
         )
@@ -4783,7 +4801,7 @@ if (
 
     $memberPageService = new \Core\Member\MemberPageService(
         $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
-        $sectionDocumentService, $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookup,
+        $sectionDocumentService, $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookupForOthers,
         $formationPathProvider,
         $memberPaymentProvider
     );
