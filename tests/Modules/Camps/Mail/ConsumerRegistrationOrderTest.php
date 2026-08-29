@@ -17,47 +17,35 @@ use PHPUnit\Framework\TestCase;
  * would go to whichever registered first.
  *
  * The failure is completely silent: no error, no log, just a rental
- * booking whose correspondence stops arriving. Nothing but the order of
- * two lines in one file prevents it, which is exactly the kind of thing
- * that survives one refactor and not the second.
+ * booking whose correspondence stops arriving. The whole registry now
+ * lives in the sync handler's lazy factory in
+ * public/scheduler-bootstrap.php — one file, one ordering, both entry
+ * points — so that is where the order is pinned.
  */
 final class ConsumerRegistrationOrderTest extends TestCase
 {
-    private string $indexPhp;
+    private string $bootstrap;
 
     protected function setUp(): void
     {
-        $this->indexPhp = (string) file_get_contents(dirname(__DIR__, 4) . '/public/index.php');
+        $this->bootstrap = (string) file_get_contents(dirname(__DIR__, 4) . '/public/scheduler-bootstrap.php');
     }
 
     public function testTheCampsConsumerIsRegisteredAfterEveryOtherOne(): void
     {
-        $campsOffset = strpos($this->indexPhp, '$inboundMailConsumerRegistry->register($campsMailConsumer)');
+        $campsOffset = strpos($this->bootstrap, 'new \\Modules\\Camps\\Mail\\CampsMessageConsumer(');
         $this->assertNotFalse($campsOffset, 'the camps consumer is no longer registered at all');
 
-        preg_match_all('/\$inboundMailConsumerRegistry->register\(/', $this->indexPhp, $m, PREG_OFFSET_CAPTURE);
+        preg_match_all('/\$registry->register\(/', $this->bootstrap, $m, PREG_OFFSET_CAPTURE);
         $offsets = array_map(static fn(array $hit): int => $hit[1], $m[0]);
 
         $this->assertNotEmpty($offsets);
-        $this->assertSame(
+        $this->assertGreaterThanOrEqual(
             max($offsets),
-            max(array_filter($offsets, static fn(int $o): bool => $o <= $campsOffset)),
+            $campsOffset,
             'A consumer is registered AFTER the camps one. The registry is first-claim-wins, '
             . 'and a dedicated camps mailbox claims everything — so camps must always come last.'
         );
-    }
-
-    public function testTheCampsConsumerIsBuiltInItsOwnModuleBlockAndRegisteredOutsideIt(): void
-    {
-        $built = strpos($this->indexPhp, '$campsMailConsumer = isset($inboundMailForOthers)');
-        $registered = strpos($this->indexPhp, '$inboundMailConsumerRegistry->register($campsMailConsumer)');
-
-        $this->assertNotFalse($built);
-        $this->assertNotFalse($registered);
-        // The camps wiring block runs long before rental's. Building
-        // there and registering here is what lets the module keep its
-        // dependencies together while still claiming last.
-        $this->assertLessThan($registered, $built);
     }
 
     public function testTheDedicatedMailboxSettingWarnsAboutOtherModules(): void
