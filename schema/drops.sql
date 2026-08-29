@@ -8,8 +8,10 @@
 -- while the column still exists (idempotent — safe to run on every
 -- request, and a no-op on fresh installs that never had it).
 --
--- Only `ALTER TABLE <table> DROP COLUMN <column>;` statements are
--- recognized here. See MigrationRunner::applyExplicitDrops().
+-- Only `ALTER TABLE <table> DROP COLUMN <column>;`,
+-- `ALTER TABLE <table> DROP FOREIGN KEY <constraint>;` and
+-- `DROP TABLE <table>;` statements are recognized here. See
+-- MigrationRunner::applyExplicitDrops().
 
 -- Removed with the badge logo/icon picker feature.
 ALTER TABLE badges DROP COLUMN icon;

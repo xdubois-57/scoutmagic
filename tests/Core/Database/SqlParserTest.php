@@ -311,6 +311,52 @@ class SqlParserTest extends TestCase
         ], $drops);
     }
 
+    public function testParseDropsExtractsWholeTableDrops(): void
+    {
+        $sql = 'DROP TABLE sos_calendar_sync;';
+
+        $drops = $this->parser->parseDrops($sql);
+
+        $this->assertSame([['table' => 'sos_calendar_sync', 'drop_table' => true]], $drops);
+    }
+
+    public function testParseDropsAcceptsIfExistsAndBackticksOnTableDrops(): void
+    {
+        $sql = 'DROP TABLE IF EXISTS `sos_calendar_sync`;';
+
+        $drops = $this->parser->parseDrops($sql);
+
+        $this->assertSame([['table' => 'sos_calendar_sync', 'drop_table' => true]], $drops);
+    }
+
+    public function testParseDropsIgnoresCommentedOutTableDrops(): void
+    {
+        $sql = "-- DROP TABLE sos_calendar_sync;\nSELECT 1;";
+
+        $this->assertSame([], $this->parser->parseDrops($sql));
+    }
+
+    public function testParseDropsDoesNotMistakeAColumnDropForATableDrop(): void
+    {
+        // The two forms coexist in one file; a column drop must never
+        // additionally surface as a whole-table drop.
+        $sql = "ALTER TABLE badges DROP COLUMN icon;\nDROP TABLE sos_calendar_sync;";
+
+        $drops = $this->parser->parseDrops($sql);
+
+        $this->assertSame([
+            ['table' => 'badges', 'column' => 'icon'],
+            ['table' => 'sos_calendar_sync', 'drop_table' => true],
+        ], $drops);
+    }
+
+    public function testParseDropsFileReadsTheSosModuleTableDrop(): void
+    {
+        $drops = $this->parser->parseDropsFile(dirname(__DIR__, 3) . '/modules/sos_staff/drops.sql');
+
+        $this->assertContains(['table' => 'sos_calendar_sync', 'drop_table' => true], $drops);
+    }
+
     public function testParseDropsFileReturnsEmptyArrayForMissingFile(): void
     {
         $this->assertSame([], $this->parser->parseDropsFile('/nonexistent/drops.sql'));

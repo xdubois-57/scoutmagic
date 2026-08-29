@@ -29,7 +29,6 @@ use Modules\SosStaff\Repository\OnCallAssignment;
 use Modules\SosStaff\Repository\OnCallRepository;
 use Modules\SosStaff\Repository\ProviderCredentialRepository;
 use Modules\SosStaff\Repository\SosSettingsRepository;
-use Modules\SosStaff\Service\CalendarSyncService;
 use Modules\SosStaff\Service\OnCallService;
 use Modules\SosStaff\Service\ProviderConfigService;
 use Modules\SosStaff\Service\RedirectService;
@@ -89,7 +88,6 @@ class SosAdminControllerTest extends TestCase
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         $this->redirectService = $this->createMock(RedirectService::class);
-        $calendarSyncService = $this->createMock(CalendarSyncService::class);
 
         $scoutYearService = new ScoutYearService($this->pdo);
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepository);
@@ -121,7 +119,6 @@ class SosAdminControllerTest extends TestCase
             $this->settingsService,
             $onCallService,
             $this->redirectService,
-            $calendarSyncService,
             $sectionService,
             $schedulerService,
             $scoutYearResolver,
@@ -209,6 +206,59 @@ class SosAdminControllerTest extends TestCase
         $response = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), []);
 
         $this->assertStringContainsString('Aucun fournisseur', $response->getBody());
+    }
+
+    public function testIndexRendersSectionActivityFromTheCalendarReadApi(): void
+    {
+        // A regular animés section, so it survives the excluded-sections
+        // filter (Staff d'U never would).
+        $stmt = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
+        $stmt->execute(['BAL', 'Baladins', 10]);
+        $branchId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
+        $stmt->execute(['BAL', $branchId, 'Baladins']);
+        $sectionId = (int) $this->pdo->lastInsertId();
+
+        // The calendar module's read Api (§7.5), stubbed at the contract:
+        // the controller must render whatever activity the Api hands back,
+        // without ever touching the calendar module's own classes.
+        $firstOfMonth = (new \DateTimeImmutable('first day of this month'))->format('Y-m-d');
+        $lookup = new class ($sectionId, $firstOfMonth) implements \Modules\Calendar\Api\CalendarEventLookupInterface {
+            public function __construct(private readonly int $sectionId, private readonly string $day)
+            {
+            }
+
+            public function findEventsInWindow(
+                \DateTimeInterface $windowStart,
+                \DateTimeInterface $windowEnd,
+                ?int $sectionId,
+                \Core\Security\Role $viewerRole
+            ): array {
+                return [];
+            }
+
+            public function findEventById(int $eventId, \Core\Security\Role $viewerRole): ?\Modules\Calendar\Api\EventSummary
+            {
+                return null;
+            }
+
+            public function sectionActivityForMonth(int $year, int $month, \Core\Security\Role $viewerRole): array
+            {
+                return [$this->sectionId => new \Modules\Calendar\Api\SectionMonthActivity(
+                    sectionId: $this->sectionId,
+                    color: '#123456',
+                    eventTitlesByDay: [$this->day => ['Fête des Baladins']]
+                )];
+            }
+        };
+        $property = new \ReflectionProperty(SosAdminController::class, 'calendarEvents');
+        $property->setValue($this->controller, $lookup);
+
+        $response = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Baladins', $response->getBody());
+        $this->assertStringContainsString('Fête des Baladins', $response->getBody());
     }
 
     public function testUpdateDefaultNumberValidatesCsrf(): void

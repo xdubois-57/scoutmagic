@@ -253,6 +253,39 @@ class MigrationRunnerTest extends TestCase
         }
     }
 
+    public function testMigrateAppliesExplicitTableDropFromSiblingDropsFile(): void
+    {
+        $pdo = $this->connection->getPdo();
+        $pdo->exec('CREATE TABLE keep_test (id INT PRIMARY KEY)');
+        $pdo->exec('CREATE TABLE table_drop_test (id INT PRIMARY KEY)');
+
+        $tmpDir = sys_get_temp_dir() . '/migration_drop_test_' . uniqid();
+        mkdir($tmpDir);
+        file_put_contents($tmpDir . '/schema.sql', "CREATE TABLE keep_test (\n    id INT PRIMARY KEY\n);");
+        file_put_contents($tmpDir . '/drops.sql', 'DROP TABLE table_drop_test;');
+
+        try {
+            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+
+            $result = $runner->migrate([$tmpDir . '/schema.sql']);
+
+            $this->assertNotContains('table_drop_test', $this->introspector->getTables());
+            $this->assertContains('keep_test', $this->introspector->getTables());
+            $this->assertContains('DROP TABLE `table_drop_test`', $result->executedStatements);
+
+            // Idempotent: the table is already gone, so a second run is a
+            // no-op for the drop — the exact property that makes drops.sql
+            // safe to apply on every request.
+            $secondResult = $runner->migrate([$tmpDir . '/schema.sql']);
+            $this->assertEmpty($secondResult->warnings);
+            $this->assertNotContains('DROP TABLE `table_drop_test`', $secondResult->executedStatements);
+        } finally {
+            @unlink($tmpDir . '/schema.sql');
+            @unlink($tmpDir . '/drops.sql');
+            @rmdir($tmpDir);
+        }
+    }
+
     public function testMigrateAppliesExplicitForeignKeyDropFromSiblingDropsFile(): void
     {
         $pdo = $this->connection->getPdo();

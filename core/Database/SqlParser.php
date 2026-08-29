@@ -401,15 +401,18 @@ class SqlParser
      * MigrationRunner::migrate(), which is the one place these get applied,
      * and only when the column still exists).
      *
-     * `ALTER TABLE <table> DROP COLUMN <column>;` and
-     * `ALTER TABLE <table> DROP FOREIGN KEY <constraint>;` statements are
-     * recognized; anything else in the file is ignored. The latter exists
-     * for the one case SchemaComparator can't self-heal: retargeting an FK
-     * to a different table requires renaming the constraint (matched by
-     * name only), which leaves the old, now-undeclared constraint in
-     * place forever — an explicit drop is the only way to remove it.
+     * `ALTER TABLE <table> DROP COLUMN <column>;`,
+     * `ALTER TABLE <table> DROP FOREIGN KEY <constraint>;` and
+     * `DROP TABLE <table>;` statements are recognized; anything else in
+     * the file is ignored. The FK form exists for the one case
+     * SchemaComparator can't self-heal: retargeting an FK to a different
+     * table requires renaming the constraint (matched by name only), which
+     * leaves the old, now-undeclared constraint in place forever — an
+     * explicit drop is the only way to remove it. The table form exists
+     * because the comparator likewise never removes a table a module
+     * stopped declaring.
      *
-     * @return array<array{table: string, column: string}|array{table: string, constraint: string}>
+     * @return array<array{table: string, column: string}|array{table: string, constraint: string}|array{table: string, drop_table: true}>
      */
     public function parseDropsFile(string $filePath): array
     {
@@ -426,7 +429,7 @@ class SqlParser
     }
 
     /**
-     * @return array<array{table: string, column: string}|array{table: string, constraint: string}>
+     * @return array<array{table: string, column: string}|array{table: string, constraint: string}|array{table: string, drop_table: true}>
      */
     public function parseDrops(string $sql): array
     {
@@ -441,6 +444,16 @@ class SqlParser
                 } else {
                     $drops[] = ['table' => $m[1], 'constraint' => $m[3]];
                 }
+            }
+        }
+
+        // Whole-table drops. The pattern cannot collide with the ALTER
+        // form above: an `ALTER TABLE … DROP COLUMN/FOREIGN KEY` statement
+        // never contains the token sequence `DROP TABLE`.
+        $tablePattern = '/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?[`]?(\w+)[`]?/si';
+        if (preg_match_all($tablePattern, $sql, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $drops[] = ['table' => $m[1], 'drop_table' => true];
             }
         }
 

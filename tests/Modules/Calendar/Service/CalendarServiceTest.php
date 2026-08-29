@@ -252,6 +252,68 @@ class CalendarServiceTest extends TestCase
         $this->assertCount(1, $this->calendarRepository->findSupplementaryCalendars());
     }
 
+    public function testDefaultCalendarIdIsNullUntilTheDefaultCalendarExists(): void
+    {
+        // Read-only on purpose (Api\CalendarDirectoryInterface): a §7.6
+        // provider asking for the default calendar must get "not yet", not
+        // a side-effect creation.
+        $this->assertNull($this->service->defaultCalendarId());
+
+        $this->service->ensureDefaultCalendar();
+
+        $default = $this->calendarRepository->findDefaultCalendar();
+        $this->assertNotNull($default);
+        $this->assertSame($default->id, $this->service->defaultCalendarId());
+    }
+
+    public function testSectionActivityForMonthMarksEveryDayAMultiDayEventCovers(): void
+    {
+        $sectionId = $this->createRegularSection('BAL', 'Baladins');
+        $this->service->ensureSectionCalendars();
+        $calendar = $this->calendarRepository->findBySectionId($sectionId);
+        $this->assertNotNull($calendar);
+        $this->eventRepository->create($calendar->id, 'Week-end', '2026-03-14', '2026-03-15', null, null, null, null, null);
+
+        $activity = $this->service->sectionActivityForMonth(2026, 3, \Core\Security\Role::ADMIN);
+
+        $this->assertArrayHasKey($sectionId, $activity);
+        $this->assertSame($sectionId, $activity[$sectionId]->sectionId);
+        $this->assertNotSame('', $activity[$sectionId]->color);
+        $this->assertSame(
+            ['2026-03-14' => ['Week-end'], '2026-03-15' => ['Week-end']],
+            $activity[$sectionId]->eventTitlesByDay
+        );
+    }
+
+    public function testSectionActivityForMonthClampsBoundaryCrossingEventsToTheMonth(): void
+    {
+        $sectionId = $this->createRegularSection('LOU', 'Louveteaux');
+        $this->service->ensureSectionCalendars();
+        $calendar = $this->calendarRepository->findBySectionId($sectionId);
+        $this->eventRepository->create($calendar->id, 'Camp', '2026-03-30', '2026-04-02', null, null, null, null, null);
+
+        $activity = $this->service->sectionActivityForMonth(2026, 3, \Core\Security\Role::ADMIN);
+
+        $this->assertSame(
+            ['2026-03-30' => ['Camp'], '2026-03-31' => ['Camp']],
+            $activity[$sectionId]->eventTitlesByDay
+        );
+    }
+
+    public function testSectionActivityForMonthHidesCalendarsTheRoleMayNotSee(): void
+    {
+        // A Staff d'U-branch section calendar defaults to chief-only
+        // visibility — an identified (non-chief) viewer must not even see
+        // that the section has activity.
+        $sectionId = $this->createRegularSection('STAFF', "Staff d'U", 90);
+        $this->service->ensureSectionCalendars();
+        $calendar = $this->calendarRepository->findBySectionId($sectionId);
+        $this->eventRepository->create($calendar->id, 'Conseil', '2026-03-14', null, null, null, null, null, null);
+
+        $this->assertArrayHasKey($sectionId, $this->service->sectionActivityForMonth(2026, 3, \Core\Security\Role::CHIEF));
+        $this->assertArrayNotHasKey($sectionId, $this->service->sectionActivityForMonth(2026, 3, \Core\Security\Role::IDENTIFIED));
+    }
+
     public function testAddCalendarCreatesCustomSupplementaryCalendar(): void
     {
         $calendar = $this->service->addCalendar('Anniversaires', Calendar::VISIBILITY_PUBLIC);

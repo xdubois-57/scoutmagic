@@ -42,4 +42,19 @@ interface CalendarEventLookupInterface
      * $viewerRole.
      */
     public function findEventById(int $eventId, Role $viewerRole): ?EventSummary;
+
+    /**
+     * Each section's calendar activity over one month, reduced to what
+     * $viewerRole may see — sections whose calendar is not visible to
+     * that role are absent, exactly like sections that have no calendar
+     * yet. Introduced for the SOS Staff d'U duty grid's per-section
+     * activity columns.
+     *
+     * One call covers the whole month for every section — a consumer must
+     * never loop over sections or days itself (same rule as §7.6's
+     * one-call-per-window).
+     *
+     * @return array<int, SectionMonthActivity> keyed by section id
+     */
+    public function sectionActivityForMonth(int $year, int $month, Role $viewerRole): array;
 }

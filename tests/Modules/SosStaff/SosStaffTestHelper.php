@@ -43,15 +43,5 @@ class SosStaffTestHelper
             UNIQUE (member_id, assignment_date),
             FOREIGN KEY (member_id) REFERENCES members(id)
         )');
-
-        $pdo->exec('CREATE TABLE sos_calendar_sync (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            member_id INTEGER NOT NULL,
-            start_date TEXT NOT NULL,
-            end_date TEXT NOT NULL,
-            calendar_event_id INTEGER,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (member_id) REFERENCES members(id)
-        )');
     }
 }

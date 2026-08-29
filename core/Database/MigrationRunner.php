@@ -517,12 +517,13 @@ class MigrationRunner
      * data-loss safety net — see its class doc comment). This is the one
      * narrow, explicit exception: for each schema file, a sibling
      * drops.sql (e.g. schema/core.sql → schema/drops.sql) can declare
-     * `ALTER TABLE <table> DROP COLUMN <column>;` or
-     * `ALTER TABLE <table> DROP FOREIGN KEY <constraint>;` statements that
-     * were hand-written and reviewed as part of the change that stopped
-     * declaring that column/constraint. Each drop is only executed if the
-     * column/constraint still exists, so this is idempotent and safe to
-     * run on every request — a no-op once applied, and a no-op on fresh
+     * `ALTER TABLE <table> DROP COLUMN <column>;`,
+     * `ALTER TABLE <table> DROP FOREIGN KEY <constraint>;` or
+     * `DROP TABLE <table>;` statements that were hand-written and
+     * reviewed as part of the change that stopped declaring that
+     * column/constraint/table. Each drop is only executed if the
+     * column/constraint/table still exists, so this is idempotent and safe
+     * to run on every request — a no-op once applied, and a no-op on fresh
      * installs that never had it.
      *
      * Kept atomic (not chunked/checkpointed) deliberately: drops.sql files
@@ -540,7 +541,13 @@ class MigrationRunner
         foreach ($schemaFiles as $file) {
             $dropsFile = dirname($file) . '/drops.sql';
             foreach ($this->parser->parseDropsFile($dropsFile) as $drop) {
-                if (isset($drop['column'])) {
+                if (isset($drop['drop_table'])) {
+                    if (!in_array($drop['table'], $this->introspector->getTables(), true)) {
+                        continue;
+                    }
+
+                    $statement = "DROP TABLE `{$drop['table']}`";
+                } elseif (isset($drop['column'])) {
                     $currentColumns = array_map(
                         fn(ColumnDefinition $c) => $c->name,
                         $this->introspector->getColumns($drop['table'])

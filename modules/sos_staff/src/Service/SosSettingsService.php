@@ -12,9 +12,9 @@ use Core\Config\SettingService;
 use Core\Import\MemberYearRepository;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
+use Core\Module\SectionResponsableProvider;
 use Modules\SosStaff\Repository\ExcludedSectionRepository;
 use Modules\SosStaff\Repository\SosSettingsRepository;
-use Modules\Trombinoscope\Repository\TrombinoscopeRepository;
 
 /**
  * The module's "global settings" (module spec §1.4, §2.3, §2.4, §2.5):
@@ -41,11 +41,13 @@ class SosSettingsService
     private const DEFAULT_INCLUDED_BRANCH_SORT_ORDERS = [10, 20, 30, 40];
 
     /**
-     * $trombinoscopeRepository is null when the trombinoscope module is
-     * disabled — same soft, optional cross-module dependency pattern as
-     * this module's calendar integration (Service\CalendarSyncService):
-     * no hard schema/class dependency, wired only from the composition
-     * root when the other module is actually enabled.
+     * $sectionResponsableProvider is the core hook (ARCHITECTURE.md §7.4)
+     * the trombinoscope module implements — null when no module provides
+     * one, in which case the auto-resolved default number falls back to
+     * the first Staff d'U roster member. Consuming the hook instead of the
+     * trombinoscope module's own repository is what keeps this module free
+     * of any `Modules\Trombinoscope\…` class: the composition root hands
+     * it the same provider instance the core Sections page already uses.
      */
     public function __construct(
         private ExcludedSectionRepository $excludedSectionRepository,
@@ -54,7 +56,7 @@ class SosSettingsService
         private MemberYearRepository $memberYearRepository,
         private UnitStaffSectionService $unitStaffSectionService,
         private SettingService $coreSettingService,
-        private ?TrombinoscopeRepository $trombinoscopeRepository = null
+        private ?SectionResponsableProvider $sectionResponsableProvider = null
     ) {
     }
 
@@ -166,10 +168,17 @@ class SosSettingsService
      *
      * Explicit admin choice (sos_settings.default_number_member_id) wins
      * when set; otherwise auto-resolves to the Staff d'U section's
-     * "responsable" (trombinoscope module, if enabled) or else the first
-     * Staff d'U roster member — never persisted, so it naturally follows
+     * designated "responsable" (Core\Module\SectionResponsableProvider —
+     * the trombinoscope module, when enabled) or else the first Staff d'U
+     * roster member — never persisted, so it naturally follows
      * section-leadership changes over time until an admin explicitly
      * overrides it.
+     *
+     * The provider hands back THE responsable — a section designates one,
+     * and the hook's singular return type is that rule stated as a type.
+     * A responsable without a known mobile therefore falls straight
+     * through to the roster fallback: there is no "next lead" to try,
+     * because there is no second responsable.
      */
     public function resolveDefaultNumberMemberId(int $scoutYearId): ?int
     {
@@ -189,26 +198,17 @@ class SosSettingsService
 
     private function resolveSectionResponsableMemberId(int $scoutYearId): ?int
     {
-        if ($this->trombinoscopeRepository === null) {
+        if ($this->sectionResponsableProvider === null) {
             return null;
         }
 
         $staffduId = $this->unitStaffSectionService->ensureSection();
-        $leadEntries = array_values(array_filter(
-            $this->trombinoscopeRepository->getEligibleStaffForSection($staffduId, $scoutYearId),
-            fn(array $entry) => (bool) $entry['is_lead']
-        ));
-        $profiles = $this->sectionService->hydrateMemberProfiles(
-            array_map(fn(array $entry) => (int) $entry['member_year_id'], $leadEntries)
-        );
-        foreach ($leadEntries as $entry) {
-            $profile = $profiles[(int) $entry['member_year_id']] ?? null;
-            if ($profile !== null && $profile->mobile !== null && $profile->mobile !== '') {
-                return $profile->memberId;
-            }
+        $responsable = $this->sectionResponsableProvider->getResponsable($staffduId, $scoutYearId);
+        if ($responsable === null || $responsable->mobile === null || $responsable->mobile === '') {
+            return null;
         }
 
-        return null;
+        return $responsable->memberId;
     }
 
     public function setDefaultNumberFromMember(int $memberId): void

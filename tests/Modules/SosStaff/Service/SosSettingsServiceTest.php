@@ -9,14 +9,15 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Import\MemberYearRepository;
+use Core\Member\MemberProfile;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
+use Core\Module\SectionResponsableProvider;
 use Core\Security\EncryptionService;
 use Modules\SosStaff\Repository\ExcludedSectionRepository;
 use Modules\SosStaff\Repository\SosSettingsRepository;
 use Modules\SosStaff\Service\SosException;
 use Modules\SosStaff\Service\SosSettingsService;
-use Modules\Trombinoscope\Repository\TrombinoscopeRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\SosStaff\SosStaffTestHelper;
@@ -57,7 +58,7 @@ class SosSettingsServiceTest extends TestCase
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
     }
 
-    private function buildService(?TrombinoscopeRepository $trombinoscopeRepository): SosSettingsService
+    private function buildService(?SectionResponsableProvider $sectionResponsableProvider): SosSettingsService
     {
         return new SosSettingsService(
             new ExcludedSectionRepository($this->pdo),
@@ -66,8 +67,42 @@ class SosSettingsServiceTest extends TestCase
             $this->memberYearRepository,
             $this->unitStaffSectionService,
             $this->settingService,
-            $trombinoscopeRepository
+            $sectionResponsableProvider
         );
+    }
+
+    /**
+     * A stub of the core hook the trombinoscope module implements — what
+     * the composition root wires in. Answering with a fixed profile is
+     * exactly the hook's contract (THE designated responsable, or null),
+     * so the test needs no trombinoscope tables at all anymore.
+     */
+    private function providerReturning(?MemberProfile $profile): SectionResponsableProvider
+    {
+        return new class ($profile) implements SectionResponsableProvider {
+            public function __construct(private readonly ?MemberProfile $profile)
+            {
+            }
+
+            public function getResponsable(int $sectionId, int $scoutYearId): ?MemberProfile
+            {
+                return $this->profile;
+            }
+        };
+    }
+
+    /**
+     * The real MemberProfile for a member created by the helpers below —
+     * hydrated through the same SectionService path production uses, so
+     * the profile carries the member's true memberId and mobile.
+     */
+    private function profileFor(int $memberId): MemberProfile
+    {
+        $memberYear = $this->memberYearRepository->findByMemberAndYear($memberId, $this->scoutYearId);
+        $this->assertNotNull($memberYear);
+        $profile = $this->sectionService->hydrateMemberProfile($memberYear['id']);
+        $this->assertNotNull($profile);
+        return $profile;
     }
 
     private function createSection(string $deskCode, int $branchSortOrder = 10): int
@@ -105,37 +140,6 @@ class SosSettingsServiceTest extends TestCase
 
         $this->pdo->exec("INSERT OR IGNORE INTO functions (desk_code, label, role, confirmed) VALUES ('CU', 'Chef Unité', 'admin', 1)");
         $functionId = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'CU'")->fetchColumn();
-
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)'
-        );
-        $stmt->execute([$memberYearId, $functionId, $staffduId]);
-
-        return $memberId;
-    }
-
-    /**
-     * @return int member_id (persistent identity)
-     */
-    private function createStaffduMemberWithFunction(string $totem, ?string $mobile, int $functionId): int
-    {
-        $staffduId = $this->unitStaffSectionService->ensureSection();
-
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
-        $memberId = (int) $this->pdo->lastInsertId();
-
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted, mobile_encrypted)
-             VALUES (?, ?, ?, ?, ?, ?)'
-        );
-        $stmt->execute([
-            $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('Jean', 'member_years.first_name'),
-            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
-            $this->encryption->encrypt($totem, 'member_years.totem'),
-            $mobile !== null ? $this->encryption->encrypt($mobile, 'member_years.mobile') : null,
-        ]);
-        $memberYearId = (int) $this->pdo->lastInsertId();
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)'
@@ -273,27 +277,35 @@ class SosSettingsServiceTest extends TestCase
 
     public function testResolveDefaultNumberMemberIdPrefersSectionResponsableOverFirstRosterMember(): void
     {
-        $this->pdo->exec('CREATE TABLE trombinoscope_function_flags (
-            function_id INTEGER PRIMARY KEY,
-            is_lead INTEGER NOT NULL DEFAULT 0
-        )');
-        $trombinoscopeRepository = new TrombinoscopeRepository(Connection::withPdo($this->pdo));
-        $service = $this->buildService($trombinoscopeRepository);
-
         $first = $this->createStaffduMember('Akela', '+32470000001');
+        $responsable = $this->createStaffduMember('Baloo', '+32470000002');
 
-        // A distinct function from createStaffduMember()'s shared 'CU' one
-        // (otherwise flagging it as lead would flag Akela's identical
-        // function too, and the test couldn't tell the two apart).
-        $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('RESP', 'Responsable', 'admin', 1)");
-        $leadFunctionId = (int) $this->pdo->lastInsertId();
-        $this->pdo->prepare('INSERT INTO trombinoscope_function_flags (function_id, is_lead) VALUES (?, 1)')
-            ->execute([$leadFunctionId]);
-
-        $responsable = $this->createStaffduMemberWithFunction('Baloo', '+32470000002', $leadFunctionId);
+        $service = $this->buildService($this->providerReturning($this->profileFor($responsable)));
 
         $this->assertSame($responsable, $service->resolveDefaultNumberMemberId($this->scoutYearId));
         $this->assertNotSame($first, $service->resolveDefaultNumberMemberId($this->scoutYearId));
+    }
+
+    public function testResolveDefaultNumberMemberIdFallsBackToRosterWhenResponsableHasNoMobile(): void
+    {
+        $first = $this->createStaffduMember('Akela', '+32470000001');
+        $responsable = $this->createStaffduMember('Baloo', null);
+
+        // The hook designates ONE responsable per section — there is no
+        // second lead to try, so a responsable without a reachable mobile
+        // falls straight through to the first roster member with one.
+        $service = $this->buildService($this->providerReturning($this->profileFor($responsable)));
+
+        $this->assertSame($first, $service->resolveDefaultNumberMemberId($this->scoutYearId));
+    }
+
+    public function testResolveDefaultNumberMemberIdFallsBackToRosterWhenNoResponsableIsDesignated(): void
+    {
+        $first = $this->createStaffduMember('Akela', '+32470000001');
+
+        $service = $this->buildService($this->providerReturning(null));
+
+        $this->assertSame($first, $service->resolveDefaultNumberMemberId($this->scoutYearId));
     }
 
     public function testLabelForMemberReturnsDisplayName(): void
