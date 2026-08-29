@@ -39,7 +39,7 @@ set -euo pipefail
 #                               Emergency use only — prints a warning. See
 #                               check_tests_gate.
 #   --skip-e2e-gate            Bypass the end-to-end browser test
-#                               (npm run e2e). Emergency use only — prints
+#                               (npm run e2e:full). Emergency use only — prints
 #                               a warning. Separate from --skip-tests-gate
 #                               on purpose: this is the only gate needing
 #                               a MySQL server and a Chromium binary, and
@@ -542,10 +542,16 @@ check_tests_gate() {
 # statically and PHPUnit never executes it at all, which is exactly how a
 # TypeError on every request once shipped (AGENTS.md § Static analysis).
 #
-# Delegates wholesale to `npm run e2e` (scripts/e2e.sh): the release must
-# exercise the identical orchestration a developer and CI do, never a
+# Delegates wholesale to `npm run e2e:full` (scripts/e2e.sh): the release
+# must exercise the identical orchestration a developer and CI do, never a
 # second copy of it that can drift. That script provisions and tears down
 # its own instance, database, and port — nothing is left running here.
+#
+# `e2e:full` and not `e2e`: the release gate runs the FULL tier — the
+# confidence scenarios CI runs on every push PLUS the scenarios tagged
+# @full (the per-module boot matrix, and anything else costly by nature —
+# AGENTS.md § Tests). A release is the one moment the extra minutes are
+# always worth paying.
 #
 # Fail-closed on a missing npm/node_modules, same reasoning as the tests
 # gate above: silently running `npm ci` here would mask an improperly
@@ -555,11 +561,11 @@ check_e2e_gate() {
     command -v npm &> /dev/null || { echo "ERROR: npm is required for the end-to-end gate (see package.json/README.md § Tests end-to-end) — install Node.js LTS, or re-run with --skip-e2e-gate (emergency use only)." >&2; exit 1; }
     [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see README.md § Développement), or re-run with --skip-e2e-gate (emergency use only)." >&2; exit 1; }
 
-    echo "Running end-to-end browser tests (npm run e2e)..."
+    echo "Running end-to-end browser tests, full tier (npm run e2e:full)..."
     # See the comment in check_sonar_gate: this function runs under
-    # `set +e`, so a failing `npm run e2e` would otherwise fall through
-    # to the "vérifié" line below instead of blocking the release.
-    npm run e2e || { echo "ERROR: end-to-end tests failed (npm run e2e) — release blocked by the e2e gate." >&2; exit 1; }
+    # `set +e`, so a failing `npm run e2e:full` would otherwise fall
+    # through to the "vérifié" line below instead of blocking the release.
+    npm run e2e:full || { echo "ERROR: end-to-end tests failed (npm run e2e:full) — release blocked by the e2e gate." >&2; exit 1; }
 
     echo "vérifié — la page d'accueil publique démarre et s'affiche dans un vrai navigateur (Playwright/Chromium, via \`public/index.php\`)." > "${GATE_REPORT_FILE}"
     echo "E2E gate OK: the application boots and renders in a real browser."
@@ -831,7 +837,7 @@ else
 fi
 
 if [[ "${SKIP_E2E_GATE}" -eq 1 ]]; then
-    echo "WARNING: --skip-e2e-gate used — the end-to-end browser test (npm run e2e) was NOT run for this release, so nothing verified that the application actually boots and renders. Emergency use only: run it immediately after publishing and fix any failure." >&2
+    echo "WARNING: --skip-e2e-gate used — the end-to-end browser test (npm run e2e:full) was NOT run for this release, so nothing verified that the application actually boots and renders. Emergency use only: run it immediately after publishing and fix any failure." >&2
     E2E_GATE_REPORT_LINE="ignoré (\`--skip-e2e-gate\`) — test navigateur de bout en bout non exécuté, à vérifier manuellement."
 else
     # Runs after the Tests gate finishes (not concurrently with it) — both

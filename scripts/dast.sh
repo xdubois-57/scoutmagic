@@ -741,11 +741,17 @@ set +e
 # expanding an empty array under `set -u` has been legal since 4.4.
 # The ${var[@]+…} form expands to nothing when the array is empty and to
 # the properly quoted elements otherwise, in both bash versions.
+# --grep-invert @full: the scan replays the CONFIDENCE tier, the same
+# scenarios `npm run e2e` runs (AGENTS.md § Tests). The @full-tagged
+# per-module boot matrix toggles every module on and off in turn — through
+# a proxy that records and replays every request, that is minutes of extra
+# traffic examining module toggling twenty times over, for no header or
+# cookie the confidence scenarios don't already show ZAP.
 E2E_BASE_URL="${BROWSER_URL}" \
 E2E_PROXY_SERVER="${ZAP_PROXY}" \
 E2E_IGNORE_HTTPS_ERRORS="1" \
 E2E_TIMEOUT_FACTOR="${DAST_TIMEOUT_FACTOR}" \
-    npm exec --no -- playwright test --config="${REPO_ROOT}/tests/e2e/playwright.config.js" ${PLAYWRIGHT_ARGS[@]+"${PLAYWRIGHT_ARGS[@]}"} &
+    npm exec --no -- playwright test --config="${REPO_ROOT}/tests/e2e/playwright.config.js" --grep-invert @full ${PLAYWRIGHT_ARGS[@]+"${PLAYWRIGHT_ARGS[@]}"} &
 PLAYWRIGHT_PID=$!
 wait "${PLAYWRIGHT_PID}"
 PLAYWRIGHT_EXIT=$?

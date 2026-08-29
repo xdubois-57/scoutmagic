@@ -185,11 +185,14 @@ jobs:
         run: npm run e2e:install
 
       - name: Run end-to-end tests
-        # The same canonical command a developer and scripts/release.sh's
-        # E2E gate run; the orchestration lives in scripts/e2e.sh, never
-        # duplicated here. No display server is involved — Chromium runs
-        # headless and the application is served by `php -S` on a local
-        # port the harness picks itself.
+        # The same canonical command a developer runs; the orchestration
+        # lives in scripts/e2e.sh, never duplicated here. `npm run e2e` is
+        # the CONFIDENCE tier (every scenario not tagged @full — AGENTS.md
+        # § Tests); the costly @full scenarios (the per-module boot
+        # matrix) run in scripts/release.sh's E2E gate via
+        # `npm run e2e:full`, not on every push. No display server is
+        # involved — Chromium runs headless and the application is served
+        # by `php -S` on a local port the harness picks itself.
         env:
           E2E_DB_HOST: 127.0.0.1
           E2E_DB_PORT: 3306
