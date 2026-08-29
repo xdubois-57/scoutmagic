@@ -148,10 +148,10 @@ class ModuleSchedulingTest extends TestCase
      */
     private function supportDashboardBlock(): string
     {
-        $start = strpos($this->index, "in_array('" . self::MODULE_ID . "', \$moduleManager->getEnabledModuleIds(), true)");
+        $start = strpos($this->index, "\$isEnabled('" . self::MODULE_ID . "')");
         $this->assertIsInt($start, 'public/index.php no longer wires ' . self::MODULE_ID . ' at all.');
 
-        $end = strpos($this->index, "in_array('retro'", $start);
+        $end = strpos($this->index, "\$isEnabled('retro')", $start);
         $this->assertIsInt($end, 'The ' . self::MODULE_ID . ' block is no longer followed by the retro block.');
 
         return substr($this->index, $start, $end - $start);

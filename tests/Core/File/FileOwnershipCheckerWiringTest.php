@@ -52,9 +52,9 @@ class FileOwnershipCheckerWiringTest extends TestCase
     public function testTheGuardIsConstructedAfterEveryPerModuleWiringBlock(): void
     {
         // A module appends its checker from inside its own
-        // `if (in_array('<module>', $moduleManager->getEnabledModuleIds(), true))`
-        // block; the last of those must still come before the guard.
-        $lastModuleBlock = strrpos($this->indexPhp, '$moduleManager->getEnabledModuleIds(), true))');
+        // `if ($isEnabled('<module>'))` block; the last of those must
+        // still come before the guard.
+        $lastModuleBlock = strrpos($this->indexPhp, "\$isEnabled('");
         $this->assertNotFalse($lastModuleBlock);
 
         $this->assertLessThan(
