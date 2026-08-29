@@ -8,15 +8,12 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Task;
 
-use Core\File\FileRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Camps\Mail\CampsMessageConsumer;
+use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
-use Modules\InboundMail\Repository\InboundMailboxRepository;
-use Modules\InboundMail\Repository\InboundMessageRepository;
-use Modules\InboundMail\Service\InboundMailService;
 
 /**
  * Erases unsorted mail older than the configured retention, then
@@ -48,8 +45,14 @@ class PurgeUnsortedMailHandler implements TaskHandlerInterface
         $months = max(1, (int) ($context->settings->get('camps_unsorted_retention_months', 'camps', '6') ?? 6));
         $pdo = $context->connection->getPdo();
 
-        if (class_exists(InboundMailService::class)) {
-            $purged = $this->purge($pdo, $context, $months);
+        // The gateway is a capability (ARCHITECTURE.md §7.5 on the
+        // scheduled path): null — inbound_mail absent or disabled — means
+        // there is no live mailbox feeding « Courrier non classé », so
+        // there is nothing this retention is a counterweight to; the task
+        // just keeps its own chain armed for the day the module returns.
+        $inboundMail = $context->getOptional(InboundMailInterface::class);
+        if ($inboundMail !== null) {
+            $purged = $this->purge($inboundMail, $months);
             if ($purged > 0) {
                 $context->journal->log(
                     'camps',
@@ -63,14 +66,8 @@ class PurgeUnsortedMailHandler implements TaskHandlerInterface
         $this->rescheduleTomorrow($pdo);
     }
 
-    private function purge(\PDO $pdo, TaskContext $context, int $months): int
+    private function purge(InboundMailInterface $inboundMail, int $months): int
     {
-        $inboundMail = new InboundMailService(
-            new InboundMessageRepository($pdo, $context->encryption),
-            new InboundMailboxRepository($pdo, $context->encryption),
-            new FileRepository($pdo)
-        );
-
         $cutoff = (new \DateTimeImmutable())->modify('-' . $months . ' months');
         $purged = 0;
 

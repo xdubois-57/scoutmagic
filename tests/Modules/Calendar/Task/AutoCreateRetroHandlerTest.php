@@ -45,21 +45,38 @@ class AutoCreateRetroHandlerTest extends TestCase
         $this->eventRepository = new CalendarEventRepository($this->pdo);
         $this->boardRepository = new BoardRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
 
+        // Retro's enablement now reaches the handler through
+        // TaskContext::isModuleEnabled() (IT-04 — the raw module_registry
+        // query is gone): the default context knows retro as disabled,
+        // and enableRetro() swaps in one that knows it as enabled.
+        $this->context = $this->buildContext(['calendar']);
+    }
+
+    /**
+     * @param string[] $enabledModuleIds
+     */
+    private function buildContext(array $enabledModuleIds): TaskContext
+    {
+        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager->method('getEnabledModuleIds')->willReturn($enabledModuleIds);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->context = new TaskContext(
+
+        return new TaskContext(
             Connection::withPdo($this->pdo),
             $encryption,
             $this->createMock(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             new SettingService(new SettingRepository($this->pdo)),
             new UserAccountRepository($this->pdo, $encryption),
-            sys_get_temp_dir()
+            sys_get_temp_dir(),
+            null,
+            new \Core\Scheduler\TaskCapabilities($moduleManager)
         );
     }
 
     private function enableRetro(): void
     {
-        $this->pdo->exec("INSERT INTO module_registry (module_id, enabled, installed_version) VALUES ('retro', 1, '1.3.0')");
+        $this->context = $this->buildContext(['calendar', 'retro']);
     }
 
     private function createEvent(bool $autoCreateRetro = true, ?string $endDate = '2026-08-10'): int

@@ -100,13 +100,11 @@ class RunCategorizationRulesHandlerTest extends TestCase
 
     public function testHandleAppliesKeywordRulesAndSkipsAiWhenNoLlmProviderIsConfigured(): void
     {
-        // The provider-absent case, stated explicitly (chantier
-        // « dépendances entre modules », IT-02): the llm_connector tables
-        // exist but hold no active provider — also what this handler sees
-        // today when the module is disabled, since it constructs
-        // LlmConnectorService unconditionally and only isAvailable() gates
-        // the calls. Keyword rules still categorize; no AI suggestion row
-        // is written and nothing fails.
+        // The provider-absent case, stated explicitly. Since IT-04 the
+        // connector is a capability, and this context carries none — the
+        // handler sees null, exactly what a disabled or unconfigured
+        // llm_connector resolves to. Keyword rules still categorize; no
+        // AI suggestion row is written and nothing fails.
         $categoryId = $this->categoryRepository->create('Alimentation');
         $this->categoryRuleRepository->create($categoryId, 0, 'delhaize', null, null);
         $matched = $this->transactionRepository->create(

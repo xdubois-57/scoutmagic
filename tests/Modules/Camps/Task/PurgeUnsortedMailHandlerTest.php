@@ -199,38 +199,63 @@ class PurgeUnsortedMailHandlerTest extends TestCase
         );
     }
 
-    public function testTodayThePurgeRunsWhetherOrNotTheInboundMailModuleIsEnabled(): void
+    public function testThePurgeIsANoOpWhenInboundMailIsAbsent(): void
     {
-        // The provider-absent case, stated explicitly (chantier
-        // « dépendances entre modules », IT-02). This handler reaches
-        // straight into inbound_mail's repositories and never consults
-        // the module registry, so a disabled provider module changes
-        // nothing — the purge still runs against its tables. Pinned here
-        // as the CURRENT behaviour: IT-04 migrates this handler to
-        // TaskContext::getOptional() and will deliberately flip this to
-        // "provider absent → no-op", updating this test in the same
-        // change.
-        $this->pdo->exec("INSERT INTO module_registry (module_id, enabled, installed_version) VALUES ('inbound_mail', 0, '1.0.0')");
+        // The provider-absent case. IT-02 pinned the OLD behaviour (the
+        // handler reached straight into inbound_mail's tables and purged
+        // whether or not the module was enabled); IT-04 deliberately
+        // flipped it: the gateway is now a capability, and with the
+        // module absent or disabled there is no live mailbox feeding
+        // « Courrier non classé », so nothing is touched — the task only
+        // keeps its own chain armed for the day the module returns.
         $old = $this->unsortedMessage('-8 months', 'vieux@mozet.be');
 
-        $this->handle();
+        $this->handleWithoutInboundMail();
 
-        $this->assertNull($this->find($old));
+        $this->assertNotNull($this->find($old));
     }
 
     // ── helpers ─────────────────────────────────────────────────────
 
     private function handle(): void
     {
-        (new PurgeUnsortedMailHandler())->handle([], new TaskContext(
+        // The inbound-mail gateway arrives as a capability (IT-04): the
+        // ordinary test context carries it, resolved against the same
+        // SQLite database the fixtures write to.
+        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager->method('getEnabledModuleIds')->willReturn(['camps', 'inbound_mail']);
+        $capabilities = new \Core\Scheduler\TaskCapabilities($moduleManager);
+        $capabilities->register(
+            \Modules\InboundMail\Api\InboundMailInterface::class,
+            'inbound_mail',
+            fn (): object => new \Modules\InboundMail\Service\InboundMailService(
+                $this->messages,
+                new \Modules\InboundMail\Repository\InboundMailboxRepository($this->pdo, $this->encryption),
+                new \Core\File\FileRepository($this->pdo)
+            )
+        );
+
+        (new PurgeUnsortedMailHandler())->handle([], $this->context($capabilities));
+    }
+
+    private function handleWithoutInboundMail(): void
+    {
+        (new PurgeUnsortedMailHandler())->handle([], $this->context(null));
+    }
+
+    private function context(?\Core\Scheduler\TaskCapabilities $capabilities): TaskContext
+    {
+        return new TaskContext(
             Connection::withPdo($this->pdo),
             $this->encryption,
             $this->createMock(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             new SettingService(new SettingRepository($this->pdo)),
             new UserAccountRepository($this->pdo, $this->encryption),
-            sys_get_temp_dir()
-        ));
+            sys_get_temp_dir(),
+            null,
+            $capabilities
+        );
     }
 
     private function setRetentionMonths(int $months): void

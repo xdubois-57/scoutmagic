@@ -104,13 +104,12 @@ class AutoCloseHandlerTest extends TestCase
 
     public function testClosesAndNotifiesWithoutASummaryWhenNoLlmProviderIsConfigured(): void
     {
-        // The provider-absent case, stated explicitly (chantier
-        // « dépendances entre modules », IT-02): the llm_connector tables
-        // exist but hold no active provider — which is also what the
-        // handler sees today when the module is disabled, since it never
-        // consults the registry. Everything the board owner was promised
-        // still happens: the board closes, the notification email leaves;
-        // only the AI summary is skipped, silently.
+        // The provider-absent case, stated explicitly. Since IT-04 the
+        // connector is a capability, and this context carries none — the
+        // handler sees null, exactly what a disabled or unconfigured
+        // llm_connector resolves to. Everything the board owner was
+        // promised still happens: the board closes, the notification
+        // email leaves; only the AI summary is skipped, silently.
         $boardId = $this->createOpenBoard(true, 'chief@example.com');
         $this->context->mailService->expects($this->once())->method('send')->with('chief@example.com');
 
