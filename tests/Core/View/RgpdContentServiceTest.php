@@ -167,4 +167,100 @@ class RgpdContentServiceTest extends TestCase
         $this->assertStringContainsString('jamais transmise automatiquement', $captured);
         $this->assertStringContainsString('ne le décris jamais comme anonyme', $captured);
     }
+
+    // ── The SubProcessorProvider hook (§7.4, chantier IT-05) ────────────
+
+    /**
+     * @param string[] $enabledModuleIds
+     */
+    private function capturePrompt(array $enabledModuleIds, \Core\Module\SubProcessorProvider ...$providers): string
+    {
+        $moduleManager = $this->createMock(ModuleManager::class);
+        $moduleManager->method('getEnabledModuleIds')->willReturn($enabledModuleIds);
+
+        $captured = null;
+        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector->method('isTierAvailable')->willReturn(true);
+        $connector->method('complete')->willReturnCallback(
+            function (LlmRequest $request) use (&$captured): LlmResponse {
+                $captured = $request->systemPrompt;
+                return new LlmResponse(content: '<h2>Contenu</h2><p>Unité scoute est responsable du traitement.</p>', parsed: null, inputTokens: 10, outputTokens: 10, truncated: false);
+            }
+        );
+
+        $service = new RgpdContentService($moduleManager, $this->settingService, $connector);
+        foreach ($providers as $provider) {
+            $service->addSubProcessorProvider($provider);
+        }
+        $service->generateWithAi('Instructions.');
+
+        $this->assertIsString($captured);
+
+        return $captured;
+    }
+
+    public function testThePromptCarriesEverySubProcessorTheModulesDeclare(): void
+    {
+        $prompt = $this->capturePrompt(
+            ['llm_connector', 'gallery'],
+            new class implements \Core\Module\SubProcessorProvider {
+                public function getSubProcessors(): array
+                {
+                    return [new \Core\Module\SubProcessorView(
+                        \Core\Module\SubProcessorView::CATEGORY_AI,
+                        'Anthropic (États-Unis, hors UE)',
+                        'Traitement par intelligence artificielle',
+                        'Claude Haiku (économique, OCR)'
+                    )];
+                }
+            },
+            new class implements \Core\Module\SubProcessorProvider {
+                public function getSubProcessors(): array
+                {
+                    return [new \Core\Module\SubProcessorView(
+                        \Core\Module\SubProcessorView::CATEGORY_MEDIA_STORAGE,
+                        'Hetzner Object Storage (Allemagne/Finlande, UE)',
+                        'Hébergement des photos et vidéos de la galerie'
+                    )];
+                }
+            }
+        );
+
+        // The prompt's established slots, fed by the hook — same facts,
+        // same wording as when core read the modules' tables itself.
+        $this->assertStringContainsString('Fournisseur IA : Anthropic (États-Unis, hors UE)', $prompt);
+        $this->assertStringContainsString('Modèles IA : Claude Haiku (économique, OCR)', $prompt);
+        $this->assertStringContainsString('Stockage galerie : Hetzner Object Storage (Allemagne/Finlande, UE)', $prompt);
+    }
+
+    public function testThePromptNamesNoSubProcessorWhenTheProvidingModulesAreDisabledOrUnconfigured(): void
+    {
+        // No provider registered at all — the disabled-module case (the
+        // composition root only ever registers an enabled module's hook).
+        $prompt = $this->capturePrompt([]);
+
+        $this->assertStringContainsString('Fournisseur IA : Non configuré', $prompt);
+        $this->assertStringContainsString('Modèles IA : Non configuré', $prompt);
+        $this->assertStringContainsString('Stockage galerie : Aucun (module galerie inactif)', $prompt);
+    }
+
+    public function testAnEnabledButUnconfiguredModuleDeclaresNothingAndThePromptSaysSo(): void
+    {
+        // The hook is DYNAMIC: an enabled module whose configuration
+        // engages nobody answers an empty list — a potential
+        // sub-processor is not a sub-processor.
+        $emptyProvider = new class implements \Core\Module\SubProcessorProvider {
+            public function getSubProcessors(): array
+            {
+                return [];
+            }
+        };
+        $prompt = $this->capturePrompt(['llm_connector', 'gallery'], $emptyProvider, $emptyProvider);
+
+        $this->assertStringContainsString('Fournisseur IA : Non configuré', $prompt);
+        $this->assertStringContainsString(
+            'Stockage galerie : Stockage local (disque du serveur, pas de sous-traitant externe)',
+            $prompt
+        );
+    }
 }
