@@ -58,7 +58,7 @@ interface ExpenseReceiptInterface
      * boundary (SECURITY.md §3).
      *
      * @param int[] $actorLinkedMemberIds
-     * @throws \Modules\Finance\Service\FinanceException when the actor may not use
+     * @throws \Modules\Finance\Api\FinanceException when the actor may not use
      *         that account, the account is unknown, or the type is refused
      */
     public function storeReceipt(

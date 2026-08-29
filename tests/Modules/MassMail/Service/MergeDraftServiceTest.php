@@ -36,7 +36,7 @@ use Modules\MassMail\Repository\RecipientRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Service\MailingListService;
 use Modules\MassMail\Service\MassMailAccessService;
-use Modules\MassMail\Service\MassMailException;
+use Modules\MassMail\Api\MassMailException;
 use Modules\MassMail\Service\MassMailService;
 use Modules\MassMail\Service\MergeDraftService;
 use Modules\MassMail\Service\MergeRenderer;

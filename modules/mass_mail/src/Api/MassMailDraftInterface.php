@@ -61,7 +61,7 @@ interface MassMailDraftInterface
      * @param ?string $bodyHtml  the draft's starting body, or null for an empty composer
      * @return string the draft's edit URL
      *
-     * @throws \Modules\MassMail\Service\MassMailException when the actor may not send at all,
+     * @throws \Modules\MassMail\Api\MassMailException when the actor may not send at all,
      *         or when there is no usable recipient
      */
     public function createMergeDraft(

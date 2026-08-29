@@ -11,6 +11,7 @@ namespace Modules\Finance\Service;
 use Core\Member\Household\HouseholdService;
 use Core\Member\MemberService;
 use Core\Security\Role;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\ExpectedReceivable;

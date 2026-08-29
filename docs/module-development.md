@@ -654,6 +654,8 @@ A module may want to use a capability offered by another module — e.g. `financ
 
 This keeps both modules independently activatable in any combination without either one breaking.
 
+**The `Api\` namespace is strict** (ARCHITECTURE.md §7.5): interfaces, immutable value objects, and the module's user-facing exception when the contract can throw one — nothing else, and every type an `Api\` signature or `@throws` mentions must itself live in `Api\` or in core. A concrete service never goes there, even one another part of the codebase consumes: a core-hook implementation lives in `Service\` behind the core interface it implements. The one sanctioned concrete class is `Modules\Gallery\Api\DelegatedAlbumManagerFactory` — a factory that assembles the module's internals *for* the consumer — and it is a model to copy for that exact need, not a precedent for anything else.
+
 ## Letting another module contribute to yours (a mutable registry)
 
 The third shape, after "core extended by a module" and "a module using another module's capability": a module whose own output another module **contributes to**. `calendar` renders a calendar and `rental` has occupancy that belongs on it; `inbound_mail` reads a mailbox and `rental` knows which of its bookings a message is about. Neither pair can be wired with a plain constructor dependency, because that would be a cycle.

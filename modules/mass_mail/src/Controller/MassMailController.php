@@ -30,7 +30,7 @@ use Modules\MassMail\Service\AudienceImportException;
 use Modules\MassMail\Service\AudienceImportService;
 use Modules\MassMail\Service\MailingListService;
 use Modules\MassMail\Service\MassMailAccessService;
-use Modules\MassMail\Service\MassMailException;
+use Modules\MassMail\Api\MassMailException;
 use Modules\MassMail\Service\MassMailService;
 use Modules\MassMail\Service\SenderAuthorization;
 use Twig\Environment;

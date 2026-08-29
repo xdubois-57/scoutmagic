@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Modules\Groups\Api;
+namespace Tests\Modules\Groups\Service;
 
 use Core\Member\MemberProfile;
 use Core\Member\MemberService;
@@ -14,7 +14,7 @@ use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
-use Modules\Groups\Api\HomeActivityService;
+use Modules\Groups\Service\HomeActivityService;
 use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupReadRepository;
 use Modules\Groups\Repository\GroupRepository;

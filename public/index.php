@@ -2878,7 +2878,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     // member's own page and the homepage band summarising a whole
     // family's open demands. One service for both, because they are one
     // question asked at two scales.
-    $financeFamilyPaymentService = new \Modules\Finance\Api\FamilyPaymentService(
+    $financeFamilyPaymentService = new \Modules\Finance\Service\FamilyPaymentService(
         $financeExpectedReceivableRepo,
         $financeAllocationService,
         $financeAccountRepo,
@@ -3511,7 +3511,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
             in_array('news', $moduleManager->getEnabledModuleIds(), true) ? $newsArticleService : null,
             $sectionResponsableProvider,
-            new \Modules\Groups\Api\HomeActivityService(
+            new \Modules\Groups\Service\HomeActivityService(
                 $groupsListService,
                 $groupsContextFactory,
                 $groupsReadRepo,

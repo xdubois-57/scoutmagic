@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace Modules\Finance\Parser;
 
 use Core\Service\DateInput;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\IbanNormalizer;
 
 /**

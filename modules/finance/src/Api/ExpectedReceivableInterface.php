@@ -25,7 +25,7 @@ interface ExpectedReceivableInterface
      * detected by matching its digits against the free text of the
      * account's incoming transactions, so a digit-less communication
      * could never be matched — it is rejected with a
-     * Modules\Finance\Service\FinanceException rather than stored as a
+     * Modules\Finance\Api\FinanceException rather than stored as a
      * receivable that can never be settled.
      *
      * $memberId names the debtor when the debtor is a member of the unit
@@ -67,7 +67,7 @@ interface ExpectedReceivableInterface
      * the same call serves a rental's renegotiated price, an event's
      * amended order, or anything later.
      *
-     * @throws \Modules\Finance\Service\FinanceException when the receivable
+     * @throws \Modules\Finance\Api\FinanceException when the receivable
      *         does not exist, when $amountCents is negative, or when it is
      *         below the amount already received and $allowBelowReceived is
      *         false.

@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Modules\Finance\Api;
+namespace Modules\Finance\Service;
 
 use Core\Member\MemberService;
 use Core\Module\HomePaymentDueProvider;
@@ -41,10 +41,12 @@ use Modules\Finance\Service\ReceivableSettlement;
  * address still owe" — and answering it twice would eventually answer it
  * differently.
  *
- * Lives under Api\ rather than Service\ for the same reason
- * Modules\Groups\Api\HomeActivityService does (ARCHITECTURE.md §7.5): it
- * is the surface another part of the codebase consumes, not an internal
- * collaborator of this module.
+ * A concrete Service, deliberately NOT under Api\ (ARCHITECTURE.md §7.5,
+ * strict contract): what the rest of the codebase consumes is the two
+ * CORE hook interfaces this class implements, and only the composition
+ * root ever names the class itself. An Api\ namespace carries interfaces
+ * and immutable value objects, never a class whose imports would drag
+ * this module's repositories into every consumer's reach.
  *
  * **The homepage hook reads the session directly**, unlike everything
  * else here. That is deliberate and confined to the one method: the core

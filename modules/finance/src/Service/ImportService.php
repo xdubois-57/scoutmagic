@@ -10,6 +10,7 @@ namespace Modules\Finance\Service;
 
 use Core\Security\EncryptionService;
 use Core\Service\DateInput;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Parser\BankStatementParserFactory;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\BalanceCheckpoint;

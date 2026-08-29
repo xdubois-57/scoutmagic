@@ -16,7 +16,7 @@ use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\CampaignReminderService;
 use Modules\Finance\Service\CampaignService;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\ReceivableQrTokenService;
 use Modules\MassMail\Api\MassMailDraftInterface;
 use Modules\MassMail\Service\MergeRenderer;

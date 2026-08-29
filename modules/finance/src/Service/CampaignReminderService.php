@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Finance\Service;
 
 use Core\Member\MemberService;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\Campaign;
 use Modules\Finance\Repository\CampaignRowRepository;

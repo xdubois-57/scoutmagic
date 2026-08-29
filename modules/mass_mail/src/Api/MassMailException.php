@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Modules\MassMail\Service;
+namespace Modules\MassMail\Api;
 
 use Core\Exception\UserFacingException;
 
@@ -18,6 +18,11 @@ use Core\Exception\UserFacingException;
  * that carry PHPMailer's English go through
  * {@see \Core\Exception\UserFacingMessage::from()} at their display site
  * instead.
+ *
+ * Part of the module's PUBLIC contract (ARCHITECTURE.md §7.5):
+ * Api\MassMailDraftInterface declares it in its @throws, so a consumer
+ * catching it needs it in the `Api\` namespace — the same precedent as
+ * LlmConnector\Api\LlmException and Gallery\Api\GalleryException.
  */
 class MassMailException extends \RuntimeException implements UserFacingException
 {

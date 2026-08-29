@@ -10,6 +10,7 @@ namespace Modules\Finance\Service;
 
 use Core\Config\SettingService;
 use Core\File\EncryptedFileStorageService;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\File\FinanceAccountOwnershipChecker;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;

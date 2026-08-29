@@ -17,7 +17,7 @@ use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Repository\ReceivableAllocationRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\AccountVisibility;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\ReceivableSettlement;
 use Modules\Finance\Service\ReconciliationService;
 use Modules\Finance\Service\TreasurerScope;

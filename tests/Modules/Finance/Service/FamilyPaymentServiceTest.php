@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Modules\Finance\Api;
+namespace Tests\Modules\Finance\Service;
 
 use Core\Database\Connection;
 use Core\Import\MemberYearRepository;
@@ -11,7 +11,7 @@ use Core\Security\AuthSession;
 use Core\Module\MemberPaymentProvider;
 use Core\Module\MemberSettledPaymentView;
 use Core\Security\EncryptionService;
-use Modules\Finance\Api\FamilyPaymentService;
+use Modules\Finance\Service\FamilyPaymentService;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\CampaignRepository;

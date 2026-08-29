@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Finance\Parser;
 
 use Modules\Finance\Parser\BnpParser;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use PHPUnit\Framework\TestCase;
 
 class BnpParserTest extends TestCase

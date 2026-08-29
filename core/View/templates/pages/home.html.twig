@@ -16,7 +16,7 @@
               looked at it). Only ever non-null for a signed-in member of
               a group with unread activity: the provider
               (Core\Module\HomeGroupActivityProvider, implemented by
-              Modules\Groups\Api\HomeActivityService) resolves the caller
+              Modules\Groups\Service\HomeActivityService) resolves the caller
               itself and returns null for anyone else, so no membership
               check belongs in this template.
 
@@ -57,7 +57,7 @@
               text. Only ever non-null for a signed-in visitor with
               members linked to their address who still owe something:
               the provider (Core\Module\HomePaymentDueProvider,
-              implemented by Modules\Finance\Api\FamilyPaymentService)
+              implemented by Modules\Finance\Service\FamilyPaymentService)
               resolves the caller itself and returns null for everyone
               else, so no access check belongs in this template.
 

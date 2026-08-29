@@ -18,7 +18,7 @@ use Core\Security\AuthSession;
 use Core\Security\Role;
 use Modules\Finance\Api\SepaQrCodeInterface;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
-use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\IbanNormalizer;
 use Modules\Finance\Service\ReceivableAllocationService;
